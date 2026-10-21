@@ -35,7 +35,8 @@ for (const width of [256, 320]) test(`a ${width}px waiting tile keeps its member
   })
   await page.evaluate(async () => { await document.fonts.ready })
   await expect.poll(() => tile.evaluate(element => element.getBoundingClientRect().width)).toBe(width)
-  const lines = await tile.locator('header').getByText('Assistant B', { exact: true }).evaluate(element => {
+  // The tile's chosen identity is its nickname; the reusable Agent is a separate fact.
+  const lines = await tile.locator('header').getByText('Beta', { exact: true }).evaluate(element => {
     const range = document.createRange()
     range.selectNodeContents(element)
     return new Set([...range.getClientRects()].map(rect => rect.top)).size

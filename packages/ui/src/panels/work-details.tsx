@@ -1,18 +1,22 @@
 import type { ReactNode } from 'react'
-import type { Session } from '@harnessdesk/protocol'
-import { SummaryList, SummaryItem, ToolBody, ToolBodySections, ToolFooterSuppressed, ToolSection, Checklist, ChecklistItem, ToolProse } from '../design'
+import { allItems, type Session } from '@harnessdesk/protocol'
+import { SummaryList, SummaryItem, ToolBody, ToolBodySections, ToolFooterSuppressed, ToolSection, Checklist, ChecklistItem, ToolProse, ToolFold, Chip, InlineParts, BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '../design'
 import { useSnapshot, useRuntime } from '../state/context'
 import { useSeatAgent } from '../state/seat-agent'
-import { seatCeilingOf } from '../lib/ceilings'
-import { ceilingMeaning, seatCeilingWords } from '../lib/agents'
-import { describeContext } from '../lib/context-usage'
+import { ceilingTitle, seatCeilingOf } from '../lib/ceilings'
+import { ceilingWords } from '../lib/agents'
+import { describeContext, formatTokens } from '../lib/context-usage'
 import { sessionPlan, todoState } from '../lib/todos'
 import { worktreeBranch } from '../lib/worktree-branch'
 import { sanitizeText } from '../lib/sanitize'
 import { AgentsView, TrajectoryCard } from '../components/Details'
+import { SeatRecordBlock } from '../components/SeatRecordBlock'
+import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
+import { useStore } from '../state/context'
 import { BackgroundTasksView } from '../components/BackgroundTasks'
 import { Slot } from '../slots/registry'
 export const ConversationDetails = ({ session, placeAction }: { session: Session | null; placeAction?: ReactNode }) => {
+  const store = useStore()
   const snapshot = useSnapshot(), runtime = useRuntime(), seated = useSeatAgent(session)
   const pointed = !session && snapshot.draftPlace?.kind === 'existing' ? snapshot.draftPlace.path : null
   const armed = !session && snapshot.draftPlace?.kind === 'worktree' ? snapshot.draftPlace : null
@@ -26,32 +30,38 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
   const agentName = seated?.name ?? snapshot.runtimes.find(one => one.id === session?.runtime)?.presentation.name ?? runtime.presentation.name
   const shown = session ? seatCeilingOf(session.settings, [...snapshot.flowRuns.values()].flat(), String(session.runtime), String(session.id)) : null
   const context = describeContext(session?.usage, agentName), todos = sessionPlan(session) ?? []
+  const agents = new Set((session ? allItems(session) : []).flatMap(item => item.type === 'subagent' ? item.members.map(member => member.sessionId) : [])).size
   return <ToolBody><ToolBodySections><ToolFooterSuppressed>
-    <ToolSection label={session ? 'Conversation' : 'Starts in'}>
+    <ToolSection label={session ? 'Conversation' : 'Starts in'} fold value={context?.fill ? `${context.fill.percent}% full` : branch ?? agentName} action={session ? <DropdownMenu icons="none"><DropdownMenuTrigger render={<BoardMenuButton aria-label="Conversation actions" />} /><DropdownMenuContent align="end"><DropdownMenuItem label="Export as Markdown" onClick={() => { downloadMarkdown(exportFilename(session), sessionToMarkdown(session)); store.notice('info', 'Session exported as Markdown.') }} /></DropdownMenuContent></DropdownMenu> : undefined}>
       <SummaryList surface="panel" aria-label="Conversation facts">
-        <SummaryItem label={seated?.name ? 'Agent' : 'Runtime'}>{agentName}</SummaryItem>
-        {shown && <SummaryItem label="Ceiling" note={shown ? shown.note
-          ? `${shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}: ${shown.note}` : ceilingMeaning(shown.ceiling.level) : undefined}>
-          {shown ? seatCeilingWords(shown.ceiling) : 'Not recorded'}
-        </SummaryItem>}
-        <SummaryItem label="Folder" action={placeAction} note={armed ? 'Source folder; the worktree is made when the message goes' : undefined}>
-          {cwd ? <span title={cwd}>{cwd.split('/').filter(Boolean).at(-1) ?? cwd}</span> : 'Not chosen'}
+        <SummaryItem kind="name" label={seated?.name ? 'Agent' : 'Runtime'}>{agentName}</SummaryItem>
+        {shown && <SummaryItem label="Ceiling"><InlineParts>
+          <Chip size="sm" tone="neutral" title={ceilingTitle(shown.ceiling, shown.note)}>{ceilingWords(shown.ceiling.level)}</Chip>
+          <Chip size="sm" tone="neutral" title={ceilingTitle(shown.ceiling, shown.note)}>{shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}</Chip>
+        </InlineParts></SummaryItem>}
+        <SummaryItem label="Folder" kind="name" action={placeAction}>
+          {cwd ?? 'Not chosen'}
         </SummaryItem>
         {branch && <SummaryItem label="Branch" kind="path">{branch}</SummaryItem>}
-        <SummaryItem label="Context">{context?.title ?? 'No usage yet'}</SummaryItem>
+        <SummaryItem label="Context">{context?.fill ? `${context.fill.percent}% full` : context?.total ? `${formatTokens(context.total.totalTokens)} tokens` : context ? 'Window not reported' : 'No usage yet'}</SummaryItem>
       </SummaryList>
       {session && (!shown || !branch) && <ToolProse variant="note">
         {!shown && <>Permission level not reported for this {session ? 'conversation' : 'draft'}.</>}
         {!shown && !branch && ' '}
         {!branch && <>Branch not reported for this {session ? 'conversation' : 'draft'}.</>}
       </ToolProse>}
+      {(shown || context || armed) && <ToolFold label="Details">
+        {armed && <ToolProse>Source folder; the worktree is made when the message goes.</ToolProse>}
+        {shown && <ToolProse>{ceilingTitle(shown.ceiling, shown.note)}</ToolProse>}
+        {context && <ToolProse>{context.title}</ToolProse>}
+      </ToolFold>}
       <Slot name="session.header" />
     </ToolSection>
-    {(session || todos.length > 0) && <ToolSection label="Plan">
-      {todos.length ? <Checklist surface="panel">{todos.map((todo, index) => <ChecklistItem key={index} state={todoState(todo)}>{sanitizeText(todo.label)}</ChecklistItem>)}</Checklist>
-        : <ToolProse variant="note">No plan yet.</ToolProse>}
-      {session && <AgentsView />}
+    {todos.length > 0 && <ToolSection label="Plan" fold value={`${todos.length} ${todos.length === 1 ? 'step' : 'steps'}`}>
+      <Checklist surface="panel">{todos.map((todo, index) => <ChecklistItem key={index} state={todoState(todo)}>{sanitizeText(todo.label)}</ChecklistItem>)}</Checklist>
     </ToolSection>}
-    {session && <><BackgroundTasksView card /><TrajectoryCard /></>}
+    {session && <SeatRecordBlock />}
+    {agents > 0 && <ToolSection label="Sub-agents" fold defaultOpen={false} value={agents}><AgentsView includeSeat={false} /></ToolSection>}
+    {session && <><BackgroundTasksView card /><TrajectoryCard hideEmpty /></>}
   </ToolFooterSuppressed></ToolBodySections></ToolBody>
 }

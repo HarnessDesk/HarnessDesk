@@ -13,6 +13,10 @@ const body = (selector: string): string => {
 }
 
 describe('a conversation opened from the Team', () => {
+  it('contains its absolute approval overlay below the Team destinations', () => {
+    expect(body('.columnBody')).toMatch(/position:\s*relative/)
+    expect(body('.columnBody')).toMatch(/overflow:\s*hidden/)
+  })
   it('carries its identity through the one Team bar and preserves scoped member actions', () => {
     expect(source).toContain('header={false}')
     expect(source).toContain('teamMenuOwner={mainOwner}')
@@ -29,7 +33,9 @@ describe('the canonical Team row', () => {
   it('keeps the title intrinsic and places state before it', () => {
     expect(barCss).toContain('width: max-content')
     expect(barCss).toContain('max-width: var(--hd-bar-title-max)')
-    expect(barSource.indexOf('data-topbar="state"')).toBeLessThan(barSource.indexOf('data-topbar-title'))
+    expect(barCss).toContain('min-width: var(--topbar-title-floor, var(--hd-space-0))')
+    const renderedBar = barSource.slice(barSource.indexOf('return <Bar as="header"'))
+    expect(renderedBar).toMatch(/<div data-topbar="state"[\s\S]*<div data-topbar-title/)
   })
   it('moves Team destinations into the body and keeps their markers', () => {
     expect(barSource).not.toContain('<TabsList')
@@ -43,7 +49,7 @@ describe('watched conversation layout', () => {
 })
 describe('appearance ownership', () => {
   it('composes shared frame, tool and Seat roles while its stylesheet keeps geometry', () => {
-    for (const part of ['<PaneSurface', '<WorkTools', '<ToolBody>', '<ToolSection label="Run">', '<ToolSection label="Seats"', '<SeatList', '<ComposerDock>']) expect(source, part).toContain(part)
+    for (const part of ['<PaneSurface', '<WorkTools', '<ToolBody>', '<ToolSection label="Run" fold', '<ToolSection label="Seats" fold', '<SeatList', '<ComposerDock>']) expect(source, part).toContain(part)
     const code=css.replace(/\/\*[\s\S]*?\*\//g, '')
     expect(code).not.toMatch(/^\s*(?:color|background[\w-]*|border[\w-]*|box-shadow|font[\w-]*|padding[\w-]*|line-height)\s*:/m)
   })
@@ -60,21 +66,29 @@ describe('Seats and responsive tools', () => {
     expect(source).not.toContain('data-slot="team-members"')
     expect(seats).toContain('title={`Actions for ${one.name}`}')
   })
-  it('keeps complete member work sentences in wrapping shared subtitles', () => {
-    expect(seats).toContain('wrapSubtitle')
+  it('wraps only refusal sentences while compact Seat facts keep their line', () => {
+    expect(seats).toContain('wrapSubtitle={Boolean(one.refusal)}')
     expect(seats).toContain('{one.detail}')
     expect(seats).not.toContain('truncate')
   })
-  it('uses the shared measured fold and leaves the four fixed tool doors standing', () => {
+  it('lets the shared bar measure its fold and preserve navigation and tool actions in More', () => {
     expect(source).not.toContain('useNarrowLayout<HTMLElement>(608)')
-    expect(barSource).not.toContain('new ResizeObserver(measure)')
-    expect(barSource).toContain('data-fold="0"')
+    expect(source).not.toContain('--topbar-title-floor')
+    expect(source).not.toContain('--hd-bar-title-min')
+    expect(barSource).toContain('new ResizeObserver(measure)')
+    expect(barSource).toContain("data-fold={folded ? '1' : '0'}")
+    expect(barSource).toContain("Math.min(intrinsicWidth(title), metric('--hd-bar-title-min', FRAME.bar.titleMin))")
+    expect(barSource).toContain('setFolded(minimum > width)')
     expect(barSource).toContain('data-topbar="tools"')
+    expect(barSource).toContain('data-topbar-full-tools hidden={folded}')
+    expect(barSource).toContain('folded && props.compact?.more(close)')
+    expect(source).toContain('compact: { lead: <WindowControls history={false} />')
+    expect(source).toContain('<WindowControls menu close={close} /><WorkTools menu close={close} changesRefusal={teamChangesRefusal} />')
   })
 })
-it('keeps member face tiles in Seats rather than collapsing a header roster', () => {
+it('keeps the selected Agent glyph unframed in Seats with member information on hover', () => {
   expect(source).toContain('mark: <MemberCard')
-  expect(source).toContain('<IconTile shape="face"')
+  expect(source).toContain('side="bottom">{member?.brand ? <BrandMark brand={member.brand} size={20} /> : <AgentIcon size={20} />}</MemberCard>')
   expect(css).not.toContain('.barFacts')
 })
 it('updates a destination once through the canonical click handler', () => {

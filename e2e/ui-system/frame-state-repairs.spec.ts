@@ -81,7 +81,7 @@ for (const theme of ['light', 'dark'] as const) test(`Agents More offers the ret
   await expect(terminal).toBeVisible()
   await page.locator('[data-frame-region="left"]').getByRole('button', { name: 'Agents', exact: true }).click()
   const destination = page.locator('[data-page-destination="agents"]:visible')
-  await destination.getByRole('button', { name: /Code reviewer / }).click()
+  await destination.getByRole('button', { name: 'Code reviewer', exact: true }).click()
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
   const toggle = page.getByRole('menuitemradio', { name: /Terminal/ })
   await expect(toggle).toHaveAttribute('aria-checked', 'true')

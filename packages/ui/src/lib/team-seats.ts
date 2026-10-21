@@ -91,3 +91,38 @@ export const seatDisplayName = (
   return short !== nickname && members.some(one => one.nickname !== nickname && shortenedSeatName(one.record, one.nickname, one.runtimeName) === short)
     ? nickname : short
 }
+
+/** Generated Seat addresses use stable Agent ordinals; deliberate nicknames stay whole. */
+export const compactTeamSeatName = (
+  seat: TeamSeat,
+  seats: readonly TeamSeat[],
+  goal: GoalView | null | undefined,
+  nameOf: (seat: TeamSeat) => string = one => one.name,
+): string => {
+  const identities = [...(goal?.members ?? []), ...(goal?.pastMembers ?? [])]
+  const generated = new Map([...seats].sort((a, b) => a.record.openedAt - b.record.openedAt || a.record.id.localeCompare(b.record.id)).flatMap(one => {
+    const identity = identities.find(record => record.id === one.record.id)
+    return identity?.agent?.name && identity.seatLabel && nameOf(one).startsWith(`${identity.agent.name} · ${identity.seatLabel}`)
+      ? [[one.record.id, identity.agent.name] as const] : []
+  }))
+  const name = generated.get(seat.record.id)
+  if (!name) return nameOf(seat)
+  // User names and other Agents' base names own their spelling before generated
+  // ordinals are assigned. Allocate the whole list in chronological order so
+  // caller sorting cannot change a recipient's visible address.
+  const used = new Set(seats.filter(one => !generated.has(one.record.id)).map(nameOf))
+  const bases = new Set(generated.values())
+  const counts = new Map<string, number>()
+  for (const base of generated.values()) counts.set(base, (counts.get(base) ?? 0) + 1)
+  const next = new Map<string, number>()
+  const labels = new Map<string, string>()
+  for (const [id, base] of generated) {
+    let ordinal = counts.get(base)! > 1 ? next.get(base) ?? 1 : 0
+    let label = ordinal ? `${base} ${ordinal}` : base
+    while (used.has(label) || (label !== base && bases.has(label))) label = `${base} ${++ordinal}`
+    labels.set(id, label)
+    used.add(label)
+    next.set(base, ordinal + 1)
+  }
+  return labels.get(seat.record.id)!
+}

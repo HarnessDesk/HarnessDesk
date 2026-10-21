@@ -21,6 +21,7 @@ import {
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
 import {
   Button,
+  DisclosureChevron,
   PictureChoices,
   AccentChoices,
   Face,
@@ -30,6 +31,7 @@ import {
   Note,
   RowValue,
   Row,
+  RowButton,
   Rows,
   SectionHead,
   NativeSelect,
@@ -129,7 +131,7 @@ export const ProfileSection = () => {
 
   return (
     <>
-      <Rows><Row face={<Face avatar={profile.avatar} />} title={profileName(live)} desc={"Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."} control={isDefaultProfile(live) ? undefined : (
+      <Rows><Row kind="record" face={<Face avatar={profile.avatar} />} title={profileName(live)} desc={"Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."} control={isDefaultProfile(live) ? undefined : (
             <Button variant="outline" onClick={reset}>
               Reset to default
             </Button>
@@ -487,8 +489,8 @@ export const AppearanceSection = () => {
  *
  * Each kind's one control says *where* it is shown, with Off as the last
  * choice: a place is the question a person actually has ("why is this over my
- * conversation?"), and a switch could only answer half of it. The page opens
- * on the map from purpose to place, so the choices below read as choices.
+ * conversation?"), and a switch could only answer half of it. The folded
+ * guide maps purpose to place when an explanation is needed.
  *
  * What is not on this page is as deliberate as what is. A dropped connection
  * has no row, because it is the one thing the app must always be able to say —
@@ -500,6 +502,7 @@ export const AppearanceSection = () => {
 export const NotificationsSection = () => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const [guideOpen, setGuideOpen] = useState(false)
   const policy = snapshot.noticePolicy
   const now = Date.now()
   const silenced = NOTICE_KINDS.filter((entry) => policy.muted.includes(entry.kind))
@@ -520,17 +523,21 @@ export const NotificationsSection = () => {
             </Button>
           ) : undefined}/></Rows>
 
-      {/* The map before the switches: what each kind of message is for, and
-          where that puts it. Read once, it explains every control below. */}
-      <SectionHead level="label" name="How messages reach you" />
+      {/* The guide stays available without putting seven explanatory rows
+          between the person and the notification controls. */}
       <Rows>
-        <Row title="Something stops a turn" desc="Shown on the composer of the conversation it stops, and nowhere else." />
-        <Row title="Something to do later" desc="Waits at the foot of the sidebar, one at a time, until you act or dismiss it." />
-        <Row title="About one conversation" desc="A quiet line in that conversation, with no toast or Inbox entry." />
-        <Row title="Worth keeping" desc="Goes to the inbox in your seat menu and stays until you clear it." />
-        <Row title="An Agent writes to you" desc="Kept in the inbox, or on its own conversation when it is waiting on your decision." />
-        <Row title="The result of what you did" desc="A toast in the corner. Success leaves on its own; failure stays until closed. Always on." />
-        <Row title="The connection drops" desc="Shown in the strip above the composer, or under a pane's bar, until it is back. Always on." />
+        <RowButton title="How messages reach you" chevron={false} aria-expanded={guideOpen}
+          control={<DisclosureChevron open={guideOpen} placement="trailing" />}
+          onClick={() => setGuideOpen(open => !open)} />
+        {guideOpen && <>
+          <Row title="Something stops a turn" desc="Shown on the composer of the conversation it stops, and nowhere else." />
+          <Row title="Something to do later" desc="Waits at the foot of the sidebar, one at a time, until you act or dismiss it." />
+          <Row title="About one conversation" desc="A quiet line in that conversation, with no toast or Inbox entry." />
+          <Row title="Worth keeping" desc="Goes to the inbox in your seat menu and stays until you clear it." />
+          <Row title="An Agent writes to you" desc="Kept in the inbox, or on its own conversation when it is waiting on your decision." />
+          <Row title="The result of what you did" desc="A toast in the corner. Success leaves on its own; failure stays until closed. Always on." />
+          <Row title="The connection drops" desc="Shown in the strip above the composer, or under a pane's bar, until it is back. Always on." />
+        </>}
       </Rows>
 
       {NOTICE_USES.map((use) => {

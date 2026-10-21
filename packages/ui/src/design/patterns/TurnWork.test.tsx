@@ -63,6 +63,7 @@ it('announces the live line politely, as tall as a step row, and stills it for r
   expect(live?.getAttribute('role')).toBe('status')
   expect(live?.getAttribute('aria-live')).toBe('polite')
   expect(live?.className).toContain('min-h-(--hd-control-h)')
+  expect(live?.className).not.toContain('pl-0.5')
   expect(live?.textContent).toBe('Reading c.ts')
   const words = live?.firstElementChild
   expect(words?.className).toContain('animate-[shimmer_')

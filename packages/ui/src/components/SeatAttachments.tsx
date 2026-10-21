@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { AttachmentDeclaration, SeatAttachmentsRecord, SeatId } from '@harnessdesk/protocol'
 
-import { Chip, Text } from '../design'
+import { Chip, KeyValue, KeyValueRow, Text } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { GroupLine, PanelEmpty, PanelRow } from './Panel'
 
@@ -22,9 +22,11 @@ import { GroupLine, PanelEmpty, PanelRow } from './Panel'
 export const SeatAttachments = ({
   seat,
   historical = false,
+  presentation = 'rail',
 }: {
   readonly seat: SeatId
   readonly historical?: boolean
+  readonly presentation?: 'rail' | 'content'
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -45,10 +47,13 @@ export const SeatAttachments = ({
   }, [store, seat])
 
   if (!read || read.key !== seat) return null
+  const absence = (words: string) => presentation === 'content'
+    ? <KeyValue variant="panel" inset="row"><KeyValueRow label="Attachments">{words}</KeyValueRow></KeyValue>
+    : <PanelEmpty>{words}</PanelEmpty>
   if ('problem' in read) {
-    return <PanelEmpty>{`Its attachments could not be read: ${read.problem}`}</PanelEmpty>
+    return absence(`Its attachments could not be read: ${read.problem}`)
   }
-  if (!read.record) return <PanelEmpty>Not recorded</PanelEmpty>
+  if (!read.record) return absence('Not recorded')
 
   const { record } = read
   const skills = record.declarations.filter((one) => one.kind === 'skill')
@@ -86,7 +91,8 @@ export const SeatAttachments = ({
     <section aria-label="Attachments">
       <GroupLine left="Attachments" right={status} />
       {skills.length === 0 && servers.length === 0 ? (
-        <PanelEmpty>Runtime defaults — nothing declared</PanelEmpty>
+        presentation === 'content' ? <Text role="meta">Runtime defaults — nothing declared</Text>
+          : <PanelEmpty>Runtime defaults — nothing declared</PanelEmpty>
       ) : (
         <>
           {skills.length > 0 && (

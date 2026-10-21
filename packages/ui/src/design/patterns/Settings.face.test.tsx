@@ -53,3 +53,27 @@ it('wears the face shape and is sized by its prop, or fills the box it is put in
   expect(filling.hasAttribute('data-fill')).toBe(true)
   expect(filling.style.width).toBe('')
 })
+
+it('clips the inset plate of a colourway separately from the outer face', () => {
+  for (const avatar of ['mark-paper', 'mark-ink', 'mark-steel', 'mark-blueprint', 'mark-blueline']) {
+    for (const size of [undefined, 24, 44]) {
+      const face = render(<Face avatar={avatar} size={size} />)
+      const picture = face.querySelector('img')!
+      const plate = face.querySelector('[data-slot="face-picture-plate"]')
+      expect(plate, `${avatar}/${size}`).not.toBeNull()
+      // The plate is the drawing, not content lost: it says so, and the
+      // guides read that attribute rather than guessing from the overflow.
+      expect(plate?.hasAttribute('data-crop'), `${avatar}/${size}`).toBe(true)
+      expect(picture.parentElement).toBe(plate)
+      expect(plate?.parentElement).toBe(face)
+    }
+  }
+})
+
+it('keeps transparent marks and sticker artwork whole', () => {
+  for (const avatar of ['mark-plain', 'wizard', 'guardian', 'pilot']) {
+    const face = render(<Face avatar={avatar} size={44} />)
+    expect(face.querySelector('[data-slot="face-picture-plate"]')).toBeNull()
+    expect(face.querySelector('img')?.parentElement).toBe(face)
+  }
+})

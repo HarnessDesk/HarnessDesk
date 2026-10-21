@@ -16,5 +16,23 @@ it('swaps the same region mounts and gives a floating rail the decided sheet geo
   const html = renderToStaticMarkup(<FixedShell viewportWidth={720} left={null} top={null} main={null} rail="Cards" right={null} bottom={null} leftFloating panelFloating={false} leftOpen={false} rightOpen={false} bottomOpen={false} railOpen railFloating />)
   expect(html).toContain('rounded-(--hd-radius-matted)')
   expect(html).toContain('shadow-(--hd-shadow-lg)')
+  expect(html).toContain('bg-(--hd-rail-sheet-fill)')
+  expect(html).toContain('backdrop-filter-(--hd-rail-sheet-filter)')
+  expect(html).toContain('[&amp;_[data-slot=tool-scroll]]:bg-transparent')
   expect(css).toMatch(/data-panel-floats='true'[\s\S]*\.main[\s\S]*visibility:\s*hidden/)
+})
+
+it('contains a floating cards rail within the main grid area beside an open tool', () => {
+  const floating = css.match(/\.shell\[data-rail-floats='true'\] \.rail \{([^}]+)\}/)?.[1]
+  // Grid-area containment follows the live sidebar/panel drag projection.
+  // At 1128px, the 256px sidebar and 380px Details leave a 492px main:
+  // a sheet measured against the shell would cover the Details instead.
+  expect(floating).toMatch(/grid-area:\s*main/)
+  expect(floating).toMatch(/top:\s*var\(--hd-rail-inset\)/)
+  expect(floating).toMatch(/bottom:\s*max\(var\(--hd-rail-inset\), var\(--hd-composer-clearance\)\)/)
+  expect(floating).toMatch(/height:\s*fit-content/)
+  expect(floating).toMatch(/max-height:\s*calc\(100% - var\(--hd-rail-inset\) - max\(var\(--hd-rail-inset\), var\(--hd-composer-clearance\)\)\)/)
+  expect(floating).toMatch(/right:\s*var\(--hd-rail-inset\)/)
+  expect(floating).toMatch(/width:\s*min\(var\(--frame-rail-width\), calc\(100% - var\(--hd-rail-inset\) \* 2\)\)/)
+  expect(css).toMatch(/data-pane-expanded='true'\]\[data-rail-floats='true'\] \.rail \{ grid-area: right;/)
 })

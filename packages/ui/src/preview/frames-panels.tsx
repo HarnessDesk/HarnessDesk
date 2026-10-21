@@ -1,7 +1,7 @@
 import { GIT_PREVIEW_ROOT } from './git-fixture'
 import { useState } from 'react'
 
-import { runtimeId } from '@harnessdesk/protocol'
+import { runtimeId, type TeamEntry } from '@harnessdesk/protocol'
 
 import { AuthorDialog } from '../components/LibraryActions'
 import { BrowserPane } from '../components/BrowserPane'
@@ -27,6 +27,12 @@ import { Dial, Frame } from './main'
 import { PREVIEW_ROOT, previewSession } from './sidebar-fixture'
 import { libraryColumnsFor, PREVIEW_SESSION_KEY, previewStore, TEAM } from './harness'
 import { PREVIEW_GOALS } from './goal-fixture'
+
+const repeatedRecipientEntries: readonly TeamEntry[] = [1, 2].map(index => ({
+  kind: 'message', id: `repeated-recipient-${index}`, at: Date.now() + index,
+  from: { kind: 'user' }, to: { runtime: runtimeId('claude'), sessionId: 'k1', title: 'Auth refactor', nickname: 'Reviewer' },
+  text: 'Yes, check this.', state: 'delivered',
+}))
 
 /**
  * A store of its own, so `TaskPanel` — which reads the active session's own
@@ -173,7 +179,7 @@ export const PanelFrames = () => {
       </Frame>
       <Frame id="room-channel-grouping" title="Room — the channel's own grouping">
         <div className="max-h-[420px] overflow-y-auto p-4">
-          <ChannelStream entries={TEAM.channel} room={TEAM.id} onTrouble={() => {}} />
+          <ChannelStream entries={new URLSearchParams(location.search).get('channel-case') === 'repeated-recipient' ? repeatedRecipientEntries : TEAM.channel} room={TEAM.id} onTrouble={() => {}} />
         </div>
       </Frame>
       <Frame id="tasks-session-plan" title="Tasks — a session's own plan">

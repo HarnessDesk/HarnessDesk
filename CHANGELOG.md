@@ -5,6 +5,32 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## 0.6.0 — 2026-10-21
+
+A Team opens on its recorded Work, Settings reads calmer and behaves the same
+everywhere, and the account and macOS menus stay compact. It also carries
+everything listed under 0.5.4, which was never published as a build of its own.
+
+- **A Team opens on its Work.** The Run's frozen Flow leads the page, a short list of recent activity sits beneath it, and Full record expands the whole history in place. Tasks groups the Board and Findings; Chat offers combined and Split layouts. A destination you chose last time is restored.
+
+- **Approvals and questions live in the Team's Chat.** They sit at the end of the thread with the composer and its draft still below, name the Seat that asked, and link to that Seat's conversation; Work keeps a single link with the pending count.
+
+- **Starting a Team is one compact dialog.** Write the task, pick a Flow, and set each role's agent, model and effort from the node itself. A candidate that cannot start keeps its exact reason and a way to fix it, and a folder you have not opened before is refused rather than guessed.
+
+- **Agents are a searchable catalogue of reusable roles**, filtered by source, with each role's purpose and its seating facts kept apart. Team cards show a short status instead of a whole refusal, with the full text one click away.
+
+- **Settings lines up, and its controls behave alike.** Add a runtime sits beside the page title, the notification guide folds away until you want it, long descriptions in dialogs wrap whole and scroll from the keyboard, and the plugin list keeps what it had, with a Retry, when a refresh fails.
+
+- **Profile pictures follow their chosen shape.** Plated artwork is clipped inside round faces and keeps the selected square shape where requested.
+
+- **The account menu stays compact as accounts grow.** Accounts and usage have their own flyouts, with the working account's name beside its matching quota; choosing a crashed current runtime still restarts it.
+
+- **The macOS Usage submenu keeps icons close to their labels.** Sign-in and usage rows share standard brand icons instead of reserving an empty meter-sized column.
+
+- **Dropdown menus keep ordinary explanations on hover.** Reasoning levels and switches stay on one line, alongside a shorter Direct route and Git patch action. Model and mode comparisons, paths and consequential differences remain visible.
+
+- **Restore the macOS menu bar icon from View › Show Menu Bar Icon.** The choice survives restarting an isolated desk. Its native menu stays compact, with usage and sign-in actions in one submenu; choosing an account's usage opens that account's dashboard.
+
 ## 0.5.4 — 2026-10-20
 
 Development sessions start in their own worktree and branch, agents that cannot

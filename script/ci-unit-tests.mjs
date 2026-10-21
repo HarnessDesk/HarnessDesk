@@ -227,6 +227,8 @@ export function unitPlan(root, { event, paths }) {
   for (const path of paths) {
     if (path.startsWith('script/') && !existsSync(join(root, path))) return all(`${path} was deleted`)
     if (setup.has(path)) return all(`${path} is part of the test setup`)
+    // The shared design facade belongs to the full suite's balanced deal.
+    if (path === 'packages/ui/src/design/index.ts') return all(`${path} is the shared design entrypoint`)
     const unrelatedScript = path.startsWith('script/') && !isRead(path) && !SETUP.test(path)
     if (IGNORED.some(pattern => pattern.test(path)) || unrelatedPackage(path) || unrelatedScript) continue
     if (!TRACKED.test(path)) return all(`${path} is read outside the UI's own source`)

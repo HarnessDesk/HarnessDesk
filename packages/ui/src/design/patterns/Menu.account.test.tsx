@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { Menu, MenuAccountGroup, MenuAccountRow, MenuItem, MenuLabel } from './Menu'
+import { Menu, MenuAccountGroup, MenuAccountRow, MenuItem, MenuLabel, Submenu } from './Menu'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let container: HTMLDivElement
 let root: Root
@@ -36,4 +36,12 @@ it('keeps an embedded menu in flow', () => {
   expect(positioner.style.position).toBe('static')
   expect(positioner.style.inset).toBe('auto')
   expect(positioner.style.transform).toBe('none')
+})
+it('keeps the current account visible on its submenu trigger', () => {
+  act(() => root.render(<Menu close={() => {}}><Submenu label="Scout" current><MenuItem label="Another account" onSelect={() => {}} /></Submenu></Menu>))
+  const trigger = document.querySelector('[data-slot="dropdown-menu-sub-trigger"]')!
+  expect(trigger.hasAttribute('data-current')).toBe(true)
+  expect(trigger.getAttribute('aria-current')).toBe('true')
+  expect(trigger.getAttribute('aria-expanded')).toBe('false')
+  expect(document.querySelector('[data-slot="dropdown-menu-sub-content"]')).toBeNull()
 })

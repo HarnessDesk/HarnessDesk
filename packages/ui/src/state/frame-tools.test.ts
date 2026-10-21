@@ -15,6 +15,27 @@ test('the rail is independent of the selected pane and remembered per subject', 
   expect(workRailOpen({ ...hidden, main: { ...hidden.main, focused: 'other', root: { kind: 'pane', id: 'other', view: { kind: 'conversation', session: null } } } })).toBe(true)
 })
 
+test('opening a tool gives it priority without losing the resting rail preference', () => {
+  const resting = emptyWorkbench()
+  const opened = admitFixedTool(resting, { kind: 'changes' })!
+  expect(workRailOpen(resting)).toBe(true)
+  expect(workRailOpen(opened)).toBe(false)
+  const closed = admitFixedTool(opened, { kind: 'changes' }, true)!
+  expect(workRailOpen(closed)).toBe(true)
+  expect(closed.right.root).toEqual(opened.right.root)
+})
+
+test('a deliberate rail reveal beside a tool survives refresh and swap but not a new tool', () => {
+  const opened = admitFixedTool(emptyWorkbench(), { kind: 'changes' })!
+  const revealed = toggleWorkRail(opened)
+  expect(workRailOpen(revealed)).toBe(true)
+  expect(workRailOpen({ ...revealed, frameTools: readToolIntents(JSON.parse(JSON.stringify(revealed.frameTools))) })).toBe(true)
+  expect(workRailOpen(swapWorkPane(revealed))).toBe(true)
+  const another = admitFixedTool(revealed, { kind: 'activity' })!
+  expect(workRailOpen(another)).toBe(false)
+  expect(workRailOpen(admitFixedTool(another, { kind: 'activity' }, true)!)).toBe(true)
+})
+
 test('swapping a pane preserves its subject, payloads and rail preference', () => {
   const before = admitFixedTool(toggleWorkRail(emptyWorkbench()), { kind: 'changes' })!
   const swapped = swapWorkPane(before)

@@ -16,7 +16,7 @@ import { teamBoardLayout } from '../lib/team-board-layout'
 import { TeamBoardList, JOB_COLUMN_CLASS, type JobColumn } from './TeamBoardList'
 import { chipOf, ciVerdict, isCurrent, standingWords } from '../lib/evidence'
 import { openExternal } from '../lib/desktop'
-import { runtimeTint } from '../lib/accounts'
+import { compactTeamSeatName, teamSeats, type TeamSeat } from '../lib/team-seats'
 import { FACT_COLUMNS, flowStepOf, evidenceForCard, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
 import { brandForRuntime } from '../lib/brands'
 import { namedGoalRun } from '../lib/goal-run'
@@ -51,8 +51,8 @@ import {
   BannerAction,
   Button,
   EmptyState,
-  PaneColumn,
   IconTile,
+  PaneColumn,
   Menu,
   MenuItem,
   MenuSeparator,
@@ -204,8 +204,20 @@ const jobCopy = (intent: Intent, room: string, snapshot: AppSnapshot) => {
      (intent.state === 'blocked' && intent.blockedBy === 'hand' && lifecycle.signal === 'blocked'))
     ? lifecycle.by : null
   const assignee = intent.claim ?? former
-  const holderName = assignee
-    ? nicknameOf(snapshot.teams.get(room)?.nicknames, assignee) ??
+  const team = snapshot.teams.get(room)
+  const goal = snapshot.goals.get(room)
+  const seats = teamSeats(goal, team, null)
+  const identities = [...(goal?.members ?? []), ...(goal?.pastMembers ?? [])]
+  const holderSeat = assignee && goal ? seats.find(seat => seat.key === sessionKey(assignee.runtime, assignee.sessionId as SessionId) &&
+    (goal.goal.state === 'wrapped' || identities.some(identity => identity.id === seat.record.id))) : undefined
+  const seatName = (seat: TeamSeat): string => {
+    const nickname = seat.key ? team?.nicknames?.[seat.key] : undefined
+    if (nickname) return nickname
+    const identity = identities.find(one => one.id === seat.record.id)
+    return identity?.agent?.name && identity.seatLabel ? `${identity.agent.name} · ${identity.seatLabel}` : seat.name
+  }
+  const holderName = holderSeat ? compactTeamSeatName(holderSeat, seats, goal, seatName) : assignee
+    ? nicknameOf(team?.nicknames, assignee) ??
       snapshot.sessions.get(sessionKey(assignee.runtime, assignee.sessionId as SessionId))?.title ??
       snapshot.runtimes.find(one => one.id === assignee.runtime)?.presentation.name ?? '(untitled)'
     : intent.state === 'done' || intent.state === 'abandoned' ? '—' : 'Unassigned'
@@ -230,7 +242,7 @@ const jobCopy = (intent: Intent, room: string, snapshot: AppSnapshot) => {
     stepWords(intent.detail) ??
     null
 
-  return { assignee, holderName, note }
+  return { assignee, holderName, holderSeat, note }
 }
 
 /** The user's verbs, as the host will take them. */
@@ -853,7 +865,7 @@ const IntentCard = ({
   const openReviewDialog = (): void => { if (role?.review && role.run) setReviewDialog('review') }
   const openAnswerDialog = (): void => { if (role && !record) setReviewDialog('answer') }
 
-  const { assignee: observedAssignee, holderName, note } = jobCopy(intent, room, snapshot)
+  const { assignee: observedAssignee, holderName, holderSeat, note } = jobCopy(intent, room, snapshot)
   const assignee = intent.claim ?? (listColumns ? observedAssignee : null)
   const record = isRecord(snapshot.goals.get(room))
   const runtime = assignee
@@ -863,11 +875,6 @@ const IntentCard = ({
     ? snapshot.sessions.get(sessionKey(assignee.runtime, assignee.sessionId as SessionId))
     : null
   const stranded = strandedFor(intent, now, attached)
-  /* The holder's own ring, so the face on a card and the row in the rail are
-     visibly the same account — see lib/accounts.ts on what the ring is for. */
-  const holderTint = assignee
-    ? runtimeTint(snapshot.runtimes.find(info => info.id === assignee.runtime))
-    : 'blue'
   const holderCeiling = intent.claim
     ? seatCeilingOf(session?.settings, snapshot.flowRuns.get(room) ?? [], intent.claim.runtime, intent.claim.sessionId)
     : null
@@ -1014,24 +1021,27 @@ const IntentCard = ({
     : placement?.column === 'needs' ? placement.why : null
   const visibleOutcome = intent.state === 'done' && !reason ? intent.outcome : null
   const brand = runtime ? brandForRuntime(runtime) : null
-  const face = assignee ? <IconTile shape="face" tint={holderTint}>
-    {brand ? <BrandMark brand={brand} size={16} /> : <AgentIcon size={16} />}
-  </IconTile> : <IconTile shape="face" empty />
+  const face = assignee ? <IconTile variant="bare" shape="face" size="navigation">{brand ? <BrandMark brand={brand} size={16} /> : <AgentIcon size={16} />}</IconTile> : null
 
   return (
     <>
     {listColumns ? (
       <TableRow interactive className="group/job" data-job={intent.id}>
         <TableCell className="whitespace-normal min-w-0 max-w-0">
-          <span className="flex min-w-0 flex-wrap items-center gap-2"><Text role="meta">#{intent.id}</Text><Text role="row" className="min-w-0 break-words [overflow-wrap:anywhere]" title={intent.title}>{intent.title}</Text>{intent.role && <Chip tone="neutral">{intent.role}</Chip>}</span>
-          {note && <Text role="meta" className="whitespace-normal line-clamp-2 break-words [overflow-wrap:anywhere]" title={note}>{note}</Text>}
+          <span><Text role="meta">#{intent.id}</Text>{' '}<Text role="row" className="break-words [overflow-wrap:anywhere]" title={intent.title}>{intent.title}</Text>{intent.role && <> <Chip tone="neutral">{intent.role}</Chip></>}</span>
+          {note && note !== intent.title && <Text role="meta" className="whitespace-normal line-clamp-2 break-words [overflow-wrap:anywhere]" title={note}>{note}</Text>}
           {intent.files.length > 0 && <Text role="meta" className="block min-w-0 truncate" title={`Owns ${intent.files.join(', ')} while claimed`}>{intent.files.join(', ')}</Text>}
-          {listColumns.has('assignee') && <span className="@[720px]/board:hidden"><Text role="meta" className="block truncate" title={holderName}>Assignee · {holderName}</Text></span>}
+          {listColumns.has('assignee') && <span className="@[720px]/board:hidden">
+            {assignee ? <Button variant="ghost" size="inline" onClick={() => void store.openSession(assignee.sessionId as SessionId, { runtime: assignee.runtime })}
+              title={`Open ${holderName}'s conversation`} aria-label={`Open ${holderName}'s conversation`} className="max-w-full gap-1.5">
+              {face}{holderName !== intent.title && <Text role="meta" className="min-w-0 truncate">{holderName}</Text>}
+            </Button> : !listGrouped && <Text role="meta" className="block truncate" title={holderName}>{holderName}</Text>}
+          </span>}
           {listGrouped && (reason || visibleOutcome) && <Text role="meta" className="block whitespace-normal break-words">{reason ?? visibleOutcome}</Text>}
           {listColumns.has('state') && <span className="@[520px]/board:hidden"><Text role="meta">{stateWords}{reason ? ` · ${reason}` : visibleOutcome ? ` · ${visibleOutcome}` : ''}</Text></span>}
         </TableCell>
         {listColumns.has('assignee') && <TableCell className={`${JOB_COLUMN_CLASS.assignee} w-40 max-w-40`}>
-          {assignee ? <Button variant="ghost" size="inline" onClick={() => void store.openSession(assignee.sessionId as SessionId, { runtime: assignee.runtime })} title={`Open ${holderName}'s conversation`} className="max-w-full gap-2">{face}<span className="min-w-0 truncate" title={holderName}>{holderName}</span></Button>
+          {assignee ? <Button variant="ghost" size="inline" onClick={() => void store.openSession(assignee.sessionId as SessionId, { runtime: assignee.runtime })} title={`Open ${holderName}'s conversation`} className="max-w-full gap-2">{face}{holderName !== intent.title && <span className="min-w-0 truncate" title={holderName}>{holderName}</span>}</Button>
             : <span className="inline-flex max-w-full items-center gap-2">{holderName !== '—' && face}<Text role="meta" className="min-w-0 truncate" title={holderName}>{holderName}</Text></span>}
         </TableCell>}
         {listColumns.has('state') && <TableCell className={`${JOB_COLUMN_CLASS.state} whitespace-normal`}>
@@ -1103,13 +1113,7 @@ const IntentCard = ({
               session={session ?? null}
               className="flex min-w-0 flex-1 items-center gap-1.5"
             >
-              <IconTile size="sm" shape="face" tint={holderTint}>
-                {runtime ? (
-                  <BrandMark brand={brandForRuntime(runtime) ?? 'openai'} size={12} />
-                ) : (
-                  <AgentIcon />
-                )}
-              </IconTile>
+              {face}
               {/* Two names, and neither is allowed to starve the other.
                   `flex-1` on the left with `shrink-0` on the right meant the
                   right one kept every pixel it asked for and the left one paid
@@ -1135,7 +1139,7 @@ const IntentCard = ({
                   draw it in — a tooltip as well would be the second box on one
                   rest that the button's sentence stopped being. The whole of a
                   long one is in the conversation the button opens. */}
-              {session?.title && session.title !== holderName && (
+              {!holderSeat && session?.title && session.title !== holderName && (
                 /* And below a column width of about thirteen rems it is not
                    drawn at all. Half a row each is the right split while there
                    is a row to split; at 176px — five columns inside a room —

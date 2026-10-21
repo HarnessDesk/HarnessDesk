@@ -24,24 +24,6 @@
  * that has to truncate from the right end and not the left.
  */
 
-/* The tile, and the light that sits on its corner (`Dot variant="presence"`).
-   Relative so the light can hang half off the tile. */
-.memberMark,
-.columnMark {
-  position: relative;
-  display: flex;
-  flex: none;
-}
-
-/* A member of the room whose conversation the desk does not have open.
-   Quieter, never absent — it is a member, it holds its name and its job, and
-   a message reaches it. The row says so in words on its second line; this is
-   the glance, and it is the same weight an unread row differs from a read one
-   by rather than a disabled control. */
-.memberMark[data-away] {
-  opacity: 0.55;
-}
-
 /* A doubt rather than a refusal: the harness says it can reach the tools and
    the board has never seen it use one. The row's own muted second line rather
    than warning ink, so it cannot be mistaken for the line above it, which is a
@@ -243,6 +225,7 @@
 }
 
 .columnBody {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;

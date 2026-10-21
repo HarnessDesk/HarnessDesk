@@ -118,7 +118,96 @@ it('holds a head with lines under its name to their top, with the aside on the n
   expect(modalSheet).toMatch(/\.header\[data-lines\]\s*\{[^}]*align-items:\s*flex-start/s)
   expect(head?.querySelector('[data-slot="dialog-description"]')?.className).toContain('text-(--hd-secondary-foreground)')
   expect(head?.querySelector('[data-slot="dialog-description"]')?.className).toContain('text-(length:--hd-text-sm)')
-  expect(modalSheet).toMatch(/\.description\s*\{[^}]*white-space:\s*nowrap/s)
+})
+
+it('keeps consequence sentences and opaque identifiers readable while the title remains a truncated name', () => {
+  const title = 'A long subject name that still belongs on one title line'
+  const consequence = 'Conversations and branches stay. Reopening a conversation recreates its worktree.'
+  const identifier = `mcp-${'resource'.repeat(30)}`
+  sheet(<DialogHead title={title}>{consequence} {identifier}</DialogHead>)
+  const head = document.body.querySelector('[data-slot="dialog-head"]')!
+  const description = head.querySelector('[data-slot="dialog-description"]')!
+  expect(description.textContent).toBe(`${consequence} ${identifier}`)
+  expect(head.querySelector('h2')?.classList.contains('truncate')).toBe(true)
+  expect(head.querySelector('h2')?.getAttribute('title')).toBe(title)
+  const rule = /\.description\s*\{([^}]*)\}/s.exec(modalSheet)?.[1] ?? ''
+  expect(rule).toMatch(/white-space:\s*normal/)
+  expect(rule).toMatch(/overflow-wrap:\s*anywhere/)
+  expect(rule).not.toMatch(/max-height|overflow-y/)
+  expect(rule).not.toMatch(/(?:overflow:\s*hidden|text-overflow:\s*ellipsis|white-space:\s*nowrap)/)
+})
+
+it('keeps authored consequences whole by default and makes scroll bounds explicit', () => {
+  sheet(<DialogHead title="Change storage">Conversations and branches stay. Existing projects keep their folders. New chats use the selected location. Reopening a conversation recreates its worktree.</DialogHead>)
+  const description = document.body.querySelector<HTMLElement>('[data-slot="dialog-description"]')!
+  expect(description.hasAttribute('data-scroll')).toBe(false)
+  Object.defineProperties(description, { scrollHeight: { value: 120 }, clientHeight: { value: 40 } })
+  act(() => window.dispatchEvent(new Event('resize')))
+  expect(description.hasAttribute('tabindex')).toBe(false)
+  act(() => root.render(<Dialog title="Chats folder" description="Long host refusal" scrollDescription onClose={() => {}} />))
+  expect(document.body.querySelector('[data-slot="dialog-description"]')?.hasAttribute('data-scroll')).toBe(true)
+  const boundedRule = /\.description\[data-scroll\]\s*\{([^}]*)\}/s.exec(modalSheet)?.[1] ?? ''
+  expect(boundedRule).toMatch(/max-height:\s*clamp\(var\(--hd-line-sm\),\s*round\(down,\s*8vh,\s*var\(--hd-line-sm\)\),\s*calc\(var\(--hd-line-sm\)\s*\*\s*4\)\)/)
+  expect(boundedRule).toMatch(/overflow-y:\s*auto/)
+})
+
+it('makes only an overflowing opted-in description tabbable and remeasures text and viewport changes', () => {
+  const observers: { check: () => void; observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    observe = vi.fn()
+    disconnect = vi.fn()
+    constructor(callback: ResizeObserverCallback) { observers.push({ check: () => callback([], this as unknown as ResizeObserver), observe: this.observe, disconnect: this.disconnect }) }
+  })
+  try {
+    sheet(<DialogHead title="Chats folder" scrollDescription>Short consequence.</DialogHead>)
+    const description = document.body.querySelector<HTMLElement>('[data-slot="dialog-description"]')!
+    expect(description.hasAttribute('tabindex')).toBe(false)
+    let content = 120, height = 40
+    Object.defineProperties(description, { scrollHeight: { get: () => content }, clientHeight: { get: () => height } })
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(description.tabIndex).toBe(0)
+    const first = observers.at(-1)!
+    expect(first.observe).toHaveBeenCalledWith(description)
+    height = 120
+    act(() => first.check())
+    expect(description.hasAttribute('tabindex')).toBe(false)
+    height = 40
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(description.tabIndex).toBe(0)
+    content = 40
+    // A changed string must be measured even when the constrained box has not resized.
+    sheet(<DialogHead title="Chats folder" scrollDescription>A changed short consequence.</DialogHead>)
+    expect(description.hasAttribute('tabindex')).toBe(false)
+    expect(first.disconnect).toHaveBeenCalledOnce()
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('disconnects removed descriptions and ignores their queued observer callbacks', () => {
+  const observers: { check: () => void; disconnect: ReturnType<typeof vi.fn> }[] = []
+  const remove = vi.spyOn(window, 'removeEventListener')
+  vi.stubGlobal('ResizeObserver', class {
+    observe = vi.fn()
+    disconnect = vi.fn()
+    constructor(callback: ResizeObserverCallback) { observers.push({ check: () => callback([], this as unknown as ResizeObserver), disconnect: this.disconnect }) }
+  })
+  try {
+    sheet(<DialogHead title="Chats folder" scrollDescription><span>Long refusal</span></DialogHead>)
+    const old = document.body.querySelector<HTMLElement>('[data-slot="dialog-description"]')!
+    Object.defineProperties(old, { scrollHeight: { value: 120 }, clientHeight: { value: 40 } })
+    act(() => window.dispatchEvent(new Event('resize')))
+    expect(old.tabIndex).toBe(0)
+    const first = observers.at(-1)!
+    sheet(<DialogHead title="Chats folder" scrollDescription />)
+    expect(first.disconnect).toHaveBeenCalledOnce()
+    expect(remove).toHaveBeenCalledWith('resize', expect.any(Function))
+    sheet(<DialogHead title="Chats folder" scrollDescription>Short consequence.</DialogHead>)
+    const fresh = document.body.querySelector<HTMLElement>('[data-slot="dialog-description"]')!
+    act(() => first.check())
+    expect(fresh.hasAttribute('tabindex')).toBe(false)
+    const last = observers.at(-1)!
+    act(() => root.render(null))
+    expect(last.disconnect).toHaveBeenCalledOnce()
+  } finally { remove.mockRestore(); vi.unstubAllGlobals() }
 })
 
 it('keeps a reading body out of the form grammar', () => {

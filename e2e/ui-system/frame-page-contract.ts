@@ -86,11 +86,13 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
   }
   const value = await column.evaluate(element => {
     const css = getComputedStyle(element), box = element.getBoundingClientRect()
-    const parent = element.parentElement!.getBoundingClientRect()
+    const host = element.parentElement!, outer = host.getBoundingClientRect()
+    // A reserved scrollbar gutter is outside the usable scrollport content.
+    const available = host.clientWidth, viewportLeft = outer.left + host.clientLeft
     const left = parseFloat(css.paddingLeft), right = parseFloat(css.paddingRight)
     const contentLeft=box.left+left,contentRight=box.right-right
-    return { width: box.width - left - right, available: parent.width, left, right,
-      top: parseFloat(css.paddingTop), centre: (box.left + box.right) / 2 - (parent.left + parent.right) / 2,
+    return { width: box.width - left - right, available, left, right,
+      top: parseFloat(css.paddingTop), centre: (box.left + box.right) / 2 - (viewportLeft + available / 2),
       edges: [...element.children].filter(child => getComputedStyle(child).display !== 'none' && child.getClientRects().length > 0)
         .map(child => {
           const childBox=child.getBoundingClientRect()
@@ -135,8 +137,20 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 }
 export const expectDestinationTab = async (page: Page, value: string): Promise<void> => {
-  const tab = page.locator(`[data-team-page="${value}"]:visible`)
-  if (await tab.count()) { await expect(tab).toHaveAttribute('aria-selected', 'true'); return }
+  if (await page.getByRole('tablist', { name: 'Team views', exact: true }).count()) {
+    const primary = value === 'run' || value === 'work' ? 'overview' : value === 'findings' ? 'board' : value
+    if (value === 'runs' || value === 'receipt') {
+      await expect(page.getByRole('button', { name: 'Back to Work', exact: true })).toBeVisible()
+    } else {
+      await expect(page.locator(`[data-team-page="${primary}"]:visible`)).toHaveAttribute('aria-selected', 'true')
+      if (value === 'board' || value === 'findings') {
+        const findings = page.locator('[data-slot="task-navigation"]').getByRole('button', { name: /^Findings(?:\s|$)/ })
+        await expect(findings).toBeVisible()
+        await expect(findings).toHaveAttribute('aria-pressed', String(value === 'findings'))
+      }
+    }
+    return
+  }
   const choice = pageChoiceFor(value)
   await page.locator('[data-slot="page-options"]:visible').getByTitle(choice.title, { exact: true }).click()
   const item = page.getByRole('menuitemradio').filter({ has: page.getByText(choice.label, { exact: true }) })

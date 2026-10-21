@@ -1,5 +1,5 @@
 /**
- * The app frame's numbers (docs/superpowers/specs/2026-10-09-app-frame-design.md).
+ * The app frame's numbers (docs/design.md).
  *
  * `tokens.css` carries them to the components; this module carries them to
  * the checks. `e2e/ui-system/frame-contract-team-work.spec.ts` resolves every token in

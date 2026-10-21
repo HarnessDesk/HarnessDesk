@@ -1,4 +1,4 @@
-import { useRef, type ComponentProps, type ComponentType, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react'
 
 import { CrossIcon } from '../../components/Icons'
 import { cn } from '../../lib/utils'
@@ -51,6 +51,7 @@ export const DialogHead = ({
   Title = DialogTitle,
   Close = DialogClose,
   closeDisabled = false,
+  scrollDescription = false,
   children,
 }: {
   /** @deprecated Dialog titles share one anatomy and do not render leading icons. */
@@ -62,8 +63,26 @@ export const DialogHead = ({
   Title?: ComponentType<ComponentProps<typeof DialogTitle>>
   Close?: ComponentType<ComponentProps<typeof DialogClose>>
   closeDisabled?: boolean
+  /** Unbounded host text gets a scroll region; authored consequences wrap whole. */
+  scrollDescription?: boolean
   children?: ReactNode
 }) => {
+  const description = useRef<HTMLParagraphElement>(null)
+  const [descriptionOverflows, setDescriptionOverflows] = useState(false)
+  // Scrollable descriptions get one explicit keyboard stop across engines.
+  // Short consequences stay in the ordinary title-to-controls Tab order.
+  useEffect(() => {
+    const node = description.current
+    if (!node || !scrollDescription) { setDescriptionOverflows(false); return }
+    let live = true
+    const measure = () => { if (live) setDescriptionOverflows(node.scrollHeight > node.clientHeight) }
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(node)
+    for (const child of node.children) observer?.observe(child)
+    window.addEventListener('resize', measure)
+    return () => { live = false; observer?.disconnect(); window.removeEventListener('resize', measure) }
+  }, [children, scrollDescription])
   /* The title step, said as utilities so the preview and app render alike. */
   const name = (className: string | undefined) => (
     // A title is a name: it gives way at its end on one line, and the whole of it is on hover.
@@ -85,6 +104,9 @@ export const DialogHead = ({
           </div>
           {children != null && (
             <DialogDescription
+              ref={description}
+              data-scroll={scrollDescription ? '' : undefined}
+              tabIndex={scrollDescription && descriptionOverflows ? 0 : undefined}
               className={cn(styles.description, 'text-(--hd-secondary-foreground) text-(length:--hd-text-sm) leading-(--hd-line-sm)')}
             >
               {children}
@@ -172,6 +194,7 @@ export const Dialog = ({
   title,
   titleAside,
   description,
+  scrollDescription = false,
   tone = 'default',
   size = 'sm',
   tall = false,
@@ -188,6 +211,8 @@ export const Dialog = ({
   icon?: ReactNode
   titleAside?: ReactNode
   description?: ReactNode
+  /** Opt unbounded host text into the head’s keyboard-scrollable region. */
+  scrollDescription?: boolean
   tone?: 'default' | 'destructive'
   size?: keyof typeof DIALOG_WIDTH
   tall?: boolean
@@ -226,7 +251,7 @@ export const Dialog = ({
           tall && 'h-[min(62vh,560px)] max-h-[min(62vh,560px)]',
         )}
       >
-        <DialogHead title={title} aside={titleAside} tone={tone}>{description}</DialogHead>
+        <DialogHead title={title} aside={titleAside} tone={tone} scrollDescription={scrollDescription}>{description}</DialogHead>
         {(children || bodyPrelude) && (
           <DialogBody layout={flush ? 'flush' : 'form'}>
             {bodyPrelude != null && <div className={styles.bodyPrelude} data-slot="dialog-body-prelude">{bodyPrelude}</div>}

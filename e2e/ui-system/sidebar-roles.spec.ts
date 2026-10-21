@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 
+import { openAccountUsage } from './left-column-actions'
+
 for (const theme of ['light', 'dark'] as const) {
   test(`quiet chips keep each tone and type while removing the pill (${theme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
@@ -72,10 +74,10 @@ test('a healthy account reading keeps plain ink rather than success ink', async 
   await page.goto('/preview.html')
   await page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]').click()
 
-  // The account menu's own reading, not the first one anywhere on the page:
-  // which one comes first depends on the window's width and on what else the
-  // preview draws (the Dashboard's rail used to hold one).
-  const reading = page.locator('[data-slot="popover-popup"]').getByText('78%', { exact: true }).first()
+  // Usage is its own level, so the account menu's own reading is on the lane
+  // rows in that flyout rather than in the root menu's five rows.
+  const usage = await openAccountUsage(page)
+  const reading = usage.locator('[data-menu-fact]').getByText('78% left', { exact: true }).first()
   await expect(reading).toBeVisible()
   const colours = await reading.evaluate(node => {
     const probe = document.createElement('span')
@@ -94,7 +96,7 @@ test('a healthy account reading keeps plain ink rather than success ink', async 
   expect(colours.reading).not.toBe(colours.success)
 })
 
-test('the accounts menu opens above its row, left-aligned with it, at the foundation\'s wide width', async ({ page }) => {
+test('the accounts menu opens above its row, left-aligned with it, inside the foundation\'s width range', async ({ page }) => {
   await page.goto('/preview.html')
   const trigger = page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]')
   // Where the row sits in the app: at the foot of the window.
@@ -113,12 +115,12 @@ test('the accounts menu opens above its row, left-aligned with it, at the founda
   // Unfolds from the row rather than being laid over the transcript beside it.
   expect(edges.menu.bottom).toBeLessThanOrEqual(edges.row.top)
   expect(edges.menu.left).toBeCloseTo(edges.row.left, 0)
-  // The panel keeps its own width, the foundation's wide one, so a narrow
-  // sidebar does not fold the account and usage rows; the seat-menu spec
-  // measures it at every sidebar width and holds both its edges inside a
-  // window too narrow for it.
+  // The compact root sizes to its own content, bounded by the same menu
+  // tokens as its flyouts. The seat-menu spec checks independence from
+  // sidebar width, and both levels in a window narrower than their content.
   expect(edges.wide).toBeGreaterThan(0)
-  expect(edges.menu.width).toBeCloseTo(edges.wide, 0)
+  expect(edges.menu.width).toBeGreaterThanOrEqual(FRAME.menu.min)
+  expect(edges.menu.width).toBeLessThanOrEqual(edges.wide)
 })
 
 test('Settings group labels and destinations use the named frame type pairs', async ({ page }) => {

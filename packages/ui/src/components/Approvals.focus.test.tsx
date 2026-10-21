@@ -7,6 +7,7 @@ import { sessionKey, type Approval, type RuntimeId, type RuntimeInfo } from '@ha
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Approvals } from './Approvals'
+import { AgentIcon } from './Icons'
 
 /**
  * Where the caret goes when an agent stops to ask.
@@ -70,7 +71,7 @@ const approval = {
 const PANE = 'pane-1' as never
 
 /** Render the card in `pane-1`, with the layout focused wherever the test says. */
-const mount = (focusedPane: string, asking: Approval = approval) => {
+const mount = (focusedPane: string, asking: Approval = approval, requester?: { name: string; mark?: React.ReactNode; open: () => void }) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -95,7 +96,7 @@ const mount = (focusedPane: string, asking: Approval = approval) => {
         <PaneProvider
           scope={{ paneId: PANE, view: { kind: 'conversation', session: KEY }, sessionKey: KEY }}
         >
-          <Approvals />
+          <Approvals requester={requester} />
         </PaneProvider>
       </StoreProvider>,
     )
@@ -105,6 +106,16 @@ const mount = (focusedPane: string, asking: Approval = approval) => {
 
 const card = (): HTMLElement | null =>
   container.querySelector<HTMLElement>('[role="dialog"][tabindex="-1"]')
+
+it('names the requester relationship even when its visible label is a decorative agent mark', () => {
+  const open = vi.fn()
+  mount('pane-1', approval, { name: 'Implementer 1', mark: <AgentIcon />, open })
+  const row = container.querySelector('[data-slot="approval-meta"][data-kind="person"]')!
+  expect(row.textContent).toContain('From')
+  expect(row.textContent).toContain('Implementer 1')
+  act(() => (row.querySelector('button') as HTMLButtonElement).click())
+  expect(open).toHaveBeenCalledOnce()
+})
 
 it('takes focus when the approval is in the pane you are looking at', () => {
   const elsewhere = document.createElement('textarea')

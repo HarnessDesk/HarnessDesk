@@ -23,3 +23,20 @@
   pointer-events: auto;
 }
 .actions { margin-left: auto; }
+
+.toolbar[data-placement='bar'] {
+  position: relative;
+  inset: auto;
+  flex-shrink: 0;
+  align-items: center;
+  padding: var(--hd-space-2) var(--hd-space-3);
+  border-bottom: var(--hd-border-width) solid var(--hd-border);
+  background: var(--hd-background);
+  pointer-events: auto;
+}
+.toolbar[data-placement='bar'] .tools {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}

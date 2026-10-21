@@ -131,34 +131,52 @@ const openFrame = async (page: Page, query: string, theme: 'light' | 'dark', wid
 
 const openInvestigation = async (page: Page, theme: 'light' | 'dark', width: number) => {
   await openFrame(page, 'team-start=picker', theme, width)
+  await page.getByRole('searchbox', { name: 'Search Flows', exact: true }).fill('Investigation')
   await page.getByRole('button', { name: 'Investigation', exact: true }).click()
   return page.getByRole('dialog')
 }
 
 {
 
-  for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720, 712]).entries()) test(`R12.2 the New Team footer stays in place while choosing a Flow [item ${[item0, item1].join('-')}]`, async ({ page }) => {
+  for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720, 712]).entries()) test(`R12.2 New Team fits its content and keeps its footer clear while choosing a Flow [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'team-start=picker', theme, width)
     const dialog = page.getByRole('dialog')
     const geometry = async () => dialog.evaluate(element => {
       const footer = element.querySelector<HTMLElement>('[data-slot="dialog-footer"]')!
-      return { top: element.getBoundingClientRect().top, height: element.getBoundingClientRect().height, footerTop: footer.getBoundingClientRect().top }
+      const body = element.querySelector<HTMLElement>('[data-slot="modal-dialog-body"]')!
+      const box = element.getBoundingClientRect()
+      const footerBox = footer.getBoundingClientRect()
+      return { top: box.top, bottom: box.bottom, width: box.width, height: box.height,
+        footerTop: footerBox.top, footerBottom: footerBox.bottom, bodyBottom: body.getBoundingClientRect().bottom,
+        bodyScrollWidth: body.scrollWidth, bodyClientWidth: body.clientWidth, viewportHeight: window.innerHeight }
     })
+    const fitsViewport = (frame: Awaited<ReturnType<typeof geometry>>) => {
+      expect(frame.top, `dialog top at ${width}px in ${theme}`).toBeGreaterThanOrEqual(0)
+      expect(frame.bottom, `dialog bottom at ${width}px in ${theme}`).toBeLessThanOrEqual(frame.viewportHeight)
+      expect(frame.bodyBottom, `scroll body stays above footer at ${width}px in ${theme}`).toBeLessThanOrEqual(frame.footerTop + 1)
+      expect(frame.footerBottom).toBeLessThanOrEqual(frame.bottom + 1)
+      expect(frame.bodyScrollWidth, `no horizontal body overflow at ${width}px in ${theme}`).toBeLessThanOrEqual(frame.bodyClientWidth + 1)
+    }
     const picker = await geometry()
+    fitsViewport(picker)
+    await dialog.getByRole('searchbox', { name: 'Search Flows', exact: true }).fill('Investigation')
     await page.getByRole('button', { name: 'Investigation', exact: true }).click()
     await expect(dialog).toHaveAccessibleName('New Team')
-    await expect(dialog.getByRole('region', { name: 'Flow', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('region', { name: 'Selected Flow', exact: true })).toContainText('Investigation')
+    await expect(dialog.getByRole('region', { name: 'Flow', exact: true })).toHaveCount(0)
+    await expect(dialog.getByRole('region', { name: 'Who does what', exact: true })).toBeVisible()
     const form = await geometry()
-    expect(form.height, `dialog height at ${width}px in ${theme}`).toBeCloseTo(picker.height, 1)
-    expect(form.footerTop, `footer position at ${width}px in ${theme}`).toBeCloseTo(picker.footerTop, 1)
-    expect(form.top, `dialog top at ${width}px in ${theme}`).toBeCloseTo(picker.top, 1)
+    fitsViewport(form)
+    expect(form.width, `dialog width at ${width}px in ${theme}`).toBeCloseTo(picker.width, 1)
+    await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeVisible()
     await dialog.getByLabel('What should they do?', { exact: true }).fill('Trace the checkout failure')
     await expect(dialog.getByRole('button', { name: 'Start Team', exact: true })).toBeEnabled()
     const ready = await geometry()
-    expect(ready.height, `ready dialog height at ${width}px in ${theme}`).toBeCloseTo(picker.height, 1)
-    expect(ready.footerTop, `ready footer position at ${width}px in ${theme}`).toBeCloseTo(picker.footerTop, 1)
-    expect(ready.top, `ready dialog top at ${width}px in ${theme}`).toBeCloseTo(picker.top, 1)
+    fitsViewport(ready)
+    expect(ready.width, `ready dialog width at ${width}px in ${theme}`).toBeCloseTo(picker.width, 1)
+    expect(ready.height, `typing does not resize the form at ${width}px in ${theme}`).toBeCloseTo(form.height, 1)
+    expect(ready.footerTop, `typing preserves the footer at ${width}px in ${theme}`).toBeCloseTo(form.footerTop, 1)
 
 
   })
@@ -199,9 +217,14 @@ const openInvestigation = async (page: Page, theme: 'light' | 'dark', width: num
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720]).entries()) test(`R12.4 the New Team role name uses sentence case [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     const dialog = await openInvestigation(page, theme, width)
-    const role = dialog.locator('[aria-label="Who does what"] [data-slot="row-title"]').first()
+    const seat = dialog.locator('[aria-label="Who does what"] [data-slot="team-role-seat"]').first()
+    const role = seat.locator('[data-slot="team-role-mark"]').locator('..').locator('[data-slot="text"][data-role="row"]')
+    await expect(seat).toBeVisible()
+    await expect(seat.getByRole('button', { name: 'Configure Research', exact: true })).toBeVisible()
+    // The graph seat's own role header keeps its sentence case, separately
+    // from the selected instructions and runtime beneath it.
     await expect(role).toHaveText('Research')
-    await expect(role).not.toHaveText('research')
+    expect(await role.evaluate(node => getComputedStyle(node).textTransform)).toBe('none')
 
 
   })

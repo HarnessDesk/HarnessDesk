@@ -32,9 +32,9 @@ export const CodeBlock = ({
         <div data-slot="code-block-command" className={styles.command}>
           <span data-slot="code-block-prompt" className={styles.prompt} aria-hidden="true">$</span>
           <code className={styles.commandText}>{command}</code>
-          <CopyButton text={command} label={copyLabel} onError={onCopyError} className={styles.copy} />
         </div>
       )}
+      {command !== undefined && <CopyButton text={command} label={copyLabel} onError={onCopyError} className={styles.copy} />}
       {hasBody && (
         <pre data-slot="code-block-body" className={styles.body}>
           {output}

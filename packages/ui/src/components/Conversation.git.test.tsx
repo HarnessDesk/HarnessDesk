@@ -125,16 +125,17 @@ const fact = (label: string): string => {
 const expectFolder = (name: string, path: string): void => {
   const value = [...container.querySelectorAll('[data-slot="summary-item"]')]
     .find(one => one.querySelector('dt')?.textContent === 'Folder')
-    ?.querySelector('[data-slot="summary-value"] span[title]')
-  expect(value?.textContent).toBe(name)
-  expect(value?.getAttribute('title')).toBe(path)
+    ?.querySelector('[data-slot="summary-value"] [data-slot="middle-truncate"]')
+  expect(value?.querySelector('.sr-only')?.textContent).toBe(path)
+  expect(value?.querySelector('[data-part="tail"]')?.textContent).toBe(`/${name}`)
 }
 
 it('names an armed draft in Details as a branch off its source folder', () => {
   rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
   expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
   expectFolder('storefront', ROOT)
-  expect(container.querySelector('[data-slot="summary-note"]')?.textContent).toContain('Source folder; the worktree is made when the message goes')
+  act(() => [...container.querySelectorAll('button')].find(one => one.textContent?.includes('Details'))!.click())
+  expect(container.textContent).toContain('Source folder; the worktree is made when the message goes')
   expect(chip()?.getAttribute('aria-label')).toBe('Folder actions')
 })
 
@@ -197,7 +198,8 @@ it('names the worktree a draft is armed to cut, not the folder it will be cut fr
   // The composer says New worktree; the header above it must not say Local.
   rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
 
-  expect(container.querySelector('[data-slot="summary-note"]')?.textContent).toContain('Source folder; the worktree is made when the message goes')
+  act(() => [...container.querySelectorAll('button')].find(one => one.textContent?.includes('Details'))!.click())
+  expect(container.textContent).toContain('Source folder; the worktree is made when the message goes')
   expectFolder('storefront', ROOT)
   expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
 })

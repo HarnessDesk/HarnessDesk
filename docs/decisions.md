@@ -152,6 +152,19 @@ only attention or an error earns a trailing state mark.
 
 ---
 
+## A hidden menu bar item can be restored from View — 2026-10-20
+
+The owner found the macOS status item missing while the development desk was
+launched on an isolated home with `HARNESSDESK_MENU_BAR=off`. The quiet worker
+default was intentional, but the missing item provided no route to restore it.
+
+**View › Show Menu Bar Icon** now creates or removes the item immediately and
+saves the person's choice in that home's `menu-bar.json`. A saved choice wins
+over launch defaults. A fresh secondary home remains quiet, so restoring one
+desk does not put every worker into the menu bar. The native status menu keeps
+six primary actions and puts runtime usage in one submenu, rather than growing
+its root with the runtime roster.
+
 ## Diffs wrap and highlight changed words
 
 *Owner decision, 2026-10-15; issue #1671.*
@@ -206,6 +219,15 @@ folder and the first round's checkout can be admitted, including the Git parent
 and writable destination of isolated attempts, without saving authority or
 allocating a lane. After redeeming that exact preview, Start captures the folder
 through the same `captureShellProject` path as workspace open.
+
+A plain Team has no Flow preview to redeem. Its renderer-only `goal/start`
+request accepts the selected project root, task sentence and checkout mode,
+never a caller-supplied checkout path. Before creating the Team it runs the
+same `admitTeamProject` check: the root must already be a remembered project
+or known from conversation history; an unknown folder is refused. A missing
+legacy identity can be captured, but a changed captured identity is refused
+until the person opens that folder again. Generic `goal/create`, including
+agent calls, does not grant this authority.
 
 The admission belongs to the start request's project, never a folder named by
 the Flow, a card, an agent or a conversation listing. An existing captured
@@ -3021,8 +3043,7 @@ box and the layout's exported gaps, rather than treating the 176×68 layout box
 as the rendered card. A Run supplies its state slot, with `flow-overlay`'s vocabulary;
 failed and skipped are also available to a caller with those recorded facts.
 The first drawing is centred at 100% when it fits; a narrow container shrinks
-it to fit. Edits keep the viewport while any earlier step survives. Fit can
-shrink, never enlarge it.
+it to fit. Edits keep the viewport while any earlier step survives. Explicit Fit recalculates the viewport up to 100%; automatic resize keeps the current zoom when the drawing still fits.
 Read-only plans retain selection and navigation but have no edit affordances.
 Keyboard connection belongs to the builder dock and will arrive in a later
 change; it is not part of this pattern.
@@ -3911,3 +3932,41 @@ The dry run already computed, for each seat whose Agent declares skills or MCP s
 The line is a rendering of facts the host already decided (`FlowPreviewSeat.attachments`), not a second decision: it adds no problem, removes none, and touches neither `startable` nor the Start button, wherever the seats section is rendered — the Start dialog, the dry-run report on a Flow page, a trigger’s preview and a saved Run again. A declaration of kind `notes` is neither skill nor server and stays out of the line entirely.
 
 **Rule:** a seat's attachment facts sit under that seat; the problems list still decides whether Start is allowed.
+
+
+## A Team opens on its recorded Work — 2026-10-19
+
+The owner found that Overview, Run, Flow and Timeline hid one story behind too
+many choices. Work now opens with the Run's frozen graph and recent activity;
+Full record expands history in place. Tasks groups Board and Findings without
+changing their ledger or actions, and Chat offers combined and Split layouts.
+An explicit saved destination still restores. Run history and Receipt remain
+secondary destinations, and a compact chooser selects a historical Run.
+
+Approvals and questions belong in Chat or their own conversation, backed by
+one request store. Work keeps one aggregate link; Chat carries the pending
+count and warning light. A Team approval names its requester and links their
+conversation. The composer stays visible below the card, retaining its draft
+and recipients. Requests sit at the end of the scrolling Chat thread, so all
+actions scroll with the conversation and cannot be clipped in a second dock. Human
+task decisions remain marked in the graph with the existing task and inspector
+answer actions. The selected Agent's actual glyph identifies each Seat without
+a surrounding coloured tile, and generated duplicate role names keep ordinals.
+
+## Teams follows work; Agents holds reusable roles — 2026-10-20
+
+The owner asked what Teams contributes beside Flows and requested the same
+visual quality for Teams and Agents. Teams keeps attention, working and
+ready-to-wrap work together across projects. Its cards show a concise status
+instead of reproducing an entire runtime refusal; one shared issue mark and
+the exact Team details retain the full explanation, which remains searchable.
+
+Agents uses a responsive role catalogue with source filtering and search.
+Purpose and actual seating facts have separate places. Source paths and
+shadowed copies remain in a deliberate disclosure rather than stretching the
+catalogue between groups. This presentation does not change precedence,
+permission enforcement, authoring recovery or the host's seating decisions.
+
+Superpowers specs and plans are local working notes. Both corresponding
+folders are ignored and untracked at the owner's request; product contracts
+and verification evidence remain in the ordinary documentation tree.

@@ -1,5 +1,5 @@
 /**
- * What the frame wall captures (docs/superpowers/plans/2026-10-09-app-frame.md,
+ * What the frame wall captures (docs/design.md,
  * "The visual check"). `tab` is a Team view's `data-team-page` value. A phase
  * that adds a destination adds it here, and the wall grows with it.
  */
@@ -39,7 +39,7 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'draft-details', query: 'frame-wall=draft', tool: 'details' },
   { id: 'draft-browser', query: 'frame-wall=draft', tool: 'browser' },
   { id: 'team-details', query: 'frame-wall=team', tool: 'details' },
-  { id: 'team-chat-side-by-side', query: 'frame-wall=team', tab: 'room', viewChoice: 'Side by side' },
+  { id: 'team-chat-side-by-side', query: 'frame-wall=team', tab: 'room', viewChoice: 'Split' },
   { id: 'team-chat-holding', query: 'frame-wall=team', tab: 'room', holdMessages: true },
   { id: 'team-runs', query: 'frame-wall=team-trigger', tab: 'runs' },
   { id: 'team-receipt', query: 'frame-wall=team-receipt', tab: 'receipt' },

@@ -1,5 +1,33 @@
 import { expect, test, type Locator } from '@playwright/test'
 
+for (const theme of ['light', 'dark'] as const) test(`a command keeps its text inside the line and copy target inside the plate in ${theme}`, async ({ page }) => {
+  for (const width of [720, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto(`/preview.html?frame-wall=conversation&frame-status=tasks&theme=${theme}`)
+    const command = page.locator('[data-slot="code-block-command"]')
+    await expect(command).toBeVisible()
+    await expect(command.locator('code')).toHaveText('node review.mjs')
+    const geometry = await command.evaluate(node => {
+      const line = node.getBoundingClientRect()
+      return [...node.children].map(part => {
+        const rect = part.getBoundingClientRect()
+        return { left: line.left - rect.left, right: rect.right - line.right, top: line.top - rect.top, bottom: rect.bottom - line.bottom }
+      })
+    })
+    for (const part of geometry) for (const overflow of Object.values(part)) expect(overflow).toBeLessThanOrEqual(1)
+    const plate = command.locator('..')
+    const copy = plate.getByRole('button', { name: 'Copy the command for Review the checkout', exact: true })
+    const box = (await copy.boundingBox())!
+    const bounds = (await plate.boundingBox())!
+    expect(box.x).toBeGreaterThanOrEqual(bounds.x)
+    expect(box.y).toBeGreaterThanOrEqual(bounds.y)
+    expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+    expect(box.y + box.height).toBeLessThanOrEqual(bounds.y + bounds.height)
+    expect(box.width).toBeGreaterThanOrEqual(24)
+    expect(box.height).toBeGreaterThanOrEqual(24)
+  }
+})
+
 const contrast = async (locator: Locator): Promise<number> =>
   locator.evaluate((node: Element) => {
     const context = document.createElement('canvas').getContext('2d')!

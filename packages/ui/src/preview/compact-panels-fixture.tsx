@@ -82,7 +82,7 @@ panelStore.seatRecord = async () => ({
   ...PREVIEW_SEAT, id: seat,
   checkout: { ...PREVIEW_SEAT.checkout, cwd: '/preview/code/project', project: '/preview/code/project' },
 })
-panelStore.refreshTasks = async () => {}
+panelStore.refreshTasks = async () => 'loaded'
 
 export const CompactPanelFrames = () => (
   <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">

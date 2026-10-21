@@ -100,7 +100,15 @@ for (const theme of ['light', 'dark'] as const) {
 
     await dial.selectOption('extensions')
     await expect(sheet.getByText('Reference', { exact: true })).toBeVisible()
-    await expect(sheet.getByText('Turned off by an administrator', { exact: true })).toBeVisible()
+    const checks = sheet.locator('[data-slot="row"]').filter({
+      has: page.locator('[data-slot="row-title"]').filter({ hasText: /^Project checks/ }),
+    })
+    // The reason is a wrapping description; the compact status chip says Off.
+    await expect(checks.locator('[data-slot="chip"]').filter({ hasText: /^Off$/ })).toBeVisible()
+    const reason = checks.locator('[data-slot="row-desc"]')
+    await expect(reason).toBeVisible()
+    await expect(reason).toContainText('Turned off by an administrator')
+    await expect(reason).toHaveAttribute('data-wrap', 'true')
     await sheet.getByRole('tab', { name: 'MCP servers', exact: true }).click()
     await expect(sheet.getByText('2 tools · 3 resources', { exact: true })).toBeVisible()
     await expect(sheet.getByText('1 tool · 0 resources', { exact: true })).toBeVisible()
@@ -197,7 +205,15 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(sheet.locator('[data-slot="row-mark"]')).toHaveCount(12)
 
     await dial.selectOption('extensions')
-    await expect(sheet.getByText('Turned off by an administrator', { exact: true })).toBeVisible()
+    const checks = sheet.locator('[data-slot="row"]').filter({
+      has: page.locator('[data-slot="row-title"]').filter({ hasText: /^Project checks/ }),
+    })
+    // The reason is a wrapping description; the compact status chip says Off.
+    await expect(checks.locator('[data-slot="chip"]').filter({ hasText: /^Off$/ })).toBeVisible()
+    const reason = checks.locator('[data-slot="row-desc"]')
+    await expect(reason).toBeVisible()
+    await expect(reason).toContainText('Turned off by an administrator')
+    await expect(reason).toHaveAttribute('data-wrap', 'true')
   })
 }
 

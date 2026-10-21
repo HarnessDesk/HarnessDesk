@@ -38,7 +38,7 @@ import {
 import { brandForRuntime } from '../lib/brands'
 import { ModelMark, RuntimeMark } from './BrandIcons'
 
-import { agentGroups } from '../lib/accounts'
+import { accountKey, agentGroups } from '../lib/accounts'
 import { exportedSentence, restoredSentence } from '../lib/backup-words'
 
 import { summarise } from '../lib/options'
@@ -903,7 +903,7 @@ const ModelsSection = () => {
       model.displayName.toLowerCase().includes(needle) ||
       model.id.toLowerCase().includes(needle),
   )
-  const shown = snapshot.models.length - hidden.length
+  const shown = snapshot.models.filter(model => !hidden.includes(model.id)).length
   const total = snapshot.models.length
 
   return (
@@ -924,7 +924,7 @@ const ModelsSection = () => {
                 Hide all
               </Button>
             )}
-            {hidden.length > 0 && (
+            {shown < total && (
               <Button size="sm" variant="outline" onClick={() => store.setAllModelsHidden(runtime.id, false)}>
                 Show all
               </Button>
@@ -1698,8 +1698,10 @@ export const Settings = ({ route, onRoute, onSignIn }: {
   useEffect(() => {
     if (!destinationActive) return
  if (active && section === 'extensions' && !hasExtensions) sectionRoute('runtimes') }, [destinationActive, active, section, hasExtensions])
-  const runtimeView: RuntimeSettingsView = route.kind === 'runtime' ? { kind: 'agent', runtime: route.runtime }
-    : route.kind === 'account' ? { kind: 'account', runtime: route.runtime, key: route.key }
+  const runtimeExists = (id: RuntimeId) => snapshot.runtimes.some(info => info.id === id)
+  const runtimeView: RuntimeSettingsView = route.kind === 'runtime' && runtimeExists(route.runtime) ? { kind: 'agent', runtime: route.runtime }
+    : route.kind === 'account' && runtimeExists(route.runtime) && snapshot.accountsByRuntime[route.runtime]?.accounts.some(account => accountKey(route.runtime, account) === route.key)
+      ? { kind: 'account', runtime: route.runtime, key: route.key }
     : route.kind === 'add-runtime' ? { kind: 'add' } : { kind: 'list' }
   const settingsTitle = route.kind === 'project' ? SETTINGS_LABELS.workspaces
     : route.kind === 'skill' || section === 'skills' ? runtime.presentation.skillsLabel ?? SETTINGS_LABELS.skills : SETTINGS_LABELS[section]
@@ -1710,7 +1712,9 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     else onRoute({ kind: 'account', runtime: view.runtime, key: view.key })
   }
   return <Page width="reading">
-    <PageOptions title={settingsTitle} />
+    <PageOptions title={settingsTitle} action={section === 'runtimes' && runtimeView.kind === 'list'
+      ? { label: 'Add a runtime', icon: <PlusIcon size={13} />, run: () => onRoute({ kind: 'add-runtime' }) }
+      : undefined} />
     {route.kind === 'section' && section !== 'runtimes' && section !== 'skills' && <DestinationBar place={SETTINGS_LABELS[section]}
       more={() => null} />}
     {section === 'profile' && <ProfileSection />}
@@ -1724,7 +1728,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     {section === 'storage' && <StorageSection />}
     {section === 'history' && <HistorySection focus={focus} onOpen={() => store.returnToWork()}
       onOpenAgent={id => onRoute({ kind: 'runtime', runtime: id as RuntimeId })} />}
-    {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} view={runtimeView} onView={setRuntimeView}
+    {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} view={runtimeView} onView={setRuntimeView} showAddRuntimeAction={false}
       onBrowseHistory={id => sectionRoute('history', id)} />}
     {section === 'models' && <ModelsSection />}
     {section === 'extensions' && hasExtensions && <ExtensionsSection />}

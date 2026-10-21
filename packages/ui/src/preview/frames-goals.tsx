@@ -34,6 +34,7 @@ import type { AppSnapshot } from '../state/store'
 import { Boundary } from './boundary'
 import { Dial, Frame } from './main'
 import { PREVIEW_FLOW_SOURCE } from './flow-fixture'
+import { PREVIEW_SEAT } from './evidence-fixture'
 import { PREVIEW_FINDINGS, findingDetail } from './findings-fixture'
 import { PREVIEW_GOAL, PREVIEW_GOALS } from './goal-fixture'
 import { insightReportFor, PREVIEW_AGENTS, previewStore } from './harness'
@@ -141,13 +142,22 @@ type DialogOption = (typeof DIALOG_OPTIONS)[number]
  * findings.spec.ts reaches for expecting one.
  */
 /** A public frame mounts only the finding's synthetic surface, without unrelated preview tooltips. */
-export const FindingFrames = ({ scene }: { readonly scene: string | null }) => scene === 'live' ? <LiveComparisonFinding /> : scene === 'rail' ? (
+export const FindingFrames = ({ scene }: { readonly scene: string | null }) => scene === 'seat' ? <HistoricalFindingSeat /> : scene === 'live' ? <LiveComparisonFinding /> : scene === 'rail' ? (
   <Frame id="goal-findings-rail" title="Goal — its findings rail">
     <div className="max-h-[480px] overflow-y-auto p-4"><TeamViewFrame room={PREVIEW_GOAL.goal.id} page="findings"><GoalFindings goal={PREVIEW_GOAL.goal.id} /></TeamViewFrame></div>
   </Frame>
 ) : (
   <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={scene === 'before' ? 'finding-before-selection' : scene === 'advisory-before' ? 'finding-before-advisory-selection' : scene === 'advisory' ? 'finding-not-kept-advisory' : 'finding-not-kept-1'} decide={RUN_VIEW} onClose={() => {}} />
 )
+
+const HistoricalFindingSeat = () => {
+  const store = useMemo(() => {
+    const own = previewStore({ theme: new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light' })
+    own.readFinding = async () => ({ ...findingDetail('finding-open-1'), seat: PREVIEW_SEAT })
+    return own
+  }, [])
+  return <StoreProvider store={store}><FindingDetail goal={PREVIEW_GOAL.goal.id} finding="finding-open-1" onClose={() => {}} /></StoreProvider>
+}
 
 /** The comparison is accepted while the same finding dialog and reason draft stay open. */
 const LiveComparisonFinding = () => {

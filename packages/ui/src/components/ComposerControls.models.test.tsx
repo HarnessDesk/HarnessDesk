@@ -224,6 +224,37 @@ it('reports a recommendation refusal when clearing a stale composer pick', async
   expect(resultNotice).toHaveBeenCalledWith('warning', 'Recommendation unavailable.')
 })
 
+it('keeps a mode consequence visible when its name alone does not explain it', () => {
+  const setOption = vi.fn()
+  const mode: ConfigOption = { id: 'mode', label: 'Mode', category: 'mode', type: 'select', currentValue: 'default', choices: [
+    { value: 'default', label: 'Default', description: 'Ask before running commands.' },
+    { value: 'unattended', label: 'Unattended', description: 'Run commands without asking for permission.' },
+  ] }
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [mode] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, setOption } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ModeControl /></StoreProvider>))
+  click(container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!)
+  const unattended = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(one => one.textContent?.includes('Unattended'))!
+  expect(unattended.querySelector('[data-menu-hint]')?.textContent).toBe('Run commands without asking for permission.')
+  click(unattended)
+  expect(setOption).toHaveBeenCalledWith('mode', 'unattended')
+})
+
+it.each([['other', MoreControl], ['thought_level', ModelControl]] as const)('explains an identifier-only %s switch while ordinary labels use hover', (category, Control) => {
+  const opaque: ConfigOption = { type: 'boolean', id: 'options.runic', category, label: 'runic', description: 'Enable the experimental task history index.', currentValue: false }
+  const ordinary: ConfigOption = { type: 'boolean', id: 'verbose', category, label: 'Show detailed output', description: 'Include additional progress details.', currentValue: false }
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [model, opaque, ordinary] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, setOption: vi.fn() } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><Control /></StoreProvider>))
+  click(container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!)
+  const switches = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
+  const unknown = switches.find(one => one.textContent?.includes('runic'))!
+  const clear = switches.find(one => one.textContent?.includes('Show detailed output'))!
+  expect(unknown.querySelector('[data-menu-hint]')?.textContent).toBe(opaque.description)
+  expect(clear.querySelector('[data-menu-hint]')).toBeNull()
+  expect(clear.title).toBe(ordinary.description)
+})
+
 it.each(['stale default', 'unavailable current value'] as const)('keeps a single mode actionable for a %s', (state) => {
   const clearNewSessionDefault = vi.fn()
   const setOption = vi.fn()

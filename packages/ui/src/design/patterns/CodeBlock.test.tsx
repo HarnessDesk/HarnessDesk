@@ -34,7 +34,8 @@ describe('CodeBlock', () => {
     const line = container.querySelector('[data-slot="code-block-command"]')
     expect(line?.querySelector('[data-slot="code-block-prompt"]')?.textContent).toBe('$')
     expect(line?.querySelector('code')?.textContent).toBe('pnpm vitest run checkout')
-    expect(line?.querySelector('button')?.getAttribute('aria-label')).toBe('Copy this command')
+    expect(line?.querySelector('button')).toBeNull()
+    expect(line?.parentElement?.querySelector('button')?.getAttribute('aria-label')).toBe('Copy this command')
   })
 
   it('renders output and a non-zero exit as separate parts of the same plate', () => {

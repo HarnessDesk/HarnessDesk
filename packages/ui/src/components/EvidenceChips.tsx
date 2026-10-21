@@ -99,6 +99,7 @@ export const ObservedDialog = ({
     <Dialog
       title={`What the desk observed on #${id}`}
       description={title}
+      scrollDescription
       size="lg"
       onClose={onClose}
       footer={

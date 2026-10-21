@@ -51,9 +51,11 @@ describe('long transcript content stays inside the conversation column', () => {
     expect(markdownCss).toMatch(/\.markdown\s*\{[^}]*overflow-wrap:\s*anywhere/s)
   })
 
-  it('wraps a 600-character notice token', () => {
+  it('wraps the complete 600-character notice token when its details open', () => {
     const item: NoticeItem = { id: itemId('long-notice'), type: 'notice', text: token }
     renderItem(item)
+    expect(container.textContent).not.toContain(token)
+    act(() => container.querySelector<HTMLButtonElement>('button')!.click())
     expect(container.querySelector('[data-slot="note"]')?.textContent).toBe(token)
     expect(noteCss).toMatch(/\.note\s*\{[^}]*overflow-wrap:\s*anywhere/s)
   })

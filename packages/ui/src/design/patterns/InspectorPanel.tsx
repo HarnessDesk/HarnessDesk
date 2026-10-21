@@ -138,7 +138,7 @@ const PanelRow = ({
   )
   const className = cn(
     buttonVariants({ variant: 'row', size: 'row' }),
-    'w-full items-center gap-(--hd-table-lead-gap) px-(--hd-table-edge)',
+    'w-full items-center gap-(--hd-table-lead-gap) border-0 px-(--hd-table-edge)',
     (sub || tall || ask || meta) ? 'min-h-(--hd-table-row-min) py-0' : 'min-h-(--hd-table-row-min-bare) py-1',
     !onClick && 'cursor-default hover:bg-transparent',
   )
@@ -150,7 +150,7 @@ const PanelRow = ({
   }
 
   return onClick ? (
-    <Button variant="row" size="row" className={className} onClick={onClick} {...attrs}>
+    <Button variant="row" size="row" bordered={false} className={className} onClick={onClick} {...attrs}>
       {content}
     </Button>
   ) : (

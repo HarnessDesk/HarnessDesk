@@ -65,7 +65,7 @@ Twenty packages make up the repository:
 | `packages/responses-gateway` | Per-route loopback proxy for model routing | Zero dependencies |
 | `packages/agent-inventory` | Standalone cross-agent skill and MCP scanner | `protocol`, Node built-ins |
 
-The shell creates a macOS menu bar item only for the default `~/.harnessdesk` home; `HARNESSDESK_MENU_BAR=on` or `1` forces it on, and `off` or `0` forces it off.
+The shell defaults to a macOS menu bar item only for the default `~/.harnessdesk` home. `HARNESSDESK_MENU_BAR=on` or `1` changes that launch default to on, and `off` or `0` to off. A person's explicit **View › Show Menu Bar Icon** choice is saved in that home's `menu-bar.json` and takes precedence over launch defaults, so an isolated desk can restore its own icon without adding icons to other worker desks.
 
 ## The agent plane
 

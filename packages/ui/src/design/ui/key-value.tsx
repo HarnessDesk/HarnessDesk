@@ -102,9 +102,9 @@ const MiddleTruncate = ({ children, className, prefix, title: suppliedTitle, ...
 /** The key column's look, one spelling for every shape of the list. */
 const KEY_CLASS = 'text-start text-(--hd-muted-foreground)'
 
-/** A value as the list draws it: a path gives up its middle, anything else is itself. */
-const valueOf = (children: React.ReactNode, kind: 'text' | 'path'): React.ReactNode =>
-  kind === 'path' && typeof children === 'string' ? <MiddleTruncate>{children}</MiddleTruncate> : children
+/** Names and paths stay on one line with both ends; sentences retain their full wrapping text. */
+const valueOf = (children: React.ReactNode, kind: 'text' | 'path' | 'name'): React.ReactNode =>
+  kind !== 'text' && typeof children === 'string' ? <MiddleTruncate>{children}</MiddleTruncate> : children
 
 /**
  * Facts about one thing, in the shape a reader scans them.
@@ -129,11 +129,13 @@ const valueOf = (children: React.ReactNode, kind: 'text' | 'path'): React.ReactN
  * the next.
  */
 
+const KeyValueSurface = createContext<'default' | 'panel'>('default')
 const KeyValue = ({
   className,
   columns = 1,
   variant = 'default',
   inset,
+  style,
   ...props
 }: React.ComponentProps<'dl'> & {
   columns?: 1 | 2
@@ -141,7 +143,8 @@ const KeyValue = ({
   /** `row`: the facts stand on the row edge, as a panel card's rows and headings do. */
   inset?: 'row'
 }) => (
-  <dl
+  <KeyValueSurface.Provider value={variant}><dl
+    style={{ ...style, ...(variant === 'panel' ? { '--summary-key': `${FRAME.summaryKey.panel}px` } : {}) } as CSSProperties}
     data-slot="key-value"
     data-variant={variant}
     className={cn(
@@ -155,11 +158,11 @@ const KeyValue = ({
          word painted past its box. What holds a value inside is the value
          itself — `break-words` wraps a long word, and `kind="path"` cuts
          the middle of a path. */
-      columns === 2 ? 'grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]' : 'grid-cols-[auto_minmax(0,1fr)]',
+      variant === 'panel' ? columns === 2 ? 'grid-cols-[var(--summary-key)_minmax(0,1fr)_var(--summary-key)_minmax(0,1fr)]' : 'grid-cols-[var(--summary-key)_minmax(0,1fr)]' : columns === 2 ? 'grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]' : 'grid-cols-[auto_minmax(0,1fr)]',
       className,
     )}
     {...props}
-  />
+  /></KeyValueSurface.Provider>
 )
 
 const KeyValueRow = ({
@@ -171,7 +174,7 @@ const KeyValueRow = ({
   footer = false,
   numeric = false,
   kind = 'text',
-  variant = 'default',
+  variant: suppliedVariant,
   ...props
 }: Omit<React.ComponentProps<'div'>, 'children'> & {
   label: React.ReactNode
@@ -183,10 +186,13 @@ const KeyValueRow = ({
   footer?: boolean
   /** A count, a total, money: right-aligned on tabular figures so a column of them lines up by place. */
   numeric?: boolean
-  /** `path` gives up the middle of a string value rather than its end, with the whole in its title while cut. */
-  kind?: 'text' | 'path'
+  /** Names and paths give up the middle of a string, with the full accessible value and a title while cut. */
+  kind?: 'text' | 'path' | 'name'
   variant?: 'default' | 'panel'
-}) => (
+}) => {
+  const inheritedVariant = useContext(KeyValueSurface)
+  const variant = suppliedVariant ?? inheritedVariant
+  return (
   /* Ordinary pairs join the parent columns; a footer inherits those same
      columns through subgrid, so its strong rule crosses the whole list. */
   <div
@@ -223,6 +229,7 @@ const KeyValueRow = ({
     {note && <dd data-slot="key-value-note" className="col-span-full m-0 min-w-0 whitespace-normal break-words text-sm text-(--hd-muted-foreground)">{note}</dd>}
   </div>
 )
+}
 
 /**
  * Several facts about one thing, in one card.
@@ -272,7 +279,7 @@ const ON_ACTION_LINE =
 const SummaryItem = ({ className, label, children, note, noteKind = 'text', action, numeric = false, kind = 'text', ...props }:
   Omit<React.ComponentProps<'div'>, 'children'> & {
     label: React.ReactNode; children: React.ReactNode; note?: React.ReactNode; action?: React.ReactNode
-    numeric?: boolean; kind?: 'text' | 'path'
+    numeric?: boolean; kind?: 'text' | 'path' | 'name'
     /** `path` gives a one-line note its middle to lose, as `kind` does the value: for a hash or a path, never a sentence. */
     noteKind?: 'text' | 'path'
   }) => {

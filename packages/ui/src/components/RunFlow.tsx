@@ -33,7 +33,8 @@ const entriesNamed = (entries: readonly FlowEntry[], name: string): readonly Flo
  * is said where the file opens. Editing stays where it was, in the catalogue,
  * for the next Run.
  */
-export const RunFlow = ({ execution, root, seats, cards = [], attempts, waitingSeats, selectedStep, onSelectStep, faces, faceTints, doing, sessions }: {
+export const RunFlow = ({ inline = false, execution, root, seats, cards = [], attempts, waitingSeats, selectedStep, onSelectStep, faces, faceTints, doing, sessions }: {
+  inline?: boolean
   execution: Pick<FlowExecution, 'document' | 'revision' | 'rounds'> & Partial<Pick<FlowExecution, 'operations' | 'state' | 'currentEndedAt'>>
   /** The project the Run belongs to, where its Flow's file is looked for; null when it is not known. */
   root: string | null
@@ -73,7 +74,7 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, waitingS
           <Text role="meta">{execution.revision ? `revision ${execution.revision} · ` : ''}frozen when this Run started</Text>
         </span>
       </div>
-      <FlowGraph title="The path this Run took" listPlacement="responsive" model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
+      <FlowGraph title="The path this Run took" listPlacement={inline ? "inline" : "responsive"} model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
     </div>
   )
 }

@@ -6,8 +6,10 @@ import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
 import { type Tint as AccountTint } from '../../lib/accounts'
 import { ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, FilterIcon, SearchIcon, StaleIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
-import { avatarSrc } from '../../lib/avatars'
-import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
+import { avatarSrc, hasAvatarPlate } from '../../lib/avatars'
+import { toggleVariants } from '../ui/toggle-group'
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group'
+import { cn } from '../../lib/utils'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
@@ -563,9 +565,10 @@ export const NoteList = ({ className, ...props }: ComponentProps<'ul'>) => (
  * keyboard reaching the fourth choice pressed Tab four times, where a real
  * radio group is one press to enter and arrows to choose. It now sits on
  * `design/ui/radio-group`, the shadcn Base UI build, which brings the roving
- * focus, the arrow keys, Home/End, and the form value with it.
+ * focus, arrow-key selection, and the form value with it. Home/End stay with
+ * the page, following the primitive's radio policy.
  *
- * The canonical toggle group supplies radio semantics and roving focus while
+ * The canonical radio group supplies radio semantics and roving focus while
  * this pattern supplies the settings-specific segmented appearance.
  * An unavailable answer takes a disabled reason, kept in its hover title.
  */
@@ -580,34 +583,33 @@ export const Segmented = <T extends string>({
   onChange: (next: T) => void
   label: string
 }) => (
-  <ToggleGroup
-    type="single"
-    /* The utility displaces the primitive's grid in tailwind-merge; the
-       shared switcher sheet owns the track's gap and geometry. */
-    className={`inline-flex ${switcherTrack}`}
+  <RadioGroup
+    variant="choice"
+    className={`group/toggle-group flex w-fit items-center rounded-md ${switcherTrack}`}
     aria-label={label}
     value={value}
-    /* A second press on the chosen segment asks the group to empty itself.
-       A segmented control always holds an answer, so that press is ignored
-       here rather than by every caller that remembered to. */
-    onValueChange={(next) => {
-      if (next !== '') onChange(next as T)
-    }}
+    onValueChange={next => { if (next !== '') onChange(next as T) }}
   >
     {options.map((option) => (
-      <ToggleGroupItem
+      <RadioGroupItem
         key={option.value}
+        /* Preserve the Segmented marker used by shot probes and recorded guides. */
+        data-slot="toggle-group-item"
+        variant="choice"
+        nativeButton
+        render={<Button type="button" variant="ghost" size="pattern" className="disabled:opacity-100" />}
         value={option.value}
+        data-pressed={value === option.value ? '' : undefined}
         disabled={!!option.disabled}
         title={typeof option.disabled === 'string' ? option.disabled : undefined}
         /* Tabs and filters share the switcher’s track, size and raised press.
            Keep the primitive's hover from dimming a segment's label. */
-        className={`${switcherItem} hover:text-(--hd-foreground) data-pressed:bg-(--hd-background) data-pressed:text-(--hd-foreground)`}
+        className={cn(toggleVariants(), 'flex-none rounded-none shadow-none first:rounded-l-md last:rounded-r-md', `${switcherItem} hover:text-(--hd-foreground) data-pressed:bg-(--hd-background) data-pressed:text-(--hd-foreground)`)}
       >
         {option.label}
-      </ToggleGroupItem>
+      </RadioGroupItem>
     ))}
-  </ToggleGroup>
+  </RadioGroup>
 )
 
 /** The same segmented setting when it reports a value instead of changing it. */
@@ -1237,6 +1239,8 @@ export const RowChoice = ({
  * beside it wear. When faces are square the corner steps up the radius scale
  * with the size, so the seat's 24px and the profile page's 44px read as one
  * object at two sizes.
+ * Plated colourways crop their inset plate to that same corner without
+ * enlarging the mark. Transparent marks and sticker artwork stay whole.
  *
  * Without a `size` it fills the box it is put in and takes that box's corner:
  * a room's message rows draw a tile for every sender, and a person's face
@@ -1258,6 +1262,7 @@ export const Face = ({
   readonly className?: string
 }) => {
   const src = avatarSrc(avatar)
+  const picture = src ? <img className={styles.avatarPicture} src={src} alt="" draggable={false} /> : null
   return (
     <span
       className={className ? `${styles.avatar} ${className}` : styles.avatar}
@@ -1267,8 +1272,10 @@ export const Face = ({
         : { 'data-size': size > 32 ? 'm' : 's', style: { width: size, height: size } })}
       aria-hidden="true"
     >
-      {src ? (
-        <img className={styles.avatarPicture} src={src} alt="" draggable={false} />
+      {picture ? (
+        hasAvatarPlate(avatar)
+          ? <span className={styles.avatarPicturePlate} data-slot="face-picture-plate" data-crop="">{picture}</span>
+          : picture
       ) : (
         // 0.44 is the ratio the seat always drew at: an 11px mark in its
         // 24px disc, 13px in the menu's 30px one. A filling tile sizes the

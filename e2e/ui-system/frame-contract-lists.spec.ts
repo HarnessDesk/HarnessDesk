@@ -55,9 +55,21 @@ test('Lists R9 Library card description occupies no more than two lines', async 
 test('Lists R9 Agents show each seat mark and the shortened source path', async ({ page }) => {
   await openFrame(page, 'frame-wall=agents', 'light', 1440)
   const agents = page.locator('[data-page-destination="agents"]:visible')
+  const cards = agents.locator('[data-slot="agent-card"]')
+  await expect(cards).toHaveCount(5)
+  await expect(cards.locator('[data-slot="agent-card-face"]')).toHaveCount(5)
+  const sources = agents.getByRole('button', { name: 'Sources and precedence', exact: true })
+  await expect(sources).toHaveAttribute('aria-expanded', 'false')
+  await expect(agents.locator('section[aria-label^="Sources:"]')).toHaveCount(0)
+  await sources.click()
+  await expect(sources).toHaveAttribute('aria-expanded', 'true')
   const rows = agents.locator('[data-kind="record"]')
+  // Five effective roles and one lower-precedence copy; the copy stays in
+  // Sources rather than becoming a duplicate role card in the catalogue.
   await expect(rows).toHaveCount(6)
-  const faceKinds = await rows.locator('[data-slot="row-face"]').evaluateAll(nodes => nodes.map(node => ({
+  const faces = rows.locator('[data-slot="agent-card-face"], [data-slot="row-face"]')
+  await expect(faces).toHaveCount(6)
+  const faceKinds = await faces.evaluateAll(nodes => nodes.map(node => ({
     runtime: node.querySelector('svg[class*="brand-"]') !== null,
     avatar: node.querySelector('[data-slot="monogram"]') !== null,
     generic: node.querySelector('svg.lucide-bot') !== null,
@@ -66,7 +78,7 @@ test('Lists R9 Agents show each seat mark and the shortened source path', async 
 
   const root = '/work/storefront'
   const project = root.split('/').at(-1)!
-  const source = agents.locator(`section[aria-label="In ${project}"] [data-slot="middle-truncate"]`)
+  const source = agents.locator('section[aria-label="Sources: Project"] [data-slot="middle-truncate"]')
   await expect(source).toContainText(`${project}/.harnessdesk/agents`)
   await expect(source).toHaveAttribute('title', `${root}/.harnessdesk/agents`)
 })

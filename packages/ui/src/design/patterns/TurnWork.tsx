@@ -113,7 +113,7 @@ const TurnWorkLive = ({
   ...props
 }: React.ComponentProps<'div'> & { trail?: React.ReactNode; settled?: boolean }) => {
   const line = cn(
-    'flex min-h-(--hd-control-h) items-center gap-(--hd-space-1-5) pt-0.5 pb-1 pl-0.5 text-base text-(--hd-muted-foreground)',
+    'flex min-h-(--hd-control-h) items-center gap-(--hd-space-1-5) pt-0.5 pb-1 text-base text-(--hd-muted-foreground)',
     className,
   )
   const words = settled ? (

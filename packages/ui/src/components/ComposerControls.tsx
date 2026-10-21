@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useCallback, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
 import { Button, Chip, ComposerTrack, Dialog, IssueMark, Row, RowChoice, Text } from '../design'
@@ -45,11 +45,27 @@ import {
   ZapIcon,
 } from './Icons'
 import { ModelMark, RuntimeMark } from './BrandIcons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSearch, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
+import { Menu, MenuItem, MenuLabel, MenuNote, MenuSearch, MenuSeparator, MenuToggle, RefusedAction, Submenu, useMenuClose } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
 import { Popover } from '../design'
 import sheet from './ComposerControls.module.css'
 
+type OptionMenuIdentity = { readonly label: string; readonly title: string; readonly icon: ReactNode; readonly value: string; readonly valueTitle?: string }
+const OptionMenuContext = createContext<OptionMenuIdentity | null>(null)
+/** A member's existing control menus, with one canonical identity/value submenu row. */
+export const ComposerOptionMenu = ({ children, ...identity }: OptionMenuIdentity & { readonly children: ReactNode }) =>
+  <OptionMenuContext.Provider value={identity}>{children}</OptionMenuContext.Provider>
+const OptionTrack = (props: ComponentProps<typeof ComposerTrack>) => useContext(OptionMenuContext) ? <>{props.children}</> : <ComposerTrack {...props} />
+const MemberOptionPopover = ({ identity, children }: { identity: OptionMenuIdentity; children: ComponentProps<typeof Popover>['children'] }) => {
+  const close = useMenuClose()
+  return <Submenu icon={identity.icon} label={<span title={identity.title}>{identity.label}</span>} value={<Text role="muted" truncate title={identity.valueTitle ?? identity.value}>{identity.value}</Text>}>
+    {children(close)}
+  </Submenu>
+}
+const OptionPopover = (props: ComponentProps<typeof Popover>) => {
+  const identity = useContext(OptionMenuContext)
+  return identity ? <MemberOptionPopover identity={identity}>{props.children}</MemberOptionPopover> : <Popover {...props} />
+}
 /**
  * The controls that live in the composer.
  *
@@ -158,11 +174,12 @@ export const useNarrowToolbar = (name: ToolbarTrack): {
   folded: boolean
   tight: boolean
 } => {
+  const menu = useContext(OptionMenuContext)
   const layout = useActiveSession() ? 'live' : 'draft'
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null)
   const ref = useCallback((node: HTMLSpanElement | null) => {
-    setToolbar(node?.closest<HTMLElement>('[data-slot="composer-tools"]') ?? node?.parentElement ?? null)
-  }, [])
+    setToolbar(menu ? null : node?.closest<HTMLElement>('[data-slot="composer-tools"]') ?? node?.parentElement ?? null)
+  }, [menu])
   // A step, not a width: set on every frame of a resize, a width would draw
   // the control again on every frame; a step only when one is crossed.
   const [step, setStep] = useState<ToolbarStep>({ folded: 0, tight: false })
@@ -196,7 +213,7 @@ export const useNarrowToolbar = (name: ToolbarTrack): {
   }, [toolbar, layout])
   const foldIndex = FOLD_ORDER.indexOf(name as FoldableTrack)
   const foldable = foldIndex >= 0
-  return { ref, folded: foldable && step.folded >= foldIndex + 1, tight: foldable && step.tight }
+  return { ref, folded: !menu && foldable && step.folded >= foldIndex + 1, tight: !menu && foldable && step.tight }
 }
 
 /** A control's wrapper: no box of its own, just a way to reach the toolbar. */
@@ -338,7 +355,9 @@ const ChoiceRows = ({
   const store = useStore()
   const key = useSessionKey()
   const agent = brandForRuntime(useRuntime())
-  const column = describesEveryChoice(option)
+  // Low and High already name the reasoning distinction. Runtime-defined
+  // modes can carry consequences their names do not explain.
+  const column = option.category !== 'thought_level' && describesEveryChoice(option)
   const groups = new Map<string | undefined, OptionChoice[]>()
   for (const choice of choices) {
     const list = groups.get(choice.group) ?? []
@@ -371,6 +390,11 @@ const ChoiceRows = ({
 }
 
 /** One option, whole: its heading, its reason when refused, and its rows. */
+// An identifier used as its own label is not a human explanation. Keep that
+// switch's description visible even when its identifier has a namespace.
+const toggleHint = (option: ConfigOption): string | undefined =>
+  option.label === option.id || option.label === option.id.split(/[.:/]/).at(-1) ? option.description : undefined
+
 const OptionRows = ({ option }: { option: ConfigOption }) => {
   const store = useStore()
   const key = useSessionKey()
@@ -383,7 +407,8 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
       {option.type === 'boolean' ? (
         <MenuToggle
           label={option.label}
-          hint={option.disabled ?? option.description}
+          hint={toggleHint(option)}
+          title={option.description}
           checked={option.currentValue}
           disabled={option.disabled}
           onChange={(next) => ask(option, next, () => void (key ? store.setOption(option.id, next, key) : store.setOption(option.id, next)))}
@@ -475,13 +500,13 @@ export const PermissionControl = () => {
 
   if (options.length === 0) {
     return (
-      <ComposerTrack name="permissions" folded={folded} tight={tight}>
+      <OptionTrack name="permissions" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
           <MissingOptionControl stale={stale} label="Permissions" reason="This runtime has no permission setting" narrow={folded} tight={tight}>
             <ShieldIcon size={13} />
           </MissingOptionControl>
         </InToolbar>
-      </ComposerTrack>
+      </OptionTrack>
     )
   }
 
@@ -492,9 +517,9 @@ export const PermissionControl = () => {
   const current = first?.type === 'select' ? (selectedChoice(first)?.label ?? (first.currentValue === first.collaboration?.planValue ? 'Permissions' : currentLabel(first))) : first?.label
 
   return (
-    <ComposerTrack name="permissions" folded={folded} tight={tight} contentSized={!folded && !tight}>
+    <OptionTrack name="permissions" folded={folded} tight={tight} contentSized={!folded && !tight}>
       <InToolbar refer={ref}>
-        <Popover
+        <OptionPopover
           fullWidth
           tightTrigger={tight}
           aria-label={`Permissions${current && current !== 'Permissions' ? ` — ${current}` : ''}`}
@@ -534,9 +559,9 @@ export const PermissionControl = () => {
               ))}
             </Menu>
           )}
-        </Popover>
+        </OptionPopover>
       </InToolbar>
-    </ComposerTrack>
+    </OptionTrack>
   )
 }
 
@@ -592,13 +617,13 @@ export const ModelControl = () => {
       : first
   if (!model) {
     return (
-      <ComposerTrack name="model" folded={folded} tight={tight}>
+      <OptionTrack name="model" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
           <MissingOptionControl stale={stale} label="Model" reason="This runtime has no model setting" narrow={folded} tight={tight}>
             <ModelIcon size={13} />
           </MissingOptionControl>
         </InToolbar>
-      </ComposerTrack>
+      </OptionTrack>
     )
   }
   const levelSelects = levels.filter((option): option is SelectOption => option.type === 'select')
@@ -631,10 +656,10 @@ export const ModelControl = () => {
   }
 
   return (
-    <ComposerTrack name="model" folded={folded} tight={tight} contentSized={!folded && !tight}>
+    <OptionTrack name="model" folded={folded} tight={tight} contentSized={!folded && !tight}>
       <InToolbar refer={ref}>
         {dialog}
-        <Popover
+        <OptionPopover
           fullWidth
           tightTrigger={tight}
           /* Narrow, the words go to the hover text — and so, with nothing else
@@ -695,11 +720,11 @@ export const ModelControl = () => {
                   key={option.id}
                   icon={<BrainIcon size={14} />}
                   label={option.label}
+                  title={option.description}
                   value={currentLabel(option)}
                   disabled={option.disabled}
 
                  wide icons="none">
-                  {option.description && <MenuNote>{option.description}</MenuNote>}
                   <UnavailableChoice option={option} />
                   <ChoiceRows option={option} />
                   {/* Switches about thinking ride with the first effort select. */}
@@ -710,7 +735,8 @@ export const ModelControl = () => {
                         <MenuToggle
                           key={toggle.id}
                           label={toggle.label}
-                          hint={toggle.description}
+                          hint={toggleHint(toggle)}
+                          title={toggle.description}
                           checked={toggle.currentValue}
                           disabled={toggle.disabled}
                           onChange={(next) =>
@@ -727,7 +753,8 @@ export const ModelControl = () => {
                     <MenuToggle
                       key={toggle.id}
                       label={toggle.label}
-                      hint={toggle.description}
+                      hint={toggleHint(toggle)}
+                      title={toggle.description}
                       checked={toggle.currentValue}
                       disabled={toggle.disabled}
                       onChange={(next) => ask(toggle, next, () => void (key ? store.setOption(toggle.id, next, key) : store.setOption(toggle.id, next)))}
@@ -762,7 +789,7 @@ export const ModelControl = () => {
                   <MenuItem
                     selected={snapshot.draftRouteId === null}
                     label="Direct"
-                    hint="The backend's own provider and account."
+                    title="The backend's own provider and account."
                     onSelect={() => store.setDraftRoute(null)}
                   />
                   {routes.map((route) => (
@@ -787,9 +814,9 @@ export const ModelControl = () => {
               <RuntimeBuildNote />
             </Menu>
           )}
-        </Popover>
+        </OptionPopover>
       </InToolbar>
-    </ComposerTrack>
+    </OptionTrack>
   )
 }
 
@@ -839,6 +866,7 @@ const RuntimeBuildNote = () => {
 
 /** The runtime's collaboration modes — plan first, act directly, whatever it offers. */
 export const ModeControl = () => {
+  const menu = useContext(OptionMenuContext)
   const { ref, folded, tight } = useNarrowToolbar('mode')
   const live = Boolean(useActiveSession())
   const all = useComposerOptions()
@@ -848,22 +876,22 @@ export const ModeControl = () => {
   if (!mode) {
     if (stale.length === 0) return null
     return (
-      <ComposerTrack name="mode" folded={folded} tight={tight}>
+      <OptionTrack name="mode" folded={folded} tight={tight}>
         <InToolbar refer={ref}>
           <MissingOptionControl stale={stale} label="Mode" reason="This runtime has no mode setting" narrow={folded} tight={tight}>
             <ZapIcon size={13} />
           </MissingOptionControl>
         </InToolbar>
-      </ComposerTrack>
+      </OptionTrack>
     )
   }
   const current = mode.type === 'select' ? selectedChoice(mode) : undefined
   const label = mode.type === 'select' ? currentLabel(mode) : mode.label
-  const singleValue = mode.type === 'select' && mode.choices.length === 1 && current !== undefined && stale.length === 0
+  const singleValue = !menu && mode.type === 'select' && mode.choices.length === 1 && current !== undefined && stale.length === 0
   const showFoldedMark = singleValue && folded && !live
 
   return (
-    <ComposerTrack name="mode" folded={folded} tight={tight} contentSized={singleValue && !tight && (!folded || live)}>
+    <OptionTrack name="mode" folded={folded} tight={tight} contentSized={singleValue && !tight && (!folded || live)}>
       <InToolbar refer={ref}>
         {singleValue ? (
           tight ? null : showFoldedMark ? (
@@ -872,7 +900,7 @@ export const ModeControl = () => {
               <span className="sr-only">{label}</span>
             </Chip>
           ) : <Chip tone="neutral" title="Collaboration mode">{label}</Chip>
-        ) : <Popover
+        ) : <OptionPopover
           fullWidth
           tightTrigger={tight}
           aria-label={`Collaboration mode — ${label}`}
@@ -896,9 +924,9 @@ export const ModeControl = () => {
               ))}
             </Menu>
           )}
-        </Popover>}
+        </OptionPopover>}
       </InToolbar>
-    </ComposerTrack>
+    </OptionTrack>
   )
 }
 
@@ -910,10 +938,10 @@ export const MoreControl = () => {
   const stale = useStaleDefaults('more')
 
   return (
-    <ComposerTrack name="more" folded={folded} tight={tight}>
+    <OptionTrack name="more" folded={folded} tight={tight}>
       <InToolbar refer={ref}>
         {(others.length > 0 || stale.length > 0) && (
-          <Popover
+          <OptionPopover
             fullWidth
             tightTrigger={tight}
             title="More options"
@@ -935,10 +963,10 @@ export const MoreControl = () => {
                 ))}
               </Menu>
             )}
-          </Popover>
+          </OptionPopover>
         )}
       </InToolbar>
-    </ComposerTrack>
+    </OptionTrack>
   )
 }
 

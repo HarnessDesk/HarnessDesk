@@ -45,6 +45,8 @@ export interface FlowCanvasNodeProps<Data extends FlowCanvasStep = FlowCanvasSte
 export interface FlowCanvasProps<Data extends FlowCanvasStep = FlowCanvasStep> {
   readonly nodes: readonly FlowCanvasNode<Data>[]
   readonly edges: readonly FlowCanvasEdge[]
+  /** Keep dense configuration controls readable; bounded to 0.05–1. Defaults to 0.05. */
+  readonly minZoom?: number
   readonly readOnly?: boolean
   /** A still poster: no selection, panning or zooming; page gestures pass through. */
   readonly inert?: boolean

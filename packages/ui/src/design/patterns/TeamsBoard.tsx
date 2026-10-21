@@ -4,7 +4,7 @@ import { Input } from '../ui/input'
 import { Dot, Text } from './Settings'
 import { BoardCard } from './BoardCard'
 import { SegmentMeter } from '../ui/chart'
-import { Menu, MenuItem } from './Menu'
+import { IssueMark, Menu, MenuItem } from './Menu'
 import { Popover } from './Popover'
 import { PageOptions } from './PageOptions'
 import { CaretIcon, PlusIcon } from '../../components/Icons'
@@ -17,6 +17,7 @@ export const TeamsBoardToolbar = ({create,disabled,project,projects,changeProjec
  readonly search:string; readonly changeSearch:(value:string)=>void
 }) => <div data-slot="teams-board-toolbar" className={styles.toolbar}>
  <PageOptions title="Teams" action={{label:'New Team',icon:<PlusIcon/>,disabled:disabled?'Open a project folder first.':false,run:create}}/>
+ <Text as="p" role="muted" ink="secondary" className={styles.purpose}>Follow the work, answer what needs you, and wrap what’s done.</Text>
  <div className={styles.filters}>
  <Popover title="Filter Teams by project" label={<>{projects.find(one=>one.id===project)?.label ?? 'All projects'}<CaretIcon/></>} icons="none" triggerVariant={{variant:'ghost',size:'sm'}}>
   {close=><Menu close={close}>{[{id:'',label:'All projects'},...projects].map(one=><MenuItem key={one.id} label={one.label} selected={one.id===project} onSelect={()=>{changeProject(one.id);close()}}/>)}</Menu>}
@@ -37,15 +38,16 @@ export const TeamsBoardColumn = ({label,tone,count,children}: {
 </section>
 
 /** One Team's work, observed Run path and faces, with a single keyboard opening. */
-export const TeamsBoardCard = ({id,title,brief,summary,attention=false,unread=false,path,faces,project,age,open}: {
- readonly id:string; readonly title:string; readonly brief:string; readonly summary:string; readonly attention?:boolean; readonly unread?:boolean
+export const TeamsBoardCard = ({id,title,brief,summary,issue,attention=false,unread=false,path,faces,project,age,open}: {
+ readonly id:string; readonly title:string; readonly brief:string; readonly summary:string; readonly issue?:string; readonly attention?:boolean; readonly unread?:boolean
  readonly path:readonly {readonly id:string;readonly label:string;readonly state:'done'|'current'|'future'}[]
  readonly faces?:ReactNode; readonly project:string; readonly age:ReactNode; readonly open:()=>void
 }) => {
  const description=useId(),facts=useId()
- return <BoardCard data-team-row={id} label={`Open ${title}`} title={title} onOpen={open} aria-describedby={`${description} ${facts}`}
+ return <BoardCard data-team-row={id} label={`Open ${title}`} title={<span className={styles.title}>{title}</span>} onOpen={open} aria-describedby={`${description} ${facts}`}
   titleProps={{'data-slot':'team-title',title:brief}} titleAside={unread && <Dot tone="info" aria-label="Unread changes"/>}
-  detail={summary} detailProps={{id:description,'data-slot':'team-detail',title:summary}} attention={attention}
+  detail={issue?<span className={styles.status}><Text role="muted" tone={attention?'warning':undefined}>{summary}</Text><IssueMark message={issue}/></span>:summary}
+  detailProps={{id:description,'data-slot':'team-detail',title:issue??summary}} detailLines={issue?undefined:2} attention={attention&&!issue}
   middle={path.length>0 && <SegmentMeter className={styles.path} steps={path.map(step=>({...step,key:step.id}))}
    label={path.map(step=>`${step.label}: ${step.state==='future'?'not reached':step.state}`).join(', ')}/>}
   footer={<>{faces}<Text id={facts} role="meta" className={styles.facts}><span className={styles.project} title={project}>{project}</span><span>·</span><span data-slot="team-age">{age}</span></Text></>}/>

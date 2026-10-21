@@ -1,9 +1,39 @@
 import { expect, test } from '@playwright/test'
 import { openFrame } from './frame-contract-helpers'
 import { useFrameContractEvidence } from './frame-contract-split-setup'
+import { applyLeftColumnActions } from './left-column-actions'
 
 useFrameContractEvidence()
 
+for (const width of [1440, 720]) test(`Settings keeps the same column when short and long pages exchange the scrollbar at ${width}px`, async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings&frame-section=browser', 'light', width)
+  const destination = page.locator('[data-page-destination="settings"]')
+  const navigation = page.getByRole('navigation', { name: 'Settings navigation' })
+  const measure = () => destination.evaluate(scope => {
+    const title = scope.querySelector('h1')!.getBoundingClientRect()
+    const column = scope.querySelector('[data-slot="page"]')!.getBoundingClientRect()
+    return { titleLeft: title.left, columnLeft: column.left, columnRight: column.right,
+      clientWidth: scope.clientWidth, clientHeight: scope.clientHeight, scrollHeight: scope.scrollHeight,
+      gutter: getComputedStyle(scope).scrollbarGutter }
+  })
+  await expect(destination.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
+  const short = await measure()
+  await applyLeftColumnActions(page, { leftOpen: true })
+  await navigation.getByRole('button', { name: 'General', exact: true }).click()
+  await expect(destination.getByRole('heading', { name: 'General', exact: true })).toBeVisible()
+  const long = await measure()
+  if (width === 1440) expect(short.scrollHeight, 'Browser has no vertical overflow').toBeLessThanOrEqual(short.clientHeight)
+  expect(long.scrollHeight, 'General exercises a vertical scrollbar').toBeGreaterThan(long.clientHeight)
+  expect(long.clientWidth, 'the scrollport keeps its available width').toBe(short.clientWidth)
+  expect(long.titleLeft, 'the page title keeps its column edge').toBe(short.titleLeft)
+  expect([long.columnLeft, long.columnRight], 'the reading column stays in place').toEqual([short.columnLeft, short.columnRight])
+  expect(short.gutter).toBe('stable')
+  expect(long.gutter).toBe('stable')
+  await applyLeftColumnActions(page, { leftOpen: true })
+  await navigation.getByRole('button', { name: 'Browser', exact: true }).click()
+  await expect(destination.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
+  expect(await measure()).toEqual(short)
+})
 
 
 {
@@ -106,14 +136,14 @@ test('FIX4 ceiling chips keep a chip gap and distinguish asked from held once pe
   const rows = section.locator('[data-slot="row"]')
   await expect(rows).toHaveCount(12)
   for (const [index, row] of (await rows.all()).entries()) {
-    const options = row.locator('[data-slot="toggle-group-item"]')
+    const options = row.getByRole('radio')
     await expect(options).toHaveCount(4)
     expect(await options.allTextContents()).toEqual(['Read only', 'Edit', 'Publish', 'Merge'])
     for (const option of await options.all()) { await expect(option).toBeVisible(); await expect(option).toBeDisabled() }
     // AUDIT-4 R11.15 replaces four held/asked chips with one readout and a state chip.
     const expected = index === 0 ? 'Edit' : index === 1 ? 'Read only' : index % 2 === 0 ? 'Publish' : 'Merge'
-    await expect(row.locator('[data-slot="toggle-group-item"][aria-pressed="true"]')).toHaveCount(1)
-    await expect(row.locator('[data-slot="toggle-group-item"][aria-pressed="true"]')).toHaveText(expected)
+    await expect(row.getByRole('radio', { checked: true })).toHaveCount(1)
+    await expect(row.getByRole('radio', { checked: true })).toHaveText(expected)
     const chip = row.locator('[data-slot="row-title-chip"] [data-slot="chip"]')
     await expect(chip).toHaveCount(1)
     await expect(chip).toHaveText(index === 1 ? 'Asked' : 'Enforced')

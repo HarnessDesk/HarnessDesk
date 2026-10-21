@@ -133,3 +133,34 @@ test('the front-door scene dismisses the fixture\'s own echoes before its final 
   assert.notEqual(dismissed, -1, 'the front-door scene must call dismissFixtureEchoes() before its capture')
   assert.ok(dismissed > reachedGoal, 'the fixture\'s echoes are dismissed after the Goal page is reached, not before it exists to dismiss them from')
 })
+
+// Scene control-flow coverage without opening a browser: the field is hidden
+// until the real disclosure is clicked, so a direct programmatic fill refuses.
+test('the front-door scene reveals completion controls before filling Done when', async () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const from = shoot.indexOf("    'front-door': {")
+  const to = shoot.indexOf('\n    } },', from) + '\n    } },'.length
+  assert.ok(from >= 0 && to > from)
+  let completionOpen = false, done = ''
+  const fixtureStore = { openWorkspace: () => {} }
+  const document = {
+    querySelector: () => ({}),
+    querySelectorAll: () => [{ textContent: 'Start Team', disabled: false }],
+    body: { innerText: 'Ship it once every specialist approves' },
+  }
+  const cdp = { eval: async expression => new Function('fixtureStore', 'document', `return ${expression}`)(fixtureStore, document) }
+  const scene = new Function('cdp', 'STORE', 'q', 'REPO', 'sleep', 'openNewTeam', 'clickScrolled', 'waitForSnapshot', 'fill', 'click', 'dismissFixtureEchoes',
+    `return ({${shoot.slice(from, to)}})['front-door']`)(cdp, 'fixtureStore', JSON.stringify, '/workspace/storefront', async () => {},
+    async () => '[role="dialog"][aria-label="New Team"]', async label => {
+      if (label === 'Independent review') return true
+      if (label === 'Completion and dry run') { completionOpen = true; return true }
+      return false
+    }, async (read, accept) => assert.equal(accept(await read()), true), async (label, value) => {
+      if (label === 'What should they do?') return true
+      if (label === 'Done when · optional' && completionOpen) { done = value; return true }
+      return false
+    }, async () => true, async () => {})
+  await scene.run()
+  assert.equal(completionOpen, true)
+  assert.equal(done, 'Ship it once every specialist approves')
+})

@@ -1,6 +1,7 @@
 import { runBar } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import { framedTableFixture } from './git-table-fixture'
+import { selectTeamDestination } from './team-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`framed tables keep interior detail and footer padding (${theme})`, async ({ page }) => {
@@ -27,7 +28,7 @@ for (const theme of ['light', 'dark'] as const) {
  * viewports and small controls have their own geometry; these are content
  * containers with an inset tier (docs/design.md). */
 const contracts = [
-  { selector: '[data-slot="composer-tail"] > *', tier: 'row' },
+  { selector: '[data-slot="composer-tail"][data-variant="default"] > *', tier: 'row' },
   { selector: '[data-slot="board-column"]', tier: 'dense' },
   { selector: '[data-slot="board-card"]', tier: 'card' },
   { selector: '[data-slot="bubble"][data-variant="secondary"]', tier: 'card' },
@@ -144,7 +145,13 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
         import insetReact from ${JSON.stringify(reactUrl)};
         import { SummaryList as InsetSummary, SummaryItem as InsetFact, AgentCard as InsetAgentCard, ApprovalDialog as InsetApproval, ApprovalReason as InsetReason, ApprovalCode as InsetCode } from '/src/design/index.ts';
         import { ListRow as InsetListRow, Row as InsetRow, Rows as InsetRows, IconTile as InsetTile, Button as InsetButton } from '/src/design/index.ts';
+        import { ComposerTail as InsetTail, TurnWorkLive as InsetLive } from '/src/design/index.ts';
         import { AlertIcon as InsetWarning } from '/src/components/Icons.tsx';
+        const tailHost = document.createElement('section');
+        tailHost.style.width = '360px'; tailHost.dataset.insetProbe = 'default-tail'; document.body.append(tailHost);
+        createRoot(tailHost).render(insetReact.createElement(InsetTail, null,
+          insetReact.createElement(InsetLive, { settled: true }, 'Alpha is waiting for your approval'),
+          insetReact.createElement(InsetLive, { settled: true }, 'Agents cannot message each other. You still can.')));
         const rowHost = document.createElement('section');
         rowHost.style.width = '360px'; document.body.append(rowHost);
         createRoot(rowHost).render(insetReact.createElement(InsetRows, null,
@@ -195,7 +202,36 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     const rail = team.locator('[data-work-rail-toggle]')
     if (await rail.getAttribute('aria-pressed') !== 'true') await rail.click()
     await expect(team.locator('[data-slot="summary-card"][data-surface="panel"]').first()).toBeVisible()
-    await expect(page.locator('[data-frame-id="goal-roster"] [data-slot="composer-tail"]')).toBeAttached()
+    const roster = page.locator('[data-frame-id="goal-roster"]')
+    await selectTeamDestination(roster, 'room')
+    const plainTail = roster.locator('[data-slot="composer-tail"][data-variant="plain"]')
+    await expect(plainTail).toBeVisible()
+    const defaultLines = page.locator('[data-inset-probe="default-tail"] [data-slot="composer-tail"][data-variant="default"] > *')
+    await expect(defaultLines).toHaveCount(2)
+    await expect(defaultLines.first()).toBeVisible()
+    await expect(defaultLines.last()).toBeVisible()
+    // Plain tails inherit each live line's own compact rhythm rather than
+    // the default tinted strip's row inset. Both contracts keep real coverage.
+    // A trail puts the polite region around the words, inside the same
+    // padded row. Measure that row, with or without the nested region.
+    const plainLines = plainTail.locator('> :has([data-slot="turn-work-live-words"])')
+    expect(await plainLines.count()).toBeGreaterThan(0)
+    await expect(plainLines.first()).toBeVisible()
+    const plainPadding = await plainLines.evaluateAll(lines => lines.map(line => {
+      const probe = document.createElement('div')
+      probe.style.padding = 'var(--hd-space-0-5) var(--hd-space-0) var(--hd-space-1) var(--hd-space-0)'
+      probe.style.minHeight = 'var(--hd-control-h)'
+      document.body.append(probe)
+      const expected = getComputedStyle(probe), css = getComputedStyle(line)
+      const sides = (style: CSSStyleDeclaration) => [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].map(parseFloat)
+      const measured = { actual: sides(css), expected: sides(expected), height: line.getBoundingClientRect().height, floor: parseFloat(expected.minHeight) }
+      probe.remove()
+      return measured
+    }))
+    for (const line of plainPadding) {
+      expect(line.actual).toEqual(line.expected)
+      expect(line.height).toBeGreaterThanOrEqual(line.floor)
+    }
     await expect(page.locator('[data-slot=approval-dialog-scope] [role=dialog]')).toBeVisible()
     await expect(page.locator('[data-slot="agent-card-band"]').filter({ hasText: 'The context budget is nearly full.' })).toBeVisible()
     const bareControl = page.locator('[data-slot="row"]').filter({ hasText: 'Choose a folder' })
@@ -309,14 +345,20 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     const frame = page.locator('#run-inspector-run')
     const inspector = frame.locator('[data-slot="run-inspector"]')
     await expect(inspector).toBeVisible()
+    const brief = inspector.getByRole('region', { name: 'Brief', exact: true })
+    await brief.getByRole('button', { name: 'Brief', exact: true }).click()
+    await expect(brief.locator('[data-slot="tool-prose"]')).toBeVisible()
     const edges = await inspector.evaluate(element => {
-      const title = element.querySelector('[data-slot="tool-section"] [data-slot="group-label"] [data-slot="text"]')!
-      const prose = element.querySelector('[data-slot="tool-prose"] [data-slot="text"]')!
-      const fact = element.querySelector('[data-slot="summary-item"] dt')!
+      const title = element.querySelector('[aria-label="Brief"] [data-slot="tool-section-fold"]')!
+      const prose = element.querySelector('[aria-label="Brief"] [data-slot="tool-prose"] [data-slot="text"]')!
+      const fact = element.querySelector('[aria-label="Run"] [data-slot="summary-item"] dt')!
       // Measured from the card's own content edge: inside its border, every line stands on one 12.
-      const card = element.querySelector('[data-slot="tool-section"]')!
-      const origin = card.getBoundingClientRect().left + parseFloat(getComputedStyle(card).borderLeftWidth)
-      return [title, fact, prose].map(node => node.getBoundingClientRect().left - origin)
+      // The fold's whole target starts there; its chevron precedes its text.
+      return [title, fact, prose].map(node => {
+        const card = node.closest('[data-slot="tool-section"]')!
+        const origin = card.getBoundingClientRect().left + parseFloat(getComputedStyle(card).borderLeftWidth)
+        return node.getBoundingClientRect().left - origin
+      })
     })
     expect(edges).toEqual([12, 12, 12])
     await expect(runBar(frame)).toBeVisible()
@@ -486,10 +528,12 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2000, 720])
       await expect(column, name).toHaveAttribute('data-width', measure)
       await expect.poll(() => column.evaluate(element => getComputedStyle(element).getPropertyValue('--hd-column').trim()), { message: `${name} foundation ready` }).toBe('736px')
       const geometry = await column.evaluate(element => {
-        const box = element.getBoundingClientRect(), parent = element.parentElement!.getBoundingClientRect(), css = getComputedStyle(element)
+        const box = element.getBoundingClientRect(), host = element.parentElement!, outer = host.getBoundingClientRect(), css = getComputedStyle(element)
+        // A reserved scrollbar gutter is outside the usable scrollport content.
+        const available = host.clientWidth, left = outer.left + host.clientLeft, right = left + available
         const padding = parseFloat(css.paddingLeft) + parseFloat(css.paddingRight)
         const limit = css.getPropertyValue(element.getAttribute('data-width') === 'reading' ? '--hd-column' : '--hd-page-wide')
-        return { width: box.width, available: parent.width, padding, cap: parseFloat(limit), left: box.left - parent.left, right: parent.right - box.right }
+        return { width: box.width, available, padding, cap: parseFloat(limit), left: box.left - left, right: right - box.right }
       })
       const target = measure === 'canvas' ? geometry.available : Math.min(geometry.available, geometry.cap + geometry.padding)
       expect(Math.abs(geometry.width - target), `${name} measure`).toBeLessThanOrEqual(1)

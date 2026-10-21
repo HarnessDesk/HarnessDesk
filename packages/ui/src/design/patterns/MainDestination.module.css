@@ -4,6 +4,7 @@
 .work { display: flex; flex-direction: column; }
 .pages { display: grid; }
 .body { grid-area: 1 / 1; min-width: 0; min-height: 0; overflow: auto; }
+.body[data-stable-gutter] { scrollbar-gutter: stable; }
 .root [hidden] { display: none; }
 
 /* Native work keeps its size and surface while the root clips it offscreen. */

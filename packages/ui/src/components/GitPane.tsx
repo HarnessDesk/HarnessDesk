@@ -1146,7 +1146,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             <MenuItem
               icon={<CopyIcon size={14} />}
               label="Copy as a patch"
-              hint="The mail-format text git am takes."
+              title="The mail-format text git am takes."
               onSelect={() =>
                 verb('Building the patch…', async () => {
                   const { patch } = await request('git/patch', { root, sha: menuCommit.sha })
@@ -1563,7 +1563,7 @@ const HeadCell = ({
         min={0}
         max={1}
         onChange={(next) => onNudge(name, GIT_COLUMNS[name].min + next * (GIT_COLUMNS[name].max - GIT_COLUMNS[name].min))}
-        className={styles.headGrip}
+        className={cn(styles.headGrip, 'absolute w-[calc(var(--hd-space-2)+var(--hd-border-width))]')}
         {...(dragging ? { 'data-dragging': '' } : {})}
         {...(width < LANE_W ? { 'data-tight': '' } : {})}
         label={`Resize the ${GIT_COLUMNS[name].label} column`}
@@ -2191,7 +2191,7 @@ const CommitDetail = ({
         min={0.2}
         max={0.75}
         onChange={setFraction}
-        className={styles.detailHandle}
+        className={cn(styles.detailHandle, 'absolute')}
         label="Resize the commit detail"
         onPointerDown={(event) => {
           event.preventDefault()

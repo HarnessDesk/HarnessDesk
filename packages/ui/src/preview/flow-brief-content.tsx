@@ -68,7 +68,8 @@ const useBriefScene = (scene: BriefScene, host: () => ParentNode | null, dialog:
           chosen = true
         }
       }
-      const area = container.querySelector<HTMLTextAreaElement>(dialog ? '[data-flow-details] textarea' : 'textarea')
+      const area = [...container.querySelectorAll<HTMLTextAreaElement>('textarea')]
+        .find(area => !dialog || [...area.labels ?? []].some(label => label.textContent === 'Brief'))
       if (!area) return
       if (scene === 'refused' || scene === 'pending') {
         const input = container.querySelector<HTMLInputElement>('input[type="file"]')!
