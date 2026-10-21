@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 
+import { openAccountUsage } from './left-column-actions'
+
 for (const theme of ['light', 'dark'] as const) {
   test(`quiet chips keep each tone and type while removing the pill (${theme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
@@ -72,10 +74,10 @@ test('a healthy account reading keeps plain ink rather than success ink', async 
   await page.goto('/preview.html')
   await page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]').click()
 
-  // The account menu's own reading, not the first one anywhere on the page:
-  // which one comes first depends on the window's width and on what else the
-  // preview draws (the Dashboard's rail used to hold one).
-  const reading = page.locator('[data-slot="popover-popup"]').getByText('78%', { exact: true }).first()
+  // Usage is its own level, so the account menu's own reading is on the lane
+  // rows in that flyout rather than in the root menu's five rows.
+  const usage = await openAccountUsage(page)
+  const reading = usage.locator('[data-menu-fact]').getByText('78% left', { exact: true }).first()
   await expect(reading).toBeVisible()
   const colours = await reading.evaluate(node => {
     const probe = document.createElement('span')

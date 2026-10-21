@@ -1274,7 +1274,7 @@ export const Face = ({
     >
       {picture ? (
         hasAvatarPlate(avatar)
-          ? <span className={styles.avatarPicturePlate} data-slot="face-picture-plate">{picture}</span>
+          ? <span className={styles.avatarPicturePlate} data-slot="face-picture-plate" data-crop="">{picture}</span>
           : picture
       ) : (
         // 0.44 is the ratio the seat always drew at: an 11px mark in its

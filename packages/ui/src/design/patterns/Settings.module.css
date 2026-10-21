@@ -1423,7 +1423,9 @@ pre.mono:not([data-block])[data-wrap] {
 /* The brand colourways carry the Dock's 824px plate inside a 1024px canvas
    (script/build-icons.mjs). Crop at that plate, in the face's own corner;
    counter-scale the image so the mark keeps its original size and margin.
-   Plain and the sticker drawings keep the uncropped image above. */
+   Plain and the sticker drawings keep the uncropped image above. The picture
+   is meant to be larger than this box, so it carries `data-crop`: the guides
+   must not read the crop as content lost past an edge. */
 .avatarPicturePlate {
   display: flex;
   align-items: center;

@@ -19,6 +19,25 @@ it('collects a semantic image as one glyph while ordinary labels and shifted box
   expect(missesOf([...peers, ...text], railsOf([...peers, ...text])).map(one => one.box.el)).toContain(number)
 })
 
+it('leaves a box that crops its picture on purpose out of the overflow findings', () => {
+  const root = document.createElement('div'), plate = document.createElement('span')
+  plate.dataset['slot'] = 'face-picture-plate'
+  plate.style.overflowX = 'hidden'
+  plate.style.overflowY = 'hidden'
+  plate.append(document.createElement('img'))
+  root.append(plate); document.body.append(root)
+  for (const el of [document.body, root]) vi.spyOn(el, 'getBoundingClientRect').mockReturnValue(bounds)
+  vi.spyOn(plate, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 10, 20, 20))
+  for (const [name, value] of [['clientWidth', 20], ['scrollWidth', 25], ['clientHeight', 20], ['scrollHeight', 25]] as const) {
+    Object.defineProperty(plate, name, { configurable: true, value })
+  }
+  // Without the marker a box whose content is larger than it is a clip.
+  expect(spillsOf(collect(root, bounds), bounds, root).map(one => one.how)).toEqual(['clipped'])
+  // A crop says so, because the picture being larger than the plate is the drawing.
+  plate.setAttribute('data-crop', '')
+  expect(spillsOf(collect(root, bounds), bounds, root)).toEqual([])
+})
+
 it('still diagnoses actual painted content spilling outside a semantic image', () => {
   const root = document.createElement('div'), image = document.createElement('span'), paint = document.createElement('span')
   image.setAttribute('role', 'img'); paint.style.background = 'red'; image.append(paint); root.append(image); document.body.append(root)

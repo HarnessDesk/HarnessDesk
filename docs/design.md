@@ -1469,7 +1469,10 @@ measured across two.
   top on purpose.
 - **gaps** writes the space between neighbours on the space itself.
 - **overflow** marks what is drawn past its box, what is clipped without an
-  ellipsis, and what leaves its page; an ellipsis is amber, not red.
+  ellipsis, and what leaves its page; an ellipsis is amber, not red. A box
+  that crops its content on purpose — a face's plate cutting a brand picture
+  to the plate's own corner — carries `data-crop` and is not a finding: the
+  picture is meant to be larger than the box.
 - **scale** flags, with an amber corner, a padding, gap, radius, type size or
   colour that no `--hd-*` token resolves to (`design/explorer/guides-tokens.ts`
   reads the live tokens, so a foundation is measured as itself).

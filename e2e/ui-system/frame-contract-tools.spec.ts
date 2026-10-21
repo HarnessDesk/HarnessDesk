@@ -85,7 +85,9 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=conversation', theme)
     const trigger = page.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))')
     await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'usage' })
-    const menu = page.getByRole('menu')
+    // Usage is its own level: the root menu and this flyout are both a
+    // `role="menu"`, so the focus walk stays in the one holding the facts.
+    const menu = page.locator('[data-slot="dropdown-menu-sub-content"]:visible')
     await expect(menu).toBeVisible()
     await expect(menu.getByRole('menuitem', { name: 'Open usage', exact: true })).toBeVisible()
     await expect(menu.locator('[data-slot="usage-meter-row"]')).not.toHaveCount(0)
@@ -97,8 +99,13 @@ for (const theme of WALL_THEMES) {
       await expect(rows.nth(index)).toBeFocused()
       if (index + 1 < count) await page.keyboard.press('ArrowDown')
     }
+    // Escape returns one level at a time: the usage facts first, leaving the
+    // root menu on its Usage row, then the root menu itself.
+    const root = page.locator('[data-slot="popover-popup"]:visible')
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
+    await expect(root.getByRole('menuitem', { name: /^Usage/ })).toBeFocused()
+    await page.keyboard.press('Escape')
     await expect(trigger).toBeFocused()
     await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'usage' })
     await page.keyboard.press('Home')

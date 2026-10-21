@@ -95,7 +95,9 @@ for (const height of [900, 520]) {
     await expect(picker).toHaveAttribute('aria-expanded', 'true')
     const accounts = page.locator('[data-slot="dropdown-menu-sub-content"]:visible')
     await expect(accounts).toBeVisible()
-    await expect(accounts.locator('[data-menu-account-name]').filter({ hasText: /^Account \d+$/ })).toHaveCount(32)
+    // A seat is named by its nickname, else by the address cut at the @ — the
+    // injected accounts' labels are "Account N", their names "accountN".
+    await expect(accounts.locator('[data-menu-account-name]').filter({ hasText: /^account\d+$/ })).toHaveCount(32)
     await expect.poll(async () => accounts.evaluate(node => {
       const box = node.getBoundingClientRect()
       return box.top >= 0 && box.bottom <= window.innerHeight
