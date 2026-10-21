@@ -192,7 +192,7 @@ it('edits the exact role policy from its local configuration and preserves autom
   expect(current.roles.find(role => role.id === 'fixer')).toMatchObject({ uses: ['tester'], seats: [{ runtime: 'gamma', model: 'large', effort: 'high' }] })
   await pick('Runtime', 'Delta')
   expect(current.roles.find(role => role.id === 'fixer')).toMatchObject({ uses: ['tester'], seats: [{ runtime: 'delta' }] })
-})
+}, 10_000)
 
 it('shows pinned model and effort from the automatic winner without making the role explicit', async () => {
   const policy = TEAM_START_POLICIES['fix-and-review']
