@@ -554,9 +554,9 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       const group = chipFor(entry, columns)
       if (group !== 'all') result[group]++
     }
-    result.all += nativeSkills.length
+    if (!agentFilter) result.all += nativeSkills.length
     return result
-  }, [listedEntries, declared, columns, screen.runtime, nativeSkills])
+  }, [listedEntries, declared, columns, screen.runtime, nativeSkills, agentFilter])
 
   /**
    * Each agent's scanned skill directories in the order a name conflict is

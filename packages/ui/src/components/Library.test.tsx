@@ -2362,6 +2362,7 @@ it('a state chip counts the cards the Declared by filter leaves', async () => {
     ]),
     undefined,
     {
+      activeRuntime: runtimeId('one'), nativeSkills: [{ name: 'native-command', description: 'Not declared by either Agent.', enabled: true }],
       agents: [agent('agent-a', 'user', 'Agent A'), agent('agent-b', 'project', 'Agent B')],
       readAgentAttachments: async (id) => id === 'agent-a' ? declares(['alpha', 'beta']) : declares(['gamma']),
     },
@@ -2369,9 +2370,11 @@ it('a state chip counts the cards the Declared by filter leaves', async () => {
   // Settle the roster's own declaration read — a microtask past mount.
   await act(async () => {})
   expect(await countOf('No runtime')).toBe('No runtime2')
+  expect(container.querySelector('[aria-label="Skills"] [role="radio"]')?.textContent).toBe('All4')
   // Declared by Agent A leaves only beta unreachable, so the chip and the cards
   // agree: two is the number for the whole library, one is the number shown.
   await chooseAgent('Agent A')
+  expect(container.querySelector('[aria-label="Skills"] [role="radio"]')?.textContent).toBe('All2')
   expect(await countOf('No runtime')).toBe('No runtime1')
   // The state filter rows read the same scoped set, not the whole library.
   expect(await countOf('Reach none')).toBe('Reach none1')
