@@ -478,28 +478,30 @@ is your identity — your profile's face and name, which are the house mark and
 48px row sits under a full-width hairline, with Inbox and Settings at the right.
 The default runtime's account, readiness and usage live in the menu. The trigger's
 tooltip still names who new sessions run as and any applicable quota warning.
-The menu behind the row opens on you, and pressing that row opens your
-profile. Then comes switching: **Run new sessions as** lists every account of
-every runtime, one line each — its name, and the same figure the header strip
-shows — and the default is the filled row. Unavailable or Needs sign-in takes
-the figure's place when the runtime cannot run; cached usage stays in its usage
-fold. The address and plan behind a name
-are on the name's tooltip. A runtime with more than one
-account is a heading — its mark and its name, not a choice — with its accounts
-under it, each one line on the heading's name column after a small ring in the
-account's own colour (folded, the default is one row wearing its mark); an
-account known only by the runtime's name is called by its gateway instead. Where
-two accounts share a name, a second word on the line tells them apart: the
-runtime, between two runtimes' single rows, or the address's domain under one
-heading. A runtime that has answered that nobody is signed in is not listed
-(choosing it would start nothing) unless it is the default; it waits behind
-**Add an account**, whose chooser is where signing in happens. The menu-bar
-item still lists it, because there the row is itself the way to sign in.
-**Usage remaining** and the other runtimes' usage rows carry the same plan
-facts as the former window foot: windows, resets, blocks, source and age. Each
-fold has Open usage, scoped to that runtime; a runtime needing an account has Sign
-in. Then come Settings and signing out of the default runtime. Dashboard in the
-sidebar opens on everything.
+The menu stays at five actions: your profile, the current account, Usage,
+Settings and signing out (when signed in). The account opens a separate picker;
+**Run new sessions as** lists each available account on one line, grouped by
+runtime where there are several. Current marks identify the selected runtime,
+so its sibling accounts share the mark: credential selection belongs to that
+agent, while the root names the account whose report decides its usage. Long names
+truncate; full identity remains on hover. A second word distinguishes names
+that collide: the runtime across runtimes, or the domain within one runtime.
+Unavailable and Needs sign-in remain visible on the current account. **Add an
+account** and **Manage runtimes** live at the bottom of the picker.
+
+**Usage** opens a separate level with the current report's account identity,
+windows, resets, blocks, source and age, followed by scoped **Open usage**.
+Other reporting accounts have one direct usage action each. Opening either
+picker leaves the root menu's size unchanged and closes the other picker;
+Escape returns one level at a time. Dashboard in the sidebar opens on everything.
+
+The macOS status item has six native actions: Open HarnessDesk, New Session,
+Open Folder, Usage, Settings and Quit. Native rows use standard brand glyphs
+with one narrow icon column; usage readings stay in the labels, rather than
+a wide raster that reserves empty meter space. Its Usage submenu retains reporting
+accounts and sign-in or unavailable states; neutral runtimes without a reading
+share one note. **View › Show Menu Bar Icon** restores a hidden item and remembers
+that choice for this desk. Other worker desks keep their own visibility defaults.
 
 Dashboard's Overview names the ledger total **Usage cost**; its title explains
 whether that cost was metered or priced at public rates. The pressed chart

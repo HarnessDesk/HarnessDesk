@@ -628,6 +628,15 @@ A second line is earned by exactly three things:
 
 Everything else goes on hover, as `title`.
 
+Effort levels use that hover explanation even when every choice has a distinct
+description: Low and High already name the distinction. Runtime-defined modes
+retain their comparison column: a mode name alone may not explain its consequences.
+Ordinary boolean options keep their explanation on hover too; a refused
+switch still shows its reason. A switch labelled only with its option identifier
+(including a namespace-qualified identifier) keeps its description visible,
+because the machine name does not explain the setting. Models and custom codenames retain a complete,
+distinct comparison column.
+
 For plugin tools, the short manifest title is the name to scan. Capabilities
 keeps the owning plugin on the second line and the full description on hover;
 the plugin's own page shows that description as a wrapping second line.
@@ -1460,7 +1469,10 @@ measured across two.
   top on purpose.
 - **gaps** writes the space between neighbours on the space itself.
 - **overflow** marks what is drawn past its box, what is clipped without an
-  ellipsis, and what leaves its page; an ellipsis is amber, not red.
+  ellipsis, and what leaves its page; an ellipsis is amber, not red. A box
+  that crops its content on purpose — a face's plate cutting a brand picture
+  to the plate's own corner — carries `data-crop` and is not a finding: the
+  picture is meant to be larger than the box.
 - **scale** flags, with an amber corner, a padding, gap, radius, type size or
   colour that no `--hd-*` token resolves to (`design/explorer/guides-tokens.ts`
   reads the live tokens, so a foundation is measured as itself).

@@ -106,6 +106,10 @@ const MARK_IDS: ReadonlySet<string> = new Set(MARKS.map((entry) => entry.id))
 export const isAvatarId = (value: unknown): value is AvatarId =>
   typeof value === 'string' && IDS.has(value)
 
+/** Colourways with the inset Dock plate; Plain and the stickers have none. */
+export const hasAvatarPlate = (id: unknown): boolean =>
+  isAvatarId(id) && MARK_IDS.has(id) && id !== 'mark-plain'
+
 /**
  * The face's picture, for whatever the profile stores. Null for anything this
  * build does not ship — a later build's face, a picture it keeps, an id the

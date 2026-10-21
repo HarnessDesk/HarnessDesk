@@ -152,6 +152,19 @@ only attention or an error earns a trailing state mark.
 
 ---
 
+## A hidden menu bar item can be restored from View — 2026-10-20
+
+The owner found the macOS status item missing while the development desk was
+launched on an isolated home with `HARNESSDESK_MENU_BAR=off`. The quiet worker
+default was intentional, but the missing item provided no route to restore it.
+
+**View › Show Menu Bar Icon** now creates or removes the item immediately and
+saves the person's choice in that home's `menu-bar.json`. A saved choice wins
+over launch defaults. A fresh secondary home remains quiet, so restoring one
+desk does not put every worker into the menu bar. The native status menu keeps
+six primary actions and puts runtime usage in one submenu, rather than growing
+its root with the runtime roster.
+
 ## Diffs wrap and highlight changed words
 
 *Owner decision, 2026-10-15; issue #1671.*

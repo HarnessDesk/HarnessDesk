@@ -1,5 +1,22 @@
 import { expect, type Page } from '@playwright/test'
 
+/** Usage is an independent menu level, so account choices never displace its facts. */
+export const openAccountUsage = async (page: Page) => {
+  const root = page.locator('[data-slot="popover-popup"]:visible')
+  const trigger = root.getByRole('menuitem', { name: /^Usage/ })
+  await page.evaluate(async () => { await document.fonts.ready })
+  const before = (await root.boundingBox())!
+  await trigger.focus()
+  await page.keyboard.press('ArrowRight')
+  const usage = page.locator('[data-slot="dropdown-menu-sub-content"]:visible')
+  await expect(usage).toBeVisible()
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  const after = (await root.boundingBox())!
+  expect(after.width, 'usage facts must not widen their parent menu').toBe(before.width)
+  expect(after.height, 'usage facts must not grow their parent menu').toBe(before.height)
+  return usage
+}
+
 /** Left-column probes use the current shell and popup APIs until B/C land. */
 export const applyLeftColumnActions = async (page: Page, actions: {
   readonly leftWidth?: number
@@ -19,7 +36,7 @@ export const applyLeftColumnActions = async (page: Page, actions: {
   }
   if (actions.leftPopup === 'inbox') await column.locator('[data-slot="inbox-button"]').locator('..').click()
   if (actions.leftPopup === 'account' || actions.leftPopup === 'usage') await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
-  if (actions.leftPopup === 'usage') await page.getByRole('menu').getByRole('menuitem', { name: /^Usage remaining/ }).click()
+  if (actions.leftPopup === 'usage') await openAccountUsage(page)
   if (actions.leftPopup === 'start') await column.getByRole('button', { name: 'More ways to start', exact: true }).click()
   if (actions.leftPopup === 'project') {
     await column.locator('[data-project-root] button[data-draggable]').first().focus()

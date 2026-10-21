@@ -2559,6 +2559,8 @@ unless they picked square), and it is the same corner the agents' marks
 beside it wear. When faces are square the corner steps up the radius scale
 with the size, so the seat's 24px and the profile page's 44px read as one
 object at two sizes.
+Plated colourways crop their inset plate to that same corner without
+enlarging the mark. Transparent marks and sticker artwork stay whole.
 
 Without a `size` it fills the box it is put in and takes that box's corner:
 a room's message rows draw a tile for every sender, and a person's face

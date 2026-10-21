@@ -6,7 +6,7 @@ import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
 import { type Tint as AccountTint } from '../../lib/accounts'
 import { ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, FilterIcon, SearchIcon, StaleIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
-import { avatarSrc } from '../../lib/avatars'
+import { avatarSrc, hasAvatarPlate } from '../../lib/avatars'
 import { toggleVariants } from '../ui/toggle-group'
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group'
 import { cn } from '../../lib/utils'
@@ -1239,6 +1239,8 @@ export const RowChoice = ({
  * beside it wear. When faces are square the corner steps up the radius scale
  * with the size, so the seat's 24px and the profile page's 44px read as one
  * object at two sizes.
+ * Plated colourways crop their inset plate to that same corner without
+ * enlarging the mark. Transparent marks and sticker artwork stay whole.
  *
  * Without a `size` it fills the box it is put in and takes that box's corner:
  * a room's message rows draw a tile for every sender, and a person's face
@@ -1260,6 +1262,7 @@ export const Face = ({
   readonly className?: string
 }) => {
   const src = avatarSrc(avatar)
+  const picture = src ? <img className={styles.avatarPicture} src={src} alt="" draggable={false} /> : null
   return (
     <span
       className={className ? `${styles.avatar} ${className}` : styles.avatar}
@@ -1269,8 +1272,10 @@ export const Face = ({
         : { 'data-size': size > 32 ? 'm' : 's', style: { width: size, height: size } })}
       aria-hidden="true"
     >
-      {src ? (
-        <img className={styles.avatarPicture} src={src} alt="" draggable={false} />
+      {picture ? (
+        hasAvatarPlate(avatar)
+          ? <span className={styles.avatarPicturePlate} data-slot="face-picture-plate" data-crop="">{picture}</span>
+          : picture
       ) : (
         // 0.44 is the ratio the seat always drew at: an 11px mark in its
         // 24px disc, 13px in the menu's 30px one. A filling tile sizes the

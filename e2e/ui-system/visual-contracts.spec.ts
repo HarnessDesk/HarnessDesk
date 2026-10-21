@@ -52,11 +52,9 @@ test('real sidebar footer fills its column and its menu is painted and clickable
 })
 
 for (const height of [900, 520]) {
-  test(`open sidebar menu repositions after theme changes and account expansion at ${height}px`, async ({ page }, testInfo) => {
-    // Add synthetic accounts at the fixture boundary. The real Sidebar,
-    // disclosure, scrolling menu and canonical Popover remain unchanged.
-    // Enough of them that the one-line account rows still outgrow a 900px
-    // window: sixteen fit once each row stopped carrying its address.
+  test(`compact sidebar menu stays fixed while account flyout scrolls after theme changes at ${height}px`, async ({ page }, testInfo) => {
+    // Add enough synthetic accounts that the picker outgrows both windows.
+    // The real menu, submenu positioning and viewport clamp remain unchanged.
     await page.route('**/src/preview/sidebar-fixture.ts*', async route => {
       const response = await route.fetch()
       await route.fulfill({
@@ -87,26 +85,44 @@ for (const height of [900, 520]) {
     await expect(popup).toBeVisible()
     const compact = await popup.boundingBox()
     expect(compact).not.toBeNull()
-    const compactContent = await popup.evaluate(node => node.scrollHeight)
+    await expect(popup.getByRole('menuitem')).toHaveCount(5)
     await theme.selectOption('dark')
     await expect(popup).toBeVisible()
     await theme.selectOption('light')
-    await popup.locator('[role="menuitem"][data-current][aria-expanded="false"]').click()
-    await expect(popup.locator('[role="menuitem"][data-current]')).toHaveAttribute('aria-expanded', 'true')
-    await expect.poll(async () => popup.evaluate(node => {
+    const picker = popup.locator('[data-slot="dropdown-menu-sub-trigger"][data-current]')
+    await picker.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(picker).toHaveAttribute('aria-expanded', 'true')
+    const accounts = page.locator('[data-slot="dropdown-menu-sub-content"]:visible')
+    await expect(accounts).toBeVisible()
+    // A seat is named by its nickname, else by the address cut at the @ — the
+    // injected accounts' labels are "Account N", their names "accountN".
+    await expect(accounts.locator('[data-menu-account-name]').filter({ hasText: /^account\d+$/ })).toHaveCount(32)
+    await expect.poll(async () => accounts.evaluate(node => {
       const box = node.getBoundingClientRect()
       return box.top >= 0 && box.bottom <= window.innerHeight
     })).toBe(true)
-    const expanded = await popup.evaluate(node => {
+    const expanded = await accounts.evaluate(node => {
       const box = node.getBoundingClientRect()
-      return { top: box.top, bottom: box.bottom, height: box.height, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight, maxHeight: parseFloat(getComputedStyle(node).maxHeight) }
+      return { top: box.top, bottom: box.bottom, height: box.height, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight }
     })
-    await testInfo.attach('dynamic-menu-layout', { body: JSON.stringify({ compact, expanded }, null, 2), contentType: 'application/json' })
-    expect(expanded.scrollHeight, 'expansion adds the account rows before viewport clamping').toBeGreaterThan(compactContent + 100)
+    await testInfo.attach('account-flyout-layout', { body: JSON.stringify({ compact, expanded }, null, 2), contentType: 'application/json' })
+    // Account growth belongs to a scrollable flyout; the primary actions
+    // stay at the same position and height in the five-row root menu.
+    const rootAfter = (await popup.boundingBox())!
+    expect(rootAfter.height).toBe(compact!.height)
+    expect(rootAfter.y).toBe(compact!.y)
     expect(expanded.height).toBeGreaterThan(compact!.height)
-    expect(expanded.height, 'the natural menu fills its content up to its available-height limit').toBeCloseTo(Math.min(expanded.scrollHeight, expanded.maxHeight), 0)
-    expect(expanded.top).toBeLessThan(compact!.y)
     expect(expanded.scrollHeight).toBeGreaterThan(expanded.clientHeight)
+    const manage = accounts.getByRole('menuitem', { name: 'Manage runtimes', exact: true })
+    await manage.scrollIntoViewIfNeeded()
+    expect(await manage.evaluate(node => {
+      const box = node.getBoundingClientRect()
+      return node.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2))
+    })).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(accounts).toBeHidden()
+    await expect(picker).toBeFocused()
     const settings = popup.getByRole('menuitem', { name: /^Settings/ })
     await settings.scrollIntoViewIfNeeded()
     expect(await settings.evaluate(node => {

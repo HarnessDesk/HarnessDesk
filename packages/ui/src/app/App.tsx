@@ -175,6 +175,9 @@ export const App = () => {
         case 'sign-in':
           setSignInOpen((subject as RuntimeId | undefined) ?? true)
           return
+        case 'open-usage':
+          openUsage(subject as RuntimeId | undefined)
+          return
         case 'usage':
           // ⌘U toggles, and always across every agent on Overview — a scoped
           // view is something you ask for by pointing at one.

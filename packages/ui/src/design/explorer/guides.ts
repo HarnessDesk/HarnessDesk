@@ -49,6 +49,17 @@ const PLACED = [
   '[role="menuitem"]', '[role="tab"]', '[role="img"]', '[data-menu-row]', 'img', 'svg',
 ].join(',')
 const CONTROL = 'button, a[href], input, textarea, select, [role="switch"], [role="checkbox"], [role="tab"], [data-slot$="trigger"], [data-menu-row]'
+/**
+ * A box that crops what it holds on purpose.
+ *
+ * A face's plate draws a brand picture larger than the plate so the plate's
+ * own corner is the picture's frame. That picture is not content lost past an
+ * edge — it is the drawing — so the box says so and the overflow clip/spill
+ * findings leave it alone. It is still a box like any other: off the page or
+ * on the frame's edge is still reported. Nothing else earns the attribute:
+ * text cut off without an ellipsis is still a finding.
+ */
+const CROP = '[data-crop]'
 const TEXT = 'h1, h2, h3, h4, [data-slot="text"], [data-slot="row-title"], [data-slot="label"], [data-slot$="title"], [data-slot$="description"]'
 
 /** Past this many boxes a root is sampled, not drawn whole. */
@@ -519,6 +530,7 @@ export const spillsOf = (boxes: Box[], page: DOMRect, root: Element): Spill[] =>
     if (!(el instanceof HTMLElement)) continue
     if (r.left < page.left - 0.5 || r.right > page.right + 0.5) { out.push({ el, r, how: 'leaves page' }); continue }
     if (touchesFrame(el, r, root)) out.push({ el, r, how: 'touches frame' })
+    if (el.matches(CROP)) continue
     const wide = el.scrollWidth > el.clientWidth + 1
     const tall = el.scrollHeight > el.clientHeight + 1
     if (!wide && !tall) continue

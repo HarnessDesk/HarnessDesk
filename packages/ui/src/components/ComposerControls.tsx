@@ -355,7 +355,9 @@ const ChoiceRows = ({
   const store = useStore()
   const key = useSessionKey()
   const agent = brandForRuntime(useRuntime())
-  const column = describesEveryChoice(option)
+  // Low and High already name the reasoning distinction. Runtime-defined
+  // modes can carry consequences their names do not explain.
+  const column = option.category !== 'thought_level' && describesEveryChoice(option)
   const groups = new Map<string | undefined, OptionChoice[]>()
   for (const choice of choices) {
     const list = groups.get(choice.group) ?? []
@@ -388,6 +390,11 @@ const ChoiceRows = ({
 }
 
 /** One option, whole: its heading, its reason when refused, and its rows. */
+// An identifier used as its own label is not a human explanation. Keep that
+// switch's description visible even when its identifier has a namespace.
+const toggleHint = (option: ConfigOption): string | undefined =>
+  option.label === option.id || option.label === option.id.split(/[.:/]/).at(-1) ? option.description : undefined
+
 const OptionRows = ({ option }: { option: ConfigOption }) => {
   const store = useStore()
   const key = useSessionKey()
@@ -400,7 +407,8 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
       {option.type === 'boolean' ? (
         <MenuToggle
           label={option.label}
-          hint={option.disabled ?? option.description}
+          hint={toggleHint(option)}
+          title={option.description}
           checked={option.currentValue}
           disabled={option.disabled}
           onChange={(next) => ask(option, next, () => void (key ? store.setOption(option.id, next, key) : store.setOption(option.id, next)))}
@@ -712,11 +720,11 @@ export const ModelControl = () => {
                   key={option.id}
                   icon={<BrainIcon size={14} />}
                   label={option.label}
+                  title={option.description}
                   value={currentLabel(option)}
                   disabled={option.disabled}
 
                  wide icons="none">
-                  {option.description && <MenuNote>{option.description}</MenuNote>}
                   <UnavailableChoice option={option} />
                   <ChoiceRows option={option} />
                   {/* Switches about thinking ride with the first effort select. */}
@@ -727,7 +735,8 @@ export const ModelControl = () => {
                         <MenuToggle
                           key={toggle.id}
                           label={toggle.label}
-                          hint={toggle.description}
+                          hint={toggleHint(toggle)}
+                          title={toggle.description}
                           checked={toggle.currentValue}
                           disabled={toggle.disabled}
                           onChange={(next) =>
@@ -744,7 +753,8 @@ export const ModelControl = () => {
                     <MenuToggle
                       key={toggle.id}
                       label={toggle.label}
-                      hint={toggle.description}
+                      hint={toggleHint(toggle)}
+                      title={toggle.description}
                       checked={toggle.currentValue}
                       disabled={toggle.disabled}
                       onChange={(next) => ask(toggle, next, () => void (key ? store.setOption(toggle.id, next, key) : store.setOption(toggle.id, next)))}
@@ -779,7 +789,7 @@ export const ModelControl = () => {
                   <MenuItem
                     selected={snapshot.draftRouteId === null}
                     label="Direct"
-                    hint="The backend's own provider and account."
+                    title="The backend's own provider and account."
                     onSelect={() => store.setDraftRoute(null)}
                   />
                   {routes.map((route) => (

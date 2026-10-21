@@ -5,6 +5,18 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Profile pictures follow their chosen shape.** Plated artwork is clipped inside round faces and keeps the selected square shape where requested.
+
+- **The account menu stays compact as accounts grow.** Accounts and usage have their own flyouts, with the working account's name beside its matching quota; choosing a crashed current runtime still restarts it.
+
+- **The macOS Usage submenu keeps icons close to their labels.** Sign-in and usage rows share standard brand icons instead of reserving an empty meter-sized column.
+
+- **Dropdown menus keep ordinary explanations on hover.** Reasoning levels and switches stay on one line, alongside a shorter Direct route and Git patch action. Model and mode comparisons, paths and consequential differences remain visible.
+
+- **Restore the macOS menu bar icon from View › Show Menu Bar Icon.** The choice survives restarting an isolated desk. Its native menu stays compact, with usage and sign-in actions in one submenu; choosing an account's usage opens that account's dashboard.
+
 ## 0.5.4 — 2026-10-20
 
 Development sessions start in their own worktree and branch, agents that cannot

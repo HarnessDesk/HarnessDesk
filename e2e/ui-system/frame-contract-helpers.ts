@@ -75,7 +75,8 @@ export const menuMetrics = async (surface: Locator) => surface.evaluate((el) => 
   document.body.append(clone)
   const intrinsic = clone.getBoundingClientRect().width
   clone.remove()
-  return { width: box.width, intrinsic, radius: css.borderTopLeftRadius, pad: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft], border: css.borderTopWidth, widthMode: el.getAttribute('data-width'), overflow: el.scrollWidth > el.clientWidth || [...el.querySelectorAll<HTMLElement>('[data-menu-label],[data-menu-hint],[data-menu-meter],[data-info-note]')].some(node => node.scrollWidth > node.clientWidth) }
+  const tabular = [...el.querySelectorAll('[data-menu-facts]')].some(facts => facts.closest('[data-popup-kind]') === el)
+  return { width: box.width, intrinsic, tabular, radius: css.borderTopLeftRadius, pad: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft], border: css.borderTopWidth, widthMode: el.getAttribute('data-width'), overflow: el.scrollWidth > el.clientWidth || [...el.querySelectorAll<HTMLElement>('[data-menu-label],[data-menu-hint],[data-menu-meter],[data-info-note]')].some(node => node.scrollWidth > node.clientWidth) }
 })
 export const rowMetrics = async (surface: Locator) => surface.evaluate(surface => [...surface.querySelectorAll('[data-menu-row]')].filter(el => el.closest('[data-popup-kind]') === surface).map(el => {
   const css = getComputedStyle(el)
@@ -92,7 +93,9 @@ export const expectMenuPlateGeometry = async (surface: Locator) => {
   expect(m.width).toBeGreaterThanOrEqual(FRAME_MENU.min)
   expect(m.width).toBeLessThanOrEqual(FRAME_MENU.max)
   expect(m.widthMode).toBeNull()
-  expect(m.width).toBeCloseTo(Math.min(FRAME_MENU.max, Math.max(FRAME_MENU.min, m.intrinsic)), 1)
+  // A facts table reserves the wide measure for its name/reading/reset
+  // columns; action-only menus still size to their intrinsic content.
+  expect(m.width).toBeCloseTo(m.tabular ? FRAME_MENU.max : Math.min(FRAME_MENU.max, Math.max(FRAME_MENU.min, m.intrinsic)), 1)
   expect(m.pad).toEqual(Array(4).fill(`${FRAME_MENU.padding}px`))
   expect(m.radius).toBe(`${FRAME_MENU.radius}px`)
   expect(m.border).toBe('0px')
@@ -357,8 +360,9 @@ export const expectDestinationPopupContracts = async (page: Page, destination: t
   await applySettingsNavigationActions(page, destination)
   await openWallDestination(page, destination)
   if (destination.id === 'popup-account-info') {
-    const menu = page.getByRole('menu')
-    await expect(menu.locator('[data-menu-account-name]').first()).toHaveAttribute('title', /.+/)
+    const root = page.locator('[data-slot="popover-popup"]:visible')
+    const menu = page.locator('[data-slot="dropdown-menu-sub-content"]:visible')
+    await expect(root.locator('[data-slot="dropdown-menu-sub-trigger"][data-current] [data-menu-account-name]')).toHaveAttribute('title', /.+/)
     await expect(menu.locator('[data-usage-details]')).toBeVisible()
     await expect(menu.getByRole('menuitem', { name: 'Open usage', exact: true })).toBeVisible()
   }
