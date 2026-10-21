@@ -5,7 +5,21 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## Unreleased
+## 0.6.0 — 2026-10-21
+
+A Team opens on its recorded Work, Settings reads calmer and behaves the same
+everywhere, and the account and macOS menus stay compact. It also carries
+everything listed under 0.5.4, which was never published as a build of its own.
+
+- **A Team opens on its Work.** The Run's frozen Flow leads the page, a short list of recent activity sits beneath it, and Full record expands the whole history in place. Tasks groups the Board and Findings; Chat offers combined and Split layouts. A destination you chose last time is restored.
+
+- **Approvals and questions live in the Team's Chat.** They sit at the end of the thread with the composer and its draft still below, name the Seat that asked, and link to that Seat's conversation; Work keeps a single link with the pending count.
+
+- **Starting a Team is one compact dialog.** Write the task, pick a Flow, and set each role's agent, model and effort from the node itself. A candidate that cannot start keeps its exact reason and a way to fix it, and a folder you have not opened before is refused rather than guessed.
+
+- **Agents are a searchable catalogue of reusable roles**, filtered by source, with each role's purpose and its seating facts kept apart. Team cards show a short status instead of a whole refusal, with the full text one click away.
+
+- **Settings lines up, and its controls behave alike.** Add a runtime sits beside the page title, the notification guide folds away until you want it, long descriptions in dialogs wrap whole and scroll from the keyboard, and the plugin list keeps what it had, with a Retry, when a refresh fails.
 
 - **Profile pictures follow their chosen shape.** Plated artwork is clipped inside round faces and keeps the selected square shape where requested.
 
