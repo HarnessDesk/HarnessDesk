@@ -406,6 +406,14 @@ it('says the goal was stopped when nothing else in the thread does', async () =>
   expect(box.textContent).not.toContain("Hi, I'm")
 })
 
+it('names why a goal stopped when the stop was not the person\'s', async () => {
+  const base = leadProjection(), stopped = { ...base.thread, state: 'stopped' as const, messages: [goalMessage], contract: leadPlan.contract }
+  const { box, update } = await mount({ ...base, thread: { ...stopped, budget: { ...leadBudget, stop: { reason: 'unknown-spend', revision: leadBudget.revision } } } })
+  expect(liveLine(box)?.textContent).toBe("This goal was stopped because HarnessDesk couldn't confirm what the workers spent.")
+  await update({ thread: { ...stopped, budget: { ...leadBudget, stop: { reason: 'rounds', revision: leadBudget.revision } } } })
+  expect(liveLine(box)?.textContent).toBe('This goal was stopped at its round allowance.')
+})
+
 it('shows what the Lead said first before the plan it proposed, in the order it was said', async () => {
   const base = leadProjection(), intro = 'I will repair the failing check in two steps.'
   const { box } = await mount({ ...base, wayOut: 'decide-plan', thread: { ...base.thread, state: 'awaiting-plan', cards: [{ ...leadPlan, revision: 1 }], cardPositions: { plan: 3 },

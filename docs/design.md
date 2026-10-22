@@ -2426,7 +2426,8 @@ is on the table; while the goal runs it names the step, of how many, and the run
 has started ("Step 1 of 2 · Repair the parser · 1 run", "no runs yet" before the first).
 Both come from the window's `progress` and `requestInFlight`, which the host reads from
 the journal. After the person's Stop, which makes no stopped card, the settled form says
-"This goal was stopped." The line is absent while a plan, a result or a wait is for the
+"This goal was stopped."; a stop the person did not make names its reason in the same line
+("…at its round allowance", "…because HarnessDesk couldn't confirm what the workers spent"). The line is absent while a plan, a result or a wait is for the
 person to answer, beside a card that already says the Lead stopped, and when the window
 cannot trust its projection. Frames `planning`, `running` and `stopped` show it in
 both themes. A plan card says what a step's seats do in role words ("write, then

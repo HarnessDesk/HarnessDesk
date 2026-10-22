@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { type LeadWindowProjection } from '@harnessdesk/protocol'
+import { type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Page, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
@@ -40,6 +40,16 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-request-refused': 'The provider refused the request.',
   'lead-request-invalid-response': 'The provider returned an unreadable response.',
   'lead-request-cancelled': 'The request was cancelled.',
+}
+// Why a goal ended, when no stopped card says it already. A person's own Stop needs no reason.
+const STOPPED: Record<LeadStopReason, string> = {
+  cancelled: 'This goal was stopped.',
+  budget: 'This goal was stopped at its spending allowance.',
+  rounds: 'This goal was stopped at its round allowance.',
+  'unknown-spend': "This goal was stopped because HarnessDesk couldn't confirm what the workers spent.",
+  'connection-lost': 'This goal was stopped when the connection to the workers was lost.',
+  recovery: "This goal was stopped because its work couldn't be recovered.",
+  error: 'This goal was stopped by an error.',
 }
 const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs'}` : 'no runs yet'
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
@@ -106,7 +116,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const live = state.error ? null
     : phase === 'running' && progress ? <TurnWorkLive data-slot="lead-live-line" data-kind="running">{`Step ${progress.step} of ${progress.steps}${contract?.steps[progress.step - 1] ? ` · ${contract.steps[progress.step - 1]!.title}` : ''} · ${runsWords(progress.runs)}`}</TurnWorkLive>
     : (phase === 'draft' || phase === 'planning') && state.requestInFlight ? <TurnWorkLive data-slot="lead-live-line" data-kind="planning">Planning…</TurnWorkLive>
-    : phase === 'stopped' && !cards.some(card => card.type === 'stopped') ? <TurnWorkLive settled data-slot="lead-live-line" data-kind="stopped">This goal was stopped.</TurnWorkLive>
+    : phase === 'stopped' && !cards.some(card => card.type === 'stopped') ? <TurnWorkLive settled data-slot="lead-live-line" data-kind="stopped">{STOPPED[state.thread?.budget?.stop?.reason ?? 'cancelled']}</TurnWorkLive>
     : null
   const entries = [...(state.thread?.messages ?? []).map(message => ({ revision: message.revision, kind: 'message' as const, message })),
     ...cards.map(card => ({ revision: state.thread?.cardPositions?.[card.id] ?? card.revision, kind: 'card' as const, card })),
