@@ -51,7 +51,7 @@ export const hasPendingLeadPlan = (state: LeadState): boolean => state.cards.som
 
 /** A cancelled goal may be replaced only after cancellation and recovery are settled. */
 export const canBeginLeadGoal = (state: LeadState): boolean =>
-  state.phase === 'stopped' && state.budget?.stop?.reason === 'cancelled' && state.stopEffectsPending === null &&
+  ['stopped', 'accepted', 'declined'].includes(state.phase) && !!state.budget && state.stopEffectsPending === null &&
   !state.recoveryBlocked && !state.budget.requests.length && state.completedBudgets.length < 64 &&
   [...state.attempts.values()].every(attempt => attempt.phase === 'finished' && !attempt.resolutionPending && !attempt.contested &&
     (attempt.outcome !== 'uncertain' && attempt.outcome !== 'interrupted' || attempt.recoveryReported))

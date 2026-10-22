@@ -516,7 +516,7 @@ test('consent expiry offers a fresh plan decision instead of Resume', async () =
   await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
   assert.equal((await s.controls.readThread()).wayOut, 'decide-plan')
 })
-for (const phase of ['accepted', 'declined', 'stopped'] as const) test(`send into ${phase} refuses before append`, async () => {
+for (const phase of ['accepted', 'declined', 'stopped'] as const) test(`send into ${phase} begins the next goal once nothing is left running`, async () => {
   const s = await rig({ configured: true })
   if (phase === 'stopped') await s.journal.stop()
   else if (phase === 'declined') { await s.journal.offerCard(plan); await s.journal.decideCard({ ...planClick, choice: 'decline' }) }
@@ -525,8 +525,16 @@ for (const phase of ['accepted', 'declined', 'stopped'] as const) test(`send int
     await s.journal.offerCard({ version: 1, id: 'r', revision: 1, type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Ready', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) })
     await s.journal.decideCard({ version: 1, cardId: 'r', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }) }
   const before = s.journal.state
-  await assert.rejects(s.controls.send({ idempotencyKey: 'closed', text: 'Inspect' }), code('lead-thread-closed'))
-  assert.deepEqual(s.journal.state, before)
+  if (phase === 'stopped' && before.stopEffectsPending !== null) {
+    // Stopping has not finished cleaning up owned work: the next goal waits for it.
+    await assert.rejects(s.controls.send({ idempotencyKey: 'closed', text: 'Inspect' }), code('lead-thread-closed'))
+    assert.deepEqual(s.journal.state, before)
+    return
+  }
+  await s.controls.send({ idempotencyKey: 'next', text: 'Inspect the next thing' }); await s.controls.idle()
+  assert.notEqual(s.journal.state.budget!.logicalGoalId, before.budget!.logicalGoalId, 'a fresh allowance for the new goal')
+  assert.ok(!['accepted', 'declined', 'stopped'].includes(s.journal.state.phase))
+  assert.ok(s.journal.state.messages.some(message => message.text === 'Inspect the next thing'))
 })
 test('a stopped budget refuses send with its own code', async () => {
   const s = await rig({ configured: true })

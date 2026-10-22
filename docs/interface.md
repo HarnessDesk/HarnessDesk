@@ -2108,8 +2108,8 @@ revision that cannot be confirmed parks with `lead-predecessor-unverifiable`.
 Both explain what happened and ask the person to message the chosen Lead name
 to change the plan, or stop the goal. Both offer Stop goal through ConfirmDialog,
 which explains that files and worktrees are left as they are. Every other active
-goal phase has Stop in the composer's corner, with Send beside it when a message is typed. Stopping cancels only owned work and
-leaves the thread ready for a new goal. Neither wait offers Resume; sending a message
+goal phase has Stop in the composer's corner, with Send beside it when a message is typed. Stopping cancels only owned work. A finished goal, whether
+accepted, declined or stopped, leaves the thread ready for a new one. Neither wait offers Resume; sending a message
 continues with those instructions. A revised plan proposed in the refused-start
 turn is retained for approval before the Lead parks.
 Reads back off to 30 seconds, read once more, then wait for changes.

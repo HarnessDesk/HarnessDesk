@@ -223,11 +223,17 @@ test('canBeginLeadGoal shares every recovery and accounting fence with new-goal 
   await journal.stop(async () => {})
   const state = journal.state, event = { version: 1 as const, seq: state.seq + 1, type: 'new-goal' as const, now: 100, id: 'new' }
   assert.equal(ready(state), true); assert.equal(lead.reduceLeadRecord(state, event).phase, 'draft')
+  // Every finished goal leads to the next one, whatever ended it: an accepted or declined result, or an allowance stop.
+  for (const finished of [{ ...state, phase: 'accepted' as const }, { ...state, phase: 'declined' as const },
+    { ...state, budget: { ...state.budget!, stop: { reason: 'budget' as const, revision: state.budget!.revision } } },
+    { ...state, budget: { ...state.budget!, stop: { reason: 'unknown-spend' as const, revision: state.budget!.revision } } }]) {
+    assert.equal(ready(finished), true); assert.equal(lead.reduceLeadRecord(finished, event).phase, 'draft')
+  }
   const attempt = { id: 'uncertain', correlationId: 'uncertain', method: 'flow/start-goal', action: null, kind: 'mutation' as const, stepId: 'first', arguments: summarizeLeadArguments({}),
     phase: 'finished' as const, effect: 'allow' as const, dispatched: true, outcome: 'uncertain' as const, recoveryReported: false,
     evidence: null, evidenceSeq: null, resolutionPending: false, contested: false }
   for (const blocked of [
-    { ...state, recoveryBlocked: true }, { ...state, stopEffectsPending: state.seq }, { ...state, phase: 'accepted' as const },
+    { ...state, recoveryBlocked: true }, { ...state, stopEffectsPending: state.seq }, { ...state, phase: 'running' as const },
     { ...state, completedBudgets: Array.from({ length: 64 }, () => state.budget!) },
     { ...state, attempts: new Map([[attempt.id, attempt]]) },
     { ...state, attempts: new Map([[attempt.id, { ...attempt, outcome: 'interrupted' } as lead.LeadAttemptState]]) },

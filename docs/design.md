@@ -2418,7 +2418,7 @@ cannot be confirmed, and name the Lead to message to change the plan or stop
 the goal. Their action is Stop goal, opening ConfirmDialog with the consequence
 that files and worktrees are left as they are. Other active goal phases offer
 Stop in the composer's send track. The composer continues with the person's new instructions;
-after stopping it accepts a new goal. Both waits have synthetic preview scenes in both themes.
+once a goal is accepted, declined or stopped it accepts a new one. Both waits have synthetic preview scenes in both themes.
 
 The thread ends with at most one quiet line, TurnWorkLive, so a goal that is working
 or that was stopped is never silent. "Planning…" shows while a request runs and no plan

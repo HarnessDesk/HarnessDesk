@@ -10,7 +10,7 @@ export const REFUSALS: Record<LeadControlRefusal, string> = {
   'lead-evidence-read-refused': 'The evidence could not be read. Try again.', 'lead-change-pending': 'Answer the pending settings request first.',
   'lead-card-too-large': 'This request is too large to display safely.', 'lead-projection-failed': 'The Lead could not be read. Try again.',
   'lead-key-missing': 'Add a provider key in Settings to continue.', 'lead-secret-in-thread': 'This key already appears in the thread. Use a different key.',
-  'lead-thread-closed': 'This Lead thread has finished.', 'lead-budget-stopped': 'The Lead has reached a stopped allowance.',
+  'lead-thread-closed': 'This Lead thread has finished.', 'lead-budget-stopped': 'This goal has used its allowance. Stop it to begin a new one.',
   'lead-protection-unavailable': 'Encrypted key storage is unavailable.', 'lead-request-in-flight': 'Wait for the current request to finish.',
   'lead-project-missing': 'Open a folder first, then send your goal.',
 }

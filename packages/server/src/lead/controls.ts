@@ -144,10 +144,9 @@ export class LeadControls {
     if (leadContainsSecret(input)) throw leadRefusal('lead-secret-refused')
     const previous = journal.state.sends.find(send => send.key === input.idempotencyKey)
     if (previous) return { messageId: previous.messageId, revision: previous.revision }
-    if (journal.state.budget?.stop && journal.state.budget.stop.reason !== 'cancelled') throw leadRefusal('lead-budget-stopped')
     const newGoal = canBeginLeadGoal(journal.state)
+    if (journal.state.budget?.stop && journal.state.budget.stop.reason !== 'cancelled' && !newGoal) throw leadRefusal('lead-budget-stopped')
     if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) && !newGoal) throw leadRefusal('lead-thread-closed')
-    if (journal.state.budget?.stop && !newGoal) throw leadRefusal('lead-budget-stopped')
     if (this.#inFlight()) throw leadRefusal('lead-request-in-flight')
     let configured: boolean
     try { configured = (await service.status('anthropic')).configured } catch { throw leadRefusal('lead-protection-unavailable') }
