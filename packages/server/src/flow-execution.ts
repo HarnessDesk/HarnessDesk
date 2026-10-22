@@ -314,6 +314,8 @@ export interface FlowExecutionPort {
   seatsOn(goal: string): readonly SeatRecord[]
   /** The Agent's current brief digest where this Goal would read it; null when it cannot be read. */
   digestOf(goal: string, agent: string): Promise<string | null>
+  /** The Goal's own sentence, handed to a Seat whose card title does not already say it. */
+  goalSentence?(goal: string): string | null
   /** Sends one turn to a Seat's conversation. */
   order(seat: SeatRecord, text: string): Promise<void>
   /**
@@ -3623,8 +3625,10 @@ export class FlowExecutions {
         ...seating.handed.map((one) => `- card #${one.card}: ${one.at}${one.branch ? ` on ${one.branch}` : ''}, written in ${one.cwd}`),
         'Read those folders if you need to; never write in one.',
       ].join('\n')
+    const sentence = this.#port.goalSentence?.(run.goal)?.trim() || null
     return [
       `Card #${card?.id ?? '?'} on this Goal is yours: ${card?.title ?? ''}`,
+      sentence && sentence !== card?.title?.trim() ? `The Goal it serves: ${sentence}` : null,
       card?.detail ?? null,
       'It is already claimed for you. Work only on this card.',
       answers.length > 0

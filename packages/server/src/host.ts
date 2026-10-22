@@ -1509,6 +1509,7 @@ export class Host {
       seatOf: (id) => this.#evidence.seats.byId(id as SeatId),
       seatsOn: (goal) => this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored),
       digestOf: async (goal, agent) => (await this.#agents.read(agent, this.#goalStore.read(goal).goal.root).catch(() => null))?.digest ?? null,
+      goalSentence: (goal) => { try { return this.#goalStore.read(goal).goal.sentence } catch { return null } },
       order: (seat, text) => this.#orderSeat(seat.session.runtime, seat.session.sessionId, text),
       busy: (seat) => {
         const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))

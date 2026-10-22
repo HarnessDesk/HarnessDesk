@@ -2169,3 +2169,12 @@ rules: []
   assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-2', 'order:seat-1'])
   assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'running')
 })
+
+test('a Seat whose card has a fixed title is handed the Goal sentence it serves', async (t) => {
+  const rig = await goalRig(t)
+  await rig.start(UC5_SHAPED, MULTI_ROLE_AGENT)
+  await rig.flows.flush()
+  const order = rig.orderTexts.get('seat-1')!.at(-1)!
+  assert.match(order, /^Card #1 on this Goal is yours: /)
+  assert.match(order, /\n\nThe Goal it serves: Finish the change\n\n/)
+})
