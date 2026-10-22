@@ -24,6 +24,12 @@ export function fromB64u(text: string): Bytes {
   return out
 }
 
+/**
+ * A copy that is one whatever the input is. `Buffer.prototype.slice` is a view, not a copy, and a Node
+ * socket hands over Buffers, so `.slice()` cannot be trusted to take the bytes.
+ */
+export const copyBytes = (b: Uint8Array): Bytes => new Uint8Array(b)
+
 export function concat(...parts: Bytes[]): Bytes {
   let n = 0
   for (const p of parts) n += p.length

@@ -147,6 +147,26 @@ describe('e2ee', () => {
     assert.deepEqual(body, utf8('hello'))
   })
 
+  it('takes a real copy of a Node Buffer too, whose slice() is only a view', async () => {
+    const { deskSession, phoneSession } = await pair()
+    const frame = Buffer.from(await deskSession.seal(utf8('third message')))
+    const opened = phoneSession.open(frame)
+    frame.fill(0)
+    assert.deepEqual((await opened).body, utf8('third message'))
+
+    const desk = await generateSigningIdentity()
+    const phone = await startPhoneHandshake(desk.pub)
+    const hello = Buffer.from(phone.hello)
+    const accepting = acceptHandshake(hello, desk)
+    hello.fill(0)
+    const { ready, session } = await accepting
+    const incoming = Buffer.from(ready)
+    const finishing = phone.finish(incoming)
+    incoming.fill(0)
+    const other = await finishing
+    assert.deepEqual((await other.open(await session.seal(utf8('ok')))).body, utf8('ok'))
+  })
+
   it('rejects a READY that was altered in flight', async () => {
     const desk = await generateSigningIdentity()
     const phone = await startPhoneHandshake(desk.pub)

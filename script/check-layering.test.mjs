@@ -158,7 +158,7 @@ test('the cloud wire stands alone and stays out of the renderer', () => {
   for (const source of [
     "const s = Buffer.from(x).toString('base64url')", 'const url = process.env.RELAY_URL', 'setImmediate(tick)', "const here = __dirname",
     'const { Buffer: B } = globalThis; void Buffer', 'globalThis.Buffer.from(x)', 'const e = globalThis.process.env.X', "self['Buffer'].from(x)",
-    'window.setImmediate(f)',
+    'window.setImmediate(f)', '(globalThis as any).Buffer.from(x)', '(self).process.env.X', 'globalThis!.process.cwd()', '(<any>window).Buffer',
   ]) {
     assert.ok(inCrypto(source) >= 1, `crypto global: ${source}`)
     assert.ok(inContract(source) >= 1, `contract global: ${source}`)

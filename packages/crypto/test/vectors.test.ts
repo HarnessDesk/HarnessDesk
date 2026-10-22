@@ -23,10 +23,25 @@ async function build() {
   const d2p = await deskSession.seal(utf8('{"t":"pong"}'))
   await deskSession.open(p2d)
   await phoneSession.open(d2p)
-  const token = await signToken({ kid: 'k1', iat: 1_999_999_000, exp: 2_000_000_000, typ: 'phone', desk: await idFromPub(desk.pub) }, desk)
+  const tokenClaims = { kid: 'k1', iat: 1_999_999_000, exp: 2_000_000_000, typ: 'phone', desk: await idFromPub(desk.pub) }
+  const token = await signToken(tokenClaims, desk)
   const push = await sealPush(seed(7), 1, 'device-1', utf8('{"title":"x"}'), new Uint8Array(12).fill(8))
   return {
     note: 'Seeds are filled bytes: desk=0x01*32 device=0x02*32 phoneEphemeral=0x03*32 deskEphemeral=0x04*32 pushKey=0x07*32',
+    // Everything else an implementation needs to reproduce the outputs below.
+    inputs: {
+      phoneToDeskPlaintext: '{"t":"ping"}',
+      deskToPhonePlaintext: '{"t":"pong"}',
+      helloNonce: toHex(new Uint8Array(16).fill(5)),
+      readyNonce: toHex(new Uint8Array(16).fill(6)),
+      proofChallenge: 'challenge-1',
+      tokenClaims,
+      pushDeviceId: 'device-1',
+      pushKid: 1,
+      pushPlaintext: '{"title":"x"}',
+      pushNonce: toHex(new Uint8Array(12).fill(8)),
+      b64uSource: 'hello?',
+    },
     deskPub: toHex(desk.pub),
     deskId: await idFromPub(desk.pub),
     devicePub: toHex(device.pub),

@@ -1,4 +1,4 @@
-import { concat, readU64be, sha256, u64be, utf8, fromUtf8, type Bytes } from './bytes.js'
+import { concat, copyBytes, readU64be, sha256, u64be, utf8, fromUtf8, type Bytes } from './bytes.js'
 import { ephemeralFromSeed, generateEphemeral, idBytesFromPub, verifyEd25519, type EphemeralKey, type SigningIdentity } from './keys.js'
 import { handshakeDeskMessage } from './proofs.js'
 import { randomBytes } from './bytes.js'
@@ -108,7 +108,7 @@ export class Session {
    */
   open(frame: Bytes): Promise<{ kind: number; body: Bytes }> {
     // Copied now, for the same reason as in seal(): a receive buffer may be reused before this frame's turn.
-    const copy = frame.slice()
+    const copy = copyBytes(frame)
     const result = this.#opening.then(() => this.#openOne(copy))
     this.#opening = result.catch(() => undefined)
     return result
@@ -153,7 +153,7 @@ export interface PhoneHandshake {
 /** Phone side. `deskPub` is the key pinned from the QR; nothing from the network can replace it. */
 export async function startPhoneHandshake(pinnedDeskPub: Bytes, opts?: HandshakeOptions): Promise<PhoneHandshake> {
   // Inputs are copied before the first await: a caller may reuse a buffer as soon as the call returns.
-  const deskPub = pinnedDeskPub.slice()
+  const deskPub = copyBytes(pinnedDeskPub)
   const deskIdBytes = await idBytesFromPub(deskPub)
   const { eph, nonce } = await ephemeralFor(opts)
   const hello = concat(Uint8Array.of(FRAME_HELLO, E2EE_VERSION), eph.pub, nonce)
@@ -161,7 +161,7 @@ export async function startPhoneHandshake(pinnedDeskPub: Bytes, opts?: Handshake
   return {
     hello,
     async finish(received) {
-      const ready = received.slice()
+      const ready = copyBytes(received)
       if (finished) throw new E2eeError('format', 'handshake already finished')
       finished = true
       if (ready.length !== READY_LENGTH || ready[0] !== FRAME_READY) throw new E2eeError('format')
@@ -178,7 +178,7 @@ export async function startPhoneHandshake(pinnedDeskPub: Bytes, opts?: Handshake
 
 /** Desk side: answer a HELLO. Returns the READY frame to send and the session to use after it. */
 export async function acceptHandshake(received: Bytes, desk: SigningIdentity, opts?: HandshakeOptions): Promise<{ ready: Bytes; session: Session }> {
-  const hello = received.slice()
+  const hello = copyBytes(received)
   if (hello.length !== HELLO_LENGTH || hello[0] !== FRAME_HELLO) throw new E2eeError('format')
   if (hello[1] !== E2EE_VERSION) throw new E2eeError('version')
   const deskIdBytes = await idBytesFromPub(desk.pub)

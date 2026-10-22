@@ -108,7 +108,13 @@ const nodeGlobals = (source, fileName) => {
       if (!isMemberName && !isRequireCall) found.push(node.text)
     }
     // globalThis.Buffer, self.process and globalThis['Buffer'] reach the same globals by another road.
-    const viaGlobalObject = (object) => ts.isIdentifier(object) && GLOBAL_OBJECTS.has(object.text)
+    const viaGlobalObject = (object) => {
+      // (globalThis as any).Buffer, (globalThis).process and globalThis!.process are the same reach.
+      let o = object
+      while (ts.isParenthesizedExpression(o) || ts.isAsExpression(o) || ts.isNonNullExpression(o) || ts.isTypeAssertionExpression(o) ||
+             ts.isSatisfiesExpression(o)) o = o.expression
+      return ts.isIdentifier(o) && GLOBAL_OBJECTS.has(o.text)
+    }
     if (ts.isPropertyAccessExpression(node) && viaGlobalObject(node.expression) && NODE_GLOBALS.has(node.name.text)) found.push(node.name.text)
     if (ts.isElementAccessExpression(node) && viaGlobalObject(node.expression) && ts.isStringLiteralLike(node.argumentExpression) &&
         NODE_GLOBALS.has(node.argumentExpression.text)) found.push(node.argumentExpression.text)

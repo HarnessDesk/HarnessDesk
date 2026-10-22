@@ -1,5 +1,24 @@
 {
   "note": "Seeds are filled bytes: desk=0x01*32 device=0x02*32 phoneEphemeral=0x03*32 deskEphemeral=0x04*32 pushKey=0x07*32",
+  "inputs": {
+    "phoneToDeskPlaintext": "{\"t\":\"ping\"}",
+    "deskToPhonePlaintext": "{\"t\":\"pong\"}",
+    "helloNonce": "05050505050505050505050505050505",
+    "readyNonce": "06060606060606060606060606060606",
+    "proofChallenge": "challenge-1",
+    "tokenClaims": {
+      "kid": "k1",
+      "iat": 1999999000,
+      "exp": 2000000000,
+      "typ": "phone",
+      "desk": "NHUPmL1Z_PyUbaRaqr6TOw"
+    },
+    "pushDeviceId": "device-1",
+    "pushKid": 1,
+    "pushPlaintext": "{\"title\":\"x\"}",
+    "pushNonce": "080808080808080808080808",
+    "b64uSource": "hello?"
+  },
   "deskPub": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
   "deskId": "NHUPmL1Z_PyUbaRaqr6TOw",
   "devicePub": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
