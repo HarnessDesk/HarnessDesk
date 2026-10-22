@@ -270,6 +270,19 @@ test('stop retains its fence for an exited child until asynchronous cleanup comp
   try { assert.equal(stopped, false) } finally { release(); await stop }
 })
 
+test('a child that speaks after the host began stopping it exits for the stop, not for a broken protocol', async () => {
+  const reasons: string[] = []
+  const child = fake((message, self) => {
+    if (message.type === 'initialize') self.stdout.write(frame({ version: 1, type: 'ready' }))
+    // The cancelled loop still has one thing to say as it goes.
+    if (message.type === 'shutdown') { self.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'setManagementPhase', args: ['waiting-for-user', 'lead-request-failed'] })); setTimeout(() => self.kill(), 5) }
+  })
+  const f = await fixture({ spawn: () => child, onExit: (reason: string) => { reasons.push(reason) } })
+  await f.supervisor.ensure()
+  await f.supervisor.stop('lead-request-cancelled')
+  assert.deepEqual(reasons, ['lead-request-cancelled'])
+})
+
 test('a hung exit hook hits the shutdown deadline while replacement remains fenced', async () => {
   let release!: () => void
   const cleanup = new Promise<void>(resolve => { release = resolve })
@@ -818,6 +831,18 @@ test('a reply that arrives after the goal ended is accepted and dropped', async 
     assert.equal(asked, 0)
     assert.deepEqual(f.assistant(), [])
     assert.equal(f.supervisor.live, true)
+  } finally { await f.supervisor.stop() }
+})
+
+test('a Stop that lands while a reply is being scanned ends the goal quietly and does not break the child', async () => {
+  let journal: { stop(): Promise<unknown> } | null = null
+  const f = await replyRig(['Said just as the person stopped.'], { admitReply: async () => { await journal!.stop() } })
+  journal = f.journal
+  try {
+    assert.equal((await f.supervisor.send(request)).status, 'completed')
+    assert.equal((await f.replied).ok, true)
+    assert.deepEqual(f.assistant(), [])
+    assert.equal(f.supervisor.live, true, 'a cancellation is not a protocol failure, so no cleanup runs as one')
   } finally { await f.supervisor.stop() }
 })
 

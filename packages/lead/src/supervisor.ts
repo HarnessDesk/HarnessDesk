@@ -299,7 +299,13 @@ export class LeadSupervisor {
             if (!running.exited) write(running, { type: 'reply', id, ok: false, value: 'lead-reply-refused', state: journal.state })
             return
           }
-          await durable(journal.appendReply(text)); break
+          // The person's Stop can land while the text is scanned. The journal then refuses it, which is the goal
+          // ending, not a child that broke the protocol: it must not be killed as one, or cleanup meant for a
+          // cancellation would run as a failure and reach work a cancellation leaves alone.
+          if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) break
+          try { await durable(journal.appendReply(text)) }
+          catch (failure) { if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) throw failure }
+          break
         }
         case 'resolveTool': value = await this.options.resolveTool(callFrom(args[0])); break
         case 'freezePlan': value = await this.options.freezePlan(parseLeadAcceptanceContract(args[0])); break
@@ -319,7 +325,10 @@ export class LeadSupervisor {
   }
   #protocolFailure(running: Running): void {
     if (running.poisoned || running.exited) return
-    running.poisoned = true; running.reason = 'protocol-invalid'
+    // A child that speaks after the host began stopping it is being cancelled, not breaking the protocol. The exit
+    // keeps the stop's own reason, because the host runs a different cleanup for a failure: one that does not spare
+    // work a cancellation leaves alone.
+    running.poisoned = true; if (!this.#stopping) running.reason = 'protocol-invalid'
     for (const pending of [...running.pending.values(), ...running.replies.values()]) pending.reject(error('protocol-invalid'))
     running.pending.clear(); running.replies.clear()
     this.#kill(running)
