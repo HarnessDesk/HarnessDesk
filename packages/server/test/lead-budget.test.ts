@@ -162,6 +162,36 @@ for (const complete of [true, false]) {
   })
 }
 
+test('a worker turn that ends while the usage read is in flight is metered again, not latched as unknown spend', async t => {
+  const s = await leadRig(t), run = await s.start()
+  await s.observe(0)
+  const seat = [...s.rig.seats.values()][0]!
+  s.setNow(1000)
+  await s.observe(0)
+  const exact = (value: number) => ({ value, quality: 'exact' })
+  let reads = 0, release!: () => void, entered!: () => void
+  const held = new Promise<void>(resolve => { release = resolve }), reading = new Promise<void>(resolve => { entered = resolve })
+  const sample = (at: number) => ({ key: 'worker-cost', source: { id: 'synthetic', kind: 'corpus', label: 'Synthetic', observedAt: at, checkedAt: at, stale: false, problem: null },
+    runtime: seat.session.runtime, sessionId: seat.session.sessionId, turnId: null, requestId: null, project: seat.checkout.project,
+    model: 'fixture/model', from: seat.openedAt, to: at, scope: 'session', includesChildren: false,
+    input: exact(1), output: exact(1), cacheRead: exact(0), cacheWrite: exact(0), usd: exact(0.00001), moneyBasis: 'vendorMetered' })
+  Object.assign(s.budgets.port, { seats: () => [...s.rig.seats.values()], delegation: () => 'none', usage: async (_project: string, _from: number, to: number) => {
+    if (++reads === 1) { entered(); await held }
+    return { complete: true, samples: [sample(to)] }
+  } })
+  const verdict = s.budgets.gate(s.rig.flows.leadRuns()[0]!)
+  await reading
+  s.setNow(1500)
+  s.budgets.turn(seat, 'ended')
+  release()
+  await verdict
+  await s.budgets.idle()
+  assert.equal(s.journal.state.budget!.stop, null, 'a turn ending mid-read must not stop the Lead')
+  assert.equal(s.journal.state.budget!.workerUsdMicros, 10)
+  assert.ok(reads >= 2, 'the host read again after the turn ended')
+  assert.notEqual(s.rig.flows.executionOf(run.id)!.state, 'stopped')
+})
+
 test('a recovered Lead Seat must hold its ceiling again before another turn', async t => {
   const s = await leadRig(t), run = await s.start()
   await s.observe(0)

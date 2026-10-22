@@ -4,9 +4,9 @@ import {
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification,
 } from '@harnessdesk/protocol'
-import { canBeginLeadGoal, type LeadJournal, type LeadState } from '@harnessdesk/lead'
+import { canBeginLeadGoal, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
-import { admitLeadCard, leadWindowThread } from './projection.js'
+import { admitLeadCard, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
 
 export const LEAD_PLAN_CONSENT_MS = 86_400_000
@@ -103,8 +103,9 @@ export class LeadControls {
     const wayOut = this.#wayOut(state)
     const waitReason = state.phase === 'waiting-for-user' && (LEAD_MANAGEMENT_REASONS as readonly (string | null)[]).includes(state.managementReason)
       ? state.managementReason : null
+    const progress = leadProgress(state), team = leadRunTeam(state)
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight() })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), ...(progress && { progress }), ...(team && { team }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }
@@ -204,11 +205,17 @@ export class LeadControls {
       return
     }
     try {
-      const messages = journal.state.messages.filter(message => message.role !== 'system').map(message => ({
+      // History is rebuilt from what the person can read, as plain text, so no reasoning block from an earlier
+      // request is carried into a prefix that has changed since the provider wrote it.
+      const messages: MessagesTurn[] = journal.state.messages.filter(message => message.role !== 'system').map(message => ({
         role: message.role as 'user' | 'assistant', content: [{ type: 'text' as const, text: message.text }],
       }))
-      if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
-        { type: 'text', text: 'Continue from the approved contract and fresh desk observations.' },
+      // Once a plan is approved every request ends with the contract, because the standing instructions say it
+      // arrives in a message and the history above holds only words. Before that, a request still ends in a user turn.
+      const { contract, steps } = journal.state
+      if (contract) messages.push({ role: 'user', content: leadContinuation({ contract, steps }) })
+      else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
+        { type: 'text', text: 'No plan is approved yet. Continue with a plan for the person to approve.' },
       ] })
       const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages })
       if (result.text) await service.assertPublic(result.text)

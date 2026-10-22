@@ -5,11 +5,15 @@ import type { LeadPermissionCall, LeadPermissionContext } from './permissions.js
 
 /** Provider dialect is private to this package; no provider SDK escapes into protocol. */
 export interface MessagesText { readonly type: 'text'; readonly text: string }
+/** The model's own reasoning, which the provider returns by default. It is opaque here: kept
+ * exactly as received so a tool loop can send it back, and never shown, stored or read as a plan. */
+export interface MessagesThinking { readonly type: 'thinking'; readonly thinking: string; readonly signature: string }
+export interface MessagesRedactedThinking { readonly type: 'redacted_thinking'; readonly data: string }
 export interface MessagesToolUse { readonly type: 'tool_use'; readonly id: string; readonly name: string; readonly input: unknown }
 export interface MessagesToolResult { readonly type: 'tool_result'; readonly tool_use_id: string; readonly content: string; readonly is_error: boolean }
 export interface MessagesTurn {
   readonly role: 'user' | 'assistant'
-  readonly content: readonly (MessagesText | MessagesToolUse | MessagesToolResult)[]
+  readonly content: readonly (MessagesText | MessagesThinking | MessagesRedactedThinking | MessagesToolUse | MessagesToolResult)[]
 }
 export interface LeadMessagesRequest {
   readonly messages: readonly MessagesTurn[]

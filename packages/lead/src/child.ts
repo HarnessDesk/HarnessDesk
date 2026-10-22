@@ -11,6 +11,7 @@ import type { LeadDispatch } from './journal.js'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadAcceptanceEvidence } from './acceptance.js'
 import { createLeadLoop, type LeadLoop } from './loop.js'
+import { parseLeadSeatChoices } from './instructions.js'
 import { createLeadTools, type LeadResolvedTool } from './tools.js'
 import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js'
 import { LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
@@ -44,7 +45,7 @@ interface ChildOptions {
 }
 const parseBootstrap = (value: unknown): LeadChildConfig => {
   const source = ipcObject(value)
-  if (Object.keys(source).some(key => !['key', 'descriptor', 'project', 'model', 'prices', 'projectPolicy'].includes(key))) throw denied()
+  if (Object.keys(source).some(key => !['key', 'descriptor', 'project', 'model', 'prices', 'projectPolicy', 'seats'].includes(key))) throw denied()
   const project = ipcObject(source.project, ['id', 'path']); ipcText(project.id, 256); ipcText(project.path, 4096)
   if (source.model !== undefined) ipcText(source.model, 256)
   const prices = ipcObject(source.prices)
@@ -54,6 +55,7 @@ const parseBootstrap = (value: unknown): LeadChildConfig => {
     if (Object.values(row).some(value => typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) throw denied()
   }
   if (source.projectPolicy !== undefined && source.projectPolicy !== null) parseLeadPermissionPolicy(source.projectPolicy)
+  if (source.seats !== undefined) source.seats = parseLeadSeatChoices(source.seats)
   // Legacy in-process fixtures may supply host bootstrap fields. Never retain
   // those fields in the memory-visible child configuration.
   const { key: _key, descriptor: _descriptor, ...config } = source
@@ -93,6 +95,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
     offerCard: card => rpc('offerCard', [card]) as ReturnType<LeadJournalPort['offerCard']>,
     restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
     recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
+    appendReply: async text => { await rpc('appendReply', [text]) },
   }
   let closing: Promise<void> | null = null
   const close = (): Promise<void> => {
@@ -129,7 +132,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
             }
           },
         }) }
-        loop = createLeadLoop({ journal, desk, project,
+        loop = createLeadLoop({ journal, desk, project, ...(config.seats ? { seats: config.seats } : {}),
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
           nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
             countInput: async body => new TextEncoder().encode(body).length + 1024,

@@ -130,8 +130,10 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
+import { LeadAssembly } from './lead/assembly.js'
+import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, type LeadJournal } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
@@ -465,6 +467,8 @@ export type QuestionTimers = Pick<QuestionPort, 'setTimer' | 'clearTimer'>
 export interface HostOptions {
   /** Explicit startup capability; the host never reads an environment flag. */
   readonly leadEnabled?: boolean
+  /** Replaces the fixed provider destination for the Lead's model requests; tests script it, the app never sets it. */
+  readonly leadMessagesTransport?: MessagesTransport
   /** Public skill source transport and bounds; tests use temporary bare repositories. */
   readonly librarySources?: LibrarySourcesOptions
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
@@ -786,6 +790,7 @@ export class Host {
   #leadService: LeadService | null = null
   #leadControls: LeadControls | null = null
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
+  #leadAssembly: LeadAssembly | null = null
   #leadOwnsWorker: ((runtime: string, sessionId: string, includeClosed: boolean) => boolean) | null = null
   #leadListenersAvailable = true
   #leadReady = false
@@ -2811,6 +2816,7 @@ export class Host {
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
     this.#startIdleReaper()
     this.#leadReady = this.options.leadEnabled === true
+    if (this.#leadReady) { this.#leadAssembly = this.#assembleLead(); this.onDispose(() => this.#leadAssembly?.close()) }
   }
 
   /**
@@ -3450,7 +3456,7 @@ export class Host {
 
   /** One host-owned supervisor, enabled explicitly by the authenticated Lead
    * service owner in the next slice step. Construction itself never spawns. */
-  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'>): LeadService {
+  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'>): LeadService {
     if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
     if (this.#disposed) throw new Error('lead-host-closed')
     if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')
@@ -3539,6 +3545,22 @@ export class Host {
     })
     this.onDispose(() => this.#leadControls?.close())
     return this.#leadService
+  }
+
+  /** The production assembly behind `HARNESSDESK_LEAD=1`: it builds the Lead from this host's own state on first use. */
+  #assembleLead(): LeadAssembly {
+    return new LeadAssembly({ home: this.#state.directory, now: () => Date.now(),
+      workspace: async () => this.#state.state.workspaces.find(one => !isManagedChatFolder(this.#state, one.path))?.path ?? null,
+      readySeats: () => [...this.#runtimes.values()].filter(runtime => runtime.health().state === 'ready').map(runtime => String(runtime.info.id)),
+      heldPreview: token => this.#flowPreviews.leadHeld(token),
+      create: async inputs => { await this.createLeadService({ ...inputs, ...(this.options.leadMessagesTransport ? { messagesTransport: this.options.leadMessagesTransport } : {}) }).setEnabled(true) } })
+  }
+
+  async #leadWindow(): Promise<LeadControls> {
+    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
+    if (!this.#leadControls) await this.#leadAssembly?.ensure()
+    if (!this.#leadControls) throw leadRefusal('lead-unavailable')
+    return this.#leadControls
   }
 
   /** The supervisor registers before recovery and unregisters after exit.
@@ -4726,13 +4748,13 @@ export class Host {
         deny: id => this.#requirePhoneLink().deny(id),
         revoke: device => this.#requirePhoneLink().revoke(device),
       },
-      leadThreadRead: () => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readThread() },
-      leadThreadSend: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.send(params) },
-      leadCardDecide: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.decide(params) },
-      leadSettingsRead: () => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readSettings() },
-      leadSettingsUpdate: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.updateSettings(params) },
-      leadStop: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.stop(params) },
-      leadResume: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.resume(params) },
+      leadThreadRead: async () => (await this.#leadWindow()).readThread(),
+      leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
+      leadCardDecide: async (params) => (await this.#leadWindow()).decide(params),
+      leadSettingsRead: async () => (await this.#leadWindow()).readSettings(),
+      leadSettingsUpdate: async (params) => (await this.#leadWindow()).updateSettings(params),
+      leadStop: async (params) => (await this.#leadWindow()).stop(params),
+      leadResume: async (params) => (await this.#leadWindow()).resume(params),
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
       authoring: this.#authoring,

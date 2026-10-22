@@ -497,6 +497,13 @@ export class FlowPreviews {
     return { compiled, seats, commands, guards, messaging, problems, ...(Object.keys(shown).length ? { overrides: shown } : {}) }
   }
 
+  /** What the Lead's tool guard may know of a held preview: its source and expiry. Reading spends nothing. */
+  leadHeld(token: string): { readonly source: string; readonly expiresAt: number } | null {
+    this.#sweep()
+    const held = this.#tokens.get(token)
+    return held?.requireHeld && !held.consumed ? { source: held.source, expiresAt: held.expires } : null
+  }
+
   /** Host-only annotation. A caller cannot manufacture this through the wire. */
   bindLead(params: HostParams<'flow/start-goal'>, binding: FlowLeadBinding): boolean {
     this.#sweep()

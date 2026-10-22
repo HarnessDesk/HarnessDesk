@@ -55,7 +55,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       return current
     }
     if (method === 'lead/thread/send') { const revision = current.revision + 1; emit({ ...current, revision, thread: { ...current.thread, messages: [...current.thread.messages, { version: 1, id: `message-${revision}`, revision, role: 'user', text: params.text }] } }); return { messageId: `message-${revision}`, revision } }
-    if (method === 'lead/stop') { emit({ ...current, revision: current.revision + 1, wayOut: null, waitReason: null, thread: { ...current.thread, state: 'stopped', cards: [] } }); return current }
+    if (method === 'lead/stop') { const { progress: _running, ...rest } = current; emit({ ...rest, revision: current.revision + 1, requestInFlight: false, wayOut: null, waitReason: null, thread: { ...current.thread, state: 'stopped', cards: [] } }); return current }
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
     if (method === 'lead/thread/read' || method === 'lead/settings/read') return scene === 'loading' ? new Promise<never>(() => {}) : current
     return shellRequest(method, input as never)
@@ -100,7 +100,7 @@ const LEAD_CONTRACT_CATALOG_STATES = ['default', 'loading'] as const
 
 /** The catalog renders the real pattern, including narrow action wrapping. */
 export const LeadContractSpecimen = () => <div className="flex flex-col gap-6">{LEAD_CONTRACT_CATALOG_STATES.map(state => <div key={state} data-variant={LEAD_CONTRACT_CATALOG_VARIANTS[0]} data-size={LEAD_CONTRACT_CATALOG_SIZES[0]} data-state={state}>
-  <LeadCards cards={leadSceneProjection('pending-plan').thread.cards} runtimes={[leadRuntime]} onDecide={async () => {}} onChanges={() => {}} onApprovals={() => {}} placement="thread" />
+  <LeadCards cards={leadSceneProjection('pending-plan').thread.cards} onDecide={async () => {}} onChanges={() => {}} onApprovals={() => {}} placement="thread" />
   <LeadDecision id="specimen" title="Approve this plan?" pending={state === 'loading'} onApprove={() => {}} onDecline={() => {}} />
 </div>)}</div>
 const LEAD_AVATAR_CATALOG_SIZES = ['navigation', 'default', 'lg'] as const

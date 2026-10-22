@@ -35,12 +35,14 @@ try {
       page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 1, reducedMotion: 'reduce' })
       await page.goto(`${server.url}/?token=${server.token}`)
       await page.waitForFunction(() => window.__hdStore?.getSnapshot().status === 'open')
+      // Restoring the project's saved layout replaces the page; navigate after it.
+      await page.waitForFunction(() => window.__hdStore.getSnapshot().workspace !== null)
       await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Dex', exact: true }).click()
       await page.getByRole('textbox', { name: 'Goal or message', exact: true }).fill('Repair checkout retry and review both steps')
       await page.getByRole('button', { name: 'Send', exact: true }).click()
       if (state === 'planning') {
         await rig.waitFor(() => rig.provider.requests.length === 1, 'planning request is in flight')
-        await expect(page.getByRole('button', { name: 'Sending…', exact: true })).toBeVisible()
+        await expect(page.locator('[data-page-destination="lead"]').getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
       } else if (state === 'error') {
         await rig.waitFor(() => rig.provider.requests.length === 1, 'interrupted request starts')
         await rig.interrupt()

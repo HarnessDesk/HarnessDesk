@@ -12,6 +12,7 @@ export const REFUSALS: Record<LeadControlRefusal, string> = {
   'lead-key-missing': 'Add a provider key in Settings to continue.', 'lead-secret-in-thread': 'This key already appears in the thread. Use a different key.',
   'lead-thread-closed': 'This Lead thread has finished.', 'lead-budget-stopped': 'The Lead has reached a stopped allowance.',
   'lead-protection-unavailable': 'Encrypted key storage is unavailable.', 'lead-request-in-flight': 'Wait for the current request to finish.',
+  'lead-project-missing': 'Open a folder first, then send your goal.',
 }
 
 export const leadRefusalText = (error: unknown) => {

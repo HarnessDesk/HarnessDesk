@@ -5,7 +5,7 @@ import { LEAD_CONTROL_REFUSALS, type LeadWindowProjection } from '@harnessdesk/p
 import { AppStore } from '../state/store'
 import { StoreProvider } from '../state/context'
 import { previewStore } from '../preview/harness'
-import { leadPlan, leadProjection } from '../preview/lead-fixture'
+import { leadBudget, leadPlan, leadProjection } from '../preview/lead-fixture'
 import { DestinationPageScope } from '../panels/destination-page'
 import { LeadSettingsSection } from './LeadSettings'
 import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
@@ -38,6 +38,8 @@ const mount = async (projection = leadProjection(), loading = false) => {
   const update = async (over: Partial<LeadWindowProjection>) => { projection = { ...projection, ...over, revision: projection.revision + 1 }; await act(async () => store.lead.changed({ method: 'lead/changed', params: projection })) }
   return { store, box, request, update, focusDecision: async (id: string) => { await act(async () => setFocus(id)) } }
 }
+const liveLine = (box: Element) => box.querySelector('[data-slot="lead-live-line"]')
+const goalMessage = { version: 1 as const, id: 'goal', revision: 1, role: 'user' as const, text: 'Repair the failing check' }
 const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => (node.getAttribute('aria-label') ?? node.textContent) === (name === 'Settings' ? 'Lead settings' : name))!
 const input = async (node: HTMLInputElement | HTMLTextAreaElement, value: string) => act(async () => {
   expect(node, 'the composer or credential input must exist').not.toBeNull()
@@ -272,6 +274,13 @@ it('explains a blocked renewal even without a Resume way out', async () => {
   expect(box.textContent).toContain('The plan could not be renewed because the pending request limit was reached.')
   expect(button('Resume')).toBeUndefined()
 })
+it('says an approved goal has not started, and offers Resume, when the Lead ended its turn with nothing begun', async () => {
+  const base = leadProjection(), { box } = await mount({ ...base, wayOut: 'resume', waitReason: 'lead-run-not-started',
+    thread: { ...base.thread, state: 'waiting-for-user', contract: leadPlan.contract, cards: [] } })
+  expect(box.textContent).toContain('The plan is approved, but no work has started. Sending a message also continues.')
+  expect(button('Resume')).toBeDefined()
+  expect(box.textContent).not.toContain('The Lead is waiting for you to continue.')
+})
 it('names the key row once and puts the allowance note on its dollar row', async () => {
   await mount(); await act(async () => button('Settings').click())
   const rows = [...document.querySelectorAll('[data-slot="row"]')]
@@ -337,4 +346,105 @@ it.each(['running', 'waiting-for-user'] as const)('confirms Stop goal from %s an
   expect(document.querySelector('[role="alertdialog"]')).toBeNull()
   expect(button(stopLabel)).toBeUndefined()
   expect(box.querySelector('textarea')).not.toBeNull()
+  expect(liveLine(box)?.textContent).toBe('This goal was stopped.')
+})
+
+it('says the Lead is planning while its request runs, and goes quiet when it waits for the person', async () => {
+  const base = leadProjection(), { box, update } = await mount({ ...base, requestInFlight: true, thread: { ...base.thread, state: 'planning', messages: [goalMessage] } })
+  expect(liveLine(box)?.textContent).toBe('Planning…')
+  expect(liveLine(box)?.getAttribute('role')).toBe('status')
+  await update({ requestInFlight: false })
+  expect(liveLine(box)).toBeNull()
+  // The first send, before the Lead's process has begun.
+  await update({ requestInFlight: true, thread: { ...base.thread, state: 'draft', messages: [goalMessage] } })
+  expect(liveLine(box)?.textContent).toBe('Planning…')
+  // A plan on the table is not planning; the line would only flash under it.
+  await update({ wayOut: 'decide-plan', thread: { ...base.thread, state: 'awaiting-plan', messages: [goalMessage], cards: [leadPlan], cardPositions: { plan: 2 } } })
+  expect(liveLine(box)).toBeNull()
+})
+
+it('says which step a running goal is on and how many runs it has started', async () => {
+  const base = leadProjection(), step = leadPlan.contract.steps[0]!
+  const contract = { ...leadPlan.contract, steps: [{ ...step, id: 'one', title: 'Repair the parser' }, { ...step, id: 'two', title: 'Check the result' }] }
+  const running = { ...base.thread, state: 'running' as const, messages: [goalMessage], contract }
+  const { box, update } = await mount({ ...base, progress: { step: 1, steps: 2, runs: 0 }, thread: running })
+  expect(liveLine(box)?.textContent).toBe('Step 1 of 2 · Repair the parser · no runs yet')
+  await update({ progress: { step: 1, steps: 2, runs: 1 } })
+  expect(liveLine(box)?.textContent).toBe('Step 1 of 2 · Repair the parser · 1 run')
+  await update({ progress: { step: 2, steps: 2, runs: 2 } })
+  expect(liveLine(box)?.textContent).toBe('Step 2 of 2 · Check the result · 2 runs')
+  expect(liveLine(box)?.hasAttribute('data-settled')).toBe(false)
+  // Without a reading from the host there is nothing to say; a goal that waits on the person is not running.
+  await update({ progress: undefined })
+  expect(liveLine(box)).toBeNull()
+  await update({ progress: { step: 2, steps: 2, runs: 2 }, thread: { ...running, state: 'waiting-for-user' } })
+  expect(liveLine(box)).toBeNull()
+})
+
+it('keeps the live line off a window that cannot trust its projection', async () => {
+  const base = leadProjection(), { box, store } = await mount({ ...base, requestInFlight: true, progress: { step: 1, steps: 1, runs: 1 }, thread: { ...base.thread, state: 'running', messages: [goalMessage], contract: leadPlan.contract } })
+  expect(liveLine(box)).not.toBeNull()
+  await act(async () => store.lead.changed({ method: 'lead/changed', params: { version: 1, revision: base.revision + 1, error: 'lead-projection-failed' } }))
+  expect(box.querySelector('[role="alert"]')).not.toBeNull()
+  expect(liveLine(box)).toBeNull()
+})
+
+it('says the goal was stopped when nothing else in the thread does', async () => {
+  const base = leadProjection(), stopped = { ...base.thread, state: 'stopped' as const, messages: [goalMessage], contract: leadPlan.contract }
+  const { box, update } = await mount({ ...base, thread: stopped })
+  expect(liveLine(box)?.textContent).toBe('This goal was stopped.')
+  expect(liveLine(box)?.hasAttribute('data-settled')).toBe(true)
+  // A card that says it stopped already speaks for itself.
+  await update({ thread: { ...stopped, cards: [{ version: 1, id: 'stopped', revision: 1, type: 'stopped', contractDigest: leadPlan.contract.digest, reason: 'budget', summary: 'Reported spend reached the cap', budget: leadBudget }], cardPositions: { stopped: 2 } } })
+  expect(box.textContent).toContain('The Lead stopped. Inspect its allowance and run.')
+  expect(liveLine(box)).toBeNull()
+  // A goal the person accepted or declined ended by their decision, not by a stop.
+  for (const state of ['accepted', 'declined'] as const) { await update({ thread: { ...stopped, state } }); expect(liveLine(box), state).toBeNull() }
+  // Nothing else in the thread is no reason to say nothing.
+  await update({ thread: { ...stopped, messages: [] } })
+  expect(liveLine(box)?.textContent).toBe('This goal was stopped.')
+  expect(box.textContent).not.toContain("Hi, I'm")
+})
+
+it('shows what the Lead said first before the plan it proposed, in the order it was said', async () => {
+  const base = leadProjection(), intro = 'I will repair the failing check in two steps.'
+  const { box } = await mount({ ...base, wayOut: 'decide-plan', thread: { ...base.thread, state: 'awaiting-plan', cards: [{ ...leadPlan, revision: 1 }], cardPositions: { plan: 3 },
+    messages: [goalMessage, { version: 1, id: 'intro', revision: 2, role: 'assistant', text: intro }] } })
+  const text = box.querySelector('[aria-label="Dex thread"]')!.textContent!
+  expect(text.indexOf(goalMessage.text)).toBeGreaterThanOrEqual(0)
+  expect(text.indexOf(goalMessage.text)).toBeLessThan(text.indexOf(intro))
+  expect(text.indexOf(intro)).toBeLessThan(text.indexOf("Here's my plan:"))
+})
+
+it('asks the person to run the project check once the change is reviewed and approved, and shows the command first', async () => {
+  const base = leadProjection(), room = 'team-1', running = { ...base.thread, state: 'running' as const, messages: [goalMessage], contract: leadPlan.contract }
+  const unseen = { check: { name: 'verify', run: 'node -e "process.exit(0)"' }, previous: null, cwd: '/repo', file: '/repo/.harnessdesk/checks.yml', digest: 'digest-1' }
+  const evidence = (ran: boolean) => ({ room, stamp: 1, checks: ['verify'], refused: [], unreadable: null, cards: [
+    { card: 2, running: [], facts: [{ record: { id: 'r', fact: { kind: 'review', verdict: 'approve', by: 'seat', at: 'abc' } }, freshness: { state: 'fresh' }, by: null }] },
+    ...(ran ? [{ card: 1, running: [], facts: [{ record: { id: 'c', fact: { kind: 'check', name: 'verify', run: 'x', exit: 0, timedOut: false, at: 'abc' } }, freshness: { state: 'fresh' }, by: null }] }] : [])] })
+  let ran = false
+  const { box, update, store, request } = await mount({ ...base, thread: running })
+  Object.assign(store.getSnapshot(), { teams: new Map([[room, { intents: [{ id: 1, role: 'implement', state: 'done' }, { id: 2, role: 'review', state: 'done' }] }]]) })
+  request.mockImplementation((async (method: string, params: Record<string, unknown>) => {
+    if (method === 'evidence/board') return evidence(ran)
+    if (method === 'evidence/check/run') {
+      if (params['seen'] === undefined) throw Object.assign(new Error('checkUnseen'), { code: 'checkUnseen', data: unseen })
+      ran = true; return {}
+    }
+    return base
+  }) as never)
+  await update({ team: room, progress: { step: 1, steps: 1, runs: 1 } })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+  expect(box.textContent).toContain('waiting for you to run its project check, verify')
+  await act(async () => button('Run verify').click())
+  expect(document.body.textContent).toContain('node -e "process.exit(0)"')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 700)) })
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].filter(node => node.textContent === 'Run verify').at(-1)!.click())
+  expect(request).toHaveBeenCalledWith('evidence/check/run', expect.objectContaining({ room, card: 1, name: 'verify', seen: unseen.check.run, digest: 'digest-1' }))
+  expect(box.textContent).not.toContain('project check')
+})
+it('says nothing about a check while the goal is not running or the plan asks for none', async () => {
+  const base = leadProjection(), room = 'team-1'
+  const { box } = await mount({ ...base, team: room, thread: { ...base.thread, state: 'waiting-for-user' as const, messages: [goalMessage], contract: leadPlan.contract } })
+  expect(box.textContent).not.toContain('project check')
 })

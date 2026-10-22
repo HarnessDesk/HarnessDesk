@@ -3,12 +3,15 @@ import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
   type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
-  MessagesText, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
+  MessagesRedactedThinking, MessagesText, MessagesThinking, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
 
 /** Configuration defaults only; model choice never changes permissions or behavior. */
 export const LEAD_MESSAGES_DEFAULTS = Object.freeze({ model: 'claude-sonnet-5-5', observerModel: 'claude-haiku-5-5', hardPlanModel: 'claude-opus-5-5' })
 const LIMIT = Object.freeze({ bytes: 1_048_576, text: 16_384, blocks: 64, turns: 256, nodes: 16_384,
-  depth: 24, maxTokens: 65_536, retries: 2, retryMs: 30_000 })
+  depth: 24, maxTokens: 65_536, retries: 2, retryMs: 30_000,
+  /** One reasoning field (the thinking text, its signature, or redacted data): a reply of the largest
+   * allowed `max_tokens` at four characters a token. The whole body is still held to `bytes`. */
+  reasoning: 262_144 })
 const fail = (): never => { throw new Error('lead-messages-invalid') }
 const object = (value: unknown, allowed?: readonly string[]): Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return fail()
@@ -65,15 +68,27 @@ const json = (value: unknown, max: number = LIMIT.bytes): string => {
   return encoded
 }
 
+/** An assistant turn's blocks, as the provider returns them and as this client sends them back. */
+type Block = MessagesText | MessagesThinking | MessagesRedactedThinking | MessagesToolUse
 /** History the caller supplies must be exactly what this client returned. A provider
  * reply may carry fields added after this was written (`citations`, `caller`); they
  * are read past and never passed on, except that a tool use made on behalf of anything
- * other than the model directly was never offered here and is refused. */
-const block = (value: unknown, provider = false): MessagesText | MessagesToolUse => {
+ * other than the model directly was never offered here and is refused.
+ * Reasoning (`thinking`, `redacted_thinking`) is kept byte for byte, because the provider verifies
+ * its signature when the turn comes back inside a tool loop. Its text may be empty. */
+const block = (value: unknown, provider = false): Block => {
   const source = object(value)
   if (source.type === 'text') {
     if (!provider) object(source, ['type', 'text'])
     return { type: 'text', text: string(source.text) }
+  }
+  if (source.type === 'thinking') {
+    if (!provider) object(source, ['type', 'thinking', 'signature'])
+    return { type: 'thinking', thinking: string(source.thinking, LIMIT.reasoning), signature: string(source.signature, LIMIT.reasoning) }
+  }
+  if (source.type === 'redacted_thinking') {
+    if (!provider) object(source, ['type', 'data'])
+    return { type: 'redacted_thinking', data: string(source.data, LIMIT.reasoning) }
   }
   if (source.type !== 'tool_use') return fail()
   if (!provider) object(source, ['type', 'id', 'name', 'input'])
@@ -81,7 +96,7 @@ const block = (value: unknown, provider = false): MessagesText | MessagesToolUse
   // A recognizable use with malformed arguments still receives its correlated error.
   return { type: 'tool_use', id: identifier(source.id), name: string(source.name, 128), input: source.input ?? null }
 }
-const blocks = (value: unknown, provider = false): (MessagesText | MessagesToolUse)[] => {
+const blocks = (value: unknown, provider = false): Block[] => {
   if (!Array.isArray(value) || value.length === 0 || value.length > LIMIT.blocks) return fail()
   const result = value.map(item => block(item, provider)), ids = result.filter(item => item.type === 'tool_use').map(item => item.id)
   if (new Set(ids).size !== ids.length) return fail()
@@ -303,7 +318,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     // Usage is settled; a refusal or a paused turn is the model's answer, not a protocol fault.
     if (parsed.stop_reason === 'refusal') return { status: 'failed', reason: 'lead-messages-model-refusal', usage: used }
     if (parsed.stop_reason === 'pause_turn') return { status: 'failed', reason: 'lead-messages-paused', usage: used }
-    let content: (MessagesText | MessagesToolUse)[], output: ReturnType<typeof proposals>
+    let content: Block[], output: ReturnType<typeof proposals>
     try {
       if (parsed.type !== 'message' || parsed.role !== 'assistant' || !['end_turn', 'tool_use', 'max_tokens', 'stop_sequence'].includes(parsed.stop_reason as string)) fail()
       content = blocks(parsed.content, true)

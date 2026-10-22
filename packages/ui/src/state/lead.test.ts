@@ -57,6 +57,15 @@ describe('Lead state facade', () => {
     facade.changed({ method: 'lead/changed', params: projection(5, 'stopped') })
     expect(facade.state.wayOut).toBe(null)
   })
+  it('keeps where a running goal stands only while the host reports it', async () => {
+    const { createLeadState } = await load()
+    const facade = createLeadState({ request: vi.fn() }, () => true)
+    expect(facade.state.progress).toBe(null)
+    facade.changed({ method: 'lead/changed', params: { ...projection(2, 'running'), progress: { step: 1, steps: 2, runs: 1 } } })
+    expect(facade.state.progress).toEqual({ step: 1, steps: 2, runs: 1 })
+    facade.changed({ method: 'lead/changed', params: projection(3, 'waiting-for-user') })
+    expect(facade.state.progress).toBe(null)
+  })
 })
 
 

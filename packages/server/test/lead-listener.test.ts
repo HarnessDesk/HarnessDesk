@@ -89,3 +89,24 @@ test('Lead service cannot start a child before host recovery owns the desk', asy
   t.after(() => host.dispose())
   assert.throws(() => host.createLeadService({} as any), /lead-host-starting/)
 })
+
+test('a home too deep for a socket path keeps its private Lead listener in a short per-user directory', async t => {
+  const root = await mkdtemp('/tmp/hd-l-')
+  const home = join(root, 'a-home-directory-deep-enough-that-a-unix-socket-path-beneath-it-overflows-the-limit')
+  await mkdir(home)
+  t.after(() => rm(root, { recursive: true, force: true }))
+  t.mock.method(Server.prototype, 'listen', function (this: Server, path: string, ready: () => void) {
+    void writeFile(path, '').then(ready)
+    return this
+  })
+  t.mock.method(Server.prototype, 'close', function (this: Server, ready: () => void) { ready(); return this })
+  const door = await openLeadClientDoor({ host: {} as any, home, logger: silent,
+    hostVersion: 'test', authority: { identity: 'lead', maximumTiers: ['read'], authorize: async () => null } })
+  assert.ok(door)
+  const parent = dirname(dirname(door.socketPath))
+  t.after(() => rm(parent, { recursive: true, force: true }))
+  assert.ok(door.socketPath.length < 104, door.socketPath)
+  assert.ok(parent.startsWith('/tmp/hd-lead-'), parent)
+  await door.close()
+  assert.deepEqual(await readdir(parent), [])
+})

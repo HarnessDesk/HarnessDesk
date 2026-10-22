@@ -182,6 +182,7 @@ export const LEAD_MANAGEMENT_REASONS = [
   'lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-child-exited', 'lead-ownership-withdrawn',
   'lead-result-awaiting-person', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
   'lead-card-too-large', 'lead-send-deadline', 'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
+  'lead-run-not-started',
 ] as const
 export interface LeadThread {
   readonly version: 1
@@ -219,12 +220,18 @@ export interface LeadHostProjection {
   readonly settings: LeadSettingsProjection
 }
 export type LeadPersonAction = 'resume' | 'decide-plan' | null
+/** Where a running goal stands, in numbers: the step the Lead is on, of how many, and how many runs it has started. */
+export interface LeadProgress { readonly step: number; readonly steps: number; readonly runs: number }
 /** Window projection adds the host's guarded way out; child observations grant no control. */
 export interface LeadWindowProjection extends LeadHostProjection {
   readonly requestInFlight: boolean
   readonly wayOut: LeadPersonAction
   readonly waitReason: typeof LEAD_MANAGEMENT_REASONS[number] | null
   readonly planConsentExpiresAt: number | null
+  /** Present only while the goal is running; it is read from the journal and grants nothing. */
+  readonly progress?: LeadProgress
+  /** The Team of the goal's latest run, while the goal is running: the board where its evidence and the person's own acts live. */
+  readonly team?: string
 }
 export interface LeadProjectionFailure { readonly version: 1; readonly revision: LeadRevision; readonly error: 'lead-projection-failed' }
 export type LeadChanged = LeadWindowProjection | LeadProjectionFailure
@@ -238,7 +245,7 @@ export const LEAD_CONTROL_REFUSALS = ['lead-unavailable', 'lead-operation-refuse
   'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
-  'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight'] as const
+  'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -573,7 +580,11 @@ export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
 export const parseLeadEmpty: Validator<Record<string, never>> = object({})
 export const parseLeadNameReceipt: Validator<LeadNameReceipt> = object({ version, revision, settings: object({ name: literalUnion('dex', 'lex') }) })
 
+const parseLeadProgress: Validator<LeadProgress> = (value, path = '') => {
+  const parsed = object<LeadProgress>({ step: integer(1, LEAD_LIMITS.steps), steps: integer(1, LEAD_LIMITS.steps), runs: integer() })(value, path)
+  return parsed.step <= parsed.steps ? parsed : fail(path, 'step beyond the plan')
+}
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
-  waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)),
+  waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
 }))

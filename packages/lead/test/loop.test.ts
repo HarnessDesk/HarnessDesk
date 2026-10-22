@@ -427,7 +427,8 @@ test('journal opens read-only until owner explicitly recovers paid requests', as
 })
 
 test('request failure reason survives reopen/checkpoint and guarded resume is durable', async () => {
-  const s = await fixture([{ status: 401, processing: 'not-started', body: '' }, message()])
+  // The resumed turn starts the run: prose with nothing started is a stall of its own (see lead-run-not-started).
+  const s = await fixture([{ status: 401, processing: 'not-started', body: '' }, message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
   await s.approve()
   const loop = exported('createLeadLoop')(s.options); await loop.request(input); await loop.close()
   const checkpoint = lead.parseLeadCheckpoint(lead.leadCheckpoint(s.journal.state, '0'.repeat(64))).state
@@ -1020,5 +1021,276 @@ for (const terminalReason of ['lead-predecessor-unavailable', 'lead-predecessor-
     assert.equal(s.journal.state.managementReason, terminalReason)
     assert.equal(result.toolResults[0].content, `Step 2 cannot start: step 1's result ${terminalReason === 'lead-predecessor-unavailable' ? 'was not accepted' : 'cannot be confirmed'}. Ask the person how to continue.`)
     assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
+  } finally { await loop.close() }
+})
+
+
+// The system text is built once for a goal, from the loop's project and the journal's policy and caps.
+const crew = { implement: [{ runtime: 'acme-writer', model: 'acme/writer-1' }, { runtime: 'acme-writer', model: 'acme/writer-2', thinking: true }],
+  review: [{ runtime: 'acme-reviewer', model: 'acme/reviewer-1', effort: 'high' }, { runtime: 'acme-reviewer', model: 'acme/reviewer-2' }] }
+const systemOf = (request: any): string => JSON.parse(request.body).system
+const exampleLine = (system: string) => system.split('\n').find(line => line.startsWith('{"version":1,"type":"lead-output"'))
+const exampleOf = (system: string): any => JSON.parse(exampleLine(system)!)
+
+test('the system text gives the project root, the seats and one plan example, and never calls the goal approved', async () => {
+  const s = await fixture([message()])
+  const loop = exported('createLeadLoop')({ ...s.options, seats: crew })
+  try {
+    await loop.request(input)
+    const system = systemOf(s.fake.requests[0])
+    for (const needle of ['flow_preview', 'flow_start_goal', (lead as any).leadReviewedResultSource])
+      assert.ok(system.includes(needle), `the system text must contain ${needle.slice(0, 40)}`)
+    // The root and every seat are stated on their own lines, not only inside the example that repeats one of each.
+    const lines = system.split('\n')
+    assert.ok(lines.includes(`Project root: ${contract.project.path} (project id ${contract.project.id}).`))
+    const offered = lines.find(line => line.startsWith('Seats a plan may name'))
+    assert.ok(offered, 'the seats a plan may name are listed')
+    for (const seat of [...crew.implement, ...crew.review]) assert.ok(offered.includes(JSON.stringify(seat)), `seat ${seat.model} is offered`)
+    assert.match(system, /ONLY one version 1 lead-output JSON object/)
+    // The private Flow's own seed title says "approved goal"; the instructions around it must not.
+    assert.doesNotMatch(system.replace((lead as any).leadReviewedResultSource, ''), /approved goal/i)
+    assert.ok(exampleLine(system), 'the system text carries one compact example plan')
+    const example = exampleOf(system)
+    assert.equal(example.version, 1); assert.equal(example.type, 'lead-output')
+    assert.deepEqual(protocol.parseLeadAcceptanceContract(example.plan).project, s.options.project)
+    assert.equal(example.plan.policyRevision, s.journal.state.policy!.revision)
+    assert.deepEqual(example.plan.caps, s.journal.state.budget!.caps)
+    assert.deepEqual(example.plan.steps[0].assignments.map((one: any) => [one.role, one.agent, one.ceiling, one.seat]),
+      [['implement', 'implementer', 'edit', crew.implement[0]], ['review', 'code-reviewer', 'read', crew.review[0]]])
+  } finally { await loop.close() }
+})
+
+test('the example plan in the system text is a plan the loop accepts as a card', async () => {
+  const s = await fixture([async request => message([{ type: 'text', text: JSON.stringify(exampleOf(systemOf(request))) }])])
+  const loop = exported('createLeadLoop')({ ...s.options, seats: crew })
+  try {
+    await loop.request(input)
+    assert.equal(loop.state.phase, 'awaiting-plan')
+    assert.ok(s.journal.state.cards.some(card => card.type === 'plan'), 'the example is offered as a plan card')
+  } finally { await loop.close() }
+})
+
+test('the system text is the same bytes in the planning request, the post-approval continuation and a later turn', async () => {
+  const reasoning = { type: 'thinking', thinking: '', signature: 'opaque-signature-A2' }
+  const s = await fixture([
+    async request => message([{ type: 'text', text: JSON.stringify(exampleOf(systemOf(request))) }]),
+    message([reasoning, tool('catalog', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' }),
+    message([{ type: 'text', text: 'Waiting for the first worker.' }]),
+  ])
+  const loop = exported('createLeadLoop')({ ...s.options, seats: crew })
+  try {
+    await loop.request(input)
+    const offered = s.journal.state.cards.find(card => card.type === 'plan')!
+    await s.journal.decideCard({ version: 1, cardId: offered.id, cardType: 'plan', expectedRevision: offered.revision, contractDigest: offered.contractDigest, choice: 'approve' }, 1000)
+    await loop.request({ ...input, messages: [...input.messages, { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'Here is the plan.' }] },
+      { role: 'user' as const, content: [{ type: 'text' as const, text: 'The approved contract follows.' }] }] })
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 3)
+    const [planning, approved, later] = s.fake.requests.map(systemOf)
+    assert.equal(approved, planning); assert.equal(later, planning)
+    // The later turn replays the tool turn, thinking included, behind a prefix that has not changed.
+    const replayed = JSON.parse(s.fake.requests[2].body).messages
+    assert.deepEqual(replayed.at(-2).content[0], reasoning)
+  } finally { await loop.close() }
+})
+
+test('a rename in the middle of a goal waits for the next goal, so replayed reasoning keeps its prefix', async () => {
+  const s = await fixture([message(), message()])
+  await (s.journal as any).settingsChanged('lex')
+  const loop = exported('createLeadLoop')({ ...s.options, seats: crew })
+  try {
+    await loop.request(input)
+    await (s.journal as any).settingsChanged('dex')
+    await loop.request(input)
+    const [first, second] = s.fake.requests.map(systemOf) as [string, string]
+    assert.match(first, /Your name is Lex\./)
+    assert.equal(second, first)
+  } finally { await loop.close() }
+})
+
+test('the project root in the system text is the loop project, nothing else', async () => {
+  const acme = { id: 'acme', path: '/work/acme' }
+  const s = await fixture([message()])
+  const resolve = s.options.resolveTool
+  const resolveTool = async (call: any) => { const resolved = await resolve(call); return { ...resolved, project: acme, context: { ...resolved.context, project: acme } } }
+  const loop = exported('createLeadLoop')({ ...s.options, project: acme, resolveTool, seats: crew })
+  try {
+    await loop.request(input)
+    const system = systemOf(s.fake.requests[0])
+    assert.ok(system.includes('/work/acme'))
+    assert.equal(system.includes(contract.project.path), false)
+    assert.deepEqual(exampleOf(system).plan.project, acme)
+  } finally { await loop.close() }
+})
+
+test('without a seat list the system text says so and offers no example plan to copy', async () => {
+  const s = await fixture([message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    const system = systemOf(s.fake.requests[0])
+    assert.match(system, /No seats are configured/)
+    assert.equal(exampleLine(system), undefined)
+    assert.ok(system.includes(contract.project.path))
+  } finally { await loop.close() }
+})
+
+// What the model says is kept for the person in the order it was said, and a goal that has started nothing says so.
+const said = (s: any): string[] => s.journal.state.messages.filter((one: any) => one.role === 'assistant').map((one: any) => one.text)
+const planText = (text?: string) => message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', ...(text === undefined ? {} : { text }), plan: contract }) }])
+
+test('a text that comes with a plan is stored before the plan card, and the result does not repeat it', async () => {
+  const s = await fixture([planText('Here is the plan for the repair.')])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    const result = await loop.request(input)
+    assert.deepEqual(said(s), ['Here is the plan for the repair.'])
+    const card = s.journal.state.cards.find((one: any) => one.type === 'plan')!
+    const reply = s.journal.state.messages.find((one: any) => one.role === 'assistant')!
+    assert.ok(reply.revision < s.journal.state.cardPositions[card.id]!, 'the sentence comes before the card it introduces')
+    assert.equal(result.text, undefined, 'a text kept in the journal is not delivered a second time')
+    assert.equal(result.status, 'completed')
+  } finally { await loop.close() }
+})
+
+test('a plan without a sentence stores no empty message', async () => {
+  const s = await fixture([planText()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.deepEqual(said(s), [])
+    assert.ok(s.journal.state.cards.some((one: any) => one.type === 'plan'))
+  } finally { await loop.close() }
+})
+
+test('every step stores what the model said, including the steps the host never sees', async () => {
+  const s = await fixture([
+    message([{ type: 'text', text: 'Looking at the desk first.' }, tool('catalog', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' }),
+    message([{ type: 'text', text: 'The catalog has nothing for this goal yet.' }]),
+  ])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve()
+    const first = await loop.request(input)
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2, 'the tool result went back for a second step')
+    assert.deepEqual(said(s), ['Looking at the desk first.', 'The catalog has nothing for this goal yet.'])
+    assert.equal(first.text, undefined)
+  } finally { await loop.close() }
+})
+
+test('a prose turn is stored as a message and a text the journal refuses stays in the result', async () => {
+  const s = await fixture([message([{ type: 'text', text: 'Which part of the repair matters most?' }])])
+  const journal = new Proxy(s.journal, { get(target, key) {
+    if (key === 'appendReply') return async () => { throw Object.assign(new Error('lead-reply-refused'), { wireCode: 'lead-reply-refused' }) }
+    const value = Reflect.get(target, key, target)
+    return typeof value === 'function' ? value.bind(target) : value
+  } })
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  try {
+    const result = await loop.request(input)
+    assert.equal(result.text, 'Which part of the repair matters most?', 'the host sees a text that was not kept, and scans it itself')
+    assert.deepEqual(said(s), [])
+    assert.equal(s.journal.state.phase, 'waiting-for-user')
+    assert.equal(s.journal.state.managementReason, 'lead-request-failed')
+  } finally { await loop.close() }
+})
+
+test('a text is not stored once the goal has ended', async () => {
+  const s = await fixture([async () => { await s.journal.stop(); return message([{ type: 'text', text: 'Too late to say.' }]) }])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.deepEqual(said(s), [])
+  } finally { await loop.close() }
+})
+
+test('a turn that ends in prose with no run started parks the goal with a reason and a way on', async () => {
+  const s = await fixture([message([{ type: 'text', text: 'I will think about how to start.' }]), message([{ type: 'text', text: 'Unexpected second request.' }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve()
+    assert.equal(s.journal.state.phase, 'running')
+    const result = await loop.request(input)
+    assert.equal(result.status, 'completed')
+    assert.equal(s.journal.state.runs.length, 0)
+    assert.equal(s.journal.state.phase, 'waiting-for-user')
+    assert.equal(s.journal.state.managementReason, 'lead-run-not-started')
+    assert.equal(loop.state.reason, 'lead-run-not-started')
+    assert.deepEqual(said(s), ['I will think about how to start.'], 'the prose that ended the turn is in the thread')
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 1, 'a parked goal makes no request of its own')
+    // The way on is the one every other wait has.
+    await s.journal.resume()
+    assert.equal(s.journal.state.phase, 'running')
+    assert.equal(s.journal.state.managementReason, null)
+  } finally { await loop.close() }
+})
+
+test('a tool turn followed by a prose turn with no run started parks the goal the same way', async () => {
+  const s = await fixture([
+    message([tool('catalog', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' }),
+    message([{ type: 'text', text: 'Nothing in the catalog fits.' }]),
+  ])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve()
+    await loop.request(input)
+    assert.equal(s.journal.state.phase, 'running', 'the tool turn alone is progress')
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2)
+    assert.equal(s.journal.state.phase, 'waiting-for-user')
+    assert.equal(s.journal.state.managementReason, 'lead-run-not-started')
+  } finally { await loop.close() }
+})
+
+test('prose while a run is in flight, or before any plan is approved, is not a stall', async () => {
+  const running = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }),
+    message([{ type: 'text', text: 'Waiting for the worker.' }])])
+  const loop = exported('createLeadLoop')(running.options)
+  try {
+    await running.approve(); running.setEvidence({ ...spendEvidence(), reviews: [] })
+    await loop.request(input); await running.tick(); await loop.idle()
+    assert.equal(running.journal.state.runs.length, 1)
+    assert.equal(running.fake.requests.length, 2)
+    assert.equal(running.journal.state.phase, 'running')
+    assert.equal(running.journal.state.managementReason, null)
+  } finally { await loop.close() }
+  const planning = await fixture([message([{ type: 'text', text: 'What should the repair change?' }])])
+  const asking = exported('createLeadLoop')(planning.options)
+  try {
+    await asking.request(input)
+    assert.equal(planning.journal.state.phase, 'planning')
+    assert.equal(planning.journal.state.managementReason, null)
+  } finally { await asking.close() }
+})
+
+test('a revised plan proposed after approval waits for the person, and is not taken for a stall', async () => {
+  const revised = { ...contract, revision: 2, digest: 'b'.repeat(64), goal: 'Revise the remaining work' }
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'A better plan follows.', plan: revised }) }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve()
+    await loop.request(input)
+    assert.equal(s.journal.state.runs.length, 0)
+    assert.equal(s.journal.state.phase, 'awaiting-plan')
+    assert.equal(s.journal.state.managementReason, null)
+    assert.deepEqual(said(s), ['A better plan follows.'])
+  } finally { await loop.close() }
+})
+
+test('prose after a resume that no plan preceded is a question for the person, not a stall', async () => {
+  const s = await fixture([{ status: 401, processing: 'not-started', body: '' }, message([{ type: 'text', text: 'What should the repair change?' }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.equal(s.journal.state.managementReason, 'lead-request-failed')
+    await s.journal.resume()
+    assert.equal(s.journal.state.phase, 'running')
+    assert.equal(s.journal.state.contract, null)
+    await loop.request(input)
+    assert.equal(s.journal.state.phase, 'running')
+    assert.equal(s.journal.state.managementReason, null)
+    assert.deepEqual(said(s), ['What should the repair change?'])
   } finally { await loop.close() }
 })

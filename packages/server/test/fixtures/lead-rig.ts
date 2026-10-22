@@ -5,7 +5,6 @@ import { connect as connectSocket, createServer as createSocketServer, type Serv
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createHash } from 'node:crypto'
 import { WebSocket } from 'ws'
 import { Ledger } from '../../src/ledger/index.js'
 import type { UsageSample } from '../../src/ledger/insight.js'
@@ -18,6 +17,7 @@ import { ExtensionKernel, setTeamEngine } from '@harnessdesk/cordis-host'
 import { teamPlugin } from '@harnessdesk/plugins'
 import { Host, Logger, StateStore } from '../../src/index.js'
 import { LeadFileJournal } from '../../src/lead/journal.js'
+import { freezeLeadPlan } from '../../src/lead/assembly.js'
 import { GatedRegistry } from '../../src/ceilings/gate.js'
 import { GoalStore } from '../../src/goals/store.js'
 import { LEAD_RIG_KEY, leadMessagesServer } from './lead-messages-server.js'
@@ -296,9 +296,10 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         } catch (error) { evidenceFailure = error instanceof Error ? error : new Error(String(error)); throw error }
       }
       service = host.createLeadService({ journal, project, model, prices, messagesTransport: provider.transport,
+        seats: { implement: [assignments[0]!.seat], review: [assignments[1]!.seat] },
         freezePlan: async value => {
           assert.deepEqual(value, proposal)
-          return { ...value, digest: createHash('sha256').update(JSON.stringify(value)).digest('hex') }
+          return freezeLeadPlan(value)
         },
         resolveTool: async call => {
           const state = journal.state, params = call.params as Record<string, any>

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { join } from 'node:path'
 import { clientTierFor, type ClientTier, type HostParams } from '@harnessdesk/protocol'
@@ -108,8 +109,15 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
   } satisfies ClientConnectionPolicy)
 }
 
+/** A unix socket path is capped near 104 bytes and the door's is `<parent>/hd-lead-XXXXXX/<16 hex>.sock`. A home deep
+ * enough to overflow that keeps its reserved parent in a short, per-user, per-home directory instead, so the Lead
+ * does not stop answering for the length of someone's path. */
+const SOCKET_ROOM = '/hd-lead-XXXXXX/0123456789abcdef.sock'.length
 const leadClientParent = async (home: string, create: boolean): Promise<string | null> => {
-  const parent = join(await fs.realpath(home), 'lead-clients')
+  const real = await fs.realpath(home)
+  const beside = join(real, 'lead-clients')
+  const parent = beside.length + SOCKET_ROOM < 104 ? beside
+    : `/tmp/hd-lead-${process.getuid!()}-${createHash('sha256').update(real).digest('hex').slice(0, 8)}`
   if (create) {
     try { await fs.mkdir(parent, { mode: 0o700 }) }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }

@@ -462,3 +462,16 @@ test('decided history cannot crowd live decisions or messages out of the window 
   assert.deepEqual(result.decisions, [])
   assert.ok(new TextEncoder().encode(JSON.stringify(result)).byteLength <= 4000)
 })
+
+test('a window projection says where a running goal stands, and refuses a reading that cannot be true', () => {
+  const parse = validator('parseLeadWindowProjection')
+  const projection = { version: 1, revision: 2, thread: { ...thread, state: 'running' }, settings, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null }
+  const progressOf = (value: unknown) => (parse(value) as { progress?: unknown }).progress
+  for (const progress of [{ step: 2, steps: 3, runs: 1 }, { step: 1, steps: 1, runs: 0 }, { step: 64, steps: 64, runs: 64 }])
+    assert.deepEqual(progressOf({ ...projection, progress }), progress)
+  assert.equal(progressOf(projection), undefined)
+  assert.equal(progressOf({ ...projection, progress: null }), undefined)
+  for (const progress of [{ step: 0, steps: 1, runs: 0 }, { step: 2, steps: 1, runs: 0 }, { step: 1, steps: 65, runs: 0 }, { step: 1, steps: 1, runs: -1 },
+    { step: 1.5, steps: 2, runs: 0 }, { step: 1, steps: 1 }, { step: 1, steps: 1, runs: 0, title: 'Implement and review' }, 'Step 1 of 1'])
+    assert.throws(() => parse({ ...projection, progress }), protocol.ValidationError)
+})

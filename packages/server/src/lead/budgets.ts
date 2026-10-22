@@ -23,6 +23,9 @@ export interface LeadBudgetPort {
 }
 /** The host keeps this owner when the child disconnects. A saved Lead run with
  * no registered journal is refused, including during host recovery. */
+/** How many times one metering pass reads again because a Seat's turn started or ended while the read was out. */
+const REMETER_ATTEMPTS = 3
+
 export class LeadBudgets implements FlowLeadGuard {
   readonly #journals = new Map<string, LeadJournal>()
   readonly #detach = new Map<string, () => void>()
@@ -148,37 +151,45 @@ export class LeadBudgets implements FlowLeadGuard {
     const id = run.lead!.logicalGoalId, active = this.#metering.get(id)
     if (active) return active
     const task = (async () => {
-      const runs = this.port.runs().filter(one => one.lead?.logicalGoalId === id)
-      const ids = new Set(runs.flatMap(one => one.rounds.flatMap(round => round.seats)))
-      const seats = this.port.seats!().filter(seat => ids.has(String(seat.id)))
-      if (ids.size === 0) return
-      const now = Math.max(this.port.now(), journal.state.budget!.now)
-      let read: { readonly samples: readonly UsageSample[]; readonly complete: boolean }
-      try { read = await this.port.usage!(journal.state.contract!.project.path, seats.length ? Math.min(...seats.map(seat => seat.openedAt)) : now, now) }
-      catch { read = { samples: [], complete: false } }
-      const windows = seats.map(seatWindowOf)
-      let complete = read.complete && seats.length === ids.size && journal.state.budget!.executionIds.every(execution => runs.some(one => one.id === execution))
-      const meters = seats.map(seat => {
-        let meter = openMeter({ seat: seat.id, runtime: seat.session.runtime, sessionId: seat.session.sessionId,
-          project: seat.checkout.project, openedAt: seat.openedAt, fresh: true, delegation: this.port.delegation?.(seat) ?? 'unknown' })
-        const assigned = read.samples.filter(sample => attributeSample(sample, windows) === seat.id)
-        for (const sample of assigned) meter = meterSample(meter, sample)
-        if (read.samples.some(sample => sample.runtime === seat.session.runtime && sample.sessionId === seat.session.sessionId && attributeSample(sample, windows) === null)) complete = false
-        if (read.complete) meter = { ...meter, observedAt: Math.max(meter.observedAt ?? 0, now) }
-        return meterTurn(meter, this.#turns.get(seat.id) ?? {})
-      })
-      const total = goalSpend(meters, now).spentMicros
-      complete &&= total !== null && Number.isSafeInteger(total) && total <= LEAD_LIMITS.maxUsdMicros
-      const budget = journal.state.budget!
-      const source = createHash('sha256').update(JSON.stringify(read.samples.map(sample => sample.key).sort())).digest('hex')
-      await journal.updateBudget({ version: 1, type: 'observe', now, at: now, revision: budget.revision + 1,
-        source: 'worker-samples', sourceIds: [source], goalId: budget.goalId!, executionIds: budget.executionIds,
-        quality: complete ? 'known' : 'unknown', usdMicros: total === null ? null : Math.min(LEAD_LIMITS.maxUsdMicros, total) })
-      if (!complete && !journal.state.budget!.stop) await journal.updateBudget({ version: 1, type: 'stop', now, reason: 'unknown-spend' })
+      // A turn that ends while the usage read is out was not covered by that read: read again, a few times at most.
+      for (let attempt = 1; attempt <= REMETER_ATTEMPTS; attempt++) if (!await this.#meter(id, journal, attempt === REMETER_ATTEMPTS)) return
     })()
     this.#metering.set(id, task)
     void task.finally(() => this.#metering.delete(id)).catch(() => {})
     return task
+  }
+  /** One read and one observation. True when a Seat's turn started or ended after the read's moment: it is not covered, so nothing is written and the caller reads again. */
+  async #meter(id: string, journal: LeadJournal, last: boolean): Promise<boolean> {
+    const runs = this.port.runs().filter(one => one.lead?.logicalGoalId === id)
+    const ids = new Set(runs.flatMap(one => one.rounds.flatMap(round => round.seats)))
+    const seats = this.port.seats!().filter(seat => ids.has(String(seat.id)))
+    if (ids.size === 0) return false
+    const now = Math.max(this.port.now(), journal.state.budget!.now)
+    let read: { readonly samples: readonly UsageSample[]; readonly complete: boolean }
+    try { read = await this.port.usage!(journal.state.contract!.project.path, seats.length ? Math.min(...seats.map(seat => seat.openedAt)) : now, now) }
+    catch { read = { samples: [], complete: false } }
+    const raced = seats.some(seat => { const turn = this.#turns.get(seat.id); return (turn?.started ?? 0) > now || (turn?.ended ?? 0) > now })
+    if (raced && !last) return true
+    const windows = seats.map(seatWindowOf)
+    let complete = read.complete && seats.length === ids.size && journal.state.budget!.executionIds.every(execution => runs.some(one => one.id === execution))
+    const meters = seats.map(seat => {
+      let meter = openMeter({ seat: seat.id, runtime: seat.session.runtime, sessionId: seat.session.sessionId,
+        project: seat.checkout.project, openedAt: seat.openedAt, fresh: true, delegation: this.port.delegation?.(seat) ?? 'unknown' })
+      const assigned = read.samples.filter(sample => attributeSample(sample, windows) === seat.id)
+      for (const sample of assigned) meter = meterSample(meter, sample)
+      if (read.samples.some(sample => sample.runtime === seat.session.runtime && sample.sessionId === seat.session.sessionId && attributeSample(sample, windows) === null)) complete = false
+      if (read.complete) meter = { ...meter, observedAt: Math.max(meter.observedAt ?? 0, now) }
+      return meterTurn(meter, this.#turns.get(seat.id) ?? {})
+    })
+    const total = goalSpend(meters, now).spentMicros
+    complete &&= total !== null && Number.isSafeInteger(total) && total <= LEAD_LIMITS.maxUsdMicros
+    const budget = journal.state.budget!
+    const source = createHash('sha256').update(JSON.stringify(read.samples.map(sample => sample.key).sort())).digest('hex')
+    await journal.updateBudget({ version: 1, type: 'observe', now, at: now, revision: budget.revision + 1,
+      source: 'worker-samples', sourceIds: [source], goalId: budget.goalId!, executionIds: budget.executionIds,
+      quality: complete ? 'known' : 'unknown', usdMicros: total === null ? null : Math.min(LEAD_LIMITS.maxUsdMicros, total) })
+    if (!complete && !journal.state.budget!.stop) await journal.updateBudget({ version: 1, type: 'stop', now, reason: 'unknown-spend' })
+    return false
   }
   /** Usage monitoring belongs to the host and survives the child's exit. */
   turn(seat: SeatRecord, change: 'started' | 'ended'): void {

@@ -4,10 +4,11 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { previewStore } from '../preview/harness'
 import type { LeadCard } from '@harnessdesk/protocol'
-import { leadContract, leadPlan, leadResult, leadRuntime, leadWaiting } from '../preview/lead-fixture'
+import { leadBudget, leadContract, leadPlan, leadResult, leadRuntime, leadWaiting } from '../preview/lead-fixture'
 // An absent implementation renders nothing, so the first run fails on the promised behavior.
-const modules = import.meta.glob('./LeadCards.tsx', { eager: true }) as Record<string, { LeadCards: React.ComponentType<any> }>
+const modules = import.meta.glob('./LeadCards.tsx', { eager: true }) as Record<string, { LeadCards: React.ComponentType<any>; leadDollars: (micros: number) => string }>
 const LeadCards = modules['./LeadCards.tsx']?.LeadCards ?? (() => null)
+const leadDollars = modules['./LeadCards.tsx']?.leadDollars ?? (() => '')
 const handlers = vi.hoisted(() => [] as { onApprove?: () => void }[])
 vi.mock('./LeadDecision', async importOriginal => {
   const actual = await importOriginal<typeof import('./LeadDecision')>()
@@ -17,7 +18,7 @@ const clean: (() => void)[] = []
 afterEach(() => { clean.splice(0).forEach(fn => fn()); handlers.length = 0 })
 const mount = (cards: readonly LeadCard[], decide = vi.fn(async () => {})) => {
   const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
-  const render = (next: readonly LeadCard[]) => act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={next} contract={leadContract} runtimes={[leadRuntime]} onDecide={decide} onChanges={() => {}} onApprovals={() => {}} /></StoreProvider>))
+  const render = (next: readonly LeadCard[]) => act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={next} contract={leadContract} onDecide={decide} onChanges={() => {}} onApprovals={() => {}} /></StoreProvider>))
   render(cards); clean.push(() => { act(() => root.unmount()); box.remove() })
   return { box, render, decide }
 }
@@ -37,10 +38,11 @@ it('never enables a worker approval and links to the existing approval surface',
   expect(button(box, 'Open approvals')).toBeDefined()
   expect(button(box, 'Accept')).toBeUndefined(); expect(button(box, 'Approve')).toBeUndefined()
 })
-it('keeps missing checks, review, findings and worker spend explicitly unknown', () => {
+it('says in plain words what a result has not confirmed, and leaves out a worker spend it does not know', () => {
   const { box } = mount([{ ...leadResult, assertions: [], budget: { ...leadResult.budget, spend: 'unknown' } } as LeadCard])
-  expect(box.textContent).toContain('Checks'); expect(box.textContent).toContain('Review'); expect(box.textContent).toContain('Findings unknown')
-  expect(box.textContent?.match(/unknown/g)?.length).toBeGreaterThanOrEqual(4)
+  expect([...box.querySelectorAll('p')].some(node => node.textContent === 'Checks not confirmed · Review not confirmed · Findings not confirmed')).toBe(true)
+  expect(box.textContent).not.toMatch(/unknown/i)
+  expect(box.textContent).not.toContain('workers reported')
   expect(box.textContent).not.toContain('passed')
 })
 it('sanitizes unsafe summaries and findings', () => {
@@ -91,7 +93,8 @@ it('renders a worker as a short presentation-labelled card', () => {
 it('keeps internal identifiers out of cards and uses compact assertion statuses', () => {
   const { box } = mount([leadPlan, leadResult])
   for (const text of ['lead-reviewed-result', 'recipe-1', 'attended', 'Ceiling:', 'task:', 'head-demo', leadContract.digest, 'Assertion revision', 'Contract revision']) expect(box.textContent).not.toContain(text)
-  expect(box.textContent).toContain('Demo runtime · demo-model'); expect(box.textContent).toContain('No blocking findings')
+  for (const text of ['Demo runtime', 'demo-model']) expect(box.textContent).not.toContain(text)
+  expect(box.textContent).toContain('write, then review'); expect(box.textContent).toContain('No blocking findings')
 })
 
 it.each(['permission-change', 'budget-change'] as const)('gives %s a summary inside its one surface', type => {
@@ -106,7 +109,7 @@ it.each(['permission-change', 'budget-change'] as const)('gives %s a summary ins
 it('does not attribute a worker approval to every runtime in the plan', () => {
   const box = document.createElement('div'), root = createRoot(box)
   const other = { ...leadRuntime, id: 'second-runtime', presentation: { ...leadRuntime.presentation, name: 'Second worker' } }
-  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]} contract={{ ...leadContract, steps: [...leadContract.steps, { ...leadContract.steps[0]!, id: 'other', assignments: [{ ...leadContract.steps[0]!.assignments[0]!, seat: { runtime: other.id } }] }] }} runtimes={[leadRuntime, other]} onDecide={vi.fn()} onChanges={vi.fn()} onApprovals={vi.fn()} /></StoreProvider>))
+  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]} contract={{ ...leadContract, steps: [...leadContract.steps, { ...leadContract.steps[0]!, id: 'other', assignments: [{ ...leadContract.steps[0]!.assignments[0]!, seat: { runtime: other.id } }] }] }} onDecide={vi.fn()} onChanges={vi.fn()} onApprovals={vi.fn()} /></StoreProvider>))
   try { expect(box.textContent).toContain('A worker is waiting for you to approve a command.'); expect(box.textContent).not.toContain('Second worker') }
   finally { act(() => root.unmount()) }
 })
@@ -129,4 +132,41 @@ it('names a permission change in the dock that asks for approval', () => {
 it('does not display reasons for assertions outside the contract', () => {
   const { box } = mount([{ ...leadResult, assertions: [...leadResult.assertions, { assertionId: 'uncontracted', revision: 1, contractRevision: leadContract.revision, status: 'unknown', evidence: [], reason: 'Uncontracted change reason' }] }])
   expect(box.textContent).not.toContain('Uncontracted change reason')
+})
+
+it('shows the plan project by its name and never by its path', () => {
+  const contract = { ...leadContract, project: { id: 'acme', path: '/tmp/hd-lead-rig-1a2b/acme' }, caps: { usdMicros: 5123456, rounds: 4 } }
+  const { box } = mount([{ ...leadPlan, contract } as LeadCard])
+  expect([...box.querySelectorAll('p')].map(node => node.textContent).find(text => text?.startsWith('Up to'))).toBe('Up to $5.12 · 4 rounds · acme')
+  expect(box.textContent).not.toContain('/tmp'); expect(box.textContent).not.toContain('hd-lead-rig')
+})
+
+it('names each plan step by what its seats do, never by a runtime or a model', () => {
+  const seat = { runtime: 'fixture', model: 'demo-model' }
+  const step = (id: string, roles: string[]) => ({ ...leadContract.steps[0]!, id, title: `Change ${id}`,
+    assignments: roles.map(role => ({ role, agent: 'builder', seat, ceiling: 'edit' as const })) })
+  const contract = { ...leadContract, steps: [step('one', ['implement', 'review']), step('two', ['implement']), step('three', ['implement', 'implement', 'review']), step('four', ['security-audit'])] }
+  const { box } = mount([{ ...leadPlan, contract } as LeadCard])
+  expect([...box.querySelectorAll('li')].slice(0, 4).map(node => node.textContent)).toEqual([
+    'Change one — write, then review', 'Change two — write', 'Change three — write, then review', 'Change four — security audit'])
+  for (const text of ['Demo runtime', 'demo-model', 'fixture', 'Worker unavailable']) expect(box.textContent).not.toContain(text)
+})
+
+it('rounds every amount to whole cents, and never shows a positive amount as $0.00', () => {
+  expect([78264, 5000000, 1234567, 0].map(leadDollars)).toEqual(['$0.08', '$5.00', '$1.23', '$0.00'])
+  expect(leadDollars(4000)).toBe('less than $0.01')
+  const policy = { ...leadContract.caps }
+  const { box } = mount([{ version: 1, id: 'caps', logicalGoalId: 'synthetic-goal', revision: 1, type: 'budget-change', contractDigest: leadContract.digest,
+    previous: { revision: 1, caps: policy }, proposed: { usdMicros: 6250000, rounds: 5 } }])
+  expect(box.textContent).toContain('Raise the allowance from $5.00 to $6.25 and from 4 to 5 rounds?')
+})
+
+it('says workers reported $0.00 only when that is known, and leaves the clause out when it is not', () => {
+  const spendLine = (budget: object) => {
+    const { box } = mount([{ ...leadResult, budget: { ...leadBudget, ...budget } } as LeadCard])
+    return [...box.querySelectorAll('p')].map(node => node.textContent).find(text => text?.startsWith('I spent'))
+  }
+  expect(spendLine({ leadUsdMicros: 78264, workerUsdMicros: 0 })).toBe('I spent $0.08 · workers reported $0.00.')
+  expect(spendLine({ leadUsdMicros: 78264, workerUsdMicros: 4000 })).toBe('I spent $0.08 · workers reported less than $0.01.')
+  expect(spendLine({ leadUsdMicros: 78264, workerUsdMicros: 0, spend: 'unknown' })).toBe('I spent $0.08.')
 })

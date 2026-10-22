@@ -1,4 +1,4 @@
-import { LEAD_LIMITS, windowLeadThread, type LeadCard, type LeadProject, type LeadSettingsProjection } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, windowLeadThread, type LeadCard, type LeadProgress, type LeadProject, type LeadSettingsProjection } from '@harnessdesk/protocol'
 import { leadBudgetProjection, type LeadState } from '@harnessdesk/lead'
 
 /** Reserve the entire envelope; messages may be windowed, actionable cards may not. */
@@ -20,4 +20,16 @@ export const admitLeadCard = (state: LeadState, card: LeadCard, project: LeadPro
       version: 1, name: state.name, model, policy: state.policy, caps: state.budget.caps, key: { configured: false, protection: 'unavailable' },
     })
   } catch { throw Object.assign(new Error('lead-card-too-large'), { wireCode: 'lead-card-too-large' }) }
+}
+
+/** Where a running goal stands, read from the journal alone: the step the Lead is on (the latest it has begun, or the first
+ * before any begins), of how many, and the runs it has started. Only a goal that is running has a place to report. */
+/** The Team of the latest run, while the goal runs; the window offers the person's own acts on that board. */
+export const leadRunTeam = (state: LeadState): string | null =>
+  state.phase === 'running' ? state.runs.at(-1)?.teamId ?? null : null
+export const leadProgress = (state: LeadState): LeadProgress | null => {
+  const steps = state.contract?.steps
+  if (state.phase !== 'running' || !steps?.length) return null
+  const begun = steps.filter(step => (state.steps.find(one => one.id === step.id)?.state ?? 'pending') !== 'pending').length
+  return { step: Math.max(1, begun), steps: steps.length, runs: state.runs.length }
 }

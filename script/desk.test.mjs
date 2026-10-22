@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { closeDesk, connectDesk, selectMainPage, waitForDebugger, waitForSnapshot } from './lib/desk.mjs'
+import { closeDesk, connectDesk, deskArgs, selectMainPage, waitForDebugger, waitForSnapshot } from './lib/desk.mjs'
 
 test('debugger discovery trusts only the endpoint announced by its own child', async () => {
   const child = new EventEmitter()
@@ -250,4 +250,18 @@ test('connection failure retains its cause when cleanup also fails', async () =>
   }), error => error instanceof AggregateError
     && /no renderer appeared/.test(error.errors[0].message)
     && /log flush failed/.test(error.errors[1].errors[0].message))
+})
+
+test('a rig desk uses the mock Keychain whether it starts from source or a packaged build', () => {
+  const source = deskArgs({ port: 0, userDataDir: '/tmp/rig/electron' })
+  const packaged = deskArgs({ executable: '/tmp/rig/HarnessDesk.app/Contents/MacOS/HarnessDesk', port: 0, userDataDir: '/tmp/rig/electron' })
+
+  assert.equal(source[0], '.')
+  assert.ok(source.includes('--use-mock-keychain'))
+  assert.ok(!packaged.includes('.'))
+  assert.ok(packaged.includes('--use-mock-keychain'))
+  for (const args of [source, packaged]) {
+    assert.ok(args.includes('--remote-debugging-port=0'))
+    assert.ok(args.includes('--user-data-dir=/tmp/rig/electron'))
+  }
 })

@@ -108,3 +108,26 @@ it.each((['light', 'dark'] as const).flatMap(theme => (['running', 'running-mess
     if (scene === 'running-message') expect(box.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('Also check keyboard focus')
   } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
 })
+
+it.each(['light', 'dark'])('previews the one quiet line while the Lead plans, while it works, and after Stop in %s', async theme => {
+  const url = window.location.href; window.history.replaceState(null, '', `?theme=${theme}`)
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  const line = () => box.querySelector('[data-slot="lead-live-line"]')
+  const frame = (scene: 'planning' | 'running' | 'stopped') => act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene={scene} /></StoreProvider>))
+  try {
+    await frame('planning')
+    expect(line()?.textContent).toBe('Planning…')
+    await frame('running')
+    expect(line()?.textContent).toBe('Step 1 of 1 · Implement and review · 1 run')
+    // Stop through the synthetic facade: what was reported as running is no longer reported, and the thread says why.
+    await act(async () => box.querySelector<HTMLButtonElement>('[data-composer-track="send"] [aria-label="Stop"]')!.click())
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(node => node.textContent === 'Stop goal')!.click())
+    await act(async () => {})
+    expect(line()?.textContent).toBe('This goal was stopped.')
+    expect(box.querySelector('[data-composer-track="send"] [aria-label="Stop"]')).toBeNull()
+    expect(box.querySelector('[data-composer-track="send"] [aria-busy="true"]')).toBeNull()
+    await frame('stopped')
+    expect(line()?.textContent).toBe('This goal was stopped.')
+    expect(line()?.hasAttribute('data-settled')).toBe(true)
+  } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
+})

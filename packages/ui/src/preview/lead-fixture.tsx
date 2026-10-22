@@ -5,7 +5,8 @@ export const leadRuntime: RuntimeInfo = { id: runtimeId('fixture'), name: 'Fixtu
 export const leadContract: LeadAcceptanceContract = { version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Make the empty state keyboard accessible',
   project: { id: 'demo', path: '/workspace/demo' }, policyRevision: 1,
   steps: [{ id: 'work', title: 'Implement and review', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: { task: 'Check focus order' }, attendance: 'attended',
-    assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture', model: 'demo-model' }, ceiling: 'edit' }] }],
+    assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture', model: 'demo-model' }, ceiling: 'edit' },
+      { role: 'review', agent: 'reviewer', seat: { runtime: 'fixture', model: 'demo-model' }, ceiling: 'read' }] }],
   assertions: [{ id: 'checks', kind: 'check', description: 'Keyboard checks pass' }, { id: 'review', kind: 'review', description: 'Fresh review approves' }, { id: 'findings', kind: 'blocking-findings', description: 'Blocking findings resolved' }],
   caps: { usdMicros: 5000000, rounds: 4 } }
 export const leadPlan: Extract<LeadCard, { type: 'plan' }> = { version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: leadContract.digest, contract: leadContract }
@@ -18,7 +19,7 @@ export const leadProjection = (over: Partial<LeadWindowProjection> = {}): LeadWi
   thread: { version: 1, id: 'lead', revision: 10, state: 'draft', project: leadContract.project, olderMessages: 0, messages: [], cards: [] },
   requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, ...over })
 
-export const LEAD_SCENES = ['loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'running', 'running-message', 'waiting', 'result-person-gate', 'worker-approval', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
+export const LEAD_SCENES = ['loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -30,7 +31,13 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (scene === 'waiting') { thread.cards = [leadWaiting]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { waiting: 3 } }
   if (scene === 'result-person-gate') { thread.cards = [leadResult]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.cardPositions = { result: 3 } }
   if (scene === 'worker-approval') { thread.cards = [{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = { ...leadBudget, spend: 'unknown' }; thread.cardPositions = { waiting: 3 } }
-  if (scene === 'running' || scene === 'running-message') { thread.state = 'running'; projection = { ...projection, requestInFlight: true }; thread.messages = [...thread.messages, { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The approved Flow is running. I will read its checks and review before asking you to accept.' }] }
+  if (scene === 'planning') { thread.state = 'planning'; projection = { ...projection, requestInFlight: true } }
+  if (scene === 'running' || scene === 'running-message' || scene === 'stopped') {
+    const running = scene !== 'stopped'
+    thread.state = running ? 'running' : 'stopped'; thread.contract = leadContract
+    projection = { ...projection, requestInFlight: running, ...(running && { progress: { step: 1, steps: leadContract.steps.length, runs: 1 } }) }
+    thread.messages = [...thread.messages, { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The approved Flow is running. I will read its checks and review before asking you to accept.' }]
+  }
   if (scene === 'missing-plan') projection = { ...projection, wayOut: 'decide-plan' }
   if (scene === 'predecessor-unavailable' || scene === 'predecessor-unverifiable') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: null, waitReason: `lead-${scene}` } }
   if (scene === 'resume') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: 'resume', waitReason: 'lead-request-failed' } }
