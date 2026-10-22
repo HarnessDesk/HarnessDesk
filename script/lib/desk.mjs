@@ -197,6 +197,23 @@ export const selectMainPage = (targets) =>
  */
 const UNTHROTTLED = ['--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows']
 
+/**
+ * The command line a rig desk starts with. A packaged build is its own
+ * executable; a source build is the npm Electron launcher given the app
+ * folder. Either way the profile is disposable, so, like smoke-packaged.mjs,
+ * it gets the mock Keychain: a rig often moves HOME to a scratch folder, and
+ * the real Keychain would then raise macOS's "Keychain Not Found" dialog
+ * (#1829), or prompt for the developer's login Keychain after each
+ * ad-hoc-signed rebuild.
+ */
+export const deskArgs = ({ executable, port, userDataDir }) => [
+  ...(executable ? [] : ['.']),
+  '--use-mock-keychain',
+  `--remote-debugging-port=${port}`,
+  `--user-data-dir=${userDataDir}`,
+  ...UNTHROTTLED,
+]
+
 export const launchDesk = async ({ app, home, port = 0, userDataDir, logPath, executable, env = process.env }) => {
   const electron = executable ?? `${app}/packages/desktop/node_modules/.bin/electron`
   if (!existsSync(electron)) {
@@ -207,9 +224,7 @@ export const launchDesk = async ({ app, home, port = 0, userDataDir, logPath, ex
   }
   const child = spawn(
     electron,
-    // Like smoke-packaged.mjs, a disposable profile must not prompt for or
-    // read the developer's login Keychain after each ad-hoc-signed rebuild.
-    [...(executable ? ['--use-mock-keychain'] : ['.']), `--remote-debugging-port=${port}`, `--user-data-dir=${userDataDir}`, ...UNTHROTTLED],
+    deskArgs({ executable, port, userDataDir }),
     {
       cwd: `${app}/packages/desktop`,
       env: {
