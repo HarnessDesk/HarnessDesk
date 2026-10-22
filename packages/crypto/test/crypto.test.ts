@@ -111,6 +111,26 @@ describe('e2ee', () => {
     assert.deepEqual(settled.map((r) => r.status).sort(), ['fulfilled', 'rejected'])
   })
 
+  it('seals the bytes the caller passed, even if the buffer is reused straight away', async () => {
+    const { deskSession, phoneSession } = await pair()
+    const buf = utf8('first message')
+    const sealed = deskSession.seal(buf)
+    buf.fill(0x78)
+    const frame = await sealed
+    const { body } = await phoneSession.open(frame)
+    assert.deepEqual(body, utf8('first message'))
+  })
+
+  it('opens the bytes of the frame as it was passed, even if the receive buffer is reused', async () => {
+    const { deskSession, phoneSession } = await pair()
+    const frame = await deskSession.seal(utf8('second message'))
+    const reused = frame.slice()
+    const opened = phoneSession.open(reused)
+    reused.fill(0)
+    const { body } = await opened
+    assert.deepEqual(body, utf8('second message'))
+  })
+
   it('rejects a READY that was altered in flight', async () => {
     const desk = await generateSigningIdentity()
     const phone = await startPhoneHandshake(desk.pub)
@@ -241,6 +261,18 @@ describe('tokens', () => {
     const later = await signToken({ kid: 'k1', iat: 2_000, exp: 3_000, typ: 'x' }, signer)
     await rejectsWith(verifyToken(later, { k1: signer.pub }, 900, 'x'), { reason: 'not-yet' })
     assert.ok(await verifyToken(later, { k1: signer.pub }, 1_950, 'x')) // inside leeway
+  })
+
+  it('accepts one spelling of a token and refuses the others', async () => {
+    const signer = await generateSigningIdentity()
+    const token = await signToken({ kid: 'k1', iat: 800, exp: 1_000, typ: 'x' }, signer)
+    assert.ok(await verifyToken(token, { k1: signer.pub }, 900, 'x'))
+    // The signature's last character carries two bits; the other four are unused and must be zero.
+    const last = token.slice(-1)
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+    const respelled = token.slice(0, -1) + alphabet[(alphabet.indexOf(last) + 1) % 64]
+    assert.notEqual(respelled, token)
+    await rejectsWith(verifyToken(respelled, { k1: signer.pub }, 900, 'x'), { reason: 'format' })
   })
 
   it('does not treat prototype names as key ids', async () => {

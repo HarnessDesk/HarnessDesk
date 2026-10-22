@@ -1,9 +1,15 @@
 import { z } from 'zod'
 
-/** base64url without padding. */
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+
+/** base64url without padding, in its one canonical spelling: the unused low bits of the last character are zero. */
 const b64uOfBytes = (bytes: number) => {
   const chars = Math.ceil((bytes * 8) / 6)
-  return z.string().length(chars).regex(/^[A-Za-z0-9_-]+$/)
+  const spare = chars * 6 - bytes * 8
+  return z.string().length(chars).regex(/^[A-Za-z0-9_-]+$/).refine(
+    (s) => spare === 0 || ALPHABET.indexOf(s[chars - 1]!) % (1 << spare) === 0,
+    { message: 'not the canonical base64url spelling' },
+  )
 }
 
 export const DeskId = b64uOfBytes(16)

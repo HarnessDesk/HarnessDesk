@@ -76,12 +76,14 @@ export class Session {
   get received(): bigint { return this.#recvCounter }
 
   seal(body: Bytes, kind: number = KIND_JSON): Promise<Bytes> {
-    const result = this.#sealing.then(() => this.#sealOne(body, kind))
+    // The plaintext is taken now: a caller may reuse its buffer the moment this returns, and the queue runs later.
+    const plain = concat(Uint8Array.of(kind), body)
+    const result = this.#sealing.then(() => this.#sealOne(plain))
     this.#sealing = result.catch(() => undefined)
     return result
   }
 
-  async #sealOne(body: Bytes, kind: number): Promise<Bytes> {
+  async #sealOne(plain: Bytes): Promise<Bytes> {
     if (this.#sendCounter >= MAX_FRAMES_PER_SESSION) throw new E2eeError('exhausted')
     // Reserved before the first await, and only one runs at a time: a frame never takes a counter another holds.
     const counter = u64be(this.#sendCounter)
@@ -90,7 +92,7 @@ export class Session {
     const ct = new Uint8Array(await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv: concat(new Uint8Array(4), counter), additionalData: concat(header, this.sid), tagLength: 128 },
       this.sendKey,
-      concat(Uint8Array.of(kind), body),
+      plain,
     ))
     return concat(header, ct)
   }
@@ -105,7 +107,9 @@ export class Session {
    * serialized, so the same frame cannot open twice.
    */
   open(frame: Bytes): Promise<{ kind: number; body: Bytes }> {
-    const result = this.#opening.then(() => this.#openOne(frame))
+    // Copied now, for the same reason as in seal(): a receive buffer may be reused before this frame's turn.
+    const copy = frame.slice()
+    const result = this.#opening.then(() => this.#openOne(copy))
     this.#opening = result.catch(() => undefined)
     return result
   }
