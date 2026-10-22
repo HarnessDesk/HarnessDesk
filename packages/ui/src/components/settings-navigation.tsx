@@ -6,7 +6,7 @@ import { agentGroups } from '../lib/accounts'
 import { agentReadiness } from './SettingsAgents'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import { ArchiveIcon, BellIcon, ExtensionIcon, FolderIcon, GlobeIcon, KeyboardIcon,
-  LeadIcon, HistoryIcon, ResourceIcon, RouteIcon, ServerIcon, ShieldIcon, SlidersIcon, SparkIcon, ThemeSystemIcon } from './Icons'
+  LeadIcon, MobileIcon, HistoryIcon, ResourceIcon, RouteIcon, ServerIcon, ShieldIcon, SlidersIcon, SparkIcon, ThemeSystemIcon } from './Icons'
 
 export interface SettingsNavEntry {
   readonly id: Section
@@ -48,6 +48,7 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
     ] },
     { label: 'Access', entries: [
       { id: 'permissions', label: 'Permissions', icon: <ShieldIcon size={16} />, keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked', 'clients', 'command-line', 'answer'] },
+      ...(snapshot.phoneLink ? [{ id: 'phone' as const, label: 'Phone', icon: <MobileIcon size={16} />, keywords: ['pair', 'qr', 'code', 'mobile', 'devices', 'allow', 'remove'] }] : []),
       { id: 'browser', label: 'Browser', icon: <GlobeIcon size={16} />, keywords: ['pane', 'chrome', 'links', 'window', 'profile', 'cookies', 'logins', 'browsing data'] },
     ] },
   ]

@@ -907,7 +907,7 @@ export interface HostMethods {
       readonly protocolVersion: number
       readonly hostVersion: string
       /** Optional host-owned destinations, absent until explicitly enabled at startup. */
-      readonly capabilities?: { readonly lead?: true }
+      readonly capabilities?: { readonly lead?: true; readonly phone?: true }
       readonly runtimes: readonly RuntimeInfo[]
       /**
        * How this host protects a secret it is given, in words a person can

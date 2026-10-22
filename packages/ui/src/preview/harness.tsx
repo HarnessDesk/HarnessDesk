@@ -1,4 +1,5 @@
 import { GITHUB_SOURCE, githubFile, githubPlan } from './library-github-fixture'
+import { createPhoneState } from '../state/phone'
 import { FRAME } from '../design/frame'
 import { DOCUMENT_DIFF } from './run-shapes-fixture'
 import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
@@ -936,6 +937,10 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
 
 /** The smallest store the mounted screens call. */
 class PreviewStore {
+  /** The phone link, answered from what a frame puts there with `phone.changed`. */
+  readonly phone: ReturnType<typeof createPhoneState> = createPhoneState({
+    request: async (method: string) => { if (method === 'phone/pairing') return { url: 'harnessdesk://pair?c=preview', expiresAt: Date.now() + 600_000, addresses: [] } as never; return this.phone.state as never },
+  })
   #snapshot: AppSnapshot
   #teamFrameSerial = 0
   #listeners = new Set<() => void>()

@@ -1,4 +1,5 @@
 import { LeadSettingsSection } from './LeadSettings'
+import { PhoneSettingsSection } from './PhoneSettings'
 import SettingsChatsFolder from './SettingsChatsFolder'
 import { projectWorkspaces } from '../lib/chats'
 import SettingsNewConversations from './SettingsNewConversations'
@@ -122,6 +123,7 @@ export type Section =
   | 'permissions'
   | 'browser'
   | 'lead'
+  | 'phone'
 
 /**
  * The pages that used to exist, mapped to where their rows went.
@@ -141,7 +143,7 @@ const MOVED: Readonly<Record<string, Section>> = {
 }
 const SECTIONS: readonly Section[] = [
   'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage',
-  'runtimes', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser', 'lead',
+  'runtimes', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser', 'lead', 'phone',
 ]
 export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes', leadAvailable = false): Section =>
   name === 'lead' && !leadAvailable ? fallback : name && (SECTIONS as readonly string[]).includes(name)
@@ -1684,7 +1686,7 @@ const WorktreeRows = () => {
 const SETTINGS_LABELS = {
   profile: 'Profile', general: 'General', appearance: 'Appearance', notifications: 'Notifications', shortcuts: 'Keyboard shortcuts',
   workspaces: 'Workspaces', archive: 'Archive', history: 'History', storage: 'Storage', runtimes: 'Runtimes', models: 'Models',
-  skills: 'Skills', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser', lead: 'Lead',
+  skills: 'Skills', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser', lead: 'Lead', phone: 'Phone',
 } as const
 export const Settings = ({ route, onRoute, onSignIn }: {
   readonly route: SettingsRoute; readonly onRoute: (route: SettingsRoute) => void; readonly onSignIn: (runtime: RuntimeId) => void
@@ -1740,6 +1742,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     {section === 'permissions' && <PermissionsSection focus={focus} />}
     {section === 'browser' && <BrowserSection />}
     {section === 'lead' && snapshot.leadAvailable && <LeadSettingsSection />}
+    {section === 'phone' && <PhoneSettingsSection />}
   </Page>
 }
 

@@ -2,6 +2,7 @@ import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chat
 import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
 import { createLeadState } from './lead'
+import { createPhoneState } from './phone'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
@@ -618,6 +619,7 @@ export class AppStore {
 
   readonly transport: Transport
   readonly lead: ReturnType<typeof createLeadState>
+  readonly phone: ReturnType<typeof createPhoneState>
   #leadCapabilityEpoch = 0
 
   constructor(url = transportUrl()) {
@@ -630,6 +632,7 @@ export class AppStore {
       onEvent: (runtime, event) => this.#onEvent(runtime, event),
       onNotification: (notification) => {
         this.lead.changed(notification)
+        this.phone.changed(notification)
         if (notification.method === 'provenance/changed') {
           const { project, revision, health } = notification.params
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
@@ -955,6 +958,7 @@ export class AppStore {
           this.#flowGeneration += 1
           this.#patch({ status, leadAvailable: false, captureHealth: new Map(), provenanceRevision: new Map() })
           this.lead.reset()
+          this.phone.reset()
         } else {
           this.#patch({ status })
           if (previous === 'reconnecting') void this.#refreshLeadAvailability()
@@ -963,6 +967,8 @@ export class AppStore {
       },
     })
     this.lead = createLeadState(this.transport, () => this.#snapshot.leadAvailable)
+    this.phone = createPhoneState(this.transport)
+    this.phone.subscribe(() => { const phoneLink = this.phone.state.enabled; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
     this.#watchWindowWidth()
   }
 
@@ -975,11 +981,14 @@ export class AppStore {
 
   // ------------------------------------------------------------------ startup
 
+  /** The host says whether the phone link is on; only then is its state read. */
+  #readPhoneLink(on: boolean): void { if (on) void this.phone.refresh().catch(() => {}); else this.phone.reset() }
+
   async #refreshLeadAvailability(): Promise<void> {
     const epoch = this.#leadCapabilityEpoch
     try {
       const hello = await this.transport.request('host/hello', { clientVersion: '0.1.0' })
-      if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') this.#patch({ leadAvailable: hello.capabilities?.lead === true })
+      if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') { this.#patch({ leadAvailable: hello.capabilities?.lead === true }); this.#readPhoneLink(hello.capabilities?.phone === true) }
     } catch { /* Remain disabled until the host can prove the capability. */ }
   }
 
@@ -997,6 +1006,7 @@ export class AppStore {
       goalMigrationPending: hello.goalMigrationPending,
       leadAvailable: capabilityEpoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open' && hello.capabilities?.lead === true,
     })
+    this.#readPhoneLink(hello.capabilities?.phone === true)
     // The local index does not wait for an agent or its account catalogue.
     const history = this.loadHistory({ reset: true })
     // Preferences first: they may restore the runtime the user last worked

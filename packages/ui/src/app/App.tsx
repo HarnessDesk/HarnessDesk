@@ -19,6 +19,7 @@ import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { Toaster } from '../design'
 import { Notices } from '../components/Notices'
+import { PhoneAsk } from '../components/PhoneSettings'
 import { CommandPalette } from '../components/CommandPalette'
 import { FolderPicker } from '../components/FolderPicker'
 import { FrontDoor } from '../components/FrontDoor'
@@ -425,6 +426,7 @@ export const App = () => {
           notices are drawn where they are about — the composer, the strip
           above the panes, the sidebar's foot — never floated over a pane. */}
       <Notices />
+      <PhoneAsk />
       <Toaster theme={theme} />
       {foldersOpen && <FolderPicker onClose={(chosen = false) => {
         setFoldersOpen(false)
