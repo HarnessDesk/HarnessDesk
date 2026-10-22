@@ -28,6 +28,7 @@ import {
   ComposerNotice,
   Checklist,
   ChecklistItem,
+  QrCode,
   ComposerNoticeStack,
   ComposerTail,
   InboxPanel,
@@ -833,6 +834,14 @@ const ChecklistBoard = () => (
           <ChecklistItem state="done">Ship it</ChecklistItem>
         </Checklist>
       </div>
+    </Case>
+  </div>
+)
+
+const QrCodeBoard = () => (
+  <div className={styles.stack}>
+    <Case label="a pairing link, dark on light whatever the theme">
+      <QrCode text="harnessdesk://pair?c=preview" label="Pairing code" />
     </Case>
   </div>
 )
@@ -2302,6 +2311,12 @@ export const BOARDS: Board[] = [
     title: 'Checklist',
     about: 'A runtime\u2019s plan, in the Tasks panel and the transcript: the mark says the state, centred on the step\u2019s first line.',
     render: ChecklistBoard,
+  },
+  {
+    id: 'qr-code',
+    title: 'QrCode',
+    about: 'A code a phone scans, drawn from its text: dark modules on a light ground in either theme, because that is all a scanner reads.',
+    render: QrCodeBoard,
   },
   {
     id: 'notices',
