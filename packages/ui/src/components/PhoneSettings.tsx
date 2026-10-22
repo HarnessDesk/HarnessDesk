@@ -33,8 +33,8 @@ export const PhoneSettings = ({ state, pairing, error, busy, onPair, onAllow, on
       <Rows>
         <Row title="Pairing code" desc={pairing ? `Scan it with the phone on this network. It works once, until ${new Date(pairing.expiresAt).toLocaleTimeString()}.` : 'Shows a code that works once, for ten minutes.'}
           control={<Button variant="outline" disabled={busy} onClick={onPair}>{pairing ? 'New code' : 'Show code'}</Button>} />
+        {pairing && <Row title="Scan with the phone" desc="Open HarnessDesk on the phone and point it here." control={<QrCode text={pairing.url} label="Pairing code" />} />}
       </Rows>
-      {pairing && <Row title={null} control={<QrCode text={pairing.url} label="Pairing code" />} />}
     </Section>
     {state.pending.length > 0 && <Section title="Waiting for you">
       <Rows>{state.pending.map(pending => <Row key={pending.id} title={`Allow ${pending.name}?`}
