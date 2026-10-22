@@ -175,7 +175,10 @@ test('a worker turn that ends while the usage read is in flight is metered again
     runtime: seat.session.runtime, sessionId: seat.session.sessionId, turnId: null, requestId: null, project: seat.checkout.project,
     model: 'fixture/model', from: seat.openedAt, to: at, scope: 'session', includesChildren: false,
     input: exact(1), output: exact(1), cacheRead: exact(0), cacheWrite: exact(0), usd: exact(0.00001), moneyBasis: 'vendorMetered' })
-  Object.assign(s.budgets.port, { seats: () => [...s.rig.seats.values()], delegation: () => 'none', usage: async (_project: string, _from: number, to: number) => {
+  let named: readonly { readonly runtime: string; readonly sessionId: string }[] = []
+  Object.assign(s.budgets.port, { seats: () => [...s.rig.seats.values()], delegation: () => 'none', usage: async (_project: string, _from: number, to: number,
+    sessions: readonly { readonly runtime: string; readonly sessionId: string }[]) => {
+    named = sessions
     if (++reads === 1) { entered(); await held }
     return { complete: true, samples: [sample(to)] }
   } })
@@ -189,6 +192,7 @@ test('a worker turn that ends while the usage read is in flight is metered again
   assert.equal(s.journal.state.budget!.stop, null, 'a turn ending mid-read must not stop the Lead')
   assert.equal(s.journal.state.budget!.workerUsdMicros, 10)
   assert.ok(reads >= 2, 'the host read again after the turn ended')
+  assert.deepEqual(named, [{ runtime: String(seat.session.runtime), sessionId: String(seat.session.sessionId) }], 'the meter reads its own Seat, not the machine')
   assert.notEqual(s.rig.flows.executionOf(run.id)!.state, 'stopped')
 })
 

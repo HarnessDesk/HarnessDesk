@@ -346,12 +346,13 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     }
     if (options.workerSpend) {
       // This process-wide patch requires all tests in lead-e2e.test.ts to stay sequential (concurrency: false).
-      const readInsight = Ledger.prototype.readInsight
-      restoreUsage = () => { Ledger.prototype.readInsight = readInsight }
-      Ledger.prototype.readInsight = async function(query, settings) {
-        const result = await readInsight.call(this, query, settings)
-        return query.root === project.path && workerSample ? { ...result, samples: [...result.samples, workerSample] } : result
-      }
+      // The Lead's meter reads its Seats' sessions; the patch covers that read and the whole-project one.
+      const readInsight = Ledger.prototype.readInsight, readSessions = Ledger.prototype.readSessions
+      restoreUsage = () => { Ledger.prototype.readInsight = readInsight; Ledger.prototype.readSessions = readSessions }
+      const withWorker = <T extends { readonly samples: readonly unknown[] }>(root: string, result: T): T =>
+        root === project.path && workerSample ? { ...result, samples: [...result.samples, workerSample] } : result
+      Ledger.prototype.readInsight = async function(query, settings) { return withWorker(query.root, await readInsight.call(this, query, settings)) }
+      Ledger.prototype.readSessions = async function(query, sessions, settings) { return withWorker(query.root, await readSessions.call(this, query, sessions, settings)) }
     }
     await setupHost()
     if (!options.holdWorkers) {

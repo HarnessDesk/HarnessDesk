@@ -899,7 +899,7 @@ export class Host {
   /** Host enforcement outlives the child; a missing journal refuses recovered dispatch. */
   readonly #leadBudgets = new LeadBudgets({
     now: () => Date.now(),
-    usage: (project, from, to) => this.#usageOf(project, from, to),
+    usage: (project, from, to, sessions) => this.#usageOf(project, from, to, sessions),
     seats: () => this.#evidence.seats.all(),
     delegation: seat => this.#delegationUncertainRuntimes.has(seat.session.runtime) ? 'unknown' : 'none',
     runs: () => this.#flows.leadRuns(),
@@ -4584,8 +4584,8 @@ export class Host {
   }
 
   /** Every usage sample the ledger holds for a project in a window, and whether it could read all of it. */
-  async #usageOf(project: string, from: number, to: number): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }> {
-    const detail = await this.#ledgerService.readInsight({ root: project, from, to })
+  async #usageOf(project: string, from: number, to: number, sessions?: readonly { readonly runtime: string; readonly sessionId: string }[]): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }> {
+    const detail = sessions ? await this.#ledgerService.readSessions({ root: project, from, to }, sessions) : await this.#ledgerService.readInsight({ root: project, from, to })
     return { samples: detail.samples, complete: detail.gaps.length === 0 }
   }
 

@@ -9,7 +9,8 @@ import { leadStepContractDigest } from './admission.js'
 import { leadStopReachesRun } from './stop.js'
 
 export interface LeadBudgetPort {
-  usage?(project: string, from: number, to: number): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
+  /** The named sessions' recorded usage in the project: a meter reads its own Seats, never the whole machine. */
+  usage?(project: string, from: number, to: number, sessions: readonly { readonly runtime: string; readonly sessionId: string }[]): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
   seats?(): readonly SeatRecord[]
   delegation?(seat: SeatRecord): 'none' | 'unknown'
   /** Returns a cancellation function; tests advance the host scheduler explicitly. */
@@ -173,7 +174,8 @@ export class LeadBudgets implements FlowLeadGuard {
     if (ids.size === 0) return false
     const now = Math.max(this.port.now(), journal.state.budget!.now)
     let read: { readonly samples: readonly UsageSample[]; readonly complete: boolean }
-    try { read = await this.port.usage!(journal.state.contract!.project.path, seats.length ? Math.min(...seats.map(seat => seat.openedAt)) : now, now) }
+    try { read = await this.port.usage!(journal.state.contract!.project.path, seats.length ? Math.min(...seats.map(seat => seat.openedAt)) : now, now,
+      seats.map(seat => ({ runtime: String(seat.session.runtime), sessionId: String(seat.session.sessionId) }))) }
     catch { read = { samples: [], complete: false } }
     const raced = seats.some(seat => { const turn = this.#turns.get(seat.id); return (turn?.started ?? 0) > now || (turn?.ended ?? 0) > now })
     if (raced && !last) return true
