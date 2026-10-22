@@ -290,7 +290,10 @@ export class GoalPlane {
       ?? executions.find((one) => one.id === origin)
       ?? (named === null ? executions.at(-1) : undefined)
     const currentSeats = new Set(current?.rounds.flatMap(round => round.seats) ?? [])
-    const endingNeedsYou = current?.end?.kind === 'unrouted' || current?.end?.kind === 'budget' || current?.end?.kind === 'stalled'
+    // An ending the desk chose (a cap, a stall, a stop for unconfirmed spend) leaves the Team to its person;
+    // without one the Team read as working on a run nothing was running.
+    const endingNeedsYou = current?.end?.kind === 'unrouted' || current?.end?.kind === 'budget' || current?.end?.kind === 'stalled' ||
+      (current?.state === 'stopped' && current.end?.kind === 'stopped' && current.end.by === 'desk')
     const placements = board.intents.map((intent) => {
       const step = flowStepOf(intent, run, executions)
       return placeCard({
