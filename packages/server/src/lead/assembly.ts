@@ -15,6 +15,7 @@ export const LEAD_PRICES: Readonly<Record<string, MessagesPrice>> = Object.freez
 })
 /** One thread per desk in this slice; its journal lives under the host's own state directory. */
 export const LEAD_THREAD = 'desk'
+export type LeadPlanUnfit = 'lead-plan-unseatable' | 'lead-plan-not-independent'
 export const LEAD_DEFAULT_CAPS = Object.freeze({ usdMicros: 1_000_000, rounds: 16 })
 const FRESHNESS_MS = 60_000
 const PROJECT_FILE = 'project.json'
@@ -78,6 +79,10 @@ export interface LeadAssemblyOptions {
   /** The folder the person last opened, or null when none is open. */
   readonly workspace: () => Promise<string | null>
   readonly readySeats: () => readonly string[]
+  /** Why one planned step could never reach an accepted result, or null when it can: a seat that cannot hold the
+   * ceiling its role is given (read from the same held preview a start redeems), or a review that cannot be shown
+   * to come from another provider than the implementer's. Absent, a plan is frozen without asking. */
+  readonly seatsHold?: (root: string, step: LeadAcceptanceContract['steps'][number]) => Promise<LeadPlanUnfit | null>
   /** One held preview the Lead's start may redeem: its token, source and expiry, or null. */
   readonly heldPreview: (token: string) => { readonly source: string; readonly expiresAt: number } | null
   readonly now: () => number
@@ -135,7 +140,15 @@ export class LeadAssembly {
       caps: LEAD_DEFAULT_CAPS, freshnessMs: FRESHNESS_MS })
     const seats = leadSeatChoices(options.readySeats())
     await options.create({ journal, project, model: LEAD_MESSAGES_DEFAULTS.model, prices: LEAD_PRICES,
-      ...(seats ? { seats } : {}), freezePlan: freezeLeadPlan,
+      ...(seats ? { seats } : {}),
+      // A plan whose seats cannot hold their ceilings would only fail at its start, after the person approved it.
+      freezePlan: async contract => {
+        for (const step of contract.steps) {
+          const unfit = await options.seatsHold?.(project.path, step)
+          if (unfit) throw Object.assign(new Error(unfit), { wireCode: unfit })
+        }
+        return freezeLeadPlan(contract)
+      },
       resolveTool: async call => {
         const state = journal.state, params = call.params as Record<string, unknown>
         const current = state.steps.find(item => item.state === 'pending') ?? state.steps.find(item => item.state === 'admitted') ?? state.steps.at(-1)

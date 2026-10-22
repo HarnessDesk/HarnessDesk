@@ -4,7 +4,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import test, { after } from 'node:test'
 import { createLeadJournal, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract } from '@harnessdesk/protocol'
-import { freezeLeadPlan, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence } from '../src/lead/assembly.js'
+import { freezeLeadPlan, LeadAssembly, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence } from '../src/lead/assembly.js'
 import { tempDir } from './scratch.js'
 
 // The desktop's own path (`createDefaultHost`) in an isolated process: no real agent homes, login shell,
@@ -208,6 +208,21 @@ test('plans freeze to the sha256 of their canonical JSON, projects are named by 
   assert.notEqual(leadProjectOf('/work/acme').id, leadProjectOf('/work/other').id)
   assert.equal(leadSeatChoices([]), undefined)
   assert.deepEqual(leadSeatChoices(['fixture'])?.implement.map(seat => seat.runtime), ['fixture'])
+})
+
+test('a plan that could never be accepted is refused before any card, with its own code', async () => {
+  const home = tempDir('lead-assembly-seats-'), checked: string[] = []
+  let freeze!: (value: typeof contract) => Promise<typeof contract>
+  let unfit: 'lead-plan-unseatable' | 'lead-plan-not-independent' | null = 'lead-plan-unseatable'
+  const assembly = new LeadAssembly({ home, now: () => 1, workspace: async () => contract.project.path, readySeats: () => ['fixture'], heldPreview: () => null,
+    seatsHold: async (_root, step) => { checked.push(step.id); return unfit }, create: async inputs => { freeze = inputs.freezePlan } })
+  await assembly.ensure()
+  await assert.rejects(freeze(contract), (error: any) => error.wireCode === 'lead-plan-unseatable')
+  unfit = 'lead-plan-not-independent'
+  await assert.rejects(freeze(contract), (error: any) => error.wireCode === 'lead-plan-not-independent')
+  unfit = null
+  assert.match((await freeze(contract)).digest, /^[0-9a-f]{64}$/)
+  assert.deepEqual(checked, [contract.steps[0]!.id, contract.steps[0]!.id, ...contract.steps.map(step => step.id)])
 })
 
 test('a Lead plan may name a runtime stopped while idle, never one that cannot start', () => {

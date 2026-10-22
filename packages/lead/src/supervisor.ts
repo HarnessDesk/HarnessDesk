@@ -321,8 +321,12 @@ export class LeadSupervisor {
       }
       if (!running.exited) write(running, { type: 'reply', id, ok: true, value: value ?? null, state: journal.state })
     } catch (failure) {
-      if (operation === 'offerCard' && (failure as { wireCode?: unknown })?.wireCode === 'lead-card-too-large') {
-        if (!running.exited) write(running, { type: 'reply', id, ok: false, value: 'lead-card-too-large', state: journal.state })
+      // The two refusals a child is meant to act on come back as codes; every other failure breaks the protocol.
+      const code = (failure as { wireCode?: unknown })?.wireCode
+      const coded = operation === 'offerCard' && code === 'lead-card-too-large' ? code
+        : operation === 'freezePlan' && (code === 'lead-plan-unseatable' || code === 'lead-plan-not-independent') ? code : null
+      if (coded) {
+        if (!running.exited) write(running, { type: 'reply', id, ok: false, value: coded, state: journal.state })
         return
       }
       // Treat malformed journal commands as a broken protocol, without returning

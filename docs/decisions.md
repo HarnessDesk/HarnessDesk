@@ -4087,4 +4087,21 @@ or contested attempt. The previous goal's full budget ledger remains in the
 checkpoint, including unknown spend; new consent and a new plan are required.
 The bounded checkpoint retains 64 completed goal ledgers and refuses a further
 reset rather than discarding accounting. Old messages and decision receipts stay
-in the conversation. Budget stops cannot be cleared by sending a message.
+in the conversation. A budget stop on a goal still running cannot be cleared by
+sending a message: the person stops the goal first. From 2026-10-22 any finished
+goal, accepted, declined or stopped for any reason, begins the next one behind
+the same fences. Before, only a cancelled goal could, so a thread whose goal was
+accepted, or stopped at its allowance, refused every message for good.
+
+## A Lead plan that could never be accepted is refused before its card — 2026-10-22
+
+A plan is frozen only after each step's seats are checked the way its start will
+check them: the same held preview a start redeems must hold every seat at its
+role's ceiling, and the reviewer's provider must be readable and different from
+the implementer's. Either failure parks the Lead with its own reason
+(`lead-plan-unseatable`, `lead-plan-not-independent`) and offers no Approve card.
+Before this, a live sitting approved a plan with the same agent on both seats; the
+implementer committed and the review never opened, because the Flow's review
+must be independent and the desk could not show it was. The person had approved
+work that could never reach a result to accept. The refusal crosses the child
+boundary as a code, like an oversized card, so the Lead process stays live.

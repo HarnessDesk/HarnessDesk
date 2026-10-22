@@ -685,6 +685,25 @@ test('card admission refusal is an RPC refusal without killing the child or appe
   } finally { await f.supervisor.stop(); await sent }
 })
 
+test('a plan whose seats cannot hold comes back to the child as its code, and the Lead stays live', async () => {
+  const { contract } = await import('./fixtures/loop.js')
+  let reply!: (value: any) => void
+  const replied = new Promise<any>(resolve => { reply = resolve })
+  const child = fake((message, child) => {
+    if (message.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    if (message.type === 'request') child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'freezePlan', args: [contract] }))
+    if (message.type === 'reply') reply(message)
+    if (message.type === 'shutdown') child.kill()
+  })
+  const f = await fixture({ spawn: () => child, freezePlan: async () => { throw Object.assign(new Error('lead-plan-unseatable'), { wireCode: 'lead-plan-unseatable' }) } })
+  const sent = f.supervisor.send(request).catch(() => {})
+  try {
+    const response = await replied
+    assert.equal(response.ok, false); assert.equal(response.value, 'lead-plan-unseatable')
+    assert.equal(f.supervisor.live, true)
+  } finally { await f.supervisor.stop(); await sent }
+})
+
 
 const crew = { implement: [{ runtime: 'acme-writer', model: 'acme/writer-1' }], review: [{ runtime: 'acme-reviewer', model: 'acme/reviewer-1', effort: 'high' }] }
 /** The real child, wired in-process to a supervisor over framed streams, with the provider answered by the host seam. */

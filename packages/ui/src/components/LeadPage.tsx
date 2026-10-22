@@ -25,6 +25,8 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-result-revisions-exhausted': 'The result reached its revision limit.',
   'lead-start-binding-failed': 'The run could not be linked to the approved plan.',
   'lead-plan-refused': 'The proposed plan could not be offered.',
+  'lead-plan-unseatable': "A seat in the proposed plan can't work within its permissions, so the plan wasn't offered. Send a message to plan with other agents.",
+  'lead-plan-not-independent': "The proposed plan's reviewer can't be shown to use a different provider from its implementer, so no review could ever accept the work. Add an agent from another provider, or send a message to plan again.",
   'lead-activity-failed': 'The Lead could not read the latest run activity.',
   'lead-subscription-failed': 'The Lead lost its run activity updates.',
   'lead-tools-refused': 'The requested desk operation was refused.',

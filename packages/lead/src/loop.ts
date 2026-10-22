@@ -237,7 +237,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         if (proposed.project.id !== project.id || proposed.project.path !== project.path || proposed.steps.some(step => step.flow !== 'lead-reviewed-result' || step.sourceRevision !== 'recipe-1'))
           throw new Error('lead-plan-scope')
         await journal.offerCard({ version: 1, id: nextId(), revision: 1, type: 'plan', contractDigest: proposed.digest, contract: proposed })
-      } catch (error) { await waitForUser((error as { wireCode?: unknown })?.wireCode === 'lead-card-too-large' ? 'lead-card-too-large' : 'lead-plan-refused') }
+      } catch (error) {
+        const code = (error as { wireCode?: unknown })?.wireCode
+        await waitForUser(code === 'lead-card-too-large' || code === 'lead-plan-unseatable' || code === 'lead-plan-not-independent' ? code : 'lead-plan-refused')
+      }
     }
     // Model-proposed result/waiting cards are summaries only. The loop constructs
     // actionable cards from fresh reads, and never offers a worker approval card.

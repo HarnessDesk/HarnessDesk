@@ -133,7 +133,7 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { LeadAssembly, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, leadReviewedResultSource, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
@@ -3555,6 +3555,21 @@ export class Host {
       workspace: async () => this.#state.state.workspaces.find(one => !isManagedChatFolder(this.#state, one.path))?.path ?? null,
       readySeats: () => [...this.#runtimes.values()].filter(runtime => leadSeatable(runtime.health())).map(runtime => String(runtime.info.id)),
       heldPreview: token => this.#flowPreviews.leadHeld(token),
+      seatsHold: async (root, step) => {
+        // A preview that cannot even be taken is a plan that cannot start: the same answer, never a broken Lead.
+        const preview = await this.#flowPreviews.preview(root, leadReviewedResultSource, step.variables, undefined, undefined, {
+          seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])),
+          attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
+        if (!preview || preview.token === null || preview.seats.length === 0 ||
+          preview.seats.some(seat => seat.plan.blocked || seat.plan.ceiling?.hold !== 'held' || seat.plan.winner === null)) return 'lead-plan-unseatable'
+        // The review must come from another provider than the implementer's, and an unreadable one proves nothing:
+        // the run would start, then stall at review with nothing the Lead could ever accept.
+        const [writer, reviewer] = await Promise.all(['implement', 'review'].map(role => {
+          const seat = step.assignments.find(assignment => assignment.role === role)?.seat
+          return seat ? this.#providerOf(seat.runtime, root) : Promise.resolve(null)
+        }))
+        return writer === null || reviewer === null || writer === reviewer ? 'lead-plan-not-independent' : null
+      },
       create: async inputs => { await this.createLeadService({ ...inputs, ...(this.options.leadMessagesTransport ? { messagesTransport: this.options.leadMessagesTransport } : {}) }).setEnabled(true) } })
   }
 

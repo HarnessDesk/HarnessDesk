@@ -841,6 +841,17 @@ test('an oversized plan refusal parks with its typed reason rather than hanging'
   } finally { await loop.close() }
 })
 
+for (const code of ['lead-plan-unseatable', 'lead-plan-not-independent']) test(`a plan refused as ${code} parks with that reason and offers no card`, async () => {
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', plan: contract }) }])])
+  const loop = exported('createLeadLoop')({ ...s.options, freezePlan: async () => { throw Object.assign(new Error(code), { wireCode: code }) } })
+  try {
+    await loop.request(input)
+    assert.equal(loop.state.reason, code)
+    assert.equal(s.journal.state.managementReason, code)
+    assert.equal(s.journal.state.cards.length, 0)
+  } finally { await loop.close() }
+})
+
 test('an oversized host result parks with the typed admission reason', async () => {
   const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
   await s.approve(); s.setEvidence(spendEvidence())
