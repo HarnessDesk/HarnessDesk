@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createLeadLoop, createLeadJournal, leadBudgetProjection, leadCheckpoint, parseLeadCheckpoint, type LeadJournalRecord } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
 import { dispatch, type HostContext } from '../src/methods/index.js'
-import { leadProgress } from '../src/lead/projection.js'
+import { leadProgress, leadRunTeam } from '../src/lead/projection.js'
 
 const key = 'sk-test-not-real-0000'
 const project = { id: 'demo', path: '/workspace/demo' }
@@ -1206,6 +1206,10 @@ test('a running goal reports the step it is on and the runs it has started, and 
   for (const phase of ['draft', 'planning', 'awaiting-plan', 'waiting-for-user', 'accepted', 'declined', 'stopped'])
     assert.equal(leadProgress(at(['started', 'pending', 'pending'], 1, phase)), null, `${phase} is not running`)
   assert.equal(leadProgress({ ...at(['started'], 1), contract: null } as any), null)
+  // The window names the Team of the latest run, only while the goal runs: the board where the person's own acts live.
+  assert.equal(leadRunTeam(at(['started', 'pending', 'pending'], 0)), null, 'no run yet, no Team')
+  assert.equal(leadRunTeam(at(['started', 'started', 'pending'], 2)), 't1', 'the latest run')
+  for (const phase of ['waiting-for-user', 'accepted', 'stopped']) assert.equal(leadRunTeam(at(['started'], 1, phase)), null, `${phase} is not running`)
   await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
   assert.equal((await s.controls.readThread()).progress, undefined, 'a goal that waits for the person reports no progress')
   s.controls.close()

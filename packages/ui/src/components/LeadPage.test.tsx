@@ -415,3 +415,36 @@ it('shows what the Lead said first before the plan it proposed, in the order it 
   expect(text.indexOf(goalMessage.text)).toBeLessThan(text.indexOf(intro))
   expect(text.indexOf(intro)).toBeLessThan(text.indexOf("Here's my plan:"))
 })
+
+it('asks the person to run the project check once the change is reviewed and approved, and shows the command first', async () => {
+  const base = leadProjection(), room = 'team-1', running = { ...base.thread, state: 'running' as const, messages: [goalMessage], contract: leadPlan.contract }
+  const unseen = { check: { name: 'verify', run: 'node -e "process.exit(0)"' }, previous: null, cwd: '/repo', file: '/repo/.harnessdesk/checks.yml', digest: 'digest-1' }
+  const evidence = (ran: boolean) => ({ room, stamp: 1, checks: ['verify'], refused: [], unreadable: null, cards: [
+    { card: 2, running: [], facts: [{ record: { id: 'r', fact: { kind: 'review', verdict: 'approve', by: 'seat', at: 'abc' } }, freshness: { state: 'fresh' }, by: null }] },
+    ...(ran ? [{ card: 1, running: [], facts: [{ record: { id: 'c', fact: { kind: 'check', name: 'verify', run: 'x', exit: 0, timedOut: false, at: 'abc' } }, freshness: { state: 'fresh' }, by: null }] }] : [])] })
+  let ran = false
+  const { box, update, store, request } = await mount({ ...base, thread: running })
+  Object.assign(store.getSnapshot(), { teams: new Map([[room, { intents: [{ id: 1, role: 'implement', state: 'done' }, { id: 2, role: 'review', state: 'done' }] }]]) })
+  request.mockImplementation((async (method: string, params: Record<string, unknown>) => {
+    if (method === 'evidence/board') return evidence(ran)
+    if (method === 'evidence/check/run') {
+      if (params['seen'] === undefined) throw Object.assign(new Error('checkUnseen'), { code: 'checkUnseen', data: unseen })
+      ran = true; return {}
+    }
+    return base
+  }) as never)
+  await update({ team: room, progress: { step: 1, steps: 1, runs: 1 } })
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)) })
+  expect(box.textContent).toContain('waiting for you to run its project check, verify')
+  await act(async () => button('Run verify').click())
+  expect(document.body.textContent).toContain('node -e "process.exit(0)"')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 700)) })
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].filter(node => node.textContent === 'Run verify').at(-1)!.click())
+  expect(request).toHaveBeenCalledWith('evidence/check/run', expect.objectContaining({ room, card: 1, name: 'verify', seen: unseen.check.run, digest: 'digest-1' }))
+  expect(box.textContent).not.toContain('project check')
+})
+it('says nothing about a check while the goal is not running or the plan asks for none', async () => {
+  const base = leadProjection(), room = 'team-1'
+  const { box } = await mount({ ...base, team: room, thread: { ...base.thread, state: 'waiting-for-user' as const, messages: [goalMessage], contract: leadPlan.contract } })
+  expect(box.textContent).not.toContain('project check')
+})

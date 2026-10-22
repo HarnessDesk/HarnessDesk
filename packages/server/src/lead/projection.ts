@@ -24,6 +24,9 @@ export const admitLeadCard = (state: LeadState, card: LeadCard, project: LeadPro
 
 /** Where a running goal stands, read from the journal alone: the step the Lead is on (the latest it has begun, or the first
  * before any begins), of how many, and the runs it has started. Only a goal that is running has a place to report. */
+/** The Team of the latest run, while the goal runs; the window offers the person's own acts on that board. */
+export const leadRunTeam = (state: LeadState): string | null =>
+  state.phase === 'running' ? state.runs.at(-1)?.teamId ?? null : null
 export const leadProgress = (state: LeadState): LeadProgress | null => {
   const steps = state.contract?.steps
   if (state.phase !== 'running' || !steps?.length) return null

@@ -230,6 +230,8 @@ export interface LeadWindowProjection extends LeadHostProjection {
   readonly planConsentExpiresAt: number | null
   /** Present only while the goal is running; it is read from the journal and grants nothing. */
   readonly progress?: LeadProgress
+  /** The Team of the goal's latest run, while the goal is running: the board where its evidence and the person's own acts live. */
+  readonly team?: string
 }
 export interface LeadProjectionFailure { readonly version: 1; readonly revision: LeadRevision; readonly error: 'lead-projection-failed' }
 export type LeadChanged = LeadWindowProjection | LeadProjectionFailure
@@ -584,5 +586,5 @@ const parseLeadProgress: Validator<LeadProgress> = (value, path = '') => {
 }
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
-  waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress),
+  waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
 }))

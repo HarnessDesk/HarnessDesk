@@ -5,6 +5,7 @@ import { useDestinationPage, useDestinationActive } from '../panels/destination-
 import { useSnapshot, useStore } from '../state/context'
 import { LeadMessage } from './LeadMessage'
 import { LeadCards, leadDollars } from './LeadCards'
+import { LeadCheck } from './LeadCheck'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
 import { SettingsIcon, SendIcon, StopIcon } from './Icons'
@@ -160,6 +161,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           {state.wayOut === 'decide-plan' && (renewal
             ? <Banner>{`The earlier approval expired at ${formatLeadConsentTime(state.planConsentExpiresAt!)}.`}</Banner>
             : !cards.some(card => card.type === 'plan') && <Banner>The plan needs your decision before work continues.</Banner>)}
+          {state.team && state.thread?.state === 'running' && <LeadCheck room={state.team} needed={!!contract?.assertions.some(assertion => assertion.kind === 'check')} revision={state.revision} label={label} onError={refusal} />}
           <LeadCards {...cardProps} cards={cards} placement="dock" />
         </ComposerNoticeStack>} form={{ 'aria-label': 'Lead composer', onSubmit: event => { event.preventDefault(); if (!requestPending && goal.trim() && !state.error && state.revision >= 0) void send() } }}>
               <ComposerText rows={1} ref={input} aria-label="Goal or message" placeholder={`Message ${label}…`} value={goal} onChange={event => setGoal(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!state.error && state.revision >= 0) void send() } }} />
