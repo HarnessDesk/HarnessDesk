@@ -1015,18 +1015,28 @@ const HooksList = () => {
   const store = useStore()
   const runtime = useRuntime()
   const snapshot = useSnapshot()
-  const [hooks, setHooks] = useState<import('@harnessdesk/protocol').HookInfo[] | null>(null)
+  const cwd = snapshot.workspace?.path
+  const [read, setRead] = useState<{ runtime: RuntimeId; cwd: string | undefined; hooks: readonly import('@harnessdesk/protocol').HookInfo[] | null } | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!destinationActive) return
 
     if (!runtime.capabilities.hooks) return
     let live = true
-    void store.loadHooks().then(value => { if (live) setHooks(value) })
+    setRead(null)
+    void store.loadHooks().then(
+      hooks => { if (live) setRead({ runtime: runtime.id, cwd, hooks }) },
+      () => { if (live) setRead({ runtime: runtime.id, cwd, hooks: null }) },
+    )
     return () => { live = false }
-  }, [destinationActive, store, runtime.capabilities.hooks, snapshot.workspace?.path])
+  }, [destinationActive, store, runtime.id, runtime.capabilities.hooks, cwd, attempt])
 
-  if (!runtime.capabilities.hooks || !hooks || hooks.length === 0) return null
+  if (!runtime.capabilities.hooks) return <EmptyState title="Hooks are not available" description={`${runtime.presentation.name} does not report hooks.`} />
+  const hooks = read?.runtime === runtime.id && read.cwd === cwd ? read.hooks : undefined
+  if (hooks === undefined) return <EmptyState variant="inline" title="Reading hooks…" />
+  if (hooks === null) return <EmptyState title="Hooks could not be read"><Button variant="outline" size="sm" onClick={() => setAttempt(value => value + 1)}>Try again</Button></EmptyState>
+  if (hooks.length === 0) return <EmptyState title="No hooks configured" />
   return (
     <>
       <SectionHead level="label" name={withCount('Hooks', hooks.length)} />

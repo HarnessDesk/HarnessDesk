@@ -1149,7 +1149,7 @@ The skills page opens as two-column catalogue cards sorted by name, collapsing t
 
 Search and Runtime sit in the compact toolbar. All and nonempty or selected Needs attention are the only visible attention choices; uncommon reach and Declared by filters live under Filter. View offers Cards, List and Runtime comparison. Runtime scope narrows the skill rows and their attention counts; the choices stay in local view memory when navigating to details or Changes made here. Clear the filters clears runtime scope too. Existing reviewed install, update, remove and restore plans remain unchanged.
 
-Empty-directory cleanup and runtime catalogue banners appear only under Needs attention. Empty regions retain their existing useful actions and failure reasons; an unknown or unread runtime is not made into a new warning merely to fill a card.
+Empty-directory cleanup and runtime catalogue banners appear only under Needs attention. Its count includes each affected skill once, including wholly empty directories omitted from the cards, plus each runtime catalogue warning. These catalogue-wide diagnostics remain reachable alongside the scoped skill findings. Empty regions retain their existing useful actions and failure reasons; an unknown or unread runtime is not made into a new warning merely to fill a card.
 
 MCP servers retain List and Matrix, their PageOptions and their existing
 filters. An empty MCP region says No MCP servers yet with no description.

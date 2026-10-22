@@ -547,17 +547,6 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
   const visibleNativeSkills: readonly SkillInfo[] = screen.filter === 'all' ? searchedNativeSkills
     : screen.filter === 'off' ? searchedNativeSkills.filter(skill => !skill.enabled) : []
 
-  const chipCounts = useMemo(() => {
-    const result: Record<SkillChip, number> = { all: 0, 'needs-you': 0, 'one-runtime': 0, nobody: 0 }
-    for (const entry of listedEntries.filter(one => one.kind === 'skill' && declared(one) && (!screen.runtime || one.reach.some(reach => reach.runtime === screen.runtime && reach.state !== 'absent')))) {
-      result.all++
-      const group = chipFor(entry, columns)
-      if (group !== 'all') result[group]++
-    }
-    if (!agentFilter) result.all += nativeSkills.length
-    return result
-  }, [listedEntries, declared, columns, screen.runtime, nativeSkills, agentFilter])
-
   /**
    * Each agent's scanned skill directories in the order a name conflict is
    * resolved: project scope over user, then the location table's own order.
@@ -643,6 +632,24 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     [columns, library, usage],
   )
 
+  const chipCounts = useMemo(() => {
+    const result: Record<SkillChip, number> = { all: 0, 'needs-you': 0, 'one-runtime': 0, nobody: 0 }
+    const attention = new Set<string>()
+    for (const entry of listedEntries.filter(one => one.kind === 'skill' && declared(one) && (!screen.runtime || one.reach.some(reach => reach.runtime === screen.runtime && reach.state !== 'absent')))) {
+      result.all++
+      const group = chipFor(entry, columns)
+      if (group === 'needs-you') attention.add(entry.name)
+      else if (group !== 'all') result[group]++
+    }
+    // Cleanup includes wholly hollow skills, which have no card. Count each
+    // affected skill once, plus each catalogue warning, so its action stays reachable.
+    for (const copy of hollowCopies) attention.add(copy.name)
+    result['needs-you'] = attention.size + overloaded.length
+    if (!agentFilter) result.all += nativeSkills.length
+    return result
+  }, [listedEntries, declared, columns, screen.runtime, nativeSkills, agentFilter, hollowCopies, overloaded])
+  const showingCatalogueAttention = kind === 'skill' && screen.chip === 'needs-you' && (hollowCopies.length > 0 || overloaded.length > 0)
+
   /**
    * The entry the sheet is showing, looked up by name every render rather
    * than held as an object. An apply re-reads the library; a sheet holding
@@ -717,7 +724,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
       {checkFailed !== null && <ActionError>{checkFailed}</ActionError>}
 
-      {kind === 'skill' && screen.chip === 'needs-you' && (hollowCopies.length> 0 || overloaded.length> 0) && (
+      {showingCatalogueAttention && (
         <div data-slot="library-attention"><FormStack>
           {hollowCopies.length> 0 && <Banner
             tone="warning"
@@ -756,7 +763,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
 
       {loading && library === null ? (
         <EmptyState variant="inline" title={kind === 'skill' ? 'Reading skills…' : 'Reading every runtime’s directories…'} />
-      ) : rows.length === 0 && visibleNativeSkills.length > 0 ? null : rows.length === 0 ? (
+      ) : rows.length === 0 && (visibleNativeSkills.length > 0 || (showingCatalogueAttention && !screen.query.trim() && screen.filter === 'all' && !agentFilter)) ? null : rows.length === 0 ? (
         !listedEntries.some(entry => entry.kind === kind) && nativeSkills.length === 0 ? <EmptyState icon={<LibraryIcon size={16} />} title={kind === 'skill' ? 'No skills yet' : 'No MCP servers yet'}>
           {kind === 'skill' && <Toolbar>
             <Button size="sm" onClick={() => setFlow({ type: 'author' })}>Write a skill</Button>

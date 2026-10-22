@@ -949,6 +949,42 @@ it('cards summarize loaded runtimes and keep their names on hover', async () => 
   expect(cards()[0]?.querySelectorAll('[data-runtime-state]')).toHaveLength(0)
 })
 
+it.each([
+  { states: ['reaches', 'unscanned'] as const, count: '1 runtime', readers: 'Loaded by First Agent' },
+  { states: ['unscanned', 'absent'] as const, count: 'Not read yet', readers: 'Runtime availability has not been read' },
+])('describes card scope and runtime availability: $count', async ({ states, count, readers }) => {
+  await mount(library([entry('alpha', states, { description: 'A useful skill' })]))
+  const description = cards()[0]!.getAttribute('aria-describedby')!.split(' ').map(id => document.getElementById(id)?.textContent).join(' ')
+  expect(description).toContain('A useful skill')
+  expect(description).toContain('Personal')
+  expect(description).toContain(count)
+  expect(description).toContain(readers)
+})
+
+it('keeps cleanup reachable when every skill directory is hollow', async () => {
+  const request = await mount(library([entry('empty', ['hollow', 'absent'])]))
+  const attention = [...container.querySelectorAll('[aria-label="Skills"] [role="radio"]')].find(one => one.textContent?.startsWith('Needs attention'))
+  expect(attention?.textContent).toBe('Needs attention1')
+  await chooseChip('Needs you')
+  expect(container.textContent).toContain('Empty skill directories')
+  expect(container.textContent).not.toContain('Nothing needs you')
+  expect(container.textContent).not.toContain('No skills yet')
+  await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === 'Clean up…')!.click())
+  expect(request).toHaveBeenCalledWith('library/plan', expect.objectContaining({ intents: [{ kind: 'removeCopy', name: 'empty', path: '/home/u/.claude/skills/empty' }] }))
+})
+
+it('keeps catalogue warnings reachable without any skill findings', async () => {
+  await mount(library([entry('large', ['reaches', 'reaches'], { catalogTokens: 5000 })]))
+  const attention = [...container.querySelectorAll('[aria-label="Skills"] [role="radio"]')].find(one => one.textContent?.startsWith('Needs attention'))
+  expect(attention?.textContent).toBe('Needs attention2')
+  await chooseChip('Needs you')
+  expect(container.textContent).toContain('First Agent skill catalogue')
+  expect(container.textContent).toContain('Second Agent skill catalogue')
+  expect(container.textContent).not.toContain('Nothing needs you')
+  await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === 'Show never fired')!.click())
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['large'])
+})
+
 it('a problem gets a warning flag beside its single finding', async () => {
   await mount(library([partialEntry('alpha', ['hollow', 'reaches'])]))
   const row = cards()[0]!
@@ -2149,6 +2185,8 @@ it('chips count all skills ignoring search and Filter, and narrow together', asy
 })
 it('keeps banners exclusively under Needs you and cleanup still plans the same copies', async () => {
   const request = await mount(library([partialEntry('empty', ['hollow', 'reaches'], { catalogTokens: 5000 })]))
+  // The hollow card and its cleanup banner describe one skill, plus one catalogue warning.
+  expect([...container.querySelectorAll('[aria-label="Skills"] [role="radio"]')].find(one => one.textContent?.startsWith('Needs attention'))?.textContent).toBe('Needs attention2')
   expect(container.querySelector('[data-slot="library-attention"]')).toBeNull()
   await chooseChip('Needs you')
   expect(container.textContent).toContain('Empty skill directories')
