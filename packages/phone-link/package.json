@@ -24,6 +24,9 @@
   "devDependencies": {
     "@types/ws": "^8.18.2"
   },
+  "bin": {
+    "phone-link-dev": "./dist/src/dev.js"
+  },
   "files": [
     "dist"
   ],
