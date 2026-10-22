@@ -52,7 +52,9 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   assert(Array.isArray(source.completedBudgets) && source.completedBudgets.length <= 64)
   const completedBudgets = source.completedBudgets.map(value => parseLeadBudgetLedger(value))
   assert(new Set(completedBudgets.map(budget => budget.logicalGoalId)).size === completedBudgets.length)
-  assert(completedBudgets.every(budget => budget.stop?.reason === 'cancelled' && budget.requests.length === 0))
+  // Any finished goal begins the next one, so an earlier goal may have ended at
+  // an allowance or an unconfirmed spend, or been accepted with no stop at all.
+  assert(completedBudgets.every(budget => budget.requests.length === 0))
   const budget = source.budget === null ? null : parseLeadBudgetLedger(source.budget)
   assert(!budget?.stop || ['stopped', 'accepted', 'declined'].includes(source.phase))
   assert(source.stopEffectsPending === null || Number.isSafeInteger(source.stopEffectsPending) && source.stopEffectsPending > 0 && source.stopEffectsPending <= source.seq && (budget?.stop || source.phase === 'stopped'))

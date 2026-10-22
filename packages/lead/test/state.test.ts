@@ -226,8 +226,13 @@ test('canBeginLeadGoal shares every recovery and accounting fence with new-goal 
   // Every finished goal leads to the next one, whatever ended it: an accepted or declined result, or an allowance stop.
   for (const finished of [{ ...state, phase: 'accepted' as const }, { ...state, phase: 'declined' as const },
     { ...state, budget: { ...state.budget!, stop: { reason: 'budget' as const, revision: state.budget!.revision } } },
-    { ...state, budget: { ...state.budget!, stop: { reason: 'unknown-spend' as const, revision: state.budget!.revision } } }]) {
-    assert.equal(ready(finished), true); assert.equal(lead.reduceLeadRecord(finished, event).phase, 'draft')
+    { ...state, budget: { ...state.budget!, stop: { reason: 'unknown-spend' as const, revision: state.budget!.revision } } },
+    { ...state, phase: 'accepted' as const, budget: { ...state.budget!, stop: null } }]) {
+    assert.equal(ready(finished), true)
+    const next = lead.reduceLeadRecord(finished, event)
+    assert.equal(next.phase, 'draft')
+    // The goal it finished is kept as it ended, and a restart reads it back.
+    assert.deepEqual(lead.parseLeadCheckpoint(JSON.parse(JSON.stringify(lead.leadCheckpoint(next, 'b'.repeat(64))))).state, next)
   }
   const attempt = { id: 'uncertain', correlationId: 'uncertain', method: 'flow/start-goal', action: null, kind: 'mutation' as const, stepId: 'first', arguments: summarizeLeadArguments({}),
     phase: 'finished' as const, effect: 'allow' as const, dispatched: true, outcome: 'uncertain' as const, recoveryReported: false,
