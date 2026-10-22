@@ -36,7 +36,7 @@ export const LibrarySkillsControls = ({ chip, counts, onChip, view, onView, filt
       </Menu>}</Popover>
     </Toolbar>
     <Toolbar>
-      <ToggleGroup type="single" size="sm" variant="chips" aria-label="Skills" value={chip === 'needs-you' ? 'needs-you' : 'all'} onValueChange={value => { if (value) onChip(value as SkillChip) }}>
+      <ToggleGroup type="single" size="sm" variant="chips" aria-label="Skills" value={chip === 'all' || chip === 'needs-you' ? chip : ''} onValueChange={value => { if (value) onChip(value as SkillChip) }}>
         <ToggleGroupItem value="all">All<Text role="meta" numeric>{counts.all}</Text></ToggleGroupItem>
         {(counts['needs-you'] > 0 || chip === 'needs-you') && <ToggleGroupItem value="needs-you">Needs attention<Text role="meta" numeric>{counts['needs-you']}</Text></ToggleGroupItem>}
       </ToggleGroup>

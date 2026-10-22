@@ -744,7 +744,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
             tone="neutral"
             title={`${column.label} skill catalogue`}
             actions={neverFired !== null && neverFired> 0
-              ? <Button variant="outline" size="sm" onClick={() => patchScreen({ chip: 'all', filter: 'unused' })}>Show never fired</Button>
+              ? <Button variant="outline" size="sm" onClick={() => { patchScreen({ chip: 'all', filter: 'unused', runtime: column.id, query: '' }); setAgentFilter('') }}>Show never fired</Button>
               : undefined}
           >
             ≈{total.toLocaleString()} tokens of skill catalogue ride every {column.label} turn

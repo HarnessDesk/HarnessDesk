@@ -35,3 +35,15 @@ it('does not let Loaded by replace an active Needs attention selection', async (
     expect(document.body.textContent).toContain('Clear Needs attention to filter by runtime count.')
   } finally { act(() => root.unmount()); box.remove() }
 })
+
+it.each(['one-runtime', 'nobody'] as const)('lets All clear the %s reach filter', async chip => {
+  const box = document.createElement('div'); document.body.append(box)
+  const root = createRoot(box), onChip = vi.fn()
+  const option = { id: 'filter', label: 'Filter', value: 'all', items: [], change: vi.fn() }
+  try {
+    await act(async () => root.render(<LibrarySkillsControls chip={chip} counts={{ all: 3, 'needs-you': 1, 'one-runtime': 1, nobody: 1 }} onChip={onChip}
+      view="cards" onView={vi.fn()} filters={option} agent={option} runtime={option} search={{ label: 'Search skills', value: '', change: vi.fn() }} />))
+    await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="Skills"] [role="radio"]')!.click())
+    expect(onChip).toHaveBeenCalledWith('all')
+  } finally { act(() => root.unmount()); box.remove() }
+})

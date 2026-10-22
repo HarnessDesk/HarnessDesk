@@ -3297,7 +3297,7 @@ export class AppStore {
     return this.transport.request('runtime/hooks', {
       runtime,
       ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
-    }).then((hooks) => [...hooks]).catch(() => [])
+    }).then((hooks) => [...hooks])
   }
 
   /**

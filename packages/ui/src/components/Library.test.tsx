@@ -985,6 +985,17 @@ it('keeps catalogue warnings reachable without any skill findings', async () => 
   expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['large'])
 })
 
+it('shows the warning runtime’s never-fired skills instead of retaining another runtime scope', async () => {
+  await mount(library([
+    entry('local', ['reaches', 'absent']),
+    entry('remote', ['absent', 'reaches'], { catalogTokens: 5000 }),
+  ]), undefined, { initialView: { runtime: runtimeId('one'), chip: 'needs-you', query: 'local' } })
+  expect(container.textContent).toContain('Second Agent skill catalogue')
+  await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === 'Show never fired')!.click())
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['remote'])
+  expect(container.querySelector('[title="Runtime"]')?.textContent).toBe('Second Agent')
+})
+
 it('a problem gets a warning flag beside its single finding', async () => {
   await mount(library([partialEntry('alpha', ['hollow', 'reaches'])]))
   const row = cards()[0]!

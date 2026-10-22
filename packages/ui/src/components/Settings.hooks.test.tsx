@@ -3,14 +3,14 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runtimeId, type HookInfo, type RuntimeInfo } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { SettingsTestScope } from '../test-support/settings-page'
 import { Settings } from './Settings'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let container: HTMLDivElement, root: Root
 beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container) })
-afterEach(() => { act(() => root.unmount()); container.remove() })
+afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks() })
 
 const runtime = (id: string, hooks = true) => ({ id: runtimeId(id), capabilities: { hooks }, presentation: { name: 'Test Agent' } }) as RuntimeInfo
 const hook: HookInfo = { id: 'before', event: 'preToolUse', source: 'project', trust: 'trusted', enabled: true, managed: false }
@@ -60,5 +60,17 @@ it('offers retry after a hook read rejects', async () => {
   await mount([runtime('one')], load)
   expect(container.textContent).toContain('Hooks could not be read')
   await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === 'Try again')!.click())
+  expect(container.textContent).toContain('preToolUse')
+})
+
+it('shows transport failures and retries through the real AppStore', async () => {
+  const info = runtime('one'), store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { runtimes: [info], activeRuntime: info.id })
+  const request = vi.spyOn(store.transport, 'request').mockRejectedValueOnce(new Error('Host disconnected')).mockResolvedValueOnce([hook])
+  await act(async () => root.render(<StoreProvider store={store}><SettingsTestScope><Settings route={{ kind: 'section', section: 'hooks', focus: null }} onRoute={() => {}} onSignIn={() => {}} /></SettingsTestScope></StoreProvider>))
+  expect(container.textContent).toContain('Hooks could not be read')
+  expect(container.textContent).not.toContain('No hooks configured')
+  await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === 'Try again')!.click())
+  expect(request).toHaveBeenCalledTimes(2)
   expect(container.textContent).toContain('preToolUse')
 })

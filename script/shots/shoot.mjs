@@ -1766,12 +1766,13 @@ rules:
   }
 
   // Historical scene names follow the frame destination they now open.
+  // Skills and Library both open Customize; runtime-owned Hooks stays in Settings.
   // Retained hidden pages never count as the visible destination.
-  for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'runtimes', 'models', 'skills', 'library', 'plugins', 'permissions', 'browser']) {
+  for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'runtimes', 'models', 'skills', 'hooks', 'library', 'plugins', 'permissions', 'browser']) {
     SCENES[`settings-${section}`] = { leaveOverlay: true, run: async () => {
       await cdp.eval(`${STORE}.askSettings(${q(section)}); true`)
       await sleep(1200)
-      const destination = section === 'library' ? 'library' : section === 'plugins' ? 'plugins' : 'settings'
+      const destination = section === 'library' || section === 'skills' ? 'library' : section === 'plugins' ? 'plugins' : 'settings'
       if (!await cdp.eval(`(() => {
         const page = document.querySelector('[data-page-destination="${destination}"]:not([hidden])')
         const dashboard = document.querySelector('[data-page-destination="dashboard"]:not([hidden])')
