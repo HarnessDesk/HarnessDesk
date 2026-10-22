@@ -5,7 +5,7 @@ import {
 } from '@harnessdesk/crypto'
 import WebSocket from 'ws'
 
-/** A stand-in phone for the tests: the real one is the iOS app, which speaks the same bytes. */
+/** A stand-in phone for tests and local checks: the real one is the iOS app, which speaks the same bytes. */
 export class PhoneSim {
   session: Session | null = null
   closed: { code: number; reason: string } | null = null

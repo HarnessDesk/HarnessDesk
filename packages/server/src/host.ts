@@ -1,4 +1,5 @@
 import { LeadControls, leadRefusal } from './lead/controls.js'
+import { phoneLinkOff } from './phone-link.js'
 import { answerLeadPersonGate, answerLeadResult } from './lead/person-decision.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
 import { readKeptTranscriptFile } from './kept-transcript.js'
@@ -784,6 +785,7 @@ export class Host {
   readonly #lanes: LaneAllocator
   #leadService: LeadService | null = null
   #leadControls: LeadControls | null = null
+  #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
   #leadOwnsWorker: ((runtime: string, sessionId: string, includeClosed: boolean) => boolean) | null = null
   #leadListenersAvailable = true
   #leadReady = false
@@ -4717,6 +4719,13 @@ export class Host {
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
       // These closures deliberately repeat the service's availability guard.
+      phone: {
+        state: () => this.#phoneLink?.state() ?? phoneLinkOff,
+        pairing: () => this.#requirePhoneLink().pairing(),
+        allow: (id, tiers) => this.#requirePhoneLink().allow(id, tiers),
+        deny: id => this.#requirePhoneLink().deny(id),
+        revoke: device => this.#requirePhoneLink().revoke(device),
+      },
       leadThreadRead: () => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.readThread() },
       leadThreadSend: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.send(params) },
       leadCardDecide: params => { if (this.options.leadEnabled !== true || !this.#leadControls) throw leadRefusal('lead-unavailable'); return this.#leadControls.decide(params) },
@@ -9007,6 +9016,17 @@ export class Host {
       this.#team.onRuntimeDetached(runtime, 'The agent stopped before the message was read.')
     }
     this.#push({ method: 'runtime/healthChanged', params: { runtime, health } })
+  }
+
+  /** The LAN phone link starts after the host does; the window learns of every change through `phone/changed`. */
+  attachPhoneLink(control: import('./phone-link.js').PhoneLinkControl): void {
+    this.#phoneLink = control
+    this.onDispose(control.onChange(() => this.#push({ method: 'phone/changed', params: control.state() })))
+  }
+
+  #requirePhoneLink(): import('./phone-link.js').PhoneLinkControl {
+    if (!this.#phoneLink) throw Object.assign(new Error('phone-link-unavailable'), { wireCode: 'phone-link-unavailable' })
+    return this.#phoneLink
   }
 
   #push(notification: WireNotification): void {

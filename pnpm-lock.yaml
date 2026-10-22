@@ -294,6 +294,9 @@ importers:
       '@harnessdesk/mcp-tools':
         specifier: workspace:*
         version: link:../mcp-tools
+      '@harnessdesk/phone-link':
+        specifier: workspace:*
+        version: link:../phone-link
       '@harnessdesk/plugins':
         specifier: workspace:*
         version: link:../plugins

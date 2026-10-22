@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
+    },
+    "./sim": {
+      "types": "./dist/src/sim.d.ts",
+      "default": "./dist/src/sim.js"
     }
   },
   "dependencies": {

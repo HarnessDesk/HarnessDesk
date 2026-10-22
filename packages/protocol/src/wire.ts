@@ -1,3 +1,4 @@
+import type { PhoneLinkState, PhonePairing, PhoneTier } from './phone.js'
 import type { LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
@@ -749,6 +750,12 @@ export interface AgentRegisterRequest {
  * runtime 'unknown method'.
  */
 export interface HostMethods {
+  'phone/state': { params: Record<string, never>; result: PhoneLinkState }
+  /** A new single-use pairing code for a phone on the same network. */
+  'phone/pairing': { params: Record<string, never>; result: PhonePairing }
+  'phone/allow': { params: { readonly id: string; readonly tiers?: readonly PhoneTier[] }; result: PhoneLinkState }
+  'phone/deny': { params: { readonly id: string }; result: PhoneLinkState }
+  'phone/revoke': { params: { readonly device: string }; result: PhoneLinkState }
   'lead/thread/read': { params: Record<string, never>; result: LeadWindowProjection }
   'lead/thread/send': { params: LeadThreadSend; result: LeadSendReceipt }
   'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }
@@ -2826,6 +2833,7 @@ export interface SeatActivity {
 }
 
 export type WireNotification =
+  | { readonly method: 'phone/changed'; readonly params: PhoneLinkState }
   | { readonly method: 'lead/changed'; readonly params: LeadChanged }
   | { method: 'storage/usageChanged'; params: StorageUsage }
   | { readonly method: 'seat/activity'; readonly params: SeatActivity }

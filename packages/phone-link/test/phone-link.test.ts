@@ -8,7 +8,7 @@ import {
   DeviceRegistry, EventRing, PhoneCallError, PhoneLinkService, loadOrCreateDeskIdentity,
   type PhonePolicy,
 } from '../src/index.js'
-import { PhoneSim } from './phone-sim.js'
+import { PhoneSim } from '../src/sim.js'
 
 const policy: PhonePolicy = {
   methods: { 'lead/thread/read': 'read', 'lead/thread/send': 'run', 'lead/card/decide': 'answer', 'lead/settings/update': 'run' },

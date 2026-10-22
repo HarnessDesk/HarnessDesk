@@ -976,7 +976,13 @@ const planBudgetInputValidator = shape({
   currency: isString,
 })
 
+const phoneTier = literalUnion('read', 'run', 'answer')
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
+  'phone/state': parseLeadEmpty,
+  'phone/pairing': parseLeadEmpty,
+  'phone/allow': shape({ id: isString, tiers: optional(arrayOf(phoneTier)) }),
+  'phone/deny': shape({ id: isString }),
+  'phone/revoke': shape({ device: isString }),
   'lead/thread/read': parseLeadEmpty,
   'lead/thread/send': parseLeadThreadSend,
   'lead/card/decide': parseLeadCardDecision,

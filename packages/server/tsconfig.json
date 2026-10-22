@@ -19,6 +19,7 @@
     { "path": "../mcp-tools" },
     { "path": "../plugins" },
     { "path": "../adapter-testkit" },
-    { "path": "../lead" }
+    { "path": "../lead" },
+    { "path": "../phone-link" }
   ]
 }

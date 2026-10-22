@@ -1,4 +1,5 @@
 import { leadMethods } from './lead.js'
+import { phoneMethods } from './phone.js'
 import type { HostMethodName, HostParams, HostResult } from '@harnessdesk/protocol'
 
 import { clientMethods } from './client.js'
@@ -59,6 +60,7 @@ export { TERMINAL_CHIP } from './plugins.js'
 export const hostMethods: HostMethodTable = {
   ...clientMethods,
   ...leadMethods,
+  ...phoneMethods,
   ...appMethods,
   ...runtimeMethods,
   ...runtimeExtensionMethods,

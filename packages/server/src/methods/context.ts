@@ -141,6 +141,8 @@ export interface HostContext {
   readonly sessionWorktrees: import('../session-worktrees.js').SessionWorktrees
   readonly worktrees: Worktrees
   readonly team: Team
+  /** The phone link's controls; refuses with `phone-link-unavailable` where the link is not running. */
+  readonly phone: Omit<import('../phone-link.js').PhoneLinkControl, 'onChange'>
   leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
   leadThreadSend(params: HostParams<'lead/thread/send'>): Promise<HostResult<'lead/thread/send'>>
   leadCardDecide(params: HostParams<'lead/card/decide'>): Promise<HostResult<'lead/card/decide'>>

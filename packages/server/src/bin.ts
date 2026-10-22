@@ -21,6 +21,9 @@ Options:
   --ui <directory>       Serve this UI directory
   --log-level <level>    Log level (debug or info; default: info)
   --codex-binary <path>  Use this runtime binary
+  --phone-link           Listen for paired phones on the local network
+  --phone-port <number>  Port for the phone link (default: HARNESSDESK_PHONE_PORT or 0)
+  --phone-loopback       Also offer 127.0.0.1 in pairing codes (a simulator on this machine)
 `
 
 let values: Record<string, string | boolean | undefined>
@@ -29,6 +32,7 @@ try {
     help: { type: 'boolean', short: 'h' },
     port: { type: 'string' }, ui: { type: 'string' },
     'log-level': { type: 'string' }, 'codex-binary': { type: 'string' },
+    'phone-link': { type: 'boolean' }, 'phone-port': { type: 'string' }, 'phone-loopback': { type: 'boolean' },
   } }).values
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n\n${usage}`)
@@ -85,11 +89,19 @@ const clientDoor = await openClientDoor({
   hostVersion: (await host.call('host/hello', { clientVersion: 'host' })).hostVersion,
 })
 
-process.stdout.write(`\nHarnessDesk host ready\n  ${running.url}/?token=${running.token}\n\n`)
+const phoneLink = values['phone-link'] === true || process.env['HARNESSDESK_PHONE_LINK'] === '1'
+  ? await (await import('./phone-link.js')).startPhoneLink(host, logger, {
+    home: defaultStateDir(), port: Number(flag('phone-port') ?? process.env['HARNESSDESK_PHONE_PORT'] ?? 0),
+    includeLoopback: values['phone-loopback'] === true,
+  })
+  : null
+
+process.stdout.write(`\nHarnessDesk host ready\n  ${running.url}/?token=${running.token}\n${phoneLink ? `  phone link on port ${phoneLink.service.port}\n` : ''}\n`)
 
 const shutdown = async (signal: string): Promise<void> => {
   logger.info('shutting down', { signal })
   await clientDoor?.close()
+  await phoneLink?.close()
   await running.close()
   await host.dispose()
   await extensions.dispose()

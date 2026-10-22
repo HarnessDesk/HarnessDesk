@@ -24,6 +24,7 @@
     "@harnessdesk/extension-host": "workspace:*",
     "@harnessdesk/lead": "workspace:*",
     "@harnessdesk/mcp-tools": "workspace:*",
+    "@harnessdesk/phone-link": "workspace:*",
     "@harnessdesk/plugins": "workspace:*",
     "@harnessdesk/protocol": "workspace:*",
     "@harnessdesk/responses-gateway": "workspace:*",
