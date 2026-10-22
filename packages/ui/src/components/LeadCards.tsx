@@ -8,6 +8,15 @@ import { Markdown } from './Markdown'
 
 const cents = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 /** Money the way a person reads it, in whole cents. An amount above zero that would round to $0.00 is said in words, because $0.00 means none. */
+/** Only what changes is asked about: an allowance whose rounds stay put is a question about dollars alone. */
+export const budgetQuestion = (from: { readonly usdMicros: number; readonly rounds: number }, to: { readonly usdMicros: number; readonly rounds: number }): string => {
+  const parts = [
+    ...(from.usdMicros !== to.usdMicros ? [`from ${leadDollars(from.usdMicros)} to ${leadDollars(to.usdMicros)}`] : []),
+    ...(from.rounds !== to.rounds ? [`from ${from.rounds} to ${to.rounds} rounds`] : []),
+  ]
+  return parts.length === 0 ? 'Keep the allowance as it is?' : `Raise the allowance ${parts.join(' and ')}?`
+}
+
 export const leadDollars = (micros: number) => {
   const text = cents.format(micros / 1000000)
   return micros > 0 && text === '$0.00' ? 'less than $0.01' : text
@@ -52,7 +61,7 @@ export const LeadCards = ({ cards, decisions = [], contract, budget, onDecide, o
     const scope = card.type === 'plan' ? card.contract : contract
     const summary = worker ? 'A worker is waiting for you to approve a command.' : card.type === 'plan' ? `${renewal ? `My earlier approval expired. Approve again to continue.\n\n` : ''}Here's my plan:\n\n${card.contract.steps.map((step, i) => `${i + 1}. ${step.title} — ${stepWork(step.assignments)}`).join('\n')}\n\nDone when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`
       : card.type === 'permission-change' ? `Change permission mode: ${policyMode[card.previous.mode]} → ${policyMode[card.proposed.mode]}\n\n${[...new Set([...card.previous.rules.map(rule => rule.id), ...card.proposed.rules.map(rule => rule.id)])].flatMap(id => { const old = card.previous.rules.find(rule => rule.id === id), next = card.proposed.rules.find(rule => rule.id === id); return JSON.stringify(old) === JSON.stringify(next) ? [] : [`- ${ruleWords(old)} → ${ruleWords(next)}`] }).join('\n')}`
-      : card.type === 'budget-change' ? `Raise the allowance from ${leadDollars(card.previous.caps.usdMicros)} to ${leadDollars(card.proposed.usdMicros)} and from ${card.previous.caps.rounds} to ${card.proposed.rounds} rounds?`
+      : card.type === 'budget-change' ? budgetQuestion(card.previous.caps, card.proposed)
       : card.type === 'stopped' ? card.reason === 'unknown-spend' ? 'Worker spend is unknown. Inspect the run before continuing.' : 'The Lead stopped. Inspect its allowance and run.' : card.summary
     const state = choice ? { approve: 'Approved', decline: 'Declined', accept: 'Accepted' }[choice] : card.type === 'result' && card.outcome !== 'reviewed' ? { accepted: 'Accepted', declined: 'Declined' }[card.outcome] : undefined
     const spend = 'budget' in card ? card.budget : budget
