@@ -413,3 +413,16 @@ test('a Lead request meters its workers again even before its child registers, s
   assert.equal(leadBudgetProjection(s.journal.state.budget!, 10_000_000).spend, 'known')
   assert.equal(s.journal.state.budget!.stop, null)
 })
+
+test('an incomplete reading after every run has ended leaves spend unknown without stopping the goal', async t => {
+  const s = await leadRig(t)
+  await s.start()
+  await s.observe(0)
+  const live = s.budgets.port.runs
+  Object.assign(s.budgets.port, { runs: () => live().map(run => ({ ...run, state: 'stopped' })), seats: () => [...s.rig.seats.values()], delegation: () => 'none',
+    usage: async () => ({ complete: false, samples: [] }) })
+  s.setNow(10_000_000)
+  await s.budgets.meter(s.journal)
+  assert.equal(s.journal.state.budget!.stop, null, 'no worker can spend any more, so nothing needs stopping')
+  assert.notEqual(leadBudgetProjection(s.journal.state.budget!, 10_000_000).spend, 'known', 'and the Lead still may not spend on a guess')
+})

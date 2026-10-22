@@ -195,7 +195,9 @@ export class LeadBudgets implements FlowLeadGuard {
     await journal.updateBudget({ version: 1, type: 'observe', now, at: now, revision: budget.revision + 1,
       source: 'worker-samples', sourceIds: [source], goalId: budget.goalId!, executionIds: budget.executionIds,
       quality: complete ? 'known' : 'unknown', usdMicros: total === null ? null : Math.min(LEAD_LIMITS.maxUsdMicros, total) })
-    if (!complete && !journal.state.budget!.stop) await journal.updateBudget({ version: 1, type: 'stop', now, reason: 'unknown-spend' })
+    // Unknown spend stops work that can still spend. Once every run has ended, the Lead's own refusal to spend is enough.
+    const live = runs.some(one => one.state === 'running' || one.state === 'stalled')
+    if (!complete && live && !journal.state.budget!.stop) await journal.updateBudget({ version: 1, type: 'stop', now, reason: 'unknown-spend' })
     return false
   }
   /** Usage monitoring belongs to the host and survives the child's exit. */
