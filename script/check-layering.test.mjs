@@ -157,12 +157,13 @@ test('the cloud wire stands alone and stays out of the renderer', () => {
   ]) assert.equal(inContract(source), 1, `contract: ${source}`)
   for (const source of [
     "const s = Buffer.from(x).toString('base64url')", 'const url = process.env.RELAY_URL', 'setImmediate(tick)', "const here = __dirname",
-    'const { Buffer: B } = globalThis; void Buffer',
+    'const { Buffer: B } = globalThis; void Buffer', 'globalThis.Buffer.from(x)', 'const e = globalThis.process.env.X', "self['Buffer'].from(x)",
+    'window.setImmediate(f)',
   ]) {
     assert.ok(inCrypto(source) >= 1, `crypto global: ${source}`)
     assert.ok(inContract(source) >= 1, `contract global: ${source}`)
   }
-  for (const source of ['const x = { process: 1, Buffer: 2 }', 'x.process(); y.Buffer', '// Buffer.from in a comment', "const label = 'process'"])
+  for (const source of ['const x = { process: 1, Buffer: 2 }', 'x.process(); y.Buffer', 'globalThis.fetch(u)', "globalThis['crypto']", '// Buffer.from in a comment', "const label = 'process'"])
     assert.equal(inCrypto(source), 0, `not a global: ${source}`)
 
   const above = RULES.find((r) => r.label === 'cloud wire above the renderer')

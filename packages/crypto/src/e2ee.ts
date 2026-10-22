@@ -151,14 +151,17 @@ export interface PhoneHandshake {
 }
 
 /** Phone side. `deskPub` is the key pinned from the QR; nothing from the network can replace it. */
-export async function startPhoneHandshake(deskPub: Bytes, opts?: HandshakeOptions): Promise<PhoneHandshake> {
+export async function startPhoneHandshake(pinnedDeskPub: Bytes, opts?: HandshakeOptions): Promise<PhoneHandshake> {
+  // Inputs are copied before the first await: a caller may reuse a buffer as soon as the call returns.
+  const deskPub = pinnedDeskPub.slice()
   const deskIdBytes = await idBytesFromPub(deskPub)
   const { eph, nonce } = await ephemeralFor(opts)
   const hello = concat(Uint8Array.of(FRAME_HELLO, E2EE_VERSION), eph.pub, nonce)
   let finished = false
   return {
     hello,
-    async finish(ready) {
+    async finish(received) {
+      const ready = received.slice()
       if (finished) throw new E2eeError('format', 'handshake already finished')
       finished = true
       if (ready.length !== READY_LENGTH || ready[0] !== FRAME_READY) throw new E2eeError('format')
@@ -174,7 +177,8 @@ export async function startPhoneHandshake(deskPub: Bytes, opts?: HandshakeOption
 }
 
 /** Desk side: answer a HELLO. Returns the READY frame to send and the session to use after it. */
-export async function acceptHandshake(hello: Bytes, desk: SigningIdentity, opts?: HandshakeOptions): Promise<{ ready: Bytes; session: Session }> {
+export async function acceptHandshake(received: Bytes, desk: SigningIdentity, opts?: HandshakeOptions): Promise<{ ready: Bytes; session: Session }> {
+  const hello = received.slice()
   if (hello.length !== HELLO_LENGTH || hello[0] !== FRAME_HELLO) throw new E2eeError('format')
   if (hello[1] !== E2EE_VERSION) throw new E2eeError('version')
   const deskIdBytes = await idBytesFromPub(desk.pub)

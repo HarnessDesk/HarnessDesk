@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   CloseCode, DeskId, DeskToRelay, PairingOffer, RelayToDesk, SendPushRequest, decodeDeskFrame, decodePairingOffer, encodeDeskFrame, encodePairingOffer,
-  FirstPhoneMessage, PublicKey, PushPlaintext,
+  FirstPhoneMessage, PUSH_PLAINTEXT_MAX_BYTES, PublicKey, PushPlaintext,
 } from '../src/index.js'
 
 const key = 'A'.repeat(43)
@@ -58,6 +58,16 @@ describe('contract', () => {
     assert.equal(SendPushRequest.safeParse({ ...base, ciphertext: 'A'.repeat(2752) }).success, true)
     assert.equal(SendPushRequest.safeParse({ ...base, ciphertext: 'A'.repeat(2900) }).success, false)
     assert.equal(PushPlaintext.safeParse({ v: 1, id: 'a', ts: 1, kind: 'done', title: 't', body: 'b' }).success, true)
+  })
+
+  it('refuses a push body that is short in characters but too big once escaped', () => {
+    // A control character is six bytes in JSON, so 80 + 240 of them, with the other fields full, pass a character
+    // limit and overflow the 2048-byte cap that sealing enforces.
+    const esc = '\u001b'
+    const heavy = { v: 1, id: 'i'.repeat(64), ts: 1, kind: 'done', title: esc.repeat(80), body: esc.repeat(240), card: 'c'.repeat(64), deep: 'd'.repeat(200) }
+    assert.equal(PushPlaintext.safeParse(heavy).success, false)
+    assert.equal(PushPlaintext.safeParse({ ...heavy, title: 't', body: 'b' }).success, true)
+    assert.equal(PUSH_PLAINTEXT_MAX_BYTES, 2048)
   })
 
   it('accepts only auth or enroll as a first phone message', () => {

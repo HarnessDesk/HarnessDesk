@@ -91,6 +91,8 @@ const cloudWireImports = (source, fileName) => {
  */
 const NODE_GLOBALS = new Set(['Buffer', 'process', 'global', '__dirname', '__filename', 'setImmediate', 'clearImmediate', 'require', 'module', 'exports'])
 
+const GLOBAL_OBJECTS = new Set(['globalThis', 'self', 'window'])
+
 const nodeGlobals = (source, fileName) => {
   const code = withoutComments(source, fileName, { strict: true })
   const file = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true)
@@ -105,6 +107,11 @@ const nodeGlobals = (source, fileName) => {
       const isRequireCall = node.text === 'require' && ts.isCallExpression(parent) && parent.expression === node
       if (!isMemberName && !isRequireCall) found.push(node.text)
     }
+    // globalThis.Buffer, self.process and globalThis['Buffer'] reach the same globals by another road.
+    const viaGlobalObject = (object) => ts.isIdentifier(object) && GLOBAL_OBJECTS.has(object.text)
+    if (ts.isPropertyAccessExpression(node) && viaGlobalObject(node.expression) && NODE_GLOBALS.has(node.name.text)) found.push(node.name.text)
+    if (ts.isElementAccessExpression(node) && viaGlobalObject(node.expression) && ts.isStringLiteralLike(node.argumentExpression) &&
+        NODE_GLOBALS.has(node.argumentExpression.text)) found.push(node.argumentExpression.text)
     ts.forEachChild(node, visit)
   }
   visit(file)

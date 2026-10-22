@@ -53,6 +53,9 @@ export const SendPushResponse = z.object({
   apnsId: z.string().optional(),
 })
 
+/** The largest sealed push body, in UTF-8 bytes of its JSON. packages/crypto holds the same number as PUSH_PLAINTEXT_MAX. */
+export const PUSH_PLAINTEXT_MAX_BYTES = 2048
+
 /** The decrypted push body, defined here so the desk and the Notification Service Extension agree. */
 export const PushPlaintext = z.object({
   v: z.literal(1),
@@ -63,6 +66,9 @@ export const PushPlaintext = z.object({
   body: z.string().max(240),
   card: z.string().max(64).optional(),
   deep: z.string().max(200).optional(),
+}).refine((p) => new TextEncoder().encode(JSON.stringify(p)).length <= PUSH_PLAINTEXT_MAX_BYTES, {
+  // Field lengths count characters, but the cap is bytes: a control character is six bytes once escaped.
+  message: 'push body is larger than it can be sealed',
 })
 export type PushPlaintext = z.infer<typeof PushPlaintext>
 

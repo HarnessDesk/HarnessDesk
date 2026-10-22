@@ -131,6 +131,22 @@ describe('e2ee', () => {
     assert.deepEqual(body, utf8('second message'))
   })
 
+  it('uses the HELLO and READY as they were passed, even if their buffers are reused at once', async () => {
+    const desk = await generateSigningIdentity()
+    const pinned = desk.pub.slice()
+    const phone = await startPhoneHandshake(pinned)
+    const hello = phone.hello.slice()
+    const accepting = acceptHandshake(hello, desk)
+    hello.fill(0)
+    const { ready, session: deskSession } = await accepting
+    const incoming = ready.slice()
+    const finishing = phone.finish(incoming)
+    incoming.fill(0)
+    const phoneSession = await finishing
+    const { body } = await phoneSession.open(await deskSession.seal(utf8('hello')))
+    assert.deepEqual(body, utf8('hello'))
+  })
+
   it('rejects a READY that was altered in flight', async () => {
     const desk = await generateSigningIdentity()
     const phone = await startPhoneHandshake(desk.pub)
