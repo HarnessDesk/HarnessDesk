@@ -22,8 +22,8 @@ export const createPhoneState = (transport: PhoneTransport) => {
     changed(notification: WireNotification): void { if (notification.method === 'phone/changed') set(notification.params) },
     refresh,
     pairing(): Promise<PhonePairing> { return transport.request('phone/pairing', {}) },
-    async allow(id: string, tiers?: readonly PhoneTier[]) { await transport.request('phone/allow', tiers ? { id, tiers } : { id }) },
-    async deny(id: string) { await transport.request('phone/deny', { id }) },
-    async revoke(device: string) { await transport.request('phone/revoke', { device }) },
+    async allow(id: string, tiers?: readonly PhoneTier[]) { set(await transport.request('phone/allow', tiers ? { id, tiers } : { id })) },
+    async deny(id: string) { set(await transport.request('phone/deny', { id })) },
+    async revoke(device: string) { set(await transport.request('phone/revoke', { device })) },
   }
 }

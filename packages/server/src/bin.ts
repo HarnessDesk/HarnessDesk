@@ -72,6 +72,7 @@ const { host, logger, extensions } = createDefaultHost({
   logLevel: (flag('log-level') as 'debug' | 'info' | undefined) ?? 'info',
   // For exercising the no-Codex first run without uninstalling anything.
   codexBinaryPath: flag('codex-binary') ?? null,
+  leadEnabled: process.env['HARNESSDESK_LEAD'] === '1',
 })
 
 await loadBuiltinPlugins(extensions)
@@ -92,7 +93,7 @@ const clientDoor = await openClientDoor({
 const phoneLink = values['phone-link'] === true || process.env['HARNESSDESK_PHONE_LINK'] === '1'
   ? await (await import('./phone-link.js')).startPhoneLink(host, logger, {
     home: defaultStateDir(), port: Number(flag('phone-port') ?? process.env['HARNESSDESK_PHONE_PORT'] ?? 0),
-    includeLoopback: values['phone-loopback'] === true,
+    includeLoopback: values['phone-loopback'] === true || process.env['HARNESSDESK_PHONE_LOOPBACK'] === '1',
   })
   : null
 

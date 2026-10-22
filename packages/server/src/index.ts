@@ -26,5 +26,6 @@ export { UpdateChecker, isNewer, upgradeCommand, type UpdateCheckerOptions } fro
 export type { ExtensionHost, ModelRouteRecord } from './host.js'
 export { hostMethods, type HostContext, type HostMethodTable, type MethodHandler } from './methods/index.js'
 export { CatalogRefresher, DEFAULT_REFRESH_INTERVAL_MS, type CatalogRefresherOptions, type RefreshResult } from './catalog-refresher.js'
+export { startPhoneLink, type RunningPhoneLink } from './phone-link.js'
 export { openClientDoor, type ClientDoor, type ClientDoorOptions } from './client-door.js'
 export { LeadFileJournal, openLeadFileJournal, type LeadJournalReport } from './lead/journal.js'
