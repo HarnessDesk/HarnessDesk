@@ -2307,7 +2307,7 @@ const ICON_MODULES = new Set([
 // The thumbnail draws policy roles, branches and loops from flow-layout, not
 // glyphs. Name its exact module only for SVG admission: FlowCard's controls
 // and appearance remain subject to the ordinary pattern gates.
-const SVG_DATA_GEOMETRY_MODULES = new Set(['design/patterns/FlowCards.tsx'])
+const SVG_DATA_GEOMETRY_MODULES = new Set(['design/patterns/FlowCards.tsx', 'design/patterns/QrCode.tsx'])
 export const allowsInlineSvg = (module) =>
   ICON_MODULES.has(path.basename(module)) || SVG_DATA_GEOMETRY_MODULES.has(module)
 

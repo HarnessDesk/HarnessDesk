@@ -1,7 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { renderSVG } from 'uqr'
 import type { PhoneDeviceView, PhoneLinkState, PhonePairing, PhonePendingView, PhoneTier } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, ConfirmDialog, InlineParts, Row, Rows, Section, Text } from '../design'
+import { Banner, Button, Chip, ConfirmDialog, InlineParts, QrCode, Row, Rows, Section, Text } from '../design'
 
 import { useStore } from '../state/context'
 import { useDestinationActive } from '../panels/destination-page'
@@ -15,11 +14,6 @@ const refusal = (error: unknown): string => {
   if (code === 'phone-link-unavailable') return 'The phone link is off on this desk.'
   return error instanceof Error ? error.message : 'The phone link did not answer.'
 }
-
-/** A QR is data geometry, not an icon: it is drawn from the link on a light ground so any scanner can read it in either theme. */
-const PairingCode = ({ url }: { readonly url: string }) =>
-  <div role="img" aria-label="Pairing code" className="w-44 overflow-hidden rounded-md bg-white p-1 text-black"
-    dangerouslySetInnerHTML={{ __html: renderSVG(url, { ecc: 'M', border: 1, whiteColor: '#ffffff', blackColor: '#000000' }) }} />
 
 export const PhoneSettings = ({ state, pairing, error, busy, onPair, onAllow, onDeny, onRevoke }: {
   readonly state: PhoneLinkState
@@ -40,7 +34,7 @@ export const PhoneSettings = ({ state, pairing, error, busy, onPair, onAllow, on
         <Row title="Pairing code" desc={pairing ? `Scan it with the phone on this network. It works once, until ${new Date(pairing.expiresAt).toLocaleTimeString()}.` : 'Shows a code that works once, for ten minutes.'}
           control={<Button variant="outline" disabled={busy} onClick={onPair}>{pairing ? 'New code' : 'Show code'}</Button>} />
       </Rows>
-      {pairing && <Row title={null} control={<PairingCode url={pairing.url} />} />}
+      {pairing && <Row title={null} control={<QrCode text={pairing.url} label="Pairing code" />} />}
     </Section>
     {state.pending.length > 0 && <Section title="Waiting for you">
       <Rows>{state.pending.map(pending => <Row key={pending.id} title={`Allow ${pending.name}?`}

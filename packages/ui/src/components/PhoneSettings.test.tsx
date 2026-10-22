@@ -38,7 +38,7 @@ it('lists paired phones and waiting ones, and answers each', () => {
 })
 it('draws the code from the link and asks before removing a phone', () => {
   const { box, onRevoke, onPair } = mount(linked, { url: 'harnessdesk://pair?c=abc', expiresAt: Date.now() + 1000, addresses: [] })
-  expect(box.querySelector('[aria-label="Pairing code"] svg')).not.toBeNull()
+  expect(box.querySelector('svg[aria-label="Pairing code"]')).not.toBeNull()
   press('New code', box); expect(onPair).toHaveBeenCalled()
   press('Remove', box)
   expect(onRevoke).not.toHaveBeenCalled()

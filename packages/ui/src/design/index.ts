@@ -228,6 +228,7 @@ export { AgentCard, MemberName, CardBand, CardCrest, CardCrestBody, CardShell, t
 export * from './patterns/DockPanel'
 export { TerminalShellTabs, type TerminalShellTab } from './patterns/TerminalShellTabs'
 export { Checklist, ChecklistItem, type ChecklistState } from './patterns/Checklist'
+export { QrCode } from './patterns/QrCode'
 export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'
 export { PlanCard, type PlanCardProps } from './patterns/PlanCard'
 
