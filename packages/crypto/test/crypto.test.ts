@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   E2eeError, FRAME_DATA, TokenError, acceptHandshake, b64u, checkChallenge, fromB64u, generatePushKey, generateSigningIdentity, handshakeDeviceMessage,
-  idFromPub, makeChallenge, openPushJson, randomBytes, relayDeskProofMessage, sealPushJson, signToken, signingIdentityFromPkcs8,
+  idFromPub, makeChallenge, openPushJson, randomBytes, readU64be, relayDeskProofMessage, sealPushJson, signToken, signingIdentityFromPkcs8,
   startPhoneHandshake, utf8, verifyEd25519, verifyToken,
 } from '../src/index.js'
 
@@ -52,6 +52,34 @@ describe('e2ee', () => {
     const phone = await startPhoneHandshake(real.pub)
     const { ready } = await acceptHandshake(phone.hello, impostor)
     await rejectsWith(phone.finish(ready), { code: 'desk-signature' })
+  })
+
+  it('gives frames sealed together distinct counters, so no two share a key and nonce', async () => {
+    const { deskSession, phoneSession } = await pair()
+    const frames = await Promise.all([phoneSession.sealJson({ n: 0 }), phoneSession.sealJson({ n: 1 }), phoneSession.sealJson({ n: 2 })])
+    assert.deepEqual(frames.map((f) => Number(readU64be(f, 1))), [0, 1, 2])
+    assert.equal(phoneSession.sent, 3n)
+    for (const [n, frame] of frames.entries()) assert.deepEqual(await deskSession.openJson(frame), { n })
+  })
+
+  it('opens a frame once, however many calls are made together', async () => {
+    const { deskSession, phoneSession } = await pair()
+    const frame = await phoneSession.sealJson({ n: 0 })
+    const results = await Promise.allSettled([deskSession.open(frame), deskSession.open(frame)])
+    assert.deepEqual(results.map((r) => r.status), ['fulfilled', 'rejected'])
+    assert.equal((results[1] as PromiseRejectedResult).reason.code, 'counter')
+    assert.equal(deskSession.received, 1n)
+  })
+
+  it('opens frames given together in the order given', async () => {
+    const { deskSession, phoneSession } = await pair()
+    const a = await phoneSession.sealJson({ n: 0 })
+    const b = await phoneSession.sealJson({ n: 1 })
+    assert.deepEqual(await Promise.all([deskSession.openJson(a), deskSession.openJson(b)]), [{ n: 0 }, { n: 1 }])
+    const c = await phoneSession.sealJson({ n: 2 })
+    const d = await phoneSession.sealJson({ n: 3 })
+    const settled = await Promise.allSettled([deskSession.openJson(d), deskSession.openJson(c)])
+    assert.deepEqual(settled.map((r) => r.status), ['rejected', 'fulfilled'])
   })
 
   it('rejects a READY that was altered in flight', async () => {
@@ -154,23 +182,42 @@ describe('tokens', () => {
   it('verifies, and rejects wrong key, expiry and tampering', async () => {
     const signer = await generateSigningIdentity()
     const other = await generateSigningIdentity()
-    const token = await signToken({ kid: 'k1', exp: 1_000, typ: 'x' }, signer)
-    assert.partialDeepStrictEqual(await verifyToken(token, { k1: signer.pub }, 900), { typ: 'x' })
-    await rejectsWith(verifyToken(token, { k1: other.pub }, 900), { reason: 'signature' })
-    await rejectsWith(verifyToken(token, { k2: signer.pub }, 900), { reason: 'kid' })
-    await rejectsWith(verifyToken(token, { k1: signer.pub }, 1_100), { reason: 'expired' })
-    assert.ok(await verifyToken(token, { k1: signer.pub }, 1_050)) // inside leeway
+    const token = await signToken({ kid: 'k1', iat: 800, exp: 1_000, typ: 'x' }, signer)
+    assert.partialDeepStrictEqual(await verifyToken(token, { k1: signer.pub }, 900, 'x'), { typ: 'x' })
+    await rejectsWith(verifyToken(token, { k1: other.pub }, 900, 'x'), { reason: 'signature' })
+    await rejectsWith(verifyToken(token, { k2: signer.pub }, 900, 'x'), { reason: 'kid' })
+    await rejectsWith(verifyToken(token, { k1: signer.pub }, 1_100, 'x'), { reason: 'expired' })
+    assert.ok(await verifyToken(token, { k1: signer.pub }, 1_050, 'x')) // inside leeway
     const [payload, sig] = token.split('.')
-    const forged = `${b64u(utf8(JSON.stringify({ kid: 'k1', exp: 9_999, typ: 'x' })))}.${sig}`
-    await assert.rejects(verifyToken(forged, { k1: signer.pub }, 900), TokenError)
-    await rejectsWith(verifyToken(`${payload}`, { k1: signer.pub }, 900), { reason: 'format' })
-    await rejectsWith(verifyToken('a.b.c', { k1: signer.pub }, 900), { reason: 'format' })
+    const forged = `${b64u(utf8(JSON.stringify({ kid: 'k1', iat: 800, exp: 9_999, typ: 'x' })))}.${sig}`
+    await assert.rejects(verifyToken(forged, { k1: signer.pub }, 900, 'x'), TokenError)
+    await rejectsWith(verifyToken(`${payload}`, { k1: signer.pub }, 900, 'x'), { reason: 'format' })
+    await rejectsWith(verifyToken('a.b.c', { k1: signer.pub }, 900, 'x'), { reason: 'format' })
+  })
+
+  it('accepts only the purpose the verifier expects, and checks it after the signature', async () => {
+    const signer = await generateSigningIdentity()
+    const other = await generateSigningIdentity()
+    const phone = await signToken({ kid: 'k1', iat: 800, exp: 1_000, typ: 'phone' }, signer)
+    await rejectsWith(verifyToken(phone, { k1: signer.pub }, 900, 'desk'), { reason: 'typ' })
+    await rejectsWith(verifyToken(phone, { k1: other.pub }, 900, 'desk'), { reason: 'signature' })
+    const untyped = await signToken({ kid: 'k1', iat: 800, exp: 1_000 }, signer)
+    await rejectsWith(verifyToken(untyped, { k1: signer.pub }, 900, 'desk'), { reason: 'typ' })
+  })
+
+  it('requires an issue time, and refuses a token issued in the future', async () => {
+    const signer = await generateSigningIdentity()
+    const noIat = await signToken({ kid: 'k1', exp: 1_000, typ: 'x' } as unknown as { kid: string; iat: number; exp: number }, signer)
+    await rejectsWith(verifyToken(noIat, { k1: signer.pub }, 900, 'x'), { reason: 'format' })
+    const later = await signToken({ kid: 'k1', iat: 2_000, exp: 3_000, typ: 'x' }, signer)
+    await rejectsWith(verifyToken(later, { k1: signer.pub }, 900, 'x'), { reason: 'not-yet' })
+    assert.ok(await verifyToken(later, { k1: signer.pub }, 1_950, 'x')) // inside leeway
   })
 
   it('does not treat prototype names as key ids', async () => {
     const signer = await generateSigningIdentity()
-    const token = await signToken({ kid: 'constructor', exp: 1_000 }, signer)
-    await rejectsWith(verifyToken(token, { k1: signer.pub }, 900), { reason: 'kid' })
+    const token = await signToken({ kid: 'constructor', iat: 800, exp: 1_000 }, signer)
+    await rejectsWith(verifyToken(token, { k1: signer.pub }, 900, 'x'), { reason: 'kid' })
   })
 })
 

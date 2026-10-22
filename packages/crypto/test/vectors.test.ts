@@ -23,7 +23,7 @@ async function build() {
   const d2p = await deskSession.seal(utf8('{"t":"pong"}'))
   await deskSession.open(p2d)
   await phoneSession.open(d2p)
-  const token = await signToken({ kid: 'k1', exp: 2_000_000_000, typ: 'phone', desk: await idFromPub(desk.pub) }, desk)
+  const token = await signToken({ kid: 'k1', iat: 1_999_999_000, exp: 2_000_000_000, typ: 'phone', desk: await idFromPub(desk.pub) }, desk)
   const push = await sealPush(seed(7), 1, 'device-1', utf8('{"title":"x"}'), new Uint8Array(12).fill(8))
   return {
     note: 'Seeds are filled bytes: desk=0x01*32 device=0x02*32 phoneEphemeral=0x03*32 deskEphemeral=0x04*32 pushKey=0x07*32',

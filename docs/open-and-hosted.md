@@ -15,7 +15,7 @@ Everything the desktop does with the service is in this repository, under the
 MIT licence:
 
 - **Sign-in.** The app is a public client: it signs in through the system
-  browser with PKCE and a `harnessdesk://` redirect, and keeps the resulting
+  browser with PKCE and a `harnessdesk://` redirect, and will keep the resulting
   token in the keychain. It holds no client secret, because a client that ships
   to every machine cannot keep one.
 - **The desk's identity.** Each desk creates its own Ed25519 key. Its id is
@@ -29,6 +29,9 @@ tokens, pairing offers, relay frames and the account API. `packages/crypto`
 holds the handshake, framing, token signing and push sealing, using WebCrypto
 only. `packages/crypto/test-vectors.json` fixes inputs to outputs; every
 implementation of the wire, including the phone's, must reproduce it.
+Tokens carry a purpose (`typ`), a key id, and issue and expiry times, and the
+verifier states which purpose it expects; they carry no audience claim yet, so
+a token is accepted by every service that trusts its key id.
 
 ## The service is hosted
 

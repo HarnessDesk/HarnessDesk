@@ -3,6 +3,8 @@ import { b64u, concat, fromB64u, randomBytes, timingSafeEqual, u32be, type Bytes
 /**
  * A stateless challenge: `nonce(16) || exp(u32) || HMAC-SHA256(key, nonce || exp)[0..16]`.
  * Anyone holding the key can check it without storing anything; it expires on its own.
+ * Checking proves only that the service issued it and that it is fresh: to make a challenge single-use within
+ * its lifetime, the service must remember the ones it has accepted.
  */
 async function mac(key: Bytes, data: Bytes): Promise<Bytes> {
   const k = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])

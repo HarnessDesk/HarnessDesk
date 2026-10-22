@@ -7,7 +7,7 @@ const X25519_PKCS8_PREFIX = Uint8Array.from([0x30, 0x2e, 0x02, 0x01, 0x00, 0x30,
 export interface SigningIdentity {
   readonly pub: Bytes
   sign(message: Bytes): Promise<Bytes>
-  /** PKCS#8 DER, for storing the key. Rejects when the key was made non-extractable. */
+  /** PKCS#8 DER, for storing the key. Every identity this package creates is extractable. */
   exportPkcs8(): Promise<Bytes>
 }
 

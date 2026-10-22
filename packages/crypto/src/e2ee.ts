@@ -50,10 +50,17 @@ async function deriveSession(role: 'phone' | 'desk', shared: Bytes, th: Bytes): 
   return new Session(role === 'phone' ? p2d : d2p, role === 'phone' ? d2p : p2d, sid, th)
 }
 
-/** One encrypted session. Counters are per direction and must arrive exactly in order. */
+/**
+ * One encrypted session. Counters are per direction and must arrive exactly in order.
+ *
+ * `seal` takes its counter before it first awaits, so calls made together get consecutive counters and never
+ * share one; send the frames in the order the calls were made. `open` is serialized: calls queue behind each
+ * other, so a frame is opened at most once and frames given together are checked in the order given.
+ */
 export class Session {
   #sendCounter = 0n
   #recvCounter = 0n
+  #opening: Promise<unknown> = Promise.resolve()
 
   constructor(
     private readonly sendKey: CryptoKey,
@@ -68,14 +75,15 @@ export class Session {
 
   async seal(body: Bytes, kind: number = KIND_JSON): Promise<Bytes> {
     if (this.#sendCounter >= MAX_FRAMES_PER_SESSION) throw new E2eeError('exhausted')
+    // Reserved before the first await: a concurrent call must see the next value, not this one.
     const counter = u64be(this.#sendCounter)
+    this.#sendCounter += 1n
     const header = concat(Uint8Array.of(FRAME_DATA), counter)
     const ct = new Uint8Array(await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv: concat(new Uint8Array(4), counter), additionalData: concat(header, this.sid), tagLength: 128 },
       this.sendKey,
       concat(Uint8Array.of(kind), body),
     ))
-    this.#sendCounter += 1n
     return concat(header, ct)
   }
 
@@ -83,8 +91,18 @@ export class Session {
     return this.seal(utf8(JSON.stringify(value)))
   }
 
-  /** Throws on any failure. After a throw the session is dead: the caller closes and re-handshakes. */
-  async open(frame: Bytes): Promise<{ kind: number; body: Bytes }> {
+  /**
+   * Throws on any failure. A frame that fails to open does not advance the counter, so the session stays usable;
+   * a caller that treats any failure as fatal, as the protocol does, closes and re-handshakes. Calls are
+   * serialized, so the same frame cannot open twice.
+   */
+  open(frame: Bytes): Promise<{ kind: number; body: Bytes }> {
+    const result = this.#opening.then(() => this.#openOne(frame))
+    this.#opening = result.catch(() => undefined)
+    return result
+  }
+
+  async #openOne(frame: Bytes): Promise<{ kind: number; body: Bytes }> {
     if (frame.length < 1 + 8 + 16 + 1 || frame[0] !== FRAME_DATA) throw new E2eeError('format')
     const counter = readU64be(frame, 1)
     if (counter !== this.#recvCounter) throw new E2eeError('counter', `expected ${this.#recvCounter}, got ${counter}`)
