@@ -138,7 +138,11 @@ export class Session {
 
 export interface PhoneHandshake {
   readonly hello: Bytes
-  /** Verifies the desk's signature against the key pinned from the QR, then derives the session. */
+  /**
+   * Verifies the desk's signature against the key pinned from the QR, then derives the session.
+   * One call per handshake: a second READY, even the same one again, is refused, because a
+   * second session from it would have the same keys and start its counter over.
+   */
   finish(ready: Bytes): Promise<Session>
 }
 
@@ -147,9 +151,12 @@ export async function startPhoneHandshake(deskPub: Bytes, opts?: HandshakeOption
   const deskIdBytes = await idBytesFromPub(deskPub)
   const { eph, nonce } = await ephemeralFor(opts)
   const hello = concat(Uint8Array.of(FRAME_HELLO, E2EE_VERSION), eph.pub, nonce)
+  let finished = false
   return {
     hello,
     async finish(ready) {
+      if (finished) throw new E2eeError('format', 'handshake already finished')
+      finished = true
       if (ready.length !== READY_LENGTH || ready[0] !== FRAME_READY) throw new E2eeError('format')
       if (ready[1] !== E2EE_VERSION) throw new E2eeError('version')
       const unsigned = ready.subarray(0, READY_LENGTH - 64)

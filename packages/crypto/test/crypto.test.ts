@@ -95,6 +95,22 @@ describe('e2ee', () => {
     assert.deepEqual(settled.map((r) => r.status), ['rejected', 'fulfilled'])
   })
 
+  it('finishes a handshake once: the same READY again makes no second session', async () => {
+    const desk = await generateSigningIdentity()
+    const phone = await startPhoneHandshake(desk.pub)
+    const { ready } = await acceptHandshake(phone.hello, desk)
+    await phone.finish(ready)
+    await rejectsWith(phone.finish(ready), { code: 'format' })
+  })
+
+  it('finishes a handshake once even when two READYs arrive together', async () => {
+    const desk = await generateSigningIdentity()
+    const phone = await startPhoneHandshake(desk.pub)
+    const { ready } = await acceptHandshake(phone.hello, desk)
+    const settled = await Promise.allSettled([phone.finish(ready), phone.finish(ready)])
+    assert.deepEqual(settled.map((r) => r.status).sort(), ['fulfilled', 'rejected'])
+  })
+
   it('rejects a READY that was altered in flight', async () => {
     const desk = await generateSigningIdentity()
     const phone = await startPhoneHandshake(desk.pub)

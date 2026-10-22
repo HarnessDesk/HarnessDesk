@@ -30,7 +30,10 @@ The protocol is open as well. `packages/contract` holds the schemas for ids,
 tokens, pairing offers, relay frames and the account API. `packages/crypto`
 holds the handshake, framing, token signing and push sealing, using WebCrypto
 only. `packages/crypto/test-vectors.json` fixes inputs to outputs; every
-implementation of the wire, including the phone's, must reproduce it.
+implementation of the wire, including the phone's, must reproduce it. This
+repository's copy is the canonical one: the service carries a copy of both
+packages and checks that its files match the ones here byte for byte, so a
+change to the wire is made here first.
 Tokens carry a purpose (`typ`), a key id, and issue and expiry times, and the
 verifier states which purpose it expects; they carry no audience claim yet, so
 a token is accepted by every service that trusts its key id.
