@@ -39,25 +39,48 @@ const ICONS = execFileSync('/usr/bin/find', [
 if (!ICONS) throw new Error('@lobehub/icons-static-svg is not installed — run pnpm install')
 
 /**
- * Who appears, and what to call them.
- *
- * Only runtimes measured in docs/runtimes.md, and only those with a mark in
- * the icon package; the README names the rest in words beneath the strip.
+ * Who appears, and what to call them: the agents the app's own picker draws a
+ * mark for, in the order harnessdesk.app's agent band reads them, so the
+ * README and the website show the same roster. `deepseek` stands in for
+ * DeepSeek Harness, which has no mark of its own.
  */
 const AGENTS = [
   ['codex', 'Codex'],
   ['claudecode', 'Claude Code'],
   ['cursor', 'Cursor'],
   ['geminicli', 'Gemini CLI'],
+  ['deepseek', 'DeepSeek'],
   ['githubcopilot', 'Copilot'],
   ['opencode', 'OpenCode'],
-  ['antigravity', 'Antigravity'],
-  ['grok', 'Grok Build'],
   ['cline', 'Cline'],
-  ['kimi', 'Kimi'],
+  ['windsurf', 'Windsurf'],
+  ['antigravity', 'Antigravity'],
+  ['kiro', 'Kiro'],
+  ['kilocode', 'Kilo Code'],
+  ['devin', 'Devin'],
+  ['trae', 'Trae'],
+  ['amp', 'Amp'],
   ['codebuddy', 'CodeBuddy'],
-  ['deepseek', 'DeepSeek'],
+  ['goose', 'Goose'],
+  ['hermesagent', 'Hermes'],
+  ['junie', 'Junie'],
+  ['pi', 'Pi'],
+  ['poolside', 'Poolside'],
+  ['qoder', 'Qoder'],
+  ['openclaw', 'OpenClaw'],
 ]
+
+/* The social card's strip predates the website's roster and its picture was
+   rendered from these twelve; it keeps them until the card is drawn again. */
+const BARE_AGENTS = [
+  ['codex', 'Codex'], ['claudecode', 'Claude Code'], ['cursor', 'Cursor'], ['geminicli', 'Gemini CLI'],
+  ['githubcopilot', 'Copilot'], ['opencode', 'OpenCode'], ['antigravity', 'Antigravity'], ['grok', 'Grok Build'],
+  ['cline', 'Cline'], ['kimi', 'Kimi'], ['codebuddy', 'CodeBuddy'], ['deepseek', 'DeepSeek'],
+]
+
+/* Twelve to a row: two rows fit a README column where one row of all of them
+   would be scaled down to smudges. */
+const PER_ROW = 12
 
 /* Sized so the strip renders close to 1:1 in a README column rather than
    being scaled down: at 112px per column the marks arrived on screen at about
@@ -68,6 +91,7 @@ const LABEL_Y = MARK + 20
 
 /* The bare strip packs tighter because it has no names to sit under. */
 const BARE_STEP = 44
+const ROW_GAP = 18
 
 /** The mark's own paths, and the box they were drawn in. */
 const glyph = (name) => {
@@ -96,21 +120,30 @@ const glyph = (name) => {
  */
 const strip = (ink, label) => {
   const bare = label == null
+  const agents = bare ? BARE_AGENTS : AGENTS
   const step = bare ? BARE_STEP : STEP
-  const height = bare ? MARK : LABEL_Y + 6
-  const width = step * AGENTS.length
-  const items = AGENTS.map(([name, text], n) => {
+  const rowHeight = bare ? MARK : LABEL_Y + 6
+  const rows = bare ? 1 : Math.ceil(agents.length / PER_ROW)
+  const perRow = bare ? agents.length : PER_ROW
+  const width = step * perRow
+  const height = rowHeight * rows + ROW_GAP * (rows - 1)
+  const items = agents.map(([name, text], n) => {
     const { inner, w, h } = glyph(name)
     const scale = MARK / Math.max(w, h)
-    const x = n * step + step / 2
+    const row = Math.floor(n / perRow)
+    /* A short last row is centred under the full one above it. */
+    const inRow = Math.min(perRow, agents.length - row * perRow)
+    const x = (perRow - inRow) * step / 2 + (n % perRow) * step + step / 2
+    const y = row * (rowHeight + ROW_GAP)
     /* Each mark is scaled into a MARK-sized box and centred on the column, so
        a tall logo and a wide one still sit on the same optical line. */
-    const mark = `  <g transform="translate(${(x - MARK / 2).toFixed(1)} 0) scale(${scale.toFixed(4)})" fill="${ink}">${inner}</g>`
+    const mark = `  <g transform="translate(${(x - MARK / 2).toFixed(1)} ${y}) scale(${scale.toFixed(4)})" fill="${ink}">${inner}</g>`
     if (bare) return mark
     return `${mark}
-  <text x="${x.toFixed(1)}" y="${LABEL_Y}" fill="${label}" font-size="10.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" text-anchor="middle">${text}</text>`
+  <text x="${x.toFixed(1)}" y="${y + LABEL_Y}" fill="${label}" font-size="10.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" text-anchor="middle">${text}</text>`
   })
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${AGENTS.map(([, t]) => t).join(', ')}">
+  const names = agents.map(([, t]) => t)
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${names.join(', ')}">
 ${items.join('\n')}
 </svg>
 `
