@@ -12,7 +12,8 @@ export type ApiError = z.infer<typeof ApiError>
 export const Health = z.object({ ok: z.literal(true) })
 
 // ---- desks -----------------------------------------------------------------------------------
-export const RegisterDeskRequest = z.object({ deskPub: PublicKey, name: Name })
+/** `challenge` comes from the desk challenge route; `sig` is the desk key's signature over webDeskRegisterProofMessage(deskId, challenge). */
+export const RegisterDeskRequest = z.object({ deskPub: PublicKey, name: Name, challenge: Challenge, sig: Signature })
 export const RegisterDeskResponse = z.object({ deskId: DeskId })
 export const ListDesksResponse = z.object({ desks: z.array(z.object({ deskId: DeskId, name: Name })) })
 

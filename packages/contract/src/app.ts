@@ -6,7 +6,8 @@ import { DeviceId, Name, PublicKey, Secret16, Secret32, Signature } from './ids.
  * The first one from the phone is `auth` or `enroll`; nothing else is answered before that.
  */
 export const AuthMessage = z.object({ t: z.literal('auth'), dev: DeviceId, sig: Signature })
-export const EnrollMessage = z.object({ t: z.literal('enroll'), secret: Secret16, devicePub: PublicKey, name: Name })
+/** `sig` is devicePub's signature over handshakeEnrollMessage(th) of the connection it is sent on: the key is shown to be held. */
+export const EnrollMessage = z.object({ t: z.literal('enroll'), secret: Secret16, devicePub: PublicKey, name: Name, sig: Signature })
 export const FirstPhoneMessage = z.discriminatedUnion('t', [AuthMessage, EnrollMessage])
 export type FirstPhoneMessage = z.infer<typeof FirstPhoneMessage>
 

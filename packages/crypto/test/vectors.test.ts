@@ -3,8 +3,8 @@ import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { it } from 'node:test'
 import {
-  acceptHandshake, b64u, handshakeDeviceMessage, idFromPub, relayDeskProofMessage, sealPush, signToken, signingIdentityFromSeed,
-  startPhoneHandshake, toHex, utf8,
+  acceptHandshake, b64u, handshakeDeviceMessage, handshakeEnrollMessage, idFromPub, relayDeskProofMessage, sealPush, signToken, signingIdentityFromSeed,
+  startPhoneHandshake, toHex, utf8, webDeskRegisterProofMessage,
 } from '../src/index.js'
 
 // Fixed inputs -> fixed outputs. The Swift and Node implementations must both reproduce this file.
@@ -37,6 +37,8 @@ async function build() {
     phoneToDeskFrame0: toHex(p2d),
     deskToPhoneFrame0: toHex(d2p),
     deviceAuthSignature: toHex(await device.sign(handshakeDeviceMessage(phoneSession.th))),
+    enrollSignature: toHex(await device.sign(handshakeEnrollMessage(phoneSession.th))),
+    registerProofSignature: toHex(await desk.sign(webDeskRegisterProofMessage(await idFromPub(desk.pub), 'challenge-1'))),
     relayProofSignature: toHex(await desk.sign(relayDeskProofMessage(await idFromPub(desk.pub), 'challenge-1'))),
     token,
     push,

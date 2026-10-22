@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   CloseCode, DeskId, DeskToRelay, PairingOffer, RelayToDesk, SendPushRequest, decodeDeskFrame, decodePairingOffer, encodeDeskFrame, encodePairingOffer,
-  FirstPhoneMessage, PUSH_PLAINTEXT_MAX_BYTES, PublicKey, PushPlaintext,
+  FirstPhoneMessage, PUSH_PLAINTEXT_MAX_BYTES, PublicKey, PushPlaintext, RegisterDeskRequest,
 } from '../src/index.js'
 
 const key = 'A'.repeat(43)
@@ -73,5 +73,14 @@ describe('contract', () => {
   it('accepts only auth or enroll as a first phone message', () => {
     assert.equal(FirstPhoneMessage.safeParse({ t: 'req', id: '1', method: 'x' }).success, false)
     assert.equal(FirstPhoneMessage.safeParse({ t: 'auth', dev: 'A'.repeat(22), sig: 'A'.repeat(86) }).success, true)
+  })
+
+  it('an enrollment and a desk registration must each carry a signature', () => {
+    const enroll = { t: 'enroll', secret: 'A'.repeat(22), devicePub: key, name: 'Phone' }
+    assert.equal(FirstPhoneMessage.safeParse(enroll).success, false)
+    assert.equal(FirstPhoneMessage.safeParse({ ...enroll, sig: 'A'.repeat(86) }).success, true)
+    const register = { deskPub: key, name: 'Studio Mac', challenge: 'c'.repeat(48) }
+    assert.equal(RegisterDeskRequest.safeParse(register).success, false)
+    assert.equal(RegisterDeskRequest.safeParse({ ...register, sig: 'A'.repeat(86) }).success, true)
   })
 })
