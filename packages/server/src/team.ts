@@ -2937,7 +2937,9 @@ export class Team {
     // Status may lazily remember a member's name, so persist it without
     // treating the read as room activity or moving the room in the tree.
     if (board) this.#commit(board, false)
-    return `${team}\n${counts} Address a message by its room name with agent_message; list work with list_intents.`
+    // A Seat that reads its board before its order arrives learns what the Team is for here, not only its card titles.
+    const named = board.name?.trim() ? `Team: ${board.name.trim()}\n` : ''
+    return `${named}${team}\n${counts} Address a message by its room name with agent_message; list work with list_intents.`
   }
 
   /**

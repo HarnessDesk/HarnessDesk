@@ -2767,6 +2767,8 @@ test('get_team_status offers the names agent_message accepts', async (t) => {
   assert.ok(said.includes('Gemini'), 'the Gemini member is offered by name')
   assert.ok(said.includes('Opus'), 'the Opus member is offered by name')
   assert.ok(!said.includes('(untitled)'), 'no member is offered as "(untitled)"')
+  const name = team.stateFor(room).name
+  if (name.trim()) assert.ok(said.startsWith(`Team: ${name.trim()}\n`), 'a Seat reading its board learns what the Team is for')
 
   // And those names are the board's own, so `agent_message` accepts them.
   const named = Object.values(team.stateFor(room).nicknames ?? {})
