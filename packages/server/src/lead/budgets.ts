@@ -144,11 +144,12 @@ export class LeadBudgets implements FlowLeadGuard {
       return { ok: true }
     } catch (error) { return { ok: false, reason: error instanceof Error ? error.message : 'lead-dispatch-refused' } }
   }
-  /** A Lead request needs a current reading: a finished run is metered again rather than left to go stale. */
-  meter(logicalGoalId: string): Promise<void> {
-    const journal = this.#journals.get(logicalGoalId)
-    const run = this.port.runs().find(one => one.lead?.logicalGoalId === logicalGoalId)
-    return journal && run ? this.#refresh(run, journal) : Promise.resolve()
+  /** A Lead request needs a current reading: a finished run is metered again rather than left to go stale.
+   * It takes the journal itself, because the request comes before the child that registers it. */
+  meter(journal: LeadJournal): Promise<void> {
+    const id = journal.state.budget?.logicalGoalId
+    const run = id ? this.port.runs().find(one => one.lead?.logicalGoalId === id) : undefined
+    return run ? this.#refresh(run, journal) : Promise.resolve()
   }
   /** Rebuild meters from the host-created Seats' full usage windows. The
    * durable aggregate only moves upwards; a restart needs no guessed baseline. */

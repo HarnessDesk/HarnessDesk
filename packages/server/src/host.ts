@@ -3542,7 +3542,7 @@ export class Host {
           return this.call(call.method, call.params)
         }) }, card, decision, contract),
       stopRequest: () => this.#leadService!.stopGoal(),
-      meterSpend: async () => { const id = journal.state.budget?.logicalGoalId; if (id) await this.#leadBudgets.meter(id) },
+      meterSpend: () => this.#leadBudgets.meter(journal),
       stopEffects: () => stopOwned('lead-budget-stopped'),
     })
     this.onDispose(() => this.#leadControls?.close())

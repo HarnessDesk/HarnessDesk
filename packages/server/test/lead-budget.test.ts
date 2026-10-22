@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createLeadJournal, type LeadJournalRecord } from '@harnessdesk/lead'
+import { createLeadJournal, leadBudgetProjection, type LeadJournalRecord } from '@harnessdesk/lead'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 import { sourceDigest } from '../src/flow-execution.js'
 import { LeadBudgets } from '../src/lead/budgets.js'
@@ -392,4 +392,24 @@ test('a run keeps its admission contract binding after a plan revision is approv
   assert.deepEqual(await budgets.gate(stored), { ok: true })
   assert.deepEqual(await budgets.gate({ ...stored, lead: { ...stored.lead!, contractDigest: contract.digest } }),
     { ok: false, reason: 'lead-guard-unavailable' })
+})
+
+test('a Lead request meters its workers again even before its child registers, so a finished run stays known', async t => {
+  const s = await leadRig(t)
+  await s.start()
+  await s.observe(0)
+  const seat = [...s.rig.seats.values()][0]!
+  const exact = (value: number) => ({ value, quality: 'exact' })
+  Object.assign(s.budgets.port, { seats: () => [...s.rig.seats.values()], delegation: () => 'none', usage: async (_project: string, _from: number, to: number) => ({ complete: true, samples: [{
+    key: 'worker-cost', source: { id: 'synthetic', kind: 'corpus', label: 'Synthetic', observedAt: to, checkedAt: to, stale: false, problem: null },
+    runtime: seat.session.runtime, sessionId: seat.session.sessionId, turnId: null, requestId: null, project: seat.checkout.project,
+    model: 'fixture/model', from: seat.openedAt, to, scope: 'session', includesChildren: false,
+    input: exact(1), output: exact(1), cacheRead: exact(0), cacheWrite: exact(0), usd: exact(0.00001), moneyBasis: 'vendorMetered' }] }) })
+  s.setNow(10_000_000)
+  assert.notEqual(leadBudgetProjection(s.journal.state.budget!, 10_000_000).spend, 'known', 'the old reading has aged out')
+  // A desk restart: a fresh owner that has not registered this journal yet.
+  const restarted = new LeadBudgets({ ...s.budgets.port })
+  await restarted.meter(s.journal)
+  assert.equal(leadBudgetProjection(s.journal.state.budget!, 10_000_000).spend, 'known')
+  assert.equal(s.journal.state.budget!.stop, null)
 })
