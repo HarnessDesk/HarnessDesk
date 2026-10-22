@@ -3448,7 +3448,7 @@ export class Host {
 
   /** One host-owned supervisor, enabled explicitly by the authenticated Lead
    * service owner in the next slice step. Construction itself never spawns. */
-  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'>): LeadService {
+  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'>): LeadService {
     if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
     if (this.#disposed) throw new Error('lead-host-closed')
     if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')

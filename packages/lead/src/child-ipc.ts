@@ -1,6 +1,7 @@
 import type { LeadProject, LeadPermissionPolicy } from '@harnessdesk/protocol'
 import type { MessagesPrice } from './messages-types.js'
 import type { LeadJournal } from './journal.js'
+import type { LeadSeatChoices } from './instructions.js'
 
 export interface LeadChildBootstrap {
   readonly key: string
@@ -9,6 +10,8 @@ export interface LeadChildBootstrap {
   readonly model?: string
   readonly projectPolicy?: LeadPermissionPolicy | null
   readonly prices: Readonly<Record<string, MessagesPrice>>
+  /** What a plan's assignments may name. Absent means the desk offers no seat. */
+  readonly seats?: LeadSeatChoices
 }
 
 export type LeadChildConfig = Omit<LeadChildBootstrap, 'key' | 'descriptor'>
@@ -16,10 +19,10 @@ export type LeadChildConfig = Omit<LeadChildBootstrap, 'key' | 'descriptor'>
 /** This is a port, not another journal writer. Human decisions and recovery are
  * deliberately absent; all methods execute in the host's serialized journal. */
 export type LeadJournalPort = Pick<LeadJournal, 'state' | 'execute' | 'updateBudget' | 'setManagementPhase' |
-  'invalidateResults' | 'offerCard' | 'restoreResult' | 'recoverUnsettledRequests'>
+  'invalidateResults' | 'offerCard' | 'restoreResult' | 'recoverUnsettledRequests' | 'appendReply'>
 export const LEAD_FRAME_BYTES = 1_048_576
 export const LEAD_RPC_OPERATIONS = ['execute', 'updateBudget', 'setManagementPhase', 'invalidateResults', 'offerCard',
-  'restoreResult', 'recoverUnsettledRequests', 'resolveTool', 'freezePlan', 'readEvidence', 'provider-send'] as const
+  'restoreResult', 'recoverUnsettledRequests', 'appendReply', 'resolveTool', 'freezePlan', 'readEvidence', 'provider-send'] as const
 export type LeadRpcOperation = typeof LEAD_RPC_OPERATIONS[number]
 const fail = (): never => { throw new Error('lead-ipc-invalid') }
 export const ipcObject = (value: unknown, fields?: readonly string[]): Record<string, unknown> => {

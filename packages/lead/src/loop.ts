@@ -1,7 +1,7 @@
 import type { LeadJournalPort } from './child-ipc.js'
 import { clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
-import { leadReviewedResultSource } from './recipes/reviewed-result.js'
+import { leadInstructions, type LeadSeatChoices } from './instructions.js'
 import { createLeadMessages } from './messages.js'
 import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn } from './messages-types.js'
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
@@ -31,6 +31,8 @@ export interface LeadLoopOptions {
    * the port must not turn assistant prose into evidence or claim complete paging. */
   readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
   readonly freshnessMs?: number
+  /** What a plan's assignments may name. Absent means the desk offers no seat, and the model is told so. */
+  readonly seats?: LeadSeatChoices
 }
 export interface LeadLoopState {
   readonly phase: LeadThreadState
@@ -69,6 +71,18 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     const next = tail.then(operation)
     tail = next.catch(() => {})
     return next
+  }
+  // Built once for a goal and then reused byte for byte: a provider refuses to replay reasoning behind a
+  // system prompt that changed, so a rename or a settings change waits for the next goal.
+  let instructionsFor: string | null = null, instructions = ''
+  const standingInstructions = (): string => {
+    const state = journal.state, goal = state.budget?.logicalGoalId ?? ''
+    if (instructionsFor !== goal) {
+      instructions = leadInstructions({ name: state.name === 'lex' ? 'Lex' : 'Dex', project, policyRevision: state.policy?.revision ?? 1,
+        caps: state.budget!.caps, ...(options.seats ? { seats: options.seats } : {}) })
+      instructionsFor = goal
+    }
+    return instructions
   }
   const waitForUser = async (code: string) => {
     if (!terminal(journal.state.phase)) {
@@ -195,11 +209,19 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     if (signal?.aborted) active.abort()
     signal?.addEventListener('abort', abort, { once: true })
     let result: LeadMessagesResult
-    try { result = await messages.request({ ...input, system: `${input.system ?? ''}\nYour name is ${journal.state.name === 'lex' ? 'Lex' : 'Dex'}.\nYou manage one approved goal through the desk API. Propose a version 1 lead-output plan before starting. Never answer worker approvals or invent evidence. Start step N only after step N−1's result awaits acceptance. Slice 1 uses only this private Flow source (seats are supplied through Flow seating):\n${leadReviewedResultSource}` }, active.signal) }
+    try { result = await messages.request({ ...input, system: [input.system, standingInstructions()].filter(Boolean).join('\n') }, active.signal) }
     catch { result = { status: 'failed', reason: 'lead-messages-failed' } }
     finally { signal?.removeEventListener('abort', abort); active = null }
     history = result.messages ?? history
     requestTemplate = input
+    // What the model said belongs to the person, in the order it was said: before the card or the wait that
+    // follows it. A text the desk will not keep stays in the result, so the host scans it and refuses it by name.
+    if (result.text && !terminal(journal.state.phase)) {
+      try { await journal.appendReply(result.text) }
+      catch { await waitForUser('lead-request-failed'); return result }
+      const { text: _kept, ...delivered } = result
+      result = delivered
+    }
     if (!['completed'].includes(result.status)) {
       await writeOffUncertain()
       await waitForUser(`lead-request-${result.status}`)
@@ -236,6 +258,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       continuationPending = true
       if (!blocked()) schedule(false)
     }
+    // An approved goal whose turn ended without a tool call and with nothing started goes nowhere on its own,
+    // because nothing on the desk will wake the model. Say so, and leave the way on to the person.
+    else if (!result.toolResults?.length && journal.state.phase === 'running' && journal.state.contract && !journal.state.runs.length)
+      await waitForUser('lead-run-not-started')
     return result
   }
   const schedule = (activity = true) => {

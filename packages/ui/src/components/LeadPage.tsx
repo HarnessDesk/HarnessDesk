@@ -28,6 +28,7 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-subscription-failed': 'The Lead lost its run activity updates.',
   'lead-tools-refused': 'The requested desk operation was refused.',
   'lead-card-too-large': 'The request is too large to display safely.',
+  'lead-run-not-started': 'The plan is approved, but no work has started. Sending a message also continues.',
   'lead-request-failed': 'The request was interrupted. Sending a message also continues.',
   'lead-request-uncertain': 'The request was interrupted. Sending a message also continues.',
   'lead-send-deadline': 'The request timed out. Sending a message also continues.',

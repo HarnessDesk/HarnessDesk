@@ -10,7 +10,7 @@ import { LeadBudgets } from '../src/lead/budgets.js'
 
 const key = 'sk-test-not-real-0000'
 const input = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 }
-const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any } = {}) => {
+const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any; seats?: unknown } = {}) => {
   const home = await mkdtemp('/tmp/hd-ls-')
   t.after(() => rm(home, { recursive: true, force: true }))
   const records: LeadJournalRecord[] = []
@@ -28,7 +28,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { resolve
   const modulePath = new URL('../src/lead/service.js', import.meta.url).href
   const { LeadService } = await import(modulePath)
   const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, broker, model: 'synthetic-model', prices: {},
-    messagesTransport: hooks.messagesTransport,
+    messagesTransport: hooks.messagesTransport, ...(hooks.seats === undefined ? {} : { seats: hooks.seats }),
     resolveTool: hooks.resolveTool ?? (async () => { throw new Error('unused') }), freezePlan: async (proposal: unknown) => proposal, readEvidence: async () => { throw new Error('unused') },
     register: () => { events.push('register'); const close = budgets.register(journal); return { admission: {}, close: () => { events.push('unregister'); close() } } },
     childStarted: () => (budgets as any).childStarted(journal), recover: () => budgets.recover(),
@@ -55,6 +55,25 @@ test('two simultaneous sends start one child only after explicit enable', async 
   assert.equal(s.spawns(), 0)
   await Promise.all([s.service.send(input), s.service.send(input)])
   assert.equal(s.spawns(), 1)
+})
+
+test('the seats the host composes with reach the child bootstrap, and a host without seats bootstraps without the field', async t => {
+  const seats = { implement: [{ runtime: 'acme-writer', model: 'acme/writer-1' }], review: [{ runtime: 'acme-reviewer' }] }
+  const withSeats = await rig(t, { seats })
+  await withSeats.service.setEnabled(true); await withSeats.service.send(input)
+  assert.deepEqual(withSeats.bootstrap[0].seats, seats)
+  const without = await rig(t)
+  await without.service.setEnabled(true); await without.service.send(input)
+  assert.equal(Object.hasOwn(without.bootstrap[0], 'seats'), false)
+})
+
+test('the host lets a model reply be written down only if it carries no secret', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true); await s.service.send(input)
+  const admit: (text: string) => Promise<void> = s.options().admitReply
+  assert.equal(typeof admit, 'function', 'the service gives the supervisor its last word on a reply')
+  await admit('The first worker has started.')
+  await assert.rejects(admit(`The provider key is ${key}.`), (error: any) => error.wireCode === 'lead-secret-refused')
 })
 
 test('synthetic key reaches only bootstrap; renderer metadata and journal never contain it', async t => {

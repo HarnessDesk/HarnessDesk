@@ -1,5 +1,5 @@
 import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject, LeadControlRefusal } from '@harnessdesk/protocol'
-import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
+import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
 import { LEAD_MESSAGES_DEFAULTS, parseLeadMessagesBody } from '@harnessdesk/lead'
 import { LeadSupervisor, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import type { CredentialBroker } from '../credentials.js'
@@ -25,6 +25,9 @@ export interface LeadServiceOptions {
   readonly broker: Pick<CredentialBroker, 'leadStatus' | 'resolveLead' | 'storeLead' | 'deleteLead'>
   readonly messagesTransport?: MessagesTransport
   readonly model?: string
+  /** The seats a plan's assignments may name, which the model is told. The host that composes this service
+   * supplies them from its own configuration; absent means the desk offers none and the model says so. */
+  readonly seats?: LeadSeatChoices
   readonly prices: Readonly<Record<string, MessagesPrice>>
   readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
   readonly freezePlan: (proposal: LeadAcceptanceContract) => Promise<LeadAcceptanceContract>
@@ -86,10 +89,13 @@ export class LeadService {
           this.#assertOpen()
           if (generation !== this.#generation) throw new Error('lead-lifecycle-changed')
           return { key, descriptor: this.#door.descriptor,
-            project: options.project, prices: options.prices, ...(options.model === undefined ? {} : { model: options.model }), projectPolicy: this.#policy }
+            project: options.project, prices: options.prices, ...(options.model === undefined ? {} : { model: options.model }), projectPolicy: this.#policy,
+            ...(options.seats ? { seats: options.seats } : {}) }
         } catch (error) { await this.#release(); throw error }
       },
       admitCardOffer: card => admitLeadCard(options.journal.state, card, options.project, options.model ?? LEAD_MESSAGES_DEFAULTS.model),
+      // What the model says is written for the person to read, so it gets the scan every other public text gets.
+      admitReply: text => this.assertPublic(text),
       admitBudgetEvent: event => {
         if (event.type === 'reserve') {
           const model = options.model ?? LEAD_MESSAGES_DEFAULTS.model, price = options.prices[model]

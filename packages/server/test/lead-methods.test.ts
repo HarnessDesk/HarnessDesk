@@ -42,6 +42,12 @@ const rig = async (over: { configured?: boolean; service?: Record<string, any>; 
   return { controls, journal, records, storage, notifications, sends, answers, service, call }
 }
 const code = (reason: string) => (error: any) => error.wireCode === reason
+const turnText = (turn: any): string => turn.content.map((block: any) => block.text).join('')
+const approvedContractOf = (turn: any): unknown => {
+  const line = turnText(turn).split('\n').find(one => one.startsWith('Approved contract: '))
+  assert.ok(line, 'the desk message carries the approved contract')
+  return JSON.parse(line.slice('Approved contract: '.length))
+}
 
 test('window handlers reach named context operations and thread sends are durably idempotent', async () => {
   const s = await rig({ configured: true })
@@ -492,6 +498,18 @@ test('server projects each wayOut, typed wait reason and exact 24-hour consent e
   await r.journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
   assert.equal((await r.controls.readThread()).wayOut, null)
 })
+test('a goal that stalled with nothing started projects its own wait reason and offers Resume', async () => {
+  const s = await rig({ configured: true })
+  await s.journal.offerCard(plan); await s.controls.decide(planClick); await s.controls.idle()
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-run-not-started')
+  const wait = await s.controls.readThread()
+  assert.equal(wait.waitReason, 'lead-run-not-started'); assert.equal(wait.wayOut, 'resume')
+  // The way on is real: Resume asks the model again, with the contract, and the wait ends.
+  await s.controls.resume({ expectedRevision: s.journal.state.seq }); await s.controls.idle()
+  assert.equal(s.journal.state.phase, 'running')
+  assert.deepEqual(approvedContractOf((s.sends.at(-1) as any).messages.at(-1)), contract)
+  s.controls.close()
+})
 test('consent expiry offers a fresh plan decision instead of Resume', async () => {
   const s = await rig({ controls: { now: () => 1000001 } }); await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000000)
   await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
@@ -876,6 +894,51 @@ test('resuming after a reply also ends the paid request in a user turn', async (
   await s.controls.resume({ expectedRevision: s.journal.state.seq }); await s.controls.idle()
   assert.equal(s.sends.length, 2)
   assert.ok(s.sends.every((request: any) => request.messages.at(-1).role === 'user'))
+  s.controls.close()
+})
+
+for (const action of ['approve', 'resume'] as const) test(`after ${action} the paid request ends with a desk message that carries the approved contract`, async () => {
+  const s = await rig({ configured: true })
+  await s.controls.send({ idempotencyKey: 'goal', text: 'Inspect the check' }); await s.controls.idle()
+  await s.journal.offerCard(plan)
+  await s.controls.decide(planClick); await s.controls.idle()
+  if (action === 'resume') {
+    await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+    await s.controls.resume({ expectedRevision: s.journal.state.seq }); await s.controls.idle()
+  }
+  assert.equal(s.sends.length, action === 'approve' ? 2 : 3)
+  const request: any = s.sends.at(-1)
+  // The standing text belongs to the child and is the same for the whole goal; the host never writes or edits it.
+  assert.equal('system' in request, false)
+  // History is rebuilt from the journal as plain text, so no earlier reasoning block can be replayed into it.
+  assert.ok(request.messages.every((turn: any) => turn.content.every((block: any) => block.type === 'text')))
+  assert.deepEqual(request.messages.slice(0, 2).map((turn: any) => [turn.role, turnText(turn)]), [['user', 'Inspect the check'], ['assistant', 'Ready to inspect']])
+  assert.equal(request.messages.at(-1).role, 'user')
+  assert.deepEqual(approvedContractOf(request.messages.at(-1)), contract)
+  assert.match(turnText(request.messages.at(-1)), /^The person approved your plan\./)
+  s.controls.close()
+})
+
+test('a message the person sends after approval is followed by the contract, so every request carries what was approved', async () => {
+  const s = await rig({ configured: true })
+  await s.journal.offerCard(plan)
+  await s.controls.decide(planClick); await s.controls.idle()
+  await s.controls.send({ idempotencyKey: 'more', text: 'Also cover the empty case' }); await s.controls.idle()
+  const request: any = s.sends.at(-1)
+  assert.equal(request.messages.at(-1).role, 'user')
+  assert.deepEqual(approvedContractOf(request.messages.at(-1)), contract)
+  assert.equal(turnText(request.messages.at(-2)), 'Also cover the empty case', 'the person\'s words stay in the history, in the order they were said')
+  s.controls.close()
+})
+
+test('a request before any plan is approved asks for a plan, and does not claim a contract was approved', async () => {
+  const s = await rig({ configured: true })
+  await s.controls.send({ idempotencyKey: 'goal', text: 'Inspect the check' }); await s.controls.idle()
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  await s.controls.resume({ expectedRevision: s.journal.state.seq }); await s.controls.idle()
+  const last: any = (s.sends.at(-1) as any).messages.at(-1)
+  assert.equal(last.role, 'user')
+  assert.equal(turnText(last), 'No plan is approved yet. Continue with a plan for the person to approve.')
   s.controls.close()
 })
 
@@ -1336,7 +1399,9 @@ for (const reason of ['lead-predecessor-unavailable', 'lead-predecessor-unverifi
     assert.equal(s.journal.state.seq, seq)
     s.service.send = async (value: any) => {
       assert.equal(s.journal.state.phase, 'running')
-      assert.equal(value.messages.at(-1).content[0].text, 'Change the plan')
+      // The plan was approved, so the desk's message about it follows the person's words and the request still carries the contract.
+      assert.equal(value.messages.at(-2).content[0].text, 'Change the plan')
+      assert.match(turnText(value.messages.at(-1)), /^The person approved your plan\./)
       return { status: 'completed', text: 'Plan change received' }
     }
     await s.call('lead/thread/send', { idempotencyKey: 'change-plan', text: 'Change the plan' }); await s.controls.idle()

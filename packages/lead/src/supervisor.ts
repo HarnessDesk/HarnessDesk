@@ -2,7 +2,7 @@ import { spawn as spawnProcess, type ChildProcessWithoutNullStreams } from 'node
 import { connect, type Socket } from 'node:net'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, parseLeadCard,
+import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, parseLeadCard, parseLeadMessage,
   type LeadBudgetEvent, type LeadCard, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy } from '@harnessdesk/protocol'
 import type { DeskPointer } from '@harnessdesk/client/node'
 import { parseLeadRunIdentity, type LeadJournal, type LeadDispatchResult } from './journal.js'
@@ -25,6 +25,8 @@ export interface LeadSupervisorOptions {
   readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
   readonly admitCardOffer?: (card: LeadCard) => void
   readonly admitBudgetEvent?: (event: LeadBudgetEvent) => void
+  /** The host's last word on a model text before it is written down for the person: throw to refuse it. */
+  readonly admitReply?: (text: string) => Promise<void>
   readonly providerSend?: (requestId: string, body: string, signal: AbortSignal) => Promise<MessagesHttpResponse>
   /** Test seam for the host-owned, already-connected desk socket. */
   readonly connectDesk?: (descriptor: DeskPointer, signal: AbortSignal) => Promise<Socket | null>
@@ -238,7 +240,7 @@ export class LeadSupervisor {
     }
     try {
       const arity = { execute: 1, updateBudget: 1, setManagementPhase: 2, invalidateResults: 0, offerCard: 1,
-        restoreResult: 2, recoverUnsettledRequests: 0, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2 }[operation]
+        restoreResult: 2, recoverUnsettledRequests: 0, appendReply: 1, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2 }[operation]
       if (args.length !== arity) throw error('protocol')
       let value: unknown = null
       switch (operation) {
@@ -287,6 +289,18 @@ export class LeadSupervisor {
           await durable(journal.restoreResult(ipcText(args[0], 256), args[1])); break
         }
         case 'recoverUnsettledRequests': await durable(journal.recoverUnsettledRequests()); break
+        case 'appendReply': {
+          const text = ipcText(args[0])
+          // A goal that has ended takes no more words. A text the desk will not show, a secret or one the journal cannot
+          // hold, is refused by name and does not break the child; the host scans whatever stays in the result again.
+          if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) break
+          try { parseLeadMessage({ version: 1, id: 'message-1', revision: 1, role: 'assistant', text }); await this.options.admitReply?.(text) }
+          catch {
+            if (!running.exited) write(running, { type: 'reply', id, ok: false, value: 'lead-reply-refused', state: journal.state })
+            return
+          }
+          await durable(journal.appendReply(text)); break
+        }
         case 'resolveTool': value = await this.options.resolveTool(callFrom(args[0])); break
         case 'freezePlan': value = await this.options.freezePlan(parseLeadAcceptanceContract(args[0])); break
         case 'readEvidence': value = await this.options.readEvidence(ipcText(args[0], 256), call =>

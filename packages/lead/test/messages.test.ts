@@ -363,3 +363,113 @@ test('a reply in the provider\'s current shape is read, and its extra fields are
   const extra = [...input.messages, { role: 'assistant', content: [{ type: 'text', text: 'x', citations: null }] }, input.messages[0]]
   assert.equal((await strict.client.request({ ...input, messages: extra }, new AbortController().signal)).status, 'refused')
 })
+
+// Sonnet 5.5 answers with thinking blocks by default. They are read by type, kept exactly,
+// replayed unchanged inside a tool loop, and never become anything the person sees.
+const thinking = (patch: Record<string, unknown> = {}) => ({ type: 'thinking', thinking: 'The goal is small; read usage first.', signature: 'EqQBCkYIBxgCKkDq9+/=', ...patch })
+const redacted = (patch: Record<string, unknown> = {}) => ({ type: 'redacted_thinking', data: 'EmwKAhgBEgxkZW5pZWQtYnktdGVzdA==', ...patch })
+
+test('a reply that opens with an empty thinking block is read by type: thinking is never text or a proposal', async () => {
+  for (const lead of [thinking({ thinking: '' }), thinking(), redacted()]) {
+    const s = await setup([message([lead, { type: 'text', text: 'Ready' }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.equal(result.status, 'completed')
+    assert.equal(result.text, 'Ready')
+    assert.deepEqual(result.proposals, { plan: null, cards: [] })
+    assert.deepEqual(result.messages.at(-1).content[0], lead)
+    // Its tokens are billed like any other output.
+    assert.equal(s.journal.state.budget!.leadUsdMicros, 300)
+  }
+  // A reply made only of thinking is a turn with no words, not a protocol fault.
+  const quiet = await setup([message([thinking({ thinking: '' })])])
+  const result = await quiet.client.request(input, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.text, '')
+})
+
+test('thinking text that looks like a lead-output envelope is never read as one', async () => {
+  const envelope = JSON.stringify({ version: 1, type: 'lead-output', text: 'from thinking', plan: {} })
+  const s = await setup([message([thinking({ thinking: envelope }), { type: 'text', text: 'Plain' }])])
+  const result = await s.client.request(input, new AbortController().signal)
+  assert.equal(result.status, 'completed')
+  assert.equal(result.text, 'Plain')
+  assert.deepEqual(result.proposals, { plan: null, cards: [] })
+})
+
+test('[thinking, tool_use] dispatches the tool and the follow-up request carries the thinking block byte for byte', async () => {
+  for (const lead of [thinking({ thinking: 'Quote " slash \\ tab\t line sep é 😀', signature: 'c2ln/+bmF0dXJl==' }), redacted({ data: 'AAEC/+==' })]) {
+    const s = await setup([message([lead, { type: 'text', text: 'Checking usage' }, tool('use-1', 'library_usage')], { stop_reason: 'tool_use' }), message()])
+    const first = await s.client.request(input, new AbortController().signal)
+    assert.equal(first.status, 'completed')
+    assert.deepEqual(s.dispatched, ['library/usage'])
+    assert.deepEqual(first.messages.at(-2).content, [lead, { type: 'text', text: 'Checking usage' }, tool('use-1', 'library_usage')])
+    assert.equal((await s.client.request({ ...input, messages: first.messages }, new AbortController().signal)).status, 'completed')
+    const sent = s.fake.requests[1]
+    assert.deepEqual(JSON.parse(sent.body).messages[1].content[0], lead)
+    assert.ok(sent.body.includes(JSON.stringify(lead)), 'the block is serialized exactly as it was received')
+    assert.equal(JSON.parse(sent.body).messages[1].role, 'assistant')
+    assert.deepEqual(JSON.parse(sent.body).messages[2].content.map((item: any) => item.tool_use_id), ['use-1'])
+  }
+})
+
+test('no request ever sets the thinking parameter, and the host body check still refuses one', async () => {
+  const s = await setup([message([thinking(), tool('use-1', 'library_usage')], { stop_reason: 'tool_use' }), message()])
+  const first = await s.client.request(input, new AbortController().signal)
+  await s.client.request({ ...input, messages: first.messages }, new AbortController().signal)
+  for (const request of s.fake.requests) assert.equal(Object.hasOwn(JSON.parse(request.body), 'thinking'), false)
+  const parsed = lead.parseLeadMessagesBody(s.fake.requests[1].body)
+  assert.deepEqual(parsed.messages[1], first.messages[1])
+  assert.throws(() => lead.parseLeadMessagesBody(JSON.stringify({ ...JSON.parse(s.fake.requests[1].body), thinking: { type: 'disabled' } })))
+})
+
+test('a malformed thinking block is still refused before anything runs or is replayed', async () => {
+  const oversized = 'x'.repeat(262_145)
+  for (const bad of [{ type: 'thinking', thinking: 'x' }, { type: 'thinking', signature: 'sig' }, thinking({ thinking: 7 }), thinking({ signature: 7 }),
+    thinking({ thinking: null }), thinking({ signature: null }), thinking({ thinking: oversized }), thinking({ signature: oversized }),
+    { type: 'redacted_thinking' }, redacted({ data: 7 }), redacted({ data: null }), redacted({ data: oversized })]) {
+    const s = await setup([message([bad, tool('use-1', 'library_usage')], { stop_reason: 'tool_use' })])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.equal(result.status, 'invalid-response', JSON.stringify(bad).slice(0, 80))
+    assert.deepEqual(s.dispatched, [])
+    assert.equal(s.journal.state.budget!.leadUsdMicros, 300)
+  }
+})
+
+test('thinking is bounded by the same size limits as every other block', async () => {
+  // A thinking block pushes this continuation past the byte cap, as the same text would.
+  const history = Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(14_000) }))
+  const huge = { ...input, messages: [{ role: 'user', content: history }] }
+  const plain = await setup([message([tool('use-1', 'library_usage')], { stop_reason: 'tool_use' })])
+  assert.equal((await plain.client.request(huge, new AbortController().signal)).status, 'completed')
+  const heavy = await setup([message([thinking({ thinking: 'x'.repeat(262_144) }), tool('use-1', 'library_usage')], { stop_reason: 'tool_use' })])
+  const result = await heavy.client.request(huge, new AbortController().signal)
+  assert.equal(result.status, 'invalid-response')
+  assert.equal(result.reason, 'lead-messages-continuation-limit')
+  assert.deepEqual(heavy.dispatched, [])
+})
+
+test('thinking may be replayed from the assistant side of history only, with exactly its own fields', async () => {
+  const block = thinking(), user = { role: 'user', content: [{ type: 'text', text: 'Go on' }] }
+  const turn = (content: unknown[]) => ({ ...input, messages: [...input.messages, { role: 'assistant', content }, user] })
+  const ok = await setup([message()])
+  assert.equal((await ok.client.request(turn([block, { type: 'text', text: 'Ready' }]), new AbortController().signal)).status, 'completed')
+  assert.ok(ok.fake.requests[0].body.includes(JSON.stringify(block)))
+  for (const request of [turn([{ ...block, citations: null }, { type: 'text', text: 'x' }]), turn([thinking({ signature: undefined }), { type: 'text', text: 'x' }]),
+    turn([redacted({ extra: 1 }), { type: 'text', text: 'x' }]),
+    { ...input, messages: [{ role: 'user', content: [block] }] }, { ...input, messages: [...input.messages, { role: 'assistant', content: [block] }, { role: 'user', content: [redacted()] }] }]) {
+    const s = await setup([message()])
+    assert.equal((await s.client.request(request, new AbortController().signal)).status, 'refused')
+    assert.equal(s.fake.requests.length, 0)
+  }
+})
+
+test('a credential echoed inside thinking is refused like one in any other block', async () => {
+  for (const bad of [thinking({ thinking: `the key is ${key}` }), thinking({ signature: key }), redacted({ data: key })]) {
+    const s = await setup([message([bad, { type: 'text', text: 'Ready' }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.equal(result.status, 'invalid-response')
+    // Caught on first sight of the reply, not only later when the continuation is sized.
+    assert.equal(result.reason, 'lead-messages-output')
+    assert.ok(!JSON.stringify(result).includes(key))
+  }
+})

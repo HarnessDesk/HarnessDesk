@@ -670,3 +670,177 @@ test('card admission refusal is an RPC refusal without killing the child or appe
     assert.equal(f.supervisor.live, true); assert.equal(f.journal.state.cards.length, 0)
   } finally { await f.supervisor.stop(); await sent }
 })
+
+
+const crew = { implement: [{ runtime: 'acme-writer', model: 'acme/writer-1' }], review: [{ runtime: 'acme-reviewer', model: 'acme/reviewer-1', effort: 'high' }] }
+/** The real child, wired in-process to a supervisor over framed streams, with the provider answered by the host seam. */
+const childRig = async (bootstrapExtra: Record<string, unknown>, providerSend: (requestId: string, body: string) => Promise<unknown>, extra: Record<string, unknown> = {}) => {
+  const { runLeadChild } = await import('../src/' + 'child.js')
+  const { fixture: managementFixture, project } = await import('./fixtures/loop.js')
+  const management = await managementFixture()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'child-rig', caps: { usdMicros: 100_000, rounds: 10 }, freshnessMs: 60_000 })
+  const child: any = new EventEmitter()
+  child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.pid = 4242
+  const runtime = runLeadChild({ input: child.stdin, output: child.stdout, connectDesk: async () => ({ ...management.options.desk,
+    close: () => { void management.options.desk.events()[Symbol.asyncIterator]().return() } }), onExit: (code: number) => child.emit('exit', code, null) })
+  child.kill = () => { void runtime.close().then(() => child.emit('exit', 0, null)); return true }
+  const f = await fixture({ journal, spawn: () => child, bootstrap: async () => ({ key: secret, descriptor, project, model: 'fixture-model',
+    prices: management.options.messages.prices, ...bootstrapExtra }), resolveTool: management.options.resolveTool, providerSend, ...extra })
+  return { ...f, journal, project, management, runtime, async finish() { await f.supervisor.stop(); await runtime.close() } }
+}
+
+test('the actual child names the host project root and seats to the model', async () => {
+  const { message } = await import('./fixtures/fake-messages.js')
+  let body = ''
+  const f = await childRig({ seats: crew }, async (_requestId, sent) => { body = sent; return message() })
+  try {
+    assert.equal((await f.supervisor.send(request)).status, 'completed')
+    const system: string = JSON.parse(body).system
+    assert.ok(system.split('\n').includes(`Project root: ${f.project.path} (project id ${f.project.id}).`))
+    const offered = system.split('\n').find(line => line.startsWith('Seats a plan may name'))!
+    for (const seat of [...crew.implement, ...crew.review]) assert.ok(offered.includes(JSON.stringify(seat)))
+  } finally { await f.finish() }
+})
+
+for (const [name, seats] of [
+  ['an empty role', { implement: [], review: crew.review }],
+  ['no seat at all', { implement: [], review: [] }],
+  ['a missing role', { implement: crew.implement }],
+  ['an unknown role', { ...crew, publish: crew.review }],
+  ['a seat that is not an object', { implement: ['acme-writer'], review: crew.review }],
+  ['a seat with an unknown field', { implement: [{ runtime: 'acme-writer', secret: 'x' }], review: crew.review }],
+  ['a seat without a runtime', { implement: [{ model: 'acme/writer-1' }], review: crew.review }],
+  ['a seat with a control character', { implement: [{ runtime: 'acme\nwriter' }], review: crew.review }],
+  ['too many seats', { implement: Array.from({ length: 9 }, (_, index) => ({ runtime: `acme-${index}` })), review: crew.review }],
+  ['a list that is not a list', { implement: crew.implement[0], review: crew.review }],
+] as const) test(`the actual child refuses a bootstrap with ${name} in the seat list, before any model request`, async () => {
+  let calls = 0
+  const f = await childRig({ seats }, async () => { calls++; throw new Error('unreachable') })
+  try {
+    await assert.rejects(f.supervisor.send(request))
+    assert.equal(calls, 0)
+    assert.equal(f.supervisor.live, false)
+  } finally { await f.finish() }
+})
+
+/** A scripted child that asks the host to write one model reply down, then answers its request. */
+const replyRig = async (args: unknown[], extra: Record<string, unknown> = {}) => {
+  let answered!: (value: any) => void
+  const replied = new Promise<any>(resolve => { answered = resolve })
+  let requestId = 0
+  const child = fake((message, child) => {
+    if (message.type === 'initialize') child.stdout.write(frame({ version: 1, type: 'ready' }))
+    if (message.type === 'request') { requestId = message.id; child.stdout.write(frame({ version: 1, type: 'rpc', id: 1, operation: 'appendReply', args })) }
+    if (message.type === 'reply') { answered(message); child.stdout.write(frame({ version: 1, type: 'response', id: requestId, result: { status: 'completed' } })) }
+    if (message.type === 'shutdown') child.kill()
+  })
+  const f = await fixture({ spawn: () => child, ...extra })
+  return { ...f, replied, assistant: () => f.journal.state.messages.filter(one => one.role === 'assistant').map(one => one.text) }
+}
+
+test('the host writes a model reply the child asks for, as the assistant message it is', async () => {
+  const asked: string[] = []
+  const f = await replyRig(['The first worker has started.'], { admitReply: async (text: string) => { asked.push(text) } })
+  try {
+    assert.equal((await f.supervisor.send(request)).status, 'completed')
+    assert.equal((await f.replied).ok, true)
+    assert.deepEqual(f.assistant(), ['The first worker has started.'])
+    assert.deepEqual(asked, ['The first worker has started.'], 'the host admitted the exact text before it was written')
+    assert.equal(f.supervisor.live, true)
+  } finally { await f.supervisor.stop() }
+})
+
+test('a reply at the largest size a model text can have is written, and one more character is a broken child', async () => {
+  const largest = 'a'.repeat(16_384)
+  const fits = await replyRig([largest])
+  try {
+    await fits.supervisor.send(request)
+    assert.deepEqual(fits.assistant(), [largest])
+  } finally { await fits.supervisor.stop() }
+  const over = await replyRig([largest + 'a'])
+  try {
+    await assert.rejects(over.supervisor.send(request), /protocol/)
+    assert.equal(over.supervisor.live, false)
+    assert.deepEqual(over.assistant(), [])
+  } finally { await over.supervisor.stop() }
+})
+
+for (const [name, args] of [
+  ['no text', []],
+  ['an empty text', ['']],
+  ['a text that is not a string', [{ text: 'x' }]],
+  ['two arguments', ['one', 'two']],
+] as const) test(`a reply request with ${name} breaks the child protocol and writes nothing`, async () => {
+  const f = await replyRig([...args])
+  try {
+    await assert.rejects(f.supervisor.send(request), /protocol/)
+    assert.equal(f.supervisor.live, false)
+    assert.deepEqual(f.assistant(), [])
+  } finally { await f.supervisor.stop() }
+})
+
+test('a reply the host refuses is an RPC refusal that neither kills the child nor writes the text', async () => {
+  let asked = 0
+  const f = await replyRig([`The key is ${secret}.`], { admitReply: async () => { asked++; throw new Error('lead-secret-refused') } })
+  try {
+    assert.equal((await f.supervisor.send(request)).status, 'completed')
+    const response = await f.replied
+    assert.equal(response.ok, false); assert.equal(response.value, 'lead-reply-refused')
+    assert.equal(asked, 1)
+    assert.equal(f.supervisor.live, true)
+    assert.deepEqual(f.assistant(), [])
+    assert.equal(JSON.stringify(f.records).includes(secret), false)
+  } finally { await f.supervisor.stop() }
+})
+
+test('a reply the journal could not hold is refused the same way, before the host is asked about it', async () => {
+  let asked = 0
+  const f = await replyRig(['A reply with a \u0000 control character.'], { admitReply: async () => { asked++ } })
+  try {
+    await f.supervisor.send(request)
+    const response = await f.replied
+    assert.equal(response.ok, false); assert.equal(response.value, 'lead-reply-refused')
+    assert.equal(asked, 0)
+    assert.equal(f.supervisor.live, true)
+    assert.deepEqual(f.assistant(), [])
+  } finally { await f.supervisor.stop() }
+})
+
+test('a reply that arrives after the goal ended is accepted and dropped', async () => {
+  let asked = 0
+  const f = await replyRig(['Too late to say.'], { admitReply: async () => { asked++ } })
+  try {
+    await f.journal.stop()
+    await f.supervisor.send(request)
+    assert.equal((await f.replied).ok, true)
+    assert.equal(asked, 0)
+    assert.deepEqual(f.assistant(), [])
+    assert.equal(f.supervisor.live, true)
+  } finally { await f.supervisor.stop() }
+})
+
+test('the actual child writes the model reply into the host journal before it answers, and the answer does not repeat it', async () => {
+  const { message } = await import('./fixtures/fake-messages.js')
+  const f = await childRig({}, async () => message([{ type: 'text', text: 'Which part of the repair matters most?' }]))
+  try {
+    const result = await f.supervisor.send(request)
+    assert.equal(result.status, 'completed')
+    assert.equal(result.text, undefined)
+    assert.deepEqual(f.journal.state.messages.map(one => [one.role, one.text]), [['assistant', 'Which part of the repair matters most?']])
+  } finally { await f.finish() }
+})
+
+test('the actual child leaves a reply the host refuses in its answer, and waits for the person', async () => {
+  const { message } = await import('./fixtures/fake-messages.js')
+  const f = await childRig({}, async () => message([{ type: 'text', text: 'Here is a reply the desk will not show.' }]), { admitReply: async () => { throw new Error('lead-secret-refused') } })
+  try {
+    const result = await f.supervisor.send(request)
+    assert.equal(result.text, 'Here is a reply the desk will not show.')
+    assert.deepEqual(f.journal.state.messages, [])
+    assert.equal(f.journal.state.phase, 'waiting-for-user')
+    assert.equal(f.journal.state.managementReason, 'lead-request-failed')
+    assert.equal(f.supervisor.live, true)
+  } finally { await f.finish() }
+})

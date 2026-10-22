@@ -20,6 +20,29 @@ test('plan approval is required before the full fixture starts a worker or Flow'
   await rig.assertNoForbiddenEffects()
 })
 
+test('the model gets one standing text for the whole goal, the contract in a message after approval, and its words are kept in order', async t => {
+  const rig = await createLeadRig(); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  const plan = rig.pending('plan')!
+  await rig.decide(plan, 'approve')
+  await rig.waitFor(() => !!rig.pending('result'), 'reviewed two-run result')
+  const bodies = rig.provider.requests.map(request => request.body)
+  assert.ok(bodies.length >= 3, 'the plan, the request after approval and its tool turns')
+  // A provider refuses a replayed reasoning block behind a system prompt that changed, so the bytes never change.
+  const system: string = bodies[0]!.system
+  assert.ok(bodies.every(body => body.system === system), 'one system text from the first request to the last')
+  assert.ok(system.includes(rig.project.path), 'it gives the project root')
+  for (const seat of ['rig-writer', 'rig-reviewer']) assert.ok(system.includes(seat), `it gives the seat ${seat}`)
+  assert.ok(system.includes('"type":"lead-output"'), 'it gives the plan format')
+  assert.ok(!system.includes(rig.journal.state.contract!.digest), 'it says nothing about the approved contract, which arrives in a message')
+  const approved = bodies[1]!.messages.at(-1)
+  assert.equal(approved.role, 'user')
+  assert.ok(approved.content.map((block: any) => block.text).join('').includes(`"digest":"${rig.journal.state.contract!.digest}"`), 'the request after approval ends with the contract')
+  const intro = rig.journal.state.messages.find(message => message.role === 'assistant' && message.text === 'Review the two-part repair before work starts.')
+  assert.ok(intro, 'the sentence that came with the plan is kept as a message')
+  assert.ok(intro.revision < rig.journal.state.cardPositions[plan.id]!, 'and it comes before the plan card')
+})
+
 test('two-run reviewed result follows failed review and repair and retries a failed second gate save', async t => {
   const rig = await createLeadRig(); t.after(() => rig.dispose())
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
@@ -229,6 +252,16 @@ test('declining step 1 acceptance parks a model retry of step 2 as predecessor u
   const retry = [...rig.journal.state.attempts.values()].find(attempt => attempt.stepId === 'second' && attempt.method === 'flow/start-goal')!
   assert.equal(retry.outcome, 'denied'); assert.equal(retry.dispatched, false)
   assert.equal(rig.journal.state.runs.length, 1)
+  // A message from the person goes on from here. The request it makes ends with the desk's message, which says step 1 has
+  // started and step 2 has not, so the model is not told to start step 1 again.
+  const before = rig.provider.requests.length
+  await rig.host.call('lead/thread/send', { idempotencyKey: 'go-on', text: 'Carry on without step 2.' })
+  await rig.waitFor(() => rig.provider.requests.length > before, 'the request that follows the person message')
+  const last = rig.provider.requests[before]!.body.messages.at(-1)
+  const desk = last.content.map((block: any) => block.text).join('')
+  assert.equal(last.role, 'user')
+  assert.ok(desk.split('\n').includes('Step states: first started, second pending.'), 'the desk says where each step stands')
+  assert.ok(desk.includes(`"digest":"${rig.journal.state.contract!.digest}"`), 'and carries the approved contract')
   await rig.assertNoForbiddenEffects()
 })
 

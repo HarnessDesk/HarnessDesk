@@ -296,6 +296,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         } catch (error) { evidenceFailure = error instanceof Error ? error : new Error(String(error)); throw error }
       }
       service = host.createLeadService({ journal, project, model, prices, messagesTransport: provider.transport,
+        seats: { implement: [assignments[0]!.seat], review: [assignments[1]!.seat] },
         freezePlan: async value => {
           assert.deepEqual(value, proposal)
           return { ...value, digest: createHash('sha256').update(JSON.stringify(value)).digest('hex') }

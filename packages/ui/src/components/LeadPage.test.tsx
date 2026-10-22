@@ -272,6 +272,13 @@ it('explains a blocked renewal even without a Resume way out', async () => {
   expect(box.textContent).toContain('The plan could not be renewed because the pending request limit was reached.')
   expect(button('Resume')).toBeUndefined()
 })
+it('says an approved goal has not started, and offers Resume, when the Lead ended its turn with nothing begun', async () => {
+  const base = leadProjection(), { box } = await mount({ ...base, wayOut: 'resume', waitReason: 'lead-run-not-started',
+    thread: { ...base.thread, state: 'waiting-for-user', contract: leadPlan.contract, cards: [] } })
+  expect(box.textContent).toContain('The plan is approved, but no work has started. Sending a message also continues.')
+  expect(button('Resume')).toBeDefined()
+  expect(box.textContent).not.toContain('The Lead is waiting for you to continue.')
+})
 it('names the key row once and puts the allowance note on its dollar row', async () => {
   await mount(); await act(async () => button('Settings').click())
   const rows = [...document.querySelectorAll('[data-slot="row"]')]

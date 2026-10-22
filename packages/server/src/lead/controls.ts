@@ -4,7 +4,7 @@ import {
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification,
 } from '@harnessdesk/protocol'
-import { canBeginLeadGoal, type LeadJournal, type LeadState } from '@harnessdesk/lead'
+import { canBeginLeadGoal, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -204,11 +204,17 @@ export class LeadControls {
       return
     }
     try {
-      const messages = journal.state.messages.filter(message => message.role !== 'system').map(message => ({
+      // History is rebuilt from what the person can read, as plain text, so no reasoning block from an earlier
+      // request is carried into a prefix that has changed since the provider wrote it.
+      const messages: MessagesTurn[] = journal.state.messages.filter(message => message.role !== 'system').map(message => ({
         role: message.role as 'user' | 'assistant', content: [{ type: 'text' as const, text: message.text }],
       }))
-      if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
-        { type: 'text', text: 'Continue from the approved contract and fresh desk observations.' },
+      // Once a plan is approved every request ends with the contract, because the standing instructions say it
+      // arrives in a message and the history above holds only words. Before that, a request still ends in a user turn.
+      const { contract, steps } = journal.state
+      if (contract) messages.push({ role: 'user', content: leadContinuation({ contract, steps }) })
+      else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
+        { type: 'text', text: 'No plan is approved yet. Continue with a plan for the person to approve.' },
       ] })
       const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages })
       if (result.text) await service.assertPublic(result.text)
