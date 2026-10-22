@@ -8,6 +8,9 @@
   "files": [],
   "references": [
     { "path": "packages/protocol" },
+    { "path": "packages/contract" },
+    { "path": "packages/crypto" },
+    { "path": "packages/phone-link" },
     { "path": "packages/client" },
     { "path": "packages/lead" },
     { "path": "packages/cli" },

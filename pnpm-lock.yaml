@@ -141,6 +141,12 @@ importers:
 
   packages/codex: {}
 
+  packages/contract:
+    dependencies:
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+
   packages/cordis-host:
     dependencies:
       '@deepseek-ai/cordis':
@@ -153,6 +159,8 @@ importers:
       jsdom:
         specifier: ~30.1.1
         version: 30.1.1(@noble/hashes@2.3.0)
+
+  packages/crypto: {}
 
   packages/cursor-acp:
     dependencies:
@@ -230,6 +238,22 @@ importers:
         version: 8.18.2
 
   packages/mcp-tools: {}
+
+  packages/phone-link:
+    dependencies:
+      '@harnessdesk/contract':
+        specifier: workspace:*
+        version: link:../contract
+      '@harnessdesk/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      ws:
+        specifier: ^8.22.0
+        version: 8.22.0
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
 
   packages/plugins:
     dependencies:
