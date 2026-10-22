@@ -76,12 +76,14 @@ export class Session {
   get received(): bigint { return this.#recvCounter }
 
   seal(body: Bytes, kind: number = KIND_JSON): Promise<Bytes> {
-    const result = this.#sealing.then(() => this.#sealOne(body, kind))
+    // The plaintext is taken now: a caller may reuse its buffer the moment this returns, and the queue runs later.
+    const plain = concat(Uint8Array.of(kind), body)
+    const result = this.#sealing.then(() => this.#sealOne(plain))
     this.#sealing = result.catch(() => undefined)
     return result
   }
 
-  async #sealOne(body: Bytes, kind: number): Promise<Bytes> {
+  async #sealOne(plain: Bytes): Promise<Bytes> {
     if (this.#sendCounter >= MAX_FRAMES_PER_SESSION) throw new E2eeError('exhausted')
     // Reserved before the first await, and only one runs at a time: a frame never takes a counter another holds.
     const counter = u64be(this.#sendCounter)
@@ -90,7 +92,7 @@ export class Session {
     const ct = new Uint8Array(await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv: concat(new Uint8Array(4), counter), additionalData: concat(header, this.sid), tagLength: 128 },
       this.sendKey,
-      concat(Uint8Array.of(kind), body),
+      plain,
     ))
     return concat(header, ct)
   }
@@ -105,7 +107,9 @@ export class Session {
    * serialized, so the same frame cannot open twice.
    */
   open(frame: Bytes): Promise<{ kind: number; body: Bytes }> {
-    const result = this.#opening.then(() => this.#openOne(frame))
+    // Copied now, for the same reason as in seal(): a receive buffer may be reused before this frame's turn.
+    const copy = frame.slice()
+    const result = this.#opening.then(() => this.#openOne(copy))
     this.#opening = result.catch(() => undefined)
     return result
   }
@@ -138,7 +142,11 @@ export class Session {
 
 export interface PhoneHandshake {
   readonly hello: Bytes
-  /** Verifies the desk's signature against the key pinned from the QR, then derives the session. */
+  /**
+   * Verifies the desk's signature against the key pinned from the QR, then derives the session.
+   * One call per handshake: a second READY, even the same one again, is refused, because a
+   * second session from it would have the same keys and start its counter over.
+   */
   finish(ready: Bytes): Promise<Session>
 }
 
@@ -147,9 +155,12 @@ export async function startPhoneHandshake(deskPub: Bytes, opts?: HandshakeOption
   const deskIdBytes = await idBytesFromPub(deskPub)
   const { eph, nonce } = await ephemeralFor(opts)
   const hello = concat(Uint8Array.of(FRAME_HELLO, E2EE_VERSION), eph.pub, nonce)
+  let finished = false
   return {
     hello,
     async finish(ready) {
+      if (finished) throw new E2eeError('format', 'handshake already finished')
+      finished = true
       if (ready.length !== READY_LENGTH || ready[0] !== FRAME_READY) throw new E2eeError('format')
       if (ready[1] !== E2EE_VERSION) throw new E2eeError('version')
       const unsigned = ready.subarray(0, READY_LENGTH - 64)

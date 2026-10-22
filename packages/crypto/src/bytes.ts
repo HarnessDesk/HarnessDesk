@@ -19,6 +19,8 @@ export function fromB64u(text: string): Bytes {
   const bin = atob(text.replace(/-/g, '+').replace(/_/g, '/') + pad)
   const out = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  // One spelling per value: atob ignores the unused low bits of the last character, so re-encode and compare.
+  if (b64u(out) !== text) throw new Error('bad base64url')
   return out
 }
 

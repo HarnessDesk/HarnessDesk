@@ -2,11 +2,11 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   CloseCode, DeskId, DeskToRelay, PairingOffer, RelayToDesk, SendPushRequest, decodeDeskFrame, decodePairingOffer, encodeDeskFrame, encodePairingOffer,
-  FirstPhoneMessage, PushPlaintext,
+  FirstPhoneMessage, PublicKey, PushPlaintext,
 } from '../src/index.js'
 
 const key = 'A'.repeat(43)
-const offer = { v: 1 as const, deskPub: key, name: 'Studio Mac', enroll: 'B'.repeat(22), invite: 'x'.repeat(32), exp: 1_800_000_000 }
+const offer = { v: 1 as const, deskPub: key, name: 'Studio Mac', enroll: 'B'.repeat(21) + 'A', invite: 'x'.repeat(32), exp: 1_800_000_000 }
 
 describe('contract', () => {
   it('round-trips a pairing link', () => {
@@ -44,6 +44,13 @@ describe('contract', () => {
     assert.equal(DeskId.safeParse('A'.repeat(22)).success, true)
     assert.equal(DeskId.safeParse('A'.repeat(21)).success, false)
     assert.equal(DeskId.safeParse('A'.repeat(21) + '+').success, false)
+  })
+
+  it('ids have one spelling: the unused bits of the last character are zero', () => {
+    assert.equal(DeskId.safeParse('A'.repeat(21) + 'Q').success, true)
+    assert.equal(DeskId.safeParse('A'.repeat(21) + 'B').success, false)
+    assert.equal(PublicKey.safeParse('A'.repeat(42) + 'E').success, true)
+    assert.equal(PublicKey.safeParse('A'.repeat(42) + 'B').success, false)
   })
 
   it('bounds the push request so the APNs payload stays under 4 KB', () => {
