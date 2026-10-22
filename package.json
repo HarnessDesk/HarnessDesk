@@ -73,9 +73,9 @@
     "release": "node script/release.mjs"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.13.0",
-    "@playwright/test": "1.63.0",
-    "@types/node": "^26.6.4",
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
+    "@types/node": "^26.6.5",
     "@typescript/typescript6": "6.0.2",
     "typescript": "^7.0.2"
   },
