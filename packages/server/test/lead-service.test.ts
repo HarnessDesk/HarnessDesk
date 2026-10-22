@@ -844,3 +844,12 @@ test('person stop ends the child and its owned work before a new logical goal ca
   assert.equal(s.spawns(), 2); assert.equal(s.process().live, true)
   assert.ok(s.events.indexOf('stop-child') < s.events.lastIndexOf('register'))
 })
+
+test('a desk closing while the Lead already waits for the person keeps the person\'s wait', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true)
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-run-not-started')
+  await s.service.close()
+  assert.equal(s.journal.state.phase, 'waiting-for-user')
+  assert.equal(s.journal.state.managementReason, 'lead-run-not-started')
+})
