@@ -87,7 +87,7 @@ it('ignores an old browser discovery after hide and reactivation',async()=>{
   finally{act(()=>root.unmount());box.remove()}
 })
 
-it.each(['permissions','skills'] as const)('ignores obsolete %s readings across hide and reactivation',async(section)=>{
+it.each(['permissions','hooks'] as const)('ignores obsolete %s readings across hide and reactivation',async(section)=>{
   const box=document.createElement('div');document.body.append(box);const root=createRoot(box),store=previewStore()
   const snapshot=store.getSnapshot()
   Object.assign(snapshot,{runtimes:snapshot.runtimes.map(info=>({...info,capabilities:{...info.capabilities,hooks:true}}))})

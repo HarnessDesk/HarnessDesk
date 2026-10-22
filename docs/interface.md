@@ -1050,15 +1050,15 @@ Account slots stay with their runtime; the count is runtimes, not accounts.
 | --- | --- |
 | **General** | General · Appearance · Notifications · Keyboard shortcuts |
 | **Conversations** | Workspaces · History · Archive |
-| **Runtimes** | Runtimes · Models · Skills · Extensions |
-| **Capabilities** | Library · Plugins |
+| **Runtimes** | Runtimes · Models · Hooks · Extensions |
+| **Capabilities** | Customize (Skills · MCP · Plugins) |
 | **Access** | Permissions · Browser |
 
 The order is the order a new window is read in: this app, how it looks, what
 it says; the work you have opened and put away; the runtimes and what each one
-brings; what is shared across them; what any of them may do. Skills and
+brings; what is shared across them; what any of them may do. Hooks and
 Extensions are the active runtime's own; their hover text names that runtime.
-The nav always offers Skills and Extensions with the same labels and order,
+The nav always offers Hooks and Extensions with the same labels and order,
 including before the runtime catalogue arrives. Capabilities govern the page's
 contents, never the presence or name of its navigation row.
 There is no Account page, because there is no account — the profile is
@@ -1143,23 +1143,13 @@ open. The Library has no history list at its foot. Successful writes share one
 success toast; failures share a persistent failure toast with the first
 reason. Skipped operations raise nothing, and the write toasts offer no Undo.
 
-The Library's skills page opens as a grid of cards sorted by name. Each card
-visits the skill’s page, shows its description in at most two lines,
-and carries one mark per runtime with its measured reach state on hover. A
-card carries at most one finding: a warning, or a quiet Update available.
-There are no source, command, token or loaded-count lines on the card.
+Customize is the single sidebar entrance for Skills, MCP and Plugins. Existing Library and Plugins routes remain valid. Its common section tabs follow the shared page heading. Settings requests for skill management open Customize with the active runtime selected; Hooks has its own Settings page rather than sharing a second skill list. Commands reported by the active runtime that the scanned inventory does not cover appear in a named Runtime commands section, retaining their switches, detail pages and Use in composer action. Other runtime scopes do not borrow this catalogue. Legacy runtime command detail routes remain readable; an obsolete Skills list history entry is replaced with Customize.
 
-All, Needs you, One runtime and Nobody are single-choice filter chips. Their
-counts cover all listed skills, ignoring search and Filter. Needs you includes
-warning findings and behind or gone repository updates; otherwise zero or one
-reaching runtimes selects Nobody or One runtime. Chips, the state and Declared
-by choices in Filter, and search narrow together. Cards and Matrix use the same
-filtered rows; these choices are local to the viewer and are not persisted.
-Empty-directory cleanup and runtime catalogue banners appear only under Needs
-you. Empty regions have a short title and no
-description: No skills yet offers Write a skill and From GitHub; Nothing
-matches offers Clear the filters; Nothing needs you has no action. Loading
-says Reading skills… and failures retain their ActionError.
+The skills page opens as two-column catalogue cards sorted by name, collapsing to one column when the pane narrows. Each card opens the skill’s existing page, leads with its title and a two-line description, and shows its scope and a named runtime count with readers on hover. A card carries at most one finding. No unbounded runtime mark strip competes with the name.
+
+Search and Runtime sit in the compact toolbar. All and nonempty or selected Needs attention are the only visible attention choices; uncommon reach and Declared by filters live under Filter. View offers Cards, List and Runtime comparison. Runtime scope narrows the skill rows and their attention counts; the choices stay in local view memory when navigating to details or Changes made here. Clear the filters clears runtime scope too. Existing reviewed install, update, remove and restore plans remain unchanged.
+
+Empty-directory cleanup and runtime catalogue banners appear only under Needs attention. Its count includes each affected skill once, including wholly empty directories omitted from the cards, plus each runtime catalogue warning. These catalogue-wide diagnostics remain reachable alongside the scoped skill findings. Empty regions retain their existing useful actions and failure reasons; an unknown or unread runtime is not made into a new warning merely to fill a card.
 
 MCP servers retain List and Matrix, their PageOptions and their existing
 filters. An empty MCP region says No MCP servers yet with no description.

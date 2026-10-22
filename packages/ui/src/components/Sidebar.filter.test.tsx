@@ -46,7 +46,6 @@ const mount = (): HTMLInputElement => {
       <StoreProvider store={store}>
         <Sidebar
           onOpenSettings={() => {}}
-          onOpenPlugins={() => {}}
           onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
@@ -104,7 +103,7 @@ it('two mounted columns share a filter and only work owns history search', async
   const search = vi.fn(async () => {})
   store.searchHistory = search
   const common = {
-    onOpenSettings: () => {}, onOpenPlugins: () => {}, onOpenAgents: () => {}, onOpenTeams: () => {},
+    onOpenSettings: () => {}, onOpenAgents: () => {}, onOpenTeams: () => {},
     onOpenUsage: () => {}, onBrowseFolders: () => {}, onSignIn: () => {}, onSearch: () => {},
   }
   const Fixture = () => {

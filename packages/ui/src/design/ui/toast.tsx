@@ -1,5 +1,6 @@
 import { Toaster as Sonner, toast } from 'sonner'
-import type * as React from 'react'
+import { useLayoutEffect, useRef, type ComponentProps, type CSSProperties } from 'react'
+import { registerToastRegion } from './toast-clearance'
 
 /**
  * Vendored from shadcn/ui (toast), which is Sonner underneath.
@@ -32,7 +33,10 @@ import type * as React from 'react'
  * stay. This is the surface they are drawn on.
  */
 
-const Toaster = ({ theme = 'light', ...props }: React.ComponentProps<typeof Sonner>) => (
+const Toaster = ({ theme = 'light', ...props }: ComponentProps<typeof Sonner>) => {
+  const region = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => region.current ? registerToastRegion(region.current) : undefined, [])
+  return <div ref={region} className="contents">
   <Sonner
     theme={theme}
     className="toaster group"
@@ -45,7 +49,7 @@ const Toaster = ({ theme = 'light', ...props }: React.ComponentProps<typeof Sonn
         '--normal-text': 'var(--hd-popover-foreground)',
         '--normal-border': 'var(--hd-border-strong)',
         '--border-radius': 'var(--hd-radius)',
-      } as React.CSSProperties
+      } as CSSProperties
     }
     toastOptions={{
       classNames: {
@@ -58,6 +62,7 @@ const Toaster = ({ theme = 'light', ...props }: React.ComponentProps<typeof Sonn
     }}
     {...props}
   />
-)
+  </div>
+}
 
 export { Toaster, toast }

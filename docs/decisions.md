@@ -7,6 +7,15 @@ the rule is the last line of its section.
 
 ---
 
+## Customize is the shared capability destination — 2026-10-21
+
+Skills, MCP and Plugins share one Customize entrance and a common section navigation. Existing Library and Plugins destination identities remain valid for saved history, command links and capability detail pages. Settings' skill-management requests open Customize, scoped to the active runtime; Hooks retains a separate Settings page. Runtime-owned commands not covered by the scanned inventory remain browsable in Customize, under the active runtime’s name, with their enable switches and composer action. A different runtime scope never borrows the active runtime’s commands. Legacy command detail routes remain readable; the obsolete Settings list route replaces itself in navigation rather than leaving a redirect in Back history.
+
+Skills default to two-column catalogue cards. The title and a bounded description lead; scope and a named runtime count replace the unbounded strip of runtime marks. Cards, List and Runtime comparison are choices in View. All and nonempty or selected Needs attention stay visible; uncommon reach and declaration filters live under Filter. Runtime selection and search use a dedicated view subscription, leaving the global app snapshot untouched, and all install, update, remove and restore operations retain their existing reviewed plans.
+
+**Rule:** one skill-management destination; runtime diagnostics are a deliberate view, never a repeating wall of marks on every card. Typography and spacing come from the shared page, card and row patterns.
+
+
 ## A skill opens as a page, not a sheet — 2026-10-17
 
 A skill has enough definition and evidence to read as a destination: the definition is a card on the left, while loaded runtimes, recorded source and copies, files and cost stay in cards on the right. Back returns to the Library and history retains the route. Findings sit above the columns, and More keeps the less frequent copy actions; writes still open reviewed plans. This keeps the skill consistent with other details and gives long definitions the page’s scroll owner rather than two constrained dialog lanes. MCP retains its existing dialog. **Rule:** a detail is a page with a way back; dialogs are for confirming.

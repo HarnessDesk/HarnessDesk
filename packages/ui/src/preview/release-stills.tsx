@@ -160,7 +160,7 @@ const Body = ({ scene }: { scene: string }) => {
   if (scene === 'plugin-permissions') return <CurrentPagePreview page={{kind:'plugins',section:'installed',id:null}} />
   if (scene === 'teams') return <CurrentPagePreview page={{kind:'teams',filter:'active'}} />
   if (scene === 'project-sidebar') return <div className="flex h-full">
-    <div className="w-80 shrink-0"><Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenTeams={() => {}} onOpenAgents={() => {}}
+    <div className="w-80 shrink-0"><Sidebar onOpenSettings={() => {}} onOpenTeams={() => {}} onOpenAgents={() => {}}
       onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} /></div>
     <div className="min-w-0 flex-1"><TeamFramePreview room="team-checkout" /></div>
   </div>

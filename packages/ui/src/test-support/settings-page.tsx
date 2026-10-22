@@ -28,10 +28,8 @@ export const RuntimesTestPage = ({focus,onSignIn,onBrowseHistory}: {focus?:strin
   const [view,onView]=useState<RuntimeSettingsView>(focus==='add'?{kind:'add'}:focus?{kind:'agent',runtime:focus as RuntimeId}:{kind:'list'})
   return <SettingsTestScope><RuntimesSection view={view} onView={onView} onSignIn={onSignIn} onBrowseHistory={onBrowseHistory}/></SettingsTestScope>
 }
-export const SkillsTestPage = ({onUse}: {onUse:()=>void}) => {
-  const [name,onSkill]=useState<string|null>(null)
-  return <SettingsTestScope><SkillsSection name={name} onSkill={onSkill} onUse={onUse}/></SettingsTestScope>
-}
+export const SkillsTestPage = ({onUse,name=null,active=true}: {onUse:()=>void;name?:string|null;active?:boolean}) =>
+  <SettingsTestScope active={active}><SkillsSection name={name} onUse={onUse}/></SettingsTestScope>
 export const WorkspacesTestPage = ({focus=null}: {focus?:string|null}) => {
   const [project,onProject]=useState<string|null>(focus&&focus!=='triggers'?focus:null)
   useEffect(()=>onProject(focus&&focus!=='triggers'?focus:null),[focus])

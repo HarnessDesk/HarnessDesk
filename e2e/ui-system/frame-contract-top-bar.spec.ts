@@ -107,12 +107,12 @@ for (const theme of WALL_THEMES) {
     await expectMenuGeometry(page.locator('[data-slot="popover-popup"]:visible'))
   })
 
-  test(`Library keeps its choices and Add skill in the page body in ${theme}`, async ({ page }) => {
+  test(`Customize keeps its choices and Add skill in the page body in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=library', theme)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     await expectOneBar(bar, false)
     await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
-    await expect(page.locator('[data-page-destination="library"]:visible h1')).toHaveText('Library')
+    await expect(page.locator('[data-page-destination="library"]:visible h1')).toHaveText('Customize')
     const author = page.getByRole('button', { name: 'Add skill', exact: true })
     await expect(author).toBeVisible()
     expect(await author.evaluate(node => node.closest('[data-slot="top-bar"]'))).toBeNull()

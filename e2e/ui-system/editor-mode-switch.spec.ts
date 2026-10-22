@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test'
 import { openFrame, resolvedPx } from './frame-contract-helpers'
 import { applyLeftColumnActions } from './left-column-actions'
 
+// Keep automatic recordings off; explicit geometry captures remain below.
+test.use({ screenshot: 'off', trace: 'off', video: 'off' })
+
 for (const theme of ['light', 'dark'] as const) {
   for (const width of [1440, 720]) test(`mode switch survives a narrow column at ${width} in ${theme}`, async ({ page }, testInfo) => {
     await openFrame(page, 'frame-wall=conversation', theme, width)
@@ -40,12 +43,12 @@ for (const theme of ['light', 'dark'] as const) {
     await openFrame(page, 'frame-wall=conversation', theme)
     const top = page.locator('[data-left-column]:visible [data-left-top]')
     await top.getByRole('button', { name: 'Editor mode', exact: true }).click()
-    for (const label of ['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard']) {
+    for (const label of ['Teams', 'Agents', 'Customize', 'Customize · Plugins', 'Dashboard']) {
       await page.keyboard.press('Meta+k')
       const palette = page.getByRole('dialog', { name: 'Command palette' })
-      const action = label === 'Teams' ? 'Show Teams' : label === 'Library' || label === 'Plugins' ? `Settings › ${label}` : label
+      const action = label === 'Teams' ? 'Show Teams' : label
       await palette.locator('input').fill(action)
-      await palette.getByRole('option', { name: new RegExp(`^${action}(?:\\s|$)`) }).click()
+      await palette.getByRole('option').filter({ has: page.getByText(action, { exact: true }) }).click()
       const editor = top.getByRole('button', { name: 'Editor mode', exact: true })
       await expect(editor).toBeDisabled()
       await expect(editor).toHaveAttribute('title', "Editor mode opens a conversation's files")

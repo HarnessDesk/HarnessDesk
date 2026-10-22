@@ -1,3 +1,4 @@
+import type { LibraryViewSection } from './library-views'
 import {
   createContext,
   useCallback,
@@ -52,6 +53,17 @@ export const useStore = (): AppStore => {
 export const useSnapshot = (): AppSnapshot => {
   const store = useStore()
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+}
+
+const noLibraryViewSubscription = () => () => {}
+/** Library choices change independently of sessions, inbox reconciliation and chrome. */
+export const useLibraryView = (section: LibraryViewSection) => {
+  const store = useStore()
+  const getView = useCallback(() => {
+    const view = store.libraryView?.(section)
+    return view && typeof view.query === 'string' ? view : null
+  }, [store, section])
+  return useSyncExternalStore(store.subscribeLibraryViews ?? noLibraryViewSubscription, getView, getView)
 }
 
 /** Selects a slice, re-rendering only when the selected value changes identity. */

@@ -1,5 +1,5 @@
 import { measureDestination, expectPageJourney, expectDestinationTab } from './frame-page-contract'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { selectFrameTab } from './frame-actions'
 import { openFrame } from './frame-contract-helpers'
 
@@ -7,15 +7,31 @@ import { openFrame } from './frame-contract-helpers'
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 // E7 measures the real App through the assembled shared preview.
+const openPlugins = async (page: Page): Promise<void> => {
+  await page.locator('[data-left-column]:visible').getByRole('button', { name: 'Customize', exact: true }).click()
+  await page.getByRole('radiogroup', { name: 'Customize sections', exact: true }).getByRole('radio', { name: 'Plugins', exact: true }).click()
+}
 
-for (const width of [1440, 720]) test(`E7 Plugins door preserves normal history and retained work ${width}`, async ({ page }) => {
-  await expectPageJourney(page, 'Plugins', 'plugins', width)
+for (const width of [1440, 720]) test(`E7 Customize Plugins section preserves normal history and retained work ${width}`, async ({ page }) => {
+  await expectPageJourney(page, 'Customize', 'library', width)
+  const sidebar = page.getByRole('dialog', { name: 'Sidebar', exact: true })
+  if (await sidebar.isVisible()) await sidebar.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
+  await page.getByRole('radiogroup', { name: 'Customize sections', exact: true }).getByRole('radio', { name: 'Plugins', exact: true }).click()
+  await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+  await expect(page.locator('[data-page-journey="remembered"]')).toHaveCount(1)
+  await page.keyboard.press('Meta+]')
+  await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+]')
+  await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(1)
 })
 test('E7 Plugins column New session and session rows navigate away with Back', async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
   const column = page.locator('[data-left-column]:visible')
-  const plugins = column.getByRole('button', { name: 'Plugins', exact: true })
-  await plugins.click()
+  await openPlugins(page)
   await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(1)
   await column.getByRole('button', { name: 'New session', exact: true }).click()
   await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(0)
@@ -28,7 +44,7 @@ test('E7 Plugins column New session and session rows navigate away with Back', a
 })
 test('E7 Plugins More offers the chosen project Terminal', async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
-  await page.locator('[data-left-column]:visible').getByRole('button', { name: 'Plugins', exact: true }).click()
+  await openPlugins(page)
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
   await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
 })
@@ -61,7 +77,7 @@ test('E7 Plugins capabilities and named detail share destination history', async
   await page.keyboard.press('Meta+[')
   await expect(page.getByRole('searchbox', { name: 'Search plugins', exact: true })).toBeVisible()
   await page.keyboard.press('Meta+[')
-  await expect(page.locator('[data-page-destination="plugins"]:visible h1')).toHaveText('Plugins')
+  await expect(page.locator('[data-page-destination="plugins"]:visible h1')).toHaveText('Customize')
   await expectDestinationTab(page, 'capabilities')
   await expect(page.getByRole('searchbox', { name: 'Search capabilities', exact: true })).toBeVisible()
   await page.keyboard.press('Meta+]')
@@ -103,11 +119,11 @@ test('E7 Plugins failed detail keeps its reason and guarded source actions', asy
 
 {
 
-  for (const [item0, label] of (['Agents', 'Library', 'Dashboard', 'Settings']).entries()) test(`E7 Plugins every other normal column destination door navigates away [item ${[item0].join('-')}]`, async ({ page }) => {
+  for (const [item0, label] of (['Agents', 'Customize', 'Dashboard', 'Settings']).entries()) test(`E7 Plugins every other normal column destination door navigates away [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=navigation', 'light')
     const column = page.locator('[data-left-column]:visible')
-    await column.getByRole('button', { name: 'Plugins', exact: true }).click()
+    await openPlugins(page)
     await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(1)
     await column.getByRole('button', { name: label, exact: true }).click()
     await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(0)

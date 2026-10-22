@@ -487,7 +487,7 @@ test('coverage does not spend visibility probes on unrelated DOM leaves', async 
 
 test('a published destination bar credits only its active visible registration', async ({ page }) => {
   await page.goto('/preview.html?frame-wall=library')
-  await expect(page.locator('[data-page-destination="library"]:visible h1')).toHaveText('Library')
+  await expect(page.locator('[data-page-destination="library"]:visible h1')).toHaveText('Customize')
   await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toHaveCount(0)
   const before = await collectCoverage(page)
   expect(before.covered).toContain('panels/destination-page.tsx#DestinationBar')
@@ -598,6 +598,20 @@ test.describe('preview coverage', () => {
       const result = await collectCoverage(page)
       allComponents = result.allComponents
       for (const file of result.covered) covered.add(file)
+    })
+
+    test('coverage page: named runtime command detail', async () => {
+      const page = getPage()
+      await page.goto('/preview.html?frame-wall=settings&frame-detail=skill')
+      const detail = page.locator('[data-page-destination="settings"]:visible')
+      await expect(detail.getByRole('button', { name: 'Back to Customize', exact: true })).toBeVisible()
+      await expect(detail.getByRole('button', { name: 'Use in composer', exact: true })).toBeVisible()
+      const result = await collectCoverage(page)
+      expect(result.covered).toEqual(expect.arrayContaining([
+        'components/Settings.tsx#SkillsSection',
+        'components/RuntimeSkills.tsx#RuntimeSkillPage',
+      ]))
+      for (const component of result.covered) covered.add(component)
     })
 
     for (const [query, title, component] of [

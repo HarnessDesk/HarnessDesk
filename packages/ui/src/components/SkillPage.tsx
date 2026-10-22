@@ -196,7 +196,7 @@ export const SkillPage = ({ entry, columns, hosts, cwd, usage, home, onBack, onC
           if (!received) store.notice('warning', 'The message box did not take it — click into the conversation and try again.')
         })
       }}><SlashIcon size={13} />Use in composer</Button>
-      <Button variant="ghost" size="sm" onClick={onBack}>Back to Library</Button>
+      <Button variant="ghost" size="sm" onClick={onBack}>Back to Customize</Button>
       <Chip tone={update?.status === 'behind' ? 'info' : 'neutral'}>{update?.status === 'behind' ? 'Update available' : 'Skill'}</Chip>
     </Toolbar></PageOptions>
     {entry.description && <Markdown text={entry.description} document />}

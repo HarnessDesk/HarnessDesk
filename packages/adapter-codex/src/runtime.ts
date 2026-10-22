@@ -950,26 +950,24 @@ export class CodexRuntime implements AgentRuntime {
 
   /** Configured hooks with their trust state, flattened across the scanned roots. */
   async listHooks(cwd?: string): Promise<readonly HookInfo[]> {
-    try {
-      const response = await this.#server.request('hooks/list', cwd ? { cwds: [cwd] } : {})
-      const seen = new Map<string, HookInfo>()
-      for (const entry of response.data) {
-        for (const hook of entry.hooks) {
-          if (seen.has(hook.key)) continue
-          seen.set(hook.key, {
-            id: hook.key,
-            event: hook.eventName,
-            source: hook.source,
-            trust: hook.trustStatus,
-            enabled: hook.enabled,
-            managed: hook.isManaged,
-          })
-        }
+    // A failed read must reach the caller's retry state; only a successful
+    // hooks/list answer can establish that no hooks are configured.
+    const response = await this.#server.request('hooks/list', cwd ? { cwds: [cwd] } : {})
+    const seen = new Map<string, HookInfo>()
+    for (const entry of response.data) {
+      for (const hook of entry.hooks) {
+        if (seen.has(hook.key)) continue
+        seen.set(hook.key, {
+          id: hook.key,
+          event: hook.eventName,
+          source: hook.source,
+          trust: hook.trustStatus,
+          enabled: hook.enabled,
+          managed: hook.isManaged,
+        })
       }
-      return [...seen.values()]
-    } catch {
-      return []
     }
+    return [...seen.values()]
   }
 
   async getRateLimits(): Promise<RateLimits | null> {

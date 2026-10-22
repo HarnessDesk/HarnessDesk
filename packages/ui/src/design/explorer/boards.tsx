@@ -25,6 +25,8 @@ import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../../state/store'
 import {
   AccountMark,
+  CustomizeTabs,
+  type CustomizeSection,
   ComposerNotice,
   Checklist,
   ChecklistItem,
@@ -170,6 +172,9 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
   </div>
 )
 
+const CUSTOMIZETABS_CATALOG_VARIANTS = ['chips'] as const
+const CUSTOMIZETABS_CATALOG_SIZES = ['sm'] as const
+const CUSTOMIZETABS_CATALOG_STATES = ['selected', 'unselected'] as const
 const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
 const BUTTON_CATALOG_SIZES = ['default', 'wrap', 'xs', 'sm', 'control', 'sidebar-nav', 'icon-label', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
@@ -284,7 +289,6 @@ const SidebarBoard = () => (
     <div className="relative h-[48rem] w-[12.5rem] max-w-full overflow-hidden rounded-(--hd-radius) border border-sidebar-border">
       <Mount with={fullSidebarStore}><ProductSidebar
         onOpenSettings={() => {}}
-        onOpenPlugins={() => {}}
         onOpenTeams={() => {}} onOpenAgents={() => {}}
         onOpenUsage={() => {}}
         onBrowseFolders={() => {}}
@@ -317,7 +321,6 @@ const SidebarBoard = () => (
         <Mount>
           <ProductSidebar
             onOpenSettings={() => {}}
-            onOpenPlugins={() => {}}
             onOpenTeams={() => {}} onOpenAgents={() => {}}
             onOpenUsage={() => {}}
             onBrowseFolders={() => {}}
@@ -500,6 +503,7 @@ const StateBoard = () => (
 const ControlBoard = () => {
   const [on, setOn] = useState(true)
   const [effort, setEffort] = useState<'low' | 'medium' | 'high'>('medium')
+  const [customize, setCustomize] = useState<CustomizeSection>('skill')
   return (
     <>
       <div className={styles.matrix}>
@@ -586,6 +590,7 @@ const ControlBoard = () => {
           </div>
           </div>
         </Case>
+        <Case label="Customize navigation"><div data-catalog-variants={CUSTOMIZETABS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={CUSTOMIZETABS_CATALOG_SIZES.join(' ')} data-catalog-states={CUSTOMIZETABS_CATALOG_STATES.join(' ')}><CustomizeTabs value={customize} onChange={setCustomize} /></div></Case>
         <Case label="selection action"><SelectionActionExample /></Case>
       </div>
       <p className={styles.rule}>

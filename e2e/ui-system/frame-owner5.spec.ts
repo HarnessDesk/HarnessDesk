@@ -179,10 +179,15 @@ test('Owner 5 terminal stays available on project pages and retains its shells a
   await expect(page.locator('[data-terminal-shell-tabs]')).toBeVisible()
 
   for (const [label, destination] of [
-    ['Dashboard', 'dashboard'], ['Agents', 'agents'], ['Teams', 'teams'], ['Library', 'library'], ['Plugins', 'plugins'],
+    ['Dashboard', 'dashboard'], ['Agents', 'agents'], ['Teams', 'teams'], ['Customize', 'library'], ['Customize · Plugins', 'plugins'],
   ] as const) {
-    await page.getByRole('navigation', { name: 'Workspace actions' }).getByRole('button', { name: label, exact: true }).click()
+    await page.getByRole('navigation', { name: 'Workspace actions' }).getByRole('button', { name: destination === 'plugins' ? 'Customize' : label, exact: true }).click()
+    if (destination === 'plugins') await page.getByRole('radiogroup', { name: 'Customize sections', exact: true }).getByRole('radio', { name: 'Plugins', exact: true }).click()
     await expectProjectPage(destination)
+    if (destination === 'plugins') {
+      await page.keyboard.press('Meta+[')
+      await expectProjectPage('library')
+    }
     await returnToWork()
   }
 

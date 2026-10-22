@@ -1,3 +1,4 @@
+import { openCustomizeSkills } from '../state/library-views'
 import { MainPages, isMainPage } from './MainPages'
 import { destinationForSettings } from './settings-destination'
 import type { PageDestination } from '../state/destinations'
@@ -85,9 +86,13 @@ export const App = () => {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const openPage = useCallback((target: PageDestination) => store.openDestination(target), [store])
   const openSettingsAt = useCallback((section: Section, focus: string | null) => {
+    if (section === 'skills') {
+      openCustomizeSkills(store, store.getSnapshot().activeRuntime ?? '')
+      return
+    }
     const target=destinationForSettings(section,focus)
     openPage(target)
-  },[openPage])
+  },[openPage,store])
   const openAgents = useCallback((focus?:string)=>openPage({kind:'agents',id:focus??null}),[openPage])
   const openTeams = useCallback(()=>openPage({kind:'teams',filter:'active'}),[openPage])
   const openUsage = useCallback((runtime?:RuntimeId)=>openPage({kind:'dashboard',...dashboardRouteFor(runtime)}),[openPage])
@@ -387,7 +392,7 @@ export const App = () => {
     :current.route.kind==='project'?'workspaces':current.route.kind==='skill'?'skills':'runtimes'
   const renderLeftColumn=()=><Sidebar active
     listFilter={{value:leftFilter,onChange:setLeftFilter}} sessionsOwner
-    onOpenSettings={section=>openSettingsAt(section??'runtimes',null)} onOpenLibrary={()=>openSettingsAt('library',null)} onOpenPlugins={()=>openSettingsAt('plugins',null)}
+    onOpenSettings={section=>openSettingsAt(section??'runtimes',null)} onOpenLibrary={()=>openSettingsAt('library',null)}
     onOpenAgents={()=>openAgents()} onOpenTeams={openTeams} onOpenFlows={()=>openPage({kind:'flows',root:null,id:null,origin:null})} onOpenUsage={openUsage} onBrowseFolders={chooseFolder}
     onSignIn={runtime=>setSignInOpen(runtime??true)} onSearch={()=>setPaletteOpen(true)}
     activeDestination={pageActive && current.kind!=='settings' && current.kind!=='changes-review'?current.kind

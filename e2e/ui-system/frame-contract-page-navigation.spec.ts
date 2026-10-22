@@ -1,9 +1,17 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { PAGE_WALL_DESTINATIONS } from './frame-wall-destinations'
 import { openFrame } from './frame-contract-helpers'
+import { selectFrameTab } from './frame-actions'
 import { useFrameContractEvidence } from './frame-contract-split-setup'
 
 useFrameContractEvidence()
+
+const openDestination = async (page: Page, kind: string): Promise<void> => {
+  const label = kind === 'library' || kind === 'plugins' ? 'Customize' : kind[0]!.toUpperCase() + kind.slice(1)
+  await page.locator('[data-left-column]:visible').getByRole('button', { name: label, exact: true }).click()
+  if (kind === 'library') await selectFrameTab(page, 'skill')
+  else if (kind === 'plugins') await page.getByRole('radiogroup', { name: 'Customize sections', exact: true }).getByRole('radio', { name: 'Plugins', exact: true }).click()
+}
 
 
 // The retired window stopgap survives as navigation behavior on actual pages.
@@ -14,7 +22,7 @@ for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plug
         const open = async () => {
           await openFrame(page, 'frame-wall=navigation&frame-review=1', 'light')
           if (kind === 'changes-review') await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
-          else await page.locator('[data-left-column]:visible').getByRole('button', { name: kind === 'settings' ? 'Settings' : kind[0]!.toUpperCase() + kind.slice(1), exact: true }).click()
+          else await openDestination(page, kind)
           await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
         }
         await open()
@@ -32,28 +40,30 @@ for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plug
     }
   }
   if (kind !== 'settings') {
-    for (const label of ['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard', 'Settings', 'New session', 'conversation']) {
-      if (label.toLowerCase() === kind) continue;
+    for (const label of ['Teams', 'Agents', 'Customize', 'Customize · Plugins', 'Dashboard', 'Settings', 'New session', 'conversation']) {
+      const target = label === 'Customize' ? 'library' : label === 'Customize · Plugins' ? 'plugins' : label.toLowerCase()
+      if (target === kind) continue;
       test(`E9 owner page ${kind} every column door and work row navigates: ${label}`, async ({ page }) => {
 
 
         await openFrame(page, 'frame-wall=navigation&frame-review=1', 'light')
         const column = page.locator('[data-left-column]:visible')
         if (kind === 'changes-review') await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
-        else await column.getByRole('button', { name: kind[0]!.toUpperCase() + kind.slice(1), exact: true }).click()
+        else await openDestination(page, kind)
         await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
         if (label === 'conversation') await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().click()
-        else await column.getByRole('button', { name: label, exact: true }).click()
+        else if (label === 'New session') await column.getByRole('button', { name: label, exact: true }).click()
+        else await openDestination(page, target)
         await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(0)
         if (label === 'conversation' || label === 'New session') await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
-        else await expect(page.locator(`[data-page-destination="${label.toLowerCase()}"]:visible`)).toHaveCount(1)
+        else await expect(page.locator(`[data-page-destination="${target}"]:visible`)).toHaveCount(1)
       })
     }
   }
 }
 
 // E9: the More door exists only while its destination has at least one row.
-test(`E9 every destination More either stays absent or opens rows, and returns for actions: Dashboard-to-Library journey`, async ({ page }) => {
+test(`E9 every destination More either stays absent or opens rows, and returns for actions: Dashboard-to-Customize journey`, async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
   const column = page.locator('[data-left-column]:visible')
   const more = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
@@ -63,7 +73,7 @@ test(`E9 every destination More either stays absent or opens rows, and returns f
   await more.click()
   await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
   await page.keyboard.press('Escape')
-  await column.getByRole('button', { name: 'Library', exact: true }).click()
+  await openDestination(page, 'library')
   await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(1)
   await expect(more).toBeVisible()
   await more.click()
@@ -124,7 +134,7 @@ test('R10 nav4 opening the fourth storefront conversation keeps project recency 
 
 for (const kind of ['library', 'plugins', 'dashboard']) test(`E9 owner Escape leaves the former ${kind} window destination`, async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
-  await page.locator('[data-left-column]:visible').getByRole('button', { name: kind[0]!.toUpperCase() + kind.slice(1), exact: true }).click()
+  await openDestination(page, kind)
   await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
   const more = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
   if (kind === 'library') {

@@ -1,3 +1,6 @@
+import type { RuntimeId } from '@harnessdesk/protocol'
+import type { AppStore } from './store'
+
 /**
  * The Library's own view choices, remembered per section for one app run.
  *
@@ -19,8 +22,18 @@ export interface LibraryViewState {
   readonly chip: LibraryViewChip
   /** MCP keeps its List/Matrix choice. */
   readonly view: 'list' | 'matrix'
-  /** Skills keep their Cards/Matrix choice. */
-  readonly skillView: 'cards' | 'matrix'
+  /** Skills keep their Cards/List/Matrix choice. */
+  readonly skillView: 'cards' | 'list' | 'matrix'
+  /** Runtime selected for skills in Customize; empty means all runtimes. */
+  readonly runtime?: RuntimeId | ''
 }
 
 export const emptyLibraryView = (): LibraryViewState => ({ filter: 'all', query: '', chip: 'all', view: 'list', skillView: 'cards' })
+
+/** Native Skills links and the legacy Settings list share the same scoped entrance. */
+export const openCustomizeSkills = (store: Pick<AppStore, 'libraryView' | 'setLibraryView' | 'openDestination' | 'replaceDestination'>, runtime: RuntimeId | '', mode: 'visit' | 'replace' = 'visit'): void => {
+  store.setLibraryView('skill', { ...store.libraryView('skill'), runtime })
+  const target = { kind: 'library', section: 'skill' } as const
+  if (mode === 'replace') store.replaceDestination(target)
+  else store.openDestination(target)
+}

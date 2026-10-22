@@ -104,13 +104,16 @@ it('a settings page is reached by the name on its nav row', async () => {
   expect(openSettings).toHaveBeenCalledWith('appearance')
 })
 
-it('the Skills page is reached by the name its nav row shows (#219)', async () => {
+it('Skills searches reach Customize once, including the runtime’s command label', async () => {
   // Every ACP agent calls it "Skills & commands", and so does the Settings nav.
   const runtime = { id: 'gemini', name: 'gemini', presentation: { name: 'Gemini CLI', skillsLabel: 'Skills & commands' } }
   const { openSettings } = await mount({ runtimes: [runtime], activeRuntime: 'gemini' } as unknown as Partial<AppSnapshot>)
   type('skills & commands')
-  await choose('Settings › Skills & commands')
-  expect(openSettings).toHaveBeenCalledWith('skills')
+  const labels = [...document.body.querySelectorAll('[role="option"]')].map(one => one.textContent)
+  expect(labels.filter(label => label?.includes('Customize'))).toHaveLength(1)
+  expect(labels.some(label => label?.includes('Settings › Skills'))).toBe(false)
+  await choose('Customize')
+  expect(openSettings).toHaveBeenCalledWith('library')
 })
 
 it('Agents opens the window, never Settings — it is not one of the settings pages', async () => {

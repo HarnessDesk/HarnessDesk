@@ -43,5 +43,5 @@ export const BoardCard = ({label,title,titleAside,titleProps,detail,detailProps,
 
 
 /** Opening cards share a responsive grid that becomes one column within a narrow pane. */
-export const BoardCardGrid = ({children,...props}: ComponentPropsWithoutRef<'div'>) =>
- <div data-slot="board-card-grid" {...props} className={styles.grid}>{children}</div>
+export const BoardCardGrid = ({children, layout, ...props}: ComponentPropsWithoutRef<'div'> & { readonly layout?: 'catalogue' }) =>
+ <div data-slot="board-card-grid" {...props} data-layout={layout} className={styles.grid}>{children}</div>

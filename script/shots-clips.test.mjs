@@ -101,8 +101,60 @@ test('guest pointer targets include the recorded iframe zoom and offset', () => 
     { x: 316, y: 100, width: 100, height: 40 })
 })
 
-test('the Library story reads the skill page and returns through Back to Library', () => {
+test('the Library story reads the skill page and returns through Back to Customize', () => {
   const clicks = clips.CLIP_SCENES.library.actions.filter(action => action.kind === 'click')
-  assert.equal(clicks.at(-1).target.name, 'Back to Library')
+  assert.equal(clicks.at(-1).target.name, 'Back to Customize')
   assert.match(clips.CLIP_SCENES.library.caption, /runtimes/)
+})
+
+
+test('the Library recorder prepares comparison through View and restores a collapsed list from skill details', async () => {
+  const state = { view: 'cards', menu: false, detail: false, expanded: false }
+  const clicks = []
+  let returning = false
+  const page = {
+    getByRole(role, { name, exact }) {
+      assert.equal(exact, true)
+      if (role === 'button' && name === 'View') return { click: async () => { state.menu = true; clicks.push('View') } }
+      if (role === 'menuitemradio' && name === 'Runtime comparison') return { click: async () => {
+        assert.equal(state.menu, true, 'comparison is chosen from the open View menu')
+        state.view = 'matrix'; state.menu = false; clicks.push('Runtime comparison')
+      } }
+      if (role === 'button' && name === 'Back to Customize') return {
+        count: async () => Number(state.detail),
+        click: async () => { assert.equal(state.detail, true); state.detail = false; returning = true; clicks.push('Back to Customize') },
+      }
+      throw new Error(`Unavailable recorder control: ${role} ${name}`)
+    },
+    locator(selector) {
+      assert.equal(selector, 'button[aria-expanded]:has-text("code-review")')
+      const skill = {
+        first: () => skill,
+        getAttribute: async name => {
+          assert.equal(name, 'aria-expanded')
+          assert.equal(state.detail, false, 'return to Customize before reading the matrix row')
+          assert.equal(returning, false, 'the paused clock advances before reading the returned matrix row')
+          assert.equal(state.view, 'matrix')
+          return String(state.expanded)
+        },
+        evaluate: async callback => callback({ click() { state.expanded = false; clicks.push('Collapse code-review') } }),
+      }
+      return skill
+    },
+    evaluate: async () => {},
+    clock: { runFor: async () => { returning = false } },
+  }
+  await clips.prepare(page, 'library')
+  assert.deepEqual(state, { view: 'matrix', menu: false, detail: false, expanded: false })
+  state.expanded = true
+  state.detail = true
+  await clips.restore(page, 'library')
+  assert.deepEqual(state, { view: 'matrix', menu: false, detail: false, expanded: false })
+  assert.deepEqual(clicks, ['View', 'Runtime comparison', 'Back to Customize', 'Collapse code-review'])
+  await clips.restore(page, 'library')
+  assert.equal(clicks.length, 4, 'an already-restored clip stays still')
+  state.expanded = true
+  await clips.restore(page, 'library')
+  assert.equal(state.expanded, false, 'reset also collapses a row before the detail page was opened')
+  assert.deepEqual(clicks.slice(4), ['Collapse code-review'])
 })

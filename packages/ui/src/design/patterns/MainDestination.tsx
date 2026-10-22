@@ -2,7 +2,8 @@
 import { useLayoutEffect, type ReactNode } from 'react'
 import { dismissOverlays } from '../../lib/overlays'
 import styles from './MainDestination.module.css'
-/** Keep work and visited pages mounted; only the active main layer is interactive. */
+/** Keep work and visited pages mounted; only the active main layer is interactive.
+ * Page scroll owners end above the measured floating result stack. */
 export const MainDestination = ({ page, work, pages }: {
   readonly page: boolean; readonly work: ReactNode; readonly pages?: ReactNode
 }) => {

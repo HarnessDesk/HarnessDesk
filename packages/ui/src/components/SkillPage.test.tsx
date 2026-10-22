@@ -52,12 +52,12 @@ it('visits a wide skill detail and returns to Library through the head and histo
   await mount()
   expect(box.querySelector('[data-slot="page"]')?.getAttribute('data-width')).toBe('wide')
   expect(page()).toBeTruthy(); expect(page().closest('[role="dialog"]')).toBeNull()
-  await press('Back to Library'); expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'library', section: 'skill' })
+  await press('Back to Customize'); expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'library', section: 'skill' })
   await act(async () => { await store.navigateBack(); await new Promise(resolve => requestAnimationFrame(resolve)) }); expect(page()).toBeTruthy()
 })
-it('shows one short missing-name state with Back to Library', async () => {
-  await mount([], 'removed'); expect(box.querySelector('[data-slot="empty-state"]')?.textContent).toBe('Skill not foundBack to Library')
-  expect(box.querySelector('[data-slot="empty-state"] p')).toBeNull(); await press('Back to Library')
+it('shows one short missing-name state with Back to Customize', async () => {
+  await mount([], 'removed'); expect(box.querySelector('[data-slot="empty-state"]')?.textContent).toBe('Skill not foundBack to Customize')
+  expect(box.querySelector('[data-slot="empty-state"] p')).toBeNull(); await press('Back to Customize')
   expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'library', section: 'skill' })
 })
 it('heads the page with its name, description, Skill chip, one composer verb and More', async () => {
@@ -129,7 +129,7 @@ it('keeps a fetch failure in place of commits and ignores a late fetch after Bac
   const request = await mount([skill({ update: [update('behind')] })]); request.mockRejectedValueOnce(new Error('No repository.'))
   await press('Review update…'); expect(card('Update')?.textContent).toContain('No repository.'); expect(card('Update')?.textContent).not.toContain('1234567 →')
   let finish!: (value: unknown) => void; request.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }) as never)
-  await press('Review update…'); await press('Back to Library'); expect(page()).toBeNull(); await act(async () => finish({ commit: 'fresh', skills: [{ dir: 'review', bundle: 'bundle' }], refused: [] }))
+  await press('Review update…'); await press('Back to Customize'); expect(page()).toBeNull(); await act(async () => finish({ commit: 'fresh', skills: [{ dir: 'review', bundle: 'bundle' }], refused: [] }))
   expect(request.mock.calls.some(([m]) => m === 'library/plan')).toBe(false)
 })
 it('Loaded by toggles the reported path on the named runtime and previews Install on the missing runtime', async () => {
@@ -175,7 +175,7 @@ it('reports a failed Library read without claiming the skill is missing', async 
   await mount([], 'review', null, 'The library did not answer.')
   expect(box.textContent).toContain('The library did not answer.')
   expect(box.textContent).not.toContain('Skill not found')
-  await press('Back to Library')
+  await press('Back to Customize')
   expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'library', section: 'skill' })
 })
 

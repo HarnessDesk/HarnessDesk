@@ -18,7 +18,7 @@ beforeEach(() => { host = document.createElement('div'); document.body.append(ho
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); vi.restoreAllMocks() })
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('button,[role="menuitem"]')].find(node => node.textContent?.includes(label))!
 const task = (id: string, state: BackgroundTask['state'] = 'running'): BackgroundTask => ({ id, label: id, kind: 'command', state, command: 'node review.mjs', output: 'Recorded output', cwd: '/work/storefront', stoppable: true })
-const sidebarProps = { onOpenSettings: () => {}, onOpenPlugins: () => {}, onOpenAgents: () => {}, onOpenTeams: () => {}, onOpenUsage: vi.fn(), onBrowseFolders: () => {}, onSignIn: vi.fn(), onSearch: () => {} }
+const sidebarProps = { onOpenSettings: () => {}, onOpenAgents: () => {}, onOpenTeams: () => {}, onOpenUsage: vi.fn(), onBrowseFolders: () => {}, onSignIn: vi.fn(), onSearch: () => {} }
 it('seat menu owns every plan and scoped Open usage actions', async () => {
   const store = previewStore()
   await act(async () => root.render(<StoreProvider store={store}><Sidebar {...sidebarProps} /></StoreProvider>))

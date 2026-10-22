@@ -281,6 +281,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-toast-gap` | `16px` |
 | `--hd-composer-clearance` | `0px` |
 | `--hd-toast-bottom` | `16px` |
+| `--hd-toast-clearance` | `0px` |
 | `--hd-composer-min` | `44px` |
 | `--hd-composer-max` | `320px` |
 | `--hd-composer-line` | `20px` |
@@ -1427,6 +1428,12 @@ this layer has no store — so it is handed back rather than dropped. A row
 that stays shown while the tick is up hears about it through
 `onCopiedChange`.
 
+### `CustomizeTabs`
+
+`packages/ui/src/design/patterns/CustomizeTabs.tsx`
+
+One section vocabulary for the shared capability destination.
+
 ### `DashboardBands`
 
 `packages/ui/src/design/patterns/DashboardBands.tsx`
@@ -1940,6 +1947,7 @@ and the picture's facts.
 `packages/ui/src/design/patterns/MainDestination.tsx`
 
 Keep work and visited pages mounted; only the active main layer is interactive.
+Page scroll owners end above the measured floating result stack.
 
 ### `DestinationBody`
 
@@ -2863,9 +2871,9 @@ before anyone edits the source.
 | `agent-parse` | 5 | 3 | 0 |
 | `agent-refused` | 8 | 3 | 0 |
 | `agent-missing` | 6 | 3 | 0 |
-| `library` | 12 | 4 | 0 |
+| `library` | 15 | 4 | 0 |
 | `plugins-installed` | 4 | 1 | 0 |
-| `plugins-capabilities` | 13 | 1 | 0 |
+| `plugins-capabilities` | 14 | 1 | 0 |
 | `plugins-detail` | 5 | 1 | 0 |
 | `plugins-failed` | 4 | 1 | 0 |
 | `dashboard-overview` | 16 | 2 | 0 |
@@ -2884,7 +2892,7 @@ before anyone edits the source.
 | `settings-storage` | 3 | 0 | 0 |
 | `settings-runtimes` | 3 | 2 | 0 |
 | `settings-models` | 4 | 0 | 0 |
-| `settings-skills` | 4 | 0 | 0 |
+| `settings-skills` | 7 | 1 | 0 |
 | `settings-extensions` | 3 | 2 | 0 |
 | `settings-permissions` | 3 | 0 | 0 |
 | `settings-browser` | 3 | 0 | 0 |
@@ -2909,4 +2917,4 @@ before anyone edits the source.
 | `menu-suggestions` | 8 | 3 | 0 |
 | `menu-inbox` | 8 | 3 | 0 |
 | `menu-palette` | 8 | 3 | 0 |
-| **total** | 696 | 161 | 10 |
+| **total** | 703 | 162 | 10 |

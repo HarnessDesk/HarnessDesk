@@ -10,12 +10,15 @@ import { RUN_FLOW_SOURCE } from './run-view-fixture'
 installTopBarTestLayout()
 const settle = () => act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
 const selectLibraryMatrix = async (host: ParentNode): Promise<void> => {
-  const matrix = host.querySelector<HTMLButtonElement>('[role="radio"][aria-label="Matrix"]')
+  const view = host.querySelector<HTMLButtonElement>('[data-slot="library-skills-controls"] button[title="View"]')
+  expect(view).toBeTruthy()
+  await act(async () => view!.click())
+  const matrix = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(item => item.textContent === 'Runtime comparison')
   expect(matrix).toBeTruthy()
   await act(async () => matrix!.click())
 }
 
-it('retains a Library inventory and its expanded skill while visiting the installed plugin page', async () => {
+it('retains a Customize skill inventory and its expanded skill while visiting installed plugins', async () => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   window.history.replaceState(null, '', '/?release-stills=library')
   const container = document.createElement('div')
@@ -23,7 +26,7 @@ it('retains a Library inventory and its expanded skill while visiting the instal
   const root = createRoot(container)
   try {
     await act(async () => root.render(<ReleaseStills />))
-    expect(container.textContent).toContain('Library')
+    expect(container.querySelector('[data-page-destination="library"] h1')?.textContent).toBe('Customize')
     await selectLibraryMatrix(container)
     expect(container.querySelector('[data-slot="library-matrix"]')).toBeTruthy()
     const skill = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.startsWith('code-review'))
@@ -32,7 +35,8 @@ it('retains a Library inventory and its expanded skill while visiting the instal
     expect(skill!.getAttribute('aria-expanded')).toBe('true')
     expect(container.textContent).toContain('Read the definition')
     const column = container.querySelector('[data-left-column]')!
-    const plugins = [...column.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent==='Plugins')!
+    const plugins = [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Customize sections"] button')].find(button => button.textContent==='Plugins')!
+    expect(plugins).toBeTruthy()
     await act(async()=>plugins.click()); await settle()
     expect(container.textContent).toContain('Project docs')
     expect(container.textContent).toContain('Project checks')

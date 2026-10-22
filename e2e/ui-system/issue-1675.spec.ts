@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
+import { applyPageFrameActions } from './frame-page-actions'
 
 const phase = process.env.ISSUE_1675_CAPTURE
 for (const theme of ['light', 'dark']) {
@@ -15,7 +16,7 @@ for (const theme of ['light', 'dark']) {
         if (scene === 'team') await page.getByRole('button', { name: 'Configure Writes', exact: true }).scrollIntoViewIfNeeded()
         if (scene.startsWith('library')) await expect(page.getByText('code-review', { exact: true }).first()).toBeVisible()
         if (scene === 'library-matrix') {
-          await page.getByRole('radio', { name: 'Matrix', exact: true }).click()
+          await applyPageFrameActions(page, { bodyChoice: { label: 'View', value: 'matrix', item: 'Runtime comparison' } })
         }
         if (scene === 'library-page') {
           await page.getByText('code-review', { exact: true }).first().click()
