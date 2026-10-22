@@ -62,7 +62,12 @@ export const readLeadEvidence = async (journal: Pick<LeadJournal, 'state'>, runI
     findingsComplete: !findings.embargoed, findings: findings.blocking ? [{ id: `${runId}:blocking`, revision, blocking: true, resolved: false }] : [], diffs: [] }
 }
 
-/** What the Lead may name in a plan: every runtime that answers now, once for each role. The host still
+/** Whether a runtime may be named in a Lead plan: one that answers now, or one stopped while idle that seating starts
+ * on demand. A runtime that cannot start (not installed, crashed) is never offered. */
+export const leadSeatable = (health: { readonly state: string }): boolean =>
+  health.state === 'ready' || health.state === 'idle' || health.state === 'starting'
+
+/** What the Lead may name in a plan: every runtime that answers now or starts on demand, once for each role. The host still
  * checks a plan against its real seating before a card and again before a start. */
 export const leadSeatChoices = (ready: readonly string[]): LeadSeatChoices | undefined =>
   ready.length === 0 ? undefined : parseLeadSeatChoices({ implement: ready.map(runtime => ({ runtime })), review: ready.map(runtime => ({ runtime })) })

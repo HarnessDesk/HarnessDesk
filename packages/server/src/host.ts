@@ -130,7 +130,7 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { LeadAssembly } from './lead/assembly.js'
+import { LeadAssembly, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
@@ -3551,7 +3551,7 @@ export class Host {
   #assembleLead(): LeadAssembly {
     return new LeadAssembly({ home: this.#state.directory, now: () => Date.now(),
       workspace: async () => this.#state.state.workspaces.find(one => !isManagedChatFolder(this.#state, one.path))?.path ?? null,
-      readySeats: () => [...this.#runtimes.values()].filter(runtime => runtime.health().state === 'ready').map(runtime => String(runtime.info.id)),
+      readySeats: () => [...this.#runtimes.values()].filter(runtime => leadSeatable(runtime.health())).map(runtime => String(runtime.info.id)),
       heldPreview: token => this.#flowPreviews.leadHeld(token),
       create: async inputs => { await this.createLeadService({ ...inputs, ...(this.options.leadMessagesTransport ? { messagesTransport: this.options.leadMessagesTransport } : {}) }).setEnabled(true) } })
   }

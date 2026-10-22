@@ -4,7 +4,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import test, { after } from 'node:test'
 import { createLeadJournal, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract } from '@harnessdesk/protocol'
-import { freezeLeadPlan, leadProjectOf, leadSeatChoices, readLeadEvidence } from '../src/lead/assembly.js'
+import { freezeLeadPlan, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence } from '../src/lead/assembly.js'
 import { tempDir } from './scratch.js'
 
 // The desktop's own path (`createDefaultHost`) in an isolated process: no real agent homes, login shell,
@@ -208,4 +208,11 @@ test('plans freeze to the sha256 of their canonical JSON, projects are named by 
   assert.notEqual(leadProjectOf('/work/acme').id, leadProjectOf('/work/other').id)
   assert.equal(leadSeatChoices([]), undefined)
   assert.deepEqual(leadSeatChoices(['fixture'])?.implement.map(seat => seat.runtime), ['fixture'])
+})
+
+test('a Lead plan may name a runtime stopped while idle, never one that cannot start', () => {
+  assert.equal(leadSeatable({ state: 'ready' }), true)
+  assert.equal(leadSeatable({ state: 'idle' }), true)
+  assert.equal(leadSeatable({ state: 'starting' }), true)
+  assert.equal(leadSeatable({ state: 'unavailable' }), false)
 })
