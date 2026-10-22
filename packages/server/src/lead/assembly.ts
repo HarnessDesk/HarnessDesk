@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject } from '@harnessdesk/protocol'
+import type { FlowPreview, LeadAcceptanceContract, LeadPermissionPolicy, LeadProject } from '@harnessdesk/protocol'
 import { createLeadJournal, leadBudgetProjection, LEAD_MESSAGES_DEFAULTS, parseLeadSeatChoices,
   type LeadAcceptanceEvidence, type LeadJournal, type LeadPermissionCall, type LeadResolvedTool, type LeadSeatChoices, type MessagesPrice } from '@harnessdesk/lead'
 import { LeadFileJournal } from './journal.js'
@@ -65,6 +65,18 @@ export const readLeadEvidence = async (journal: Pick<LeadJournal, 'state'>, runI
 
 /** Whether a runtime may be named in a Lead plan: one that answers now, or one stopped while idle that seating starts
  * on demand. A runtime that cannot start (not installed, crashed) is never offered. */
+/**
+ * What a held preview of one plan step says about the plan, before providers are compared: a seat passed over
+ * only because its provider matches, or cannot be told from, the one it must be independent of is the
+ * independence answer (the fix is another provider); any other seat that cannot hold is unseatable.
+ */
+export const leadPreviewUnfit = (preview: FlowPreview | null): LeadPlanUnfit | null => {
+  if (preview?.seats.some(seat => seat.plan.winner === null && seat.plan.candidates.length > 0 &&
+    seat.plan.candidates.every(candidate => candidate.reason?.kind === 'sameProvider' || candidate.reason?.kind === 'unknownProvider'))) return 'lead-plan-not-independent'
+  if (!preview || preview.token === null || preview.seats.length === 0 ||
+    preview.seats.some(seat => seat.plan.blocked || seat.plan.ceiling?.hold !== 'held' || seat.plan.winner === null)) return 'lead-plan-unseatable'
+  return null
+}
 export const leadSeatable = (health: { readonly state: string }): boolean =>
   health.state === 'ready' || health.state === 'idle' || health.state === 'starting'
 

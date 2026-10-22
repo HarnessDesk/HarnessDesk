@@ -130,7 +130,7 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { LeadAssembly, leadSeatable } from './lead/assembly.js'
+import { LeadAssembly, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, leadReviewedResultSource, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
@@ -3560,8 +3560,8 @@ export class Host {
         const preview = await this.#flowPreviews.preview(root, leadReviewedResultSource, step.variables, undefined, undefined, {
           seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])),
           attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
-        if (!preview || preview.token === null || preview.seats.length === 0 ||
-          preview.seats.some(seat => seat.plan.blocked || seat.plan.ceiling?.hold !== 'held' || seat.plan.winner === null)) return 'lead-plan-unseatable'
+        const unfit = leadPreviewUnfit(preview)
+        if (unfit) return unfit
         // The review must come from another provider than the implementer's, and an unreadable one proves nothing:
         // the run would start, then stall at review with nothing the Lead could ever accept.
         const [writer, reviewer] = await Promise.all(['implement', 'review'].map(role => {

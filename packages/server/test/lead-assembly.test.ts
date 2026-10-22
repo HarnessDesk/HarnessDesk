@@ -4,7 +4,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import test, { after } from 'node:test'
 import { createLeadJournal, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract } from '@harnessdesk/protocol'
-import { freezeLeadPlan, LeadAssembly, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence } from '../src/lead/assembly.js'
+import { freezeLeadPlan, LeadAssembly, leadPreviewUnfit, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence } from '../src/lead/assembly.js'
 import { tempDir } from './scratch.js'
 
 // The desktop's own path (`createDefaultHost`) in an isolated process: no real agent homes, login shell,
@@ -223,6 +223,22 @@ test('a plan that could never be accepted is refused before any card, with its o
   unfit = null
   assert.match((await freeze(contract)).digest, /^[0-9a-f]{64}$/)
   assert.deepEqual(checked, [contract.steps[0]!.id, contract.steps[0]!.id, ...contract.steps.map(step => step.id)])
+})
+
+test('a seat passed over only for its provider is a plan that is not independent, not one that cannot hold', () => {
+  const held = { level: 'read', hold: 'held' }
+  const writer = { role: 'implement', plan: { id: 'implementer', from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'edit', hold: 'held' },
+    candidates: [{ seat: { runtime: 'fixture' }, label: 'Fixture', runtimeName: 'Fixture', state: 'taken', reason: null, fix: null, ceiling: { level: 'edit', hold: 'held' } }] } }
+  const reviewer = (reasons: readonly (string | null)[], winner: number | null) => ({ role: 'review', plan: { id: 'code-reviewer', from: 'prefer', winner, blocked: null, ceiling: winner === null ? null : held,
+    candidates: reasons.map(kind => ({ seat: { runtime: 'fixture' }, label: 'Fixture', runtimeName: 'Fixture', state: kind ? 'passed' : 'taken', reason: kind ? { kind } : null, fix: null, ceiling: held })) } })
+  const preview = (review: object, token: string | null = null): any => ({ token, seats: [writer, review] })
+  assert.equal(leadPreviewUnfit(preview(reviewer(['sameProvider'], null))), 'lead-plan-not-independent')
+  assert.equal(leadPreviewUnfit(preview(reviewer(['unknownProvider', 'sameProvider'], null))), 'lead-plan-not-independent')
+  // A seat that also failed for another reason is still a permissions answer.
+  assert.equal(leadPreviewUnfit(preview(reviewer(['sameProvider', 'readOnlyUnheld'], null))), 'lead-plan-unseatable')
+  assert.equal(leadPreviewUnfit(null), 'lead-plan-unseatable')
+  assert.equal(leadPreviewUnfit(preview(reviewer([null], 0))), 'lead-plan-unseatable')
+  assert.equal(leadPreviewUnfit(preview(reviewer([null], 0), 'token')), null)
 })
 
 test('a Lead plan may name a runtime stopped while idle, never one that cannot start', () => {
