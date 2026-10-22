@@ -6,7 +6,8 @@ import { SiteScene } from '../../site-demo/scene'
 import { dashboardData } from '../../site-demo/dashboard'
 import { PAGE_SCENES } from '../../site-demo/pages'
 import { RACE_PAGES } from '../../site-demo/race-pages'
-import { README_RACE_URLS } from './readme-race'
+import { raceStore, README_RACE_URLS } from './readme-race'
+import { mountedViews } from '../state/workbench'
 import { buildYearGrid, busiestDay, busiestWeekday, dayLabelLong, leadingAgent, streaksFor, WEEKDAY_NAMES } from '../lib/heat'
 import { formatTokens } from '../lib/context-usage'
 import { planRows } from '../lib/plans-table'
@@ -123,6 +124,14 @@ it('serves both race lanes from pages beside the demo', () => {
   expect(Object.keys(RACE_PAGES).sort()).toEqual(Object.values(README_RACE_URLS).sort())
   const served = Object.keys(import.meta.glob('../../site-demo/public/race/*.html')).map(path => path.replace('../../site-demo/public/', ''))
   expect(Object.values(RACE_PAGES).sort()).toEqual(served.sort())
+})
+
+it('points both of the hero race’s Browsers at the lanes, not at the preview tile page', () => {
+  const urls = mountedViews(raceStore('light').getSnapshot().workbench)
+    .flatMap(({ mounted }) => mounted.view.kind === 'browser' ? mounted.view.tabs.map(tab => tab.url) : [])
+    .sort()
+  expect(urls).toEqual(Object.values(README_RACE_URLS).sort())
+  expect(urls.some(url => url.includes('tile-page'))).toBe(false)
 })
 
 it('changes the chart, breakdown, range, account detail and activity through real controls', async () => {
