@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { type LeadWindowProjection } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, ConfirmDialog, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Page, Spinner, Text, useComposerHeightVar } from '../design'
+import { Banner, Button, Chip, ConfirmDialog, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Page, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { LeadMessage } from './LeadMessage'
@@ -39,6 +39,7 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-request-invalid-response': 'The provider returned an unreadable response.',
   'lead-request-cancelled': 'The request was cancelled.',
 }
+const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs'}` : 'no runs yet'
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
   const store = useStore(), snapshot = useSnapshot(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
@@ -97,6 +98,14 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const contract = state.thread?.contract ?? cards.find(card => card.type === 'plan')?.contract
   const renewal = state.planConsentExpiresAt !== null && cards.some(card => card.type === 'plan' && card.contractDigest === state.thread?.contract?.digest && JSON.stringify(card.contract) === JSON.stringify(state.thread?.contract))
   const requestPending = sending || state.requestInFlight
+  // What the Lead is doing this second, as one quiet line at the end of the thread. A window that cannot trust its
+  // projection says nothing; a plan on the table or a wait for the person is not work, and a stopped card speaks for itself.
+  const phase = state.thread?.state, progress = state.progress
+  const live = state.error ? null
+    : phase === 'running' && progress ? <TurnWorkLive data-slot="lead-live-line" data-kind="running">{`Step ${progress.step} of ${progress.steps}${contract?.steps[progress.step - 1] ? ` · ${contract.steps[progress.step - 1]!.title}` : ''} · ${runsWords(progress.runs)}`}</TurnWorkLive>
+    : (phase === 'draft' || phase === 'planning') && state.requestInFlight ? <TurnWorkLive data-slot="lead-live-line" data-kind="planning">Planning…</TurnWorkLive>
+    : phase === 'stopped' && !cards.some(card => card.type === 'stopped') ? <TurnWorkLive settled data-slot="lead-live-line" data-kind="stopped">This goal was stopped.</TurnWorkLive>
+    : null
   const entries = [...(state.thread?.messages ?? []).map(message => ({ revision: message.revision, kind: 'message' as const, message })),
     ...cards.map(card => ({ revision: state.thread?.cardPositions?.[card.id] ?? card.revision, kind: 'card' as const, card })),
     ...(state.thread?.decisions ?? []).map(decision => ({ revision: decision.position, kind: 'decided' as const, decision }))].sort((a, b) => a.revision - b.revision)
@@ -131,12 +140,13 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   }
   return <ConversationShell ref={shell}>
     <ConversationThread ref={thread} role="region" aria-label={`${label} thread`} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 24 }}>
-      {entries.length ? <Page width="reading" gutter="none">
+      {entries.length || live ? <Page width="reading" gutter="none">
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
         {entries.map(entry => entry.kind === 'message'
           ? <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} text={entry.message.text} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
           : <LeadCards key={`card:${entry.card.id}`} {...cardProps} cards={[entry.card]} placement="thread" />)}
+        {live}
       </Page> : <ConversationEmptyState><LeadAvatar name={name} size="lg" /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
     </ConversationThread>
     {active && <ConversationDock ref={dock}>

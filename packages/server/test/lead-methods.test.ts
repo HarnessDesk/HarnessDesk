@@ -3,6 +3,7 @@ import test from 'node:test'
 import { createLeadLoop, createLeadJournal, leadBudgetProjection, leadCheckpoint, parseLeadCheckpoint, type LeadJournalRecord } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
 import { dispatch, type HostContext } from '../src/methods/index.js'
+import { leadProgress } from '../src/lead/projection.js'
 
 const key = 'sk-test-not-real-0000'
 const project = { id: 'demo', path: '/workspace/demo' }
@@ -1181,6 +1182,35 @@ test('thread exposes journal positions and approved scope for inline replacement
   assert.equal(approved.thread.budget.leadUsdMicros, 0)
 })
 
+test('a running goal reports the step it is on and the runs it has started, and nothing in any other phase', async () => {
+  const s = await rig({ configured: true })
+  await s.journal.offerCard(plan)
+  assert.equal(leadProgress(s.journal.state), null, 'a plan nobody approved yet is not progress')
+  assert.equal((await s.controls.readThread()).progress, undefined)
+  await s.controls.decide(planClick); await s.controls.idle()
+  assert.deepEqual(leadProgress(s.journal.state), { step: 1, steps: 1, runs: 0 })
+  assert.deepEqual((await s.controls.readThread()).progress, { step: 1, steps: 1, runs: 0 })
+  const three = { ...contract, steps: ['a', 'b', 'c'].map(id => ({ ...contract.steps[0]!, id })) }
+  const at = (states: string[], runs: number, phase = 'running') => ({ ...s.journal.state, phase, contract: three,
+    steps: states.map((state, index) => ({ id: ['a', 'b', 'c'][index]!, state, attemptId: null, contractDigest: null })),
+    runs: Array.from({ length: runs }, (_, index) => ({ correlationId: `c${index}`, runId: `r${index}`, teamId: `t${index}` })) }) as any
+  assert.deepEqual(leadProgress(at(['pending', 'pending', 'pending'], 0)), { step: 1, steps: 3, runs: 0 }, 'before any step starts the Lead is on the first')
+  assert.deepEqual(leadProgress(at(['started', 'pending', 'pending'], 1)), { step: 1, steps: 3, runs: 1 })
+  assert.deepEqual(leadProgress(at(['started', 'started', 'pending'], 2)), { step: 2, steps: 3, runs: 2 })
+  assert.deepEqual(leadProgress(at(['started', 'started', 'started'], 3)), { step: 3, steps: 3, runs: 3 })
+  // A step the Lead has been admitted to start, or cannot be sure it started, is already the one it is on.
+  assert.deepEqual(leadProgress(at(['admitted', 'pending', 'pending'], 0)), { step: 1, steps: 3, runs: 0 })
+  assert.deepEqual(leadProgress(at(['started', 'admitted', 'pending'], 1)), { step: 2, steps: 3, runs: 1 })
+  assert.deepEqual(leadProgress(at(['started', 'started', 'uncertain'], 2)), { step: 3, steps: 3, runs: 2 })
+  assert.deepEqual(leadProgress(at([], 0)), { step: 1, steps: 3, runs: 0 }, 'a journal that lists no step states still reads')
+  for (const phase of ['draft', 'planning', 'awaiting-plan', 'waiting-for-user', 'accepted', 'declined', 'stopped'])
+    assert.equal(leadProgress(at(['started', 'pending', 'pending'], 1, phase)), null, `${phase} is not running`)
+  assert.equal(leadProgress({ ...at(['started'], 1), contract: null } as any), null)
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  assert.equal((await s.controls.readThread()).progress, undefined, 'a goal that waits for the person reports no progress')
+  s.controls.close()
+})
+
 
 test('forty renewals leave reads Settings and key removal available', async () => {
   let now = 100
@@ -1443,6 +1473,9 @@ test('Stop goal latches stopped with no way out and a later message starts a fre
   const oldBudget = s.journal.state.budget
   const stopped = await s.call('lead/stop', { expectedRevision: s.journal.state.seq })
   assert.equal(stopped.thread.state, 'stopped'); assert.equal(stopped.wayOut, null)
+  // The person's Stop is a latched cancellation, not a stopped card: the window says the goal was stopped itself.
+  assert.equal(stopped.thread.budget.stop.reason, 'cancelled'); assert.equal(stopped.thread.cards.some((card: LeadCard) => card.type === 'stopped'), false)
+  assert.equal(stopped.progress, undefined)
   assert.equal(stops, 1); assert.equal(s.journal.state.stopEffectsPending, null)
   assert.equal(s.sends.length, 0); assert.deepEqual(s.answers, [])
   await s.call('lead/thread/send', { idempotencyKey: 'new-goal', text: 'Inspect another check' })

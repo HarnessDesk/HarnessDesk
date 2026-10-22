@@ -6,7 +6,7 @@ import {
 } from '@harnessdesk/protocol'
 import { canBeginLeadGoal, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
-import { admitLeadCard, leadWindowThread } from './projection.js'
+import { admitLeadCard, leadProgress, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
 
 export const LEAD_PLAN_CONSENT_MS = 86_400_000
@@ -103,8 +103,9 @@ export class LeadControls {
     const wayOut = this.#wayOut(state)
     const waitReason = state.phase === 'waiting-for-user' && (LEAD_MANAGEMENT_REASONS as readonly (string | null)[]).includes(state.managementReason)
       ? state.managementReason : null
+    const progress = leadProgress(state)
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight() })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), ...(progress && { progress }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }

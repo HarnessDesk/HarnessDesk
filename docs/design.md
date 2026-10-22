@@ -2420,6 +2420,18 @@ that files and worktrees are left as they are. Other active goal phases offer
 Stop in the composer's send track. The composer continues with the person's new instructions;
 after stopping it accepts a new goal. Both waits have synthetic preview scenes in both themes.
 
+The thread ends with at most one quiet line, TurnWorkLive, so a goal that is working
+or that was stopped is never silent. "Planning…" shows while a request runs and no plan
+is on the table; while the goal runs it names the step, of how many, and the runs it
+has started ("Step 1 of 2 · Repair the parser · 1 run", "no runs yet" before the first).
+Both come from the window's `progress` and `requestInFlight`, which the host reads from
+the journal. After the person's Stop, which makes no stopped card, the settled form says
+"This goal was stopped." The line is absent while a plan, a result or a wait is for the
+person to answer, beside a card that already says the Lead stopped, and when the window
+cannot trust its projection. Frames `planning`, `running` and `stopped` show it in
+both themes. A plan card says what a step's seats do in role words ("write, then
+review"), never a runtime or a model, and money is shown in whole cents.
+
 Settings › Lead uses canonical Section, Rows, Row, Input and Button patterns,
 ordered Name, Provider key, Allowances, Permissions. LeadNameChoice composes the
 existing two-choice control, labelled Lead identity under the Name section.

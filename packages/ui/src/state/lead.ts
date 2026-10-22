@@ -1,5 +1,5 @@
 import type {
-  HostMethodName, HostParams, HostResult, LeadCardDecision, LeadChanged, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  HostMethodName, HostParams, HostResult, LeadCardDecision, LeadChanged, LeadProgress, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
@@ -13,11 +13,13 @@ export interface LeadState {
   readonly wayOut: 'resume' | 'decide-plan' | null
   readonly waitReason: LeadWindowProjection['waitReason']
   readonly planConsentExpiresAt: number | null
+  /** Where a running goal stands; null whenever the host reports none. */
+  readonly progress: LeadProgress | null
   readonly error: 'lead-projection-failed' | null
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
-  const initial = (): LeadState => ({ revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, error: null })
+  const initial = (): LeadState => ({ revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, error: null })
   let state = initial()
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
@@ -37,7 +39,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
       : structuredClone({ revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
-        requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, error: null })
+        requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, error: null })
     for (const listener of listeners) listener()
   }
   return {
