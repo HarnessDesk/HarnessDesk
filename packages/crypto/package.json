@@ -1,0 +1,19 @@
+{
+  "name": "@harnessdesk/crypto",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The cloud wire's cryptography: keys, ids, the end-to-end handshake and framing, signed tokens, challenges and push sealing. WebCrypto only.",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT"
+}

@@ -8,6 +8,8 @@
   "files": [],
   "references": [
     { "path": "packages/protocol" },
+    { "path": "packages/contract" },
+    { "path": "packages/crypto" },
     { "path": "packages/client" },
     { "path": "packages/cli" },
     { "path": "packages/agent-inventory" },

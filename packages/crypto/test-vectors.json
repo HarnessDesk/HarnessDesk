@@ -1,0 +1,22 @@
+{
+  "note": "Seeds are filled bytes: desk=0x01*32 device=0x02*32 phoneEphemeral=0x03*32 deskEphemeral=0x04*32 pushKey=0x07*32",
+  "deskPub": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+  "deskId": "NHUPmL1Z_PyUbaRaqr6TOw",
+  "devicePub": "8139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394",
+  "deviceId": "ajgD1fBZkCocba-8m6Rykg",
+  "hello": "01015dfedd3b6bd47f6fa28ee15d969d5bb0ea53774d488bdaf9df1c6e0124b3ef2205050505050505050505050505050505",
+  "ready": "0201ac01b2209e86354fb853237b5de0f4fab13c7fcbf433a61c019369617fecf10b06060606060606060606060606060606565c76cba336b673d520423488c0ea6469a7ddff13e1a6adc561ab03094dd8e253a580d19dfd4c3fb21cfffc866c9a72fd9e6b6cc9ae9458884b20165d2a820c",
+  "th": "b4570d883b8f8d0a6b694301d5d3793a7d2e4d1728cce75a8174607876b23643",
+  "phoneToDeskFrame0": "100000000000000000c6ff0bd116e225d8fe57a7cc6c519a2629cf1baa911723a6c26acb4f98",
+  "deskToPhoneFrame0": "1000000000000000002f897465d5831b9db69af2a5c35940f308ec31d16426741b48fa6c5430",
+  "deviceAuthSignature": "fa1ff75c58c6e107d83cbb0505ede39555bb5db1d16eeb73e8b8d8599d1d5b21ade296ae282d096d185d902ff9b07dd19840288eb013f1c2c5bfbd10d103f00b",
+  "relayProofSignature": "ee796f46dc5aee60b6f1de01fe8c80ad6215e2d8c490878bae017e2e9e7e6e73dbbb861cd8a6bf588fcb243cd65e50e99470a8fbdaa041334dc3ab32eb56920c",
+  "token": "eyJraWQiOiJrMSIsImV4cCI6MjAwMDAwMDAwMCwidHlwIjoicGhvbmUiLCJkZXNrIjoiTkhVUG1MMVpfUHlVYmFSYXFyNlRPdyJ9.ROywlgL5MZV4N14b_KStqRlsa_1I9fS1_pu1_IqYDIHQMlw2AQQ9WXz5vqFNhYZB6PNCZNlFLSHaIfemprX-AQ",
+  "push": {
+    "kid": 1,
+    "nonce": "CAgICAgICAgICAgI",
+    "ciphertext": "R2Iq94NXg9_kHAxfgSnMUsYEkhB97YEkJ24s8HQ"
+  },
+  "tokenSigningNote": "token signed by the desk key here only so the vector is deterministic",
+  "b64uExample": "aGVsbG8_"
+}

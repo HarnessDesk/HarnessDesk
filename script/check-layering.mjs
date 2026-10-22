@@ -109,6 +109,23 @@ export const RULES = [
     remedy: 'agent-inventory imports node builtins and @harnessdesk/protocol, nothing else.',
   },
   {
+    // The cloud wire runs in three places: this desk, the hosted relay Worker
+    // and the phone, which reimplements it from the test vectors. A package
+    // import or a Node builtin here is a place one of the three cannot follow.
+    label: 'cloud wire stands alone',
+    packages: ['contract', 'crypto'],
+    forbidden: /@harnessdesk\/|electron|@deepseek-ai\/cordis|['"`]node:/,
+    remedy: 'contract and crypto import their own files, zod and Web platform APIs, nothing else.',
+  },
+  {
+    // Keys are held by the host and the main process. The window reads state
+    // over the wire; it never signs, seals or opens anything itself.
+    label: 'cloud wire above the renderer',
+    packages: ['ui', 'protocol'],
+    forbidden: /@harnessdesk\/(?:contract|crypto)/,
+    remedy: 'The renderer and the protocol never import the cloud wire; the host holds the keys.',
+  },
+  {
     label: 'Codex above adapter-codex',
     packages: ['protocol', 'server', 'ui', 'cordis-host', 'adapter-testkit', 'extension-protocol', 'extension-host', 'transport-acp', 'adapter-acp'],
     forbidden: /@harnessdesk\/codex|@harnessdesk\/adapter-codex/,

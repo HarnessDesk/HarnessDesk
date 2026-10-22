@@ -136,3 +136,19 @@ test('client views import only protocol and their own files', () => {
   for (const source of ["import '@harnessdesk/client'", "export * from '@harnessdesk/client/node'", "import '../index.js'", "export * from '../node.js'", "await import('ws')", "type Stats = import('node:fs').Stats", "import '@harnessdesk/server'", "require('../../test/fixture.js')", "import './helper.js?fresh'", "await import(dependency)"])
     assert.equal(rule.offenders(source, 'packages/client/src/views/index.ts').length, 1, source)
 })
+
+test('the cloud wire stands alone and stays out of the renderer', () => {
+  const alone = RULES.find((r) => r.label === 'cloud wire stands alone')
+  assert.ok(alone, 'cloud wire stands alone exists')
+  for (const source of ["import { z } from 'zod'", "import { b64u } from './bytes.js'", 'await crypto.subtle.digest(name, data)'])
+    assert.equal(alone.forbidden.test(source), false, source)
+  for (const source of ["import '@harnessdesk/protocol'", "import { readFileSync } from 'node:fs'", "import { randomBytes } from 'node:crypto'", "import 'electron'"])
+    assert.equal(alone.forbidden.test(source), true, source)
+
+  const above = RULES.find((r) => r.label === 'cloud wire above the renderer')
+  assert.ok(above, 'cloud wire above the renderer exists')
+  assert.deepEqual(above.packages, ['ui', 'protocol'])
+  for (const source of ["import '@harnessdesk/crypto'", "import { DeskId } from '@harnessdesk/contract'"])
+    assert.equal(above.forbidden.test(source), true, source)
+  assert.equal(above.forbidden.test("import '@harnessdesk/client/views'"), false)
+})
