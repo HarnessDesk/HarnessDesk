@@ -58,6 +58,16 @@ interface Running {
   markReady(): void
 }
 const error = (code: string) => new Error(`lead-child-${code}`)
+/** The child's whole environment. Locale and TLS trust use OS defaults. In particular NODE_OPTIONS, PATH,
+ * vendor keys, home-directory markers and proxy variables never cross. Inside the desktop app the host is
+ * Electron, so `process.execPath` is the Electron binary: without ELECTRON_RUN_AS_NODE it starts a second app
+ * instead of running child.js, and the Lead's child exits before its first request. */
+export const leadChildEnv = (source: NodeJS.ProcessEnv = process.env, versions: NodeJS.ProcessVersions = process.versions): Record<string, string> => {
+  const env: Record<string, string> = {}
+  for (const name of ['LANG', 'LC_ALL', 'TZ']) if (source[name]) env[name] = source[name]!
+  if (versions['electron']) env['ELECTRON_RUN_AS_NODE'] = '1'
+  return env
+}
 const callFrom = (value: unknown): LeadPermissionCall => {
   const source = ipcObject(value, ['method', 'params'])
   const parsed = parseClientMessage({ id: 1, method: source.method, params: source.params })
@@ -118,10 +128,7 @@ export class LeadSupervisor {
       const config = await this.options.bootstrap(controller.signal)
       if (generation !== this.#generation || this.#stopping) throw error('stopping')
       ipcText(config.key, 8192)
-      const env: Record<string, string> = {}
-      // Locale and TLS trust use OS defaults. In particular NODE_OPTIONS, PATH,
-      // vendor keys, home-directory markers and proxy variables never cross.
-      for (const name of ['LANG', 'LC_ALL', 'TZ']) if (process.env[name]) env[name] = process.env[name]!
+      const env = leadChildEnv()
       // No network grant: only the inherited, connected fd 3 reaches the desk.
       // Residual: process.kill is outside Node's permission model; child code
       // can still signal same-user processes.

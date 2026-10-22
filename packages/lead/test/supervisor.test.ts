@@ -8,6 +8,7 @@ import { PassThrough } from 'node:stream'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { createLeadJournal } from '../src/journal.js'
+import { leadChildEnv } from '../src/supervisor.js'
 import { CLIENT_METHODS } from '@harnessdesk/protocol'
 
 const secret = 'sk-test-not-real-0000' // hd-secrets-ok: synthetic test credential
@@ -868,4 +869,11 @@ test('the actual child leaves a reply the host refuses in its answer, and waits 
     assert.equal(f.journal.state.managementReason, 'lead-request-failed')
     assert.equal(f.supervisor.live, true)
   } finally { await f.finish() }
+})
+
+test('the child runs as Node inside the desktop app, and nothing else crosses', () => {
+  const source = { LANG: 'en_US.UTF-8', NODE_OPTIONS: '--inspect', PATH: '/usr/bin', LEAD_TEST_SECRET: secret }
+  assert.deepEqual(leadChildEnv(source, { ...process.versions, electron: '42.11.10' }), { LANG: 'en_US.UTF-8', ELECTRON_RUN_AS_NODE: '1' })
+  const node: NodeJS.ProcessVersions = { ...process.versions }; delete node['electron']
+  assert.deepEqual(leadChildEnv(source, node), { LANG: 'en_US.UTF-8' })
 })
