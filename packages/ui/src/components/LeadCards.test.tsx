@@ -72,6 +72,16 @@ it('renders Passed only for qualified non-empty evidence', () => {
   const assertions = leadContract.assertions.map(assertion => ({ assertionId: assertion.id, revision: 1, contractRevision: leadContract.revision, status: 'passed' as const, evidence: [{ kind: 'check' as const, id: 'synthetic', revision: 'synthetic-head' }], reason: null }))
   const { box } = mount([{ ...leadResult, assertions }]); expect(box.textContent?.match(/passed/g)).toHaveLength(2); expect(box.textContent).toContain('No blocking findings')
 })
+it('reads a clean findings ledger as No blocking findings, not as unconfirmed, while a check without evidence stays unconfirmed', () => {
+  const assertions = leadContract.assertions.map(assertion => ({ assertionId: assertion.id, revision: 1, contractRevision: leadContract.revision, status: 'passed' as const,
+    evidence: assertion.kind === 'blocking-findings' ? [] : [{ kind: assertion.kind === 'review' ? 'review' as const : 'check' as const, id: 'synthetic', revision: 'synthetic-head' }], reason: null }))
+  const { box } = mount([{ ...leadResult, assertions }])
+  expect([...box.querySelectorAll('p')].some(node => /No blocking findings/.test(node.textContent ?? '') && !/not confirmed/.test(node.textContent ?? ''))).toBe(true)
+  const unconfirmed = leadContract.assertions.map(assertion => ({ assertionId: assertion.id, revision: 1, contractRevision: leadContract.revision, status: 'passed' as const, evidence: [], reason: null }))
+  const second = mount([{ ...leadResult, assertions: unconfirmed }])
+  expect(second.box.textContent).toContain('Checks not confirmed')
+  expect(second.box.textContent).toContain('No blocking findings')
+})
 it('rejects retained stale decision callbacks independently of DOM removal', async () => {
   const { render, decide } = mount([leadPlan]); const old = handlers.at(-1)!.onApprove!
   render([{ ...leadPlan, revision: 2 }]); await act(async () => old()); expect(decide).not.toHaveBeenCalled()

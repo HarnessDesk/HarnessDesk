@@ -1320,6 +1320,23 @@ test('a prose turn is stored as a message and a text the journal refuses stays i
   } finally { await loop.close() }
 })
 
+test('the same sentence again, with nothing from the person between, is one standing line', async () => {
+  const s = await fixture([
+    message([{ type: 'text', text: 'Waiting for fresh worker checks and review.' }]),
+    message([{ type: 'text', text: 'Waiting for fresh worker checks\nand review. ' }]),
+    message([{ type: 'text', text: 'The review found one blocking finding.' }]),
+    message([{ type: 'text', text: 'Waiting for fresh worker checks and review.' }]),
+  ])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    for (let i = 0; i < 4; i++) {
+      const result = await loop.request(input)
+      assert.equal(result.text, undefined, 'a kept or repeated line is not handed back to the host')
+    }
+    assert.deepEqual(said(s), ['Waiting for fresh worker checks and review.', 'The review found one blocking finding.', 'Waiting for fresh worker checks and review.'])
+  } finally { await loop.close() }
+})
+
 test('a text is not stored once the goal has ended', async () => {
   const s = await fixture([async () => { await s.journal.stop(); return message([{ type: 'text', text: 'Too late to say.' }]) }])
   const loop = exported('createLeadLoop')(s.options)

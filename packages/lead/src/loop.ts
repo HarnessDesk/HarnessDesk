@@ -222,8 +222,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // What the model said belongs to the person, in the order it was said: before the card or the wait that
     // follows it. A text the desk will not keep stays in the result, so the host scans it and refuses it by name.
     if (result.text && !terminal(journal.state.phase)) {
-      try { await journal.appendReply(result.text) }
-      catch { await waitForUser('lead-request-failed'); return result }
+      // The same sentence again, with nothing from the person between, is one standing line, not a new
+      // message: every desk wake otherwise adds "Waiting for ..." to the thread once more.
+      const last = journal.state.messages.at(-1), words = (text: string) => text.replace(/\s+/g, ' ').trim()
+      if (!(last?.role === 'assistant' && words(last.text) === words(result.text))) {
+        try { await journal.appendReply(result.text) }
+        catch { await waitForUser('lead-request-failed'); return result }
+      }
       const { text: _kept, ...delivered } = result
       result = delivered
     }

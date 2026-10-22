@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import type { BoardEvidence } from '@harnessdesk/protocol'
 import { leadCheckAsk } from './lead-check'
 
-const fact = (card: number, fact: object) => ({ card, running: [], facts: [{ record: { id: `${card}-${JSON.stringify(fact).length}`, fact }, freshness: { state: 'fresh' }, by: null }] })
+const fact = (card: number, fact: object) => ({ card, running: [], facts: [{ record: { id: `${card}-${JSON.stringify(fact).length}`, fact }, freshness: { state: 'fresh' }, by: null }] } as unknown as BoardEvidence['cards'][number])
 const board = (cards: BoardEvidence['cards'], checks = ['verify']): BoardEvidence =>
   ({ room: 'room', stamp: 1, checks, refused: [], unreadable: null, cards }) as unknown as BoardEvidence
 const intents = [{ id: 1, role: 'implement', state: 'done' as const }, { id: 2, role: 'review', state: 'done' as const }]
