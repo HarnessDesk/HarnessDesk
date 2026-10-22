@@ -68,6 +68,8 @@ it('clears the floating composer only when asked, on top of a notice inset', () 
   expect(column.style.padding).toBe(
     'calc(8px + var(--hd-notice-inset, 0px)) var(--hd-space-6) calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 16px)',
   )
+  // A turn scrolled into view (a plan waiting for approval) must land above the composer, not behind it.
+  expect(column.style.getPropertyValue('scroll-padding-bottom')).toBe('calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 16px)')
 })
 
 it('keeps a caller’s own className and forwards its ref to the real element', () => {

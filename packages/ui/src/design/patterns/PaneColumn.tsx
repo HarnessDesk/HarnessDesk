@@ -57,6 +57,9 @@ const VERTICAL: Partial<Record<PaneColumnInset, string>> = {
   canvas: 'var(--hd-space-2)',
 }
 
+/** What a floating composer covers at the column's foot: its height, a shared dock's, and a breath. */
+const CLEAR_COMPOSER = 'calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 16px)'
+
 type PaneColumnCommonProps = Omit<ComponentProps<'div'>, 'inset'>
 
 export type PaneColumnProps =
@@ -93,8 +96,10 @@ export const PaneColumn = forwardRef<HTMLDivElement, PaneColumnProps>(
       data-inset={inset}
       style={{
         padding: clearComposer
-          ? `calc(8px + var(--hd-notice-inset, 0px)) ${INLINE[inset]} calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 16px)`
+          ? `calc(8px + var(--hd-notice-inset, 0px)) ${INLINE[inset]} ${CLEAR_COMPOSER}`
           : page ? `var(--page-top, ${INLINE.reading}) ${INLINE[inset]} ${INLINE.reading}` : `${VERTICAL[inset] ?? '0'} ${INLINE[inset]}`,
+        // Scrolling a turn into view stops above the floating composer, not behind it.
+        ...(clearComposer ? { scrollPaddingBottom: CLEAR_COMPOSER } : {}),
         ...style,
       }}
       {...props}
