@@ -4,7 +4,7 @@ import {
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification,
 } from '@harnessdesk/protocol'
-import { canBeginLeadGoal, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { canBeginLeadGoal, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -27,6 +27,8 @@ interface LeadControlsOptions {
   readonly decidePerson: (card: Extract<LeadCard, { type: 'waiting' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly decideResult: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly stopRequest?: () => Promise<void>
+  /** Reads the workers' spend again; a Lead request is refused while that spend is not known. */
+  readonly meterSpend?: () => Promise<void>
   readonly stopEffects?: () => Promise<void>
 }
 /** One host owner, no transport or rendering. Child ports never contain these operations. */
@@ -205,6 +207,7 @@ export class LeadControls {
       return
     }
     try {
+      try { await this.options.meterSpend?.() } catch { /* The Lead itself refuses while spend stays unknown. */ }
       // History is rebuilt from what the person can read, as plain text, so no reasoning block from an earlier
       // request is carried into a prefix that has changed since the provider wrote it.
       const messages: MessagesTurn[] = journal.state.messages.filter(message => message.role !== 'system').map(message => ({
@@ -221,6 +224,11 @@ export class LeadControls {
       if (result.text) await service.assertPublic(result.text)
       this.#requestInFlight = this.#continueAgain
       if (result.text && !['accepted', 'declined', 'stopped'].includes(journal.state.phase)) await journal.appendReply(result.text)
+      else if (result.status === 'refused' && !['accepted', 'declined', 'stopped', 'waiting-for-user'].includes(journal.state.phase) && journal.state.budget &&
+        leadBudgetProjection(journal.state.budget, this.options.now()).spend !== 'known') {
+        // The Lead declines to spend while the workers' spend is unknown. Say so, rather than leave a message unanswered.
+        await journal.setManagementPhase('waiting-for-user', 'lead-budget-unknown')
+      }
       else await journal.settingsChanged()
     } catch {
       this.#requestInFlight = this.#continueAgain

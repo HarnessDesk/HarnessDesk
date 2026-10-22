@@ -1610,3 +1610,21 @@ test('a retried caps save re-derives concurrent widening and still needs approva
   if (card.type === 'budget-change') { assert.deepEqual(card.previous.caps, { usdMicros: 50000, rounds: 3 }); assert.deepEqual(card.proposed, desired) }
   assert.ok('thread' in result && result.thread.cards.some((card: LeadCard) => card.type === 'budget-change'))
 })
+
+test('a Lead request re-reads worker spend first, and a refusal over unknown spend tells the person', async () => {
+  const order: string[] = []
+  const metered = await rig({ configured: true, service: { async send() { order.push('send'); return { status: 'completed', text: 'Ready' } } },
+    controls: { meterSpend: async () => { order.push('meter') } } })
+  await metered.call('lead/thread/send', { idempotencyKey: 'send-1', text: 'Inspect the check' })
+  await metered.controls.idle()
+  assert.deepEqual(order, ['meter', 'send'])
+
+  const s = await rig({ configured: true, service: { async send() { return { status: 'refused', reason: 'lead-management-paused' } } } })
+  await s.journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId: 'run-1' })
+  assert.equal(leadBudgetProjection(s.journal.state.budget!, 100).spend, 'unknown')
+  await s.call('lead/thread/send', { idempotencyKey: 'send-1', text: 'Re-plan it' })
+  await s.controls.idle()
+  const read = await s.call('lead/thread/read')
+  assert.equal(s.journal.state.phase, 'waiting-for-user')
+  assert.equal(read.waitReason, 'lead-budget-unknown')
+})
