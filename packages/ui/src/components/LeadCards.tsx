@@ -1,23 +1,32 @@
 import { useRef, useState, type MutableRefObject } from 'react'
-import type { LeadAcceptanceContract, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage, RuntimeInfo } from '@harnessdesk/protocol'
+import type { LeadAcceptanceContract, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage } from '@harnessdesk/protocol'
 import { LeadContract, Text } from '../design'
+import { folderName } from '../lib/projects'
 import { LeadDecision } from './LeadDecision'
 import { PERMISSION_LABELS } from './lead-permission-labels'
 import { Markdown } from './Markdown'
 
-export const leadDollars = (micros: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }).format(micros / 1000000)
-const allowance = (micros: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(micros / 1000000)
+const cents = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+/** Money the way a person reads it, in whole cents. An amount above zero that would round to $0.00 is said in words, because $0.00 means none. */
+export const leadDollars = (micros: number) => {
+  const text = cents.format(micros / 1000000)
+  return micros > 0 && text === '$0.00' ? 'less than $0.01' : text
+}
+const ROLE_WORDS = new Map([['implement', 'write'], ['review', 'review']])
+/** What a step's seats do, in the order they do it: "write, then review". A role the Lead named for itself is said as named. */
+const stepWork = (assignments: readonly { readonly role: string }[]) => assignments.map(assignment => ROLE_WORDS.get(assignment.role) ?? assignment.role.replace(/[-_]+/g, ' '))
+  .filter((word, index, words) => word !== words[index - 1]).join(', then ')
 const policyMode = { plan: 'Plan', default: 'Default', manage: 'Manage' }
 const ruleWords = (rule: { effect: string; method: keyof typeof PERMISSION_LABELS; action: string | null; project: string | null } | undefined) => rule ? `${rule.effect} · ${PERMISSION_LABELS[rule.method]} · ${rule.action ?? 'All actions'} · ${rule.project ?? 'Approved project'}` : 'No rule'
 
 /** Window-owned details and revision-bound decisions. The child never receives a click. */
-export const LeadCards = ({ cards, decisions = [], contract, budget, runtimes, onDecide, onChanges, onApprovals, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, placement = 'both' }: {
+export const LeadCards = ({ cards, decisions = [], contract, budget, onDecide, onChanges, onApprovals, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, placement = 'both' }: {
   readonly decisionLock?: MutableRefObject<boolean>; readonly decisionPending?: string | null
   readonly setDecisionPending?: (id: string | null) => void; readonly expiry?: number | null
   readonly focusCard?: string | null
   readonly cards: readonly LeadCard[]; readonly decisions?: readonly LeadDecisionMessage[]
   readonly contract?: LeadAcceptanceContract | null; readonly budget?: LeadBudgetState | null
-  readonly runtimes: readonly RuntimeInfo[]; readonly placement?: 'thread' | 'dock' | 'both'
+  readonly placement?: 'thread' | 'dock' | 'both'
   readonly onDecide: (decision: LeadCardDecision) => Promise<unknown>; readonly onChanges: () => void
   readonly onApprovals: (runId: string) => void; readonly onError?: (error: unknown) => void; readonly onSettled?: () => void
 }) => {
@@ -41,9 +50,9 @@ export const LeadCards = ({ cards, decisions = [], contract, budget, runtimes, o
     const approval = card.type === 'plan' || card.type === 'permission-change' || card.type === 'budget-change'
     const renewal = !choice && card.type === 'plan' && expiry != null && card.contractDigest === contract?.digest && JSON.stringify(card.contract) === JSON.stringify(contract)
     const scope = card.type === 'plan' ? card.contract : contract
-    const summary = worker ? 'A worker is waiting for you to approve a command.' : card.type === 'plan' ? `${renewal ? `My earlier approval expired. Approve again to continue.\n\n` : ''}Here's my plan:\n\n${card.contract.steps.map((step, i) => `${i + 1}. ${step.title} — ${step.assignments.map(assignment => `${runtimes.find(runtime => runtime.id === assignment.seat.runtime)?.presentation.name ?? 'Worker unavailable'}${assignment.seat.model ? ` · ${assignment.seat.model}` : ''}`).join('; ')}`).join('\n')}\n\nDone when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`
+    const summary = worker ? 'A worker is waiting for you to approve a command.' : card.type === 'plan' ? `${renewal ? `My earlier approval expired. Approve again to continue.\n\n` : ''}Here's my plan:\n\n${card.contract.steps.map((step, i) => `${i + 1}. ${step.title} — ${stepWork(step.assignments)}`).join('\n')}\n\nDone when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`
       : card.type === 'permission-change' ? `Change permission mode: ${policyMode[card.previous.mode]} → ${policyMode[card.proposed.mode]}\n\n${[...new Set([...card.previous.rules.map(rule => rule.id), ...card.proposed.rules.map(rule => rule.id)])].flatMap(id => { const old = card.previous.rules.find(rule => rule.id === id), next = card.proposed.rules.find(rule => rule.id === id); return JSON.stringify(old) === JSON.stringify(next) ? [] : [`- ${ruleWords(old)} → ${ruleWords(next)}`] }).join('\n')}`
-      : card.type === 'budget-change' ? `Raise the allowance from ${allowance(card.previous.caps.usdMicros)} to ${allowance(card.proposed.usdMicros)} and from ${card.previous.caps.rounds} to ${card.proposed.rounds} rounds?`
+      : card.type === 'budget-change' ? `Raise the allowance from ${leadDollars(card.previous.caps.usdMicros)} to ${leadDollars(card.proposed.usdMicros)} and from ${card.previous.caps.rounds} to ${card.proposed.rounds} rounds?`
       : card.type === 'stopped' ? card.reason === 'unknown-spend' ? 'Worker spend is unknown. Inspect the run before continuing.' : 'The Lead stopped. Inspect its allowance and run.' : card.summary
     const state = choice ? { approve: 'Approved', decline: 'Declined', accept: 'Accepted' }[choice] : card.type === 'result' && card.outcome !== 'reviewed' ? { accepted: 'Accepted', declined: 'Declined' }[card.outcome] : undefined
     const spend = 'budget' in card ? card.budget : budget
@@ -52,7 +61,7 @@ export const LeadCards = ({ cards, decisions = [], contract, budget, runtimes, o
     const ref = (element: HTMLElement | null) => { if (element) focus.current.set(card.id, element); else focus.current.delete(card.id) }
     return <div key={`${card.id}:${card.revision}:${choice ?? 'pending'}`}>
       {placement !== 'dock' && <LeadContract cardId={card.id} cardType={card.type} summary={summary} state={state} focusRef={ref}>
-        {caps && <><Text as="p" role="meta">Up to {allowance(caps.usdMicros)} · {caps.rounds} rounds · {scope?.project.path}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}
+        {caps && <><Text as="p" role="meta">Up to {leadDollars(caps.usdMicros)} · {caps.rounds} rounds · {scope ? folderName(scope.project.path) : ''}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}
         {(card.type === 'waiting' && !worker || card.type === 'result') && <>
           <Text as="p" role="meta">{(['check', 'review', 'blocking-findings', 'diff'] as const).flatMap(kind => {
             const expected = scope?.assertions.filter(assertion => assertion.kind === kind) ?? []
@@ -60,10 +69,10 @@ export const LeadCards = ({ cards, decisions = [], contract, budget, runtimes, o
             const results = expected.map(assertion => assertions.find(result => result.assertionId === assertion.id))
             const known = results.every(result => result && result.contractRevision === scope?.revision && result.evidence.length > 0)
             const status = known ? results.some(result => result?.status === 'failed') ? 'failed' : results.every(result => result?.status === 'passed') ? 'passed' : 'unknown' : 'unknown'
-            return [status === 'passed' && kind === 'blocking-findings' ? 'No blocking findings' : status === 'passed' && kind === 'diff' ? 'Changes ready' : `${{ check: 'Checks', review: 'Review', 'blocking-findings': 'Findings', diff: 'Changes' }[kind]} ${status}`]
+            return [status === 'passed' && kind === 'blocking-findings' ? 'No blocking findings' : status === 'passed' && kind === 'diff' ? 'Changes ready' : `${{ check: 'Checks', review: 'Review', 'blocking-findings': 'Findings', diff: 'Changes' }[kind]} ${status === 'unknown' ? 'not confirmed' : status}`]
           }).join(' · ')}</Text>
           {assertions.filter(result => scope?.assertions.some(assertion => assertion.id === result.assertionId)).map(result => result.reason ? <LeadReason key={result.assertionId} text={result.reason} /> : null)}
-          <Text as="p" role="meta">I spent {spend ? leadDollars(spend.leadUsdMicros) : 'unknown'} · workers reported {spend?.spend === 'known' ? leadDollars(spend.workerUsdMicros) : 'unknown'}.</Text>
+          {spend && <Text as="p" role="meta">I spent {leadDollars(spend.leadUsdMicros)}{spend.spend === 'known' && <> · workers reported {leadDollars(spend.workerUsdMicros)}</>}.</Text>}
         </>}
       </LeadContract>}
       {placement !== 'thread' && !state && active === card && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}

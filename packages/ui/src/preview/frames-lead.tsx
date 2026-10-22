@@ -100,7 +100,7 @@ const LEAD_CONTRACT_CATALOG_STATES = ['default', 'loading'] as const
 
 /** The catalog renders the real pattern, including narrow action wrapping. */
 export const LeadContractSpecimen = () => <div className="flex flex-col gap-6">{LEAD_CONTRACT_CATALOG_STATES.map(state => <div key={state} data-variant={LEAD_CONTRACT_CATALOG_VARIANTS[0]} data-size={LEAD_CONTRACT_CATALOG_SIZES[0]} data-state={state}>
-  <LeadCards cards={leadSceneProjection('pending-plan').thread.cards} runtimes={[leadRuntime]} onDecide={async () => {}} onChanges={() => {}} onApprovals={() => {}} placement="thread" />
+  <LeadCards cards={leadSceneProjection('pending-plan').thread.cards} onDecide={async () => {}} onChanges={() => {}} onApprovals={() => {}} placement="thread" />
   <LeadDecision id="specimen" title="Approve this plan?" pending={state === 'loading'} onApprove={() => {}} onDecline={() => {}} />
 </div>)}</div>
 const LEAD_AVATAR_CATALOG_SIZES = ['navigation', 'default', 'lg'] as const

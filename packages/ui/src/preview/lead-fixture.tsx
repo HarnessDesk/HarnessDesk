@@ -5,7 +5,8 @@ export const leadRuntime: RuntimeInfo = { id: runtimeId('fixture'), name: 'Fixtu
 export const leadContract: LeadAcceptanceContract = { version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Make the empty state keyboard accessible',
   project: { id: 'demo', path: '/workspace/demo' }, policyRevision: 1,
   steps: [{ id: 'work', title: 'Implement and review', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: { task: 'Check focus order' }, attendance: 'attended',
-    assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture', model: 'demo-model' }, ceiling: 'edit' }] }],
+    assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture', model: 'demo-model' }, ceiling: 'edit' },
+      { role: 'review', agent: 'reviewer', seat: { runtime: 'fixture', model: 'demo-model' }, ceiling: 'read' }] }],
   assertions: [{ id: 'checks', kind: 'check', description: 'Keyboard checks pass' }, { id: 'review', kind: 'review', description: 'Fresh review approves' }, { id: 'findings', kind: 'blocking-findings', description: 'Blocking findings resolved' }],
   caps: { usdMicros: 5000000, rounds: 4 } }
 export const leadPlan: Extract<LeadCard, { type: 'plan' }> = { version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: leadContract.digest, contract: leadContract }
