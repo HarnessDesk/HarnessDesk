@@ -201,6 +201,8 @@ export const TOKENLESS_BRIDGE_NOTICE =
 export interface BootstrapOptions {
   /** Parsed once by the desktop shell; absent is disabled. */
   readonly leadEnabled?: boolean
+  /** Test seam: a scripted provider for the Lead's model requests. */
+  readonly leadMessagesTransport?: HostOptions['leadMessagesTransport']
   /** Injectable selection and filesystem probes for the opt-in macOS workaround. */
   readonly developerTools?: DeveloperToolsOptions
   readonly logLevel?: 'debug' | 'info' | 'warn' | 'error'
@@ -576,6 +578,7 @@ export const createDefaultHost = (
 
   const host: Host = new Host({
     leadEnabled: options.leadEnabled === true,
+    ...(options.leadMessagesTransport ? { leadMessagesTransport: options.leadMessagesTransport } : {}),
     logger,
     accounts,
     agents,
