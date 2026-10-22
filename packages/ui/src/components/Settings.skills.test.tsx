@@ -51,15 +51,17 @@ const SKILLS: SkillInfo[] = [
   },
 ]
 
-const mount = (name: string | null = null, active = true) => {
+const mount = (name: string | null = null, active = true, fromCustomize = true) => {
   const info = runtime()
-  const snapshot = { ...emptySnapshot(), status: 'open', activeRuntime: info.id, runtimes: [info], skills: SKILLS } as AppSnapshot
+  const base = emptySnapshot()
+  const snapshot = { ...base, status: 'open', activeRuntime: info.id, runtimes: [info], skills: SKILLS,
+    workbench: { ...base.workbench, navigation: { ...base.workbench.navigation, back: fromCustomize ? [{ kind: 'library', section: 'skill' }] : [] } } } as AppSnapshot
   const view = { filter: 'all', query: 'saved search', chip: 'all', view: 'list', skillView: 'cards' }
-  const openDestination = vi.fn(), replaceDestination = vi.fn(), setLibraryView = vi.fn(), onUse = vi.fn()
+  const openDestination = vi.fn(), replaceDestination = vi.fn(), navigateBack = vi.fn(), setLibraryView = vi.fn(), onUse = vi.fn()
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot,
-    libraryView: () => view, setLibraryView, openDestination, replaceDestination, setSkillEnabled: vi.fn(async () => {}) } as unknown as AppStore
+    libraryView: () => view, setLibraryView, openDestination, replaceDestination, navigateBack, setSkillEnabled: vi.fn(async () => {}) } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><SkillsSection name={name} active={active} onUse={onUse} /></StoreProvider>))
-  return { openDestination, replaceDestination, setLibraryView, onUse }
+  return { openDestination, replaceDestination, navigateBack, setLibraryView, onUse }
 }
 
 it('redirects legacy Skills to the runtime scope in Customize', () => {
@@ -75,16 +77,26 @@ it('does not redirect from a retained inactive Settings page', () => {
   expect(openDestination).not.toHaveBeenCalled()
 })
 
-it('retains native command details and returns directly to Customize', () => {
-  const { openDestination, setLibraryView } = mount('add-admin-task')
+it('returns from native command details through history without changing runtime scope', () => {
+  const { openDestination, replaceDestination, navigateBack, setLibraryView } = mount('add-admin-task')
   expect(container.textContent).toContain('browsermcp test steps')
   expect(container.textContent).toContain('add-admin-task')
   expect(container.textContent).toContain('Where it lives')
   expect(openDestination).not.toHaveBeenCalled()
   const back = [...container.querySelectorAll('button')].find(button => button.textContent === 'Back to Customize')!
   act(() => back.click())
-  expect(setLibraryView).toHaveBeenCalledWith('skill', expect.objectContaining({ runtime: runtime().id }))
-  expect(openDestination).toHaveBeenCalledWith({ kind: 'library', section: 'skill' })
+  expect(navigateBack).toHaveBeenCalledOnce()
+  expect(setLibraryView).not.toHaveBeenCalled()
+  expect(openDestination).not.toHaveBeenCalled()
+  expect(replaceDestination).not.toHaveBeenCalled()
+})
+
+it('replaces a direct command detail with Customize without changing its saved scope', () => {
+  const { replaceDestination, navigateBack, setLibraryView } = mount('add-admin-task', true, false)
+  act(() => [...container.querySelectorAll('button')].find(button => button.textContent === 'Back to Customize')!.click())
+  expect(replaceDestination).toHaveBeenCalledWith({ kind: 'library', section: 'skill' })
+  expect(navigateBack).not.toHaveBeenCalled()
+  expect(setLibraryView).not.toHaveBeenCalled()
 })
 
 it('still hands a native command to the composer', () => {

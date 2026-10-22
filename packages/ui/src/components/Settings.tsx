@@ -1068,7 +1068,11 @@ export const SkillsSection = ({name,onUse}: {readonly name:string|null;readonly 
   const runtime = useRuntime()
   const skill = name ? snapshot.skills.find(one => one.name === name) : null
   const { active } = useDestinationPage()
-  const openSkills = () => openCustomizeSkills(store, runtime.id)
+  const openSkills = () => {
+    const previous = snapshot.workbench.navigation.back.at(-1)
+    if (previous?.kind === 'library' && previous.section === 'skill') void store.navigateBack()
+    else store.replaceDestination({ kind: 'library', section: 'skill' })
+  }
   useEffect(() => { if (active && name === null) openCustomizeSkills(store, runtime.id, 'replace') }, [active, name, store, runtime.id])
   if (skill) return <RuntimeSkillPage skill={skill} listLabel="Customize" onBack={openSkills} onUse={onUse} />
   return name === null ? null : <EmptyState title="Command not found"><Button variant="ghost" size="sm" onClick={openSkills}>Back to Customize</Button></EmptyState>

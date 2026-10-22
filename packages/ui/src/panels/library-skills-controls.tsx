@@ -1,4 +1,4 @@
-import { Button, Menu, MenuItem, MenuLabel, MenuSeparator, Popover, Search, Text, ToggleGroup, ToggleGroupItem, Toolbar, ToolbarGap, type PageOption } from '../design'
+import { Button, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, Popover, Search, Text, ToggleGroup, ToggleGroupItem, Toolbar, ToolbarGap, type PageOption } from '../design'
 import { CaretIcon, FilterIcon } from '../components/Icons'
 import type { SkillChip } from '../components/SkillRow'
 
@@ -24,8 +24,9 @@ export const LibrarySkillsControls = ({ chip, counts, onChip, view, onView, filt
         {filters.items.filter(item => item.value !== 'problems').map(item => <MenuItem key={item.value} label={item.label} value={item.count}
           selected={filters.value === item.value} disabled={item.disabled} title={item.title} onSelect={() => { filters.change(item.value); close() }} />)}
         <MenuSeparator /><MenuLabel>Loaded by</MenuLabel>
+        {chip === 'needs-you' && <MenuNote>Clear Needs attention to filter by runtime count.</MenuNote>}
         {([{ value: 'all', label: 'Any number' }, { value: 'one-runtime', label: 'One runtime' }, { value: 'nobody', label: 'No runtime' }] as const).map(item =>
-          <MenuItem key={item.value} label={item.label} value={counts[item.value]} selected={chip === item.value} onSelect={() => { onChip(item.value); close() }} />)}
+          <MenuItem key={item.value} label={item.label} value={counts[item.value]} disabled={chip === 'needs-you'} selected={(chip === 'needs-you' ? 'all' : chip) === item.value} onSelect={() => { onChip(item.value); close() }} />)}
         <MenuSeparator /><MenuLabel>Declared by</MenuLabel>
         {agent.items.map(item => <MenuItem key={item.value} label={item.label} selected={agent.value === item.value} onSelect={() => { agent.change(item.value); close() }} />)}
       </Menu>}</Popover>
