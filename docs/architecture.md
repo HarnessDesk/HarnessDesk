@@ -660,6 +660,16 @@ second runtimes and kernels adapters rather than rewrites:
    test backend IDs (`runtime.id === 'codex'`); features gate on
    `runtime.capabilities` ([the capability decision](decisions.md#capabilities-are-negotiated-not-normalised)).
 
+10. **The cloud wire stands alone.** `packages/contract` and `packages/crypto`
+    import their own files and nothing else, except that contract may import
+    `zod`. No Node builtin (with or without `node:`), no package, no workspace
+    neighbour: the same wire runs in this desk, in the hosted relay and on the
+    phone, and any other import is a place one of them cannot follow.
+11. **The cloud wire stays out of the renderer.** `packages/ui` and
+    `packages/protocol` never import `@harnessdesk/contract` or
+    `@harnessdesk/crypto`; the host holds the keys, and the window reads state
+    over the wire ([what is open, and what is hosted](open-and-hosted.md)).
+
 See [AGENTS.md](../AGENTS.md) for the maintainer rules and
 [extending.md](extending.md) for how to add a runtime adapter or plugin.
 

@@ -68,6 +68,22 @@ const importBoundary = (pkg, source, fileName) => {
   })
 }
 
+/** What the cloud wire's two packages may import: their own source, and zod for contract. */
+const cloudWireImports = (source, fileName) => {
+  const file = resolve(root, fileName)
+  const pkg = relative(join(root, 'packages'), file).split(sep)[0]
+  const src = join(root, 'packages', pkg, 'src')
+  return importSpecifiers(source, fileName).filter((specifier) => {
+    if (specifier === null) return true
+    if (specifier.startsWith('.')) {
+      if (/[?#%]/.test(specifier)) return true
+      const within = relative(src, resolve(dirname(file), specifier))
+      return within === '..' || within.startsWith(`..${sep}`)
+    }
+    return !(specifier === 'zod' && pkg === 'contract')
+  })
+}
+
 /**
  * Two planes, two rules. Codex must not leak above its adapter, and the
  * extension kernel must not leak above its host — and the protocol, which both
@@ -110,12 +126,14 @@ export const RULES = [
   },
   {
     // The cloud wire runs in three places: this desk, the hosted relay Worker
-    // and the phone, which reimplements it from the test vectors. A package
-    // import or a Node builtin here is a place one of the three cannot follow.
+    // and the phone, which reimplements it from the test vectors. Any import
+    // that is not its own file is a place one of the three cannot follow: a
+    // Node builtin (with or without the node: prefix), a package, a workspace
+    // neighbour. Contract may use zod for its schemas; crypto uses nothing.
     label: 'cloud wire stands alone',
     packages: ['contract', 'crypto'],
-    forbidden: /@harnessdesk\/|electron|@deepseek-ai\/cordis|['"`]node:/,
-    remedy: 'contract and crypto import their own files, zod and Web platform APIs, nothing else.',
+    offenders: (source, fileName) => cloudWireImports(source, fileName),
+    remedy: 'contract imports its own files and zod; crypto imports its own files only. Both otherwise use Web platform APIs.',
   },
   {
     // Keys are held by the host and the main process. The window reads state

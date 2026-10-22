@@ -53,13 +53,15 @@ async function deriveSession(role: 'phone' | 'desk', shared: Bytes, th: Bytes): 
 /**
  * One encrypted session. Counters are per direction and must arrive exactly in order.
  *
- * `seal` takes its counter before it first awaits, so calls made together get consecutive counters and never
- * share one; send the frames in the order the calls were made. `open` is serialized: calls queue behind each
- * other, so a frame is opened at most once and frames given together are checked in the order given.
+ * `seal` and `open` are each serialized through a chain of their own. Calls made together get consecutive
+ * counters and finish in the order they were made, so frames come out in counter order, which the receiver
+ * requires. `open` takes one frame at a time, so a frame is opened at most once and frames given together are
+ * checked in the order given; a failed open does not advance the counter.
  */
 export class Session {
   #sendCounter = 0n
   #recvCounter = 0n
+  #sealing: Promise<unknown> = Promise.resolve()
   #opening: Promise<unknown> = Promise.resolve()
 
   constructor(
@@ -73,9 +75,15 @@ export class Session {
   get sent(): bigint { return this.#sendCounter }
   get received(): bigint { return this.#recvCounter }
 
-  async seal(body: Bytes, kind: number = KIND_JSON): Promise<Bytes> {
+  seal(body: Bytes, kind: number = KIND_JSON): Promise<Bytes> {
+    const result = this.#sealing.then(() => this.#sealOne(body, kind))
+    this.#sealing = result.catch(() => undefined)
+    return result
+  }
+
+  async #sealOne(body: Bytes, kind: number): Promise<Bytes> {
     if (this.#sendCounter >= MAX_FRAMES_PER_SESSION) throw new E2eeError('exhausted')
-    // Reserved before the first await: a concurrent call must see the next value, not this one.
+    // Reserved before the first await, and only one runs at a time: a frame never takes a counter another holds.
     const counter = u64be(this.#sendCounter)
     this.#sendCounter += 1n
     const header = concat(Uint8Array.of(FRAME_DATA), counter)

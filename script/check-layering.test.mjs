@@ -140,10 +140,21 @@ test('client views import only protocol and their own files', () => {
 test('the cloud wire stands alone and stays out of the renderer', () => {
   const alone = RULES.find((r) => r.label === 'cloud wire stands alone')
   assert.ok(alone, 'cloud wire stands alone exists')
-  for (const source of ["import { z } from 'zod'", "import { b64u } from './bytes.js'", 'await crypto.subtle.digest(name, data)'])
-    assert.equal(alone.forbidden.test(source), false, source)
-  for (const source of ["import '@harnessdesk/protocol'", "import { readFileSync } from 'node:fs'", "import { randomBytes } from 'node:crypto'", "import 'electron'"])
-    assert.equal(alone.forbidden.test(source), true, source)
+  const inContract = (source) => alone.offenders(source, 'packages/contract/src/api.ts').length
+  const inCrypto = (source) => alone.offenders(source, 'packages/crypto/src/keys.ts').length
+  for (const source of ["import { b64u } from './bytes.js'", "export * from './ids.js'", 'await crypto.subtle.digest(name, data)']) {
+    assert.equal(inContract(source), 0, source)
+    assert.equal(inCrypto(source), 0, source)
+  }
+  assert.equal(inContract("import { z } from 'zod'"), 0)
+  for (const source of [
+    "import { z } from 'zod'", "import { createHash } from 'crypto'", "import fs from 'fs'", "import WebSocket from 'ws'", "import 'left-pad'",
+    "import '@harnessdesk/protocol'", "import { readFileSync } from 'node:fs'", "import 'electron'", "import { x } from '../../protocol/src/index.js'",
+    "await import(name)", "require('child_process')", "import './helper.js?fresh'",
+  ]) assert.equal(inCrypto(source), 1, `crypto: ${source}`)
+  for (const source of [
+    "import { createHash } from 'crypto'", "import WebSocket from 'ws'", "import '@harnessdesk/crypto'", "import { x } from '../../crypto/src/index.js'", "import ky from 'ky'",
+  ]) assert.equal(inContract(source), 1, `contract: ${source}`)
 
   const above = RULES.find((r) => r.label === 'cloud wire above the renderer')
   assert.ok(above, 'cloud wire above the renderer exists')

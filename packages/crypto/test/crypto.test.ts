@@ -62,6 +62,19 @@ describe('e2ee', () => {
     for (const [n, frame] of frames.entries()) assert.deepEqual(await deskSession.openJson(frame), { n })
   })
 
+  it('finishes frames sealed together in the order they were asked for, whatever their size', async () => {
+    const { deskSession, phoneSession } = await pair()
+    const finished: number[] = []
+    const big = phoneSession.seal(new Uint8Array(200_000).fill(1)).then((f) => { finished.push(0); return f })
+    const small = phoneSession.seal(utf8('{"n":1}')).then((f) => { finished.push(1); return f })
+    const [a, b] = await Promise.all([big, small])
+    assert.deepEqual(finished, [0, 1])
+    assert.deepEqual([Number(readU64be(a, 1)), Number(readU64be(b, 1))], [0, 1])
+    // The peer opens both, in order.
+    assert.equal((await deskSession.open(a)).body.length, 200_000)
+    assert.equal((await deskSession.open(b)).body.length, 7)
+  })
+
   it('opens a frame once, however many calls are made together', async () => {
     const { deskSession, phoneSession } = await pair()
     const frame = await phoneSession.sealJson({ n: 0 })
