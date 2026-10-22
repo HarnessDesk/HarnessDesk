@@ -471,7 +471,7 @@
           "held": true,
           "observed": "14 rows, heights 35px",
           "pinnedBy": [
-            "keeps a stable nav label while the skills page uses the runtime name",
+            "keeps a stable Hooks nav label while its hover text names the runtime",
             "keeps the trailing values out of the label’s space"
           ]
         }
