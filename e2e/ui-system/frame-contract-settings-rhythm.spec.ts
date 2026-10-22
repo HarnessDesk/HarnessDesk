@@ -39,7 +39,7 @@ for (const width of [1440, 720]) test(`Settings keeps the same column when short
 {
   const sections = [
     'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces',
-    'history', 'storage', 'archive', 'runtimes', 'models', 'skills', 'extensions',
+    'history', 'storage', 'archive', 'runtimes', 'models', 'hooks', 'extensions',
     'permissions', 'browser',
   ] as const
   for (const [item0, section] of (sections).entries()) test(`FIX4 Settings sections follow the page and subgroup rhythm on every page [item ${[item0].join('-')}]`, async ({ page }) => {
@@ -163,9 +163,8 @@ test('FIX4 ceiling chips keep a chip gap and distinguish asked from held once pe
   for (const [item0, [section, label]] of ([
     ['history', 'Search history titles'],
     ['runtimes', 'Search runtimes or accounts'],
-    ['skills', 'Search skills'],
     ['extensions', 'Search plugins'],
-  ] as const).entries()) test(`FIX4 Settings filters are standalone first fields on History, Runtimes, Skills and Extensions [item ${[item0].join('-')}]`, async ({ page }) => {
+  ] as const).entries()) test(`FIX4 Settings filters are standalone first fields on History, Runtimes and Extensions [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, section === 'history' ? 'history=rows' : `frame-wall=settings&frame-section=${section}&frame-settings-round4=1`, 'light', 1440)
     const field = page.getByRole('searchbox', { name: label, exact: true })

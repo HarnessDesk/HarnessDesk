@@ -27,13 +27,43 @@ const coveredControls = async (page: Page): Promise<{ readonly box: string; read
       return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity) > 0
     }
     const name = (el: Element) => (el.getAttribute('aria-label') ?? el.textContent?.trim() ?? el.getAttribute('type') ?? '').slice(0, 48)
+    const renderedBounds = (el: Element) => {
+      const rect = el.getBoundingClientRect()
+      let left = Math.max(0, rect.left), right = Math.min(innerWidth, rect.right)
+      let top = Math.max(0, rect.top), bottom = Math.min(innerHeight, rect.bottom)
+      for (let ancestor = el.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        const css = getComputedStyle(ancestor), box = ancestor.getBoundingClientRect()
+        if (/(auto|scroll|hidden|clip)/.test(css.overflowX)) {
+          left = Math.max(left, box.left + ancestor.clientLeft)
+          right = Math.min(right, box.left + ancestor.clientLeft + ancestor.clientWidth)
+        }
+        if (/(auto|scroll|hidden|clip)/.test(css.overflowY)) {
+          top = Math.max(top, box.top + ancestor.clientTop)
+          bottom = Math.min(bottom, box.top + ancestor.clientTop + ancestor.clientHeight)
+        }
+      }
+      return { left, right, top, bottom, width: right - left, height: bottom - top }
+    }
     return [...root.querySelectorAll(selector)].filter(visible)
-      .map(el => ({ el, rect: el.getBoundingClientRect() }))
-      .filter(({ rect }) => rect.left < toast.x + toast.width && rect.right > toast.x && rect.top < toast.y + toast.height && rect.bottom > toast.y)
+      .map(el => ({ el, rect: renderedBounds(el) }))
+      .filter(({ rect }) => rect.width > 0 && rect.height > 0 && rect.left < toast.x + toast.width && rect.right > toast.x && rect.top < toast.y + toast.height && rect.bottom > toast.y)
       .map(({ el, rect }) => `<${el.tagName.toLowerCase()}> "${name(el)}" at [${Math.round(rect.left)},${Math.round(rect.top)} ${Math.round(rect.width)}×${Math.round(rect.height)}]`)
   }, { toast: rect!, selector: CONTROLS })
   return { box, covered }
 }
+
+test('toast coverage excludes clipped controls and still rejects visible overlap', async ({ page }) => {
+  await page.setContent(`<div data-page-destination="library" style="position:relative;width:400px;height:100px;overflow:auto">
+    <button style="position:absolute;top:70px;left:0;width:100px;height:30px">Visible control</button>
+    <button style="position:absolute;top:140px;left:0;width:100px;height:30px">Clipped control</button>
+    <div style="height:400px"></div>
+  </div><div data-sonner-toast style="position:fixed;top:80px;left:0;width:200px;height:80px">Toast</div>`)
+  const { covered } = await coveredControls(page)
+  expect(covered).toHaveLength(1)
+  expect(covered[0]).toContain('Visible control')
+  await page.locator(PAGE_ROOT).evaluate(root => { root.scrollTop = 100 })
+  expect((await coveredControls(page)).covered).toEqual([])
+})
 
 /** The one toast frame, on the three Library pages a write toast can be up over. */
 const TOAST_CASES = [

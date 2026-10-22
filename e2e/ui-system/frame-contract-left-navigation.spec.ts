@@ -18,14 +18,14 @@ for (const theme of WALL_THEMES) {
     await expect(top.locator('[data-role="wordmark"]')).toHaveCount(0)
     await expect(top.locator('[data-work-panel-toggle]')).toHaveCount(0)
     const rows = column.locator('[aria-label="Main sections"] [data-left-row]')
-    await expect(rows).toHaveCount(6)
+    await expect(rows).toHaveCount(5)
     const anatomy = await rows.evaluateAll(nodes => nodes.map(node => {
       const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
       const css = getComputedStyle(button)
       return { name: button.getAttribute('aria-label'), height: button.getBoundingClientRect().height,
         size: parseFloat(css.fontSize), slots: node.querySelectorAll('[data-left-trailing]').length }
     }))
-    expect(anatomy.map(row => row.name)).toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    expect(anatomy.map(row => row.name)).toEqual(['Teams', 'Flows', 'Agents', 'Customize', 'Dashboard'])
     for (const row of anatomy) {
       expect(row.height).toBe(FRAME.rail.rowHeight)
       expect(row.size).toBe(FRAME.rail.label)

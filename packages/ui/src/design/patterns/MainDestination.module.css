@@ -2,7 +2,9 @@
 .root { display: grid; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .work, .pages { grid-area: 1 / 1; min-width: 0; min-height: 0; overflow: hidden; }
 .work { display: flex; flex-direction: column; }
-.pages { display: grid; }
+/* Results keep a measured lane below page scroll owners, leaving every visible
+   row available to the pointer while its result remains on screen. */
+.pages { display: grid; margin-bottom: var(--hd-toast-clearance); }
 .body { grid-area: 1 / 1; min-width: 0; min-height: 0; overflow: auto; }
 .body[data-stable-gutter] { scrollbar-gutter: stable; }
 .root [hidden] { display: none; }

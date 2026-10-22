@@ -996,6 +996,28 @@ it('shows the warning runtime’s never-fired skills instead of retaining anothe
   expect(container.querySelector('[title="Runtime"]')?.textContent).toBe('Second Agent')
 })
 
+it('Show never fired matches its runtime catalogue count and excludes skills reaching only elsewhere', async () => {
+  await mount(library([
+    entry('selected-idle', ['reaches', 'absent'], { catalogTokens: 5000 }),
+    entry('off-elsewhere', ['off', 'reaches']),
+    entry('blocked-elsewhere', ['rejected', 'reaches']),
+    entry('stale-elsewhere', ['stale', 'reaches']),
+    entry('selected-fired', ['reaches', 'absent']),
+  ]), usageOf({ 'selected-fired': { sessions: 1, activations: 1, lastAt: 5, byRuntime: { one: { sessions: 1, activations: 1 } } } }),
+  { initialView: { chip: 'needs-you' } })
+  expect(container.textContent).toContain('1 of its skills never fired')
+  await act(async () => [...container.querySelectorAll('button')].find(button => button.textContent === 'Show never fired')!.click())
+  expect(await countOf('Never fired')).toBe('Never fired1')
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual(['selected-idle'])
+
+  await act(async () => container.querySelector<HTMLButtonElement>('[title="Runtime"]')!.click())
+  await act(async () => filterRow('All runtimes')!.click())
+  expect(await countOf('Never fired')).toBe('Never fired4')
+  expect(cards().map(card => card.getAttribute('aria-label'))).toEqual([
+    'blocked-elsewhere', 'off-elsewhere', 'selected-idle', 'stale-elsewhere',
+  ])
+})
+
 it('a problem gets a warning flag beside its single finding', async () => {
   await mount(library([partialEntry('alpha', ['hollow', 'reaches'])]))
   const row = cards()[0]!

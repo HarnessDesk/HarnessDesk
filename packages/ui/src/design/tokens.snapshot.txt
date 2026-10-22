@@ -390,6 +390,7 @@
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toast-bottom = 16px
+--hd-toast-clearance = 0px
 --hd-toast-gap = 16px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
@@ -978,6 +979,7 @@
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toast-bottom = 16px
+--hd-toast-clearance = 0px
 --hd-toast-gap = 16px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
@@ -1575,6 +1577,7 @@
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toast-bottom = 16px
+--hd-toast-clearance = 0px
 --hd-toast-gap = 16px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
@@ -2172,6 +2175,7 @@
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toast-bottom = 16px
+--hd-toast-clearance = 0px
 --hd-toast-gap = 16px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)

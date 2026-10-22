@@ -4,11 +4,11 @@ import { applyPageFrameActions } from './frame-page-actions'
 for (const theme of ['light', 'dark'] as const) {
   {
 
-    for (const [item0, width] of ([1440, 1100, 720]).entries()) test(`final Library matrix keeps every column visible in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+    for (const [item0, width] of ([1440, 1100, 720]).entries()) test(`final Customize runtime comparison keeps every column visible in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
 
       await page.setViewportSize({ width, height: 900 })
       await page.goto(`/preview.html?frame-wall=library&theme=${theme}`)
-      await applyPageFrameActions(page, { pageWidth: 'wide', bodyChoice: { label: 'How to show the library', value: 'matrix', item: 'Matrix' } })
+      await applyPageFrameActions(page, { pageWidth: 'wide', bodyChoice: { label: 'View', value: 'matrix', item: 'Runtime comparison' } })
       const matrix = page.locator('[data-slot="library-matrix"]')
       await expect(matrix).toBeVisible()
       const container = matrix.locator('[data-slot="table-container"]')

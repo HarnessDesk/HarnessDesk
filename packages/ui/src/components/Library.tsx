@@ -476,6 +476,12 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     [library, scopedEntries],
   )
 
+  // A scoped catalogue pays only for skills that runtime actually loads.
+  // Use the same predicate for the filter and its count.
+  const isUnused = useCallback((entry: LibraryEntry) => usage !== null &&
+    entry.reach.some(reach => reach.state === 'reaches' && (!screen.runtime || reach.runtime === screen.runtime)) &&
+    usage.skills[entry.name] === undefined, [usage, screen.runtime])
+
   const rows = useMemo(() => {
     return scopedEntries.filter((entry) => {
       if (screen.filter === 'problems') return entryHasProblem(entry)
@@ -490,16 +496,10 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       }
       if (screen.filter === 'unreachable') return entry.reach.every((one) => one.state !== 'reaches')
       if (screen.filter === 'off') return entry.reach.some((one) => one.state === 'off')
-      if (screen.filter === 'unused') {
-        return (
-          usage !== null &&
-          entry.reach.some((one) => one.state === 'reaches') &&
-          usage.skills[entry.name] === undefined
-        )
-      }
+      if (screen.filter === 'unused') return isUnused(entry)
       return true
     })
-  }, [scopedEntries, screen.filter, usage])
+  }, [scopedEntries, screen.filter, isUnused])
 
   // Cards always sort by name. Matrix retains the existing cost order for
   // Never fired, and MCP retains its own list/matrix ordering.
@@ -526,11 +526,9 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     if (usage === null) return undefined
     return scopedEntries.filter(
       (entry) =>
-        entry.kind === 'skill' &&
-        entry.reach.some((one) => one.state === 'reaches') &&
-        usage.skills[entry.name] === undefined,
+        entry.kind === 'skill' && isUnused(entry),
     ).length
-  }, [scopedEntries, usage])
+  }, [scopedEntries, usage, isUnused])
 
   // snapshot.skills belongs only to the active runtime. Name its owner and
   // never project its commands into another runtime's scope or disk diagnostics.
@@ -680,7 +678,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
     { value: 'off', label: FILTER_WORDS.off, count: counts ? counts.off + searchedNativeSkills.filter(skill => !skill.enabled).length : undefined, title: 'Installed in a runtime and turned off in its own settings, so nothing loads it there.' },
     ...(kind === 'skill' ? [{ value: 'unused', label: FILTER_WORDS.unused, count: unusedCount,
       disabled: usage === null ? 'Counting activations in the stored conversations…' : false as const,
-      title: usage === null ? undefined : `Reaches at least one runtime, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.` }] : []),
+      title: usage === null ? undefined : `Reaches ${screen.runtime ? 'the selected runtime' : 'at least one runtime'}, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.` }] : []),
   ]
   const libraryChoices: readonly PageOption[] = [
     { id: 'view', label: 'How to show the library', value: screen.view,
