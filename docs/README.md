@@ -23,6 +23,7 @@ You run agents, and you will never read this repository's source.
 | [usage-dashboard.md](usage-dashboard.md) | Every plan's limits and what the month cost, on one screen |
 | [browser-control.md](browser-control.md) | The browser inside the window, and which agents get its tools |
 | [data-boundaries.md](data-boundaries.md) | What leaves this machine, per lane — today, nothing but what you send an agent |
+| [open-and-hosted.md](open-and-hosted.md) | What is open and what is hosted: the client and the wire are open, the service that relays and pushes is not, and sees only ciphertext |
 
 ## Extend it
 

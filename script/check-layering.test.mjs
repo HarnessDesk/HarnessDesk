@@ -136,3 +136,44 @@ test('client views import only protocol and their own files', () => {
   for (const source of ["import '@harnessdesk/client'", "export * from '@harnessdesk/client/node'", "import '../index.js'", "export * from '../node.js'", "await import('ws')", "type Stats = import('node:fs').Stats", "import '@harnessdesk/server'", "require('../../test/fixture.js')", "import './helper.js?fresh'", "await import(dependency)"])
     assert.equal(rule.offenders(source, 'packages/client/src/views/index.ts').length, 1, source)
 })
+
+test('the cloud wire stands alone and stays out of the renderer', () => {
+  const alone = RULES.find((r) => r.label === 'cloud wire stands alone')
+  assert.ok(alone, 'cloud wire stands alone exists')
+  const inContract = (source) => alone.offenders(source, 'packages/contract/src/api.ts').length
+  const inCrypto = (source) => alone.offenders(source, 'packages/crypto/src/keys.ts').length
+  for (const source of ["import { b64u } from './bytes.js'", "export * from './ids.js'", 'await crypto.subtle.digest(name, data)']) {
+    assert.equal(inContract(source), 0, source)
+    assert.equal(inCrypto(source), 0, source)
+  }
+  assert.equal(inContract("import { z } from 'zod'"), 0)
+  for (const source of [
+    "import { z } from 'zod'", "import { createHash } from 'crypto'", "import fs from 'fs'", "import WebSocket from 'ws'", "import 'left-pad'",
+    "import '@harnessdesk/protocol'", "import { readFileSync } from 'node:fs'", "import 'electron'", "import { x } from '../../protocol/src/index.js'",
+    "await import(name)", "require('child_process')", "import './helper.js?fresh'",
+  ]) assert.equal(inCrypto(source), 1, `crypto: ${source}`)
+  for (const source of [
+    "import { createHash } from 'crypto'", "import WebSocket from 'ws'", "import '@harnessdesk/crypto'", "import { x } from '../../crypto/src/index.js'", "import ky from 'ky'",
+  ]) assert.equal(inContract(source), 1, `contract: ${source}`)
+  for (const source of [
+    "const s = Buffer.from(x).toString('base64url')", 'const url = process.env.RELAY_URL', 'setImmediate(tick)', "const here = __dirname",
+    'const { Buffer: B } = globalThis; void Buffer', 'globalThis.Buffer.from(x)', 'const e = globalThis.process.env.X', "self['Buffer'].from(x)",
+    'window.setImmediate(f)', '(globalThis as any).Buffer.from(x)', '(self).process.env.X', 'globalThis!.process.cwd()', '(<any>window).Buffer',
+  ]) {
+    assert.ok(inCrypto(source) >= 1, `crypto global: ${source}`)
+    assert.ok(inContract(source) >= 1, `contract global: ${source}`)
+  }
+  for (const source of ['const x = { process: 1, Buffer: 2 }', 'x.process(); y.Buffer', 'globalThis.fetch(u)', "globalThis['crypto']", '// Buffer.from in a comment', "const label = 'process'"])
+    assert.equal(inCrypto(source), 0, `not a global: ${source}`)
+
+  const above = RULES.find((r) => r.label === 'cloud wire above the renderer')
+  assert.ok(above, 'cloud wire above the renderer exists')
+  assert.deepEqual(above.packages, ['ui', 'protocol'])
+  const inUi = (source) => above.offenders(source, 'packages/ui/src/features/link/Pair.tsx').length
+  for (const source of [
+    "import '@harnessdesk/crypto'", "import { DeskId } from '@harnessdesk/contract'", "import { b64u } from '@harnessdesk/crypto/bytes'",
+    "import '../../../../crypto/src/index.js'", "import { sealPush } from '../../../../crypto/dist/src/push.js'", "export * from '../../../../contract/src/api.js'",
+  ]) assert.equal(inUi(source), 1, source)
+  for (const source of ["import '@harnessdesk/client/views'", "import { x } from '../../lib/crypto.js'", "import '@harnessdesk/cryptography'"])
+    assert.equal(inUi(source), 0, source)
+})

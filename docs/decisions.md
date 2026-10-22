@@ -3979,3 +3979,29 @@ permission enforcement, authoring recovery or the host's seating decisions.
 Superpowers specs and plans are local working notes. Both corresponding
 folders are ignored and untracked at the owner's request; product contracts
 and verification evidence remain in the ordinary documentation tree.
+
+## The client is open; the hosted service is closed — 2026-10-21
+
+**Status:** only the wire exists so far: `packages/contract` and
+`packages/crypto`, with their tests. The desktop does not connect to the
+service yet, so what follows about sign-in, pairing and the seam is the intent
+the wire is shaped for, not something built.
+
+The desktop is MIT, and so will be everything in it that talks to a service:
+sign-in as a public client (PKCE through the system browser, a
+`harnessdesk://` redirect, the token in the keychain), the desk's Ed25519
+identity and QR pairing, and the encryption of relay and push messages. The
+protocol is open too — `packages/contract` and `packages/crypto`, with the test
+vectors the phone must reproduce. What stays closed is the hosted service (accounts, relay
+and push gateway) and the iOS app. [open-and-hosted.md](open-and-hosted.md)
+says what the service can see and where secrets live.
+
+This costs the service any reliance on the client: anyone can build another
+client against the open protocol, so every limit, check and expiry is enforced
+on the server, and no secret ships in the app. It buys a client whose
+handling of keys and tokens anyone can read, and a service that can be audited
+from its wire. A closed helper process beside the desktop was considered and
+not built; the desktop's cloud code will stay behind one seam so that remains
+possible, and the renderer never imports the wire (`pnpm layering`).
+
+**Rule:** the client holds no service secret and the service trusts nothing the client says.
