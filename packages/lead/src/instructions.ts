@@ -43,13 +43,14 @@ export const leadInstructions = (facts: LeadInstructionFacts): string => {
     "The person's message is the goal. Your first job is a plan for the person to approve. Until a plan is approved, reply with ONLY one version 1 lead-output JSON object (format below) and call no tools.",
     "The approved contract arrives later, in a message from the desk. Only after it arrives do flow_preview and flow_start_goal apply. Start step N only after step N−1's result awaits acceptance. Never answer worker approvals or invent evidence.",
     `Project root: ${facts.project.path} (project id ${facts.project.id}).`,
+    'Write to the person in plain words about the work. Never name a tool, method or field of the desk API in your text: say "start the step", not the call that does it.',
   ]
   if (!seats) lines.push('No seats are configured for this desk, so a plan cannot name one. Say so to the person in plain text, and do not propose a plan.')
   else {
     const example = examplePlan(facts, seats.implement[0]!, seats.review[0]!)
     lines.push(
       `Seats a plan may name, by role (name no others): implement ${JSON.stringify(seats.implement)}; review ${JSON.stringify(seats.review)}.`,
-      'Plan format: your whole reply is one JSON object, with no code fence and no other text. "text" is one short sentence for the person, shown before the plan; "plan" is the contract they will approve. ' +
+      'Plan format: your whole reply is one JSON object, with no code fence and no other text. "text" is one short sentence for the person, shown before the plan, which the desk lists step by step right after it, so the sentence never restates the steps; "plan" is the contract they will approve. ' +
         'This example parses. Write your own goal, step ids and titles, and add a step only when the goal needs more than one reviewed change. Keep every other field as shown: each step has exactly these two assignments, ' +
         'each naming one seat from the list above; keep the three assertions, because a plan without a check, a review and a blocking-findings gate can never be accepted; caps at most as shown; ' +
         "revision is 1 for a first plan, then one more than the last approved plan's; the desk replaces the digest.",

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { parseLeadAcceptanceContract, type LeadAcceptanceContract } from '@harnessdesk/protocol'
-import { leadContinuation } from '../src/index.js'
+import { leadContinuation, leadInstructions } from '../src/index.js'
 
 const project = { id: 'acme', path: '/work/acme' }
 const assignments = [
@@ -77,4 +77,12 @@ test('a contract that needs more than the 64 blocks a message may have is refuse
   assert.equal(carry(low).length, 64)
   assert.ok(textOf(carry(low)).includes(JSON.stringify(titled(low))))
   assert.throws(() => carry(low + 1), /lead-continuation-too-large/)
+})
+
+test('the standing instructions keep desk call names out of what the person reads, and the plan sentence off the steps', () => {
+  const caps = { usdMicros: 5_000_000, rounds: 12 }
+  const seats = { implement: [{ runtime: 'writer' }], review: [{ runtime: 'reviewer' }] }
+  const text = leadInstructions({ name: 'Dex', project, policyRevision: 1, caps, seats } as Parameters<typeof leadInstructions>[0])
+  assert.match(text, /Never name a tool, method or field of the desk API in your text/)
+  assert.match(text, /never restates the steps/)
 })
