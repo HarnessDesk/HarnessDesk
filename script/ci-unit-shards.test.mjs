@@ -403,3 +403,12 @@ test('UI tests stays the aggregate and only accepts the exact requested result t
     assert.equal(result.status, 1)
   }
 })
+
+test('DOM rendering tests share a budget while pure Node tests retain the default', async () => {
+  const { default: config } = await import('../packages/ui/vitest.config.ts')
+  const projects = config.test.projects.map(project => project.test)
+  assert.equal(projects.find(project => project.name === 'dom').testTimeout, 10_000)
+  assert.equal(projects.find(project => project.name === 'node').testTimeout, undefined)
+  const flow = readFileSync(join(root, 'packages/ui/src/components/FlowStart.test.tsx'), 'utf8')
+  assert.doesNotMatch(flow, /},\s*10_000\)/, 'FlowStart uses the shared rendering budget')
+})
