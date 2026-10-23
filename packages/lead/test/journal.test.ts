@@ -152,7 +152,8 @@ test('concurrent starts serialize and only the approved next step is admitted', 
 
 test('asked calls are audited, failed approvals do not grant consent and state snapshots are detached', async () => {
   const storage = memory(), journal = await prepare(storage)
-  await journal.setPolicy({ ...policy, revision: 2, mode: 'default' })
+  // An approved step starts in default mode; the person's own ask rule still asks.
+  await journal.setPolicy({ ...policy, revision: 2, mode: 'default', rules: [{ id: 'ask-start', method: 'flow/start-goal', action: null, project: null, effect: 'ask' }] })
   const before = storage.records.length
   const result = await journal.execute({ id: 'asked-1', request, context, stepId: 'implement' }, async () => { throw new Error('must not dispatch') })
   assert.equal(result.outcome, 'asked')

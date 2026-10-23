@@ -433,8 +433,22 @@ test('permission decisions expose the parsed detached snapshot used for dispatch
   assert.ok(Object.isFrozen(result.call))
   assert.ok(Object.isFrozen((result.call.params as typeof r.params).seats.implement))
   assert.equal(decide({ ...request(), method: 'session/send', params: {} }, context()).call, null)
-  const asking = decide(startRequest(), { ...context(), desk: policy('default') })
+  const asking = decide(startRequest(), { ...context(), desk: policy('default', [{ ...rule('ask'), method: 'flow/start-goal' }]) })
   assert.equal(asking.effect, 'ask'); assert.ok(asking.call)
+})
+
+test('in default mode the approved plan is the consent to start its own frozen step, and nothing more', () => {
+  const started = decide(startRequest(), { ...context(), desk: policy('default') })
+  assert.equal(started.effect, 'allow'); assert.ok(started.call)
+  // A person's own rule still decides, and plan mode still permits reads only.
+  for (const effect of ['ask', 'deny'] as const)
+    assert.equal(decide(startRequest(), { ...context(), desk: policy('default', [{ ...rule(effect), method: 'flow/start-goal' }]) }).effect, effect)
+  assert.equal(decide(startRequest(), { ...context(), desk: policy('plan') }).effect, 'deny')
+  assert.equal(decide(startRequest(), { ...context(), desk: policy('manage'), projectPolicy: policy('default', [{ ...rule('ask'), method: 'flow/start-goal' }]) }).effect, 'ask')
+  // Other management in an approved run still asks in default mode.
+  assert.equal(decide(request(), { ...context(), desk: policy('default') }).effect, 'ask')
+  // A step that differs from the approved one is refused, not started.
+  assert.equal(decide({ ...startRequest(), params: { ...startRequest().params, sentence: 'Other task' } }, { ...context(), desk: policy('default') }).effect, 'deny')
 })
 
 test('normalized parser values, rather than raw params, decide global definition scope', () => {

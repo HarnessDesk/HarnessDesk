@@ -65,7 +65,8 @@ export const sameLeadPolicyValues = (a: LeadPermissionPolicy, b: LeadPermissionP
 const irreversible = (method: string, action: string | null): boolean =>
   [...method.split('/'), action ?? ''].some(word => ['merge', 'publish', 'delete', 'wrap'].includes(word.toLowerCase()))
 
-/** Modes: plan permits reads only; default asks for unmatched management; manage
+/** Modes: plan permits reads only; default asks for unmatched management, except starting an
+ * approved plan's own frozen step, which that approval already consented to; manage
  * permits management only after the separate contract floors pass. A matching rule can
  * replace the default, but never plan's read ceiling. Within and across layers:
  * deny > ask > allow. A project's allow is therefore never a grant over the desk. */
@@ -168,6 +169,10 @@ const decideParsedPermission = (request: LeadPermissionRequest, context: LeadPer
         params.attended !== (step.attendance === 'attended') || !same(params.seats ?? {}, seats) ||
         params.continues != null || params.goal !== undefined)
         return deny('Start inputs, seats or attendance differ from the approved contract', 'start')
+      // Approving the plan was the person's consent to start exactly this frozen step, so default
+      // mode's ask is already answered. A person's own rule still decides, and plan mode denies.
+      const start = intersect(desk, projectPolicy, request.method, action, request.project.id)
+      return start.effect === 'ask' && start.rule === null ? decision('allow', `${start.reason}, consented by the approved plan`) : start
     } else if (request.method !== 'workspace/open' && request.runId === null) {
       return deny('Management requires membership in an approved run', 'run')
     }
