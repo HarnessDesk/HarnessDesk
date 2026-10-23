@@ -31,6 +31,7 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/stop': 'run',
     'lead/resume': 'run',
     'lead/card/decide': 'answer',
+    'lead/action/perform': 'answer',
   },
   topics: { lead: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.

@@ -1,3 +1,4 @@
+import { LeadPersonActions } from './lead/person-actions.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
 import { phoneLinkOff } from './phone-link.js'
 import { answerLeadPersonGate, answerLeadResult } from './lead/person-decision.js'
@@ -3488,7 +3489,9 @@ export class Host {
     }
     const detach = journal.onChange(trackOwned)
     this.onDispose(detach)
-    this.#leadService = new LeadService({ ...options, broker: this.#credentials,
+    const personActions = new LeadPersonActions(journal, this, this.#evidence, async value => { await this.#leadService!.assertPublic(value) })
+    this.#leadService = new LeadService({ ...options,
+      readEvidence: async (runId, read) => ({ ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) }), broker: this.#credentials,
       resolveTool: async call => {
         const scope = await options.resolveTool(call)
         // Derive readiness from host-owned runs and cards again for every journal
@@ -3518,19 +3521,8 @@ export class Host {
     this.#leadOwnsWorker = (runtime, sessionId, includeClosed) => !!ownedWorker(runtime, sessionId, includeClosed)
     this.#leadControls = new LeadControls({ journal, service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
-      readWorkerApprovals: () => {
-        const contract = journal.state.contract
-        if (!contract) return []
-        return this.registry.all().flatMap(record => {
-          const owned = ownedWorker(String(record.runtime), String(record.session.id))
-          if (!owned) return []
-          return [...record.approvals.values()].map(approval => ({ version: 1 as const,
-            id: `worker-${createHash('sha256').update(`${record.runtime}:${record.session.id}:${approval.id}`).digest('hex')}`,
-            revision: 1, type: 'waiting' as const, kind: 'worker-approval' as const, runId: owned.runId, personCardId: null,
-            summary: 'A worker is waiting for a command approval.', assertions: [], contractDigest: contract.digest,
-          }))
-        })
-      },
+      readPersonActions: () => personActions.read(),
+      performAction: input => personActions.perform(input),
       decidePerson: (card, decision, contract) => answerLeadPersonGate({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
         readEvidence: runId => options.readEvidence(runId, call => {
           if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
@@ -4771,6 +4763,7 @@ export class Host {
       },
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
+      leadActionPerform: async params => (await this.#leadWindow()).perform(params),
       leadCardDecide: async (params) => (await this.#leadWindow()).decide(params),
       leadSettingsRead: async () => (await this.#leadWindow()).readSettings(),
       leadSettingsUpdate: async (params) => (await this.#leadWindow()).updateSettings(params),

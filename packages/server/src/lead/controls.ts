@@ -1,12 +1,12 @@
 import {
   LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
-  parseLeadThreadSend, parseLeadResume,
+  parseLeadThreadSend, parseLeadResume, parseLeadActionInput, type LeadAction, type LeadActionInput,
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification,
 } from '@harnessdesk/protocol'
 import { canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
-import { admitLeadCard, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
+import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
 
 export const LEAD_PLAN_CONSENT_MS = 86_400_000
@@ -23,6 +23,8 @@ interface LeadControlsOptions {
   readonly push: (notification: WireNotification) => void
   /** Live host registry relays, never child proposals or person decisions. */
   readonly readWorkerApprovals?: () => readonly Extract<LeadCard, { type: 'waiting' }>[]
+  readonly readPersonActions?: () => Promise<readonly LeadAction[]>
+  readonly performAction?: (input: LeadActionInput) => Promise<void>
   /** Host revalidates the live Flow, card and evidence on the journal's decision queue. */
   readonly decidePerson: (card: Extract<LeadCard, { type: 'waiting' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly decideResult: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
@@ -47,6 +49,9 @@ export class LeadControls {
   }
   #notify(liveApprovals = false): Promise<void> {
     this.#notifications = this.#notifications.then(async () => {
+      // Coalesced journal writes often leave many notifications at the same
+      // revision. Do not repeat live evidence reads for each superseded entry.
+      if (!liveApprovals && this.options.journal.state.seq <= this.#lastRevision) return
       const projection = await this.#projection()
       if (projection.revision < this.#lastRevision || !liveApprovals && projection.revision === this.#lastRevision) return
       try { this.options.push({ method: 'lead/changed', params: projection }) }
@@ -100,14 +105,16 @@ export class LeadControls {
     if (settings.name !== state.name || settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps)) return this.#projection()
     if (this.#failedRevision === state.seq) throw leadRefusal('lead-projection-failed')
     let thread: ReturnType<typeof leadWindowThread>
-    try { thread = leadWindowThread(state, this.options.project, settings, this.options.now(), this.options.readWorkerApprovals?.() ?? []) }
+    const personActions = await this.options.readPersonActions?.() ?? []
+    try { thread = leadWindowThread(state, this.options.project, settings, this.options.now(), [
+      ...(this.options.readWorkerApprovals?.() ?? []), ...leadApprovalCards(personActions, state.contract?.digest ?? '')]) }
     catch { this.#failedRevision = state.seq; throw leadRefusal('lead-projection-failed') }
     const wayOut = this.#wayOut(state)
     const waitReason = state.phase === 'waiting-for-user' && (LEAD_MANAGEMENT_REASONS as readonly (string | null)[]).includes(state.managementReason)
       ? state.managementReason : null
     const progress = leadProgress(state), team = leadRunTeam(state)
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), ...(progress && { progress }), ...(team && { team }) })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, ...(progress && { progress }), ...(team && { team }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }
@@ -139,6 +146,14 @@ export class LeadControls {
   }
   readThread(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
   readSettings(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
+  perform(value: LeadActionInput): Promise<LeadWindowProjection> { return this.#queue(async () => {
+    const input = parseLeadActionInput(value)
+    if (input.contractDigest !== this.options.journal.state.contract?.digest) throw leadRefusal('lead-card-stale')
+    if (!this.options.performAction) throw leadRefusal('lead-operation-refused')
+    await this.options.performAction(input)
+    void this.#notify(true)
+    return this.#projection()
+  }) }
   send(value: LeadThreadSend) { return this.#queue(async () => {
     const input = parseLeadThreadSend(value), { journal, service } = this.options
     if (leadContainsSecret(input)) throw leadRefusal('lead-secret-refused')
@@ -220,7 +235,8 @@ export class LeadControls {
       // Once a plan is approved every request ends with the contract, because the standing instructions say it
       // arrives in a message and the history above holds only words. Before that, a request still ends in a user turn.
       const { contract, steps } = journal.state
-      if (contract) messages.push({ role: 'user', content: leadContinuation({ contract, steps, runs: leadPlanRuns(journal.state), mayProposeNewPlan: canReplaceLeadPlan(journal.state) }) })
+      if (contract) messages.push({ role: 'user', content: leadContinuation({ contract, steps, runs: leadPlanRuns(journal.state), mayProposeNewPlan: canReplaceLeadPlan(journal.state),
+        personActions: await this.options.readPersonActions?.() ?? [] }) })
       else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
         { type: 'text', text: 'No plan is approved yet. Continue with a plan for the person to approve.' },
       ] })
@@ -244,6 +260,7 @@ export class LeadControls {
   decide(decision: LeadCardDecision): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const { journal } = this.options, state = journal.state
     if (this.options.readWorkerApprovals?.().some(card => card.id === decision.cardId)) throw leadRefusal('lead-worker-approval')
+    if ((await this.options.readPersonActions?.() ?? []).some(action => action.kind === 'worker-approval' && action.id === decision.cardId)) throw leadRefusal('lead-worker-approval')
     const card = state.cards.find(card => card.id === decision.cardId)
     if (state.decidedCards.includes(`${decision.cardId}:${decision.expectedRevision}`)) throw leadRefusal('lead-card-decided')
     if (!card) throw leadRefusal('lead-card-stale')

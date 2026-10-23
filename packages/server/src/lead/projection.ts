@@ -1,4 +1,4 @@
-import { LEAD_LIMITS, windowLeadThread, type LeadCard, type LeadProgress, type LeadProject, type LeadSettingsProjection } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, windowLeadThread, type LeadAction, type LeadCard, type LeadProgress, type LeadProject, type LeadSettingsProjection } from '@harnessdesk/protocol'
 import { leadBudgetProjection, leadPlanRuns, type LeadState } from '@harnessdesk/lead'
 
 /** Reserve the entire envelope; messages may be windowed, actionable cards may not. */
@@ -33,3 +33,7 @@ export const leadProgress = (state: LeadState): LeadProgress | null => {
   const begun = steps.filter(step => (state.steps.find(one => one.id === step.id)?.state ?? 'pending') !== 'pending').length
   return { step: Math.max(1, begun), steps: steps.length, runs: leadPlanRuns(state).length }
 }
+
+export const leadApprovalCards = (actions: readonly LeadAction[], digest: string): readonly Extract<LeadCard, { type: 'waiting' }>[] =>
+  actions.flatMap(action => action.kind === 'worker-approval' ? [{ version: 1, id: action.id, revision: 1, type: 'waiting', kind: 'worker-approval', runId: action.runId,
+    personCardId: null, summary: `The ${action.role} wants to ${action.request}. Answer on the card.`, assertions: [], contractDigest: digest }] : [])

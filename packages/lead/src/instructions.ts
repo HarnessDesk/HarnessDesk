@@ -1,4 +1,4 @@
-import { parseLeadAcceptanceContract, type FlowSeat, type LeadAcceptanceContract, type LeadCaps, type LeadProject } from '@harnessdesk/protocol'
+import { parseLeadAcceptanceContract, type FlowSeat, type LeadAcceptanceContract, type LeadAction, type LeadCaps, type LeadProject } from '@harnessdesk/protocol'
 import { ipcObject } from './child-ipc.js'
 import type { MessagesText } from './messages-types.js'
 import { leadReviewedResultSource } from './recipes/reviewed-result.js'
@@ -45,6 +45,7 @@ export const leadInstructions = (facts: LeadInstructionFacts): string => {
     'When every approved step has started and fresh desk observations confirm its run has settled with no result possible, a new person message permits a new plan. Use new step ids, a higher contract revision and the same project; wait for the person to approve it before starting. The earlier approval covers only its own steps. Never restart a started step.',
     `Project root: ${facts.project.path} (project id ${facts.project.id}).`,
     'Write to the person in plain words about the work. Never name a tool, method or field of the desk API in your text: say "start the step", not the call that does it.',
+    'Name each open worker approval by role and what it asks, in plain words (for example, "The reviewer wants to read the git log"). A waiting worker has not finished. Name each required check without a result. Approvals and checks are answered on their cards, never by a chat reply. If the person types "approve", direct them to the card; you cannot answer it or run a check that counts.',
   ]
   if (!seats) lines.push('No seats are configured for this desk, so a plan cannot name one. Say so to the person in plain text, and do not propose a plan.')
   else {
@@ -66,6 +67,7 @@ export const leadInstructions = (facts: LeadInstructionFacts): string => {
 const BLOCK_CHARS = 16_000
 const BLOCKS_PER_MESSAGE = 64
 export interface LeadContinuationFacts {
+  readonly personActions?: readonly LeadAction[]
   readonly contract: LeadAcceptanceContract
   readonly steps: readonly { readonly id: string; readonly state: string }[]
   readonly mayProposeNewPlan?: boolean
@@ -82,6 +84,7 @@ export const leadContinuation = (facts: LeadContinuationFacts): readonly Message
     'The person approved your plan. Continue from the approved contract and fresh desk observations.',
     `Approved contract: ${JSON.stringify(contract)}`,
     `Step states: ${states}.`,
+    leadObservation(facts.personActions ?? []),
     ...(facts.runs ? [`Runs owned by these steps (including settled runs): ${JSON.stringify(facts.runs)}.`] : []),
     ...(facts.mayProposeNewPlan ? ['The desk has confirmed that every started step has settled and no result is awaiting your decision. The new person message permits you to propose a new plan now.'] : []),
     'If every approved step has started and fresh desk observations confirm its run has settled with no result possible, respond to a new person message with a new plan for approval. Use new step ids, a higher contract revision and the same project. Do not ask the person to approve a plan you have not proposed. The earlier approval covers only its own steps; start nothing new until the new plan is approved.',
@@ -92,7 +95,7 @@ export const leadContinuation = (facts: LeadContinuationFacts): readonly Message
     // A worker's own check run is recorded as advisory, so the result card waits on the person's run of it: without this
     // the model told the person a step "waits only for your decision" while no decision could be offered.
     "A worker's own run of a check never counts: a required check counts only when the person runs it on the Team. " +
-      'When a review is in and a required check has no result, ask the person to run that check on the Team, by its name. ' +
+      'When a review is in and a required check has no result, ask the person to run that check on its card, by its name. ' +
       'The desk offers the result for their decision only after that, so until then never say the step waits only for their decision.',
   ].join('\n')
   const blocks: MessagesText[] = []
@@ -106,6 +109,13 @@ export const leadContinuation = (facts: LeadContinuationFacts): readonly Message
   if (blocks.length > BLOCKS_PER_MESSAGE) throw new Error('lead-continuation-too-large')
   return blocks
 }
+
+/** Read-only host facts; action identifiers are never a model control capability. */
+export const leadObservation = (actions: readonly LeadAction[]): string => [
+  `Open worker approvals: ${JSON.stringify(actions.flatMap(action => action.kind === 'worker-approval' ? [{ runId: action.runId, role: action.role, request: action.request }] : []))}.`,
+  `Required checks without a result: ${JSON.stringify(actions.flatMap(action => action.kind === 'check' ? [{ runId: action.runId, name: action.name }] : []))}.`,
+  'Explain these waits exactly in plain words. Approvals and checks are answered on their cards, never by a chat reply. Do not say a worker awaiting approval has finished; never name a tool or method in text to the person.',
+].join('\n')
 
 const bad = (): never => { throw new Error('lead-ipc-invalid') }
 const probe: Omit<LeadInstructionFacts, 'seats'> = { name: 'Lex', project: { id: 'probe', path: '/probe' }, policyRevision: 1, caps: { usdMicros: 1, rounds: 1 } }

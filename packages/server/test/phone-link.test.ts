@@ -20,6 +20,8 @@ const planClick = { version: 1 as const, cardId: 'plan', cardType: 'plan' as con
 
 /** The desk's Lead, over real controls and a fake model, reachable the way the host reaches it. */
 const desk = async () => {
+  const performed: unknown[] = []
+  let personActions: any[] = [{ kind: 'worker-approval', id: 'worker', runId: 'run', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'no'] }, { kind: 'check', id: 'check', runId: 'run', name: 'verify', command: 'node --test' }]
   const records: LeadJournalRecord[] = []
   const journal = await createLeadJournal({ async read() { return records }, async append(record: LeadJournalRecord) { records.push(record) } })
   await journal.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
@@ -32,12 +34,13 @@ const desk = async () => {
       async send() { return { status: 'completed', text: 'Ready to inspect' } } },
     push: (notification: WireNotification) => broadcasters.forEach(f => f(notification)),
     decidePerson: async () => {}, decideResult: async () => {},
+    readPersonActions: async () => journal.state.contract ? personActions : [], performAction: async (input: any) => { if (!personActions.some(one => one.id === input.id)) throw Object.assign(new Error('stale'), { wireCode: 'lead-card-stale' }); performed.push({ id: input.id, choice: input.choice }); personActions = personActions.filter(one => one.id !== input.id) },
   } as never)
   let attached: PhoneLinkControl | null = null
   const ctx = {
     phone: { state: () => attached?.state() ?? phoneLinkOff, pairing: () => attached!.pairing(), allow: (...a: never[]) => (attached!.allow as any)(...a),
       deny: (id: string) => attached!.deny(id), revoke: (d: string) => attached!.revoke(d) },
-    leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p as never), leadCardDecide: (p: unknown) => controls.decide(p as never),
+    leadActionPerform: (p: unknown) => (controls as any).perform(p), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p as never), leadCardDecide: (p: unknown) => controls.decide(p as never),
     leadSettingsRead: () => controls.readSettings(), leadSettingsUpdate: (p: unknown) => controls.updateSettings(p as never),
     leadStop: (p: unknown) => controls.stop(p as never), leadResume: (p: unknown) => controls.resume(p as never),
   } as unknown as HostContext
@@ -46,7 +49,7 @@ const desk = async () => {
     addBroadcaster: (f: (n: WireNotification) => void) => { broadcasters.add(f); return () => { broadcasters.delete(f) } },
     attachPhoneLink: (control: PhoneLinkControl) => { attached = control },
   }
-  return { host, journal, controls, ctx }
+  return { host, journal, controls, ctx, performed }
 }
 
 const rig = async () => {
@@ -102,7 +105,7 @@ test('a phone cannot reach settings, the window, or anything the table leaves ou
   const s = await rig()
   try {
     const phone = await s.pair()
-    for (const method of ['lead/settings/update', 'phone/allow', 'phone/revoke', 'phone/pairing', 'flow/start-goal', 'session/start', 'host/hello']) {
+    for (const method of ['lead/settings/update', 'phone/allow', 'phone/revoke', 'phone/pairing', 'flow/start-goal', 'session/start', 'host/hello', 'approval/respond', 'evidence/check/run']) {
       const reply = await phone.request(method, {})
       assert.equal(reply.error.code, 'notOnPhoneSurface', method)
     }
@@ -134,4 +137,22 @@ test('with the phone link off, the window is told so', async () => {
   const state = await dispatch(d.ctx, 'phone/state', {})
   assert.equal(state.enabled, false)
   assert.deepEqual(state.devices, [])
+})
+
+for (const choice of ['yes-once', 'no', 'run']) test(`paired phone performs person action ${choice} and replays are refused`, async () => {
+  const s = await rig()
+  try {
+    await s.journal.offerCard(plan); await s.controls.decide(planClick)
+    const phone = await s.pair()
+    const params = { id: choice === 'run' ? 'check' : 'worker', contractDigest: contract.digest, choice }
+    assert.equal((await phone.request('lead/action/perform', { ...params, choice: 'always' })).error.code, 'badRequest')
+    const reply = await phone.request('lead/action/perform', params)
+    assert.equal(reply.ok, true, JSON.stringify(reply))
+    assert.deepEqual(s.performed, [{ id: params.id, choice }])
+    assert.equal((await phone.request('lead/action/perform', params)).error.code, 'lead-card-stale')
+    const device = s.running.control.state().devices[0]!
+    await s.running.control.revoke(device.id)
+    assert.equal((await phone.closedWith()).code, 4423)
+    phone.close()
+  } finally { await s.done() }
 })

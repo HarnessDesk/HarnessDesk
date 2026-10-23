@@ -35,6 +35,25 @@ test('ordinary activity bursts cost at most one model request and gaps replace o
   await loop.close()
 })
 
+test('activity observations name each open worker request and each missing required check', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve()
+    s.setEvidence({ ...spendEvidence(), reviews: [], personActions: [
+      { kind: 'worker-approval', id: 'worker', runId: 'run-1', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'no'] },
+      { kind: 'check', id: 'check', runId: 'run-1', name: 'verify', command: 'node --test' },
+    ] })
+    await loop.request(input)
+    s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'running', flow: 'lead-reviewed-result', round: 1, reason: null })
+    await s.drain(); await s.tick(); await loop.idle()
+    const body = JSON.parse(s.fake.requests.at(-1)!.body)
+    const text = body.messages.at(-1).content.map((block: any) => block.text ?? '').join('\n')
+    assert.match(text, /code reviewer/); assert.match(text, /read the git log/); assert.match(text, /verify/)
+    assert.match(text, /on their cards, never by a chat reply/)
+  } finally { await loop.close() }
+})
+
 test('uncertain requests and budget stops halt without another model call', async () => {
   for (const variant of ['uncertain', 'budget']) {
     const s = await fixture(variant === 'uncertain' ? [async () => { throw new Error('lost after send') }] : [message()])

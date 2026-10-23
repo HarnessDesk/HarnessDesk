@@ -1,9 +1,28 @@
 import assert from 'node:assert/strict'
-import test, { describe } from 'node:test'
+import test, { describe, type TestContext } from 'node:test'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { PhoneSim } from '@harnessdesk/phone-link/sim'
+import { startPhoneLink } from '../src/phone-link.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
+
+const personSurface = async (rig: Awaited<ReturnType<typeof createLeadRig>>, surface: string, t: TestContext) => {
+  if (surface === 'window') return (params: any) => rig.host.call('lead/action/perform', params)
+  const link = await startPhoneLink(rig.host, rig.logger, { home: rig.home, host: '127.0.0.1', includeLoopback: true, name: 'Test desk' })
+  const phone = await PhoneSim.fromCode(link.control.pairing().url)
+  t.after(async () => { phone.close(); await link.close() })
+  await phone.open(link.service.port, phone.offer!.deskPub)
+  await phone.enroll(phone.offer!.enroll, 'Jane’s phone')
+  await rig.waitFor(() => link.control.state().pending.length > 0, 'phone enrollment')
+  link.control.allow(link.control.state().pending[0]!.id)
+  await phone.next(message => message.t === 'enroll.ok')
+  return async (params: any) => {
+    const reply = await phone.request('lead/action/perform', params)
+    assert.equal(reply.ok, true, JSON.stringify(reply))
+    return reply.result
+  }
+}
 
 // Every case owns the actual host, child, restricted door, journal and Flow engine.
 // These assertions must also hold when guards are deliberately removed locally.
@@ -151,7 +170,7 @@ for (const interruption of ['child-crash', 'host-restart', 'connection-gap'] as 
   await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
 })
 
-test('worker approval reaches the window and no Lead answer frame reaches the worker', async t => {
+for (const surface of ['window', 'phone']) test(`worker approval reaches the ${surface} and no Lead answer frame reaches the worker`, async t => {
   const rig = await createLeadRig({ scenario: 'worker-approval', eager: true }); t.after(() => rig.dispose())
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
   await rig.assertEagerRefused('eager-start')
@@ -159,10 +178,45 @@ test('worker approval reaches the window and no Lead answer frame reaches the wo
   await rig.waitFor(() => rig.windowNotifications.some((one: any) => one.method === 'lead/changed' && one.params.thread?.cards.some((card: any) => card.kind === 'worker-approval')), 'worker approval card')
   const card = (await rig.host.call('lead/thread/read', {})).thread.cards.find(one => one.type === 'waiting')!
   assert.equal(card.type === 'waiting' && card.kind, 'worker-approval')
+  assert.match('summary' in card ? card.summary : '', /implementer.*node -e process.exit\(0\)/i)
   await assert.rejects(rig.decide(card, 'accept'), { wireCode: 'lead-worker-approval' })
   await rig.eagerApprovalTurn()
   assert.equal((await rig.workerCalls()).filter(one => one.method === 'worker-approval-answer').length, 0)
+  const projection = await rig.host.call('lead/thread/read', {}) as any
+  const action = projection.personActions.find((one: any) => one.kind === 'worker-approval')
+  assert.ok(action, 'person can answer the real worker approval')
+  const perform = await personSurface(rig, surface, t)
+  await perform({ id: action.id, contractDigest: rig.journal.state.contract!.digest, choice: 'yes-once' })
+  await rig.waitFor(async () => (await rig.workerCalls()).some(one => one.method === 'worker-approval-answer'), 'person answer reaches worker')
   await rig.assertNoForbiddenEffects()
+})
+
+for (const surface of ['window', 'phone']) test(`person runs missing required checks through Lead ${surface} and unlocks the reviewed result`, async t => {
+  const rig = await createLeadRig({ manualChecks: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve'); await rig.releaseWorkers()
+  const perform = await personSurface(rig, surface, t)
+  let action: any
+  await rig.waitFor(async () => {
+    const projection = await rig.host.call('lead/thread/read', {}) as any
+    action = projection.personActions?.find((one: any) => one.kind === 'check')
+    return !!action
+  }, 'missing required check action')
+  assert.equal(action.name, 'verify'); assert.ok(action.command)
+  assert.equal(rig.pending('result'), undefined)
+  const completed = new Set<string>()
+  await rig.waitFor(async () => {
+    const projection = await rig.host.call('lead/thread/read', {}) as any
+    for (const check of projection.personActions ?? []) if (check.kind === 'check' && !completed.has(check.id)) {
+      completed.add(check.id)
+      await perform({ id: check.id, contractDigest: rig.journal.state.contract!.digest, choice: 'run' })
+    }
+    return !!rig.pending('result')
+  }, 'reviewed result after person checks')
+  for (const run of rig.journal.state.runs) {
+    const evidence = await rig.host.call('evidence/board', { room: run.teamId })
+    assert.ok(evidence.cards.flatMap(card => card.facts).some(one => one.record.fact.kind === 'check' && one.record.fact.counted === true))
+  }
 })
 
 test('disabled full fixture creates no Lead capability, method, file or child', async t => {

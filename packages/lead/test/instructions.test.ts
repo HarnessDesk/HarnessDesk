@@ -31,6 +31,16 @@ test('the desk message carries the approved contract itself, as one compact JSON
     assert.ok(json.includes(part), `the contract line includes ${part}`)
 })
 
+test('continuation names person actions and directs chat approvals back to their cards', () => {
+  const contract = contractOf()
+  const text = textOf(leadContinuation({ contract, steps: pending(contract), personActions: [
+    { kind: 'worker-approval', id: 'worker', runId: 'run', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'no'] },
+    { kind: 'check', id: 'check', runId: 'run', name: 'verify', command: 'node --test' },
+  ] } as any))
+  assert.match(text, /code reviewer/); assert.match(text, /read the git log/); assert.match(text, /verify/)
+  assert.match(text, /on their cards, never by a chat reply/)
+})
+
 test('the desk message says the person approved the plan, and how a step is started', () => {
   const contract = contractOf()
   const text = textOf(leadContinuation({ contract, steps: pending(contract) }))

@@ -222,8 +222,14 @@ export interface LeadHostProjection {
 export type LeadPersonAction = 'resume' | 'decide-plan' | null
 /** Where a running goal stands, in numbers: the step the Lead is on, of how many, and how many runs it has started. */
 export interface LeadProgress { readonly step: number; readonly steps: number; readonly runs: number }
+/** Live host-owned requests. These are not model-proposed cards or LeadCardDecision inputs. */
+export type LeadAction =
+  | { readonly kind: 'worker-approval'; readonly id: string; readonly runId: string; readonly role: string; readonly request: string; readonly choices: readonly ('yes-once' | 'no')[] }
+  | { readonly kind: 'check'; readonly id: string; readonly runId: string; readonly name: string; readonly command: string }
+export interface LeadActionInput { readonly id: string; readonly contractDigest: string; readonly choice: 'yes-once' | 'no' | 'run' }
 /** Window projection adds the host's guarded way out; child observations grant no control. */
 export interface LeadWindowProjection extends LeadHostProjection {
+  readonly personActions?: readonly LeadAction[]
   readonly requestInFlight: boolean
   readonly wayOut: LeadPersonAction
   readonly waitReason: typeof LEAD_MANAGEMENT_REASONS[number] | null
@@ -584,7 +590,18 @@ const parseLeadProgress: Validator<LeadProgress> = (value, path = '') => {
   const parsed = object<LeadProgress>({ step: integer(1, LEAD_LIMITS.steps), steps: integer(1, LEAD_LIMITS.steps), runs: integer() })(value, path)
   return parsed.step <= parsed.steps ? parsed : fail(path, 'step beyond the plan')
 }
+const actionBase = { id, runId: id }
+const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
+  const kind = (value as { kind?: unknown })?.kind
+  return kind === 'worker-approval'
+    ? object<Extract<LeadAction, { kind: 'worker-approval' }>>({ ...actionBase, kind: literalUnion('worker-approval'), role: text(80),
+      request: text(240), choices: list(literalUnion('yes-once', 'no'), 2) })(value, path)
+    : object<Extract<LeadAction, { kind: 'check' }>>({ ...actionBase, kind: literalUnion('check'), name: text(40), command: boundedText(2000, false, proseControls) })(value, path)
+}
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
   waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
+  personActions: optional(list(parseLeadAction, 1024, 0, action => action.id)),
 }))
+
+export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, contractDigest: digest, choice: literalUnion('yes-once', 'no', 'run') })

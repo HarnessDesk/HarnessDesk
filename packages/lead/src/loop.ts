@@ -1,7 +1,7 @@
 import type { LeadJournalPort } from './child-ipc.js'
-import { clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
+import { clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
-import { leadInstructions, type LeadSeatChoices } from './instructions.js'
+import { leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
 import { createLeadMessages } from './messages.js'
 import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn } from './messages-types.js'
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
@@ -56,6 +56,7 @@ const empty = (): ClientSnapshot => ({ teams: [], runs: [], boards: [], seats: [
 export const createLeadLoop = (options: LeadLoopOptions) => {
   const { journal, desk, project, clock, nextId } = options
   let synchronized = false, generation = 0, closed = false, reason: string | null = null
+  let personActions: LeadAction[] = []
   let snapshot: ClientSnapshot | null = null, relays: ReturnType<typeof leadWorkerApprovalRelay>[] = []
   let acceptance: { runId: string; result: LeadAcceptanceResult }[] = []
   let cancelBatch: (() => void) | null = null, dirty = false, continuationPending = false
@@ -121,9 +122,11 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const state = journal.state, contract = state.contract
       relays = (next.waiting ?? []).filter(item => item.kind === 'approval' && item.team !== null && state.teams.includes(item.team)).map(leadWorkerApprovalRelay)
       const evaluated: typeof acceptance = []
+      const actions: LeadAction[] = []
       for (const run of leadPlanRuns(state)) {
         await read({ method: 'flow/execution', params: { run: run.runId } })
         const facts = structuredClone(await options.readEvidence(run.runId, read))
+        actions.push(...facts.personActions ?? [])
         if (closed || generation !== expected) return
         if (!contract || facts.runId !== run.runId || facts.contractDigest !== contract.digest ||
           facts.project.id !== project.id || facts.project.path !== project.path) throw new Error('lead-evidence-scope')
@@ -136,6 +139,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           { now: clock.now(), freshnessMs: options.freshnessMs ?? 60_000, revision: journal.state.seq }) })
       }
       if (closed || generation !== expected) return
+      personActions = actions
       const budget = journal.state.budget && leadBudgetProjection(journal.state.budget!, clock.now())
       const reviewed = contract && state.steps.every(step => step.state === 'started') && evaluated.length > 0 &&
         evaluated.every(item => item.result.status === 'reviewed') && budget?.spend === 'known' && budget.reservedUsdMicros === 0
@@ -184,7 +188,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         if ((continuationPending || dirty) && history && requestTemplate && !blocked() && journal.state.phase !== 'awaiting-plan') schedule(false)
       }
     } catch {
-      synchronized = false; snapshot = empty(); relays = []
+      synchronized = false; snapshot = empty(); relays = []; personActions = []
       await invalidate()
       reason = 'lead-observations-unavailable'
     }
@@ -288,7 +292,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           return
         }
         if ((!activity && !continueTools) || journal.state.phase === 'awaiting-plan' || !history || !requestTemplate) return
-        const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: 'Desk activity changed. Inspect fresh desk observations before acting.' }] }
+        const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: `Desk activity changed. Inspect fresh desk observations before acting.\n${leadObservation(personActions)}` }] }
         await step({ ...requestTemplate!, messages: [...history!, ...(activity ? [observation] : [])] })
       }).catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
     })
@@ -300,7 +304,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         if (item.done) { if (!closed) { synchronized = false; generation++; await invalidate(); reason = 'lead-connection-ended' }; return }
         const event = item.value
         if (event.type === 'gap' || event.type === 'end') {
-          synchronized = false; generation++; snapshot = null; relays = []
+          synchronized = false; generation++; snapshot = null; relays = []; personActions = []
           cancelBatch?.(); cancelBatch = null
           // Fence immediately, then invalidate durable cards through the writer.
           await invalidate(); reason = event.type === 'gap' ? 'lead-connection-gap' : 'lead-connection-ended'

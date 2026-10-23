@@ -5,6 +5,7 @@ export const leadMethods = {
   'lead/thread/read': ctx => ctx.leadThreadRead(),
   'lead/thread/send': (ctx, params) => ctx.leadThreadSend(params),
   'lead/card/decide': (ctx, params) => ctx.leadCardDecide(params),
+  'lead/action/perform': (ctx, params) => ctx.leadActionPerform(params),
   'lead/settings/read': ctx => ctx.leadSettingsRead(),
   'lead/settings/update': (ctx, params) => ctx.leadSettingsUpdate(params),
   'lead/stop': (ctx, params) => ctx.leadStop(params),

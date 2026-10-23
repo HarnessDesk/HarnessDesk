@@ -1,5 +1,5 @@
 import type { PhoneLinkState, PhonePairing, PhoneTier } from './phone.js'
-import type { LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged } from './lead.js'
+import type { LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
@@ -759,6 +759,7 @@ export interface HostMethods {
   'lead/thread/read': { params: Record<string, never>; result: LeadWindowProjection }
   'lead/thread/send': { params: LeadThreadSend; result: LeadSendReceipt }
   'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }
+  'lead/action/perform': { params: LeadActionInput; result: LeadWindowProjection }
   'lead/settings/read': { params: Record<string, never>; result: LeadWindowProjection }
   'lead/settings/update': { params: LeadSettingsUpdate; result: LeadWindowProjection | LeadNameReceipt }
   'lead/stop': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }

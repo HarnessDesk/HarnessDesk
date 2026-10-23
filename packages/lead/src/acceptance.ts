@@ -1,9 +1,10 @@
-import { parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAssertionResult, type LeadBudgetEvent } from '@harnessdesk/protocol'
+import { parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadAssertionResult, type LeadBudgetEvent } from '@harnessdesk/protocol'
 
 interface Fact { readonly id: string; readonly revision: string; readonly observedAt: number }
 /** Normalized from fresh desk reads by the injected evidence reader, never from
  * Messages proposals. A revision is the subject commit, not the Flow source digest. */
 export interface LeadAcceptanceEvidence {
+  readonly personActions?: readonly LeadAction[]
   readonly project: LeadAcceptanceContract['project']
   readonly runId: string
   readonly contractDigest: string

@@ -40,6 +40,7 @@ class RigRuntime extends CodexRuntime {
 export interface LeadRigOptions {
   readonly enabled?: boolean
   readonly scenario?: 'happy' | 'interrupted' | 'worker-approval' | 'forbidden'
+  readonly manualChecks?: boolean
   readonly holdWorkers?: boolean
   readonly holdPlanning?: boolean
   readonly holdRunning?: boolean
@@ -142,7 +143,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       { role: 'review', agent: 'code-reviewer', seat: { runtime: 'rig-reviewer', model: 'gpt-5.5' }, ceiling: 'read' },
     ]
     const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1,
-      steps: ['first', 'second'].map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments })),
+      steps: (options.manualChecks ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments })),
       assertions: [{ id: 'unit', kind: 'check', description: 'Required check passes' }, { id: 'review', kind: 'review', description: 'Independent review approves' },
         { id: 'blockers', kind: 'blocking-findings', description: 'No unresolved blockers' }], caps: { usdMicros: 10_000_000, rounds: 20 } })
     const seats = Object.fromEntries(assignments.map(one => [one.role, [one.seat]]))
@@ -270,7 +271,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         // The synthetic person authorizes the declared local command through the same window call.
         // Its real check runner writes revision-qualified evidence, never a fixture assertion.
         const implementation = board.board.intents.filter(card => cardIds.has(card.id) && card.role === 'implement' && card.state === 'done').at(-1)
-        if (revision && implementation && !checkStarts.has(`${runId}:${revision}`) && !evidence.cards.flatMap(card => card.facts).some(one => one.record.fact.kind === 'check' && one.record.fact.at === revision)) {
+        if (!options.manualChecks && revision && implementation && !checkStarts.has(`${runId}:${revision}`) && !evidence.cards.flatMap(card => card.facts).some(one => one.record.fact.kind === 'check' && one.record.fact.at === revision)) {
           const checks = await host.call('evidence/checks', { project: project.path })
           const check = checks.checks.find(one => one.name === 'verify')
           if (check && checks.at) {

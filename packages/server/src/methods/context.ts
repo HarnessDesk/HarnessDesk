@@ -146,6 +146,7 @@ export interface HostContext {
   leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
   leadThreadSend(params: HostParams<'lead/thread/send'>): Promise<HostResult<'lead/thread/send'>>
   leadCardDecide(params: HostParams<'lead/card/decide'>): Promise<HostResult<'lead/card/decide'>>
+  leadActionPerform(params: HostParams<'lead/action/perform'>): Promise<HostResult<'lead/action/perform'>>
   leadSettingsRead(): Promise<HostResult<'lead/settings/read'>>
   leadSettingsUpdate(params: HostParams<'lead/settings/update'>): Promise<HostResult<'lead/settings/update'>>
   leadStop(params: HostParams<'lead/stop'>): Promise<HostResult<'lead/stop'>>

@@ -107,6 +107,21 @@ test('Lead cannot answer a person card after clientsMayAnswer is enabled mid-con
   assert.equal((await h.host.call('goal/read', { goal: owned.goal })).board.intents[0]!.state, 'open')
 })
 
+test('Lead cannot reach person actions or run a counted check even with all person tiers enabled', async t => {
+  const { h, peer, owned } = await rig(t)
+  await peer.hello()
+  await h.host.call('app/state/set', { patch: { clientsMayAnswer: true } })
+  for (const [method, params] of [
+    ['lead/action/perform', { id: 'worker', contractDigest: 'a'.repeat(64), choice: 'yes-once' }],
+    ['lead/action/perform', { id: 'check', contractDigest: 'a'.repeat(64), choice: 'run' }],
+    ['evidence/check/run', { room: owned.goal, card: 1, name: 'verify' }],
+  ] as const) {
+    const result = await peer.call(method, params)
+    assert.equal(result.ok, false, method)
+    assert.equal(result.error.code, 'notOnClientSurface', method)
+  }
+})
+
 test('spoofed hello identity, pid, tiers and project never widen Lead authority or audit attribution', async t => {
   const { h, home, peer } = await rig(t)
   await h.host.call('app/state/set', { patch: { clientsMayAnswer: true } })
