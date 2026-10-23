@@ -1661,10 +1661,15 @@ test('result decisions re-read every declared check before completing a person g
     if (call.method === 'finding/run') return { embargoed: false, blocking: false }
     throw new Error('unexpected read')
   }, () => 100)
+  const { evaluateLeadAcceptance } = await import('@harnessdesk/lead')
+  const partial = await g.options.readEvidence('run-1')
+  // Match the card to the partial facts an earlier reader could offer as complete.
+  const offered = evaluateLeadAcceptance(g.c, { ...partial, complete: true }, { now: 100, freshnessMs: 60000, revision: g.options.journal.state.seq })
+  assert.equal(offered.status, 'reviewed')
+  g.card.assertions = offered.assertions.map(assertion => ({ ...assertion, evidence: [...assertion.evidence] }))
   await assert.rejects(g.answerLeadResult(g.options, g.card, g.click, g.c), code('lead-gate-changed'))
   assert.equal(g.answers(), 0)
   facts.push(check('lint'))
-  const { evaluateLeadAcceptance } = await import('@harnessdesk/lead')
   g.card.assertions = [...evaluateLeadAcceptance(g.c, await g.options.readEvidence('run-1'), { now: 100, freshnessMs: 60000, revision: g.options.journal.state.seq }).assertions.map(assertion => ({ ...assertion, evidence: [...assertion.evidence] }))]
   await g.answerLeadResult(g.options, g.card, g.click, g.c)
   assert.equal(g.answers(), 1)
