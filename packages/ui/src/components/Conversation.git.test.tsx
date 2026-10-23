@@ -440,3 +440,17 @@ it('omits repository actions for a managed chat outside the open workspace', () 
   expect(rows).not.toContain('Commit the changes')
   expect(rows).not.toContain('Review uncommitted changes')
 })
+
+it('uses the handoff source for draft Folder actions until a place is chosen',()=>{
+ const draftHandoff={cwd:'/work/source-project'} as AppSnapshot['draftHandoff']
+ rig({draftHandoff})
+ const rows=menu()
+ expect(document.querySelector('[role="menu"]')?.textContent).toContain('source-project')
+ expect(rows).not.toContain('Create branch…')
+ expect(rows).toContain('Starts in this folder when the message goes')
+ expect(rows).not.toContain('main')
+ act(()=>chip()!.click())
+ rig({draftHandoff,draftPlace:{kind:'existing',path:TREE,branch:'chosen-branch'},worktrees:worktrees(true)})
+ menu()
+ expect(document.querySelector('[role="menu"]')?.textContent).toContain('checkout-retry')
+})

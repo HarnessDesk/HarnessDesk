@@ -776,7 +776,8 @@ export const GitControl = ({
   // worktree will start in the one it cuts — so that is where this says it
   // works: this chip and the composer's Work in control must never name two
   // places for one draft.
-  const pointed = !session && snapshot.draftPlace?.kind === 'existing' ? snapshot.draftPlace.path : null
+  const carried = !session && snapshot.draftPlace === null ? snapshot.draftHandoff?.cwd : undefined
+  const pointed = !session && snapshot.draftPlace?.kind === 'existing' ? snapshot.draftPlace.path : carried ?? null
   const armed = !session && snapshot.draftPlace?.kind === 'worktree' ? snapshot.draftPlace : null
   // A draft pointed at a worktree, or armed to cut one, names a folder the
   // host will not read until a conversation runs there — or, armed, one that
@@ -856,7 +857,7 @@ export const GitControl = ({
             {elsewhere ? (
               <MenuItem
                 icon={armed ? <NewWorktreeIcon size={16} /> : <BranchIcon size={16} />}
-                label={armed ? 'The worktree is made when the message goes' : 'Starts in this worktree when the message goes'}
+                label={armed ? 'The worktree is made when the message goes' : carried ? 'Starts in this folder when the message goes' : 'Starts in this worktree when the message goes'}
                 title="Where it starts is chosen in the composer, under Work in."
                 disabled
                 onSelect={() => {}}

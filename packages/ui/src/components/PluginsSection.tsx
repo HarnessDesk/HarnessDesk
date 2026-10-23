@@ -351,7 +351,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
         </Section>
       ))}
 
-      <Section title="Access">
+      <Section title="Access" level="heading">
         <Rows>
           {/* `describePermissions` never answers with nothing — a plugin holding
               no grant gets the sentence saying so — so there is no empty case to

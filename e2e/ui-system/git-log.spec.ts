@@ -184,3 +184,14 @@ for (const theme of ['light', 'dark'] as const) {
     })
   }
 }
+
+for(const theme of ['light','dark'] as const) {
+ test(`the default Graph header is readable in ${theme}`,async({page})=>{
+  await page.goto(`/preview.html?frame-wall=conversation&frame-tool=git&theme=${theme}`)
+  const header=page.getByRole('columnheader',{name:/Graph/}).first()
+  await expect(header).toBeVisible()
+  const label=header.locator('[data-slot="text"]')
+  await expect(label).toHaveText('Graph')
+  expect(await label.evaluate(node=>node.scrollWidth<=node.clientWidth)).toBe(true)
+ })
+}

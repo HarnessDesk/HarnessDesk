@@ -12,6 +12,24 @@ import { DestinationPageScope } from '../panels/destination-page'
 import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 
 /**
+ * Which level each section head was asked for. A form Dialog draws every head
+ * as its group's legend whatever the level (`Settings.section-head.test.tsx`
+ * pins that), so the level an editor declares for one never reaches the DOM;
+ * the declaration is read where it is made, and the head still renders for real.
+ */
+const levelsAsked = vi.hoisted(() => new Map<string, string>())
+vi.mock('../design', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../design')>()
+  return {
+    ...actual,
+    SectionHead: (props: Parameters<typeof actual.SectionHead>[0]) => {
+      levelsAsked.set(String(props.name), props.level ?? 'heading')
+      return <actual.SectionHead {...props} />
+    },
+  }
+})
+
+/**
  * The ordered editor: every step and rule edit renders through the one host
  * call (`authoring/shape/render`) rather than a private serializer of its
  * own, and the exact string that call returns is what Start would send. The
@@ -1178,4 +1196,23 @@ it('folds the selected Step inspector independently of its menu while keeping it
   await settle()
   expect(menuItem('Move up')).toBeTruthy()
   expect(toggle.getAttribute('aria-expanded')).toBe('false')
+})
+
+it('draws the dialog’s Rules head as the legend of its own group, declared as a label', async () => {
+  levelsAsked.clear()
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+
+  // What the person sees: the group's legend, carrying its own action — not a
+  // page heading floating above the group.
+  const rules = byAriaLabel('Rules')
+  const legend = rules.querySelector('[data-slot="fieldset-legend"]')
+  expect(legend?.querySelector('[data-slot="section-name"]')?.textContent).toBe('Rules')
+  expect(legend?.contains(button('Add a rule'))).toBe(true)
+  expect(rules.querySelector('h2, h3')).toBeNull()
+
+  // What the editor says it is: a dialog group is a label by the headings rule.
+  expect(levelsAsked.get('Rules')).toBe('label')
 })
