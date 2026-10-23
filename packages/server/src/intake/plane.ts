@@ -40,7 +40,7 @@ import { IntakeStore, type IntakeFiring, type IntakeOperation } from './store.js
  * - **Nothing without an arm.** Loading reads three files and finishes what
  *   the journal began; it starts no timer and reads no forge. Watching begins
  *   only when a verified arm exists and the machine is not paused. Recorded
- *   stops awaiting cleanup keep their own retry timer independently.
+ *   interruptions awaiting cleanup keep their own retry timer independently.
  * - **Startup order.** `load` runs once the Goals, the runs and the evidence
  *   are back, with dispatch held: every journaled firing is finished to its
  *   held round. `ready` runs once the runtimes are up: held firings are
@@ -246,14 +246,14 @@ export class IntakePlane {
         port.flows.interruptChecks?.(goal)
         const run = this.#runOf(goal)
         if (run) await port.flows.holdTriggered(run.id, reason)
+        const generation = this.#runOf(goal)?.intake?.holdGeneration ?? 0
         await port.interrupt(goal)
         this.#schedule()
+        return generation
       },
-      swept: () => {
-        void this.#syncTimers().catch((error: unknown) => {
-          this.#port.log('budget timers could not be updated', { error: String(error) })
-        })
-      },
+      swept: () => this.#syncTimers().catch((error: unknown) => {
+        this.#port.log('budget timers could not be updated', { error: String(error) })
+      }),
       timers: this.#timers,
     })
     this.#admission = new Admission(this.#store, {
@@ -356,14 +356,14 @@ export class IntakePlane {
   /**
    * The budget sweep and the meter run only while there is something to
    * watch — an arm on this machine, or a trigger Goal whose budget is live.
-   * Pending stops keep only the cleanup sweep, even while disarmed or paused.
+   * Pending stops and hold interruptions keep the cleanup sweep while disarmed or paused.
    * Closing stops every timer.
    */
   async #syncTimers(): Promise<void> {
     const armed = this.#closed ? 0 : (await this.#consent.armed().catch(() => [])).length
     const enabled = !this.#closed && this.#problem === null
     const wantWork = enabled && !this.#prefs.paused && (armed > 0 || this.#budgets.live().length > 0)
-    const wantCleanup = enabled && this.#budgets.pendingStops().length > 0
+    const wantCleanup = enabled && (this.#budgets.pendingStops().length > 0 || this.#budgets.pendingHolds().length > 0)
     if (wantWork || wantCleanup) this.#watch.start()
     else this.#watch.close()
     if (wantWork) {
@@ -912,11 +912,15 @@ export class IntakePlane {
       await this.#watch.tick()
     } else if (!paused && before.paused) {
       // What the pause held continues, and what waited to be released is let go; then watching resumes.
-      if (this.#problem === null && this.#dispatchReady) {
-        await this.#admission.recover().catch(() => {})
-        await this.#republish()
+      try {
+        if (this.#problem === null && this.#dispatchReady) {
+          await this.#watch.tick()
+          await this.#admission.recover().catch(() => {})
+          await this.#republish()
+        }
+      } finally {
+        await this.#startWatching()
       }
-      await this.#startWatching()
     } else if (!paused && dailyUsd !== before.dailyUsd) {
       // Lowered: work past it holds. Raised: what it held continues.
       await this.#watch.tick()

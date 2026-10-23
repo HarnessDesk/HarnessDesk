@@ -37,7 +37,7 @@ for (const fails of ['stop', 'interrupt'] as const) test(`budget cleanup retries
   const calls: string[] = []
   let fail = true
   const watcher = () => new BudgetWatch(d.budgets, (id) => d.flows.executionsFor(id)[0] ?? null, {
-    hold: async () => {},
+    hold: async () => 0,
     stopRun: async (id, reason) => {
       calls.push('stop')
       if (fail && fails === 'stop') throw new Error('run save failed')

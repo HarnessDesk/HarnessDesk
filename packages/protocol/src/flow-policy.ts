@@ -239,6 +239,8 @@ export interface FlowIntake {
    * running, and its release continues it.
    */
   readonly heldFor?: string | null
+  /** Increases for each new transient hold, so interruption completion belongs to that hold alone. */
+  readonly holdGeneration?: number
   /** The Seats whose turn ended while that hold stood: each is handed its card again once it lifts. */
   readonly rearm?: readonly string[]
 }

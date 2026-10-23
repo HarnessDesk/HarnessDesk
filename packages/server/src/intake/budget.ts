@@ -184,6 +184,8 @@ export class TriggerBudgets {
     if (refused === PAUSED_STOP) return { ok: false, reason: refused, transient: true }
     if (refused) return { ok: false, reason: spend.spentMicros === null && refused.startsWith('Spend is unknown') && spend.why ? `${refused} ${spend.why}` : refused }
     if (committedToday(snapshot, utcDay(now)) > this.#port.capMicros()) return { ok: false, reason: CAP_HOLD, transient: true }
+    const pendingHold = this.#holdReason(budget, run)
+    if (pendingHold) return { ok: false, reason: pendingHold, transient: true }
     return { ok: true }
   }
 
@@ -298,7 +300,7 @@ export class TriggerBudgets {
       const budget = snapshot.budgets[goal]
       if (!budget || budget.stop) return { next: null, value: false }
       const at = Math.max(snapshot.clock, this.#port.now())
-      return { next: { ...snapshot, clock: at, budgets: { ...snapshot.budgets, [goal]: { ...budget, stop: { reason, detail, at }, stopCompleted: false } } }, value: true }
+      return { next: { ...snapshot, clock: at, budgets: { ...snapshot.budgets, [goal]: { ...budget, stop: { reason, detail, at }, stopCompleted: false, hold: null } } }, value: true }
     })
   }
 
@@ -313,6 +315,51 @@ export class TriggerBudgets {
       const budget = snapshot.budgets[goal]
       if (!budget?.stop || budget.stopCompleted) return { next: null, value: undefined }
       return { next: { ...snapshot, budgets: { ...snapshot.budgets, [goal]: { ...budget, stopCompleted: true } } }, value: undefined }
+    })
+  }
+
+  /** A saved dispatch hold alone cannot show that its turns were interrupted, including on older journals. */
+  #holdReason(budget: IntakeBudget, run: FlowExecution | null): string | null {
+    if (budget.stop) return null
+    if (budget.hold?.completed === false) return budget.hold.reason
+    if (budget.settled || run?.state !== 'running') return null
+    const reason = this.#port.paused() ? PAUSED_STOP : run.intake?.heldFor ?? null
+    const completed = budget.hold?.completed && budget.hold.reason === reason && run.intake?.heldFor === reason &&
+      (budget.hold.generation ?? 0) === (run.intake?.holdGeneration ?? 0)
+    return reason && !completed ? reason : null
+  }
+
+  /** Pending interruptions, including a paused run whose first cleanup write has not landed yet. */
+  pendingHolds(): readonly { readonly goal: string; readonly reason: string }[] {
+    return Object.entries(this.#read().budgets).flatMap(([goal, budget]) => {
+      if (budget.stop) return []
+      if (budget.hold?.completed === false) return [{ goal, reason: budget.hold.reason }]
+      if (budget.settled) return []
+      let run: FlowExecution | null = null
+      try { run = this.#port.run(goal) } catch { return [] }
+      const reason = this.#holdReason(budget, run)
+      return reason ? [{ goal, reason }] : []
+    })
+  }
+
+  /** Save the pending effect before holding the run or interrupting its turns. */
+  hold(goal: string, reason: string, alreadyHeld = false): Promise<boolean> {
+    return this.#transact((snapshot) => {
+      const budget = snapshot.budgets[goal]
+      if (!budget || budget.stop) return { next: null, value: false }
+      const generation = this.#port.run(goal)?.intake?.holdGeneration ?? 0
+      if (alreadyHeld && budget.hold?.completed && budget.hold.reason === reason && (budget.hold.generation ?? 0) === generation) return { next: null, value: false }
+      if (budget.hold?.reason === reason && !budget.hold.completed) return { next: null, value: true }
+      return { next: { ...snapshot, budgets: { ...snapshot.budgets, [goal]: { ...budget, hold: { reason, completed: false } } } }, value: true }
+    })
+  }
+
+  completeHold(goal: string, reason: string, generation: number): Promise<void> {
+    return this.#transact((snapshot) => {
+      const budget = snapshot.budgets[goal]
+      if (!budget || budget.stop || !budget.hold || budget.hold.reason !== reason || budget.hold.completed) return { next: null, value: undefined }
+      if ((this.#port.run(goal)?.intake?.holdGeneration ?? 0) !== generation) throw new Error('The hold changed while its interruption was completing.')
+      return { next: { ...snapshot, budgets: { ...snapshot.budgets, [goal]: { ...budget, hold: { reason, completed: true, generation } } } }, value: undefined }
     })
   }
 
@@ -370,10 +417,11 @@ export interface BudgetWatchPort {
    * Holds the Goal's trigger run for a gate that lifts on its own — a pause,
    * the cap: its turns and checks interrupted, nothing recorded as a stop,
    * released through admission's recovery once the gate allows it again.
+   * Returns the run's hold generation observed before interrupting its turns.
    */
-  hold(goal: string, reason: string): Promise<void>
+  hold(goal: string, reason: string): Promise<number>
   /** A sweep settled: its owner can retire the retry timer once cleanup is complete. */
-  swept?(): void
+  swept?(): void | Promise<void>
   readonly timers?: { every(fn: () => void, ms: number): unknown; clear(handle: unknown): void }
 }
 
@@ -412,12 +460,13 @@ export class BudgetWatch {
 
   /** One sweep; a sweep already running is joined, never doubled. */
   tick(): Promise<void> {
-    this.#ticking ??= this.#sweep().finally(() => { this.#ticking = null; this.#port.swept?.() })
+    this.#ticking ??= this.#sweep().finally(async () => { this.#ticking = null; await this.#port.swept?.() })
     return this.#ticking
   }
 
   async #sweep(): Promise<void> {
     const stops = new Map(this.#budgets.pendingStops().map((one) => [one.goal, one.detail]))
+    const holds = new Map(this.#budgets.pendingHolds().map((one) => [one.goal, one.reason]))
     const errors: unknown[] = []
     for (const goal of this.#budgets.live()) {
       try {
@@ -427,8 +476,7 @@ export class BudgetWatch {
         const verdict = this.#budgets.check(run)
         if (verdict.ok) continue
         if (verdict.transient) {
-          if (run.intake?.heldFor === verdict.reason) continue
-          await this.#port.hold(goal, verdict.reason)
+          if (await this.#budgets.hold(goal, verdict.reason, run.intake?.heldFor === verdict.reason)) holds.set(goal, verdict.reason)
           continue
         }
         if (!await this.#budgets.stop(goal, stopReasonOf(verdict.reason), verdict.reason)) continue
@@ -445,6 +493,14 @@ export class BudgetWatch {
         try { await this.#budgets.completeStop(goal) } catch (error) { errors.push(error) }
       }
     }
-    if (errors.length) throw new AggregateError(errors, 'Budget cleanup failed; pending stops will be retried.')
+    for (const [goal, reason] of holds) {
+      if (stops.has(goal)) continue
+      try {
+        if (!await this.#budgets.hold(goal, reason)) continue
+        const generation = await this.#port.hold(goal, reason)
+        await this.#budgets.completeHold(goal, reason, generation)
+      } catch (error) { errors.push(error) }
+    }
+    if (errors.length) throw new AggregateError(errors, 'Budget cleanup failed; pending work will be retried.')
   }
 }

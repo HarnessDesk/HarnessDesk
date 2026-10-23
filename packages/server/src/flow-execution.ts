@@ -2987,7 +2987,7 @@ export class FlowExecutions {
     if (!run.intake || run.state !== 'running') return
     if (run.intake.dispatchHeld && run.intake.heldFor === why) return
     const first = (run.intake.heldFor ?? null) === null
-    await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true, heldFor: why } })
+    await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true, heldFor: why, holdGeneration: (run.intake.holdGeneration ?? 0) + 1 } })
     /* Whoever set the hold first — a turn ending, a Seat about to open, the
        budget watch — every other Seat of the run still inside a turn is
        interrupted with it, so nothing keeps working through a pause because
