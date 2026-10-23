@@ -418,21 +418,23 @@ export class BudgetWatch {
 
   async #sweep(): Promise<void> {
     const stops = new Map(this.#budgets.pendingStops().map((one) => [one.goal, one.detail]))
-    for (const goal of this.#budgets.live()) {
-      const run = this.#runs(goal)
-      // Only a run that is going can dispatch: one that settled, stopped or stalled waits on a person already.
-      if (!run || run.state !== 'running') continue
-      const verdict = this.#budgets.check(run)
-      if (verdict.ok) continue
-      if (verdict.transient) {
-        if (run.intake?.heldFor === verdict.reason) continue
-        await this.#port.hold(goal, verdict.reason)
-        continue
-      }
-      if (!await this.#budgets.stop(goal, stopReasonOf(verdict.reason), verdict.reason)) continue
-      stops.set(goal, verdict.reason)
-    }
     const errors: unknown[] = []
+    for (const goal of this.#budgets.live()) {
+      try {
+        const run = this.#runs(goal)
+        // Only a run that is going can dispatch: one that settled, stopped or stalled waits on a person already.
+        if (!run || run.state !== 'running') continue
+        const verdict = this.#budgets.check(run)
+        if (verdict.ok) continue
+        if (verdict.transient) {
+          if (run.intake?.heldFor === verdict.reason) continue
+          await this.#port.hold(goal, verdict.reason)
+          continue
+        }
+        if (!await this.#budgets.stop(goal, stopReasonOf(verdict.reason), verdict.reason)) continue
+        stops.set(goal, verdict.reason)
+      } catch (error) { errors.push(error) }
+    }
     for (const [goal, reason] of stops) {
       // Keep the ordering on success, but an unsuccessful run save must never prevent interruption.
       let stopped = false

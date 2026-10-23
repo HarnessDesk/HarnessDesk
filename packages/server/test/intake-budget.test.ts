@@ -62,6 +62,52 @@ for (const fails of ['stop', 'interrupt'] as const) test(`budget cleanup retries
   assert.equal(calls.length, 4, 'completed cleanup is not repeated')
 })
 
+for (const fails of ['hold', 'stop save'] as const) test(`another Goal's ${fails} failure does not prevent pending cleanup`, async () => {
+  const home = tempDir('hd-intake-cleanup-progress-')
+  const clock = new Clock(DAY)
+  let paused = false
+  const d = await desk(home, { now: clock.now, paused: () => paused, definition: definition({ concurrency: 5 }) })
+  const pending = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  const other = (await d.admission.offer(d.arm, prFact(2, sha('b'), 'opened'))).goal!
+  await d.settle()
+  await d.budgets.stop(pending, 'timed out', 'Timed out: this Goal reached its time budget.')
+  if (fails === 'hold') paused = true
+  else {
+    clock.at += 5 * HOUR
+    const stop = d.budgets.stop.bind(d.budgets)
+    d.budgets.stop = async (goal, ...args) => {
+      if (goal === other) throw new Error('stop save failed')
+      return stop(goal, ...args)
+    }
+  }
+  const calls: string[] = []
+  let failCleanup = true
+  const watch = new BudgetWatch(d.budgets, (goal) => d.flows.executionsFor(goal)[0] ?? null, {
+    hold: async () => { throw new Error('hold failed') },
+    stopRun: async (goal) => {
+      assert.equal(goal, pending)
+      calls.push('stop')
+      if (failCleanup) throw new Error('run stop failed')
+    },
+    interrupt: async (goal) => {
+      assert.equal(goal, pending)
+      calls.push('interrupt')
+      if (failCleanup) throw new Error('interrupt failed')
+    },
+  })
+  for (let sweep = 1; sweep <= 3; sweep++) {
+    await assert.rejects(watch.tick(), /failed/i)
+    assert.deepEqual(calls, Array.from({ length: sweep }, () => ['stop', 'interrupt']).flat())
+    assert.equal(d.store.read().budgets[pending]!.stopCompleted, false)
+  }
+  failCleanup = false
+  await assert.rejects(watch.tick(), /failed/i)
+  assert.equal(calls.length, 8, 'cleanup finishes despite the other Goal still failing')
+  assert.equal(d.store.read().budgets[pending]!.stopCompleted, true)
+  await assert.rejects(watch.tick(), /failed/i)
+  assert.equal(calls.length, 8, 'completed cleanup is not repeated')
+})
+
 test('force-push shares money time and round allowance', async () => {
   const home = tempDir('hd-intake-budget-')
   const clock = new Clock(DAY + 10 * HOUR)
