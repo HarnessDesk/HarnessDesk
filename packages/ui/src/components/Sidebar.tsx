@@ -353,6 +353,7 @@ const readinessTone = (state: Readiness): Tone | undefined => ({
   ready: undefined,
   available: undefined,
   unknown: undefined,
+  starting: undefined,
   signin: 'brand',
   limit: 'warning',
   broken: 'danger',

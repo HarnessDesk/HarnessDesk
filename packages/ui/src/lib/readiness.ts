@@ -9,10 +9,10 @@ import { isBlocked, workingAccount } from './usage'
  * Before this, each surface answered a different question about the same
  * agent: settings said who you were signed in as, the dashboard said what you
  * had spent, the header said what was left — and none of them said whether a
- * turn sent right now would start. These six states say exactly that, and
+ * turn sent right now would start. These seven states say exactly that, and
  * they are the only states any surface may draw.
  *
- * `unknown` is not a guess at any of the other five: an agent that has not
+ * `unknown` is not a guess at any of the other six: an agent that has not
  * yet answered who is signed in — still loading, or a read that failed and
  * left no account behind — is not the same fact as one that answered "nobody
  * is signed in", and drawing it as `signin` before this claimed a sign-in was
@@ -23,7 +23,7 @@ import { isBlocked, workingAccount } from './usage'
  * that is both signed in and out of credit is out of credit. `unknown` sits
  * last — the state that asserts nothing outranks nothing.
  */
-export type Readiness = 'ready' | 'signin' | 'limit' | 'broken' | 'available' | 'unknown'
+export type Readiness = 'ready' | 'signin' | 'limit' | 'broken' | 'available' | 'starting' | 'unknown'
 
 /** Rank for `worst`: a smaller number outranks a larger one. */
 const RANK: Readonly<Record<Readiness, number>> = {
@@ -31,13 +31,15 @@ const RANK: Readonly<Record<Readiness, number>> = {
   signin: 1,
   limit: 2,
   available: 3,
-  ready: 4,
-  unknown: 5,
+  starting: 4,
+  ready: 5,
+  unknown: 6,
 }
 
 /** What each state is called, everywhere it is named rather than drawn. */
 export const READINESS_LABEL: Readonly<Record<Readiness, string>> = {
   ready: 'Ready',
+  starting: 'Starting',
   signin: 'Needs sign-in',
   limit: 'Limit reached',
   broken: 'Unavailable',
@@ -48,10 +50,11 @@ export const READINESS_LABEL: Readonly<Record<Readiness, string>> = {
 /**
  * The one thing to do about it, in the imperative. Empty for `ready`, which is
  * the state that asks nothing of anyone — and for `unknown`, which has
- * nothing to ask until it becomes one of the other five.
+ * nothing to ask until it becomes one of the other six.
  */
 export const READINESS_ACTION: Readonly<Record<Readiness, string>> = {
   ready: '',
+  starting: '',
   signin: 'Sign in',
   limit: 'Wait, or use another runtime',
   broken: 'Fix, with the command',
@@ -111,6 +114,7 @@ export interface ReadinessInput {
 export const readinessOf = (input: ReadinessInput): Readiness => {
   if (!input.registered) return 'available'
   if (input.health?.state === 'unavailable') return 'broken'
+  if (input.health?.state === 'starting') return 'starting'
   if (input.accounts !== false) {
     if (!input.account) return 'unknown'
     // An agent nobody has asked yet has not said it is signed out, and the
@@ -150,6 +154,7 @@ const BLOCKING: Readonly<Record<Readiness, boolean>> = {
   available: false,
   unknown: false,
   ready: false,
+  starting: false,
 }
 
 /**
