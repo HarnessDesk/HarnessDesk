@@ -309,7 +309,7 @@ export class TriggerBudgets {
     let snapshot: IntakeSnapshot
     try { snapshot = this.#read() } catch { return [] }
     return Object.entries(snapshot.budgets).flatMap(([goal, budget]) =>
-      budget.stop && budget.stopCompleted !== true ? [{ goal, detail: budget.stop.detail }] : [])
+      budget.stop && budget.stopCompleted === false ? [{ goal, detail: budget.stop.detail }] : [])
   }
 
   completeStop(goal: string): Promise<void> {

@@ -142,7 +142,7 @@ export interface IntakeBudget {
   /** Each Seat's meter, by Seat id. */
   readonly meters: Readonly<Record<string, SessionMeter>>
   readonly stop: { readonly reason: TriggerStopReason; readonly detail: string; readonly at: number } | null
-  /** Both the run stop and the Goal interrupt completed; absent on older journals, which retry once. */
+  /** Both the run stop and the Goal interrupt completed; absent on older journals, whose cleanup ran inline. */
   readonly stopCompleted?: boolean
   /** A transient hold's interruption is journaled separately from its run's dispatch hold. */
   readonly hold?: { readonly reason: string; readonly completed: boolean; readonly generation?: number } | null

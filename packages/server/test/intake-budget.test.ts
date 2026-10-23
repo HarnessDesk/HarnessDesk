@@ -33,6 +33,29 @@ test('cleanup discovery tolerates an unreadable intake journal', async () => {
   assert.deepEqual(d.budgets.pendingHolds(), [])
 })
 
+for (const settled of [false, true]) test(`legacy budget stops never repeat Goal-wide cleanup after restart (settled: ${settled})`, async () => {
+  const home = tempDir('hd-intake-legacy-stop-')
+  const d = await desk(home)
+  const goal = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  await d.settle()
+  await d.budgets.stop(goal, 'timed out', 'Timed out: this Goal reached its time budget.')
+  await d.flows.stopRun(d.flows.executionsFor(goal)[0]!.id, 'Timed out')
+  await d.admission.transact((snapshot) => {
+    const { stopCompleted: _completed, ...legacy } = snapshot.budgets[goal]!
+    return { next: { ...snapshot, budgets: { ...snapshot.budgets, [goal]: { ...legacy, settled } } }, value: undefined }
+  })
+  const restored = await desk(home)
+  const cleanup: string[] = []
+  const watch = new BudgetWatch(restored.budgets, (id) => restored.flows.executionsFor(id)[0] ?? null, {
+    stopRun: async (id) => { cleanup.push(`stop:${id}`) },
+    interrupt: async (id) => { cleanup.push(`interrupt:${id}`) },
+    hold: async () => 0,
+  })
+  await watch.tick()
+  assert.deepEqual(cleanup, [], 'an old stop must never interrupt later person-started work on this Goal')
+  assert.deepEqual(restored.budgets.pendingStops(), [])
+})
+
 for (const fails of ['stop', 'interrupt'] as const) test(`budget cleanup retries after ${fails} fails, including after restart`, async () => {
   const home = tempDir('hd-intake-stop-retry-')
   const clock = new Clock(DAY)
