@@ -316,6 +316,8 @@ export interface AcpAgentConfig {
    * registry.
    */
   readonly resolveIdentity?: () => Account | null
+  /** The identity record is also the sign-in status: null means signed out. */
+  readonly identityIsStatus?: boolean
   /**
    * Which vendor's models the agent's sessions reach, from the agent's own
    * configuration, for a session in `cwd` when one is named — or null when
@@ -1173,7 +1175,7 @@ export class AcpRuntime implements AgentRuntime {
       // agent's own answers have shown the state, a session that opened or
       // one it refused for want of a sign-in.
       account:
-        this.#account !== null || (this.#config.secrets?.length ?? 0) > 0 || this.#signIn.state !== 'unknown',
+        this.#account !== null || this.#config.identityIsStatus === true || (this.#config.secrets?.length ?? 0) > 0 || this.#signIn.state !== 'unknown',
       ...(shaken
         ? {
             resume:
@@ -3035,6 +3037,10 @@ export class AcpRuntime implements AgentRuntime {
    */
   #observedAccount(hasKey: boolean): AccountStatus {
     const seen = this.#signIn
+    if (seen.state !== 'required' && this.#config.identityIsStatus && !hasKey) {
+      const identity = this.#identity()
+      return { accounts: identity ? [identity] : [], signInMethods: identity ? [] : this.#declaredMethods() }
+    }
     if (seen.state === 'observed') {
       // A session may open before a required key is checked on the first prompt.
       if (hasKey || this.#config.secrets?.some(secret => !secret.optional)) return { accounts: [], signInMethods: [] }

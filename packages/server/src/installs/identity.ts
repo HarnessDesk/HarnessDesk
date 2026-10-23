@@ -158,7 +158,7 @@ const antigravityIdentity = (context: IdentityContext): Account | null => {
  * What comes back names the providers rather than a person, because that is
  * all there is to name — `anonymous`, so a surface that names accounts uses
  * OpenCode's own name and keeps this for the line beneath. An empty or
- * missing file is nobody, and the observation says "Signed in" instead.
+ * missing file is nobody, even when a session can open without a credential.
  * Measured against opencode 1.18.30 on 2026-09-17: `{"opencode":{"type":
  * "api","key":"…"}}`, one object per provider id, and `XDG_DATA_HOME` moves
  * the whole folder (checked by pointing it at an empty one, which listed

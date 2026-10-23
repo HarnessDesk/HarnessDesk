@@ -265,3 +265,21 @@ test("a Claude row's sign-in declares the prompt its command prints when it want
   // A row that declares no prompt keeps its command's input closed.
   assert.equal(knownAgent('cursor')?.auth.login?.pasteCode, undefined)
 })
+
+
+test('an empty OpenCode data home stays signed out after a successful session (#1776)', async (t) => {
+  const data = folder(t, {})
+  const row = { id: 'opencode', name: 'OpenCode', command: process.execPath,
+    args: [fileURLToPath(new URL('../../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url))],
+    env: { XDG_DATA_HOME: data, FAKE_ACP_AUTH_METHODS: '[]' } }
+  const runtime = new AcpRuntime({ ...row, ...knowledgeOverlay(row, knownAgent('opencode')) })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  assert.equal(runtime.info.capabilities.account, true)
+  assert.deepEqual((await runtime.getAccount()).accounts, [])
+  await runtime.createSession({ cwd: data })
+  assert.deepEqual((await runtime.getAccount()).accounts, [])
+  mkdirSync(join(data, 'opencode'), { recursive: true })
+  writeFileSync(join(data, 'opencode', 'auth.json'), JSON.stringify({ provider: { type: 'api', key: 'fake-key' } }))
+  assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider')
+})

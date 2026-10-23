@@ -30,7 +30,7 @@ export const knowledgeOverlay = (
     /** Where a changed vendor format is reported; see `AntigravityStoreOptions.warn`. */
     readonly warn?: (message: string, details?: unknown) => void
   } = {},
-): Pick<AcpAgentConfig, 'name' | 'coAuthor' | 'resolveIdentity' | 'resolveProvider' | 'usageRecord' | 'account' | 'sharedSessionProcess' | 'secrets' | 'authMethodNotes'> => {
+): Pick<AcpAgentConfig, 'name' | 'coAuthor' | 'resolveIdentity' | 'identityIsStatus' | 'resolveProvider' | 'usageRecord' | 'account' | 'sharedSessionProcess' | 'secrets' | 'authMethodNotes'> => {
   const env = options.env ?? { ...process.env, ...agent.env }
   const measuredKeys = agent.secrets ? [] : (known?.auth?.secrets ?? []).filter((secret) => secret.acpMethod !== undefined)
   const resolveIdentity = identityReaderFor(known, {
@@ -55,6 +55,7 @@ export const knowledgeOverlay = (
     coAuthor: knownAgentByCommand(commandName(agent.executable?.command ?? agent.command))?.coAuthor ?? null,
     ...(known?.acp?.sharedSessionProcess ? { sharedSessionProcess: true } : {}),
     ...(resolveIdentity ? { resolveIdentity } : {}),
+    ...(known?.id === 'opencode' ? { identityIsStatus: true } : {}),
     ...(resolveProvider ? { resolveProvider } : {}),
     ...(usageRecord ? { usageRecord } : {}),
     ...(account ? { account } : {}),
