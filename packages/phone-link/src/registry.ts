@@ -54,37 +54,40 @@ export class DeviceRegistry {
   isRevoked(id: string): boolean { return this.#revoked.has(id) }
   get full(): boolean { return this.#devices.size >= MAX_DEVICES }
 
-  async add(device: Device): Promise<void> {
-    if (this.full) throw new Error('This desk already has the most phones it allows.')
-    this.#devices.set(device.id, device)
-    this.#revoked.delete(device.id)
-    await this.#save()
+  add(device: Device): Promise<void> {
+    return this.#mutate((devices, revoked) => {
+      if (devices.size >= MAX_DEVICES) throw new Error('This desk already has the most phones it allows.')
+      devices.set(device.id, device)
+      revoked.delete(device.id)
+    })
   }
 
   /** The device is forgotten and its id remembered, so a phone that comes back is told it was removed. */
-  async revoke(id: string, now: number): Promise<Device | null> {
-    const device = this.#devices.get(id)
-    if (!device) return null
-    this.#devices.delete(id)
-    this.#revoked.set(id, now)
-    await this.#save()
-    return device
+  revoke(id: string, now: number): Promise<Device | null> {
+    return this.#mutate((devices, revoked) => {
+      const device = devices.get(id)
+      if (!device) return null
+      devices.delete(id)
+      revoked.set(id, now)
+      return device
+    })
   }
 
-  async touch(id: string, now: number): Promise<void> {
-    const device = this.#devices.get(id)
-    if (!device) return
-    this.#devices.set(id, { ...device, lastSeenAt: now })
-    await this.#save()
+  touch(id: string, now: number): Promise<void> {
+    return this.#mutate(devices => {
+      const device = devices.get(id)
+      if (device) devices.set(id, { ...device, lastSeenAt: now })
+    })
   }
 
-  async setTiers(id: string, tiers: readonly PhoneTier[]): Promise<Device | null> {
-    const device = this.#devices.get(id)
-    if (!device) return null
-    const next = { ...device, tiers: [...new Set(tiers)] }
-    this.#devices.set(id, next)
-    await this.#save()
-    return next
+  setTiers(id: string, tiers: readonly PhoneTier[]): Promise<Device | null> {
+    return this.#mutate(devices => {
+      const device = devices.get(id)
+      if (!device) return null
+      const next = { ...device, tiers: [...new Set(tiers)] }
+      devices.set(id, next)
+      return next
+    })
   }
 
   /** A single-use secret for one pairing code. It lives in memory only: a restart voids every code. */
@@ -115,14 +118,20 @@ export class DeviceRegistry {
     for (const [secret, expiresAt] of this.#offers) if (expiresAt <= now) this.#offers.delete(secret)
   }
 
-  #save(): Promise<void> {
-    const body: Stored = { v: 1, devices: [...this.#devices.values()], revoked: Object.fromEntries(this.#revoked) }
-    this.#write = this.#write.then(async () => {
+  #mutate<T>(change: (devices: Map<string, Device>, revoked: Map<string, number>) => T): Promise<T> {
+    const next = this.#write.then(async () => {
+      const devices = new Map(this.#devices), revoked = new Map(this.#revoked)
+      const result = change(devices, revoked)
+      const body: Stored = { v: 1, devices: [...devices.values()], revoked: Object.fromEntries(revoked) }
       await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
       const temporary = `${this.path}.${process.pid}.tmp`
       await writeFile(temporary, JSON.stringify(body), { mode: 0o600 })
       await rename(temporary, this.path)
+      this.#devices = devices
+      this.#revoked = revoked
+      return result
     })
-    return this.#write
+    this.#write = next.then(() => {}, () => {})
+    return next
   }
 }

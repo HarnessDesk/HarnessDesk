@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { hostname, networkInterfaces } from 'node:os'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { CloseCode, encodePairingOffer, type PairingOffer } from '@harnessdesk/contract'
 import { b64u } from '@harnessdesk/crypto'
@@ -73,7 +73,10 @@ export class PhoneLinkService {
     const ring = new EventRing()
     // A paired phone remembers the port, so a desk asked for any port goes back to its last one when it is free.
     const saved = join(options.dir, 'phone-port.json')
-    const last = options.port ? null : await readFile(saved, 'utf8').then(text => Number(JSON.parse(text).port), () => null)
+    const last = options.port ? null : await readFile(saved, 'utf8').then(text => {
+      const port: unknown = (JSON.parse(text) as { port?: unknown } | null)?.port
+      return typeof port === 'number' && Number.isInteger(port) && port > 0 && port < 65536 ? port : null
+    }).catch(() => null)
     const listen = async (port: number): Promise<WebSocketServer> => {
       const wss = new WebSocketServer({ host: options.host ?? '0.0.0.0', port, path: PATH, maxPayload: 1_048_576 })
       await new Promise<void>((resolve, reject) => { wss.once('listening', resolve); wss.once('error', error => { wss.close(); reject(error) }) })
@@ -83,7 +86,13 @@ export class PhoneLinkService {
       ? await listen(last).catch(() => listen(0)) : await listen(options.port ?? 0)
     const address = wss.address()
     if (typeof address !== 'object' || address === null) throw new Error('The phone link did not bind to a port.')
-    if (!options.port && address.port !== last) await writeFile(saved, JSON.stringify({ port: address.port }), { mode: 0o600 })
+    if (!options.port && address.port !== last) {
+      try {
+        const temporary = `${saved}.${process.pid}.${randomUUID()}.tmp`
+        await writeFile(temporary, JSON.stringify({ port: address.port }), { mode: 0o600 })
+        await rename(temporary, saved)
+      } catch (error) { wss.close(); throw error }
+    }
     const service = new PhoneLinkService(identity, registry, ring, wss, address.port, options)
     wss.on('connection', (socket, request) => service.#accept(socket, request.socket.remoteAddress ?? 'unknown'))
     return service

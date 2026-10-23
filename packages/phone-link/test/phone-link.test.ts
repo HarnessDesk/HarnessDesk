@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
@@ -350,4 +350,38 @@ describe('the LAN link', () => {
     assert.ok(seen.includes('pending') && seen.includes('devices'))
     phone.close()
   })
+})
+
+test('a failed registry save preserves memory and permits a later durable removal', async () => {
+  const path = join(dir, 'devices.json'), registry = await DeviceRegistry.open(path)
+  const device = { id: 'demo-phone', pub: 'p', name: 'Phone', tiers: ['read'] as const, pushKey: 'k', kid: 1, createdAt: 1, lastSeenAt: null }
+  await registry.add(device)
+  const temporary = `${path}.${process.pid}.tmp`
+  await mkdir(temporary)
+  await assert.rejects(registry.revoke(device.id, 2))
+  assert.deepEqual(registry.get(device.id), device)
+  assert.equal(registry.isRevoked(device.id), false)
+  assert.deepEqual((await DeviceRegistry.open(path)).get(device.id), device)
+  await rm(temporary, { recursive: true })
+  await registry.revoke(device.id, 3)
+  assert.equal(registry.get(device.id), null)
+  assert.equal((await DeviceRegistry.open(path)).isRevoked(device.id), true)
+})
+
+test('concurrent registry additions enforce capacity at the persistence boundary', async () => {
+  const registry = await DeviceRegistry.open(join(dir, 'devices.json'))
+  const results = await Promise.allSettled(Array.from({ length: 9 }, (_, i) => registry.add({ id: String(i), pub: 'p', name: 'Phone', tiers: [], pushKey: 'k', kid: 1, createdAt: 1, lastSeenAt: null })))
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 8)
+  assert.equal(registry.list().length, 8)
+})
+
+test('an interrupted port file falls back to a valid atomic replacement', async () => {
+  for (const text of ['{', 'null', '{"port":"1234"}', '{"port":70000}']) {
+    await writeFile(join(dir, 'phone-port.json'), text)
+    const service = await PhoneLinkService.start({ dir, policy, host: '127.0.0.1', call: async () => null })
+    try {
+      assert.ok(service.port > 0 && service.port < 65536)
+      assert.equal(JSON.parse(await readFile(join(dir, 'phone-port.json'), 'utf8')).port, service.port)
+    } finally { await service.close() }
+  }
 })
