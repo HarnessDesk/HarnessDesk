@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import type { FlowPreview, LeadAcceptanceContract, LeadPermissionPolicy, LeadProject } from '@harnessdesk/protocol'
+import type { FlowPreview, LeadAcceptanceContract, LeadPermissionPolicy, LeadProject, Sha } from '@harnessdesk/protocol'
 import { createLeadJournal, leadBudgetProjection, LEAD_MESSAGES_DEFAULTS, parseLeadSeatChoices,
   type LeadAcceptanceEvidence, type LeadJournal, type LeadPermissionCall, type LeadResolvedTool, type LeadSeatChoices, type MessagesPrice } from '@harnessdesk/lead'
+import { readChecksAt } from '../evidence/checks-file.js'
 import { LeadFileJournal } from './journal.js'
 import { leadRefusal } from './controls.js'
 
@@ -27,7 +28,7 @@ export const freezeLeadPlan = async (value: LeadAcceptanceContract): Promise<Lea
 /** A project's identity is its path, so a restart names the same project without storing anything else. */
 export const leadProjectOf = (path: string): LeadProject => ({ id: `project-${createHash('sha256').update(path).digest('hex').slice(0, 16)}`, path })
 
-type Fact = { readonly id: string; readonly fact: { readonly kind: string; readonly at?: string; readonly verdict?: string; readonly exit?: number | null; readonly timedOut?: boolean; readonly dirty?: boolean; readonly counted?: boolean } }
+type Fact = { readonly id: string; readonly fact: { readonly kind: string; readonly at?: string; readonly verdict?: string; readonly exit?: number | null; readonly timedOut?: boolean; readonly dirty?: boolean; readonly counted?: boolean; readonly name?: string; readonly run?: string; readonly digest?: string } }
 type Card = { readonly card: number; readonly facts: readonly { readonly record: Fact; readonly freshness: { readonly state: string } }[] }
 
 /** Evidence for one run at the revision its last review saw, from facts read through the host's gate right
@@ -57,7 +58,11 @@ export const readLeadEvidence = async (journal: Pick<LeadJournal, 'state'>, runI
   const reviewFacts = fresh.flatMap(record => record.fact.kind === 'review' ? [{ assertionId: assertionOf('review') ?? 'review', id: record.id, revision,
     observedAt, verdict: record.fact.verdict ?? '', complete: true }] : [])
   const needsCheck = contract.assertions.some(one => one.kind === 'check')
-  const complete = fresh.length === atRevision.length && reviewFacts.length > 0 && (!needsCheck || checks.length > 0) && !findings.embargoed
+  const declared = needsCheck ? await readChecksAt(project.path, revision as Sha) : null
+  const allChecks = !needsCheck || !!declared?.digest && declared.problems.length === 0 && declared.checks.length > 0 && declared.checks.every(check =>
+    fresh.some(record => record.fact.kind === 'check' && record.fact.name === check.name && record.fact.run === check.run &&
+      record.fact.digest === declared.digest && record.fact.counted === true && record.fact.exit === 0 && !record.fact.timedOut && !record.fact.dirty))
+  const complete = allChecks && fresh.length === atRevision.length && reviewFacts.length > 0 && (!needsCheck || checks.length > 0) && !findings.embargoed
   return { project, runId, contractDigest: contract.digest, revision, observedAt, complete,
     spendComplete: leadBudgetProjection(state.budget, observedAt).spend === 'known', checks, reviews: reviewFacts,
     findingsComplete: !findings.embargoed, findings: findings.blocking ? [{ id: `${runId}:blocking`, revision, blocking: true, resolved: false }] : [], diffs: [] }

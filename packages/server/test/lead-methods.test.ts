@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { makeRepo } from './fixtures/evidence-desk.js'
+import { readChecks } from '../src/evidence/checks-file.js'
+import { readLeadEvidence } from '../src/lead/assembly.js'
 import { createLeadLoop, createLeadJournal, leadBudgetProjection, leadCheckpoint, parseLeadCheckpoint, type LeadJournalRecord } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
 import { dispatch, type HostContext } from '../src/methods/index.js'
@@ -553,28 +558,28 @@ test('restart between admission and reply projects resume for the unanswered use
 })
 
 
-const gateRig = async (multiple = false) => {
+const gateRig = async (multiple = false, gateProject = project) => {
   const { answerLeadResult, answerLeadPersonGate } = await import('../src/lead/person-decision.js')
   const { parseFlowPolicy } = await import('../src/flow-policy.js')
   const { flowRevision } = await import('../src/flow-execution.js')
   const { leadReviewedResultSource, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadBudgetProjection } = await import('@harnessdesk/lead')
   const document = parseFlowPolicy(leadReviewedResultSource).document!, revision = flowRevision(document)
-  const c = parseLeadAcceptanceContract({ ...contract, steps: (multiple ? ['work', 'work2'] : ['work']).map(id => ({ ...contract.steps[0]!, id, sourceRevision: LEAD_REVIEWED_RESULT.revision })) })
+  const c = parseLeadAcceptanceContract({ ...contract, project: gateProject, steps: (multiple ? ['work', 'work2'] : ['work']).map(id => ({ ...contract.steps[0]!, id, sourceRevision: LEAD_REVIEWED_RESULT.revision })) })
   const s = await rig(); await s.journal.offerCard({ ...plan, contract: c }); await s.journal.decideCard(planClick, 1000000)
   const runs = (multiple ? [1, 2] : [1]).map(i => ({ runId: `run-${i}`, teamId: `team-${i}`, correlationId: `start-${i}` }))
   let owned = runs, executionState = 'running', stepFlow = LEAD_REVIEWED_RESULT.id as string, stepRevision = LEAD_REVIEWED_RESULT.revision as string, storedSource = leadReviewedResultSource as string, failSecond = false, answers = 0
   const state = () => ({ ...s.journal.state, runs: owned, steps: c.steps.map((step, i) => ({ id: step.id, state: 'started' as const, attemptId: `start-${i + 1}` })),
     contract: { ...c, steps: c.steps.map(step => ({ ...step, flow: stepFlow, sourceRevision: stepRevision })) } })
-  const evidenceFor = (runId: string) => ({ project, runId, contractDigest: c.digest, revision: 'head-1', observedAt: 100, complete: true, spendComplete: true, findingsComplete: true, findings: [],
+  const evidenceFor = (runId: string) => ({ project: gateProject, runId, contractDigest: c.digest, revision: 'head-1', observedAt: 100, complete: true, spendComplete: true, findingsComplete: true, findings: [],
     reviews: [{ assertionId: 'review', id: 'review-1', revision: 'head-1', observedAt: 100, verdict: 'approve' as const, complete: true }], diffs: [],
     checks: [{ assertionId: 'unit', id: 'check-1', revision: 'head-1', observedAt: 100, exit: 0, timedOut: false, dirty: false, counted: true }] })
   const intents: Record<string, { id: number; state: string; outcome: string | null }> = Object.fromEntries(runs.map((run, i) => [run.teamId, { id: 7 + i, state: 'open', outcome: null }]))
   const per = runs.map(run => evaluateLeadAcceptance(c, evidenceFor(run.runId), { now: 100, freshnessMs: 60000, revision: state().seq }).assertions)
   const assertions = c.assertions.map(assertion => { const results = per.map(p => p.find(item => item.assertionId === assertion.id)!); return { ...results[0]!, evidence: results.flatMap(item => item.evidence) } })
-  const options: any = { journal: { get state() { return state() } }, project, now: () => 100,
+  const options: any = { journal: { get state() { return state() } }, project: gateProject, now: () => 100,
     flows: { executionOf: (id: string) => ({ id, goal: id === 'run-1' ? 'team-1' : 'team-2', state: executionState, revision, document, rounds: [{ cards: [id === 'run-1' ? 7 : 8] }] }),
       storedRun: () => ({ source: storedSource, compiled: { document } }), personCard: (_team: string, intent: any) => ({ live: intent.state === 'open', outcomes: ['accepted', 'declined'] }) },
-    team: { stateFor: (team: string) => ({ root: project.path, intents: [intents[team]] }),
+    team: { stateFor: (team: string) => ({ root: gateProject.path, intents: [intents[team]] }),
       async intentAction(team: string, _id: number, _action: string, _a: unknown, outcome: string, ...rest: any[]) {
         rest.at(-1)?.(); if (team === 'team-2' && failSecond) throw new Error('board save failed')
         intents[team]!.state = 'done'; intents[team]!.outcome = outcome; answers++
@@ -1639,4 +1644,28 @@ test('a Lead request re-reads worker spend first, and a refusal over unknown spe
   const read = await s.call('lead/thread/read')
   assert.equal(s.journal.state.phase, 'waiting-for-user')
   assert.equal(read.waitReason, 'lead-budget-unknown')
+})
+
+test('result decisions re-read every declared check before completing a person gate', async () => {
+  const repo = await makeRepo('lead-result-required-')
+  await mkdir(join(repo.dir, '.harnessdesk'))
+  await writeFile(join(repo.dir, '.harnessdesk/checks.yml'), 'unit: { run: node unit.mjs }\nlint: { run: node lint.mjs }\n')
+  await repo.git('add', '.harnessdesk'); await repo.git('commit', '-qm', 'Declare checks')
+  const revision = await repo.git('rev-parse', 'HEAD'), file = await readChecks(repo.dir)
+  const g = await gateRig(false, { ...project, path: repo.dir })
+  const check = (name: string) => ({ record: { id: name, fact: { kind: 'check', at: revision, name, run: `node ${name}.mjs`, digest: file.digest, exit: 0, counted: true } }, freshness: { state: 'fresh' } })
+  const facts = [{ record: { id: 'review-1', fact: { kind: 'review', at: revision, verdict: 'approve' } }, freshness: { state: 'fresh' } }, check('unit')]
+  g.options.readEvidence = (runId: string) => readLeadEvidence(g.options.journal, runId, async call => {
+    if (call.method === 'flow/execution') return { rounds: [{ cards: [7] }] }
+    if (call.method === 'evidence/board') return { cards: [{ card: 7, facts }] }
+    if (call.method === 'finding/run') return { embargoed: false, blocking: false }
+    throw new Error('unexpected read')
+  }, () => 100)
+  await assert.rejects(g.answerLeadResult(g.options, g.card, g.click, g.c), code('lead-gate-changed'))
+  assert.equal(g.answers(), 0)
+  facts.push(check('lint'))
+  const { evaluateLeadAcceptance } = await import('@harnessdesk/lead')
+  g.card.assertions = [...evaluateLeadAcceptance(g.c, await g.options.readEvidence('run-1'), { now: 100, freshnessMs: 60000, revision: g.options.journal.state.seq }).assertions.map(assertion => ({ ...assertion, evidence: [...assertion.evidence] }))]
+  await g.answerLeadResult(g.options, g.card, g.click, g.c)
+  assert.equal(g.answers(), 1)
 })

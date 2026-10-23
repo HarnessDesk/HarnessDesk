@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { makeRepo } from './fixtures/evidence-desk.js'
+import { readChecks } from '../src/evidence/checks-file.js'
 import { spawn } from 'node:child_process'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import test, { after } from 'node:test'
@@ -185,18 +189,33 @@ const reads = (cards: unknown[], blocking = false, embargoed = false) => async (
 
 test('evidence is incomplete when a fact is missing or stale, and complete only from fresh facts at the reviewed revision', async () => {
   const journal = await evidenceJournal()
+  const repo = await makeRepo('lead-required-checks-')
+  await mkdir(join(repo.dir, '.harnessdesk'))
+  await writeFile(join(repo.dir, '.harnessdesk/checks.yml'), 'unit: { run: node unit.mjs }\nlint: { run: node lint.mjs }\n')
+  await repo.git('add', '.harnessdesk')
+  await repo.git('commit', '-qm', 'Declare required checks')
+  const revision = await repo.git('rev-parse', 'HEAD'), file = await readChecks(repo.dir)
+  const check = (name: string, more: object = {}) => fact(name, 'check', revision, 'fresh', { name, run: `node ${name}.mjs`, digest: file.digest, exit: 0, counted: true, ...more })
+  const reviewed = fact('r1', 'review', revision, 'fresh', { verdict: 'approve' })
   // No run or contract yet: nothing to read, nothing guessed.
   assert.equal((await readLeadEvidence(journal, 'run-1', reads([]), () => 1000)).complete, false)
-  const withRun = { state: { ...journal.state, contract, runs: [{ runId: 'run-1', teamId: 'team-1', correlationId: 'c1' }] } } as unknown as Pick<typeof journal, 'state'>
+  const withRun = { state: { ...journal.state, contract: { ...contract, project: { ...project, path: repo.dir } }, runs: [{ runId: 'run-1', teamId: 'team-1', correlationId: 'c1' }] } } as unknown as Pick<typeof journal, 'state'>
   const read = (cards: unknown[]) => readLeadEvidence(withRun, 'run-1', reads(cards), () => 1000)
   assert.equal((await read([])).complete, false, 'no review yet')
-  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', 'abc', 'fresh', { verdict: 'approve' })] }])).complete, false, 'no check fact')
-  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', 'abc', 'fresh', { verdict: 'approve' }), fact('c1', 'check', 'abc', 'stale', { exit: 0 })] }])).complete, false, 'a stale check')
-  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', 'abc', 'fresh', { verdict: 'approve' }), fact('c0', 'check', 'old', 'fresh', { exit: 0 })] }])).complete, false, 'a check for another revision')
-  const complete = await read([{ card: 1, facts: [fact('r1', 'review', 'abc', 'fresh', { verdict: 'approve' }), fact('c1', 'check', 'abc', 'fresh', { exit: 0, counted: true })] }])
+  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' })] }])).complete, false, 'no check fact')
+  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' }), fact('c1', 'check', revision, 'stale', { exit: 0 })] }])).complete, false, 'a stale check')
+  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' }), fact('c0', 'check', 'old', 'fresh', { exit: 0 })] }])).complete, false, 'a check for another revision')
+  for (const facts of [
+    [reviewed, check('unit')],
+    [reviewed, check('unit'), check('lint', { counted: false })],
+    [reviewed, check('unit'), check('lint', { run: 'node another.mjs' })],
+    [reviewed, check('unit'), check('lint', { digest: 'wrong' })],
+    [reviewed, check('unit'), check('lint', { exit: 1 })],
+  ]) assert.equal((await read([{ card: 1, facts }])).complete, false, 'every declared check needs matching counted passing evidence')
+  const complete = await read([{ card: 1, facts: [reviewed, check('unit'), check('lint')] }])
   assert.equal(complete.complete, true)
-  assert.equal(complete.revision, 'abc')
-  assert.deepEqual(complete.checks.map(one => [one.assertionId, one.exit]), [['unit', 0]])
+  assert.equal(complete.revision, revision)
+  assert.equal(complete.checks.length, 2)
   assert.deepEqual(complete.reviews.map(one => [one.assertionId, one.verdict]), [['review', 'approve']])
 })
 
