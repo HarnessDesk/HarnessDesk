@@ -476,6 +476,8 @@ export interface HostOptions {
   /** Optional: HarnessDesk runs fine with no extension kernel at all. */
   readonly extensions?: ExtensionHost
   readonly state?: StateStore
+  /** Bootstrap starts the shared tool socket only after this host owns the home. */
+  readonly startToolGateway?: () => void
   /** Opens a native directory picker. Supplied by the desktop shell. */
   readonly pickDirectory?: () => Promise<string | null>
   /** Shows a folder in the OS file browser. Supplied by the desktop shell. */
@@ -1368,11 +1370,11 @@ export class Host {
       },
       facts: async (goal) => {
         const state = this.#goalState(goal)
-        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root, state.root))
       },
       append: async (goal, record) => {
         const state = this.#goalState(goal)
-        const outcome = await this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record, () => {
+        const outcome = await this.#evidence.appendReview(await projectOf(state.cwd ?? state.root, state.root), record, () => {
           // Person decisions have no runtime Seat; an agent review still needs its original live claim at admission.
           if (record.seat === null) return
           const seat = this.#evidence.seats.byId(record.seat ?? '')
@@ -1553,7 +1555,7 @@ export class Host {
        */
       facts: async (goal) => {
         const state = this.#goalState(goal)
-        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root, state.root))
       },
       /* A trigger's run: compiled from the same frozen closure its arm
          consented to, attached only to the Goal its firing made, and gated
@@ -1670,7 +1672,7 @@ export class Host {
         embargoedRounds: (goal) => this.#flows.embargoedRounds(goal),
         facts: async (goal) => {
           const state = this.#goalState(goal)
-          return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+          return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root, state.root))
         },
         seriesOfGoal: (goal) => this.#flows.seriesOfGoal(goal),
         overridesOfGoal: (goal) => this.#flows.overridesOfGoal(goal),
@@ -1685,7 +1687,7 @@ export class Host {
       goalClosed: (goal) => findingDecisionRefusal(this.#goalStore, goal),
       projectOf: async (goal) => {
         const state = this.#goalState(goal)
-        return projectOf(state.cwd ?? state.root)
+        return projectOf(state.cwd ?? state.root, state.root)
       },
       headOf: async (cwd) => {
         const revision = await revisionOf(cwd)
@@ -1719,11 +1721,11 @@ export class Host {
       },
       projectOf: async (goal) => {
         const state = this.#goalState(goal)
-        return projectOf(state.cwd ?? state.root)
+        return projectOf(state.cwd ?? state.root, state.root)
       },
       facts: async (goal) => {
         const state = this.#goalState(goal)
-        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root, state.root))
       },
       ledger: (project) => this.#findings.ledgerOf(project),
       seat: (id) => this.#evidence.seats.byId(id),
@@ -2576,6 +2578,7 @@ export class Host {
       return
     }
     this.#goalWriter = writer
+    this.options.startToolGateway?.()
     await this.#state.load()
     if (this.#disposed) return
     await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)

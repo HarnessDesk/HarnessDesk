@@ -234,7 +234,7 @@ export class EvidencePlane {
     const stamp = this.#nextStamp()
     const board = this.#port.board(room)
     if (!board) throw new Error(`There is no room ${room} on this desk.`)
-    const project = await projectOf(board.cwd ?? board.root)
+    const project = await projectOf(board.cwd ?? board.root, board.root)
     const { lines } = await this.store.read(project, 'evidence')
     const checks = await readChecks(project)
     const records = lines.flatMap((line) => (line.type === 'evidence' ? [line.record] : []))
@@ -271,7 +271,7 @@ export class EvidencePlane {
   async checkResults(room: string, card: number): Promise<{ readonly records: readonly EvidenceRecord[]; readonly complete: boolean }> {
     const board = this.#port.board(room)
     if (!board) throw new Error(`There is no room ${room} on this desk.`)
-    const project = await projectOf(board.cwd ?? board.root)
+    const project = await projectOf(board.cwd ?? board.root, board.root)
     const read = await this.store.read(project, 'evidence')
     const records = read.lines.flatMap((line) =>
       line.type === 'evidence' && line.record.fact.kind === 'check' && line.record.card?.board === room && line.record.card.id === card
@@ -331,7 +331,7 @@ export class EvidencePlane {
   ): Promise<{ readonly at: string; readonly number: number } | { readonly why: string }> {
     const board = this.#port.board(goal)
     if (!board) return { why: 'This review card’s Team is no longer available.' }
-    const project = await projectOf(board.cwd ?? board.root)
+    const project = await projectOf(board.cwd ?? board.root, board.root)
     const facts = await this.factsForGoal(goal, project)
     const bound = boundPullRequest(facts)
     // The host's last refusal is not a new instruction naming a PR.
@@ -498,7 +498,7 @@ export class EvidencePlane {
     const stopped = board.intents.find((one) => one.id === intent.id && one.state === 'done' && !one.claim)
     const work = (async () => {
       const look: Look = {
-        room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat, since,
+        room, card: intent.id, project: await projectOf(board.cwd ?? board.root, board.root), cwd, seat, since,
         ...(stopped?.until != null ? { until: stopped.until } : {}),
         ...(stopped?.untilBranch !== undefined ? { untilBranch: stopped.untilBranch } : {}),
         ...(upstream !== undefined ? { upstream } : {}),
@@ -659,7 +659,7 @@ export class EvidencePlane {
     })
     const board = card ? this.#port.board(card.room) : null
     if (!card || !revision || !board) return result
-    const project = await projectOf(board.cwd ?? board.root)
+    const project = await projectOf(board.cwd ?? board.root, board.root)
     await this.store
       .append(project, 'evidence', [
         {
@@ -756,7 +756,7 @@ export class EvidencePlane {
     const tail = (result.tail + (result.tail && movement ? '\n\n' : '') + movement).slice(-TAIL_LIMIT)
     const board = this.#port.board(card.goal)
     if (!board) return { result, evidence: null, problem: null }
-    const project = await projectOf(board.cwd ?? board.root)
+    const project = await projectOf(board.cwd ?? board.root, board.root)
     const record: EvidenceRecord = {
       id: mintId(),
       fact: {
