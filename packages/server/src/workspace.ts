@@ -223,7 +223,7 @@ export class LocalFiles implements RuntimeFiles {
 
   async write(path: string, data: Uint8Array): Promise<void> {
     const target = this.#target(path, 'write')
-    const handle = await openAgentFile(target, constants.O_WRONLY | constants.O_CREAT | constants.O_NONBLOCK)
+    const handle = await this.#open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_NONBLOCK)
     try {
       const info = await handle.stat()
       if (!info.isFile() || info.nlink !== 1) throw new Error(`${path} is not an ordinary file with one link`)
@@ -236,6 +236,21 @@ export class LocalFiles implements RuntimeFiles {
 
   #target(path: string, mode: 'read' | 'write'): string {
     return this.options.roots ? confinedTarget(path, this.options.roots(mode)) : canonicalTarget(path)
+  }
+
+  async #open(path: string, flags: number) {
+    try {
+      return await openAgentFile(path, flags)
+    } catch (error) {
+      const code = errnoOf(error)
+      if (code === 'ENOTSUP') {
+        throw Object.assign(new Error('Workspace file reads and saves are supported on macOS and Linux.', { cause: error }), { code })
+      }
+      if (process.platform === 'linux' && code === 'EACCES') {
+        throw Object.assign(new Error('Linux workspace files need readable ancestor folders and permission to open the file.', { cause: error }), { code })
+      }
+      throw error
+    }
   }
 
   async search(roots: readonly string[], query: string, limit: number): Promise<readonly FileMatch[]> {
@@ -255,7 +270,7 @@ export class LocalFiles implements RuntimeFiles {
   }
 
   async read(path: string, maxBytes: number): Promise<Uint8Array> {
-    const handle = await openAgentFile(this.#target(path, 'read'), constants.O_RDONLY | constants.O_NONBLOCK)
+    const handle = await this.#open(this.#target(path, 'read'), constants.O_RDONLY | constants.O_NONBLOCK)
     try {
       const info = await handle.stat()
       if (!info.isFile()) throw new Error(`${path} is not a file`)

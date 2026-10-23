@@ -1599,6 +1599,26 @@ refuse these opens rather than falling back to path-only checks. Directory
 creation, publication and cleanup still use paths and identity checks; this
 does not turn the whole operation into a descriptor-relative transaction.
 
+## Local workspace content uses no-follow opens on macOS and Linux
+
+The host's `LocalFiles` reader and writer use the same content-open traversal
+as Agent sources: macOS refuses links in any component, and Linux opens each
+component through a held directory descriptor. Local workspace reads, saves
+and editor writes deliberately require macOS or Linux until another platform
+has an equivalent traversal. A canonical-root check still precedes each open.
+Runtime-provided file services keep their own platform support behind that
+same canonical-root check.
+
+Linux's directory opens use `O_RDONLY | O_DIRECTORY`, so every ancestor must
+be readable as well as searchable. A search-only ancestor is deliberately
+refused even when an ordinary path open could reach the file. The workspace
+refusal names this requirement; a platform refusal names workspace reads and
+saves and the supported systems.
+
+The host's per-file turn fallback has the same platform limit for creating
+and removing files, including rollback. Its refusal names workspace file
+changes. Aggregated patches and individual update hunks still go through Git.
+
 ## An evidence guard judges revisions, found by card and revision, never by round
 
 A finished round's rule asks whether some work is good enough to move on,

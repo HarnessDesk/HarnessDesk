@@ -296,7 +296,10 @@ export const applyTurn = async (
       }
       if (!done.includes(path)) done.push(path)
     } catch (error) {
-      const why = `Stopped at ${path}: ${describeGit(error)}.`
+      const detail = (error as NodeJS.ErrnoException).code === 'HD_TREE_PLATFORM'
+        ? 'Workspace file changes for per-file undo and redo are supported on macOS and Linux'
+        : describeGit(error)
+      const why = `Stopped at ${path}: ${detail}.`
       // Taken back newest first, the way they were stacked.
       while (steps.length > 0) {
         const step = steps[steps.length - 1]!

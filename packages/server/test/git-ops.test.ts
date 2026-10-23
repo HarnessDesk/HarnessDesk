@@ -15,6 +15,7 @@ import { TranscriptStore } from '../src/transcripts.js'
 import { sessionMethods } from '../src/methods/sessions.js'
 import type { HostContext } from '../src/methods/context.js'
 import { DirtyTreeError, RevertError, applyTurn, checkout, listBranches, reapplyTurn, revertTurn, turnCommit } from '../src/git-ops.js'
+import { ConfinedTree } from '../src/confined-tree.js'
 
 /**
  * Reverting a turn and switching branches against a real repository. The
@@ -42,6 +43,16 @@ const fileChange = (dir: string, changes: FileChange[]): AgentItem =>
   ({ id: `fc-${changes.length}`, type: 'fileChange', changes, status: 'completed', origin: 'agent' }) as unknown as AgentItem
 
 const turnOf = (items: AgentItem[], diff?: string): Turn => ({ id: turnId('t1'), items, status: 'completed', diff: diff ?? null })
+
+test('unsupported per-file turn changes explain the workspace platform requirement', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const openTree = ConfinedTree.open.bind(ConfinedTree)
+  t.mock.method(ConfinedTree, 'open', (root: string) => openTree(root, { platform: 'win32' }))
+  const turn = turnOf([fileChange(dir, [{ path: 'restored.txt', kind: { type: 'delete' }, diff: 'recorded\n' }])])
+  await assert.rejects(revertTurn(dir, turn), /Workspace file changes.*macOS and Linux/)
+  await assert.rejects(stat(join(dir, 'restored.txt')), { code: 'ENOENT' })
+})
 
 test('turn operations accept a repository opened with a different letter case', async (t) => {
   const dir = await repo()

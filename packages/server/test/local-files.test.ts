@@ -11,6 +11,52 @@ import { confine, isBinaryFile, isMissingWorkspaceFileError, LocalFiles, sha256 
 import { workspaceMethods } from '../src/methods/workspace.js'
 import type { HostContext } from '../src/methods/context.js'
 
+test('unsupported local content opens explain the workspace platform requirement', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'file.txt')
+  await writeFile(path, 'original')
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { value: 'win32' })
+  try {
+    const files = new LocalFiles()
+    const ctx = { workspaces: { fileRoots: () => [dir] }, runtimes: { files: () => files } } as unknown as HostContext
+    const result = await workspaceMethods['workspace/readFile'](ctx, { path })
+    assert.equal(result.kind, 'unreadable')
+    if (result.kind === 'unreadable') assert.match(result.message, /Workspace file reads and saves.*macOS and Linux/)
+    await assert.rejects(files.write(path, Buffer.from('replacement')), /Workspace file reads and saves.*macOS and Linux/)
+  } finally {
+    Object.defineProperty(process, 'platform', descriptor)
+  }
+  assert.equal(await readFile(path, 'utf8'), 'original')
+})
+
+test('Linux local content opens explain the readable-ancestor requirement', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'file.txt')
+  await writeFile(path, 'original')
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as { open: typeof open }
+  const original = fsp.open
+  Object.defineProperty(process, 'platform', { value: 'linux' })
+  fsp.open = async (target, flags, mode) => {
+    if ((Number(flags) & constants.O_DIRECTORY) !== 0) throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    return original(target, flags, mode)
+  }
+  syncBuiltinESMExports()
+  try {
+    const files = new LocalFiles()
+    await assert.rejects(files.read(path, 64), /workspace files.*readable ancestor folders/)
+    await assert.rejects(files.write(path, Buffer.from('replacement')), /workspace files.*readable ancestor folders/)
+  } finally {
+    fsp.open = original
+    syncBuiltinESMExports()
+    Object.defineProperty(process, 'platform', descriptor)
+  }
+  assert.equal(await readFile(path, 'utf8'), 'original')
+})
+
 test('workspace reads report an unreadable path when an ancestor is now a file', async (t) => {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
   t.after(() => rm(dir, { recursive: true, force: true }))
