@@ -149,7 +149,11 @@ const statusInView = async (view: View, args: readonly string[], options: ReadOp
   if (explicit !== 'all') {
     const pathspec = args.indexOf('--')
     const links = (await view.run(['ls-files', '--stage', '--full-name', '-z', ...(pathspec < 0 ? ['--', ':/'] : args.slice(pathspec))])).stdout.split('\0')
-    const settings = await submoduleSettings(view)
+    const settings = links.some(link => link.startsWith('160000 ')) ? await submoduleSettings(view) : view.settings
+    const untrackedFlag = args.slice(command + 1, end).findLast(arg => /^(-u(no|normal|all)?|--untracked-files(=(no|normal|all))?)$/.test(arg))
+    const untracked = untrackedFlag === undefined
+      ? valueOf(view.settings, 'status.showuntrackedfiles') ?? 'normal'
+      : untrackedFlag.startsWith('--') ? untrackedFlag.split('=')[1] ?? 'all' : untrackedFlag.slice(2) || 'all'
     for (const link of links) {
       const match = /^160000 ([0-9a-f]+) 0\t(.+)$/s.exec(link)
       if (!match) continue
@@ -173,7 +177,7 @@ const statusInView = async (view: View, args: readonly string[], options: ReadOp
         const head = (await childView.run(['rev-parse', '--verify', 'HEAD'])).stdout.trim()
         if (head !== indexed) return true
         if (ignored === 'dirty') return false
-        const status = await statusInView(childView, ['status', '--porcelain=v1', '-z', `--untracked-files=${ignored === 'untracked' ? 'no' : 'normal'}`], options, visited)
+        const status = await statusInView(childView, ['status', '--porcelain=v1', '-z', `--untracked-files=${ignored === 'untracked' || untracked === 'no' ? 'no' : 'normal'}`], options, visited)
         return status.stdout.length > 0
       })
       if (!changed) continue

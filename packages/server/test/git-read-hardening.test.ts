@@ -225,6 +225,33 @@ catch (error) { process.stderr.write(error.stderr || ''); process.exit(error.sta
   assert.equal(await f.git('config', '--get', 'filter.late.clean'), f.script, 'the new setting was present for the consuming process')
 })
 
+test('ordinary status preserves changes beside an incomplete untracked submodule file', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, 'page.txt'), 'changed\n')
+  await writeFile(join(f.root, '.gitmodules'), '[submodule "unfinished"\n')
+  const args = ['status', '--porcelain=v1', '-z']
+  const native = (await run('git', ['-C', f.root, ...args])).stdout
+  assert.equal((await readGit(f.root, args)).stdout, native)
+  assert.deepEqual((await status(f.root))?.files.map(file => file.path).sort(), ['.gitmodules', 'page.txt'])
+})
+
+test('parent status propagates its untracked selection to child repositories', async (t) => {
+  const f = await fixture(t)
+  const source = await fixture(t)
+  await f.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', source.root, 'child')
+  await f.git('commit', '-qam', 'Track child repository')
+  await writeFile(join(f.root, 'child', 'new.txt'), 'new\n')
+  for (const flags of [['--untracked-files=no'], ['-uno']]) {
+    const args = ['status', '--porcelain=v1', '-z', ...flags]
+    const native = (await run('git', ['-C', f.root, ...args])).stdout
+    assert.equal((await readGit(f.root, args)).stdout, native, flags.join(' '))
+  }
+  await assertCleanTree(f.root)
+  await f.git('config', 'status.showUntrackedFiles', 'no')
+  assert.equal((await readGit(f.root, ['status', '--porcelain=v1', '-z'])).stdout, '')
+  assert.equal((await readGit(f.root, ['status', '--porcelain=v1', '-z', '-uall'])).stdout, ' M child\0')
+})
+
 for (const detached of [false, true]) {
   test(`automatic ${detached ? 'detached' : 'branch'} checkout refuses target files with a filter`, async (t) => {
     const f = await fixture(t)
