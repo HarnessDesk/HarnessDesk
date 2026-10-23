@@ -2063,14 +2063,15 @@ export class AcpRuntime implements AgentRuntime {
     }
     if (this.#account && this.#health.state === 'ready') {
       const beforeStatus = this.#signIn
+      const refusalGeneration = this.#refusalGeneration
       // Publish a newer session refusal before asking the CLI again. Its
       // credential file may still describe the sign-in the session rejected.
-      const freshRefusal = this.#config.account?.status && beforeStatus.state === 'required' && this.#statusObservation !== beforeStatus
+      const freshRefusal = this.#config.account?.status && beforeStatus.state === 'required' && this.#statusObservation !== refusalGeneration
       const status = freshRefusal
         ? { accounts: [], signInMethods: this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : [] }
         : await this.#account.status()
-      this.#statusObservation = beforeStatus
-      if (!freshRefusal && this.#config.account?.status && this.#signIn === beforeStatus && beforeStatus.state === 'required') {
+      this.#statusObservation = refusalGeneration
+      if (!freshRefusal && this.#config.account?.status && this.#refusalGeneration === refusalGeneration && this.#signIn === beforeStatus && beforeStatus.state === 'required') {
         this.#noteSignIn({ state: 'observed' })
       }
       // An interactive-only CLI has no safe status probe. In that case the
@@ -2817,7 +2818,9 @@ export class AcpRuntime implements AgentRuntime {
   }
   /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
   #signIn: SignInObservation = { state: 'unknown' }
-  #statusObservation: SignInObservation | null = null
+  /** Every refusal counts, even when its unchanged message needs no notification. */
+  #refusalGeneration = 0
+  #statusObservation = -1
   /** Last complete history answer; sidebar reads must not wake an idle helper. */
   #historyCache: Page<SessionSummary> | null = null
   /** The agent's models as last declared, for the settings catalogue. */
@@ -2998,6 +3001,7 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   #noteSignIn(next: SignInObservation): void {
+    if (next.state === 'required') this.#refusalGeneration++
     const before = this.#signIn
     if (before.state === next.state && (next.state !== 'required' || before.state !== 'required' || before.message === next.message)) return
     this.#signIn = next

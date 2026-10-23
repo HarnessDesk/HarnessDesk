@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentEvent } from '@harnessdesk/protocol'
+import type { AccountStatus, AgentEvent } from '@harnessdesk/protocol'
 
 import { EventEmitter } from 'node:events'
 
@@ -1927,6 +1927,36 @@ test('a session refusal outranks the last CLI status until a fresh status or ses
     runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
     await runtime.createSession({ cwd: process.cwd() })
     assert.equal((await runtime.getAccount()).accounts.length, 1, 'a successful session clears the refusal')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a delayed status refresh cannot clear a newer identical refusal (#1765)', async (t) => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    const signedIn = await runtime.getAccount()
+    assert.equal(signedIn.accounts.length, 1)
+    const refusal = new Error('Authentication required. Sign in again.')
+    runtime.refusedForSignIn(refusal)
+    assert.equal((await runtime.getAccount()).refusal, 'Authentication required.')
+
+    let release!: (status: AccountStatus) => void
+    const statusReply = new Promise<AccountStatus>(resolve => { release = resolve })
+    const statusRead = t.mock.method(CliAccount.prototype, 'status', () => statusReply)
+    const pending = runtime.getAccount()
+    assert.equal(statusRead.mock.callCount(), 1, 'the refresh has begun')
+    const events: AgentEvent[] = []
+    runtime.subscribe(event => events.push(event))
+    runtime.refusedForSignIn(refusal)
+    assert.equal(events.filter(event => event.type === 'account/changed').length, 0,
+      'identical refusals still deduplicate notifications')
+    release(signedIn)
+
+    const result = await pending
+    assert.deepEqual(result.accounts, [], 'the old status cannot restore the rejected account')
+    assert.equal(result.refusal, 'Authentication required.')
   } finally {
     await runtime.dispose()
   }
