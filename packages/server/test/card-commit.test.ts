@@ -77,6 +77,54 @@ test('commit_work commits only what changed since the claim, and leaves what was
   })
 })
 
+test('commit_work leaves staged renames of pre-card edits out of ordinary commits', async (t) => {
+  for (const source of ['a.txt', 'a -> café.txt', 'a "quote"\ttab.txt']) {
+    await t.test(JSON.stringify(source), async (t) => {
+      const root = await repo(t)
+      if (source !== 'a.txt') await git(root, 'mv', 'a.txt', source)
+      await writeFile(join(root, source), 'one\ntwo\nthree\nfour\nfive\n')
+      await git(root, 'add', source)
+      await git(root, 'commit', '-q', '-m', 'prepare the named file')
+      await writeFile(join(root, source), 'one\ntwo\nthree\nfour\nedited\n')
+      const before = await snapshot(root)
+      await git(root, 'mv', source, 'renamed.txt')
+      await git(root, 'add', 'renamed.txt')
+      assert.ok((await git(root, 'status', '--porcelain=v1', '-z')).includes(`R  renamed.txt\0${source}\0`))
+      const staged = await git(root, 'diff', '--cached')
+      await writeFile(join(root, 'notes.md'), 'card notes\n')
+
+      const done = await commitCardWork(root, before, 'Write the notes')
+      assert.ok('commit' in done, JSON.stringify(done))
+      assert.deepEqual(done.paths, ['notes.md'])
+      assert.equal(await git(root, 'show', `HEAD:${source}`), 'one\ntwo\nthree\nfour\nfive\n')
+      assert.equal(await git(root, 'diff', '--cached'), staged)
+    })
+  }
+})
+
+test('commit_work leaves staged children of pre-card directories out of ordinary commits', async (t) => {
+  for (const directory of ['drafts', 'drafts with spaces', 'drafts -> café']) {
+    await t.test(directory, async (t) => {
+      const root = await repo(t)
+      await mkdir(join(root, directory, 'nested'), { recursive: true })
+      const path = `${directory}/nested/private.txt`
+      await writeFile(join(root, path), 'person’s draft\n')
+      const before = await snapshot(root)
+      assert.equal(before.length, 1, 'the claim names the directory, not its children')
+      await git(root, 'add', path)
+      const staged = await git(root, 'diff', '--cached')
+      const sibling = `${directory}-public.txt`
+      await writeFile(join(root, sibling), 'card notes\n')
+
+      const done = await commitCardWork(root, before, 'Write the notes')
+      assert.ok('commit' in done, JSON.stringify(done))
+      assert.deepEqual(done.paths, [sibling])
+      assert.equal(await git(root, 'diff', '--cached'), staged)
+      assert.equal(await git(root, 'ls-tree', '-r', '--name-only', 'HEAD', '--', directory), '')
+    })
+  }
+})
+
 const coauthor = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
 
 /** Two divergent parents whose shared file will conflict when merged. */
