@@ -55,7 +55,7 @@ export const gitFiltersOff = async (cwd: string, options: ReadOptions = {}): Pro
   const drivers = new Set<string>()
   for (const key of listed.split('\0').filter(Boolean)) {
     const last = key.lastIndexOf('.')
-    if (last > 'filter.'.length) {
+    if (last >= 'filter.'.length) {
       const name = key.slice('filter.'.length, last)
       // -c splits at the first equals sign, even when it belongs to a subsection.
       if (name.includes('=')) throw new Error('This git filter name cannot be disabled for an automatic read.')
