@@ -124,6 +124,14 @@ describe('the LAN link', () => {
   }
   afterEach(async () => { calls.length = 0; await service?.close() })
 
+  test('a restarted desk listens where its paired phones last found it, or anywhere free when that is taken', async () => {
+    const first = (await start()).port
+    await service.close()
+    assert.equal((await start()).port, first)
+    const moved = await PhoneLinkService.start({ dir, policy, host: '127.0.0.1', call: async () => null })
+    try { assert.notEqual(moved.port, first) } finally { await moved.close() }
+  })
+
   const pair = async (name = 'Jane’s phone') => {
     const code = service.createPairingCode()
     const phone = await PhoneSim.fromCode(code.url)
