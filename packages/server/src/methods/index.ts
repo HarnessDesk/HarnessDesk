@@ -100,6 +100,7 @@ export const hostMethods: HostMethodTable = {
 export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   clientMethods,
   leadMethods,
+  phoneMethods,
   appMethods,
   runtimeMethods,
   runtimeExtensionMethods,
