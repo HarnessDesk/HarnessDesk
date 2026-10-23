@@ -1,3 +1,4 @@
+import { sessionBrowserProfile } from '@harnessdesk/protocol'
 import { CurrentPagePreview } from './page-preview'
 /** Content-only website cameras, composed from the shipped surfaces. */
 import { useEffect, useMemo, useState } from 'react'
@@ -14,7 +15,7 @@ import { runTimeline } from '../lib/run-timeline'
 import { browserView, type PaneView } from '../state/layout'
 import { mountedViews, replaceView } from '../state/workbench'
 import { previewStore, PREVIEW_AGENTS, PREVIEW_ROOM } from './harness'
-import { sideBySideStore, SIDE_BY_SIDE_KEYS } from './side-by-side-fixture'
+import { sideBySideStore, SIDE_BY_SIDE_KEYS, SIDE_BY_SIDE_MEMBERS } from './side-by-side-fixture'
 import { teamsPageStore } from './teams-page-fixture'
 import { SITE_BROWSER_URL, siteLedger, siteRun, siteUsage, siteStartPreview, siteClipRun } from './site-stills-data'
 
@@ -45,8 +46,10 @@ export const siteStillStore = (scene: string) => {
   if (scene === 'browser-tile') {
     const base = sideBySideStore({ browsers: true, noGoal: true })
     const snapshot = base.getSnapshot()
-    const workbench = mountedViews(snapshot.workbench).reduce((current, { mounted }) => mounted.view.kind === 'browser' && mounted.view.profile === 'lane-alpha'
-      ? replaceView(current, mounted.id, browserView(SITE_BROWSER_URL, 'lane-alpha')) : current, snapshot.workbench)
+    const member = SIDE_BY_SIDE_MEMBERS[0]!
+    const profile = sessionBrowserProfile(member.runtime, member.id)
+    const workbench = mountedViews(snapshot.workbench).reduce((current, { mounted }) => mounted.view.kind === 'browser' && mounted.view.profile === profile
+      ? replaceView(current, mounted.id, browserView(SITE_BROWSER_URL, profile)) : current, snapshot.workbench)
     const own = previewStore({ ...snapshot, workbench })
     own.teamPeers = base.teamPeers.bind(base)
     seedTeamFrame(own, PREVIEW_ROOM, BROWSER_TILE, false)

@@ -1,10 +1,13 @@
+import { sessionBrowserProfile } from '@harnessdesk/protocol'
+import { mountedViews } from '../state/workbench'
+import { SIDE_BY_SIDE_MEMBERS } from './side-by-side-fixture'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it } from 'vitest'
 import { FlowStart } from '../components/FlowStart'
 import { StoreProvider } from '../state/context'
 import { SiteStills, siteStillStore } from './site-stills'
-import { siteStartPreview } from './site-stills-data'
+import { SITE_BROWSER_URL, siteStartPreview } from './site-stills-data'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -45,4 +48,11 @@ it('the compact start excerpt keeps the production Brief input and every Seat ca
     camera.remove()
     production.remove()
   }
+})
+
+it('points the browser tile at the website scene in its first seat profile',()=>{
+ const views=mountedViews(siteStillStore('browser-tile').getSnapshot().workbench)
+ const member=SIDE_BY_SIDE_MEMBERS[0]!
+ const profile=sessionBrowserProfile(member.runtime,member.id)
+ expect(views.find(({mounted})=>mounted.view.kind==='browser' && mounted.view.profile===profile)?.mounted.view).toMatchObject({tabs:[{url:SITE_BROWSER_URL}],profile})
 })
