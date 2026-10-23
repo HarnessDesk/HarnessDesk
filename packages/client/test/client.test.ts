@@ -249,7 +249,7 @@ test('scoped run is read after each subscribe, including settlement during disco
 
 test('raw notifications stay ordered while slow events consumers never block calls', async () => {
   const transport = new ScriptedTransport()
-  const client = await connect({ transport: async () => transport, client: clientInfo })
+  const client = await connect({ transport: async () => transport, client: clientInfo, ...{ rawNotifications: true } })
   transport.emit(execution()); transport.emit(cards())
   assert.deepEqual(await client.call('goal/list', {}), [])
   const raw = client.notifications()[Symbol.asyncIterator]()
@@ -559,4 +559,12 @@ test('an older desk without baseline counts is refused instead of leaving synced
     else original(request)
   }
   await assert.rejects(connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['teams'] } }), error => error instanceof WireCallError && error.code === 'deskTooOld')
+})
+
+test('raw notifications retain nothing unless explicitly requested', async () => {
+  const transport = new ScriptedTransport()
+  const client = await connect({ transport: async () => transport, client: clientInfo })
+  for (let i = 0; i < 10_000; i++) transport.emit(execution())
+  client.close()
+  assert.deepEqual(await client.notifications()[Symbol.asyncIterator]().next(), { done: true, value: undefined })
 })

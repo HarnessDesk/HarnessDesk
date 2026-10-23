@@ -123,7 +123,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
             wire.onClose(() => { if (!closed) send({ type: 'desk-lost' }) })
             return wire
           },
-          client: { name: 'Lead', version: '1' } })))(config)
+          rawNotifications: false, client: { name: 'Lead', version: '1' } })))(config)
         if (closed) { client.close(); return }
         const project = config.project; childProject = project
         const resolveTool = async (call: LeadPermissionCall): Promise<LeadResolvedTool> => await rpc('resolveTool', [call]) as LeadResolvedTool
