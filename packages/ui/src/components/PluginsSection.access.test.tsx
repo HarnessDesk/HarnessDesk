@@ -220,3 +220,10 @@ it('E7 plugin detail keeps its return action in the body', () => {
   expect([...container.querySelectorAll('[data-slot="toolbar"] button')].find(button => button.textContent === 'Back to Plugins')).toBeTruthy()
   expect(container.querySelector('[data-slot="top-bar"] [role="tab"]')).toBeNull()
 })
+
+it('names the read-only Access band as a page heading',()=>{
+ mount([plugin('reader','Reader',{})])
+ open('Reader')
+ const heading=container.querySelector('[aria-label="Access"] h2')!
+ expect(heading.className).toContain('text-(length:--hd-text-lg)')
+})

@@ -1179,3 +1179,8 @@ it('folds the selected Step inspector independently of its menu while keeping it
   expect(menuItem('Move up')).toBeTruthy()
   expect(toggle.getAttribute('aria-expanded')).toBe('false')
 })
+
+it('declares the dialog Rules group as a label',async()=>{
+ const {default:source}=await import('./ShapeEditor.tsx?raw')
+ expect(source).toMatch(/<section aria-label="Rules">\s*<SectionHead level="label" name="Rules"/)
+})
