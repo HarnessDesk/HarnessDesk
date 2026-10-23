@@ -2,10 +2,10 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { Session, SessionKey, WorkspaceEntry, Worktree } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type HostMethodName, type Session, type SessionKey, type WorkspaceEntry, type Worktree } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { PlaceControl } from './ComposerControls'
 
 /**
@@ -393,4 +393,100 @@ it('names a handoff source in the folder picker until a place is chosen',()=>{
  expect(trigger()?.title).toBe('Starts in /work/source-project')
  rig({draftHandoff,draftPlace:{kind:'existing',path:MAIN.path,branch:'main'}},true)
  expect(container.querySelector(`button[title="${MAIN.path}"]`)?.textContent).toContain(MAIN.name)
+})
+
+/**
+ * Choosing a folder from the picker is the person's say over where the draft
+ * starts, and a hand-off only says where the work *was*. These run the real
+ * store, because the defect lived in how its reducer treats a workspace
+ * switch while a hand-off is carried: a stub store cannot have it.
+ */
+const AGENT = runtimeId('codex')
+const SOURCE = '/work/source-project'
+const CURRENT = { path: '/work/current-project', name: 'current-project', lastOpenedAt: 1, git: { branch: 'main', sha: 'abc1234' }, repo: { root: '/work/current-project', worktree: false } } as WorkspaceEntry
+const PICKED = { path: '/work/picked-project', name: 'picked-project', lastOpenedAt: 2, git: { branch: 'main', sha: 'def5678' }, repo: { root: '/work/picked-project', worktree: false } } as WorkspaceEntry
+
+/** A real store with CURRENT open, optionally holding a draft handed off from a conversation that ran in SOURCE, and PlaceControl wired as the app wires it. */
+const pickerRig = async (handoff: boolean): Promise<AppStore> => {
+  const conversation = (id: string, cwd: string): Session =>
+    ({ id: sessionId(id), runtime: AGENT, cwd, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }) as unknown as Session
+  const answers: Partial<Record<HostMethodName, unknown>> = {
+    'runtime/sessionDefaults': [],
+    'workspace/open': CURRENT,
+    'workspace/recent': [CURRENT, PICKED],
+    'workspace/pick': PICKED,
+    'worktree/list': [],
+    'git/status': { branch: 'main', headSha: 'abc', files: [] },
+    'session/read': conversation('source', SOURCE),
+    'session/resume': conversation('source', SOURCE),
+    'session/create': conversation('next', PICKED.path),
+  }
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => answers[method] ?? null) as never)
+  await store.selectRuntime(AGENT)
+  await store.openWorkspace(CURRENT.path)
+  if (handoff) {
+    await store.openSession(sessionId('source'), { runtime: AGENT })
+    await store.handOff(AGENT, 'summary', sessionKey(AGENT, sessionId('source')), { cwd: SOURCE })
+    expect(store.getSnapshot().draftHandoff?.cwd).toBe(SOURCE)
+  }
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <PlaceControl onChooseProject={() => store.pickWorkspace()} />
+      </StoreProvider>,
+    )
+  })
+  return store
+}
+
+const folderTrigger = (): HTMLButtonElement | null => container.querySelector<HTMLButtonElement>('button[title$="-project"]')
+
+/** Presses Choose folder… in the open menu and lets the whole pick finish. */
+const chooseFolder = async (): Promise<void> => {
+  const choose = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((entry) => entry.textContent?.startsWith('Choose folder'))
+  expect(choose).toBeDefined()
+  await act(async () => {
+    choose!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    // The pick patches the workspace first and keeps reading the recent list
+    // after; the host double answers in microtasks, so one macrotask is the
+    // whole pick, not a half-way state.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+it.each(['the folder picker', 'the Work in menu'])('lets Choose folder… in %s override the folder a hand-off names', async (via) => {
+  const store = await pickerRig(true)
+  // The hand-off's folder is what the draft would start in, and it says so.
+  expect(folderTrigger()?.title).toBe(SOURCE)
+  expect(trigger()?.title).toBe(`Starts in ${SOURCE}`)
+
+  click(via === 'the folder picker' ? folderTrigger()! : trigger()!)
+  await chooseFolder()
+  expect(store.getSnapshot().workspace?.path).toBe(PICKED.path)
+
+  // The person's choice is the place now: the picker names it, the control
+  // says where the message goes, and nothing still points at the hand-off's.
+  expect(folderTrigger()?.title).toBe(PICKED.path)
+  expect(folderTrigger()?.textContent).toContain('picked-project')
+  expect(trigger()?.title).toBe('Starts in picked-project, on main')
+  expect(store.getSnapshot().draftPlace).toMatchObject({ kind: 'existing', path: PICKED.path })
+
+  // And the conversation is made where the label says, not where the packet
+  // named — the hand-off itself still travels with it.
+  expect(store.getSnapshot().draftHandoff?.cwd).toBe(SOURCE)
+  await store.queue([{ type: 'text', text: 'Take it from here.' }])
+  const create = vi.mocked(store.transport.request).mock.calls.filter(([method]) => method === 'session/create').at(-1)
+  expect(create?.[1]).toMatchObject({ options: { cwd: PICKED.path } })
+})
+
+it('leaves the new folder’s own default alone when no hand-off is carried', async () => {
+  const store = await pickerRig(false)
+  click(trigger()!)
+  await chooseFolder()
+  expect(store.getSnapshot().workspace?.path).toBe(PICKED.path)
+  // Nothing outranked the workspace, so nothing is pinned: the draft still
+  // starts in a worktree of its own, as it does for any folder.
+  expect(store.getSnapshot().draftPlace).toBeNull()
+  expect(trigger()?.title).toBe('Starts in a new worktree on its own branch, made when you send')
 })
