@@ -377,7 +377,7 @@ export class EvidencePlane {
    * a caller naming a different one for the same question is told so rather
    * than silently dropped or silently overwritten.
    */
-  async appendReview(project: string, record: EvidenceRecord): Promise<ReviewAppendOutcome> {
+  async appendReview(project: string, record: EvidenceRecord, assertClaim?: () => void): Promise<ReviewAppendOutcome> {
     const fact = record.fact
     if (fact.kind !== 'review') throw new Error('appendReview only appends review facts.')
     const sameQuestion = (candidate: EvidenceRecord): candidate is EvidenceRecord & { fact: typeof fact } =>
@@ -388,6 +388,7 @@ export class EvidencePlane {
       candidate.round === record.round
     let outcome: ReviewAppendOutcome = { outcome: 'added', record }
     await this.store.merge(project, 'evidence', [{ type: 'evidence', record }], (line, here, added) => {
+      assertClaim?.()
       if (line.type !== 'evidence') return 'refused'
       const existing = [...here, ...added].flatMap((one) => (one.type === 'evidence' && sameQuestion(one.record) ? [one.record] : []))
       const matching = existing.find((one) => one.fact.verdict === fact.verdict)

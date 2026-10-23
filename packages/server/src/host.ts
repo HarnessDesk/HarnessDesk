@@ -1371,7 +1371,13 @@ export class Host {
       },
       append: async (goal, record) => {
         const state = this.#goalState(goal)
-        const outcome = await this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record)
+        const outcome = await this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record, () => {
+          // Person decisions have no runtime Seat; an agent review still needs its original live claim at admission.
+          if (record.seat === null) return
+          const seat = this.#evidence.seats.byId(record.seat ?? '')
+          const binding = seat && record.card ? this.#flows.findingBinding(goal, record.card.id, seat.session) : null
+          if (!binding?.held || binding.seat !== record.seat) throw new Error('You do not hold this card, so no review can be recorded against it.')
+        })
         if (outcome.outcome === 'added') this.#push({ method: 'finding/changed', params: { goal, revision: Date.now() } })
         return outcome
       },

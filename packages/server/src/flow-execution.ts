@@ -2078,7 +2078,14 @@ export class FlowExecutions {
     if (!found) return null
     const { run, round } = found
     const { seat } = this.#seatForCard(run, card)
-    if (!seat || seat.closed || seat.session.runtime !== caller.runtime || seat.session.sessionId !== caller.sessionId) return null
+    const held = (): boolean => {
+      const currentSeat = this.#seatForCard(this.#get(run.id), card).seat
+      const intent = this.#team.stateFor(goal).intents.find((one) => one.id === card)
+      return !!currentSeat && !currentSeat.closed && !currentSeat.restored && currentSeat.id === seat?.id &&
+        currentSeat.session.runtime === caller.runtime && currentSeat.session.sessionId === caller.sessionId &&
+        intent?.state === 'claimed' && intent.claim?.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId
+    }
+    if (!seat || !held()) return null
     const role = run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round.role) : undefined
     const answers = role?.kind === 'agent'
       ? roleAnswers(policyOf(run), role.id, bindingsFor(run, role.id)[found.slot]?.agent.answers ?? [])
@@ -2095,6 +2102,7 @@ export class FlowExecutions {
       this.#team.reviewAvailability(goal, card, closure.refusal ?? null)
       await this.#team.flush()
     }
+    if (!held()) return null
     return { seat: String(seat.id), answers, round: round.n, subjects: closure.subjects, unsettled: closure.unsettled,
       ...(closure.refusal ? { refusal: closure.refusal } : {}) }
   }
