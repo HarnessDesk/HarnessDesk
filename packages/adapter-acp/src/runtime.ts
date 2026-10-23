@@ -3900,7 +3900,7 @@ const PACKAGE_RUNNERS: Readonly<Record<string, string>> = {
 const KEY_REMOVED = 'Its key was removed. Sign in again, or store a key.'
 
 const AUTH_REQUIRED_WORDS =
-  /authentication required|not authenticated|unauthenticated|auth(?:Required|[_ -]required)|login required|sign[- ]?in required|not (?:signed|logged) in|please (?:log|sign) in|(?:log|sign) in to (?:use|continue|access)|authenticate again/i
+  /api key is missing(?: or not configured)?|authentication required|not authenticated|unauthenticated|auth(?:Required|[_ -]required)|login required|sign[- ]?in required|not (?:signed|logged) in|please (?:log|sign) in|(?:log|sign) in to (?:use|continue|access)|authenticate again/i
 const isAuthRefusal = (error: unknown): boolean =>
   (error instanceof AcpError || error instanceof Error) &&
   AUTH_REQUIRED_WORDS.test(`${error.message}\n${(error as AcpError).details ?? ''}`)

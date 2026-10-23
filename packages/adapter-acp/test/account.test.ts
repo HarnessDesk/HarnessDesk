@@ -1886,3 +1886,23 @@ test('a row run by a launcher keeps its own account commands when the start chos
     await runtime.dispose()
   }
 })
+
+
+test('a missing API key refusal offers all declared sign-in methods (#1762)', async () => {
+  const ids = ['oauth-personal', 'gemini-api-key', 'vertex-ai', 'gateway']
+  const runtime = bare({
+    FAKE_ACP_MISSING_API_KEY: '1',
+    FAKE_ACP_AUTH_METHODS: JSON.stringify(ids.map(id => ({ id, name: id }))),
+  })
+  await runtime.start()
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /API key is missing/)
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [])
+    assert.equal(status.unchecked, undefined)
+    assert.equal(status.refusal, 'Gemini API key is missing or not configured.')
+    assert.deepEqual(status.signInMethods.map(method => method.id), ids.map(id => `acp:${id}`))
+  } finally {
+    await runtime.dispose()
+  }
+})
