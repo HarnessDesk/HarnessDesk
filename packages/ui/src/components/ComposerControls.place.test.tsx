@@ -44,7 +44,7 @@ const MAIN = {
   repo: { root: '/code/harness-desk', worktree: false },
 } as WorkspaceEntry
 
-const rig = (over: Partial<AppSnapshot> = {}): AppStore => {
+const rig = (over: Partial<AppSnapshot> = {}, chooseFolder = false): AppStore => {
   const snapshot = { ...emptySnapshot(), status: 'open', workspace: MAIN, workspaces: [MAIN], ...over } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -58,7 +58,7 @@ const rig = (over: Partial<AppSnapshot> = {}): AppStore => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <PlaceControl />
+        <PlaceControl onChooseProject={chooseFolder ? () => {} : undefined} />
       </StoreProvider>,
     )
   })
@@ -384,4 +384,13 @@ it('shows checking instead of promising Local while Git facts are unread', () =>
   expect(trigger()?.title).toContain('checking Git')
   open()
   expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
+})
+
+it('names a handoff source in the folder picker until a place is chosen',()=>{
+ const draftHandoff={cwd:'/work/source-project'} as AppSnapshot['draftHandoff']
+ rig({draftHandoff},true)
+ expect(container.querySelector('button[title="/work/source-project"]')?.textContent).toContain('source-project')
+ expect(trigger()?.title).toBe('Starts in /work/source-project')
+ rig({draftHandoff,draftPlace:{kind:'local'}},true)
+ expect(container.querySelector(`button[title="${MAIN.path}"]`)?.textContent).toContain(MAIN.name)
 })
