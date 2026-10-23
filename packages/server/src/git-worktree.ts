@@ -4,7 +4,7 @@ import { realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
-import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { HARDENED_GIT_CONFIG, gitReadConfig } from './git-hardening.js'
 import { isRevisionName } from './git-revision.js'
 
 import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@harnessdesk/protocol'
@@ -49,8 +49,8 @@ const personGit = async (cwd: string, args: readonly string[], timeout = 20_000)
 }
 
 /** Read-only queries never run the repository's own programs. */
-const git = (cwd: string, args: readonly string[], timeout = 20_000): Promise<string> =>
-  personGit(cwd, [...HARDENED_GIT_CONFIG, ...args], timeout)
+const git = async (cwd: string, args: readonly string[], timeout = 20_000): Promise<string> =>
+  personGit(cwd, [...await gitReadConfig(cwd, args), ...args], timeout)
 
 /**
  * Both streams, for the one verb that reports on the wrong one: `worktree

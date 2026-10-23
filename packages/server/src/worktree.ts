@@ -11,7 +11,7 @@ import { defaultStateDir } from './state.js'
 import { assertAbsolute } from './workspace.js'
 
 import { parsePorcelain } from './porcelain.js'
-import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { HARDENED_GIT_CONFIG, gitReadConfig, automaticCheckout } from './git-hardening.js'
 import { commonDir } from './git-ops.js'
 import { withGitMutation } from './git-mutation.js'
 
@@ -98,7 +98,7 @@ const describeChanges = (changes: WorktreeChanges): string => {
  * would run agent-written code as the host.
  */
 const git = async (cwd: string, args: readonly string[]): Promise<string> => {
-  const { stdout } = await run('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
+  const { stdout } = await run('git', ['-C', cwd, ...await gitReadConfig(cwd, args), ...args], {
     timeout: 30_000,
     maxBuffer: 8 * 1024 * 1024,
   })
@@ -448,7 +448,22 @@ export const create = async (
     // A local repository can use any name for its only branch.
     base ??= 'HEAD'
   }
-  await git(main, ['worktree', 'add', '-b', branch, path, base ?? 'HEAD'])
+  const target = await automaticCheckout(main, base ?? 'HEAD')
+  await git(main, [...target.config, 'worktree', 'add', '--no-checkout', '-b', branch, path, target.at])
+  try {
+    // Conditional includes can select different attributes in the new worktree.
+    const checked = await automaticCheckout(path, target.at)
+    await checkoutGit('git', ['-C', path, ...checked.config, 'reset', '--hard', checked.at], {
+      timeout: CHECKOUT_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024,
+    })
+  } catch (error) {
+    await git(main, ['worktree', 'remove', '--force', path]).catch(() => undefined)
+    await rm(path, { recursive: true, force: true })
+    await git(main, ['worktree', 'prune', '--expire', 'now'])
+    // Only the branch made above, and only while it still names our starting commit.
+    await git(main, ['update-ref', '-d', `refs/heads/${branch}`, target.at])
+    throw error
+  }
   return { path, branch, head: (await git(path, ['rev-parse', 'HEAD'])).trim(), isMain: false, managed: true }
 }
 
@@ -488,7 +503,12 @@ export const createDetached = async (
   const path = join(home, `${slugify(options.name)}-${randomBytes(4).toString('hex')}`)
   const timeout = options.timeoutMs ?? CHECKOUT_TIMEOUT_MS
   try {
-    await execute('git', ['-C', main, ...HARDENED_GIT_CONFIG, 'worktree', 'add', '--quiet', '--detach', path, options.at], {
+    const target = await automaticCheckout(main, options.at, { signal: options.signal })
+    await execute('git', ['-C', main, ...target.config, 'worktree', 'add', '--quiet', '--no-checkout', '--detach', path, target.at], {
+      timeout, maxBuffer: 8 * 1024 * 1024, ...(options.signal ? { signal: options.signal } : {}),
+    })
+    const checked = await automaticCheckout(path, target.at, { signal: options.signal })
+    await checkoutGit('git', ['-C', path, ...checked.config, 'reset', '--hard', checked.at], {
       timeout, maxBuffer: 8 * 1024 * 1024, ...(options.signal ? { signal: options.signal } : {}),
     })
   } catch (error) {

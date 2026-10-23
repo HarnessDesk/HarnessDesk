@@ -613,13 +613,8 @@ test('Git older than 2.32 is refused before staging rather than placing credit b
   assert.equal(await git(root, 'diff', '--cached', '--name-only'), '', 'the refusal happens before staging')
 })
 
-/*
- * What the host's own reads are held to, stated exactly: no hook, filesystem
- * monitor or external diff runs, but a filter the configuration defines still
- * does when a status re-reads a file whose stat information changed. That is
- * a limit of the floor (git-hardening.ts), shown here rather than claimed away.
- */
-test('the host’s own git reads run no hook or filesystem monitor, but a configured filter still runs on a stat-dirty file', async (t) => {
+/* A status reread keeps repository programs off even when file metadata changes. */
+test('the host’s own git reads leave configured programs off on a stat-dirty file', async (t) => {
   const root = await repo(t)
   await writeFile(join(root, 'page.md'), 'page\n')
   const { said } = await poison(root, '*.md filter=evil\n')
@@ -630,7 +625,7 @@ test('the host’s own git reads run no hook or filesystem monitor, but a config
   await revisionOf(root)
   await repositoryOf(root)
   await diffOf(root)
-  assert.equal(await said(), 'filter', 'only the filter ran: no hook, no filesystem monitor, no external diff')
+  assert.equal(await said(), '', 'no configured program ran')
 })
 
 test('commit_work refuses work that goes through a git filter, such as LFS, and commits nothing', async (t) => {

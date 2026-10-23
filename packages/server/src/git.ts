@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 
 import { parsePorcelain } from './porcelain.js'
 import type { GitConclusion, GitFileStatus, GitStatus } from '@harnessdesk/protocol'
-import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { gitReadConfig } from './git-hardening.js'
 
 /** Git status and diffs for the changes view. Read-only: nothing here mutates a repo. */
 
@@ -20,7 +20,7 @@ const run = promisify(execFile)
  * is handing it one.
  */
 const git = async (root: string, args: string[], signal?: AbortSignal): Promise<string> => {
-  const { stdout } = await run('git', ['-C', root, ...HARDENED_GIT_CONFIG, ...args], {
+  const { stdout } = await run('git', ['-C', root, ...await gitReadConfig(root, args, { signal }), ...args], {
     timeout: 20_000,
     maxBuffer: 32 * 1024 * 1024,
     ...(signal ? { signal } : {}),

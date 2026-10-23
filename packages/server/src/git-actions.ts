@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { gitReadConfig } from './git-hardening.js'
 import { concluding } from './git.js'
 import { withGitMutation } from './git-mutation.js'
 import { isRevisionName, isSha } from './git-revision.js'
@@ -39,9 +39,9 @@ let testRunner: GitRunner | null = null
 export const setGitRunnerForTest = (runner: GitRunner | null): void => { testRunner = runner }
 
 const personGit: GitRunner = (root, args, timeout) => (testRunner ?? personRunner)(root, args, timeout)
-const git: GitRunner = (root, args, timeout) => testRunner
+const git: GitRunner = async (root, args, timeout) => testRunner
   ? testRunner(root, args, timeout)
-  : personRunner(root, [...HARDENED_GIT_CONFIG, ...args], timeout)
+  : personRunner(root, [...await gitReadConfig(root, args), ...args], timeout)
 
 const NETWORK = 120_000
 

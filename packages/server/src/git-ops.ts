@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { FileChange, Turn } from '@harnessdesk/protocol'
-import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { HARDENED_GIT_CONFIG, gitReadConfig } from './git-hardening.js'
 import { withGitMutation } from './git-mutation.js'
 
 /**
@@ -30,8 +30,8 @@ const personGit = async (root: string, args: readonly string[], signal?: AbortSi
 }
 
 /** Background reads use the hardened configuration; requested writes keep their own runner. */
-const git = (root: string, args: readonly string[], signal?: AbortSignal): Promise<string> =>
-  personGit(root, [...HARDENED_GIT_CONFIG, ...args], signal)
+const git = async (root: string, args: readonly string[], signal?: AbortSignal): Promise<string> =>
+  personGit(root, [...await gitReadConfig(root, args, { signal }), ...args], signal)
 
 export class RevertError extends Error {
   /**
@@ -115,7 +115,7 @@ const applyPatch = async (root: string, patch: string, direction: TurnDirection)
   const reverse = direction === 'undo' ? ['-R'] : []
   try {
     await writeFile(file, patch.endsWith('\n') ? patch : `${patch}\n`)
-    await personGit(root, ['apply', ...reverse, '--check', '--whitespace=nowarn', file])
+    await git(root, ['apply', ...reverse, '--check', '--whitespace=nowarn', file])
     await personGit(root, ['apply', ...reverse, '--whitespace=nowarn', file])
   } finally {
     /* A leftover temporary file is not the caller's failure: once `git apply`
