@@ -4350,13 +4350,16 @@ export class Host {
    */
   async #interruptGoal(goal: string): Promise<void> {
     const seats = this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored)
-    await Promise.all(seats.map(async (seat) => {
+    const results = await Promise.allSettled(seats.map(async (seat) => {
       const record = this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
       if (!record?.live || record.running.size === 0) return
       await record.live.interrupt().catch((error: unknown) => {
         this.#logger.warn('a trigger Seat’s turn could not be interrupted', { seat: seat.id, error: error instanceof Error ? error.message : String(error) })
+        throw error
       })
     }))
+    const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : [])
+    if (errors.length) throw new AggregateError(errors, 'Some Goal turns could not be interrupted.')
   }
 
   /** The runtimes a Goal's open Seats spend from. */
