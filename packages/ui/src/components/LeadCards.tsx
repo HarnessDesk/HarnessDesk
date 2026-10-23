@@ -53,12 +53,14 @@ export const LeadCards = ({ cards, decisions = [], contract, budget, onDecide, o
     finally { busy.current = false; setPending(null); if (succeeded && onSettled) onSettled(); else focus.current.get(card.id)?.focus() }
   }
   const active = cards.find(card => card.id === focusCard && card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed')) ?? [...cards].reverse().find(card => card.type === 'plan') ?? cards.find(card => card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed'))
+  const plans = new Map([...cards, ...decisions.map(({ card }) => card)].flatMap(card => card.type === 'plan' ? [[card.contractDigest, card.contract] as const] : []))
   return <>{[...cards.map(card => ({ card, choice: undefined as LeadCardDecision['choice'] | undefined })), ...decisions.map(({ card, choice }) => ({ card, choice }))].map(({ card, choice }) => {
     const worker = card.type === 'waiting' && card.kind === 'worker-approval'
     const person = card.type === 'waiting' && !worker || card.type === 'result' && card.outcome === 'reviewed'
     const approval = card.type === 'plan' || card.type === 'permission-change' || card.type === 'budget-change'
     const renewal = !choice && card.type === 'plan' && expiry != null && card.contractDigest === contract?.digest && JSON.stringify(card.contract) === JSON.stringify(contract)
-    const scope = card.type === 'plan' ? card.contract : contract
+    // A card is judged against the plan it was made under: a settled result from an earlier goal keeps its own verdict.
+    const scope = card.type === 'plan' ? card.contract : card.contractDigest === contract?.digest ? contract : plans.get(card.contractDigest ?? '')
     const summary = worker ? 'A worker is waiting for you to approve a command.' : card.type === 'plan' ? `${renewal ? `My earlier approval expired. Approve again to continue.\n\n` : ''}Here's my plan:\n\n${card.contract.steps.map((step, i) => `${i + 1}. ${step.title} — ${stepWork(step.assignments)}`).join('\n')}\n\nDone when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`
       : card.type === 'permission-change' ? `Change permission mode: ${policyMode[card.previous.mode]} → ${policyMode[card.proposed.mode]}\n\n${[...new Set([...card.previous.rules.map(rule => rule.id), ...card.proposed.rules.map(rule => rule.id)])].flatMap(id => { const old = card.previous.rules.find(rule => rule.id === id), next = card.proposed.rules.find(rule => rule.id === id); return JSON.stringify(old) === JSON.stringify(next) ? [] : [`- ${ruleWords(old)} → ${ruleWords(next)}`] }).join('\n')}`
       : card.type === 'budget-change' ? budgetQuestion(card.previous.caps, card.proposed)

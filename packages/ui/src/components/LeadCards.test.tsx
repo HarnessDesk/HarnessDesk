@@ -170,3 +170,11 @@ it('says workers reported $0.00 only when that is known, and leaves the clause o
   expect(spendLine({ leadUsdMicros: 78264, workerUsdMicros: 4000 })).toBe('I spent $0.08 · workers reported less than $0.01.')
   expect(spendLine({ leadUsdMicros: 78264, workerUsdMicros: 0, spend: 'unknown' })).toBe('I spent $0.08.')
 })
+it('keeps a settled result judged against its own plan once a later goal has its own contract', () => {
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  const next = { ...leadContract, revision: 2, digest: 'b'.repeat(64), goal: 'Add the missing test' }
+  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[]} contract={next} decisions={[{ card: leadPlan, choice: 'approve', position: 1 }, { card: leadResult, choice: 'decline', position: 2 }]} onDecide={vi.fn(async () => {})} onChanges={() => {}} onApprovals={() => {}} /></StoreProvider>))
+  clean.push(() => { act(() => root.unmount()); box.remove() })
+  expect([...box.querySelectorAll('p')].some(node => node.textContent === 'Checks passed · Review passed · No blocking findings')).toBe(true)
+  expect(box.textContent).not.toContain('not confirmed')
+})
