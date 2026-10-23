@@ -7,14 +7,14 @@ import { test, type TestContext } from 'node:test'
 import { promisify } from 'node:util'
 
 import type { FindingSeries } from '@harnessdesk/protocol'
-import { repairPacket } from '../src/findings/packet.js'
+import { DELTA_LIMIT, repairPacket } from '../src/findings/packet.js'
 import { inventory, list } from '../src/git-worktree.js'
 import { assertCleanTree } from '../src/git-ops.js'
 import { diff, status } from '../src/git.js'
 import { revisionOf } from '../src/evidence/revision.js'
 import { changes, create, createDetached } from '../src/worktree.js'
 import { hostContextPort } from '../src/authoring/start.js'
-import { readGit } from '../src/git-read.js'
+import { automaticCheckout, readGit } from '../src/git-read.js'
 import { commitDiff } from '../src/git-history.js'
 
 const run = promisify(execFile)
@@ -398,5 +398,315 @@ for (const operation of ['repair packet', 'worktree list', 'worktree inventory',
       await assertCleanTree(f.root)
     }
     assert.equal(await f.marker(), '')
+  })
+}
+
+type Fixture = Awaited<ReturnType<typeof fixture>>
+
+/** Git with `input` on its standard input; the rest of the arguments follow `git -C`. */
+const feed = (cwd: string, args: readonly string[], input: string | Buffer) => {
+  const pending = run('git', ['-C', cwd, ...args], { maxBuffer: 64 * 1024 * 1024 })
+  pending.child.stdin?.end(input)
+  return pending
+}
+
+/**
+ * Commit `count` more tracked paths that have no file on disk: the tree and
+ * index of a large repository without writing one. They are marked
+ * skip-worktree, so status stays clean, and are long enough that the index
+ * listing passes a megabyte at about ten thousand of them.
+ */
+const trackMany = async (f: Fixture, count: number): Promise<void> => {
+  const blob = await f.git('rev-parse', 'HEAD:page.txt')
+  const paths = Array.from({ length: count }, (_, i) => `generated/${'x'.repeat(60)}/entry-${String(i).padStart(6, '0')}.txt`)
+  await feed(f.root, ['update-index', '--index-info'], paths.map((path) => `100644 ${blob}\t${path}\n`).join(''))
+  await feed(f.root, ['update-index', '--skip-worktree', '-z', '--stdin'], `${paths.join('\0')}\0`)
+  await f.git('commit', '-qm', 'Track many generated paths')
+}
+
+/** The length of the listing a status reads to find gitlinks. */
+const indexListing = async (f: Fixture): Promise<number> =>
+  (await run('git', ['-C', f.root, 'ls-files', '--stage', '--full-name', '-z'], { maxBuffer: 64 * 1024 * 1024 })).stdout.length
+
+/** A target worktree, registered but not written, for `automaticCheckout` to materialize. */
+const unwritten = async (f: Fixture, at: string): Promise<string> => {
+  const tree = join(f.base, 'tree')
+  await f.git('worktree', 'add', '-q', '--no-checkout', '-b', 'copy', tree, at)
+  return tree
+}
+
+/**
+ * A `git` ahead of the real one on PATH. It records each call's arguments,
+ * runs `intercept` (the body of a function with `args` in scope; returning true
+ * ends the call), and otherwise hands the call to the real git with its own
+ * standard streams.
+ */
+const withGitShim = async <T>(
+  f: Fixture, intercept: string, use: (calls: () => Promise<string[][]>) => Promise<T>,
+): Promise<T> => {
+  const realGit = (await run('which', ['git'])).stdout.trim()
+  const bin = join(f.base, 'bin')
+  const log = join(f.base, 'git-calls.log')
+  await mkdir(bin, { recursive: true })
+  await writeFile(join(bin, 'git'), String.raw`#!${process.execPath}
+const { appendFileSync, writeFileSync } = require('node:fs')
+const { spawnSync } = require('node:child_process')
+const args = process.argv.slice(2)
+appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\n')
+const handled = (() => { ${intercept} })()
+if (!handled) process.exit(spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' }).status ?? 1)
+`, { mode: 0o755 })
+  const before = process.env.PATH
+  process.env.PATH = `${bin}:${before}`
+  try {
+    return await use(async () => (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean).map((line) => JSON.parse(line) as string[]))
+  } finally {
+    process.env.PATH = before
+  }
+}
+
+const seriesAt = (f: Fixture, reviewedAt: string): FindingSeries => ({
+  id: 'reviewer', role: 'reviewer', checkout: { cwd: f.root, branch: 'main' },
+  reviewedAt, reviewRounds: [], initial: [], exceptions: [], pending: [],
+})
+
+test('a repair packet is made for a clean repository whose index outgrows the packet limit', async (t) => {
+  const f = await fixture(t)
+  await trackMany(f, 10_000)
+  assert.ok(await indexListing(f) > DELTA_LIMIT + 1, 'the index listing alone is longer than the output a packet reads')
+  const to = await f.git('rev-parse', 'HEAD')
+  const packet = await repairPacket({ run: 'run', round: 2, series: seriesAt(f, to), to, findings: [], evidence: [] })
+  assert.equal(packet.diff, '')
+})
+
+test('status does not count its search for submodules against the caller output limit', async (t) => {
+  const f = await fixture(t)
+  await trackMany(f, 10_000)
+  assert.ok(await indexListing(f) > DELTA_LIMIT + 1)
+  const clean = await readGit(f.root, ['status', '--porcelain', '--untracked-files=no'], { maxBuffer: DELTA_LIMIT + 1 })
+  assert.equal(clean.stdout, '')
+})
+
+test('status output still counts against the caller output limit', async (t) => {
+  const f = await fixture(t)
+  const names = Array.from({ length: 400 }, (_, i) => `untracked-${'y'.repeat(50)}-${String(i).padStart(3, '0')}.txt`)
+  for (const name of names) await writeFile(join(f.root, name), 'new\n')
+  // Room for everything else the read asks git, so only the status itself can pass the limit.
+  const settings = (await run('git', ['-C', f.root, 'config', '--null', '--list', '--includes'])).stdout.length
+  const limit = settings + 4 * 1024
+  await assert.rejects(readGit(f.root, ['status', '--porcelain', '-uall'], { maxBuffer: limit }), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' })
+  assert.equal((await readGit(f.root, ['status', '--porcelain', '-uall'], { maxBuffer: limit + 64 * 1024 })).stdout.split('\n').length, names.length + 1)
+})
+
+test('a changed submodule is still found when the index listing outgrows the caller output limit', async (t) => {
+  const f = await fixture(t)
+  const source = await fixture(t)
+  await trackMany(f, 2_000)
+  const limit = 64 * 1024
+  assert.ok(await indexListing(f) > limit)
+  await f.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', source.root, 'child')
+  await f.git('commit', '-qm', 'Track child repository')
+  await writeFile(join(f.root, 'child', 'page.txt'), 'changed\n')
+  assert.equal((await readGit(f.root, ['status', '--porcelain=v1', '-z'], { maxBuffer: limit })).stdout, ' M child\0')
+})
+
+test('a failed search for submodules fails the status instead of reading as none', async (t) => {
+  const f = await fixture(t)
+  await withGitShim(f, `
+    if (args.includes('ls-files') && args.includes('--stage')) { process.stderr.write('fatal: simulated listing failure\\n'); return process.exit(128) }
+  `, async () => {
+    await assert.rejects(readGit(f.root, ['status', '--porcelain', '--untracked-files=no']), /simulated listing failure/)
+  })
+})
+
+for (const materialize of [false, true]) {
+  test(`automatic checkout ${materialize ? 'materialization' : 'preflight'} lists paths and attributes beyond the caller output limit`, async (t) => {
+    const f = await fixture(t)
+    await writeFile(join(f.root, '.gitattributes'), '* text=auto eol=lf\n')
+    await f.git('add', '.gitattributes')
+    await trackMany(f, 400)
+    const limit = 16 * 1024
+    assert.ok(await indexListing(f) > limit, 'the path listing alone is longer than the limit')
+    const at = await f.git('rev-parse', 'HEAD')
+    const tree = materialize ? await unwritten(f, at) : f.root
+    const target = await automaticCheckout(tree, at, { materialize, maxBuffer: limit })
+    assert.equal(target.at, at)
+    if (materialize) {
+      assert.equal(await readFile(join(tree, 'page.txt'), 'utf8'), 'page\n')
+      assert.equal(await readFile(join(tree, 'generated', 'x'.repeat(60), 'entry-000399.txt'), 'utf8'), 'page\n')
+    }
+  })
+}
+
+test('a broad unset filter rule is checked in bulk, not once per path', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, '.gitattributes'), '* -filter\n')
+  await f.git('add', '.gitattributes')
+  await trackMany(f, 60)
+  const at = await f.git('rev-parse', 'HEAD')
+  const tree = await unwritten(f, at)
+  const loose = async () => /^count: (\d+)$/m.exec(await f.git('count-objects', '-v'))?.[1]
+  const before = await loose()
+  await withGitShim(f, '', async (calls) => {
+    await automaticCheckout(tree, at, { materialize: true })
+    const probes = (await calls()).filter((args) => args.includes('filter.unset.required=true'))
+    assert.equal(probes.length, 1, 'one process checked every path')
+  })
+  assert.equal(await loose(), before, 'the check wrote no object into the repository')
+  assert.equal(await readFile(join(tree, 'page.txt'), 'utf8'), 'page\n')
+})
+
+for (const name of ['unset', 'unspecified']) {
+  test(`one literal filter name ${name} among many unset paths still refuses the checkout`, async (t) => {
+    const f = await fixture(t)
+    await writeFile(join(f.root, '.gitattributes'), `* -filter\nzzz-last.txt filter=${name}\n`)
+    await writeFile(join(f.root, 'zzz-last.txt'), 'last\n')
+    await f.git('add', '.')
+    await trackMany(f, 40)
+    const at = await f.git('rev-parse', 'HEAD')
+    await assert.rejects(automaticCheckout(await unwritten(f, at), at, { materialize: true }), /zzz-last\.txt: (clean|smudge) filter '?(unset|unspecified)'? failed/)
+  })
+}
+
+// Names that need care on a line-oriented question: blanks, a newline, a carriage return, and non-ASCII.
+const UNUSUAL = [' leading.txt', 'line\nbreak.txt', 'trailing.txt\r', 'with space.txt', 'ünï.txt'] as const
+
+for (const odd of UNUSUAL) {
+  test(`a literal filter name on the path ${JSON.stringify(odd)} still refuses the checkout`, async (t) => {
+    const f = await fixture(t)
+    await writeFile(join(f.root, '.gitattributes'), `* -filter\n${JSON.stringify(odd)} filter=unset\n`)
+    await writeFile(join(f.root, odd), 'odd\n')
+    await f.git('add', '.')
+    await f.git('commit', '-qm', 'Name an unusual path')
+    const at = await f.git('rev-parse', 'HEAD')
+    await assert.rejects(automaticCheckout(await unwritten(f, at), at, { materialize: true }), /filter '?unset'? failed/)
+  })
+}
+
+test('unusual path names beside an unset filter rule are written, not refused', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, '.gitattributes'), '* -filter\n')
+  for (const name of UNUSUAL) await writeFile(join(f.root, name), `${JSON.stringify(name)}\n`)
+  await f.git('add', '.')
+  await f.git('commit', '-qm', 'Name unusual paths')
+  const at = await f.git('rev-parse', 'HEAD')
+  const tree = await unwritten(f, at)
+  await automaticCheckout(tree, at, { materialize: true })
+  for (const name of UNUSUAL) assert.equal(await readFile(join(tree, name), 'utf8'), `${JSON.stringify(name)}\n`)
+})
+
+test('a filter found early in a long listing refuses the checkout without waiting for the rest of it', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, '.gitattributes'), '* text=auto eol=lf\n.gitattributes filter=demo\n')
+  await f.git('add', '.gitattributes')
+  // More paths than a pipe holds, so a listing nobody reads stays blocked until something stops it.
+  await trackMany(f, 4_000)
+  const timeout = 30_000
+  const started = Date.now()
+  await assert.rejects(automaticCheckout(f.root, 'HEAD', { timeout }), /needs a git filter/)
+  assert.ok(Date.now() - started < timeout / 2, 'the listing was stopped, not waited out')
+})
+
+test('a path that cannot be spelled to git is refused rather than checked under another name', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, '.gitattributes'), '* -filter\n')
+  await mkdir(join(f.root, 'keep'))
+  await writeFile(join(f.root, 'keep', 'page.txt'), 'selected\n')
+  await f.git('add', '.')
+  // Not valid UTF-8 and holding a newline, so only a one-path-per-process question could name it.
+  // Sparse selection leaves it unwritten, which keeps the filesystem out of the test.
+  const odd = Buffer.concat([Buffer.from('omit/'), Buffer.from([0xff, 0x0a]), Buffer.from('bad.txt')])
+  const blob = await f.git('rev-parse', 'HEAD:page.txt')
+  await feed(f.root, ['update-index', '-z', '--index-info'], Buffer.concat([Buffer.from(`100644 ${blob}\t`), odd, Buffer.alloc(1)]))
+  await f.git('commit', '-qm', 'Track a path with an unspellable name')
+  await f.git('sparse-checkout', 'set', '--cone', 'keep')
+  const at = await f.git('rev-parse', 'HEAD')
+  await assert.rejects(automaticCheckout(f.root, at, { materialize: true }), /could not be checked for git filters/)
+})
+
+test('a filter check answered with less than one acknowledgement per path refuses the checkout', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, '.gitattributes'), '* -filter\n')
+  await f.git('add', '.gitattributes')
+  await f.git('commit', '-qm', 'Unset file filtering')
+  const at = await f.git('rev-parse', 'HEAD')
+  const tree = await unwritten(f, at)
+  await withGitShim(f, `
+    if (args.includes('cat-file') && args.includes('--filters')) { process.stdout.write('0'.repeat(40) + ' missing\\n'); return process.exit(0) }
+  `, async () => {
+    await assert.rejects(automaticCheckout(tree, at, { materialize: true }), /could not be checked for git filters/)
+  })
+})
+
+test('a failed path listing fails the checkout instead of reading as no paths', async (t) => {
+  const f = await fixture(t)
+  await withGitShim(f, `
+    if (args.includes('ls-files')) { process.stdout.write('page.txt\\0'); process.stderr.write('fatal: simulated listing failure\\n'); return process.exit(128) }
+  `, async () => {
+    await assert.rejects(automaticCheckout(f.root, 'HEAD'), /simulated listing failure/)
+  })
+})
+
+// Git exits cleanly in both, so only the shape of what it printed shows the answer is short.
+for (const [cut, where] of [
+  ['page.txt\0filter\0', 'before the value'],
+  ['page.txt\0filter\0unset\0later.txt', 'inside a path'],
+] as const) {
+  test(`an attribute listing that stops ${where} fails the checkout instead of reading as complete`, async (t) => {
+    const f = await fixture(t)
+    await withGitShim(f, `
+      if (args.includes('check-attr')) { process.stdout.write(${JSON.stringify(cut)}); return process.exit(0) }
+    `, async () => {
+      await assert.rejects(automaticCheckout(f.root, 'HEAD'), /middle of a record/)
+    })
+  })
+}
+
+test('an index listing that stops inside a record fails the status instead of reading as complete', async (t) => {
+  const f = await fixture(t)
+  await withGitShim(f, `
+    if (args.includes('ls-files') && args.includes('--stage')) { process.stdout.write('100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 0\\tpage.txt'); return process.exit(0) }
+  `, async () => {
+    await assert.rejects(readGit(f.root, ['status', '--porcelain', '--untracked-files=no']), /middle of a record/)
+  })
+})
+
+for (const stop of ['abort', 'timeout'] as const) {
+  test(`${stop === 'abort' ? 'an abort' : 'a timeout'} during the path listing ends the checkout read after git has exited`, { skip: process.platform === 'win32' }, async (t) => {
+    const f = await fixture(t)
+    const started = join(f.base, 'started')
+    const exited = join(f.base, 'exited')
+    await withGitShim(f, `
+      if (args.includes('ls-files')) {
+        process.on('SIGTERM', () => setTimeout(() => { writeFileSync(${JSON.stringify(exited)}, 'exited'); process.exit(1) }, 100))
+        writeFileSync(${JSON.stringify(started)}, 'started')
+        setInterval(() => {}, 1000)
+        return true
+      }
+    `, async () => {
+      const controller = new AbortController()
+      const read = automaticCheckout(f.root, 'HEAD', stop === 'abort' ? { signal: controller.signal } : { timeout: 1_500 })
+      const stopped = assert.rejects(read, (error: { name?: string; killed?: boolean; code?: unknown }) => {
+        if (stop === 'abort') assert.equal(error.name, 'AbortError')
+        else {
+          assert.equal(error.killed, true)
+          assert.notEqual(error.code, 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER')
+        }
+        return true
+      })
+      try {
+        const deadline = Date.now() + 10_000
+        while (await readFile(started, 'utf8').catch(() => '') === '') {
+          assert.ok(Date.now() < deadline, 'git stand-in started')
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        if (stop === 'abort') controller.abort()
+        await stopped
+        assert.equal(await readFile(exited, 'utf8'), 'exited', 'the child exited before the read settled')
+      } finally {
+        controller.abort()
+        await stopped.catch(() => undefined)
+      }
+    })
   })
 }
