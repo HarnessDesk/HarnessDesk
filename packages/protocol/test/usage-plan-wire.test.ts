@@ -1,9 +1,25 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { parseClientMessage, ValidationError } from '../src/index.js'
+import { parseClientMessage, ValidationError, type HostParams } from '../src/index.js'
 
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
+
+for (const field of ['fee', 'budget'] as const) {
+  test(`usage/plan/set preserves an explicit null ${field} and keeps an omitted ${field} undefined`, () => {
+    const base = { runtime: 'claude-code', account: 'dev@example.com' }
+    const cleared = request('usage/plan/set', { ...base, [field]: null }).params as HostParams<'usage/plan/set'>
+    assert.equal(cleared[field], null)
+    const omitted = request('usage/plan/set', base).params as HostParams<'usage/plan/set'>
+    assert.equal(omitted[field], undefined)
+  })
+}
+
+test('usage/plan/read preserves a null plan separately from an omitted plan', () => {
+  const base = { runtime: 'claude-code', account: 'dev@example.com' }
+  assert.equal((request('usage/plan/read', { ...base, plan: null }).params as HostParams<'usage/plan/read'>).plan, null)
+  assert.equal((request('usage/plan/read', base).params as HostParams<'usage/plan/read'>).plan, undefined)
+})
 
 test('usage/plan/set accepts a fee, a budget, both, or either cleared with null', () => {
   const base = { runtime: 'claude-code', account: 'dev@example.com' }
