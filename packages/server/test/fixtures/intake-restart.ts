@@ -408,6 +408,7 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
       const run = flows.executionsFor(goal).find((one) => one.intake)
       if (run) await flows.holdTriggered(run.id, reason)
       log(`interrupt:${goal}`)
+      return flows.executionsFor(goal).find((one) => one.intake)?.intake?.holdGeneration ?? 0
     },
   })
   admission = new Admission(store, {

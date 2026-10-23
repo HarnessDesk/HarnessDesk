@@ -142,6 +142,10 @@ export interface IntakeBudget {
   /** Each Seat's meter, by Seat id. */
   readonly meters: Readonly<Record<string, SessionMeter>>
   readonly stop: { readonly reason: TriggerStopReason; readonly detail: string; readonly at: number } | null
+  /** Both the run stop and the Goal interrupt completed; absent on older journals, whose cleanup ran inline. */
+  readonly stopCompleted?: boolean
+  /** A transient hold's interruption is journaled separately from its run's dispatch hold. */
+  readonly hold?: { readonly reason: string; readonly completed: boolean; readonly generation?: number } | null
 }
 
 export interface IntakeSnapshot {
@@ -244,6 +248,10 @@ const budgetOf = (value: unknown): boolean => {
   if (!(Number.isSafeInteger(value['rounds']) && (value['rounds'] as number) >= 1) || !(Number.isSafeInteger(value['withoutProgress']) && (value['withoutProgress'] as number) >= 1)) return false
   const stop = value['stop']
   if (!(stop === null || (isMap(stop) && STOPS.includes(stop['reason'] as string) && text(stop['detail']) && time(stop['at'])))) return false
+  if (value['stopCompleted'] !== undefined && typeof value['stopCompleted'] !== 'boolean') return false
+  const hold = value['hold']
+  if (!(hold === undefined || hold === null || (isMap(hold) && text(hold['reason']) && typeof hold['completed'] === 'boolean'))) return false
+  if (isMap(hold) && hold['generation'] !== undefined && !time(hold['generation'])) return false
   const meters = value['meters']
   return isMap(meters) && Object.keys(meters).length <= 256 && Object.entries(meters).every(([seat, meter]) => meterOf(meter) && (meter as { seat: string }).seat === seat)
 }

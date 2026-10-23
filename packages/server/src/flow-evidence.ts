@@ -557,8 +557,12 @@ export class FlowReview implements FlowReviewPort {
     if (!bound) return []
     if (bound.subjects.length === 0) throw new Error(bound.refusal ?? (bound.unsettled?.map((one) => `Card #${one.card}: ${one.why}`).join('\n') || NO_SUBJECT))
     const facts = await this.#port.facts(bound.goal)
+    const current = await this.#port.bindingFor(intent, scope)
+    if (!current || current.goal !== bound.goal || current.seat !== bound.seat || current.round !== bound.round) return []
     const out: ReviewCandidate[] = []
     for (const subject of bound.subjects) {
+      if (!current.subjects.some((one) => one.card === subject.card && one.at === subject.at &&
+        one.checkout.cwd === subject.checkout.cwd && one.checkout.branch === subject.checkout.branch)) continue
       const evidence = candidateEvidence(facts, subject)
       const id = mintId()
       const candidate: ReviewCandidate = {
@@ -770,6 +774,13 @@ export class FlowReview implements FlowReviewPort {
     // forever. A generic refusal, never the specific `against` sentence, since that field is already
     // sound by the time this runs.
     if (evidenceRecordOf(JSON.parse(JSON.stringify(record))) === null) throw new Error(UNREADABLE_REVIEW)
+    const current = await this.#port.bindingFor(input.intent, scope)
+    if (!current || current.goal !== bound.goal || current.seat !== bound.seat || current.round !== bound.round) {
+      throw new Error('You do not hold this card, so no review can be recorded against it.')
+    }
+    if (!current.subjects.some((one) => stillOffered(one, held))) {
+      throw new Error('That candidate has moved on. Ask for review candidates again.')
+    }
     const outcome = await this.#port.append(bound.goal, record)
     if (outcome.outcome === 'conflict') {
       throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')

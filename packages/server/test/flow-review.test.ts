@@ -69,6 +69,27 @@ class FakePort implements ReviewSubjectPort {
 
 const scopeOf = (runtime: string, sessionId: string): TeamCallScope => ({ runtime, sessionId })
 
+for (const action of ['candidates', 'record'] as const) test(`review ${action} rechecks a claim released during an awaited read`, async () => {
+  const port = new FakePort()
+  const scope = scopeOf('alpha', 's1')
+  const key = `3\u0000${port.key('alpha', 's1')}`
+  port.bindings.set(key, {
+    goal: 'goal-1', seat: 'seat-reviewer', answers: ['approve'], round: 1,
+    subjects: [{ card: 1, round: 1, checkout: { cwd: '/repo', branch: 'work' }, at: SHA_A }],
+  })
+  const review = new FlowReview(port)
+  const [candidate] = await review.candidates(3, scope)
+  const bindingFor = port.bindingFor.bind(port)
+  port.bindingFor = async (intent, caller) => {
+    const bound = await bindingFor(intent, caller)
+    port.bindings.delete(key)
+    return bound
+  }
+  if (action === 'candidates') assert.deepEqual(await review.candidates(3, scope), [])
+  else await assert.rejects(review.record({ intent: 3, candidate: candidate!.id, verdict: 'approve' }, scope), /do not hold this card/)
+  assert.deepEqual(port.facts_.get('goal-1') ?? [], [])
+})
+
 test('record_review is bound to the caller and an observed candidate: claimant versus sibling', async () => {
   const port = new FakePort()
   const claimant = scopeOf('alpha', 's1')

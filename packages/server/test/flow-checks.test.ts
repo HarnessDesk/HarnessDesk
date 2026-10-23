@@ -5,6 +5,7 @@ import { checkRetryRefusal } from '@harnessdesk/protocol'
 
 import { checkAttemptsOf } from '../src/evidence/check-attempts.js'
 import { CHECK_CWD_OUTSIDE } from '../src/flow-execution.js'
+import { executionOf } from '../src/flow-recovery.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
 /*
@@ -81,6 +82,89 @@ test('restart never repeats a started check without a person’s consent', async
     assert.match(execution.reason ?? '', /interrupted|Run again/)
   }
   assert.deepEqual([...new Set(checks(rig.events))], ['check:pnpm verify'], 'the command text never ran more than once')
+})
+
+for (const afterCard of [false, true]) test(`restart replays a finished check result after ${afterCard ? 'the card save' : 'the operation save'} without repeating the command`, async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'a'.repeat(40), dirty: false })
+  rig.checkOutcomes.set('pnpm verify', { exit: 2, timedOut: false, tail: 'FAIL: retained output' })
+  const run = await rig.start(CHECK_FLOW, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const save = rig.files.save.bind(rig.files)
+  rig.files.save = async (stored) => {
+    const finished = stored.operations.some((one) => one.key.startsWith('check:') && one.state === 'finished')
+    const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')
+    if (finished && afterCard && gate?.state === 'done') {
+      rig.files.dead = true
+      throw new Error('desk stopped after card save')
+    }
+    await save(stored)
+    if (finished && !afterCard) {
+      rig.files.dead = true
+      throw new Error('desk stopped after operation save')
+    }
+  }
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1')).catch(() => {})
+  await rig.flows.flush().catch(() => {})
+  assert.equal(rig.board(run.goal).intents.find((one) => one.role === 'gate')?.state, afterCard ? 'done' : 'open')
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  const board = rig.board(run.goal)
+  const gate = board.intents.find((one) => one.role === 'gate')!
+  assert.equal(gate.state, 'done')
+  assert.equal(gate.outcome, 'fail')
+  assert.ok((rig.facts.get(run.goal) ?? []).some((one) => one.fact.kind === 'check' && one.fact.tail === 'FAIL: retained output'))
+  assert.equal(board.channel.filter((one) => one.kind === 'signal' && one.signal === 'completed' && one.intent === gate.id).length, 1)
+  assert.deepEqual(checks(rig.events), ['check:pnpm verify'])
+  assert.equal(rig.flows.executionOf(run.id)!.state, 'settled')
+})
+
+test('restart applies a recorded check completion while its run waits for a person', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(CHECK_FLOW, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
+  await rig.team.intentAction(run.goal, gate.id, 'reopen')
+  const stored = rig.executions.stored(run.id)!
+  const operation = stored.operations.find((one) => one.kind === 'check')!
+  await rig.files.save({ ...stored, state: 'stalled', reason: 'Waiting for a person',
+    checkCompletions: { [operation.key]: { outcome: 'pass', tail: '' } } })
+  await rig.restart()
+  await rig.flows.flush()
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === gate.id)!.state, 'done')
+  assert.equal(rig.flows.executionOf(run.id)!.state, 'stalled')
+  assert.deepEqual(checks(rig.events), ['check:pnpm verify'])
+})
+
+test('an authorized retry clears the earlier pending completion before its command starts', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.start(CHECK_FLOW, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  let holdCleanup = true
+  const save = rig.files.save.bind(rig.files)
+  rig.files.save = async (stored) => {
+    if (holdCleanup && stored.operations.some((one) => one.kind === 'check' && one.state === 'finished') &&
+      Object.keys(stored.checkCompletions ?? {}).length === 0) throw new Error('completion cleanup save failed')
+    await save(stored)
+  }
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  assert.equal(Object.keys(rig.executions.stored(run.id)!.checkCompletions ?? {}).length, 1)
+  holdCleanup = false
+  const gate = rig.board(run.goal).intents.find((one) => one.role === 'gate')!
+  rig.checksRunUntilStopped = () => {}
+  try {
+    await rig.flows.retryCheck(run.id, gate.id)
+    const entry = (await rig.files.list()).find((one) => (one.raw as { id: string }).id === run.id)!
+    assert.doesNotThrow(() => executionOf(entry.raw), 'the started retry remains readable after a restart')
+    assert.deepEqual(rig.executions.stored(run.id)!.checkCompletions, {})
+  } finally {
+    await rig.flows.stopRun(run.id)
+    await rig.flows.flush()
+  }
 })
 
 test('a check cwd is confined to the project: `../` and an absolute path both refuse', async (t) => {

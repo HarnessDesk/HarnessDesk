@@ -13,8 +13,8 @@ import { readPullRequest, type GhInCheckout } from './forge.js'
 import { boundPullRequest, repositoryOf } from '../findings/publication.js'
 import { Observer, type Look } from './observe.js'
 import { idOfLine, LINE_LIMIT, lineOf, LINE_VERSION, mintId, type StoreFile, type StoredLine } from './records.js'
-import { projectOf, revisionOf } from './revision.js'
-import { runCommand, type CommandRun } from './run.js'
+import { headMarkOf, headOf, projectOf, revisionOf } from './revision.js'
+import { runCommand, TAIL_LIMIT, type CommandRun } from './run.js'
 import { SeatBook } from './seats.js'
 import { CommandsSeen, incarnationOf } from './seen.js'
 import { EvidenceMergeError, EvidenceStore, type Admit } from './store.js'
@@ -377,7 +377,7 @@ export class EvidencePlane {
    * a caller naming a different one for the same question is told so rather
    * than silently dropped or silently overwritten.
    */
-  async appendReview(project: string, record: EvidenceRecord): Promise<ReviewAppendOutcome> {
+  async appendReview(project: string, record: EvidenceRecord, assertClaim?: () => void): Promise<ReviewAppendOutcome> {
     const fact = record.fact
     if (fact.kind !== 'review') throw new Error('appendReview only appends review facts.')
     const sameQuestion = (candidate: EvidenceRecord): candidate is EvidenceRecord & { fact: typeof fact } =>
@@ -388,6 +388,7 @@ export class EvidencePlane {
       candidate.round === record.round
     let outcome: ReviewAppendOutcome = { outcome: 'added', record }
     await this.store.merge(project, 'evidence', [{ type: 'evidence', record }], (line, here, added) => {
+      assertClaim?.()
       if (line.type !== 'evidence') return 'refused'
       const existing = [...here, ...added].flatMap((one) => (one.type === 'evidence' && sameQuestion(one.record) ? [one.record] : []))
       const matching = existing.find((one) => one.fact.verdict === fact.verdict)
@@ -731,6 +732,8 @@ export class EvidencePlane {
     card: Parameters<EvidencePlane['runFlowCheck']>[2],
   ): Promise<{ readonly result: CommandRun; readonly evidence: string | null; readonly problem: string | null }> {
     const revision = await revisionOf(where.cwd)
+    const beforeMark = revision ? await headMarkOf(where.cwd, revision.branch) : null
+    const before = revision ? await headOf(where.cwd) : null
     const result = await runCommand(command, {
       cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir,
       processOwner: { board: card.goal, card: card.card },
@@ -740,6 +743,17 @@ export class EvidencePlane {
       ...(where.signal ? { signal: where.signal } : {}),
     })
     if (!revision) return { result, evidence: null, problem: null }
+    const after = await headOf(where.cwd)
+    const afterMark = await headMarkOf(where.cwd, revision.branch)
+    const counted = before === revision.head && after === revision.head && beforeMark !== null && afterMark === beforeMark
+    let movement = ''
+    if (!counted) {
+      if (beforeMark === null || afterMark === null) movement = 'Not counted: HEAD continuity could not be observed while this check ran.'
+      else if (after === revision.head) movement = `Not counted: HEAD moved away from ${revision.head} and returned while this check ran.`
+      else if (after === null) movement = `Not counted: HEAD moved away from ${revision.head} while this check ran.`
+      else movement = `Not counted: HEAD moved from ${revision.head} to ${after} while this check ran.`
+    }
+    const tail = (result.tail + (result.tail && movement ? '\n\n' : '') + movement).slice(-TAIL_LIMIT)
     const board = this.#port.board(card.goal)
     if (!board) return { result, evidence: null, problem: null }
     const project = await projectOf(board.cwd ?? board.root)
@@ -747,9 +761,10 @@ export class EvidencePlane {
       id: mintId(),
       fact: {
         kind: 'check', name: card.name, run: command, exit: result.exit, timedOut: result.timedOut, at: revision.head,
+        ...(!counted ? { counted: false } : {}),
         // A Seat's `run_check`: shown on its card, never a rule's evidence (#1082).
         ...(card.advisory ? { counted: false, advisory: true as const } : {}),
-        dirty: revision.dirty, tail: result.tail,
+        dirty: revision.dirty, tail,
       },
       card: { board: card.goal, id: card.card },
       checkout: { cwd: where.cwd, branch: revision.branch },

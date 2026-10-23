@@ -1372,7 +1372,13 @@ export class Host {
       },
       append: async (goal, record) => {
         const state = this.#goalState(goal)
-        const outcome = await this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record)
+        const outcome = await this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record, () => {
+          // Person decisions have no runtime Seat; an agent review still needs its original live claim at admission.
+          if (record.seat === null) return
+          const seat = this.#evidence.seats.byId(record.seat ?? '')
+          const binding = seat && record.card ? this.#flows.findingBinding(goal, record.card.id, seat.session) : null
+          if (!binding?.held || binding.seat !== record.seat) throw new Error('You do not hold this card, so no review can be recorded against it.')
+        })
         if (outcome.outcome === 'added') this.#push({ method: 'finding/changed', params: { goal, revision: Date.now() } })
         return outcome
       },
@@ -4338,13 +4344,16 @@ export class Host {
    */
   async #interruptGoal(goal: string): Promise<void> {
     const seats = this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored)
-    await Promise.all(seats.map(async (seat) => {
+    const results = await Promise.allSettled(seats.map(async (seat) => {
       const record = this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
       if (!record?.live || record.running.size === 0) return
       await record.live.interrupt().catch((error: unknown) => {
         this.#logger.warn('a trigger Seat’s turn could not be interrupted', { seat: seat.id, error: error instanceof Error ? error.message : String(error) })
+        throw error
       })
     }))
+    const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : [])
+    if (errors.length) throw new AggregateError(errors, 'Some Goal turns could not be interrupted.')
   }
 
   /** The runtimes a Goal's open Seats spend from. */
