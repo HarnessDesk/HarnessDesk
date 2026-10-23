@@ -178,3 +178,9 @@ it('keeps a settled result judged against its own plan once a later goal has its
   expect([...box.querySelectorAll('p')].some(node => node.textContent === 'Checks passed · Review passed · No blocking findings')).toBe(true)
   expect(box.textContent).not.toContain('not confirmed')
 })
+it('reads a findings gate passed with nothing to cite as no blocking findings, not as unconfirmed', () => {
+  const none = { ...leadResult, assertions: leadResult.assertions.map(result => leadContract.assertions.find(assertion => assertion.id === result.assertionId)?.kind === 'blocking-findings' ? { ...result, evidence: [] } : result) }
+  const { box } = mount([none])
+  expect([...box.querySelectorAll('p')].some(node => node.textContent === 'Checks passed · Review passed · No blocking findings')).toBe(true)
+  expect(box.textContent).not.toContain('Findings not confirmed')
+})

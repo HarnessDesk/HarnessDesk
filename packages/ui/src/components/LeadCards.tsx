@@ -78,7 +78,8 @@ export const LeadCards = ({ cards, decisions = [], contract, budget, onDecide, o
             const expected = scope?.assertions.filter(assertion => assertion.kind === kind) ?? []
             if (!expected.length) return []
             const results = expected.map(assertion => assertions.find(result => result.assertionId === assertion.id))
-            const known = results.every(result => result && result.contractRevision === scope?.revision && result.evidence.length > 0)
+            // No blocking finding is recorded as a pass with nothing to cite; every other kind needs evidence to be known.
+            const known = results.every(result => result && result.contractRevision === scope?.revision && (result.evidence.length > 0 || kind === 'blocking-findings' && result.status === 'passed'))
             const status = known ? results.some(result => result?.status === 'failed') ? 'failed' : results.every(result => result?.status === 'passed') ? 'passed' : 'unknown' : 'unknown'
             return [status === 'passed' && kind === 'blocking-findings' ? 'No blocking findings' : status === 'passed' && kind === 'diff' ? 'Changes ready' : `${{ check: 'Checks', review: 'Review', 'blocking-findings': 'Findings', diff: 'Changes' }[kind]} ${status === 'unknown' ? 'not confirmed' : status}`]
           }).join(' · ')}</Text>
