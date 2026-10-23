@@ -11,6 +11,27 @@ import { confine, isBinaryFile, isMissingWorkspaceFileError, LocalFiles, sha256 
 import { workspaceMethods } from '../src/methods/workspace.js'
 import type { HostContext } from '../src/methods/context.js'
 
+test('workspace saves resolve a dangling relative link from its real parent', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const root = join(dir, 'project')
+  await mkdir(join(root, 'p', 'q'), { recursive: true })
+  await mkdir(join(root, 't'))
+  await symlink('../../t', join(root, 'p', 'q', 's'))
+  await symlink('../../outside.txt', join(root, 't', 'new'))
+  const path = join(root, 'p', 'q', 's', 'new')
+  for (const provider of ['local', 'runtime'] as const) {
+    await t.test(provider, async () => {
+      const files = new LocalFiles()
+      if (provider === 'runtime') files.write = async (target, data) => writeFile(target, data)
+      const ctx = { workspaces: { fileRoots: () => [root] }, runtimes: { files: () => files } } as unknown as HostContext
+      await assert.rejects(workspaceMethods['file/save'](ctx, { path, content: 'new contents', expectedHash: '' }), /outside every open workspace/)
+      await assert.rejects(readFile(join(dir, 'outside.txt')), { code: 'ENOENT' })
+      await assert.rejects(readFile(join(root, 'p', 'outside.txt')), { code: 'ENOENT' })
+    })
+  }
+})
+
 test('workspace reads and saves refuse file and directory links outside the opened root', async (t) => {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
   t.after(() => rm(dir, { recursive: true, force: true }))

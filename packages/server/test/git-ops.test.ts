@@ -4,7 +4,7 @@ import { constants } from 'node:fs'
 import { mkdir, mkdtemp, open, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
@@ -42,6 +42,19 @@ const fileChange = (dir: string, changes: FileChange[]): AgentItem =>
   ({ id: `fc-${changes.length}`, type: 'fileChange', changes, status: 'completed', origin: 'agent' }) as unknown as AgentItem
 
 const turnOf = (items: AgentItem[], diff?: string): Turn => ({ id: turnId('t1'), items, status: 'completed', diff: diff ?? null })
+
+test('turn paths resolve a dangling relative link from its real parent', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await mkdir(join(dir, 'p', 'q'), { recursive: true })
+  await mkdir(join(dir, 't'))
+  await symlink('../../t', join(dir, 'p', 'q', 's'))
+  const outsideName = `${basename(dir)}-outside.txt`
+  await symlink(`../../${outsideName}`, join(dir, 't', 'new'))
+  const turn = turnOf([fileChange(dir, [{ path: 'p/q/s/new', kind: { type: 'delete' }, diff: 'recorded\n' }])])
+  await assert.rejects(revertTurn(dir, turn), RevertError)
+  await assert.rejects(stat(join(dir, 'p', outsideName)), { code: 'ENOENT' })
+})
 
 test('turn changes outside the repository refuse the whole pass before any step', async (t) => {
   const dir = await repo()
