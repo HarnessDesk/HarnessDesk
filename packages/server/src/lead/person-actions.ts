@@ -36,7 +36,9 @@ export class LeadPersonActions {
       for (const approval of record.approvals.values()) {
         const raw = requestOf(approval)
         let request = wellFormed(raw.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' '))
-        let safe = request === raw && request.length <= 240 && !leadContainsSecret(raw)
+        // Only a plain permission summary is wholly represented by this compact card.
+        const whole = approval.type === 'permission' && !approval.reason && !approval.filesystem?.length && !approval.network?.length
+        let safe = whole && request === raw && request.length <= 240 && !leadContainsSecret(raw)
         try { await this.assertPublic(raw) } catch { safe = false }
         request = safe ? request : 'Request details are hidden; the full request is on the desk.'
         const options = 'options' in approval ? approval.options : []

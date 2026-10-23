@@ -871,7 +871,7 @@ test('a desk closing while the Lead already waits for the person keeps the perso
 test('host screens nested and JSON-encoded tool results before provider transport', async t => {
   const requests: unknown[] = []
   const s = await providerRig(t, async request => { requests.push(request); return { status: 429, body: '{}' } })
-  for (const [i, secret] of [key, 'Authorization: Bearer demo-value', 'ghp_' + 'a'.repeat(36)].entries()) {
+  for (const [i, secret] of [key, 'Authorization: Bearer demo-value', 'ghp_' + 'a'.repeat(36), { Authorization: 'Bearer demo-value' }].entries()) {
     const content = JSON.stringify({ tail: JSON.stringify({ text: secret }).replaceAll('test', '\\u0074est') })
     const body = providerBody({ messages: [
       { role: 'user', content: [{ type: 'text', text: 'Read evidence' }] },

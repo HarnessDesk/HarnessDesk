@@ -61,6 +61,7 @@ export const leadDataContainsCredential = (value: unknown, canaries: readonly st
     catch { return false }
   }
   return value !== null && typeof value === 'object' && Object.entries(value).some(([name, child]) =>
+    secretName.test(name) && !paginationName.test(name) && typeof child === 'string' && child.length > 0 && !reference.test(child) ||
     leadDataContainsCredential(name, canaries) || leadDataContainsCredential(child, canaries))
 }
 export const prepareLeadJournalData = (value: unknown, security: LeadJournalSecurity = {}): unknown => {

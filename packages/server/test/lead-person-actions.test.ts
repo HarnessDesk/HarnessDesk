@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { readChecks } from '../src/evidence/checks-file.js'
+import { makeRepo } from './fixtures/evidence-desk.js'
 import { LeadPersonActions } from '../src/lead/person-actions.js'
 import { leadApprovalCards } from '../src/lead/projection.js'
 
@@ -66,4 +70,34 @@ test('requests with undisplayed text offer only No and direct the person to the 
     await assert.rejects(s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-once' }))
     assert.deepEqual(s.calls, [])
   }
+})
+
+test('undisplayed permission scope and file content cannot receive an affirmative', async () => {
+  for (const details of [{ filesystem: ['/workspace/demo'] }, { network: ['example.com'] }, { reason: 'Additional context' },
+    { type: 'fileChange', changes: [{ path: 'demo.ts', kind: { type: 'add' }, diff: 'export const value = 1' }] },
+    { type: 'command', command: 'node demo.mjs', cwd: '/workspace/demo', actions: [] }]) {
+    const s = rig(); Object.assign(s.approval, details)
+    const [action] = await s.actions.read()
+    assert.ok(action?.kind === 'worker-approval')
+    assert.deepEqual(action.choices, ['no'])
+    assert.match(action.request, /full request is on the desk/)
+  }
+})
+
+test('credential-bearing check commands never reach the person action projection', async () => {
+  const repo = await makeRepo('lead-check-screen-')
+  await mkdir(join(repo.dir, '.harnessdesk'))
+  const commands = ['printf "Authorization: Bearer demo-value"', 'echo ghp_' + 'a'.repeat(36)]
+  await writeFile(join(repo.dir, '.harnessdesk/checks.yml'), commands.map((run, i) => `check${i}: { run: ${JSON.stringify(run)} }`).join('\n'))
+  await repo.git('add', '.harnessdesk'); await repo.git('commit', '-qm', 'Declare demo checks')
+  const at = await repo.git('rev-parse', 'HEAD')
+  assert.equal((await readChecks(repo.dir)).checks.length, 2)
+  const state = { phase: 'running', contract: { digest, project: { path: repo.dir }, assertions: [{ kind: 'check' }] },
+    runs: [{ runId: 'run', teamId: 'team', correlationId: 'start' }], steps: [{ state: 'started', attemptId: 'start' }] }
+  const actions = new LeadPersonActions({ state } as never, {
+    registry: { all: () => [] }, flowsPlane: { executionOf: () => ({ state: 'running', rounds: [{ cards: [1] }] }) },
+    teamPlane: { stateFor: () => ({ intents: [{ id: 1, role: 'implement', state: 'done' }] }) },
+    call: async () => ({ cards: [{ card: 1, facts: [{ record: { fact: { kind: 'review', at, verdict: 'approve' } }, freshness: { state: 'fresh' } }], running: [] }] }),
+  } as never, { seats: { all: () => [] } } as never, async () => {})
+  assert.deepEqual(await actions.read(), [])
 })
