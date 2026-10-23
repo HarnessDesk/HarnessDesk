@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 
 import type { FileChange, Turn } from '@harnessdesk/protocol'
 import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { readGit } from './git-read.js'
 import { withGitMutation } from './git-mutation.js'
 import { ConfinedTree } from './confined-tree.js'
 import { canonicalTarget, isWithinPath } from './path-confinement.js'
@@ -22,7 +23,7 @@ import { canonicalTarget, isWithinPath } from './path-confinement.js'
 const run = promisify(execFile)
 
 /** `signal`, on top of the 20s timeout, kills this process early rather than leaving it to run the full 20s (`topLevel`, #948). */
-const git = async (root: string, args: readonly string[], signal?: AbortSignal): Promise<string> => {
+const personGit = async (root: string, args: readonly string[], signal?: AbortSignal): Promise<string> => {
   const { stdout } = await run('git', ['-C', root, ...args], {
     timeout: 20_000,
     maxBuffer: 32 * 1024 * 1024,
@@ -30,6 +31,10 @@ const git = async (root: string, args: readonly string[], signal?: AbortSignal):
   })
   return stdout
 }
+
+/** Background reads use the hardened configuration; requested writes keep their own runner. */
+const git = async (root: string, args: readonly string[], signal?: AbortSignal): Promise<string> =>
+  (await readGit(root, args, { signal, timeout: 20_000, maxBuffer: 32 * 1024 * 1024 })).stdout
 
 export class RevertError extends Error {
   /**
@@ -115,7 +120,7 @@ const applyPatch = async (root: string, patch: string, direction: TurnDirection)
   try {
     await writeFile(file, patch.endsWith('\n') ? patch : `${patch}\n`)
     await git(root, ['apply', ...reverse, '--check', '--whitespace=nowarn', file])
-    await git(root, ['apply', ...reverse, '--whitespace=nowarn', file])
+    await personGit(root, ['apply', ...reverse, '--whitespace=nowarn', file])
   } finally {
     /* A leftover temporary file is not the caller's failure: once `git apply`
        has run, the tree has changed, and reporting otherwise would let a
@@ -428,7 +433,7 @@ export const checkout = async (
   options: { readonly create?: boolean } = {},
 ): Promise<void> => withGitMutation(root, async () => {
   await checkoutPreflight(root, branch)
-  await git(root, options.create ? ['checkout', '-b', branch] : ['checkout', branch])
+  await personGit(root, options.create ? ['checkout', '-b', branch] : ['checkout', branch])
 })
 
 /** Where the repository root is, for a folder that may be inside one. */
@@ -484,7 +489,7 @@ const repositoryPath = async (root: string, field: string, signal?: AbortSignal)
     signal?.throwIfAborted()
     let stdout: string
     try {
-      const answer = await run('git', ['-C', root, 'rev-parse', '--path-format=absolute', field], {
+      const answer = await run('git', ['-C', root, ...HARDENED_GIT_CONFIG, 'rev-parse', '--path-format=absolute', field], {
         timeout: 20_000,
         maxBuffer: 32 * 1024 * 1024,
         env: { ...process.env, LC_ALL: 'C' },

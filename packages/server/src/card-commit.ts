@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 
 import type { RuntimePresentation } from '@harnessdesk/protocol'
 
-import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { HARDENED_GIT_CONFIG, gitFiltersOff } from './git-hardening.js'
 
 /**
  * The commit the host makes for an agent: `commit_work` (#1074).
@@ -109,30 +109,6 @@ const firstLine = (error: unknown): string => {
   const stderr = (error as { stderr?: unknown }).stderr
   const text = typeof stderr === 'string' && stderr.trim() ? stderr : error instanceof Error ? error.message : String(error)
   return text.trim().split('\n')[0]?.replace(/^(fatal|error): /, '') ?? 'git failed'
-}
-
-/**
- * Every filter driver the repository's configuration defines, switched off.
- * A driver is a program `git add` runs over a file's contents; only
- * configuration can define one, so the configuration's own list is complete.
- * Read with the person's configuration too, a superset of what the commit
- * itself sees, and switched off for the status reads as well as the commit.
- */
-const filtersOff = async (cwd: string): Promise<string[]> => {
-  let listed: string
-  try {
-    listed = await git(cwd, ['config', '--null', '--name-only', '--get-regexp', '^filter\\.'], { env: readEnv() })
-  } catch {
-    return [] // git answers 1 when nothing matches
-  }
-  const drivers = new Set<string>()
-  for (const key of listed.split('\0').filter(Boolean)) {
-    const last = key.lastIndexOf('.')
-    if (last > 'filter.'.length) drivers.add(key.slice('filter.'.length, last))
-  }
-  return [...drivers].flatMap((name) =>
-    ['process', 'clean', 'smudge'].flatMap((field) => ['-c', `filter.${name}.${field}=`]).concat(['-c', `filter.${name}.required=false`]),
-  )
 }
 
 /** The identity git would commit as here, with the person's own configuration read; null when either half is missing. */
@@ -257,7 +233,7 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
   } catch {
     return { refused: 'Refused: this Seat’s checkout is not a git repository, so there is nothing to commit.' }
   }
-  const filters = await filtersOff(top)
+  const filters = await gitFiltersOff(top, { env: readEnv() })
   const merging = await git(top, ['rev-parse', '--verify', '--quiet', 'MERGE_HEAD']).then(() => true, () => false)
   // A submodule is its own repository: its changes are never this card's to commit from here.
   // During a merge include staged gitlinks and their conflicts, without reading inside submodules.

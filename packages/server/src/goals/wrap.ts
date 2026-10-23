@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
+
 import type { FindingReceipt, Goal, GoalReceipt, WrapChoices, WrapPreview } from '@harnessdesk/protocol'
 
 import { Serial } from './assignments.js'
@@ -151,8 +153,8 @@ export async function citationBlob(root: string, path: string, at: string): Prom
     throw new Error('Choose a relative document path and its full committed revision.')
   }
   try {
-    await git('git', ['cat-file', '-e', `${at}^{commit}`], { cwd: root })
-    const result = await git('git', ['ls-tree', '-z', at, '--', `:(literal)${path}`], { cwd: root })
+    await git('git', [...HARDENED_GIT_CONFIG, 'cat-file', '-e', `${at}^{commit}`], { cwd: root })
+    const result = await git('git', [...HARDENED_GIT_CONFIG, 'ls-tree', '-z', at, '--', `:(literal)${path}`], { cwd: root })
     const records = result.stdout.split('\0').filter(Boolean)
     if (records.length !== 1) throw new Error('Missing document')
     const tab = records[0]!.indexOf('\t')

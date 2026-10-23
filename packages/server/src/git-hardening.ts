@@ -1,3 +1,6 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
 /**
  * The floor for git the host runs on its own in a checkout an agent can write
  * to (#1074): evidence reads, status, the lane a flow cuts, `commit_work`.
@@ -11,14 +14,15 @@
  * and are inherited by any git that git starts in turn. They cover exactly:
  * hooks (`core.hooksPath`), the filesystem monitor (`core.fsmonitor`), the ssh
  * command, commit and tag signing (and so the signing program), and an
- * external diff program (`diff.external`).
+ * external diff program (`diff.external`). Submodule diffs use short gitlink
+ * summaries rather than starting a child diff with its own configuration.
  *
- * They do not cover filter drivers or a diff driver's `textconv`: a filter the
- * configuration defines, named by `.gitattributes`, still runs when a host
- * `git status` re-reads a file whose stat information changed. Host diffs pass
- * `--no-ext-diff --no-textconv` themselves. `commit_work` goes further
- * (`card-commit.ts`): no system or global configuration, every configured
- * filter switched off, and a refusal for any path a filter would touch.
+ * Filter names are configuration-defined, so automatic reads use an isolated
+ * configuration (`git-read.ts`) with those definitions omitted. Host diffs also pass
+ * `--no-ext-diff --no-textconv`. Automatic checkouts keep that private
+ * configuration through materialization, inspect the target's attributes and
+ * refuse filtered paths; `commit_work` does the same for its files, and also
+ * excludes system and global configuration.
  *
  * Verbs a person triggers themselves — bringing a branch home, the git
  * client's own commit, checkout and worktree verbs — run with the person's
@@ -31,4 +35,41 @@ export const HARDENED_GIT_CONFIG: readonly string[] = [
   '-c', 'commit.gpgSign=false',
   '-c', 'tag.gpgSign=false',
   '-c', 'diff.external=',
+  '-c', 'diff.submodule=short',
 ]
+
+const run = promisify(execFile)
+type ReadOptions = { readonly env?: NodeJS.ProcessEnv; readonly signal?: AbortSignal }
+
+/** Configuration is read as Git sees it, including included and global drivers. */
+export const gitFiltersOff = async (cwd: string, options: ReadOptions = {}): Promise<string[]> => {
+  let listed: string
+  try {
+    listed = (await run('git', ['-C', cwd, ...HARDENED_GIT_CONFIG,
+      'config', '--null', '--name-only', '--get-regexp', '^filter\\.',
+    ], { ...options, timeout: 20_000, maxBuffer: 1024 * 1024 })).stdout
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 1) return [] // no matching settings
+    throw error
+  }
+  const drivers = new Set<string>()
+  for (const key of listed.split('\0').filter(Boolean)) {
+    const last = key.lastIndexOf('.')
+    if (last >= 'filter.'.length) {
+      const name = key.slice('filter.'.length, last)
+      // -c splits at the first equals sign, even when it belongs to a subsection.
+      if (name.includes('=')) throw new Error('This git filter name cannot be disabled for an automatic read.')
+      drivers.add(name)
+    }
+  }
+  return [...drivers].flatMap((name) =>
+    ['process', 'clean', 'smudge'].flatMap((field) => ['-c', `filter.${name}.${field}=`])
+      .concat(['-c', `filter.${name}.required=false`]),
+  )
+}
+
+/** Automatic mutations keep their existing runner and configured-filter refusals. */
+export const automaticMutationConfig = async (cwd: string, args: readonly string[], options: ReadOptions = {}): Promise<readonly string[]> =>
+  args.includes('worktree') && args.includes('remove')
+    ? [...HARDENED_GIT_CONFIG, ...await gitFiltersOff(cwd, options)]
+    : HARDENED_GIT_CONFIG

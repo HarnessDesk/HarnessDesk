@@ -95,6 +95,24 @@ test('automatic checkouts prefer the remote default over a local main branch', a
   assert.equal(await readFile(join(tree.path, 'shared.txt'), 'utf8'), 'remote default\n')
 })
 
+test('a lane cut from the remote default keeps the upstream a remote start point gives it', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  await writeFile(join(repo, 'shared.txt'), 'remote default\n')
+  await git(repo, 'add', 'shared.txt')
+  await git(repo, 'commit', '-q', '-m', 'remote default')
+  const head = (await git(repo, 'rev-parse', 'HEAD')).trim()
+  await git(repo, 'remote', 'add', 'origin', 'https://example.invalid/widgets.git')
+  await git(repo, 'update-ref', 'refs/remotes/origin/trunk', head)
+  await git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk')
+  await git(repo, 'reset', '--hard', 'HEAD~1')
+  const tree = await worktrees.create(repo, { name: 'tracked', fromDefault: true })
+  assert.equal(tree.head, head)
+  assert.equal((await git(repo, 'config', '--get', `branch.${tree.branch}.remote`)).trim(), 'origin')
+  assert.equal((await git(repo, 'config', '--get', `branch.${tree.branch}.merge`)).trim(), 'refs/heads/trunk')
+  assert.equal((await git(tree.path, 'rev-parse', '--abbrev-ref', '@{upstream}')).trim(), 'origin/trunk')
+  assert.deepEqual((await git(tree.path, 'rev-list', '--left-right', '--count', '@{upstream}...HEAD')).trim().split(/\s+/), ['0', '0'])
+})
+
 /**
  * What the session list groups on. Every checkout of a repository has to name
  * the same project — otherwise a conversation in a worktree becomes a project

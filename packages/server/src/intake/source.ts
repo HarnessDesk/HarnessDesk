@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto'
 import { lstat } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
+
 import { ConfinedTree } from '../confined-tree.js'
 import { projectOf } from '../evidence/revision.js'
 import { TRIGGER_FILE_LIMIT } from './definition.js'
@@ -99,7 +101,7 @@ export function gitTransport(gitDir: string, options: { readonly command?: strin
   return {
     read: (args, maxBytes) => new Promise((resolve, reject) => {
       const child = spawn(options.command ?? 'git', [
-        `--git-dir=${gitDir}`, '--no-replace-objects', '-c', 'core.fsmonitor=false', '-c', 'diff.external=', ...args,
+        `--git-dir=${gitDir}`, ...HARDENED_GIT_CONFIG, '--no-replace-objects', ...args,
       ], { shell: false, stdio: ['ignore', 'pipe', 'ignore'], env: gitEnvironment() })
       const chunks: Buffer[] = []
       let size = 0
