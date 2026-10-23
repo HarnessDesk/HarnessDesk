@@ -63,6 +63,9 @@ export class PhoneEndpoint {
   #timer: ReturnType<typeof setTimeout> | null = null
   #liveFrom = 0
   #inFlight = 0
+  #queuedFrames = 0
+  #queuedBytes = 0
+  #confirming = false
 
   constructor(private readonly deps: EndpointDeps, private readonly transport: EndpointTransport) {
     this.#arm(deps.handshakeMs ?? 10_000, 'no handshake')
@@ -74,7 +77,15 @@ export class PhoneEndpoint {
 
   /** One binary frame from the phone. Frames are taken one at a time, in the order they arrived. */
   receive(frame: Uint8Array): Promise<void> {
-    this.#queue = this.#queue.then(() => this.#take(frame)).catch(error => this.#fail(error))
+    if (this.closed) return Promise.resolve()
+    if (this.#confirming || this.#queuedFrames >= 32 || frame.byteLength > 1_048_576 - this.#queuedBytes) {
+      this.#close(CloseCode.BAD_FRAME, 'frames cannot wait here')
+      return Promise.resolve()
+    }
+    this.#queuedFrames++; this.#queuedBytes += frame.byteLength
+    this.#queue = this.#queue.then(() => this.#take(frame)).catch(error => this.#fail(error)).finally(() => {
+      this.#queuedFrames--; this.#queuedBytes -= frame.byteLength
+    })
     return this.#queue
   }
 
@@ -97,6 +108,7 @@ export class PhoneEndpoint {
     if (this.#stage === 'hello') return this.#hello(frame)
     const session = this.#session!
     const message = await session.openJson(frame as Uint8Array<ArrayBuffer>)
+    if (this.closed) return
     if (this.#stage === 'auth') return this.#first(message)
     return this.#message(message)
   }
@@ -104,6 +116,7 @@ export class PhoneEndpoint {
   async #hello(frame: Uint8Array): Promise<void> {
     if (frame.length !== HELLO_LENGTH || frame[0] !== FRAME_HELLO) throw new E2eeError('format')
     const { ready, session } = await acceptHandshake(frame as Uint8Array<ArrayBuffer>, this.deps.identity.key)
+    if (this.closed) return
     this.#session = session
     this.#stage = 'auth'
     this.transport.send(ready)
@@ -123,6 +136,7 @@ export class PhoneEndpoint {
       const proven = await verifyEd25519(fromB64u(device.pub), fromB64u(parsed.data.sig), handshakeDeviceMessage(th))
       if (!proven) return this.#refuse(CloseCode.UNAUTHORIZED, 'bad signature')
       await registry.touch(id, this.deps.now())
+      if (this.closed) return
       this.#device = registry.get(id)
       this.#signedIn()
       await this.#send({ t: 'auth.ok', epoch: ring.epoch, seq: ring.seq })
@@ -134,8 +148,10 @@ export class PhoneEndpoint {
     const deviceId = await idFromPub(devicePub)
     // Waiting here is the point: the phone has shown a valid code, and a person decides whether it is theirs.
     this.#disarm()
+    this.#confirming = true
     const tiers = await this.deps.confirm({ name: parsed.data.name, devicePub: parsed.data.devicePub, deviceId })
-    if (this.#stage === 'closed') return
+    this.#confirming = false
+    if (this.closed) return
     if (tiers === null) return this.#refuse(CloseCode.UNAUTHORIZED, 'the person at the desk said no')
     const pushKey = generatePushKey()
     const device: Device = {
@@ -144,6 +160,7 @@ export class PhoneEndpoint {
       createdAt: this.deps.now(), lastSeenAt: this.deps.now(),
     }
     await registry.add(device)
+    if (this.closed) return
     this.#device = device
     this.#signedIn()
     await this.#send({ t: 'enroll.ok', deviceId, pushKey: device.pushKey, kid: device.kid, epoch: ring.epoch, seq: ring.seq })
