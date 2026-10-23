@@ -4,8 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Account, AccountStatus, RuntimeInfo } from '@harnessdesk/protocol'
 
-import { AcpRuntime } from '../../../adapter-acp/dist/src/runtime.js'
-
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, AppStore, type AppSnapshot } from '../state/store'
 import { SignIn } from './SignIn'
@@ -131,16 +129,24 @@ it('still says an agent needs no account when it has answered and offers none', 
 })
 
 it('renders an empty adapter identity record as signed out in both rail and card (#1776)', async () => {
-  // The empty-home response comes from the adapter, with no declared ACP
-  // methods; the renderer must not mistake it for an accountless agent.
-  const adapter = new AcpRuntime({
-    id: 'agent', name: 'Agent', command: 'unused',
-    identityIsStatus: true, resolveIdentity: () => null,
-  })
+  // What the adapter answers for an agent whose identity home is empty and
+  // which declares no ACP methods: nobody, and one way in that is outside the
+  // desk. The renderer must not mistake it for an accountless agent. This is a
+  // literal on purpose, since the UI never imports another package's build; the
+  // adapter's own test (`an empty identity status offers external sign-in…`)
+  // pins this exact shape, so the two cannot drift apart unseen.
+  const emptyHome = runtime({ id: 'agent', name: 'Agent', presentation: { name: 'Agent' } })
+  const signedOut: AccountStatus = {
+    accounts: [],
+    signInMethods: [{
+      id: 'external', label: 'Sign in outside HarnessDesk', flow: 'external',
+      description: "Sign in using the agent's own application or command line.",
+    }],
+  }
   await mount({
-    runtimes: [adapter.info], activeRuntime: adapter.info.id,
-    healthByRuntime: { [adapter.info.id]: { state: 'ready' } },
-    accountsByRuntime: { [adapter.info.id]: await adapter.getAccount() },
+    runtimes: [emptyHome], activeRuntime: emptyHome.id,
+    healthByRuntime: { [emptyHome.id]: { state: 'ready' } },
+    accountsByRuntime: { [emptyHome.id]: signedOut },
   }, 'agent')
 
   const rail = container.querySelector('nav[aria-label="Runtimes"]')

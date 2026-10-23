@@ -2034,6 +2034,15 @@ test('an empty identity status offers external sign-in rather than an accountles
       assert.equal(status.unchecked, undefined, 'the identity record has answered')
       assert.equal(status.signInMethods[0]?.flow, 'external', 'the empty home needs a sign-in elsewhere')
       assert.ok(status.signInMethods[0]?.description)
+      // The UI's SignIn.accounts.test.tsx holds this answer as a literal, since
+      // it cannot import this package's build. Keep the two the same.
+      assert.deepEqual(status, {
+        accounts: [],
+        signInMethods: [{
+          id: 'external', label: 'Sign in outside HarnessDesk', flow: 'external',
+          description: "Sign in using the agent's own application or command line.",
+        }],
+      })
     }
   } finally {
     await runtime.dispose()
