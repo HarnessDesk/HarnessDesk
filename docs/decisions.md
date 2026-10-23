@@ -1599,6 +1599,102 @@ refuse these opens rather than falling back to path-only checks. Directory
 creation, publication and cleanup still use paths and identity checks; this
 does not turn the whole operation into a descriptor-relative transaction.
 
+## Local workspace content uses no-follow opens on macOS and Linux
+
+The host's `LocalFiles` reader and writer use the same content-open traversal
+as Agent sources: macOS refuses links in any component, and Linux opens each
+component through a held directory descriptor. Local workspace reads, saves
+and editor writes deliberately require macOS or Linux until another platform
+has an equivalent traversal. A canonical-root check still precedes each open.
+Runtime-provided file services keep their own platform support behind that
+same canonical-root check.
+
+Linux's directory opens use `O_RDONLY | O_DIRECTORY`, so every ancestor must
+be readable as well as searchable. A search-only ancestor is deliberately
+refused even when an ordinary path open could reach the file. The workspace
+refusal names this requirement; a platform refusal names workspace reads and
+saves and the supported systems.
+
+The host's per-file turn fallback has the same platform limit for creating
+and removing files, including rollback. Its refusal names workspace file
+changes. Aggregated patches and individual update hunks still go through Git.
+
+## Local workspace editing requires one filesystem link
+
+Local workspace reads and saves both require a regular file with exactly one
+filesystem link. A hard-linked file is returned as unreadable, without an
+editor hash, before an edit can begin. A save checks the opened descriptor
+again before truncating it. The same workspace refusal explains both cases.
+
+Several hard-linked pathnames share their contents, so a save would also
+change the other names, including any outside the admitted roots. A separate
+copy with one filesystem link can be edited here. This deliberately refuses
+hard links in package stores and copy trees as well; symbolic paths whose
+canonical target stays inside an admitted root keep their existing behavior.
+
+## Path confinement walks a link's target the way the kernel does
+
+A path is admitted when its spelling and its canonical target are both inside
+an admitted root. The canonical target of a name that is not there yet is its
+deepest existing ancestor with the missing names appended, and a link that
+leads nowhere yet still names a destination: that destination is part of the
+answer. It is found by walking the link's target one name at a time, from the
+link's real parent (from the root of the filesystem for an absolute target).
+A `..` takes the parent of the real folder reached so far, a name that exists
+becomes its real path, and a link met on the way is followed in turn.
+
+Reading the target as text is wrong exactly when a `..` follows a link:
+`sub/../x` is a sibling of `sub` as text, but for the kernel it is a file
+beside the folder `sub` leads to, which can be outside the project that holds
+both links and is where a runtime's own writer creates the file. A `..` after
+a name that does not exist has no folder to go up from, so the walk refuses it
+rather than guessing.
+
+## Confinement asks the disk off the host's thread, under a deadline
+
+Every file request is confined: the renderer reads, stats, saves and lists by
+path, and polls `workspace/stat` every few seconds for each open editor tab.
+Confinement looks at the disk — where the path really leads, and which of the
+roster's folders are linked into this machine's Agents root — and it did so
+with synchronous calls on the host's own thread. A single link onto a volume
+that had stopped answering then stopped every wire method and every session's
+stream behind it, for as long as the volume stayed silent.
+
+So the walk uses `fs/promises`, where a silent volume holds one worker of the
+thread pool and nothing else. The spelling is judged first and costs nothing:
+a path outside every root's spelling is refused without the disk being asked.
+Only then are the target and the roots that spell it resolved, together, and
+only for `CONFINE_DEADLINE_MS`. When that is up the request is refused with
+the volume named as the reason — a late answer never admits a path — and the
+walk is told to stop: a call already asked cannot be taken back, but no next
+one is started.
+
+The roster's own folders (`AgentFileRoots`) are the other disk read a file
+request made. They are listed off the thread, kept for a few seconds, shared by
+requests that arrive together, and dropped the moment the host says
+`agent/changed` for this machine's roots. A request waits for a listing no
+longer than two seconds in all, and a listing already late is not waited for
+again; it is answered with the last listing, or with the root alone. A folder
+not yet seen is not admitted, which is the safe way for a slow disk to be
+wrong. What it costs: an Agent folder linked in by hand is readable by path
+once the roster watch has noticed (a moment), or when the listing is five
+seconds old, where it used to be at once.
+
+## A path the disk will not resolve is a file's state, not a refusal
+
+Looking at the disk can fail without deciding anything: a link that loops, a
+folder nobody may search, a volume that did not answer in time. None of those
+is "outside every open workspace", and none should read as it. They are raised
+as `PathUnresolvableError`, which keeps the errno the disk gave and its reason.
+
+`workspace/readFile` answers a file in its own terms — gone, or there but not
+readable — and did so before confinement looked at the disk, so it answers this
+error the same way: `missing` for a name the kernel would call absent (a `..`
+below a name that is not there), `unreadable` with the reason for the rest.
+Every other method passes the error on as the plain error it is. A path that is
+simply outside every workspace stays a refusal, and a name that is merely not
+there yet is still admitted.
+
 ## An evidence guard judges revisions, found by card and revision, never by round
 
 A finished round's rule asks whether some work is good enough to move on,

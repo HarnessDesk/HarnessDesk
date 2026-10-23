@@ -1642,6 +1642,37 @@ test('a runtime going down ends its terminals visibly rather than leaving them h
 
 // --------------------------------------------------------------------- saving
 
+test('user Agent folders and source files linked into configuration remain readable and writable', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const outside = await mkdtemp(join(tmpdir(), 'hd-agent-config-'))
+  t.after(() => rm(outside, { recursive: true, force: true }))
+  const agents = join(harness.stateDir, 'agents')
+  await mkdir(agents, { recursive: true })
+  await mkdir(join(outside, 'folder'))
+  await writeFile(join(outside, 'folder', 'AGENT.md'), 'folder source')
+  await symlink(join(outside, 'folder'), join(agents, 'linked-folder'))
+  await mkdir(join(agents, 'linked-source'))
+  await writeFile(join(outside, 'source.md'), 'file source')
+  await symlink(join(outside, 'source.md'), join(agents, 'linked-source', 'AGENT.md'))
+  for (const name of ['linked-folder', 'linked-source']) {
+    const path = join(agents, name, 'AGENT.md')
+    const read = await client.call('workspace/readFile', { path }) as { kind: string; hash: string }
+    assert.equal(read.kind, 'text')
+    const saved = await client.call('file/save', { path, content: 'updated source', expectedHash: read.hash }) as { saved: boolean }
+    assert.equal(saved.saved, true)
+    assert.equal(await readFile(path, 'utf8'), 'updated source')
+  }
+  // A source is one file; a folder at its name does not admit its contents.
+  await mkdir(join(agents, 'directory-source'))
+  await symlink(outside, join(agents, 'directory-source', 'AGENT.md'))
+  await assert.rejects(client.call('workspace/readFile', {
+    path: join(agents, 'directory-source', 'AGENT.md', 'source.md'),
+  }), /outside every open workspace/)
+})
+
 test('a save that races an external change is refused with the other content, never overwritten', async (t) => {
   const harness = await start()
   t.after(() => stop(harness))
