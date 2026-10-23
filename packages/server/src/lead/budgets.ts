@@ -36,6 +36,7 @@ export class LeadBudgets implements FlowLeadGuard {
   readonly #observing = new Map<string, Promise<void>>()
   readonly #retries = new Map<string, () => void>()
   readonly #backoff = new Map<string, number>()
+  readonly #freshening = new Map<string, () => void>()
   readonly #pending = new Map<string, { journal: LeadJournal; stepId: string; params: unknown; project: LeadProject }>()
   readonly #children = new Map<LeadJournal, () => void>()
   #recovering = false
@@ -51,6 +52,7 @@ export class LeadBudgets implements FlowLeadGuard {
       this.#children.get(journal)?.()
       this.#detach.get(id)?.(); this.#detach.delete(id); this.#journals.delete(id)
       this.#clearRetry(id)
+      this.#freshening.get(id)?.(); this.#freshening.delete(id)
       for (const [start, pending] of this.#pending) if (pending.journal === journal) this.#pending.delete(start)
     }
   }
@@ -65,6 +67,7 @@ export class LeadBudgets implements FlowLeadGuard {
     return ended
   }
   #changed(id: string, journal: LeadJournal): void {
+    this.#freshen(id, journal)
     const state = journal.state
     const uncertain = state.budget?.requests.some(request => request.uncertain)
     if ((!uncertain && state.stopEffectsPending === null) || this.#observing.has(id)) return
@@ -147,10 +150,14 @@ export class LeadBudgets implements FlowLeadGuard {
   }
   /** A Lead request needs a current reading: a finished run is metered again rather than left to go stale.
    * It takes the journal itself, because the request comes before the child that registers it. */
-  meter(journal: LeadJournal): Promise<void> {
+  async meter(journal: LeadJournal): Promise<void> {
     const id = journal.state.budget?.logicalGoalId
     const run = id ? this.port.runs().find(one => one.lead?.logicalGoalId === id) : undefined
-    return run ? this.#refresh(run, journal) : Promise.resolve()
+    if (!run) return
+    // A reading already out is dated from its start: one asked for now must begin now.
+    const active = this.#metering.get(id!)
+    if (active) await active.catch(() => {})
+    return this.#refresh(run, journal)
   }
   /** Rebuild meters from the host-created Seats' full usage windows. The
    * durable aggregate only moves upwards; a restart needs no guessed baseline. */
@@ -259,6 +266,23 @@ export class LeadBudgets implements FlowLeadGuard {
       if (this.#journals.get(logicalGoalId) === journal && journal.state.stopEffectsPending !== null) this.#retry(logicalGoalId, journal)
     })
     return task
+  }
+  /** Workers that have gone quiet are metered by nothing else, and a reading past its freshness is not known spend:
+   * a goal still going would then never be offered its result, nor have it accepted. Read again before it ages out. */
+  #freshen(id: string, journal: LeadJournal): void {
+    this.#freshening.get(id)?.(); this.#freshening.delete(id)
+    const state = journal.state, budget = state.budget
+    if (!budget || budget.stop || !state.runs.length || ['stopped', 'accepted', 'declined'].includes(state.phase)) return
+    const observed = budget.observation?.at
+    const delay = observed === undefined ? budget.freshnessMs / 4 : Math.max(0, observed + budget.freshnessMs * 3 / 4 - this.port.now())
+    const schedule = this.port.schedule ?? ((callback: () => void, ms: number) => {
+      const timer = setTimeout(callback, ms); timer.unref()
+      return () => clearTimeout(timer)
+    })
+    this.#freshening.set(id, schedule(() => {
+      this.#freshening.delete(id)
+      if (this.#journals.get(id) === journal) void this.meter(journal).catch(() => {})
+    }, delay))
   }
   #clearRetry(id: string): void {
     this.#retries.get(id)?.(); this.#retries.delete(id); this.#backoff.delete(id)

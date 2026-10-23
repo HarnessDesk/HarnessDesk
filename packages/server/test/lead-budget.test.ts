@@ -418,6 +418,26 @@ test('a Lead request meters its workers again even before its child registers, s
   assert.equal(s.journal.state.budget!.stop, null)
 })
 
+test('a live goal whose workers have gone quiet is metered again before its reading ages out', async t => {
+  const s = await leadRig(t)
+  await s.start()
+  await s.observe(0)
+  const seat = [...s.rig.seats.values()][0]!
+  const exact = (value: number) => ({ value, quality: 'exact' })
+  Object.assign(s.budgets.port, { seats: () => [...s.rig.seats.values()], delegation: () => 'none', usage: async (_project: string, _from: number, to: number) => ({ complete: true, samples: [{
+    key: 'worker-cost', source: { id: 'synthetic', kind: 'corpus', label: 'Synthetic', observedAt: to, checkedAt: to, stale: false, problem: null },
+    runtime: seat.session.runtime, sessionId: seat.session.sessionId, turnId: null, requestId: null, project: seat.checkout.project,
+    model: 'fixture/model', from: seat.openedAt, to, scope: 'session', includesChildren: false,
+    input: exact(1), output: exact(1), cacheRead: exact(0), cacheWrite: exact(0), usd: exact(0.00001), moneyBasis: 'vendorMetered' }] }) })
+  // No Seat starts or ends a turn from here on, so no turn meters the goal.
+  s.setNow(10_000_000)
+  assert.notEqual(leadBudgetProjection(s.journal.state.budget!, 10_000_000).spend, 'known', 'the old reading has aged out')
+  s.fireTimers()
+  await s.budgets.idle()
+  assert.equal(leadBudgetProjection(s.journal.state.budget!, 10_000_000).spend, 'known', 'the host read the quiet workers again on its own')
+  assert.equal(s.journal.state.budget!.stop, null)
+})
+
 test('an incomplete reading after every run has ended leaves spend unknown without stopping the goal', async t => {
   const s = await leadRig(t)
   await s.start()

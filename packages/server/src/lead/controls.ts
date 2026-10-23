@@ -254,7 +254,15 @@ export class LeadControls {
         else await this.options.decideResult(card, decision, contract)
       } : undefined, committed)
     if (card.type === 'plan' && decision.choice === 'approve') await this.#commitRequest(commit)
-    else await commit()
+    else {
+      // A person may answer long after the workers went quiet, and a reading that ages out while the decision holds the
+      // journal refuses a result that is still exactly as it was offered: read their spend again first, unless the reading
+      // has most of its freshness left.
+      const budget = journal.state.budget, observed = budget?.observation?.at
+      if (card.type !== 'plan' && budget && (observed === undefined || this.options.now() - observed > budget.freshnessMs / 2))
+        try { await this.options.meterSpend?.() } catch { /* The decision refuses while spend stays unknown. */ }
+      await commit()
+    }
     return this.#projection()
   }) }
   updateSettings(value: LeadSettingsUpdate): Promise<LeadWindowProjection | LeadNameReceipt> { return this.#queue(async () => {

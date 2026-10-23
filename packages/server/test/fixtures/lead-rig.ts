@@ -48,6 +48,8 @@ export interface LeadRigOptions {
   readonly premature?: boolean
   readonly eager?: boolean
   readonly workerSpend?: boolean
+  /** How long a worker spend reading stays fresh; a short one lets a test outwait it. */
+  readonly freshnessMs?: number
 }
 /** Synthetic services around the actual host, fd-3 child, client door and Flow.
  * Each instance owns its temp home and restores its environment before removal.
@@ -254,7 +256,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       journal = await createLeadJournal(storage)
       if (!journal.state.policy) {
         await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
-        await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'synthetic-goal', caps: proposal.caps, freshnessMs: 60_000 })
+        await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'synthetic-goal', caps: proposal.caps, freshnessMs: options.freshnessMs ?? 60_000 })
       }
       const readEvidence = async (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>): Promise<LeadAcceptanceEvidence> => {
         try {

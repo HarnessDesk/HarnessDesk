@@ -94,5 +94,7 @@ export const leadRig = async (t: { after(fn: () => Promise<void>): void }) => {
   }
   return { rig, journal, storage, budgets, previews, admission, authority, ctx, params, admit, start, observe, unregister, contract, project, records,
     admitted: () => admitted, setMember: (value: boolean) => { member = value }, setHeld: (value: boolean) => { held = value },
-    setNow: (value: number) => { now = value }, setStopFails: (value: boolean) => { stopFails = value } }
+    setNow: (value: number) => { now = value }, setStopFails: (value: boolean) => { stopFails = value },
+    /** Runs every callback the budgets have scheduled, as the host's timers would once they are due. */
+    fireTimers: () => { for (const [id, callback] of [...timers]) { timers.delete(id); callback() } } }
 }

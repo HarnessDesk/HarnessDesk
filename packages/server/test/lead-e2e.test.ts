@@ -78,6 +78,16 @@ test('two-run reviewed result follows failed review and repair and retries a fai
   await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
 })
 
+test('a person who decides after the spend reading has aged out is not refused for stale spend', async t => {
+  const rig = await createLeadRig({ freshnessMs: 10_000 }); t.after(() => rig.dispose())
+  await rig.reviewed()
+  // The workers are quiet now, so nothing on the desk meters them again on its own.
+  await new Promise(resolve => setTimeout(resolve, 11_000))
+  await rig.decide(rig.pending('result')!, 'accept')
+  assert.equal(rig.journal.state.phase, 'accepted')
+  await rig.assertNoForbiddenEffects()
+})
+
 test('gate decline preserves both worktrees and committed changes without forbidden effects', async t => {
   const rig = await createLeadRig(); t.after(() => rig.dispose())
   await rig.reviewed()
