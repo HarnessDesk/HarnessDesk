@@ -86,6 +86,19 @@ test('a filter name that cannot be overridden refuses the read before running it
   assert.equal(await f.marker(), '')
 })
 
+test('automatic status leaves an empty-name filter off on a stat-dirty file', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, '.gitattributes'), '*.txt filter=\n')
+  await f.git('add', '.')
+  await f.git('commit', '-qm', 'Set file attributes')
+  await writeFile(f.script, '#!/bin/sh\nprintf called > "$0.mark"\ncat\n')
+  await f.git('config', 'filter..clean', f.script)
+  const later = new Date(Date.now() + 5_000)
+  await utimes(join(f.root, 'page.txt'), later, later)
+  assert.deepEqual((await status(f.root))?.files, [])
+  assert.equal(await f.marker(), '')
+})
+
 for (const detached of [false, true]) {
   test(`automatic ${detached ? 'detached' : 'branch'} checkout refuses target files with a filter`, async (t) => {
     const f = await fixture(t)
