@@ -86,3 +86,8 @@ test('the standing instructions keep desk call names out of what the person read
   assert.match(text, /Never name a tool, method or field of the desk API in your text/)
   assert.match(text, /never restates the steps/)
 })
+test('the desk message says a required check counts only when the person runs it, so the Lead asks for that run', () => {
+  const contract = contractOf(); const text = leadContinuation({ contract, steps: pending(contract) }).map(block => block.text).join('')
+  assert.match(text, /a required check counts only when the person runs it on the Team/)
+  assert.match(text, /never say the step waits only for their decision/)
+})

@@ -83,6 +83,11 @@ export const leadContinuation = (facts: LeadContinuationFacts): readonly Message
       "To start a step, call flow_preview with root (the project root), source (the private Flow in your instructions, unchanged), seats (each of the step's assignments as its role mapped to a list holding its seat), " +
       "vars (the step's variables) and attended (true when the step is attended). Then call flow_start_goal with the same fields plus token (from the preview) and sentence (the contract's goal, unchanged). " +
       'Start no step that has already started. Then wait; never answer worker approvals.',
+    // A worker's own check run is recorded as advisory, so the result card waits on the person's run of it: without this
+    // the model told the person a step "waits only for your decision" while no decision could be offered.
+    "A worker's own run of a check never counts: a required check counts only when the person runs it on the Team. " +
+      'When a review is in and a required check has no result, ask the person to run that check on the Team, by its name. ' +
+      'The desk offers the result for their decision only after that, so until then never say the step waits only for their decision.',
   ].join('\n')
   const blocks: MessagesText[] = []
   for (let at = 0; at < text.length;) {
