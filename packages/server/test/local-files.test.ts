@@ -11,6 +11,16 @@ import { confine, isBinaryFile, isMissingWorkspaceFileError, LocalFiles, sha256 
 import { workspaceMethods } from '../src/methods/workspace.js'
 import type { HostContext } from '../src/methods/context.js'
 
+test('workspace reads report an unreadable path when an ancestor is now a file', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'folder'), 'now a file')
+  const files = new LocalFiles()
+  const ctx = { workspaces: { fileRoots: () => [dir] }, runtimes: { files: () => files } } as unknown as HostContext
+  const result = await workspaceMethods['workspace/readFile'](ctx, { path: join(dir, 'folder', 'file.txt') })
+  assert.equal(result.kind, 'unreadable')
+})
+
 test('workspace saves resolve a dangling relative link from its real parent', async (t) => {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
   t.after(() => rm(dir, { recursive: true, force: true }))

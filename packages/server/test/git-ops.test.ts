@@ -43,6 +43,25 @@ const fileChange = (dir: string, changes: FileChange[]): AgentItem =>
 
 const turnOf = (items: AgentItem[], diff?: string): Turn => ({ id: turnId('t1'), items, status: 'completed', diff: diff ?? null })
 
+test('turn removal skips a missing path beneath a former directory and applies the rest', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'folder'), 'now a file')
+  for (const direction of ['undo', 'redo'] as const) {
+    await t.test(direction, async () => {
+      await writeFile(join(dir, 'new.txt'), 'recorded\n')
+      const kind = { type: direction === 'undo' ? 'add' : 'delete' } as const
+      const turn = turnOf([fileChange(dir, [
+        { path: 'folder/file.txt', kind, diff: 'recorded\n' },
+        { path: 'new.txt', kind, diff: 'recorded\n' },
+      ])])
+      assert.deepEqual((await applyTurn(dir, turn, direction)).files, ['new.txt'])
+      await assert.rejects(stat(join(dir, 'new.txt')), { code: 'ENOENT' })
+      assert.equal(await readFile(join(dir, 'folder'), 'utf8'), 'now a file')
+    })
+  }
+})
+
 test('turn paths resolve a dangling relative link from its real parent', async (t) => {
   const dir = await repo()
   t.after(() => rm(dir, { recursive: true, force: true }))

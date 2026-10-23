@@ -10,12 +10,12 @@ export const canonicalTarget = (path: string, links = 0): string => {
     try {
       return join(realpathSync(ancestor), ...missing)
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
     }
     // A dangling link still names a destination; do not treat it as an absent file.
     const info = (() => {
       try { return lstatSync(ancestor) } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
         return null
       }
     })()
