@@ -44,6 +44,22 @@ const failInterrupts = (records: Awaited<ReturnType<typeof working>>['records'],
   }
 }
 
+test('a new head opens its round even when an old turn cannot be interrupted', E2E, async (t) => {
+  const d = await intakeDesk()
+  const control = { fail: true, attempts: 0 }
+  t.after(() => { control.fail = false; return d.stop() })
+  const { goal, records } = await working(d)
+  failInterrupts(records, control)
+  d.forge.pulls[0]!.head = sha('b')
+  d.forge.pulls[0]!.updated = d.clocks.wall + 1000
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  assert.ok(control.attempts > 0, 'superseding attempts to interrupt the old turn')
+  const run = d.host.flowsPlane.executionsFor(goal)[0]!
+  assert.equal(run.rounds.length, 2, 'the firing still opens its new round')
+  assert.equal(run.intake?.dispatchHeld, false, 'the new round is released')
+})
+
 for (const kind of ['pause', 'cap'] as const) test(`a ${kind} hold retries failed interruptions until every turn ends`, E2E, async (t) => {
   const d = await intakeDesk()
   const control = { fail: true, attempts: 0 }

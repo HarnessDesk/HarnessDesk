@@ -566,7 +566,10 @@ export class IntakePlane {
     if (!run?.intake) return
     const next = operation.mode === 'again' ? 'round' : 'person'
     await this.#port.flows.supersedeTriggered(operation.run, AGAIN_MISSING, next)
-    await this.#port.interrupt(operation.goal)
+    // New-head interruption is best effort; only budget cleanup requires a durable retry.
+    await this.#port.interrupt(operation.goal).catch((error: unknown) => {
+      this.#port.log('superseded Goal turns could not be interrupted', { goal: operation.goal, error: String(error) })
+    })
   }
 
   /**
