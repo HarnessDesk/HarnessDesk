@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { lstat, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
@@ -11,6 +11,7 @@ import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@ha
 import { changes, mainEntryFolder, repositoryRoot, worktreeHome, WorktreeDirtyError, samePath } from './worktree.js'
 
 import { parsePorcelain } from './porcelain.js'
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 /**
  * Worktrees, as a git client manages them.
@@ -183,6 +184,38 @@ const parseList = (out: string): Listed[] => {
  */
 const SHOWN = 40
 
+/** NUL records arrive incrementally, without buffering a whole tree listing. */
+const inventoryGitFields = async function* (cwd: string, args: readonly string[]): AsyncGenerator<string> {
+  const child = spawn('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
+    stdio: ['ignore', 'pipe', 'pipe'], timeout: SLOW,
+  })
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString('utf8')).slice(-8_192) })
+  const finished = new Promise<Error | null>((resolve) => {
+    child.once('error', resolve)
+    child.once('close', (code, signal) => resolve(code === 0 ? null
+      : new Error(stderr.trim() || `Git inventory listing stopped (${signal ?? code}).`)))
+  })
+  try {
+    let pending: Buffer = Buffer.alloc(0)
+    for await (const chunk of child.stdout) {
+      const bytes = pending.length ? Buffer.concat([pending, chunk]) : chunk as Buffer
+      let start = 0
+      for (let end = bytes.indexOf(0); end !== -1; end = bytes.indexOf(0, start)) {
+        yield bytes.subarray(start, end).toString('utf8')
+        start = end + 1
+      }
+      pending = Buffer.from(bytes.subarray(start))
+    }
+    const error = await finished
+    if (error) throw error
+    if (pending.length) throw new Error('Git inventory listing ended before its last path was complete.')
+  } finally {
+    if (child.exitCode === null && !child.killed) child.kill()
+    await finished
+  }
+}
+
 /** A replaced directory leaves its former descendants absent from this checkout. */
 const inventoryEntry = async (root: string, path: string) => {
   const parts = path.replace(/\/$/, '').split('/')
@@ -225,23 +258,43 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
   // still has to invalidate a confirmation.
   const digest = createHash('sha256')
   digest.update(out)
-  // Working contents and status can stay the same while staged work changes.
-  // Keep each index entry's object ID, mode, stage and literal path too.
-  digest.update('\0').update(await git(path, ['ls-files', '--stage', '-z'])).update('\0')
+  // Compare only staged changes, then retain every conflict stage separately.
+  // Neither listing needs the unchanged entries of a large index.
+  for (const args of [
+    ['diff', '--cached', '--raw', '--no-abbrev', '--no-renames', '--no-ext-diff', '--no-textconv', '-z'],
+    ['ls-files', '--unmerged', '-z'],
+  ]) {
+    digest.update('\0')
+    for await (const field of inventoryGitFields(path, args)) digest.update(field).update('\0')
+  }
   for (const change of changes) digest.update(`${change.status}\u0000${change.path}\u0000`)
   for (const entry of ignored) digest.update(`!!\u0000${entry}\u0000`)
   // Git can collapse wholly ignored directories even with all untracked
   // paths requested. Ask for every ignored file separately for the digest.
-  const ignoredFiles = await git(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'])
-  const files = new Set([...changes.map((change) => change.path), ...ignoredFiles.split('\0').filter(Boolean)])
-  for (const file of [...files].sort()) {
+  const fingerprint = async (file: string): Promise<string> => {
     const info = await inventoryEntry(root, file)
     // ctime changes on writes and cannot be restored by setting mtime. No
     // contents need opening, including large, unreadable or replaced files.
-    digest.update(`${file}\0${info
+    return `${file}\0${info
       ? `${info.mode}\0${info.dev}\0${info.ino}\0${info.size}\0${info.mtimeNs}\0${info.ctimeNs}`
-      : 'missing'}\0`)
+      : 'missing'}\0`
   }
+  for (const file of [...new Set(changes.map((change) => change.path))].sort()) digest.update(await fingerprint(file))
+  digest.update('\0ignored\0')
+  // Bound metadata reads while retaining Git's record order in the digest.
+  let batch: Promise<{ value: string } | { error: unknown }>[] = []
+  const flush = async (): Promise<void> => {
+    for (const result of await Promise.all(batch)) {
+      if ('error' in result) throw result.error
+      digest.update(result.value)
+    }
+    batch = []
+  }
+  for await (const file of inventoryGitFields(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'])) {
+    batch.push(fingerprint(file).then((value) => ({ value }), (error: unknown) => ({ error })))
+    if (batch.length === 64) await flush()
+  }
+  await flush()
 
   return {
     changes: changes.slice(0, SHOWN),

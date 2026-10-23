@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
+import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -615,6 +615,44 @@ test('a confirmation covers file contents beyond the inventory display cap', asy
   assert.equal(await readFile(join(made.path, 'f44.txt'), 'utf8'), 'edit\n')
 })
 
+test('inventory handles large ignored listings and clean indexes', { timeout: 120_000 }, async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+  const directory = `cache/${'a'.repeat(200)}/${'b'.repeat(200)}/${'c'.repeat(200)}`
+  await mkdir(join(made.path, directory), { recursive: true })
+  const seed = join(made.path, 'cache', 'seed.bin')
+  await writeFile(seed, '')
+  const count = 22_000
+  let bytes = 0
+  for (let start = 0; start < count; start += 64) {
+    await Promise.all(Array.from({ length: Math.min(64, count - start) }, async (_, offset) => {
+      const file = `${directory}/f${String(start + offset).padStart(5, '0')}-${'x'.repeat(170)}`
+      bytes += Buffer.byteLength(file) + 1
+      await link(seed, join(made.path, file))
+    }))
+  }
+  assert.ok(bytes > 16 * 1024 * 1024, 'the ignored listing exceeds the buffered output limit')
+
+  await t.test('ignored listing', async () => {
+    const held = await inventory(made.path)
+    assert.deepEqual(held.ignored, ['cache/'])
+    const added = join(made.path, directory, 'later.bin')
+    await writeFile(added, 'later notes\n')
+    await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+    assert.equal(await readFile(added, 'utf8'), 'later notes\n')
+  })
+  await git(made.path, 'add', '-f', '.')
+  await git(made.path, 'commit', '-qm', 'keep the local files')
+  await t.test('clean index', async () => {
+    const held = await inventory(made.path)
+    assert.equal(held.changeCount, 0)
+    assert.equal(held.ignoredCount, 0)
+    await remove(repo, made.path, false, undefined, state)
+    assert.ok(await gone(made.path))
+  })
+})
+
 test('a confirmation is void after the index changes with the same working contents', async (t) => {
   for (const change of ['contents', 'mode']) {
     await t.test(change, async () => {
@@ -649,6 +687,34 @@ test('a confirmation is void after the index changes with the same working conte
       assert.ok(await gone(made.path))
     })
   }
+})
+
+test('a confirmation includes every unmerged index stage', async () => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const base = (await git(made.path, 'rev-parse', 'HEAD:a.txt')).trim()
+  const blobs: string[] = []
+  for (const content of ['left\n', 'right\n', 'later\n']) {
+    await writeFile(join(made.path, 'a.txt'), content)
+    blobs.push((await git(made.path, 'hash-object', '-w', 'a.txt')).trim())
+  }
+  await writeFile(join(made.path, 'a.txt'), 'working notes\n')
+  const update = async (input: string): Promise<void> => {
+    const child = run('git', ['-C', made.path, 'update-index', '--index-info'], { env })
+    child.child.stdin?.end(input)
+    await child
+  }
+  await update(`0 ${'0'.repeat(base.length)}\ta.txt\n100644 ${base} 1\ta.txt\n100644 ${blobs[0]} 2\ta.txt\n100644 ${blobs[1]} 3\ta.txt\n`)
+  const status = await git(made.path, 'status', '--porcelain=v1', '-z')
+  assert.equal(status, 'UU a.txt\0')
+  const held = await inventory(made.path)
+  await update(`100644 ${blobs[2]} 3\ta.txt\n`)
+  assert.equal(await git(made.path, 'status', '--porcelain=v1', '-z'), status)
+
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  assert.equal(await readFile(join(made.path, 'a.txt'), 'utf8'), 'working notes\n')
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
 })
 
 test('the inventory names what is there and counts what it could not show', async () => {
