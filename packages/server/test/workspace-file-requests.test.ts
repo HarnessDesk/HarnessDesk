@@ -7,7 +7,7 @@ import { test, type TestContext } from 'node:test'
 
 import { builtinAgentRoot } from '../src/host.js'
 import { canonicalTarget } from '../src/path-confinement.js'
-import { confine } from '../src/workspace.js'
+import { PathUnresolvableError, confine } from '../src/workspace.js'
 import { Client, start, stop } from './fixtures/harness.js'
 import { FAKE_RUNTIME_ID } from './fixtures/fake-runtime.js'
 
@@ -158,7 +158,10 @@ test('a path whose volume does not answer is refused at the deadline, and nothin
   const started = performance.now()
   await assert.rejects(
     confine(target, [root], { deadlineMs: 30 }),
-    /could not be checked: its volume did not answer in time/,
+    (error: unknown) =>
+      error instanceof PathUnresolvableError &&
+      error.code === 'ETIMEDOUT' &&
+      /could not be checked: its volume did not answer in time/.test(error.message),
   )
   assert.ok(performance.now() - started < 10_000, 'the refusal came with the deadline and not with the disk')
   // The disk answers late. The walk it was in the middle of has been told to stop, so it climbs no further.

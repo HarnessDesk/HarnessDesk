@@ -1680,6 +1680,21 @@ wrong. What it costs: an Agent folder linked in by hand is readable by path
 once the roster watch has noticed (a moment), or when the listing is five
 seconds old, where it used to be at once.
 
+## A path the disk will not resolve is a file's state, not a refusal
+
+Looking at the disk can fail without deciding anything: a link that loops, a
+folder nobody may search, a volume that did not answer in time. None of those
+is "outside every open workspace", and none should read as it. They are raised
+as `PathUnresolvableError`, which keeps the errno the disk gave and its reason.
+
+`workspace/readFile` answers a file in its own terms — gone, or there but not
+readable — and did so before confinement looked at the disk, so it answers this
+error the same way: `missing` for a name the kernel would call absent (a `..`
+below a name that is not there), `unreadable` with the reason for the rest.
+Every other method passes the error on as the plain error it is. A path that is
+simply outside every workspace stays a refusal, and a name that is merely not
+there yet is still admitted.
+
 ## An evidence guard judges revisions, found by card and revision, never by round
 
 A finished round's rule asks whether some work is good enough to move on,

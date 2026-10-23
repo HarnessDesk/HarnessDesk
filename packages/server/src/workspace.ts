@@ -70,6 +70,31 @@ export interface ConfineOptions {
 }
 
 /**
+ * A path that could not be checked against the open workspaces, because the
+ * disk would not say where it leads: a link that loops, a folder nobody may
+ * search, a volume that did not answer in time.
+ *
+ * It is not a refusal. Nothing decided that the path is outside every
+ * workspace, and a person asking for a file that cannot be read is owed the
+ * reason in the file's own terms. So it is a kind of its own: `workspace/readFile`
+ * answers it as the file's state, and anything else that confines a path
+ * passes it on as the plain error it is. `code` is the errno the disk gave, so
+ * the checks that read a failed `stat` read this the same way.
+ */
+export class PathUnresolvableError extends Error {
+  readonly code: string
+
+  constructor(
+    readonly path: string,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error && cause.message !== '' ? cause.message : `${path} could not be checked.`, { cause })
+    this.name = 'PathUnresolvableError'
+    this.code = errnoOf(cause)
+  }
+}
+
+/**
  * Refuses a path that is not under one of the roots the user has opened.
  *
  * Both the spelling and the canonical target must be inside an admitted
@@ -105,9 +130,12 @@ const confinedTarget = async (
   )
   if (answered.settled === 'late') {
     stop.abort()
-    throw new Error(`${target} could not be checked: its volume did not answer in time.`)
+    throw new PathUnresolvableError(
+      target,
+      Object.assign(new Error(`${target} could not be checked: its volume did not answer in time.`), { code: 'ETIMEDOUT' }),
+    )
   }
-  if (answered.settled === 'error') throw answered.error
+  if (answered.settled === 'error') throw new PathUnresolvableError(target, answered.error)
   const [canonical = target, ...real] = answered.value
   if (!real.some((base) => isWithinPath(base, canonical))) throw outsideEveryWorkspace(target)
   return canonical

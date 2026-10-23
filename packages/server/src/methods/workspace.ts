@@ -5,7 +5,16 @@ import {
 } from '@harnessdesk/protocol'
 
 import { within, type Within } from '../seat-reads.js'
-import { asText, browseDirectories, browseWorkspaceEntries, confine, isBinaryFile, isMissingWorkspaceFileError, sha256 } from '../workspace.js'
+import {
+  PathUnresolvableError,
+  asText,
+  browseDirectories,
+  browseWorkspaceEntries,
+  confine,
+  isBinaryFile,
+  isMissingWorkspaceFileError,
+  sha256,
+} from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 
 /**
@@ -128,7 +137,17 @@ export const workspaceMethods = {
   },
 
   'workspace/readFile': async (ctx, params) => {
-    const path = await confine(params.path, await ctx.workspaces.fileRoots('read'))
+    let path
+    try {
+      path = await confine(params.path, await ctx.workspaces.fileRoots('read'))
+    } catch (thrown) {
+      if (!(thrown instanceof PathUnresolvableError)) throw thrown
+      // Not a refusal: the disk would not say where this path leads, and that is the file's own state.
+      // Below a name that is not there it is gone, as the kernel has it; a loop or a folder nobody
+      // may search is there but cannot be read.
+      if (isMissingWorkspaceFileError(thrown)) return { kind: 'missing' as const }
+      return { kind: 'unreadable' as const, message: thrown.message }
+    }
     const files = ctx.runtimes.files(params.runtime)
     let metadata
     try {
