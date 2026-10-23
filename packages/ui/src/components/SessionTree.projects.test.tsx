@@ -419,3 +419,19 @@ it('does not pull a parent repository Team into Chats through a chat session’s
   expect(chats.textContent).not.toContain(room.name)
   expect(container.querySelector('[data-project-root="/repo"]')?.textContent).toContain(room.name)
 })
+
+it('does not create a project just for a wrapped Team, but retains open Teams',()=>{
+ const team={id:'team-only',name:'Review changes',root:'/old-project',members:[],intents:[],channel:[],updatedAt:1} as unknown as import('@harnessdesk/protocol').TeamState
+ const goal=(state:'open'|'wrapped')=>({goal:{id:team.id,root:team.root,state,origin:{kind:'manual'}},members:[],board:team}) as unknown as import('@harnessdesk/protocol').GoalView
+ const open=workspace(REPO,{root:REPO,worktree:false})
+ render([],open,{teams:new Map([[team.id,team]]),goals:new Map([[team.id,goal('open')]])})
+ expect(container.querySelector('[data-project-root="/old-project"]')).not.toBeNull()
+ render([],open,{teams:new Map([[team.id,team]]),goals:new Map([[team.id,goal('wrapped')]])})
+ expect(container.querySelector('[data-project-root="/old-project"]')).toBeNull()
+ render([],open,{teams:new Map([[team.id,team]]),goals:new Map([[team.id,goal('wrapped')]]),foldersGone:new Map([[team.root,'The folder no longer exists.']])})
+ expect(container.querySelector('[data-project-root="/old-project"]')).toBeNull()
+ expect(container.querySelector('[data-region="gone-folders"]')?.textContent).toContain('1 folder is gone')
+ // Independent conversation history still earns a project after wrapping.
+ render([session('history','/old-project',{root:'/old-project',worktree:false})],open,{teams:new Map([[team.id,team]]),goals:new Map([[team.id,goal('wrapped')]])})
+ expect(container.querySelector('[data-project-root="/old-project"]')).not.toBeNull()
+})
