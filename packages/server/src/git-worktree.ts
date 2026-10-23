@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { realpath, rm } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { lstat, readlink, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -177,9 +178,9 @@ const parseList = (out: string): Listed[] => {
  * that appeared between the looking and the clicking cannot be discarded on
  * the strength of a number that is no longer true.
  *
- * Ignored contents are asked for with directories collapsed — `node_modules/`
- * as one line rather than thirty thousand — which is both the readable answer
- * and the fast one.
+ * Ignored directories stay collapsed in the displayed inventory. The digest
+ * includes their descendants and file contents so the same names and counts
+ * cannot confirm later edits.
  */
 const SHOWN = 40
 
@@ -194,7 +195,7 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
 
   // Ignored contents are their own call, without `--untracked-files=all`:
   // with it, git expands every file inside an ignored directory.
-  const dirty = await git(path, ['status', '--porcelain=v1', '-z', '--ignored']).catch(() => '')
+  const dirty = await git(path, ['status', '--porcelain=v1', '-z', '--ignored'])
   /* Through the reader, not `startsWith('!! ')` over every field: an origin is
      a bare path, so a source *named* `!! something` was read as an ignored
      record and reported as ignored having never been. */
@@ -205,8 +206,32 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
   // Over the whole inventory, not the shown slice: a change beyond the cap
   // still has to invalidate a confirmation.
   const digest = createHash('sha256')
+  digest.update(out)
   for (const change of changes) digest.update(`${change.status}\u0000${change.path}\u0000`)
   for (const entry of ignored) digest.update(`!!\u0000${entry}\u0000`)
+  // Git can collapse wholly ignored directories even with all untracked
+  // paths requested. Ask for every ignored file separately for the digest.
+  const ignoredFiles = await git(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'])
+  const files = new Set([...changes.map((change) => change.path), ...ignoredFiles.split('\0').filter(Boolean)])
+  for (const file of [...files].sort()) {
+    const full = join(path, file)
+    const info = await lstat(full).catch((error: NodeJS.ErrnoException) => {
+      // A tracked deletion can also have an ancestor replaced by a file.
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
+      throw error
+    })
+    digest.update(`${file}\0${info?.mode ?? 'missing'}\0`)
+    if (info?.isFile()) {
+      const content = createHash('sha256')
+      for await (const chunk of createReadStream(full)) content.update(chunk)
+      digest.update(content.digest())
+    } else if (info?.isSymbolicLink()) {
+      digest.update(await readlink(full))
+    } else if (info) {
+      digest.update(`${info.size}\0${info.mtimeMs}\0${info.ctimeMs}`)
+    }
+    digest.update('\0')
+  }
 
   return {
     changes: changes.slice(0, SHOWN),
@@ -496,8 +521,9 @@ export const remove = async (
   // A prunable entry has no directory left to read, so there is nothing to
   // lose and nothing to ask about; git drops the record on its own.
   if (!entry.prunable) {
-    const held = await inventory(target).catch(() => null)
-    const loses = held !== null && (held.changeCount > 0 || held.ignoredCount > 0)
+    const pending = await changes(target).catch(() => null)
+    const held = await inventory(target)
+    const loses = held.changeCount > 0 || held.ignoredCount > 0
 
     // Anything worth losing has to be confirmed against the inventory the
     // caller actually saw. `force` says "discard tracked work"; this says
@@ -516,7 +542,6 @@ export const remove = async (
       }
     }
 
-    const pending = await changes(target).catch(() => null)
     if (!force && pending && (pending.modified > 0 || pending.untracked > 0)) {
       throw new WorktreeDirtyError(target, pending)
     }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
@@ -505,6 +505,60 @@ test('a confirmation is void once the folder has changed under it', async () => 
   assert.ok(await gone(made.path))
 })
 
+test('a confirmation is void after a file is added inside an ignored directory', async () => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await writeFile(join(made.path, '.gitignore'), 'drafts/\n')
+  await mkdir(join(made.path, 'drafts', 'nested'), { recursive: true })
+  await writeFile(join(made.path, 'drafts', 'one.txt'), 'seen\n')
+  const held = await inventory(made.path)
+  assert.deepEqual(held.ignored, ['drafts/'])
+
+  const added = join(made.path, 'drafts', 'nested', 'two.txt')
+  await writeFile(added, 'new notes\n')
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  assert.equal(await readFile(added, 'utf8'), 'new notes\n')
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+test('a confirmation is void after listed file contents change', async (t) => {
+  for (const path of ['a.txt', 'loose.txt', 'local.txt', 'drafts/nested/one.txt']) {
+    await t.test(path, async () => {
+      const { repo, state } = await seedRepo()
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      await writeFile(join(made.path, '.gitignore'), 'drafts/\nlocal.txt\n')
+      await mkdir(join(made.path, 'drafts', 'nested'), { recursive: true })
+      const file = join(made.path, path)
+      await writeFile(file, 'seen\n')
+      const held = await inventory(made.path)
+      const before = await stat(file)
+      await writeFile(file, 'edit\n')
+      await utimes(file, before.atime, before.mtime)
+
+      await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+      assert.equal(await readFile(file, 'utf8'), 'edit\n')
+      await remove(repo, made.path, true, await confirmed(made.path), state)
+      assert.ok(await gone(made.path))
+    })
+  }
+})
+
+test('a confirmation covers file contents beyond the inventory display cap', async () => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  for (let index = 0; index < 45; index += 1) {
+    await writeFile(join(made.path, `f${index.toString().padStart(2, '0')}.txt`), 'seen\n')
+  }
+  const held = await inventory(made.path)
+  assert.equal(held.changes.length, 40)
+  assert.equal(held.changeCount, 45)
+  await writeFile(join(made.path, 'f44.txt'), 'edit\n')
+
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  assert.equal(await readFile(join(made.path, 'f44.txt'), 'utf8'), 'edit\n')
+})
+
 test('the inventory names what is there and counts what it could not show', async () => {
   const { repo, state } = await seedRepo()
   const made = await add(repo, 'lots', { kind: 'new', branch: 'lots' }, state)
@@ -518,6 +572,35 @@ test('the inventory names what is there and counts what it could not show', asyn
   // is what a person can read, and `node_modules/` is not a list.
   assert.deepEqual(held.ignored, ['junk/'])
   assert.ok(held.changes.some((change) => change.path === '.gitignore'))
+})
+
+test('a confirmed inventory can remove a checkout with a tracked directory replaced by a file', async () => {
+  const { repo, state } = await seedRepo()
+  await mkdir(join(repo, 'drafts'))
+  await writeFile(join(repo, 'drafts', 'one.txt'), 'original\n')
+  await git(repo, 'add', '.')
+  await git(repo, 'commit', '-qm', 'add the draft')
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await rm(join(made.path, 'drafts'), { recursive: true })
+  await writeFile(join(made.path, 'drafts'), 'replacement\n')
+
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+test('a confirmation tracks a dangling symbolic link without reading its destination', async () => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const link = join(made.path, 'draft.txt')
+  await symlink('missing-one.txt', link)
+  const held = await inventory(made.path)
+  assert.equal(held.stateId, await confirmed(made.path))
+  await rm(link)
+  await symlink('missing-two.txt', link)
+
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
 })
 
 // ------------------------------------------------------------------- prune
