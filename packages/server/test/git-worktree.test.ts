@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
@@ -637,6 +637,57 @@ test('a confirmation tracks a dangling symbolic link without reading its destina
   await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
   await remove(repo, made.path, true, await confirmed(made.path), state)
   assert.ok(await gone(made.path))
+})
+
+test('a replaced directory keeps outside contents out of the inventory', async (t) => {
+  for (const replaced of ['drafts', 'drafts/nested']) {
+    await t.test(replaced, async () => {
+      const { repo, state } = await seedRepo()
+      await mkdir(join(repo, 'drafts', 'nested'), { recursive: true })
+      await writeFile(join(repo, 'drafts', 'nested', 'one.txt'), 'original\n')
+      await git(repo, 'add', '.')
+      await git(repo, 'commit', '-qm', 'add the draft')
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      const outside = await tempDir('hd-inventory-outside-')
+      const directory = replaced === 'drafts' ? join(outside, 'nested') : outside
+      await mkdir(directory, { recursive: true })
+      const file = join(directory, 'one.txt')
+      await writeFile(file, 'outside notes\n')
+      await rm(join(made.path, replaced), { recursive: true })
+      await symlink(outside, join(made.path, replaced), 'dir')
+      const held = await inventory(made.path)
+      assert.ok(held.changes.some((entry) => entry.path === replaced))
+
+      await writeFile(file, 'different outside notes\n')
+      assert.equal(await confirmed(made.path), held.stateId)
+      await remove(repo, made.path, true, held.stateId, state)
+      assert.ok(await gone(made.path))
+      assert.equal(await readFile(file, 'utf8'), 'different outside notes\n')
+    })
+  }
+})
+
+test('a replaced directory can be removed while its outside destination is unreadable', async () => {
+  const { repo, state } = await seedRepo()
+  await mkdir(join(repo, 'drafts'))
+  await writeFile(join(repo, 'drafts', 'one.txt'), 'original\n')
+  await git(repo, 'add', '.')
+  await git(repo, 'commit', '-qm', 'add the draft')
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const outside = await tempDir('hd-inventory-outside-')
+  const file = join(outside, 'one.txt')
+  await writeFile(file, 'outside notes\n')
+  await rm(join(made.path, 'drafts'), { recursive: true })
+  await symlink(outside, join(made.path, 'drafts'), 'dir')
+  await chmod(file, 0o000)
+  try {
+    await remove(repo, made.path, true, await confirmed(made.path), state)
+    assert.ok(await gone(made.path))
+    assert.equal((await stat(file)).mode & 0o777, 0)
+  } finally {
+    await chmod(file, 0o644)
+  }
+  assert.equal(await readFile(file, 'utf8'), 'outside notes\n')
 })
 
 // ------------------------------------------------------------------- prune

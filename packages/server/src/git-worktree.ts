@@ -184,7 +184,26 @@ const parseList = (out: string): Listed[] => {
  */
 const SHOWN = 40
 
+/** A replaced directory leaves its former descendants absent from this checkout. */
+const inventoryEntry = async (root: string, path: string) => {
+  const parts = path.replace(/\/$/, '').split('/')
+  let at = root
+  for (const [index, part] of parts.entries()) {
+    at = join(at, part)
+    const info = await lstat(at).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
+      throw error
+    })
+    if (!info || index === parts.length - 1) return info
+    // Inspect each parent before reading below it. A link is an entry of its
+    // own, never a directory through which to read a former child's contents.
+    if (!info.isDirectory()) return null
+  }
+  return null
+}
+
 export const inventory = async (path: string): Promise<GitWorktreeInventory> => {
+  const root = await realpath(path)
   const changes: { path: string; status: string }[] = []
   const ignored: string[] = []
 
@@ -217,12 +236,8 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
   const ignoredFiles = await git(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'])
   const files = new Set([...changes.map((change) => change.path), ...ignoredFiles.split('\0').filter(Boolean)])
   for (const file of [...files].sort()) {
-    const full = join(path, file)
-    const info = await lstat(full).catch((error: NodeJS.ErrnoException) => {
-      // A tracked deletion can also have an ancestor replaced by a file.
-      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
-      throw error
-    })
+    const full = join(root, file)
+    const info = await inventoryEntry(root, file)
     digest.update(`${file}\0${info?.mode ?? 'missing'}\0`)
     if (info?.isFile()) {
       const content = createHash('sha256')
