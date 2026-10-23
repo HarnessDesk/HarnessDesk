@@ -298,7 +298,21 @@ export class TriggerBudgets {
       const budget = snapshot.budgets[goal]
       if (!budget || budget.stop) return { next: null, value: false }
       const at = Math.max(snapshot.clock, this.#port.now())
-      return { next: { ...snapshot, clock: at, budgets: { ...snapshot.budgets, [goal]: { ...budget, stop: { reason, detail, at } } } }, value: true }
+      return { next: { ...snapshot, clock: at, budgets: { ...snapshot.budgets, [goal]: { ...budget, stop: { reason, detail, at }, stopCompleted: false } } }, value: true }
+    })
+  }
+
+  /** Recorded stops whose cleanup still needs to finish, even after settlement or a restart. */
+  pendingStops(): readonly { readonly goal: string; readonly detail: string }[] {
+    return Object.entries(this.#read().budgets).flatMap(([goal, budget]) =>
+      budget.stop && budget.stopCompleted !== true ? [{ goal, detail: budget.stop.detail }] : [])
+  }
+
+  completeStop(goal: string): Promise<void> {
+    return this.#transact((snapshot) => {
+      const budget = snapshot.budgets[goal]
+      if (!budget?.stop || budget.stopCompleted) return { next: null, value: undefined }
+      return { next: { ...snapshot, budgets: { ...snapshot.budgets, [goal]: { ...budget, stopCompleted: true } } }, value: undefined }
     })
   }
 
@@ -401,6 +415,7 @@ export class BudgetWatch {
   }
 
   async #sweep(): Promise<void> {
+    const stops = new Map(this.#budgets.pendingStops().map((one) => [one.goal, one.detail]))
     for (const goal of this.#budgets.live()) {
       const run = this.#runs(goal)
       // Only a run that is going can dispatch: one that settled, stopped or stalled waits on a person already.
@@ -413,8 +428,19 @@ export class BudgetWatch {
         continue
       }
       if (!await this.#budgets.stop(goal, stopReasonOf(verdict.reason), verdict.reason)) continue
-      await this.#port.stopRun(goal, verdict.reason)
-      await this.#port.interrupt(goal)
+      stops.set(goal, verdict.reason)
     }
+    const errors: unknown[] = []
+    for (const [goal, reason] of stops) {
+      // Keep the ordering on success, but an unsuccessful run save must never prevent interruption.
+      let stopped = false
+      let interrupted = false
+      try { await this.#port.stopRun(goal, reason); stopped = true } catch (error) { errors.push(error) }
+      try { await this.#port.interrupt(goal); interrupted = true } catch (error) { errors.push(error) }
+      if (stopped && interrupted) {
+        try { await this.#budgets.completeStop(goal) } catch (error) { errors.push(error) }
+      }
+    }
+    if (errors.length) throw new AggregateError(errors, 'Budget cleanup failed; pending stops will be retried.')
   }
 }

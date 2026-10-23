@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import { DEFAULT_TRIGGER_BUDGET, type TriggerDefinition } from '@harnessdesk/protocol'
 
-import { budgetRefusal, committedToday, PAUSED_STOP, utcDay } from '../src/intake/budget.js'
+import { BudgetWatch, budgetRefusal, committedToday, PAUSED_STOP, utcDay } from '../src/intake/budget.js'
 import { usdMicros } from '../src/intake/definition.js'
 import { definition, desk, onDisk, prFact, PROJECT, sha } from './fixtures/intake-restart.js'
 import { tempDir } from './scratch.js'
@@ -25,6 +25,42 @@ class Clock {
 }
 
 const opens = (events: readonly string[]) => events.filter((one) => one.startsWith('open:'))
+
+for (const fails of ['stop', 'interrupt'] as const) test(`budget cleanup retries after ${fails} fails, including after restart`, async () => {
+  const home = tempDir('hd-intake-stop-retry-')
+  const clock = new Clock(DAY)
+  let d = await desk(home, { now: clock.now })
+  const opened = await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))
+  await d.settle()
+  const goal = opened.goal!
+  clock.at += 5 * HOUR
+  const calls: string[] = []
+  let fail = true
+  const watcher = () => new BudgetWatch(d.budgets, (id) => d.flows.executionsFor(id)[0] ?? null, {
+    hold: async () => {},
+    stopRun: async (id, reason) => {
+      calls.push('stop')
+      if (fail && fails === 'stop') throw new Error('run save failed')
+      await d.flows.stopRun(d.flows.executionsFor(id)[0]!.id, reason)
+    },
+    interrupt: async () => {
+      calls.push('interrupt')
+      if (fail && fails === 'interrupt') throw new Error('interrupt failed')
+    },
+  })
+  await assert.rejects(watcher().tick(), /failed/)
+  assert.deepEqual(calls, ['stop', 'interrupt'], 'both cleanup steps are attempted')
+  const firstStop = d.budgets.state(goal)!.stop
+  assert.ok(firstStop)
+  // A new desk reads the pending cleanup even if the run already stopped.
+  d = await desk(home, { now: clock.now })
+  fail = false
+  await watcher().tick()
+  assert.deepEqual(calls, ['stop', 'interrupt', 'stop', 'interrupt'])
+  assert.deepEqual(d.budgets.state(goal)!.stop, firstStop)
+  await watcher().tick()
+  assert.equal(calls.length, 4, 'completed cleanup is not repeated')
+})
 
 test('force-push shares money time and round allowance', async () => {
   const home = tempDir('hd-intake-budget-')
