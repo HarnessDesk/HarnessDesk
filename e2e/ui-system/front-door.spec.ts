@@ -159,4 +159,4 @@ for (const scene of ['flow', 'plain'] as const) {
       await page.screenshot({ path: `/tmp/issues-1642-${theme}-${scene}.png` })
     })
   }
-})
+}
