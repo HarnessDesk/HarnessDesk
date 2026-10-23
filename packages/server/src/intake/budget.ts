@@ -306,7 +306,9 @@ export class TriggerBudgets {
 
   /** Recorded stops whose cleanup still needs to finish, even after settlement or a restart. */
   pendingStops(): readonly { readonly goal: string; readonly detail: string }[] {
-    return Object.entries(this.#read().budgets).flatMap(([goal, budget]) =>
+    let snapshot: IntakeSnapshot
+    try { snapshot = this.#read() } catch { return [] }
+    return Object.entries(snapshot.budgets).flatMap(([goal, budget]) =>
       budget.stop && budget.stopCompleted !== true ? [{ goal, detail: budget.stop.detail }] : [])
   }
 
@@ -331,7 +333,9 @@ export class TriggerBudgets {
 
   /** Pending interruptions, including a paused run whose first cleanup write has not landed yet. */
   pendingHolds(): readonly { readonly goal: string; readonly reason: string }[] {
-    return Object.entries(this.#read().budgets).flatMap(([goal, budget]) => {
+    let snapshot: IntakeSnapshot
+    try { snapshot = this.#read() } catch { return [] }
+    return Object.entries(snapshot.budgets).flatMap(([goal, budget]) => {
       if (budget.stop) return []
       if (budget.hold?.completed === false) return [{ goal, reason: budget.hold.reason }]
       if (budget.settled) return []

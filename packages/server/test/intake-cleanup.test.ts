@@ -5,7 +5,7 @@ import { test } from 'node:test'
 
 import type { GoalView } from '@harnessdesk/protocol'
 
-import { intakeDesk, REVIEW_FLOW, until, type IntakeDesk } from './fixtures/intake-host.js'
+import { intakeDesk, REVIEW_FLOW, TRIGGERS, until, type IntakeDesk } from './fixtures/intake-host.js'
 import { sha } from './fixtures/intake-forge.js'
 
 const E2E = { timeout: 120_000 } as const
@@ -60,6 +60,53 @@ test('a new head opens its round even when an old turn cannot be interrupted', E
   assert.equal(run.intake?.dispatchHeld, false, 'the new round is released')
 })
 
+for (const gate of ['pause', 'cap'] as const) test(`lifting a ${gate} resumes other Goals despite one Goal's pending interruption`, E2E, async (t) => {
+  const d = await intakeDesk({ triggers: `${TRIGGERS}  concurrency: 2\n` })
+  const control = { fail: true, attempts: 0 }
+  t.after(() => { control.fail = false; return d.stop() })
+  const { goal, records } = await working(d)
+  const at = d.clocks.wall + 1000
+  d.forge.pulls.push({ number: 2, head: sha('b'), state: 'open', created: at, updated: at })
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const other = Object.keys(d.host.intakePlane.journal.read().budgets).find((id) => id !== goal)!
+  const otherRecords = await until(async () => {
+    const view = await d.host.call('goal/read', { goal: other })
+    const sessions = view.board.intents.flatMap((card) => card.claim ? [card.claim.sessionId] : [])
+    const running = d.host.registry.all().filter((record) => sessions.includes(String(record.session.id)) && record.running.size > 0)
+    return running.length ? running : null
+  }, 'the other Goal at work')
+  failInterrupts(records, control)
+  let prefs = await d.host.call('trigger/preferences', {})
+  prefs = await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: gate === 'pause', dailyUsd: gate === 'cap' ? 1 : 20 })
+  await until(() => otherRecords.every((record) => record.running.size === 0) ? true : null, 'the other Goal held')
+  const before = d.pushed.length
+  const resumed = await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: false, dailyUsd: 20 })
+  assert.equal(resumed.paused, false)
+  assert.equal(resumed.dailyUsd, 20)
+  assert.ok(d.pushed.slice(before).some((one) => one.method === 'trigger/changed' && one.params.revision === resumed.revision), 'windows receive the saved preferences')
+  assert.equal(d.host.flowsPlane.executionsFor(goal)[0]!.intake?.dispatchHeld, true, 'the failing Goal stays held')
+  assert.equal(d.host.flowsPlane.executionsFor(other)[0]!.intake?.dispatchHeld, false, 'the other Goal is released immediately')
+  await until(() => otherRecords.every((record) => record.running.size > 0) ? true : null, 'the other Goal resumed')
+})
+
+test('preferences still save and notify when the intake journal is unreadable', E2E, async (t) => {
+  const first = await intakeDesk()
+  await first.stop()
+  await writeFile(join(first.stateDir, 'intake.json'), '{broken')
+  const d = await intakeDesk({ repo: first.repo, stateDir: first.stateDir, forge: first.forge, clocks: first.clocks })
+  t.after(() => d.stop())
+  assert.match(d.host.intakePlane.problem ?? '', /journal cannot be read/)
+  let prefs = await d.host.call('trigger/preferences', {})
+  for (const [paused, dailyUsd] of [[true, 20], [false, 20], [false, 10]] as const) {
+    const before = d.pushed.length
+    prefs = await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused, dailyUsd })
+    assert.equal(prefs.paused, paused)
+    assert.equal(prefs.dailyUsd, dailyUsd)
+    assert.ok(d.pushed.slice(before).some((one) => one.method === 'trigger/changed' && one.params.revision === prefs.revision))
+  }
+})
+
 for (const kind of ['pause', 'cap'] as const) test(`a ${kind} hold retries failed interruptions until every turn ends`, E2E, async (t) => {
   const d = await intakeDesk()
   const control = { fail: true, attempts: 0 }
@@ -67,9 +114,9 @@ for (const kind of ['pause', 'cap'] as const) test(`a ${kind} hold retries faile
   const { goal, records } = await working(d, 2)
   failInterrupts(records, control)
   const prefs = await d.host.call('trigger/preferences', {})
-  await assert.rejects(d.host.call('trigger/preferences/set', {
+  await d.host.call('trigger/preferences/set', {
     revision: prefs.revision, paused: kind === 'pause', dailyUsd: kind === 'cap' ? 1 : prefs.dailyUsd,
-  }), /cleanup failed/i)
+  })
   const run = () => d.host.flowsPlane.executionsFor(goal)[0]!
   assert.ok(run().intake?.heldFor)
   assert.equal(d.host.intakePlane.journal.read().budgets[goal]!.stop, null)
@@ -104,7 +151,7 @@ test('a paused hold keeps pending interruption through a restart', E2E, async (t
   const { goal, records } = await working(d)
   failInterrupts(records, control)
   const prefs = await d.host.call('trigger/preferences', {})
-  await assert.rejects(d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: true, dailyUsd: prefs.dailyUsd }), /cleanup failed/i)
+  await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: true, dailyUsd: prefs.dailyUsd })
   control.fail = false
   await d.stop()
   d = await intakeDesk({ repo: d.repo, stateDir: d.stateDir, forge: d.forge, clocks: d.clocks })
@@ -125,9 +172,9 @@ test('raising the cap waits for the pending hold interruption before releasing d
   const { goal, records } = await working(d)
   failInterrupts(records, control)
   let prefs = await d.host.call('trigger/preferences', {})
-  await assert.rejects(d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: false, dailyUsd: 1 }), /cleanup failed/i)
+  await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: false, dailyUsd: 1 })
   prefs = await d.host.call('trigger/preferences', {})
-  await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: false, dailyUsd: 20 }).catch(() => {})
+  await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: false, dailyUsd: 20 })
   const run = () => d.host.flowsPlane.executionsFor(goal)[0]!
   assert.equal(run().intake?.dispatchHeld, true, 'the raised cap cannot release unfinished interruption')
   control.fail = false
@@ -154,9 +201,9 @@ for (const kind of ['pause', 'cap'] as const) test(`a later ${kind} hold require
   await d.host.flowsPlane.holdTriggered(run().id, reason)
   const before = control.attempts
   prefs = await d.host.call('trigger/preferences', {})
-  await assert.rejects(d.host.call('trigger/preferences/set', {
+  await d.host.call('trigger/preferences/set', {
     revision: prefs.revision, paused: kind === 'pause', dailyUsd: kind === 'cap' ? 1 : 20,
-  }), /cleanup failed/i)
+  })
   assert.ok(control.attempts > before)
   assert.ok(records[0]!.running.size > 0)
   control.fail = false
@@ -171,9 +218,9 @@ test('unpausing resumes source monitoring even while hold interruption still nee
   const { records } = await working(d)
   failInterrupts(records, control)
   let prefs = await d.host.call('trigger/preferences', {})
-  await assert.rejects(d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: true, dailyUsd: prefs.dailyUsd }), /cleanup failed/i)
+  await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: true, dailyUsd: prefs.dailyUsd })
   prefs = await d.host.call('trigger/preferences', {})
-  await assert.rejects(d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: false, dailyUsd: prefs.dailyUsd }), /cleanup failed/i)
+  await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: false, dailyUsd: prefs.dailyUsd })
   const source = [...d.timers.live.values()].find((one) => one.ms === 15_000)
   assert.ok(source, 'source monitoring follows the saved unpaused setting')
   const reads = d.forge.calls.length
@@ -239,7 +286,7 @@ for (const phase of ['disarmed', 'restarted', 'paused'] as const) test(`pending 
     d = await intakeDesk({ repo: d.repo, stateDir: d.stateDir, forge: d.forge, clocks: d.clocks })
   } else if (phase === 'paused') {
     const prefs = await d.host.call('trigger/preferences', {})
-    await assert.rejects(d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: true, dailyUsd: prefs.dailyUsd }), /cleanup failed/i)
+    await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: true, dailyUsd: prefs.dailyUsd })
   }
   const [timer] = [...d.timers.live.values()]
   assert.equal(d.timers.live.size, 1, 'only cleanup is scheduled without an arm or a live budget')

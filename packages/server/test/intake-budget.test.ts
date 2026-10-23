@@ -26,6 +26,13 @@ class Clock {
 
 const opens = (events: readonly string[]) => events.filter((one) => one.startsWith('open:'))
 
+test('cleanup discovery tolerates an unreadable intake journal', async () => {
+  const d = await desk(tempDir('hd-intake-unreadable-cleanup-'))
+  d.store.read = () => { throw new Error('The intake journal cannot be read.') }
+  assert.deepEqual(d.budgets.pendingStops(), [])
+  assert.deepEqual(d.budgets.pendingHolds(), [])
+})
+
 for (const fails of ['stop', 'interrupt'] as const) test(`budget cleanup retries after ${fails} fails, including after restart`, async () => {
   const home = tempDir('hd-intake-stop-retry-')
   const clock = new Clock(DAY)

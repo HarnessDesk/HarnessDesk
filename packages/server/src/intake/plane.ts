@@ -909,15 +909,20 @@ export class IntakePlane {
       this.#prefs = next
       return was
     })
+    // Preferences are already durable. Cleanup retries on its timer and must not
+    // hide the saved state or hold back recovery and postings on other Goals.
+    const sweep = () => this.#watch.tick().catch((error: unknown) => {
+      this.#port.log('budget cleanup will be retried after trigger preferences changed', { error: String(error) })
+    })
     if (paused && !before.paused) {
       await this.#stopWatching()
       // Every live run is held now, its turns and checks interrupted — never left dispatching while paused, never stopped for good.
-      await this.#watch.tick()
+      await sweep()
     } else if (!paused && before.paused) {
       // What the pause held continues, and what waited to be released is let go; then watching resumes.
       try {
         if (this.#problem === null && this.#dispatchReady) {
-          await this.#watch.tick()
+          await sweep()
           await this.#admission.recover().catch(() => {})
           await this.#republish()
         }
@@ -926,7 +931,7 @@ export class IntakePlane {
       }
     } else if (!paused && dailyUsd !== before.dailyUsd) {
       // Lowered: work past it holds. Raised: what it held continues.
-      await this.#watch.tick()
+      await sweep()
       if (this.#problem === null && this.#dispatchReady) {
         await this.#admission.recover().catch(() => {})
         await this.#republish()
