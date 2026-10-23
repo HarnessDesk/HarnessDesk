@@ -372,6 +372,8 @@ export interface BudgetWatchPort {
    * released through admission's recovery once the gate allows it again.
    */
   hold(goal: string, reason: string): Promise<void>
+  /** A sweep settled: its owner can retire the retry timer once cleanup is complete. */
+  swept?(): void
   readonly timers?: { every(fn: () => void, ms: number): unknown; clear(handle: unknown): void }
 }
 
@@ -410,7 +412,7 @@ export class BudgetWatch {
 
   /** One sweep; a sweep already running is joined, never doubled. */
   tick(): Promise<void> {
-    this.#ticking ??= this.#sweep().finally(() => { this.#ticking = null })
+    this.#ticking ??= this.#sweep().finally(() => { this.#ticking = null; this.#port.swept?.() })
     return this.#ticking
   }
 

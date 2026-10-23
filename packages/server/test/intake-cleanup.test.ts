@@ -62,3 +62,42 @@ test('a budget stop retries every failed runtime interruption before completing 
   await d.host.intakePlane.tick()
   assert.deepEqual(attempts, completed)
 })
+
+for (const phase of ['disarmed', 'restarted', 'paused'] as const) test(`pending budget cleanup keeps its own timer while ${phase}`, E2E, async (t) => {
+  let d = await intakeDesk()
+  let fail = true
+  t.after(() => { fail = false; return d.stop() })
+  const { goal, records } = await working(d)
+  const stop = d.host.flowsPlane.stopRun.bind(d.host.flowsPlane)
+  d.host.flowsPlane.stopRun = async (...args) => {
+    if (fail) throw new Error('run stop failed')
+    return stop(...args)
+  }
+  const interrupt = records[0]!.live!.interrupt.bind(records[0]!.live)
+  records[0]!.live!.interrupt = async () => {
+    if (fail) throw new Error('runtime interrupt failed')
+    await interrupt()
+  }
+  d.clocks.advance(5 * 3_600_000)
+  await assert.rejects(d.host.intakePlane.tick(), /cleanup failed/i)
+  assert.equal(d.host.intakePlane.journal.read().budgets[goal]!.stopCompleted, false)
+  assert.ok(records[0]!.running.size > 0)
+  await d.host.call('trigger/disarm', { root: d.repo.dir, id: 'review' })
+  if (phase === 'restarted') {
+    fail = false
+    await d.stop()
+    d = await intakeDesk({ repo: d.repo, stateDir: d.stateDir, forge: d.forge, clocks: d.clocks })
+  } else if (phase === 'paused') {
+    const prefs = await d.host.call('trigger/preferences', {})
+    await assert.rejects(d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: true, dailyUsd: prefs.dailyUsd }), /cleanup failed/i)
+  }
+  const [timer] = [...d.timers.live.values()]
+  assert.equal(d.timers.live.size, 1, 'only cleanup is scheduled without an arm or a live budget')
+  assert.equal(timer?.ms, 1000)
+  const reads = d.forge.calls.length
+  fail = false
+  timer!.fn()
+  await until(() => d.host.intakePlane.journal.read().budgets[goal]!.stopCompleted ? true : null, 'pending cleanup completed by its timer')
+  await until(() => d.timers.live.size === 0 ? true : null, 'the cleanup timer retired')
+  assert.equal(d.forge.calls.length, reads, 'cleanup reads no source')
+})

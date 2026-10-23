@@ -39,7 +39,8 @@ import { IntakeStore, type IntakeFiring, type IntakeOperation } from './store.js
  *
  * - **Nothing without an arm.** Loading reads three files and finishes what
  *   the journal began; it starts no timer and reads no forge. Watching begins
- *   only when a verified arm exists and the machine is not paused.
+ *   only when a verified arm exists and the machine is not paused. Recorded
+ *   stops awaiting cleanup keep their own retry timer independently.
  * - **Startup order.** `load` runs once the Goals, the runs and the evidence
  *   are back, with dispatch held: every journaled firing is finished to its
  *   held round. `ready` runs once the runtimes are up: held firings are
@@ -248,6 +249,11 @@ export class IntakePlane {
         await port.interrupt(goal)
         this.#schedule()
       },
+      swept: () => {
+        void this.#syncTimers().catch((error: unknown) => {
+          this.#port.log('budget timers could not be updated', { error: String(error) })
+        })
+      },
       timers: this.#timers,
     })
     this.#admission = new Admission(this.#store, {
@@ -343,22 +349,24 @@ export class IntakePlane {
   }
 
   async #startWatching(): Promise<void> {
-    if (this.#closed || this.#prefs.paused || this.#problem !== null) return
-    await this.#monitor.start()
+    if (!this.#closed && !this.#prefs.paused && this.#problem === null) await this.#monitor.start()
     await this.#syncTimers()
   }
 
   /**
    * The budget sweep and the meter run only while there is something to
-   * watch — an arm on this machine, or a trigger Goal whose budget is live —
-   * and never while paused or closed: a desk with no triggers runs nothing.
+   * watch — an arm on this machine, or a trigger Goal whose budget is live.
+   * Pending stops keep only the cleanup sweep, even while disarmed or paused.
+   * Closing stops every timer.
    */
   async #syncTimers(): Promise<void> {
     const armed = this.#closed ? 0 : (await this.#consent.armed().catch(() => [])).length
-    // A close or a pause that landed during the read above leaves no timer behind.
-    const want = !this.#closed && !this.#prefs.paused && this.#problem === null && (armed > 0 || this.#budgets.live().length > 0)
-    if (want) {
-      this.#watch.start()
+    const enabled = !this.#closed && this.#problem === null
+    const wantWork = enabled && !this.#prefs.paused && (armed > 0 || this.#budgets.live().length > 0)
+    const wantCleanup = enabled && this.#budgets.pendingStops().length > 0
+    if (wantWork || wantCleanup) this.#watch.start()
+    else this.#watch.close()
+    if (wantWork) {
       if (this.#meterTimer === null) {
         this.#meterTimer = this.#timers.every(() => {
           void this.meter().catch(() => {})
@@ -366,7 +374,6 @@ export class IntakePlane {
         }, METER_MS)
       }
     } else {
-      this.#watch.close()
       if (this.#meterTimer !== null) {
         this.#timers.clear(this.#meterTimer)
         this.#meterTimer = null
@@ -381,6 +388,7 @@ export class IntakePlane {
       this.#meterTimer = null
     }
     await this.#monitor.pause()
+    await this.#syncTimers()
   }
 
   /**
