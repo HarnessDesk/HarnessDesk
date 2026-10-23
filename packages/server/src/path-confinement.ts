@@ -8,7 +8,7 @@ export const canonicalTarget = (path: string, links = 0): string => {
   const missing: string[] = []
   for (;;) {
     try {
-      return join(realpathSync(ancestor), ...missing)
+      return join(realpathSync.native(ancestor), ...missing)
     } catch (error) {
       if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
     }
@@ -20,7 +20,7 @@ export const canonicalTarget = (path: string, links = 0): string => {
       }
     })()
     if (info?.isSymbolicLink()) {
-      return join(canonicalTarget(resolve(realpathSync(dirname(ancestor)), readlinkSync(ancestor)), links + 1), ...missing)
+      return join(canonicalTarget(resolve(realpathSync.native(dirname(ancestor)), readlinkSync(ancestor)), links + 1), ...missing)
     }
     const parent = dirname(ancestor)
     if (parent === ancestor) throw new Error('This path has no existing ancestor.')

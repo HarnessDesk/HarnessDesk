@@ -4,7 +4,7 @@ import { constants } from 'node:fs'
 import { mkdir, mkdtemp, open, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
@@ -42,6 +42,26 @@ const fileChange = (dir: string, changes: FileChange[]): AgentItem =>
   ({ id: `fc-${changes.length}`, type: 'fileChange', changes, status: 'completed', origin: 'agent' }) as unknown as AgentItem
 
 const turnOf = (items: AgentItem[], diff?: string): Turn => ({ id: turnId('t1'), items, status: 'completed', diff: diff ?? null })
+
+test('turn operations accept a repository opened with a different letter case', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const alias = join(dirname(dir), basename(dir).toUpperCase())
+  const exists = await stat(alias).then(() => true, (error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  })
+  if (!exists) return t.skip('this volume distinguishes path letter case')
+  const content = 'recorded\n'
+  await writeFile(join(dir, 'case.txt'), content)
+  const turn = turnOf([fileChange(dir, [{ path: join(alias, 'case.txt'), kind: { type: 'add' }, diff: content }])])
+  assert.deepEqual(await revertTurn(alias, turn), ['case.txt'])
+  assert.deepEqual(await reapplyTurn(alias, turn), ['case.txt'])
+  assert.equal(await readFile(join(dir, 'case.txt'), 'utf8'), content)
+  await git(dir, 'add', 'case.txt')
+  await git(dir, 'commit', '-qm', 'Record file contents')
+  assert.equal(await turnCommit(alias, turn), (await git(dir, 'rev-parse', 'HEAD')).trim())
+})
 
 test('turn removal skips a missing path beneath a former directory and applies the rest', async (t) => {
   const dir = await repo()
