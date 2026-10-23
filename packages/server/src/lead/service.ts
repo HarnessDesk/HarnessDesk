@@ -140,7 +140,7 @@ export class LeadService {
           const key = await options.broker.resolveLead('anthropic')
           this.#assertOpen()
           if (generation !== this.#generation || this.#changingKeys) throw new Error('lead-lifecycle-changed')
-          if (signal.aborted) throw new Error('lead-provider-failed')
+          if (signal.aborted || leadContainsSecret(payload, key)) throw new Error('lead-provider-failed')
           const previousUsage = this.#providerUsage.get(requestId)
           this.#providerUsage.set(requestId, null)
           const response = await (options.messagesTransport ?? leadProviderTransport).send({

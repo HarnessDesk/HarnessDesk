@@ -867,3 +867,20 @@ test('a desk closing while the Lead already waits for the person keeps the perso
   assert.equal(s.journal.state.phase, 'waiting-for-user')
   assert.equal(s.journal.state.managementReason, 'lead-run-not-started')
 })
+
+test('host screens nested and JSON-encoded tool results before provider transport', async t => {
+  const requests: unknown[] = []
+  const s = await providerRig(t, async request => { requests.push(request); return { status: 429, body: '{}' } })
+  for (const [i, secret] of [key, 'Authorization: Bearer demo-value', 'ghp_' + 'a'.repeat(36)].entries()) {
+    const content = JSON.stringify({ tail: JSON.stringify({ text: secret }).replaceAll('test', '\\u0074est') })
+    const body = providerBody({ messages: [
+      { role: 'user', content: [{ type: 'text', text: 'Read evidence' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'use', name: 'desk_read', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'use', content, is_error: false }] },
+    ] })
+    const id = `outbound-screen-${i}`
+    await providerReserve(s.journal, id, body)
+    await assert.rejects(s.settings.providerSend(id, body, new AbortController().signal), /lead-provider-failed/)
+  }
+  assert.deepEqual(requests, [])
+})
