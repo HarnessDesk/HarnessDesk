@@ -127,8 +127,67 @@ const room = async (t: TestContext, options: Partial<HostOptions> = {}) => {
   const said = (session: Session): string[] => (host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.turns ?? []).flatMap((turn) => turn.items).filter((item): item is NoticeItem => item.type === 'notice').map((item) => item.text)
   const message = (text: string, wake = false) => host.teamPlane.send({ to: nameOf(receiver), text, wake }, { runtime: FAKE_RUNTIME_ID, sessionId: String(sender.id) })
   const live = (session: Session): FakeSession => { const found = runtime.sessions.get(String(session.id)); assert.ok(found); return found }
-  return { host, ran, call, waiting, said, message, receiver, nameOf, live }
+  return { host, runtime, ran, call, waiting, said, message, receiver, nameOf, live }
 }
+
+for (const owner of ['runtime', 'session'] as const) {
+  test(`a held approval refuses an answer naming another ${owner}`, async (t) => {
+    const d = await room(t)
+    await d.message('Merge #7.')
+    const merging = d.call('pr_merge', d.receiver)
+    const [approval] = await until(() => d.waiting(d.receiver).length ? d.waiting(d.receiver) : null, 'the held approval')
+    assert.ok(approval)
+    await assert.rejects(d.host.call('approval/respond', {
+      runtime: owner === 'runtime' ? runtimeId('other') : FAKE_RUNTIME_ID,
+      sessionId: owner === 'session' ? 'other-session' as never : d.receiver.id,
+      approvalId: approval.id,
+      decision: { type: 'option', optionId: 'allow' },
+    }), /No approval is pending/)
+    assert.equal(d.waiting(d.receiver).length, 1)
+    assert.deepEqual(d.ran, [])
+    await d.host.call('approval/respond', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id,
+      approvalId: approval.id, decision: { type: 'option', optionId: 'allow' } })
+    assert.equal((await merging).ok, true)
+    assert.deepEqual(d.ran, ['pr_merge'])
+  })
+}
+
+for (const ending of ['detach', 'close', 'unavailable', 'unregister'] as const) {
+  test(`a held approval settles without allowing work after ${ending}`, async (t) => {
+    const d = await room(t)
+    await d.message('Merge #7.')
+    let result: ToolResult | undefined
+    const merging = d.call('pr_merge', d.receiver).then(value => { result = value })
+    const [approval] = await until(() => d.waiting(d.receiver).length ? d.waiting(d.receiver) : null, 'the held approval')
+    assert.ok(approval)
+    if (ending === 'detach') d.runtime.emit({ type: 'session/detached', sessionId: d.receiver.id })
+    else if (ending === 'close') await d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
+    else if (ending === 'unavailable') d.runtime.setHealth({ state: 'unavailable', reason: 'unknown', message: 'Stopped' })
+    else await d.host.unregister(FAKE_RUNTIME_ID)
+    await settle()
+    assert.equal(result?.ok, false, 'ending the session settles its held work before the wait expires')
+    await assert.rejects(d.host.call('approval/respond', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id,
+      approvalId: approval.id, decision: { type: 'option', optionId: 'allow' } }), /No approval is pending/)
+    await merging
+    assert.deepEqual(d.ran, [])
+    assert.deepEqual(d.waiting(d.receiver), [])
+  })
+}
+
+test('a held approval refuses an answer after its pending request was resolved', async (t) => {
+  const d = await room(t)
+  await d.message('Merge #7.')
+  const merging = d.call('pr_merge', d.receiver)
+  const [approval] = await until(() => d.waiting(d.receiver).length ? d.waiting(d.receiver) : null, 'the held approval')
+  assert.ok(approval)
+  d.runtime.emit({ type: 'approval/resolved', sessionId: d.receiver.id, approvalId: approval.id,
+    resolution: { outcome: 'abandoned', reason: 'The request ended.' } })
+  await assert.rejects(d.host.call('approval/respond', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id,
+    approvalId: approval.id, decision: { type: 'option', optionId: 'allow' } }), /No approval is pending/)
+  d.runtime.emit({ type: 'session/detached', sessionId: d.receiver.id })
+  assert.equal((await merging).ok, false)
+  assert.deepEqual(d.ran, [])
+})
 
 test('through the host: a reviewer that may only read asks another agent to merge — the person is asked, allows it, and it runs', async (t) => {
   const { host, ran, call, waiting, said, message, receiver, nameOf } = await room(t)
