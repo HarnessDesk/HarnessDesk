@@ -17,10 +17,11 @@ import { promisify } from 'node:util'
  * and are inherited by any git that git starts in turn. They cover exactly:
  * hooks (`core.hooksPath`), the filesystem monitor (`core.fsmonitor`), the ssh
  * command, commit and tag signing (and so the signing program), and an
- * external diff program (`diff.external`).
+ * external diff program (`diff.external`). Submodule diffs use short gitlink
+ * summaries rather than starting a child diff with its own configuration.
  *
- * Filter names are configuration-defined, so `gitReadConfig` adds their
- * overrides for reads that inspect working files. Host diffs also pass
+ * Filter names are configuration-defined, so automatic reads use an isolated
+ * configuration (`git-read.ts`) with those definitions omitted. Host diffs also pass
  * `--no-ext-diff --no-textconv`. Automatic checkouts inspect the target's
  * attributes and refuse filtered paths; `commit_work` does the same for its
  * files, and also excludes system and global configuration.
@@ -36,6 +37,7 @@ export const HARDENED_GIT_CONFIG: readonly string[] = [
   '-c', 'commit.gpgSign=false',
   '-c', 'tag.gpgSign=false',
   '-c', 'diff.external=',
+  '-c', 'diff.submodule=short',
 ]
 
 const run = promisify(execFile)
@@ -68,9 +70,9 @@ export const gitFiltersOff = async (cwd: string, options: ReadOptions = {}): Pro
   )
 }
 
-/** Status and working-file diffs can invoke clean/process filters on a metadata change. */
-export const gitReadConfig = async (cwd: string, args: readonly string[], options: ReadOptions = {}): Promise<readonly string[]> =>
-  args.includes('status') || args.includes('diff') || (args.includes('worktree') && args.includes('remove'))
+/** Automatic mutations keep their existing runner and configured-filter refusals. */
+export const automaticMutationConfig = async (cwd: string, args: readonly string[], options: ReadOptions = {}): Promise<readonly string[]> =>
+  args.includes('worktree') && args.includes('remove')
     ? [...HARDENED_GIT_CONFIG, ...await gitFiltersOff(cwd, options)]
     : HARDENED_GIT_CONFIG
 

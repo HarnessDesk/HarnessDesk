@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -14,6 +14,8 @@ import { diff, status } from '../src/git.js'
 import { revisionOf } from '../src/evidence/revision.js'
 import { changes, create, createDetached } from '../src/worktree.js'
 import { hostContextPort } from '../src/authoring/start.js'
+import { readGit } from '../src/git-read.js'
+import { commitDiff } from '../src/git-history.js'
 
 const run = promisify(execFile)
 
@@ -97,6 +99,130 @@ test('automatic status leaves an empty-name filter off on a stat-dirty file', as
   await utimes(join(f.root, 'page.txt'), later, later)
   assert.deepEqual((await status(f.root))?.files, [])
   assert.equal(await f.marker(), '')
+})
+
+test('parent status reads child changes without running child filters', async (t) => {
+  const f = await fixture(t)
+  const source = await fixture(t)
+  await writeFile(join(source.root, '.gitattributes'), '*.txt filter=child\n')
+  await source.git('add', '.')
+  await source.git('commit', '-qm', 'Set child attributes')
+  await f.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', source.root, 'child')
+  await f.git('commit', '-qam', 'Track child repository')
+  const child = join(f.root, 'child')
+  const childGit = async (...args: string[]) => (await run('git', ['-C', child,
+    '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', ...args])).stdout
+  await writeFile(f.script, '#!/bin/sh\nprintf called > "$0.mark"\ncat\n')
+  await childGit('config', 'filter.child.clean', f.script)
+  const later = new Date(Date.now() + 5_000)
+  await utimes(join(child, 'page.txt'), later, later)
+  assert.deepEqual((await status(f.root))?.files, [])
+  assert.equal(await f.marker(), '')
+
+  await writeFile(join(child, 'page.txt'), 'changed child content\n')
+  const modified = [{ path: 'child', status: 'modified', staged: false }]
+  assert.deepEqual((await status(f.root))?.files, modified, 'child content changes stay visible')
+  await childGit('-c', 'filter.child.clean=cat', 'commit', '-qam', 'Change child content')
+  assert.deepEqual((await status(f.root))?.files, modified, 'child commit changes stay visible')
+  await f.git('add', 'child')
+  assert.deepEqual((await status(f.root))?.files, [{ path: 'child', status: 'modified', staged: true }])
+  await writeFile(join(child, 'new.txt'), 'untracked child content\n')
+  assert.equal((await status(f.root))?.files.some(file => file.path === 'child' && !file.staged), true)
+  assert.equal(await f.marker(), '')
+})
+
+test('isolated status retains submodule pathname spelling and ignore choices', async (t) => {
+  const f = await fixture(t)
+  const source = await fixture(t)
+  const name = 'child -> café'
+  await f.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', source.root, name)
+  await f.git('commit', '-qam', 'Track child repository')
+  const child = join(f.root, name)
+  await writeFile(join(child, 'new.txt'), 'untracked child content\n')
+  const compare = async () => {
+    for (const quoteHigh of [true, false]) {
+      await f.git('config', 'core.quotePath', String(quoteHigh))
+      for (const suffix of [[], ['-z'], ['--ignore-submodules=all'], ['--ignore-submodules=dirty'], ['--ignore-submodules=untracked']]) {
+        const args = ['status', '--porcelain=v1', ...suffix]
+        const expected = (await run('git', ['-C', f.root, ...args])).stdout
+        assert.equal((await readGit(f.root, args)).stdout, expected, `${quoteHigh}: ${suffix.join(' ')}`)
+      }
+    }
+  }
+  await compare()
+  await writeFile(join(child, 'page.txt'), 'changed child content\n')
+  await compare()
+  await run('git', ['-C', child, '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-qam', 'Change child content'])
+  await compare()
+  await f.git('config', `submodule.${name}.ignore`, 'all')
+  await compare()
+  await f.git('add', name)
+  await compare()
+})
+
+test('working-file diff reads a path named status', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, 'status'), 'before\n')
+  await f.git('add', '.')
+  await f.git('commit', '-qm', 'Track status file')
+  await writeFile(join(f.root, 'status'), 'after\n')
+  assert.match(await diff(f.root, { path: 'status' }), /\+after/)
+})
+
+test('automatic parent and history diffs report gitlinks without child diff commands', async (t) => {
+  const f = await fixture(t)
+  const source = await fixture(t)
+  await writeFile(join(source.root, '.gitattributes'), '*.txt diff=child\n')
+  await source.git('add', '.')
+  await source.git('commit', '-qm', 'Set child attributes')
+  await f.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', source.root, 'child')
+  await f.git('commit', '-qam', 'Track child repository')
+  const child = join(f.root, 'child')
+  const childGit = async (...args: string[]) => run('git', ['-C', child,
+    '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', ...args])
+  await writeFile(join(child, 'page.txt'), 'changed child content\n')
+  await childGit('commit', '-qam', 'Change child content')
+  await writeFile(f.script, '#!/bin/sh\nprintf called > "$0.mark"\n')
+  await childGit('config', 'diff.child.command', f.script)
+  await f.git('config', 'diff.submodule', 'diff')
+  const patch = await diff(f.root)
+  assert.equal(await f.marker(), '')
+  assert.match(patch, /Subproject commit/)
+  await f.git('add', 'child')
+  await f.git('commit', '-qm', 'Update child revision')
+  const head = await f.git('rev-parse', 'HEAD')
+  const historical = await commitDiff(f.root, head, 'child')
+  assert.equal(await f.marker(), '')
+  assert.match(historical, /Subproject commit/)
+})
+
+test('automatic status does not load a filter added immediately before its read', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, '.gitattributes'), '*.txt filter=late\n')
+  await f.git('add', '.')
+  await f.git('commit', '-qm', 'Set file attributes')
+  await writeFile(f.script, '#!/bin/sh\nprintf called > "$0.mark"\ncat\n')
+  const later = new Date(Date.now() + 5_000)
+  await utimes(join(f.root, 'page.txt'), later, later)
+  const realGit = (await run('which', ['git'])).stdout.trim()
+  const bin = join(f.base, 'bin')
+  await mkdir(bin)
+  await writeFile(join(bin, 'git'), `#!${process.execPath}
+const { execFileSync } = require('node:child_process')
+const args = process.argv.slice(2)
+if (args.includes('status')) execFileSync(${JSON.stringify(realGit)}, ['-C', ${JSON.stringify(f.root)}, 'config', 'filter.late.clean', ${JSON.stringify(f.script)}])
+try { process.stdout.write(execFileSync(${JSON.stringify(realGit)}, args)) }
+catch (error) { process.stderr.write(error.stderr || ''); process.exit(error.status || 1) }
+`, { mode: 0o755 })
+  const before = process.env.PATH
+  process.env.PATH = `${bin}:${before}`
+  try {
+    assert.deepEqual((await status(f.root))?.files, [])
+    assert.equal(await f.marker(), '')
+  } finally {
+    process.env.PATH = before
+  }
+  assert.equal(await f.git('config', '--get', 'filter.late.clean'), f.script, 'the new setting was present for the consuming process')
 })
 
 for (const detached of [false, true]) {

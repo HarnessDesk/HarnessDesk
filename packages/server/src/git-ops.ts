@@ -5,7 +5,8 @@ import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { FileChange, Turn } from '@harnessdesk/protocol'
-import { HARDENED_GIT_CONFIG, gitReadConfig } from './git-hardening.js'
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { readGit } from './git-read.js'
 import { withGitMutation } from './git-mutation.js'
 
 /**
@@ -31,7 +32,7 @@ const personGit = async (root: string, args: readonly string[], signal?: AbortSi
 
 /** Background reads use the hardened configuration; requested writes keep their own runner. */
 const git = async (root: string, args: readonly string[], signal?: AbortSignal): Promise<string> =>
-  personGit(root, [...await gitReadConfig(root, args, { signal }), ...args], signal)
+  (await readGit(root, args, { signal, timeout: 20_000, maxBuffer: 32 * 1024 * 1024 })).stdout
 
 export class RevertError extends Error {
   /**

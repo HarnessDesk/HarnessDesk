@@ -1,15 +1,11 @@
-import { execFile } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { promisify } from 'node:util'
 
 import { parsePorcelain } from './porcelain.js'
 import type { GitConclusion, GitFileStatus, GitStatus } from '@harnessdesk/protocol'
-import { gitReadConfig } from './git-hardening.js'
+import { readGit } from './git-read.js'
 
 /** Git status and diffs for the changes view. Read-only: nothing here mutates a repo. */
-
-const run = promisify(execFile)
 
 /**
  * `signal`, when given, is on top of the 20s timeout below, never instead of
@@ -20,7 +16,7 @@ const run = promisify(execFile)
  * is handing it one.
  */
 const git = async (root: string, args: string[], signal?: AbortSignal): Promise<string> => {
-  const { stdout } = await run('git', ['-C', root, ...await gitReadConfig(root, args, { signal }), ...args], {
+  const { stdout } = await readGit(root, args, {
     timeout: 20_000,
     maxBuffer: 32 * 1024 * 1024,
     ...(signal ? { signal } : {}),

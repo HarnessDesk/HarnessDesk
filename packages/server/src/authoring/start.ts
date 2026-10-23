@@ -1,7 +1,6 @@
-import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
-import { gitReadConfig } from '../git-hardening.js'
+import { readGit } from '../git-read.js'
 
 import type {
   FlowPreview,
@@ -269,17 +268,9 @@ export async function previewStart(port: FrontDoorPort, input: FrontDoorPreviewI
 
 // --------------------------------------------------------------- host reads
 
-const exec = (file: string, args: readonly string[], cwd: string, maxBuffer: number): Promise<string> =>
-  new Promise((resolve, reject) => {
-    execFile(file, [...args], { cwd, timeout: 20_000, maxBuffer, encoding: 'utf8', windowsHide: true }, (error, stdout) => {
-      if (error) reject(error)
-      else resolve(stdout)
-    })
-  })
-
 /** The host's own git and forge reads, bounded, argument vectors only. */
 export const hostContextPort = (gh: (args: readonly string[], cwd: string) => Promise<{ readonly stdout: string; readonly exitCode: number }>): ContextPort => ({
-  git: async (root, args) => exec('git', ['-C', root, ...await gitReadConfig(root, args), '--no-optional-locks', ...args], root, 16 * 1024 * 1024),
+  git: async (root, args) => (await readGit(root, ['--no-optional-locks', ...args], { timeout: 20_000, maxBuffer: 16 * 1024 * 1024 })).stdout,
   pullRequest: async (root, number) => {
     const read = await gh(['pr', 'view', String(number), '--json', 'number,headRefOid,baseRefOid,headRefName'], root)
     if (read.exitCode !== 0) return null

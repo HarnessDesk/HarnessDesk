@@ -11,7 +11,8 @@ import { defaultStateDir } from './state.js'
 import { assertAbsolute } from './workspace.js'
 
 import { parsePorcelain } from './porcelain.js'
-import { HARDENED_GIT_CONFIG, gitReadConfig, automaticCheckout } from './git-hardening.js'
+import { HARDENED_GIT_CONFIG, automaticCheckout } from './git-hardening.js'
+import { readGit } from './git-read.js'
 import { commonDir } from './git-ops.js'
 import { withGitMutation } from './git-mutation.js'
 
@@ -98,7 +99,7 @@ const describeChanges = (changes: WorktreeChanges): string => {
  * would run agent-written code as the host.
  */
 const git = async (cwd: string, args: readonly string[]): Promise<string> => {
-  const { stdout } = await run('git', ['-C', cwd, ...await gitReadConfig(cwd, args), ...args], {
+  const { stdout } = await readGit(cwd, args, {
     timeout: 30_000,
     maxBuffer: 8 * 1024 * 1024,
   })
