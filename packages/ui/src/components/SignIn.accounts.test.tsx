@@ -711,3 +711,28 @@ describe('naming another account', () => {
     expect(document.body.querySelector('[aria-label="Name this account"]')).toBeNull()
   })
 })
+
+
+it.each([
+  { accounts: [], signInMethods: [] },
+  { accounts: [], signInMethods: [], unchecked: true },
+  { accounts: [{ kind: 'agent', label: 'dev@example.com' }], signInMethods: [] },
+  { accounts: [], signInMethods: [{ id: 'login', label: 'Sign in', flow: 'browser' }] },
+])('an unavailable agent takes precedence over its account answer (#1764): %j', async (answer) => {
+  await mount({
+    runtimes: [AGENT],
+    accountsByRuntime: { agent: answer },
+    healthByRuntime: { agent: {
+      state: 'unavailable', reason: 'notInstalled',
+      message: 'The agent executable was not found.', remediation: 'Install the agent CLI.',
+    } },
+  } as never, 'agent')
+  const card = detail()
+  expect(card.textContent).toContain('Agent did not start')
+  expect(card.textContent).toContain('The agent executable was not found.')
+  expect(card.textContent).toContain('Install the agent CLI.')
+  expect(card.textContent).not.toContain('needs no account here')
+  const rail = container.querySelector('nav')
+  expect(rail?.querySelector('[aria-label="Connected"]')).toBeNull()
+  expect(rail?.querySelector('[aria-label="Not connected"]')?.textContent).toContain('Did not start')
+})

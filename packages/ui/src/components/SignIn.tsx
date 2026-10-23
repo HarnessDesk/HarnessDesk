@@ -145,6 +145,9 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
     accounts: info.capabilities.account,
     usage: snapshot.usage.filter((report) => report.runtime === info.id),
   })
+  if (state === 'broken') {
+    return { info, status: 'out', state, detail: 'Did not start', methods, pending }
+  }
   if (account) {
     const key = account.kind === 'apiKey' || account.kind === 'externalKey'
     const kind = key ? 'key' : 'in'
@@ -603,7 +606,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
   const status = snapshot.accountsByRuntime[info.id] ?? null
   // Why the *whole* map and not `snapshot.health`: that one is the active
   // runtime's, and an account being added is by definition not it.
-  const health = snapshot.healthByRuntime[info.id] ?? null
+  const health = snapshot.healthByRuntime[info.id] ?? (info.id === snapshot.activeRuntime ? snapshot.health : null)
   const broken = health?.state === 'unavailable' ? health : null
   const account = status?.accounts[0]
   const [adding, setAdding] = useState(false)
@@ -647,6 +650,30 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
     ...(account?.kind === 'externalKey' ? { elsewhere: account.planType ?? 'its own configuration' } : {}),
     outranked: account?.outranksHandedKey === true,
   }
+
+  if (broken) return (
+    <>
+      <CardHead mark={<RuntimeMark runtime={info} size={20} />} name={info.presentation.name}>
+        Did not start.
+      </CardHead>
+      <div className={own.stack}>
+        <StatusSummary
+          tone="danger"
+          icon={<AlertIcon size={16} />}
+          title={`${info.presentation.name} did not start`}
+          description={broken.message}
+        />
+        {broken.remediation ? <Note className={own.noteFlush}>{broken.remediation}</Note> : null}
+        {info.slot?.removable ? (
+          <div className={own.actions}>
+            <Button variant="ghost" onClick={() => void store.removeAccount(info.id)}>
+              Remove this account
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </>
+  )
 
   return (
     <>
@@ -778,29 +805,10 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           account is the answer, and "needs no account" would contradict it. */}
       {row.methods.length === 0 && !account && !status?.refusal && !status?.unchecked ? (
         status === null ? (
-          broken ? (
-            <div className={own.stack}>
-              <StatusSummary
-                tone="danger"
-                icon={<AlertIcon size={16} />}
-                title={`${info.presentation.name} did not start`}
-                description={broken.message}
-              />
-              {broken.remediation ? <Note className={own.noteFlush}>{broken.remediation}</Note> : null}
-              {info.slot?.removable ? (
-                <div className={own.actions}>
-                  <Button variant="ghost" onClick={() => void store.removeAccount(info.id)}>
-                    Remove this account
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <Note className={own.noteFlush} icon={<Spinner size="sm" tone="brand" aria-hidden="true" />}>
-              Starting{' '}
-              {info.presentation.name} — its ways in appear as soon as it answers.
-            </Note>
-          )
+          <Note className={own.noteFlush} icon={<Spinner size="sm" tone="brand" aria-hidden="true" />}>
+            Starting{' '}
+            {info.presentation.name} — its ways in appear as soon as it answers.
+          </Note>
         ) : (
           <Note className={own.noteFlush}>
             {info.presentation.name} needs no account here
