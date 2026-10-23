@@ -14,7 +14,6 @@ import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@ha
 import { changes, mainEntryFolder, repositoryRoot, worktreeHome, WorktreeDirtyError, samePath } from './worktree.js'
 
 import { parsePorcelain } from './porcelain.js'
-import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 
 /**
  * Worktrees, as a git client manages them.
