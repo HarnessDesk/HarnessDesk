@@ -97,6 +97,7 @@ import {
   type WireNotification,
   type ResolvedModelRoute,
   type Approval,
+  type ApprovalResolution,
   type ContributionId,
   type ScopeQuery,
   type WorkspaceAdmission,
@@ -1493,10 +1494,9 @@ export class Host {
           })
           this.#abandonedApprovals.add(`${runtime}\u0000${id}\u0000${approval.id}`)
           if (this.#abandonedApprovals.size > 2000) this.#abandonedApprovals.delete(this.#abandonedApprovals.values().next().value!)
-          const answer = this.#heldAnswers.get(String(approval.id))
-          if (answer) {
-            this.#heldAnswers.delete(String(approval.id))
-            answer('refused')
+          const held = this.#heldAnswers.get(approvalKey(runtime, id, approval.id))
+          if (held) {
+            held.answer('refused')
           } else {
             void Promise.resolve().then(() => record.live?.respondToApproval(approval.id, { type: 'cancel' })).catch(() => {})
           }
@@ -2271,27 +2271,19 @@ export class Host {
     }
   }
 
+  hasRuntime(id: RuntimeId): boolean {
+    return this.#runtimes.has(id)
+  }
+
   /**
    * Registers a runtime. Starting it is separate and allowed to fail: a machine
    * without Codex installed should still open the app and explain itself.
+   * Replacing one requires awaiting unregister first, which owns its teardown.
    */
   register(runtime: AgentRuntime): void {
     const id = runtime.info.id
     if (this.#runtimes.has(id)) {
-      this.#historyImport.cancel(id)
-      this.#logger.warn('a runtime with this id was already registered; replacing it', {
-        runtime: id,
-      })
-      this.#invalidateDelegations(id)
-      this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was replaced.'))
-      this.#directRuntimeStarts.delete(String(id))
-      this.#discoveringRuntimes.delete(String(id))
-      this.#discoveryOnlyRuntimes.delete(String(id))
-      this.#accountReads.get(id)?.dispose()
-      for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
-      this.#runtimeSubscriptions.delete(id)
-      this.#catalogs.forget(id)
-      this.#updates.delete(id)
+      throw new Error(`A runtime with id ${id} is already registered. Await unregister before registering it again.`)
     }
     // These async surfaces belong to the same process as the runtime verbs.
     // Keep their receiver (including private fields) and share its lifecycle.
@@ -2410,6 +2402,8 @@ export class Host {
     this.#historyImport.cancel(id)
     const runtime = this.#runtimes.get(id)
     if (!runtime) return
+    this.#invalidateDelegations(id)
+    this.#settleHeld(id)
     this.registry.detachAll(id)
     this.#terminals.detachAll(id)
     // Whatever was waiting on that agent's conversations can never arrive.
@@ -3382,7 +3376,7 @@ export class Host {
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */
     this.#team.stopWaiting('the desk is closing')
-    for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
+    for (const held of [...this.#heldAnswers.values()]) held.answer('unanswered')
     this.#questions.close()
     await intakeClosed
     await this.#flows.flush()
@@ -4780,7 +4774,8 @@ export class Host {
         },
       },
       ceilings: {
-        answerHeld: (approvalId, decision) => this.#answerHeld(approvalId, decision),
+        answerHeld: (runtime, sessionId, approvalId, decision) => this.#answerHeld(runtime, sessionId, approvalId, decision),
+        settleHeld: (runtime, sessionId) => this.#settleHeld(runtime, sessionId),
       },
       questions: {
         answerStopped: (runtime, sessionId, approvalId, decision) => this.#answerStoppedQuestion(runtime, sessionId, approvalId, decision),
@@ -6021,7 +6016,11 @@ export class Host {
     return this.#messageTurns.get(this.#turnKey(runtime, sessionId, turn)) ?? PERSON
   }
 
-  readonly #heldAnswers = new Map<string, (answer: 'allowed' | 'refused' | 'unanswered') => void>()
+  readonly #heldAnswers = new Map<string, {
+    runtime: string
+    sessionId: string
+    answer: (answer: 'allowed' | 'refused' | 'unanswered', resolution?: ApprovalResolution) => void
+  }>()
   /** Recent Stop settlements: a delayed runtime reply cannot replace abandonment. */
   readonly #abandonedApprovals = new Set<string>()
 
@@ -6060,23 +6059,24 @@ export class Host {
     this.registry.apply(record.runtime, requested)
     this.#push({ method: 'event', params: { runtime: record.runtime, event: requested } })
     const waitMs = this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
-    const answer = await new Promise<'allowed' | 'refused' | 'unanswered'>((resolve) => {
-      const timer = setTimeout(() => resolve('unanswered'), waitMs)
-      this.#heldAnswers.set(String(id), (said) => {
+    const key = approvalKey(runtime, sessionId, id)
+    return new Promise<'allowed' | 'refused' | 'unanswered'>((resolve) => {
+      const answer = (said: 'allowed' | 'refused' | 'unanswered', resolution?: ApprovalResolution): void => {
+        this.#heldAnswers.delete(key)
         clearTimeout(timer)
+        if (record.approvals.has(String(id))) this.#onEvent(record.runtime, {
+          type: 'approval/resolved',
+          sessionId: record.session.id,
+          approvalId: id,
+          resolution: resolution ?? (said === 'unanswered'
+            ? { outcome: 'timedOut' }
+            : { outcome: 'decided', decision: { type: 'option', optionId: said === 'allowed' ? HELD_ALLOW : HELD_REFUSE } }),
+        })
         resolve(said)
-      })
+      }
+      const timer = setTimeout(() => answer('unanswered'), waitMs)
+      this.#heldAnswers.set(key, { runtime, sessionId, answer })
     })
-    this.#heldAnswers.delete(String(id))
-    if (record.approvals.has(String(id))) this.#onEvent(record.runtime, {
-      type: 'approval/resolved',
-      sessionId: record.session.id,
-      approvalId: id,
-      resolution: answer === 'unanswered'
-        ? { outcome: 'timedOut' }
-        : { outcome: 'decided', decision: { type: 'option', optionId: answer === 'allowed' ? HELD_ALLOW : HELD_REFUSE } },
-    })
-    return answer
   }
 
   /**
@@ -6095,7 +6095,7 @@ export class Host {
    */
   async #answerStoppedQuestion(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<boolean> {
     if (decision.type !== 'answers') return false
-    const once = `${runtime}\u0000${sessionId}\u0000${approvalId}`
+    const once = approvalKey(runtime, sessionId, approvalId)
     const inFlight = this.#lateAnswers.get(once)
     if (inFlight) return inFlight
     if (this.#lateAnswered.has(once)) return true
@@ -6124,7 +6124,7 @@ export class Host {
     const words = questionWords(approval, decision)
     if (words === null) throw new Error('Choose an answer before sending it.')
     const settle = async (): Promise<void> => {
-      this.#settlingAnswers.set(String(approval.id), decision)
+      this.#settlingAnswers.set(once, decision)
       await record.live?.respondToApproval(approval.id, { type: 'cancel' }).catch((error: unknown) => {
         this.#logger.warn('a stopped question could not be closed with its agent', { runtime, sessionId, error: error instanceof Error ? error.message : String(error) })
       })
@@ -6137,7 +6137,7 @@ export class Host {
           resolution: { outcome: 'decided', decision: { type: 'cancel' } },
         })
       }
-      this.#settlingAnswers.delete(String(approval.id))
+      this.#settlingAnswers.delete(once)
     }
     const delivering = (async (): Promise<boolean> => {
       /* Fail closed: the turn that asked is over, so an answer handed to the
@@ -6157,11 +6157,19 @@ export class Host {
     }
   }
 
-  #answerHeld(approvalId: string, decision: ApprovalDecision): boolean {
-    const answer = this.#heldAnswers.get(approvalId)
-    if (!answer) return false
-    answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : 'refused')
+  #answerHeld(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): boolean {
+    const held = this.#heldAnswers.get(approvalKey(runtime, sessionId, approvalId))
+    if (!held || !this.registry.hasApproval(runtimeId(runtime), makeSessionId(sessionId), makeApprovalId(approvalId))) return false
+    held.answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : 'refused')
     return true
+  }
+
+  #settleHeld(runtime: string, sessionId?: string): void {
+    for (const held of this.#heldAnswers.values()) {
+      if (held.runtime === runtime && (sessionId === undefined || held.sessionId === sessionId)) {
+        held.answer('unanswered', { outcome: 'abandoned', reason: 'The conversation closed before anyone answered.' })
+      }
+    }
   }
 
   #noteDelegation(runtime: RuntimeId, event: AgentEvent): void {
@@ -7753,9 +7761,10 @@ export class Host {
        refused — so no window shows it cancelled, and no denial holds the
        Seat's messages to its teammates in the turn that carries the answer. */
     if (event.type === 'approval/resolved') {
-      const answered = this.#settlingAnswers.get(String(event.approvalId))
+      const key = approvalKey(runtime, event.sessionId, event.approvalId)
+      const answered = this.#settlingAnswers.get(key)
       if (answered) {
-        this.#settlingAnswers.delete(String(event.approvalId))
+        this.#settlingAnswers.delete(key)
         event = { ...event, resolution: { outcome: 'decided', decision: answered } }
       }
     }
@@ -7837,6 +7846,7 @@ export class Host {
         : []
     // The Team wait captures a running turn; settle it before detach clears
     // that turn from the registry's live status.
+    if (event.type === 'session/closed' || event.type === 'session/detached') this.#settleHeld(runtime, event.sessionId)
     if (event.type === 'session/detached') {
       this.#team.onSessionDetached(runtime, String(event.sessionId), 'The conversation process stopped before the message was read.')
     }
@@ -8835,6 +8845,7 @@ export class Host {
     }
     if (health.state !== 'ready' && health.state !== 'idle') {
       this.#invalidateDelegations(runtime)
+      this.#settleHeld(runtime)
       for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)
       this.#terminals.detachAll(runtime)
       // Same reason as `unregister`: these sessions went down without a
@@ -9006,6 +9017,7 @@ export const isDirectory = async (path: string): Promise<boolean> => {
 
 /** One conversation, as a question deadline keys it. */
 const questionKey = (runtime: string, sessionId: string): string => `${runtime}\u0000${sessionId}`
+const approvalKey = (runtime: string, sessionId: string, approvalId: string): string => JSON.stringify([runtime, sessionId, approvalId])
 
 /**
  * A question and a person's answer to it, in words an agent can read: each

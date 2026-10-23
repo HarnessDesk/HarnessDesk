@@ -632,12 +632,27 @@ export const createDefaultHost = (
   // and binding the same files twice would bill every session to two accounts.
   // What is genuinely per-account — the rate limits — comes over each
   // process's own `account/rateLimits/read`.
+  const agentsLog = logger.child('agents')
   for (const slot of slots.of(CODEX_RUNTIME_ID)) {
+    if (host.hasRuntime(runtimeId(slot.id))) {
+      agentsLog.warn('an account in accounts.json was ignored', {
+        agent: slot.id,
+        reason: 'runtime id is already registered',
+      })
+      continue
+    }
     host.register(codexAccount(slot.id, slot.home))
   }
 
   void host.credentials.warm()
   for (const agent of agentRegistry.configs()) {
+    if (host.hasRuntime(runtimeId(agent.id))) {
+      agentsLog.warn('an agent in agents.json was ignored', {
+        agent: agent.id,
+        reason: 'runtime id is already registered',
+      })
+      continue
+    }
     const local = localUsageFor(
       { ...agent, accountOf: agentRegistry.entry(agent.id)?.['accountOf'] },
       installs.knowledgeFor(agent),

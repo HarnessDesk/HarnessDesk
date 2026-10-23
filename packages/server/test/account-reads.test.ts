@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import type { AccountStatus } from '@harnessdesk/protocol'
+import type { AccountStatus, Session } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -127,10 +127,42 @@ test('a silent runtime does not hold another account or a replacement with the s
   assert.deepEqual(await host.call('runtime/account', { runtime: other.info.id }), status)
   const replacement = new FakeRuntime({ id: runtime.info.id })
   replacement.getAccount = async () => status
+  await host.unregister(runtime.info.id)
   host.register(replacement)
   assert.deepEqual(await host.call('runtime/account', { runtime: runtime.info.id }), status)
   reject(new Error('late fixture failure'))
   assert.match(await old, /account read timed out after 10000ms/i)
+})
+
+test('duplicate registration preserves the original runtime until it is unregistered', async (t) => {
+  const runtime = new FakeRuntime()
+  runtime.getAccount = async () => status
+  const disposed = t.mock.method(runtime, 'dispose')
+  const host = makeHost(t, runtime)
+  await host.start()
+  const live = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: tempDir('hd-registration-work-') } }) as Session
+  const record = host.registry.get(runtime.info.id, live.id)!
+  const replacement = new FakeRuntime({ id: runtime.info.id })
+  const replacementStatus: AccountStatus = { accounts: [{ kind: 'apiKey', label: 'Other demo account' }], signInMethods: [] }
+  replacement.getAccount = async () => replacementStatus
+  const replacementDisposed = t.mock.method(replacement, 'dispose')
+
+  assert.throws(() => host.register(replacement), /already registered/)
+  assert.deepEqual(await host.call('runtime/account', { runtime: runtime.info.id }), status)
+  runtime.emit({ type: 'session/title', sessionId: live.id, title: 'Original conversation' })
+  replacement.emit({ type: 'session/title', sessionId: live.id, title: 'Other conversation' })
+  assert.equal(record.session.title, 'Original conversation', 'the original subscriptions are retained')
+  assert.equal(record.detached, false)
+  assert.ok(record.live)
+  assert.equal(disposed.mock.callCount(), 0)
+  assert.equal(replacementDisposed.mock.callCount(), 0)
+
+  await host.unregister(runtime.info.id)
+  assert.equal(disposed.mock.callCount(), 1)
+  assert.equal(record.live, null)
+  assert.equal(record.detached, true)
+  host.register(replacement)
+  assert.deepEqual(await host.call('runtime/account', { runtime: runtime.info.id }), replacementStatus)
 })
 
 test('a late rejection releases a timed-out registration for a fresh read', async (t) => {
@@ -238,7 +270,10 @@ for (const teardown of ['dispose', 'unregister', 'replace'] as const) {
     const deadline = timers.mock.calls.find((call) => call.arguments[1] === 10_000)!.result
     if (teardown === 'dispose') await host.dispose()
     else if (teardown === 'unregister') await host.unregister(runtime.info.id)
-    else host.register(new FakeRuntime({ id: runtime.info.id }))
+    else {
+      await host.unregister(runtime.info.id)
+      host.register(new FakeRuntime({ id: runtime.info.id }))
+    }
     await flush()
     assert.ok(cleared.mock.calls.some((call) => call.arguments[0] === deadline), 'teardown must clear the deadline timer')
     assert.match(outcome ?? 'still pending', /account read.*closed/i)

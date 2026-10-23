@@ -69,6 +69,7 @@ const announceUnavailableToolsOnce = async (ctx: HostContext, runtime: AgentRunt
 
 const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sessionId: SessionId }): Promise<null> => {
   const record = ctx.registry.get(params.runtime, makeSessionId(params.sessionId))
+  ctx.ceilings.settleHeld(params.runtime, params.sessionId)
   // The handle takes the person's picks with it unless they are kept for the
   // reopen, as the quiet release and archive keep them. A pane closes at
   // once, whatever is happening in it, so there is no quiet to wait for.
