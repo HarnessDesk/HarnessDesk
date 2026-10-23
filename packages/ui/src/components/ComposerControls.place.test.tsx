@@ -391,6 +391,6 @@ it('names a handoff source in the folder picker until a place is chosen',()=>{
  rig({draftHandoff},true)
  expect(container.querySelector('button[title="/work/source-project"]')?.textContent).toContain('source-project')
  expect(trigger()?.title).toBe('Starts in /work/source-project')
- rig({draftHandoff,draftPlace:{kind:'local'}},true)
+ rig({draftHandoff,draftPlace:{kind:'existing',path:MAIN.path,branch:'main'}},true)
  expect(container.querySelector(`button[title="${MAIN.path}"]`)?.textContent).toContain(MAIN.name)
 })

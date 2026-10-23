@@ -1491,3 +1491,10 @@ it('keeps branch context actions reachable from compact history', async () => {
     expect(document.querySelector('[role="menu"]')?.textContent).toContain('main')
   } finally { vi.stubGlobal('ResizeObserver', observer) }
 })
+
+it('leaves room for the Graph header before any column resize',async()=>{
+ await mount({log:[commit('aaaa1111111','tip')]})
+ const graph=head().querySelector<HTMLElement>('[role="columnheader"]')!
+ expect(graph.textContent).toContain('Graph')
+ expect(Number.parseFloat(graph.style.width)).toBeGreaterThanOrEqual(64)
+})
