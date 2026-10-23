@@ -134,7 +134,8 @@ export const automaticCheckout = async (
         }
       }
       if (options.materialize) {
-        await view.run(['checkout-index', '--all', '--force', '--index'])
+        // Apply sparse patterns while writing the tree and the private index.
+        await view.run(['read-tree', '--reset', '-u', '--no-recurse-submodules', at])
         // --all omits unspecified attributes. For explicit attributes, Git
         // prints the same value for -filter and filter=unset. Ask its clean
         // conversion to distinguish literal names with required, commandless

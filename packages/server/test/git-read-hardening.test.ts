@@ -253,6 +253,30 @@ test('parent status propagates its untracked selection to child repositories', a
 })
 
 for (const detached of [false, true]) {
+  test(`automatic ${detached ? 'detached' : 'branch'} checkout preserves inherited sparse selection`, async (t) => {
+    const f = await fixture(t)
+    await mkdir(join(f.root, 'keep'))
+    await mkdir(join(f.root, 'omit'))
+    await writeFile(join(f.root, 'keep', 'page.txt'), 'selected\n')
+    await writeFile(join(f.root, 'omit', 'page.txt'), 'excluded\n')
+    await f.git('add', '.')
+    await f.git('commit', '-qm', 'Add selected and excluded directories')
+    const at = await f.git('rev-parse', 'HEAD')
+    await f.git('sparse-checkout', 'set', '--cone', 'keep')
+    await assert.rejects(readFile(join(f.root, 'omit', 'page.txt')), { code: 'ENOENT' })
+    const stateDir = join(f.base, 'state')
+    const tree = detached
+      ? await createDetached(f.root, { name: 'sparse', at, stateDir })
+      : (await create(f.root, { name: 'sparse', stateDir })).path
+    assert.equal(await readFile(join(tree, 'keep', 'page.txt'), 'utf8'), 'selected\n')
+    assert.equal(await readFile(join(tree, 'page.txt'), 'utf8'), 'page\n')
+    await assert.rejects(readFile(join(tree, 'omit', 'page.txt')), { code: 'ENOENT' })
+    const git = async (...args: string[]) => (await run('git', ['-C', tree, ...args])).stdout
+    assert.equal(await git('ls-files', '-t', 'omit/page.txt'), 'S omit/page.txt\n')
+    assert.equal(await git('sparse-checkout', 'list'), 'keep\n')
+    assert.equal(await git('status', '--porcelain=v1'), '')
+  })
+
   for (const name of ['unset', 'unspecified']) {
     test(`automatic ${detached ? 'detached' : 'branch'} checkout refuses the literal filter name ${name}`, async (t) => {
       const f = await fixture(t)
@@ -280,7 +304,7 @@ for (const detached of [false, true]) {
     await writeFile(join(bin, 'git'), `#!${process.execPath}
 const { execFileSync } = require('node:child_process')
 const args = process.argv.slice(2)
-if (args.includes('reset') || args.includes('checkout-index')) {
+if (args.includes('reset') || args.includes('checkout-index') || (args.includes('read-tree') && args.includes('-u'))) {
   execFileSync(${JSON.stringify(realGit)}, ['-C', ${JSON.stringify(f.root)}, 'config', 'core.attributesFile', ${JSON.stringify(attributes)}])
   execFileSync(${JSON.stringify(realGit)}, ['-C', ${JSON.stringify(f.root)}, 'config', 'filter.late.smudge', ${JSON.stringify(f.script)}])
 }
