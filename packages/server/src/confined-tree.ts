@@ -399,6 +399,20 @@ export class ConfinedTree {
     await this.#syncDirectory(parent)
   }
 
+  /** Removes one regular file only while it still holds the recorded text. */
+  async removeFile(rel: string, before: string): Promise<void> {
+    this.#mayWrite()
+    const parts = partsOf(rel)
+    const parent = parts.slice(0, -1)
+    await this.#checkRoot()
+    await this.#directory(parent)
+    const current = await this.#readText(parts, Buffer.byteLength(before))
+    if (current?.text !== before) throw coded(`"${rel}" changed before it could be removed.`, 'HD_TREE_CHANGED')
+    await this.#directory(parent)
+    await unlink(join(this.root, ...parts))
+    await this.#syncDirectory(parent)
+  }
+
   /**
    * Creates one file whole, never over anything: a synced sibling is written
    * first, then given the name with `link`, which the system refuses with
