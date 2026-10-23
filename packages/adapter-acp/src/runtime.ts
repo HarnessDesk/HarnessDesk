@@ -2060,14 +2060,24 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     if (this.#account && this.#health.state === 'ready') {
-      const status = await this.#account.status()
+      const beforeStatus = this.#signIn
+      // Publish a newer session refusal before asking the CLI again. Its
+      // credential file may still describe the sign-in the session rejected.
+      const freshRefusal = this.#config.account?.status && beforeStatus.state === 'required' && this.#statusObservation !== beforeStatus
+      const status = freshRefusal
+        ? { accounts: [], signInMethods: this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : [] }
+        : await this.#account.status()
+      this.#statusObservation = beforeStatus
+      if (!freshRefusal && this.#config.account?.status && this.#signIn === beforeStatus && beforeStatus.state === 'required') {
+        this.#noteSignIn({ state: 'observed' })
+      }
       // An interactive-only CLI has no safe status probe. In that case the
       // ACP session observation is the sign-in proof, while the CLI commands
       // remain the source of the driveable sign-in/sign-out methods.
-      const observed = this.#config.account?.status
+      const observed = this.#config.account?.status && this.#signIn.state !== 'required'
         ? { accounts: [], signInMethods: [] }
         : this.#observedAccount(keyAccounts.length > 0)
-      const accounts = [...status.accounts, ...keyAccounts, ...observed.accounts]
+      const accounts = observed.refusal ? [] : [...status.accounts, ...keyAccounts, ...observed.accounts]
       return this.#lastAccount = {
         accounts,
         signInMethods: [...status.signInMethods, ...keyMethods, ...observed.signInMethods],
@@ -2805,6 +2815,7 @@ export class AcpRuntime implements AgentRuntime {
   }
   /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
   #signIn: SignInObservation = { state: 'unknown' }
+  #statusObservation: SignInObservation | null = null
   /** Last complete history answer; sidebar reads must not wake an idle helper. */
   #historyCache: Page<SessionSummary> | null = null
   /** The agent's models as last declared, for the settings catalogue. */

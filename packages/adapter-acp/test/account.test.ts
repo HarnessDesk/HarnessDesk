@@ -1910,3 +1910,24 @@ test('a missing API key refusal offers all declared sign-in methods (#1762)', as
     await runtime.dispose()
   }
 })
+
+
+test('a session refusal outranks the last CLI status until a fresh status or session succeeds (#1765)', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts.length, 1)
+    runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
+    const refused = await runtime.getAccount()
+    assert.deepEqual(refused.accounts, [])
+    assert.equal(refused.refusal, 'Authentication required.')
+    assert.ok(refused.signInMethods.some(method => method.id === 'cli-browser'))
+    assert.equal((await runtime.getAccount()).accounts.length, 1, 'a subsequent status answer can restore sign-in')
+    assert.equal((await runtime.getAccount()).refusal, undefined)
+    runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.equal((await runtime.getAccount()).accounts.length, 1, 'a successful session clears the refusal')
+  } finally {
+    await runtime.dispose()
+  }
+})
