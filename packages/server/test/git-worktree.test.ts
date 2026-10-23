@@ -559,6 +559,42 @@ test('a confirmation covers file contents beyond the inventory display cap', asy
   assert.equal(await readFile(join(made.path, 'f44.txt'), 'utf8'), 'edit\n')
 })
 
+test('a confirmation is void after the index changes with the same working contents', async (t) => {
+  for (const change of ['contents', 'mode']) {
+    await t.test(change, async () => {
+      const { repo, state } = await seedRepo()
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      const file = join(made.path, 'a.txt')
+      await git(made.path, 'config', 'core.filemode', 'true')
+      await writeFile(file, 'staged notes\n')
+      await git(made.path, 'add', 'a.txt')
+      await writeFile(file, 'working notes\n')
+      const status = await git(made.path, 'status', '--porcelain=v1', '-z')
+      assert.equal(status, 'MM a.txt\0')
+      const held = await inventory(made.path)
+      const before = await git(made.path, 'ls-files', '--stage', '-z')
+
+      if (change === 'contents') {
+        await writeFile(file, 'different staged notes\n')
+        await git(made.path, 'add', 'a.txt')
+        await writeFile(file, 'working notes\n')
+      } else {
+        await git(made.path, 'update-index', '--chmod=+x', 'a.txt')
+      }
+      const staged = await git(made.path, 'ls-files', '--stage', '-z')
+      assert.notEqual(staged, before)
+      assert.equal(await git(made.path, 'status', '--porcelain=v1', '-z'), status)
+      assert.equal(await readFile(file, 'utf8'), 'working notes\n')
+
+      await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+      assert.equal(await git(made.path, 'ls-files', '--stage', '-z'), staged)
+      assert.equal(await readFile(file, 'utf8'), 'working notes\n')
+      await remove(repo, made.path, true, await confirmed(made.path), state)
+      assert.ok(await gone(made.path))
+    })
+  }
+})
+
 test('the inventory names what is there and counts what it could not show', async () => {
   const { repo, state } = await seedRepo()
   const made = await add(repo, 'lots', { kind: 'new', branch: 'lots' }, state)

@@ -207,6 +207,9 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
   // still has to invalidate a confirmation.
   const digest = createHash('sha256')
   digest.update(out)
+  // Working contents and status can stay the same while staged work changes.
+  // Keep each index entry's object ID, mode, stage and literal path too.
+  digest.update('\0').update(await git(path, ['ls-files', '--stage', '-z'])).update('\0')
   for (const change of changes) digest.update(`${change.status}\u0000${change.path}\u0000`)
   for (const entry of ignored) digest.update(`!!\u0000${entry}\u0000`)
   // Git can collapse wholly ignored directories even with all untracked
