@@ -2273,24 +2273,12 @@ export class Host {
   /**
    * Registers a runtime. Starting it is separate and allowed to fail: a machine
    * without Codex installed should still open the app and explain itself.
+   * Replacing one requires awaiting unregister first, which owns its teardown.
    */
   register(runtime: AgentRuntime): void {
     const id = runtime.info.id
     if (this.#runtimes.has(id)) {
-      this.#historyImport.cancel(id)
-      this.#logger.warn('a runtime with this id was already registered; replacing it', {
-        runtime: id,
-      })
-      this.#invalidateDelegations(id)
-      this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was replaced.'))
-      this.#directRuntimeStarts.delete(String(id))
-      this.#discoveringRuntimes.delete(String(id))
-      this.#discoveryOnlyRuntimes.delete(String(id))
-      this.#accountReads.get(id)?.dispose()
-      for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
-      this.#runtimeSubscriptions.delete(id)
-      this.#catalogs.forget(id)
-      this.#updates.delete(id)
+      throw new Error(`A runtime with id ${id} is already registered. Await unregister before registering it again.`)
     }
     // These async surfaces belong to the same process as the runtime verbs.
     // Keep their receiver (including private fields) and share its lifecycle.
