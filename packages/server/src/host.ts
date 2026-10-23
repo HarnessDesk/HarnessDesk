@@ -6100,7 +6100,7 @@ export class Host {
    */
   async #answerStoppedQuestion(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<boolean> {
     if (decision.type !== 'answers') return false
-    const once = `${runtime}\u0000${sessionId}\u0000${approvalId}`
+    const once = approvalKey(runtime, sessionId, approvalId)
     const inFlight = this.#lateAnswers.get(once)
     if (inFlight) return inFlight
     if (this.#lateAnswered.has(once)) return true
@@ -6129,7 +6129,7 @@ export class Host {
     const words = questionWords(approval, decision)
     if (words === null) throw new Error('Choose an answer before sending it.')
     const settle = async (): Promise<void> => {
-      this.#settlingAnswers.set(String(approval.id), decision)
+      this.#settlingAnswers.set(once, decision)
       await record.live?.respondToApproval(approval.id, { type: 'cancel' }).catch((error: unknown) => {
         this.#logger.warn('a stopped question could not be closed with its agent', { runtime, sessionId, error: error instanceof Error ? error.message : String(error) })
       })
@@ -6142,7 +6142,7 @@ export class Host {
           resolution: { outcome: 'decided', decision: { type: 'cancel' } },
         })
       }
-      this.#settlingAnswers.delete(String(approval.id))
+      this.#settlingAnswers.delete(once)
     }
     const delivering = (async (): Promise<boolean> => {
       /* Fail closed: the turn that asked is over, so an answer handed to the
@@ -7764,9 +7764,10 @@ export class Host {
        refused — so no window shows it cancelled, and no denial holds the
        Seat's messages to its teammates in the turn that carries the answer. */
     if (event.type === 'approval/resolved') {
-      const answered = this.#settlingAnswers.get(String(event.approvalId))
+      const key = approvalKey(runtime, event.sessionId, event.approvalId)
+      const answered = this.#settlingAnswers.get(key)
       if (answered) {
-        this.#settlingAnswers.delete(String(event.approvalId))
+        this.#settlingAnswers.delete(key)
         event = { ...event, resolution: { outcome: 'decided', decision: answered } }
       }
     }
