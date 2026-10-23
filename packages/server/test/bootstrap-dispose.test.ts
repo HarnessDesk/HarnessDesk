@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { toolSocketPath } from '../src/bootstrap.js'
 import { tempDir } from './scratch.js'
@@ -29,7 +30,7 @@ const reach = (path) => new Promise((resolve) => {
   socket.once('connect', () => { socket.destroy(); resolve(true) })
   socket.once('error', () => resolve(false))
 })
-const options = { stateDir, console: false, logLevel: 'error', codexHome: process.env.HD_CODEX, codexBinaryPath: null }
+const options = { stateDir, console: false, logLevel: 'error', codexHome: process.env.HD_CODEX, codexBinaryPath: process.env.HD_FAKE }
 const { host, extensions, pathReady } = createDefaultHost(options)
 await host.start()
 await pathReady
@@ -71,6 +72,7 @@ for (const second of [false, true]) test(second
     HD_STATE: stateDir,
     HD_SECOND: second ? '1' : '0',
     HD_CODEX: join(stateDir, 'codex'),
+    HD_FAKE: fileURLToPath(new URL('../../../adapter-codex/test/fixtures/fake-codex.mjs', import.meta.url)),
   }
   delete env['SHELL']
   const child = spawn(process.execPath, ['--input-type=module', '-e', QUIT], { env, stdio: ['ignore', 'pipe', 'pipe'] })
