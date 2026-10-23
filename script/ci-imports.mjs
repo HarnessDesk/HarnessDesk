@@ -12,10 +12,59 @@ export const IMPORT = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"]
 export const URL_IMPORT = /new\s+URL\(\s*['"](\.[^'"\n]*)['"]\s*,\s*import\.meta\.url\s*\)/g
 export const SPEC = /\.spec\.[cm]?[jt]sx?$/
 
-// Consume strings whole before looking for comment markers: URLs and template
-// contents can contain // or /* as data. Keep offsets and line breaks intact.
-const withoutComments = text => text.replace(/'((?:\\[\s\S]|[^'\\\r\n])*)'|"((?:\\[\s\S]|[^"\\\r\n])*)"|`((?:\\[\s\S]|[^`\\])*)`|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g,
-  token => token.startsWith('//') || token.startsWith('/*') ? token.replace(/[^\r\n]/g, ' ') : token)
+// Keep offsets and line breaks intact. Template expressions are code again,
+// including nested templates; regex literals consume their escaped slashes.
+const withoutComments = text => {
+  const result = text.split('')
+  let at = 0
+  const quoted = quote => {
+    at++
+    while (at < text.length) {
+      if (text[at] === '\\') { at += 2; continue }
+      if (text[at++] === quote) return
+    }
+  }
+  const template = () => {
+    at++
+    while (at < text.length) {
+      if (text[at] === '\\') { at += 2; continue }
+      if (text[at] === '`') { at++; return }
+      if (text.startsWith('${', at)) { at += 2; code(true); continue }
+      at++
+    }
+  }
+  const code = (expression = false) => {
+    let braces = 0
+    while (at < text.length) {
+      const char = text[at]
+      if (char === "'" || char === '"') { quoted(char); continue }
+      if (char === '`') { template(); continue }
+      if (char === '{') braces++
+      if (char === '}') {
+        if (expression && braces === 0) { at++; return }
+        braces--
+      }
+      if (text.startsWith('//', at) || text.startsWith('/*', at)) {
+        const start = at
+        const block = text[at + 1] === '*'
+        at += 2
+        if (block) {
+          while (at < text.length && !text.startsWith('*/', at)) at++
+          at = Math.min(text.length, at + 2)
+        } else while (at < text.length && !/[\r\n]/.test(text[at])) at++
+        for (let i = start; i < at; i++) if (!/[\r\n]/.test(text[i])) result[i] = ' '
+        continue
+      }
+      if (char === '/') {
+        const regex = text.slice(at).match(/^\/(?:\\[^\r\n]|\[(?:\\[^\r\n]|[^\]\\\r\n])*\]|[^/\\[\r\n])+\/[a-z]*/)
+        if (regex) { at += regex[0].length; continue }
+      }
+      at++
+    }
+  }
+  code()
+  return result.join('')
+}
 
 export const walk = directory => readdirSync(directory, { withFileTypes: true }).flatMap(entry =>
   entry.isDirectory() ? walk(join(directory, entry.name)) : [join(directory, entry.name)])

@@ -1270,7 +1270,9 @@ const PreviewGuides = () => {
 const SceneSteps = () => {
   useEffect(() => {
     const steps = requestedSteps()
-    if (steps) void runSceneSteps(steps)
+    const controller = new AbortController()
+    if (steps) void runSceneSteps(steps, controller.signal)
+    return () => controller.abort()
   }, [])
   return null
 }

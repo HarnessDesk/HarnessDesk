@@ -28,6 +28,9 @@ export default defineConfig({
           name: 'dom',
           include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
           environment: 'jsdom',
+          // Rendering a full page can exceed the default 5s on a loaded runner.
+          // All DOM render tests share this budget; pure Node tests keep 5s.
+          testTimeout: 10_000,
           // jsdom omits a few real browser APIs the renderer uses; see the file.
           setupFiles: ['./src/setup-tests.ts'],
           exclude: [...configDefaults.exclude, ...NODE_TESTS],

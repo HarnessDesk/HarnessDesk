@@ -2,6 +2,7 @@ import { closeRunInspector, selectRunView } from './run-frame-actions'
 import { selectTeamDestination, selectTeamPage } from './team-frame-actions'
 import { closeFloatingTeamRail } from './team-frame-actions'
 import { expect, test, type Page, type Locator } from '@playwright/test'
+import { shapeViewportReady } from './canvas-fit'
 import { mkdir } from 'node:fs/promises'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 import { minimapOverlaps, zoomOf } from './canvas-minimap'
@@ -256,7 +257,12 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto(`/preview.html?shape-graph&theme=${theme}`)
       const canvas = page.locator('#shape-graph [data-slot="flow-canvas"]')
       await expect(canvas.locator('.react-flow__node')).toHaveCount(6)
-      await expect.poll(() => canvas.locator('.react-flow__viewport').evaluate(el => new DOMMatrixReadOnly(getComputedStyle(el).transform).a)).toBeGreaterThanOrEqual(0.8)
+      // Identity has a readable scale too. Wait for the measured centering pass
+      // before taking the transform that wheel and touch must preserve.
+      await expect.poll(async () => shapeViewportReady(await canvas.locator('.react-flow__viewport').evaluate(el => {
+        const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform)
+        return { scale: matrix.a, x: matrix.e, y: matrix.f }
+      }))).toBe(true)
       // The standalone board gets the same scrolling boundary as its editor dialog.
       const pageScroll = page.locator('#root')
       await pageScroll.evaluate(el => { (el as HTMLElement).style.overflowY = 'auto' })
