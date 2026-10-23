@@ -283,3 +283,14 @@ test('an empty OpenCode data home stays signed out after a successful session (#
   writeFileSync(join(data, 'opencode', 'auth.json'), JSON.stringify({ provider: { type: 'api', key: 'fake-key' } }))
   assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider')
 })
+
+
+test('identity readers use the HOME of the row that starts the agent (#1766)', (t) => {
+  const moved = folder(t, {
+    '.gemini/settings.json': { security: { auth: { selectedType: 'oauth-personal' } } },
+    '.gemini/google_accounts.json': { active: 'dev@example.com' },
+  })
+  const row = { id: 'gemini', name: 'Gemini CLI', command: 'gemini', env: { HOME: moved } }
+  const overlay = knowledgeOverlay(row, knownAgent('gemini'), { env: { HOME: moved } })
+  assert.equal(overlay.resolveIdentity?.()?.email, 'dev@example.com')
+})

@@ -37,6 +37,7 @@ export const knowledgeOverlay = (
     ...(agent.args ? { args: agent.args } : {}),
     ...(agent.cwd ? { cwd: agent.cwd } : {}),
     env,
+    ...(env['HOME'] ? { home: env['HOME'] } : {}),
   })
   // Which vendor its models come from, read from its own configuration; see
   // `installs/provider.ts`. The row's own args go along too — DSH's reader
