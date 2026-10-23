@@ -306,10 +306,7 @@ export class TriggerBudgets {
 
   /** Recorded stops whose cleanup still needs to finish, even after settlement or a restart. */
   pendingStops(): readonly { readonly goal: string; readonly detail: string }[] {
-    let snapshot: IntakeSnapshot
-    try { snapshot = this.#read() } catch { return [] }
-    return Object.entries(snapshot.budgets).flatMap(([goal, budget]) =>
-      budget.stop && budget.stopCompleted === false ? [{ goal, detail: budget.stop.detail }] : [])
+    return this.watchState().stops
   }
 
   completeStop(goal: string): Promise<void> {
@@ -333,17 +330,38 @@ export class TriggerBudgets {
 
   /** Pending interruptions, including a paused run whose first cleanup write has not landed yet. */
   pendingHolds(): readonly { readonly goal: string; readonly reason: string }[] {
+    return this.watchState().holds
+  }
+
+  /** One journal snapshot for the watch's live budgets and both kinds of pending cleanup. */
+  watchState(): {
+    readonly live: readonly string[]
+    readonly stops: readonly { readonly goal: string; readonly detail: string }[]
+    readonly holds: readonly { readonly goal: string; readonly reason: string }[]
+  } {
+    const live: string[] = []
+    const stops: { goal: string; detail: string }[] = []
+    const holds: { goal: string; reason: string }[] = []
+    const state = { live, stops, holds }
     let snapshot: IntakeSnapshot
-    try { snapshot = this.#read() } catch { return [] }
-    return Object.entries(snapshot.budgets).flatMap(([goal, budget]) => {
-      if (budget.stop) return []
-      if (budget.hold?.completed === false) return [{ goal, reason: budget.hold.reason }]
-      if (budget.settled) return []
+    try { snapshot = this.#read() } catch { return state }
+    for (const [goal, budget] of Object.entries(snapshot.budgets)) {
+      if (budget.stop) {
+        if (budget.stopCompleted === false) stops.push({ goal, detail: budget.stop.detail })
+        continue
+      }
+      if (!budget.settled) live.push(goal)
+      if (budget.hold?.completed === false) {
+        holds.push({ goal, reason: budget.hold.reason })
+        continue
+      }
+      if (budget.settled) continue
       let run: FlowExecution | null = null
-      try { run = this.#port.run(goal) } catch { return [] }
+      try { run = this.#port.run(goal) } catch { continue }
       const reason = this.#holdReason(budget, run)
-      return reason ? [{ goal, reason }] : []
-    })
+      if (reason) holds.push({ goal, reason })
+    }
+    return state
   }
 
   /** Save the pending effect before holding the run or interrupting its turns. */
@@ -424,7 +442,7 @@ export interface BudgetWatchPort {
    * Returns the run's hold generation observed before interrupting its turns.
    */
   hold(goal: string, reason: string): Promise<number>
-  /** A sweep settled: its owner can retire the retry timer once cleanup is complete. */
+  /** Cleanup completed: its owner can retire a timer that only existed to retry it. */
   swept?(): void | Promise<void>
   readonly timers?: { every(fn: () => void, ms: number): unknown; clear(handle: unknown): void }
 }
@@ -464,15 +482,17 @@ export class BudgetWatch {
 
   /** One sweep; a sweep already running is joined, never doubled. */
   tick(): Promise<void> {
-    this.#ticking ??= this.#sweep().finally(async () => { this.#ticking = null; await this.#port.swept?.() })
+    this.#ticking ??= this.#sweep().finally(() => { this.#ticking = null })
     return this.#ticking
   }
 
   async #sweep(): Promise<void> {
-    const stops = new Map(this.#budgets.pendingStops().map((one) => [one.goal, one.detail]))
-    const holds = new Map(this.#budgets.pendingHolds().map((one) => [one.goal, one.reason]))
+    const pending = this.#budgets.watchState()
+    const stops = new Map(pending.stops.map((one) => [one.goal, one.detail]))
+    const holds = new Map(pending.holds.map((one) => [one.goal, one.reason]))
+    let completedCleanup = false
     const errors: unknown[] = []
-    for (const goal of this.#budgets.live()) {
+    for (const goal of pending.live) {
       try {
         const run = this.#runs(goal)
         // Only a run that is going can dispatch: one that settled, stopped or stalled waits on a person already.
@@ -494,7 +514,7 @@ export class BudgetWatch {
       try { await this.#port.stopRun(goal, reason); stopped = true } catch (error) { errors.push(error) }
       try { await this.#port.interrupt(goal); interrupted = true } catch (error) { errors.push(error) }
       if (stopped && interrupted) {
-        try { await this.#budgets.completeStop(goal) } catch (error) { errors.push(error) }
+        try { await this.#budgets.completeStop(goal); completedCleanup = true } catch (error) { errors.push(error) }
       }
     }
     for (const [goal, reason] of holds) {
@@ -503,8 +523,10 @@ export class BudgetWatch {
         if (!await this.#budgets.hold(goal, reason)) continue
         const generation = await this.#port.hold(goal, reason)
         await this.#budgets.completeHold(goal, reason, generation)
+        completedCleanup = true
       } catch (error) { errors.push(error) }
     }
+    if (completedCleanup) await this.#port.swept?.()
     if (errors.length) throw new AggregateError(errors, 'Budget cleanup failed; pending work will be retried.')
   }
 }

@@ -362,8 +362,9 @@ export class IntakePlane {
   async #syncTimers(): Promise<void> {
     const armed = this.#closed ? 0 : (await this.#consent.armed().catch(() => [])).length
     const enabled = !this.#closed && this.#problem === null
-    const wantWork = enabled && !this.#prefs.paused && (armed > 0 || this.#budgets.live().length > 0)
-    const wantCleanup = enabled && (this.#budgets.pendingStops().length > 0 || this.#budgets.pendingHolds().length > 0)
+    const budgets = this.#budgets.watchState()
+    const wantWork = enabled && !this.#prefs.paused && (armed > 0 || budgets.live.length > 0)
+    const wantCleanup = enabled && (budgets.stops.length > 0 || budgets.holds.length > 0)
     if (wantWork || wantCleanup) this.#watch.start()
     else this.#watch.close()
     if (wantWork) {

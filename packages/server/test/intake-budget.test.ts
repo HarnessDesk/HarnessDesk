@@ -169,6 +169,55 @@ for (const fails of ['hold', 'stop save'] as const) test(`another Goal's ${fails
   assert.equal(calls.length, 8, 'completed cleanup is not repeated')
 })
 
+test('a sweep discovers pending cleanup with one journal snapshot', async () => {
+  const d = await desk(tempDir('hd-intake-sweep-reads-'))
+  const goal = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  await d.settle()
+  await d.budgets.stop(goal, 'timed out', 'Timed out')
+  const read = d.store.read.bind(d.store)
+  let reads = 0
+  d.store.read = () => { reads++; return read() }
+  const watch = new BudgetWatch(d.budgets, () => null, {
+    stopRun: async () => { throw new Error('stop failed') },
+    interrupt: async () => { throw new Error('interrupt failed') },
+    hold: async () => 0,
+  })
+  await assert.rejects(watch.tick(), /cleanup failed/i)
+  assert.equal(reads, 1, 'stops, holds and live budgets share one discovery read')
+})
+
+for (const kind of ['stop', 'hold'] as const) test(`timer synchronization only follows completed ${kind} cleanup`, async () => {
+  let paused = false
+  let fail = true
+  let swept = 0
+  const d = await desk(tempDir('hd-intake-sweep-sync-'), { paused: () => paused })
+  const goal = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  await d.settle()
+  const run = () => d.flows.executionsFor(goal)[0]!
+  const watch = new BudgetWatch(d.budgets, () => run(), {
+    stopRun: async (_goal, reason) => { await d.flows.stopRun(run().id, reason) },
+    interrupt: async () => { if (fail) throw new Error('interrupt failed') },
+    hold: async (_goal, reason) => {
+      await d.flows.holdTriggered(run().id, reason)
+      if (fail) throw new Error('interrupt failed')
+      return run().intake!.holdGeneration ?? 0
+    },
+    swept: () => { swept++ },
+  })
+  await watch.tick()
+  await watch.tick()
+  assert.equal(swept, 0, 'ordinary budget ticks do not resynchronize timers')
+  if (kind === 'stop') await d.budgets.stop(goal, 'timed out', 'Timed out')
+  else paused = true
+  await assert.rejects(watch.tick(), /cleanup failed/i)
+  assert.equal(swept, 0, 'unchanged pending cleanup does not resynchronize timers')
+  fail = false
+  await watch.tick()
+  assert.equal(swept, 1, 'completing cleanup lets the owner retire a cleanup-only timer')
+  await watch.tick()
+  assert.equal(swept, 1, 'completed cleanup does not resynchronize timers again')
+})
+
 test('force-push shares money time and round allowance', async () => {
   const home = tempDir('hd-intake-budget-')
   const clock = new Clock(DAY + 10 * HOUR)
