@@ -2264,10 +2264,18 @@ export class AcpRuntime implements AgentRuntime {
     const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
     const before = this.#signIn
+    const beforeGeneration = this.#refusalGeneration
+    const beforeObservation = this.#statusObservation
     // Make the state transition visible to the account/changed event emitted
-    // by CliAccount when its command succeeds. Restore it if the command
-    // itself fails, since the provider may still be signed in.
-    this.#signIn = { state: 'required', message: 'Signed out.' }
+    // by CliAccount when its command succeeds. It is a refusal like any
+    // other, newer than whatever the CLI last said, so it advances the
+    // generation: the first read after it must not ask the CLI, whose
+    // credential file may still name the account just signed out. Restore
+    // all of it if the command itself fails, since the provider may still be
+    // signed in.
+    const signedOut: SignInObservation = { state: 'required', message: 'Signed out.' }
+    this.#signIn = signedOut
+    const signedOutGeneration = ++this.#refusalGeneration
     try {
       if (overAcp) {
         await this.#connection.request(ACP_LOGOUT, {})
@@ -2277,7 +2285,13 @@ export class AcpRuntime implements AgentRuntime {
         await this.#account!.logout()
       }
     } catch (error) {
-      this.#signIn = before
+      // Only what this sign-out wrote is taken back: an answer that landed
+      // while the command ran is newer than the rollback and stands.
+      if (this.#signIn === signedOut) this.#signIn = before
+      if (this.#refusalGeneration === signedOutGeneration) {
+        this.#refusalGeneration = beforeGeneration
+        this.#statusObservation = beforeObservation
+      }
       throw error
     }
   }

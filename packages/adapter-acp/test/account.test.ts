@@ -1962,6 +1962,63 @@ test('a delayed status refresh cannot clear a newer identical refusal (#1765)', 
   }
 })
 
+test('the first read after a sign-out reports the refusal, not the account the CLI still names (#1765)', async () => {
+  // The fake CLI's `status` keeps answering signed in after `logout`, as a
+  // real CLI does while its credential file lags the command. The sign-out is
+  // a refusal newer than that answer, so the read must not ask the CLI first.
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts.length, 1)
+    await runtime.logout()
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [], 'the old account is not reported')
+    assert.equal(status.refusal, 'Signed out.')
+    assert.ok(status.signInMethods.some(method => method.id === 'cli-browser'), 'the way back in is offered')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a sign-out the CLI refuses leaves no signed-out refusal behind (#1765)', async (t) => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts.length, 1)
+    t.mock.method(CliAccount.prototype, 'logout', async () => { throw new Error('keychain refused') })
+    await assert.rejects(runtime.logout(), /keychain refused/)
+    const status = await runtime.getAccount()
+    assert.equal(status.accounts.length, 1, 'the account is still signed in')
+    assert.equal(status.refusal, undefined)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a refused sign-out puts the refusal bookkeeping back as it found it (#1765)', async (t) => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts.length, 1)
+    runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
+    assert.equal((await runtime.getAccount()).refusal, 'Authentication required.', 'the refusal was published once')
+    t.mock.method(CliAccount.prototype, 'logout', async () => { throw new Error('keychain refused') })
+    await assert.rejects(runtime.logout(), /keychain refused/)
+    // The refusal had been published already, so the next read asks the CLI
+    // again, exactly as it would have had the sign-out never been tried.
+    const status = await runtime.getAccount()
+    assert.equal(status.accounts.length, 1, 'the CLI is asked again, as before the attempt')
+    assert.equal(status.refusal, undefined)
+    // And a later refusal is still the newer observation.
+    runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
+    const refused = await runtime.getAccount()
+    assert.deepEqual(refused.accounts, [])
+    assert.equal(refused.refusal, 'Authentication required.')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('an empty identity status offers external sign-in rather than an accountless answer (#1776)', async () => {
   const runtime = new AcpRuntime({
     id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath,
