@@ -160,6 +160,12 @@ for (const ending of ['detach', 'close', 'close without an event', 'unavailable'
     const merging = d.call('pr_merge', d.receiver).then(value => { result = value })
     const [approval] = await until(() => d.waiting(d.receiver).length ? d.waiting(d.receiver) : null, 'the held approval')
     assert.ok(approval)
+    const resolutions: unknown[] = []
+    t.after(d.host.addBroadcaster(notification => {
+      if (notification.method !== 'event') return
+      const event = notification.params.event
+      if (event.type === 'approval/resolved' && event.sessionId === d.receiver.id && event.approvalId === approval.id) resolutions.push(event.resolution)
+    }))
     if (ending === 'detach') d.runtime.emit({ type: 'session/detached', sessionId: d.receiver.id })
     else if (ending === 'close') await d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
     else if (ending === 'close without an event') {
@@ -175,6 +181,9 @@ for (const ending of ['detach', 'close', 'close without an event', 'unavailable'
     await merging
     assert.deepEqual(d.ran, [])
     assert.deepEqual(d.waiting(d.receiver), [])
+    assert.deepEqual(resolutions, [{ outcome: 'abandoned', reason: 'The conversation closed before anyone answered.' }])
+    const audit = await d.host.call('audit/query', {}) as readonly { kind: string; sessionId: string; decision?: string }[]
+    assert.deepEqual(audit.filter(entry => entry.kind === 'approval/decided' && entry.sessionId === d.receiver.id).map(entry => entry.decision), ['abandoned'])
   })
 }
 
@@ -215,6 +224,8 @@ test('through the host: refused, nothing runs — and a question nobody answers 
   const refused = await opening; assert.equal(refused.ok, false); assert.match(refused.ok ? '' : refused.error, /^You refused: .* will not open a pull request for Reviewer\./); assert.deepEqual(refusing.ran, [])
   const silent = await room(t, { heldWaitMs: 50 }); await silent.message('Merge #7.')
   const unanswered = await silent.call('pr_merge', silent.receiver); assert.equal(unanswered.ok, false); assert.match(unanswered.ok ? '' : unanswered.error, /^Nobody answered, so nothing was done: .*End your turn, and say that this waits for the person\.$/); assert.deepEqual(silent.waiting(silent.receiver), []); assert.deepEqual(silent.ran, [])
+  const audit = await silent.host.call('audit/query', {}) as readonly { kind: string; sessionId: string; decision?: string }[]
+  assert.deepEqual(audit.filter(entry => entry.kind === 'approval/decided' && entry.sessionId === silent.receiver.id).map(entry => entry.decision), ['timedOut'])
 })
 
 test("through the host: a policy rule never answers for the person, and the person's own turn asks nobody", async (t) => {

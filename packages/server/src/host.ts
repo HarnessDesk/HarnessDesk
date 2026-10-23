@@ -97,6 +97,7 @@ import {
   type WireNotification,
   type ResolvedModelRoute,
   type Approval,
+  type ApprovalResolution,
   type ContributionId,
   type ScopeQuery,
   type WorkspaceAdmission,
@@ -6018,7 +6019,7 @@ export class Host {
   readonly #heldAnswers = new Map<string, {
     runtime: string
     sessionId: string
-    answer: (answer: 'allowed' | 'refused' | 'unanswered') => void
+    answer: (answer: 'allowed' | 'refused' | 'unanswered', resolution?: ApprovalResolution) => void
   }>()
   /** Recent Stop settlements: a delayed runtime reply cannot replace abandonment. */
   readonly #abandonedApprovals = new Set<string>()
@@ -6060,16 +6061,16 @@ export class Host {
     const waitMs = this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
     const key = approvalKey(runtime, sessionId, id)
     return new Promise<'allowed' | 'refused' | 'unanswered'>((resolve) => {
-      const answer = (said: 'allowed' | 'refused' | 'unanswered'): void => {
+      const answer = (said: 'allowed' | 'refused' | 'unanswered', resolution?: ApprovalResolution): void => {
         this.#heldAnswers.delete(key)
         clearTimeout(timer)
         if (record.approvals.has(String(id))) this.#onEvent(record.runtime, {
           type: 'approval/resolved',
           sessionId: record.session.id,
           approvalId: id,
-          resolution: said === 'unanswered'
+          resolution: resolution ?? (said === 'unanswered'
             ? { outcome: 'timedOut' }
-            : { outcome: 'decided', decision: { type: 'option', optionId: said === 'allowed' ? HELD_ALLOW : HELD_REFUSE } },
+            : { outcome: 'decided', decision: { type: 'option', optionId: said === 'allowed' ? HELD_ALLOW : HELD_REFUSE } }),
         })
         resolve(said)
       }
@@ -6165,7 +6166,9 @@ export class Host {
 
   #settleHeld(runtime: string, sessionId?: string): void {
     for (const held of this.#heldAnswers.values()) {
-      if (held.runtime === runtime && (sessionId === undefined || held.sessionId === sessionId)) held.answer('unanswered')
+      if (held.runtime === runtime && (sessionId === undefined || held.sessionId === sessionId)) {
+        held.answer('unanswered', { outcome: 'abandoned', reason: 'The conversation closed before anyone answered.' })
+      }
     }
   }
 
