@@ -333,7 +333,12 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       // A missing lookup row is not a terminal report. The port merges evidence;
       // replay independently refuses a record that would silently drop a live run.
       ensure(state.runs.filter(run => run.correlationId === attempt!.correlationId).every(run => identities.some(identity => identity.runId === run.runId)))
-      const runs = [...state.runs.filter(run => run.correlationId !== attempt!.correlationId), ...live.map(run => ({ correlationId: run.correlationId, runId: run.runId, teamId: run.teamId }))]
+      // A completed start is still the step's run after it settles. Unresolved
+      // discoveries keep their live-only index so recovery can release a proven
+      // no-run start, but must not erase an already-started step's history.
+      const started = attempt!.outcome === 'succeeded' && !attempt!.resolutionPending &&
+        state.steps.some(step => step.state === 'started' && step.attemptId === attempt!.id)
+      const runs = [...state.runs.filter(run => run.correlationId !== attempt!.correlationId), ...(started ? identities : live).map(run => ({ correlationId: run.correlationId, runId: run.runId, teamId: run.teamId }))]
       let budget = state.budget
       for (const run of identities) if (budget) budget = reduceLeadBudget(budget, { version: 1, type: 'bind', now: budget.now,
         goalId: run.teamId, executionId: run.runId, startId: event.id, firstRoundId: run.firstRoundId })

@@ -98,6 +98,19 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     }
     attempts.set(key, structuredClone(attempt))
   }
+  // Older recovery removed terminal rows from the index while keeping the
+  // started step and its authenticated evidence. Restore only that proven
+  // binding; missing lookup rows never prove an execution or its termination.
+  for (const step of steps) {
+    const attempt = step.attemptId === null ? null : attempts.get(step.attemptId)
+    if (step.state !== 'started' || attempt?.outcome !== 'succeeded' || attempt.resolutionPending || attempt.evidence === null) continue
+    for (const observed of parseLeadRunEvidence(attempt.evidence)) {
+      const existing = runs.find(run => run.runId === observed.runId)
+      assert(!existing || existing.correlationId === observed.correlationId && existing.teamId === observed.teamId)
+      if (!existing) runs.push({ correlationId: observed.correlationId, runId: observed.runId, teamId: observed.teamId })
+    }
+  }
+  assert(runs.length <= 64)
   if (source.consent !== null) {
     const consent = source.consent
     assert(consent && Object.keys(consent).sort().join() === ['contractDigest', 'contractRevision', 'policyRevision', 'expiresAt', ...(consent.renewalCardRevision === undefined ? [] : ['renewalCardRevision'])].sort().join())

@@ -80,6 +80,22 @@ test('checkpoints round trip reduced state and refuse malformed snapshots', () =
   }
 })
 
+test('replay and checkpoints retain a started step run after recovery reports it settled', () => {
+  const identity = { correlationId: 'attempt-1', runId: 'run-1', teamId: 'team-1' }
+  const evidence = JSON.stringify([{ ...identity, firstRoundId: 'run-1:round:1', terminal: true }])
+  const history = records([...started(), { type: 'result', id: 'attempt-1', outcome: 'succeeded', identity },
+    { type: 'reconciliation', id: 'attempt-1', count: 0, identity: null, evidence }])
+  const state = replayLeadJournal(history)
+  assert.deepEqual(state.runs, [identity])
+  assert.equal(state.steps[0]!.state, 'started')
+  assert.equal(state.attempts.get('attempt-1')!.evidence, evidence)
+  const restored = lead.parseLeadCheckpoint(JSON.parse(JSON.stringify(lead.leadCheckpoint(state, 'b'.repeat(64))))).state
+  assert.deepEqual(restored, state)
+  // Repair the old checkpoint shape too: its terminal evidence survived the lost index row.
+  const legacy = lead.leadCheckpoint(state, 'b'.repeat(64))
+  assert.deepEqual(lead.parseLeadCheckpoint({ ...legacy, state: { ...legacy.state, runs: [] } }).state.runs, [identity])
+})
+
 test('pending plan blocks every mutation dispatch in replay except stop and abandon', () => {
   for (const [method, action] of [['workspace/open', null], ['flow/execution/stop', null], ['team/intent', 'abandon']] as const) {
     const history = records([...prefix(),
