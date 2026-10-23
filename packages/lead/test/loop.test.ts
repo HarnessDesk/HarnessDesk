@@ -128,6 +128,100 @@ const startCall = () => ({ method: 'flow/start-goal', params: { root: contract.p
 const spendEvidence = () => ({ ...evidence(), spend: { version: 1, type: 'observe', now: 100, at: 100, revision: 1,
   source: 'worker-samples', sourceIds: ['sample-1'], goalId: 'team-1', executionIds: ['run-1'], quality: 'known', usdMicros: 1 } })
 
+test('a new person message after a settled no-result run offers a fresh plan without restarting the step', async () => {
+  const replacement = { ...contract, revision: 2, digest: 'b'.repeat(64), steps: [{ ...contract.steps[0]!, id: 'retry-work' }] }
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'Please approve a fresh attempt.', plan: replacement }) }])])
+  await s.approve()
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.execute(startCall())
+  s.setEvidence({ ...spendEvidence(), revision: '', complete: false, reviews: [], checks: [] })
+  await s.journal.recover(async attempt => [{ correlationId: attempt.correlationId, runId: 'run-1', teamId: 'team-1', firstRoundId: 'run-1:round:1', terminal: true }])
+  await s.journal.appendMessage('fresh-request', 'Try the repair again with a new plan.')
+  const recovered = await lead.createLeadJournal(s.storage)
+  const loop = exported('createLeadLoop')({ ...s.options, journal: recovered })
+  await loop.request(input)
+  assert.equal(loop.state.phase, 'awaiting-plan')
+  assert.notEqual(loop.state.reason, 'lead-run-not-started')
+  const card = recovered.state.cards.find(card => card.type === 'plan' && card.contractDigest === replacement.digest)!
+  assert.ok(card, 'the desk accepts the new proposal')
+  assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
+  // Proposal is not consent; the new step does not exist until the person approves it.
+  assert.equal(recovered.state.steps[0]!.id, 'work')
+  await recovered.decideCard({ version: 1, cardId: card.id, cardType: 'plan', expectedRevision: card.revision,
+    contractDigest: replacement.digest, choice: 'approve' }, 1000)
+  assert.deepEqual(recovered.state.steps.map(step => [step.id, step.state]), [['retry-work', 'pending']])
+  assert.deepEqual(recovered.state.budget!.executionIds, ['run-1'])
+  const recycled = { ...replacement, revision: 3, digest: 'c'.repeat(64), steps: [...replacement.steps, contract.steps[0]!] }
+  await assert.rejects(recovered.offerCard({ version: 1, id: 'recycled', revision: 1, type: 'plan', contractDigest: recycled.digest, contract: recycled }),
+    'even a revision of a pending replacement cannot recycle an earlier started step id')
+  await loop.refresh()
+  assert.equal(loop.state.synchronized, true, 'old runs do not contaminate the replacement contract evidence')
+  await loop.close()
+  const refined = { ...replacement, revision: 3, digest: 'c'.repeat(64) }
+  await recovered.offerCard({ version: 1, id: 'refined', revision: 1, type: 'plan', contractDigest: refined.digest, contract: refined })
+  await recovered.decideCard({ version: 1, cardId: 'refined', cardType: 'plan', expectedRevision: 1, contractDigest: refined.digest, choice: 'approve' }, 1000)
+  assert.equal(recovered.state.runs[0]?.runId, 'run-1', 'revising pending replacement work cannot discard the previous run')
+  const identity = { correlationId: 'lost-replacement', runId: 'run-2', teamId: 'team-2' }
+  const scope = await s.options.resolveTool(startCall())
+  const lost = await recovered.execute({ id: identity.correlationId, stepId: replacement.steps[0]!.id,
+    request: { ...startCall(), project: contract.project, runId: null, start: replacement.steps[0]! }, context: scope.context },
+    async () => { throw new Error('lost response') })
+  assert.equal(lost.outcome, 'uncertain')
+  await recovered.recover(async attempt => attempt.correlationId === identity.correlationId
+    ? [{ ...identity, firstRoundId: 'run-2:round:1', terminal: false }]
+    : [{ correlationId: attempt.correlationId, runId: 'run-1', teamId: 'team-1', firstRoundId: 'run-1:round:1', terminal: true }])
+  await recovered.resolveStart(identity.correlationId, { goalId: identity.teamId, identity })
+  assert.equal(recovered.state.steps[0]!.state, 'started')
+  assert.deepEqual(recovered.state.budget!.executionIds, ['run-1', 'run-2'])
+  assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint(recovered.state, '0'.repeat(64))).state, recovered.state)
+})
+
+test('settled-plan replacement refuses live or missing runs, old step ids, recovery and absent person requests', async () => {
+  const s = await fixture()
+  await s.approve()
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.execute(startCall())
+  const replacement = { ...contract, revision: 2, digest: 'b'.repeat(64), steps: [{ ...contract.steps[0]!, id: 'fresh-work' }] }
+  const offer = (value = replacement) => s.journal.offerCard({ version: 1, id: 'new-plan', revision: 1, type: 'plan', contractDigest: value.digest, contract: value })
+  await s.journal.appendMessage('new-request', 'Please try a new plan.')
+  await assert.rejects(offer(), 'a live or missing run cannot release the started-step lock')
+  await s.journal.recover(async attempt => [{ correlationId: attempt.correlationId, runId: 'run-1', teamId: 'team-1', firstRoundId: 'run-1:round:1', terminal: true }])
+  await s.journal.appendMessage('after-settlement', 'Propose a fresh attempt now that the run has settled.')
+  await assert.rejects(offer({ ...replacement, steps: [{ ...contract.steps[0]!, title: 'Restart the old id' }] }))
+  const state = s.journal.state
+  assert.equal(lead.canReplaceLeadPlan(state), true)
+  assert.equal(lead.canReplaceLeadPlan({ ...state, messages: state.messages.map(message => ({ ...message,
+    revision: state.attempts.get(state.steps[0]!.attemptId!)!.evidenceSeq! - 1 })) }), false,
+    'a message sent before settlement is not a request to replace settled work')
+  assert.equal(lead.canReplaceLeadPlan({ ...state, messages: [] }), false)
+  assert.equal(lead.canReplaceLeadPlan({ ...state, recoveryBlocked: true }), false)
+  assert.equal(lead.canReplaceLeadPlan({ ...state, runs: [] }), false)
+  assert.equal(lead.canReplaceLeadPlan({ ...state, cards: [...state.cards, { version: 1, id: 'result', revision: 1, type: 'result', outcome: 'reviewed',
+    contractDigest: contract.digest, summary: 'Awaiting acceptance', assertions: [], budget: lead.leadBudgetProjection(state.budget!, 100) }] }), false)
+  await offer()
+  const retry = await tools.execute(startCall())
+  assert.notEqual(retry.outcome, 'succeeded', 'a pending plan never authorizes starting again')
+  assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
+})
+
+test('a host observation of a settled bound run permits replanning without a restart', async () => {
+  const s = await fixture()
+  await s.approve()
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.execute(startCall())
+  await s.journal.appendMessage('new-request', 'Please try a new plan.')
+  const observe = (s.journal as any).observeSettledRun
+  assert.equal(typeof observe, 'function')
+  await observe.call(s.journal, 'run-1', 'run-1:round:1')
+  assert.equal(lead.canReplaceLeadPlan(s.journal.state), false, 'the earlier request predates settlement')
+  await s.journal.appendMessage('after-settlement', 'Propose a new attempt now.')
+  assert.equal(lead.canReplaceLeadPlan(s.journal.state), true)
+  const seq = s.journal.state.seq
+  await observe.call(s.journal, 'run-1', 'run-1:round:1')
+  assert.equal(s.journal.state.seq, seq, 'the same host observation is idempotent')
+  await assert.rejects(observe.call(s.journal, 'foreign-run', 'round-1'))
+})
+
 test('the API brain starts only after subscribing, binds returned execution, and accepts only fresh reviewed facts', async () => {
   const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
   await s.approve(); s.setEvidence(spendEvidence())

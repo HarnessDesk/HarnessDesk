@@ -91,3 +91,15 @@ test('the desk message says a required check counts only when the person runs it
   assert.match(text, /a required check counts only when the person runs it on the Team/)
   assert.match(text, /never say the step waits only for their decision/)
 })
+
+test('instructions and continuation permit a fresh plan after settled runs leave no result', () => {
+  const contract = contractOf()
+  const standing = leadInstructions({ name: 'Dex', project, policyRevision: 1, caps: contract.caps })
+  const continuation = textOf(leadContinuation({ contract, steps: contract.steps.map(step => ({ id: step.id, state: 'started' })) }))
+  for (const text of [standing, continuation]) {
+    assert.match(text, /settled.*no result/)
+    assert.match(text, /new plan/)
+    assert.match(text, /new step ids/)
+    assert.match(text, /approv/)
+  }
+})

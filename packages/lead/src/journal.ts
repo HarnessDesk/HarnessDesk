@@ -339,6 +339,19 @@ export class LeadJournal {
       await this.#append({ type: 'budget', event: { version: 1, type: 'uncertain', now: this.#state.budget!.now, requestId: request.reservation.requestId } })
   }) }
   invalidateResults(): Promise<void> { return this.#queue(() => this.#append({ type: 'invalidate-results' })) }
+  /** Host-only bookkeeping from a fresh owned execution read. Unlike crash
+   * recovery this observes a completed start while the management child lives;
+   * it cannot discover a new run, resolve an uncertain start or authorize work. */
+  observeSettledRun(runId: string, firstRoundId: string): Promise<void> { return this.#queue(async () => {
+    const run = this.#state.runs.find(run => run.runId === runId)
+    const attempt = run && this.#state.attempts.get(run.correlationId)
+    if (!run || attempt?.method !== 'flow/start-goal' || attempt.outcome !== 'succeeded' || attempt.resolutionPending || attempt.contested)
+      throw new Error('lead-run-unowned')
+    const rows = attempt.evidence === null ? [] : parseLeadRunEvidence(attempt.evidence)
+    const previous = rows.find(row => row.runId === runId)
+    if (previous && (previous.teamId !== run.teamId || previous.firstRoundId !== firstRoundId)) throw new Error('lead-run-evidence-conflict')
+    await this.#record(attempt.id, [...rows.filter(row => row.runId !== runId), { ...run, firstRoundId, terminal: true }], false)
+  }) }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
   offerCard(card: LeadCard, admit?: (card: LeadCard) => void): Promise<LeadCard> { return this.#queue(async () => {
     const revisions = new Map(this.#state.cards.map(card => [card.id, card.revision]))
@@ -617,7 +630,8 @@ export class LeadJournal {
         const firstGoal = sortEvidence([...retained.values(), ...observed.filter(run => !foreign.has(run.runId))])[0]?.teamId ?? null
         // Distinct approved steps may own distinct Goals. A lookup must still
         // agree within one attempt and with every identity already retained.
-        const goalId = ownGoal ?? ((this.#state.contract?.steps.length ?? 0) > 1 ? firstGoal : this.#state.budget?.goalId ?? firstGoal)
+        const priorPlan = this.#state.runs.some(run => !this.#state.steps.some(step => step.attemptId === run.correlationId))
+        const goalId = ownGoal ?? ((this.#state.contract?.steps.length ?? 0) > 1 || priorPlan ? firstGoal : this.#state.budget?.goalId ?? firstGoal)
         // A row that contradicts retained evidence keeps the retained identity; one
         // that comes back to life stays live so it can be cancelled. Every other row
         // of the same lookup is still recorded.

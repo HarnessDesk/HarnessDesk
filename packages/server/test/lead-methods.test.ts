@@ -1200,12 +1200,16 @@ test('a running goal reports the step it is on and the runs it has started, and 
   assert.deepEqual((await s.controls.readThread()).progress, { step: 1, steps: 1, runs: 0 })
   const three = { ...contract, steps: ['a', 'b', 'c'].map(id => ({ ...contract.steps[0]!, id })) }
   const at = (states: string[], runs: number, phase = 'running') => ({ ...s.journal.state, phase, contract: three,
-    steps: states.map((state, index) => ({ id: ['a', 'b', 'c'][index]!, state, attemptId: null, contractDigest: null })),
+    steps: states.map((state, index) => ({ id: ['a', 'b', 'c'][index]!, state, attemptId: index < runs ? `c${index}` : null, contractDigest: null })),
     runs: Array.from({ length: runs }, (_, index) => ({ correlationId: `c${index}`, runId: `r${index}`, teamId: `t${index}` })) }) as any
   assert.deepEqual(leadProgress(at(['pending', 'pending', 'pending'], 0)), { step: 1, steps: 3, runs: 0 }, 'before any step starts the Lead is on the first')
   assert.deepEqual(leadProgress(at(['started', 'pending', 'pending'], 1)), { step: 1, steps: 3, runs: 1 })
   assert.deepEqual(leadProgress(at(['started', 'started', 'pending'], 2)), { step: 2, steps: 3, runs: 2 })
   assert.deepEqual(leadProgress(at(['started', 'started', 'started'], 3)), { step: 3, steps: 3, runs: 3 })
+  const replacement = at(['started', 'pending', 'pending'], 1)
+  replacement.runs.push({ correlationId: 'old-start', runId: 'old-run', teamId: 'old-team' })
+  assert.deepEqual(leadProgress(replacement), { step: 1, steps: 3, runs: 1 }, 'earlier plans stay owned without counting as current progress')
+  assert.equal(leadRunTeam(replacement), 't0')
   // A step the Lead has been admitted to start, or cannot be sure it started, is already the one it is on.
   assert.deepEqual(leadProgress(at(['admitted', 'pending', 'pending'], 0)), { step: 1, steps: 3, runs: 0 })
   assert.deepEqual(leadProgress(at(['started', 'admitted', 'pending'], 1)), { step: 2, steps: 3, runs: 1 })

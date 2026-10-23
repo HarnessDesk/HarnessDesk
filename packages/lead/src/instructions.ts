@@ -42,6 +42,7 @@ export const leadInstructions = (facts: LeadInstructionFacts): string => {
     "You manage one goal on the person's desk through the desk API. Workers on the desk do the work: you plan, start, watch and report, and you never write code yourself.",
     "The person's message is the goal. Your first job is a plan for the person to approve. Until a plan is approved, reply with ONLY one version 1 lead-output JSON object (format below) and call no tools.",
     "The approved contract arrives later, in a message from the desk. Only after it arrives do flow_preview and flow_start_goal apply. Start step N only after step N−1's result awaits acceptance. Never answer worker approvals or invent evidence.",
+    'When every approved step has started and fresh desk observations confirm its run has settled with no result possible, a new person message permits a new plan. Use new step ids, a higher contract revision and the same project; wait for the person to approve it before starting. The earlier approval covers only its own steps. Never restart a started step.',
     `Project root: ${facts.project.path} (project id ${facts.project.id}).`,
     'Write to the person in plain words about the work. Never name a tool, method or field of the desk API in your text: say "start the step", not the call that does it.',
   ]
@@ -67,6 +68,8 @@ const BLOCKS_PER_MESSAGE = 64
 export interface LeadContinuationFacts {
   readonly contract: LeadAcceptanceContract
   readonly steps: readonly { readonly id: string; readonly state: string }[]
+  readonly mayProposeNewPlan?: boolean
+  readonly runs?: readonly { readonly runId: string; readonly correlationId: string; readonly teamId: string }[]
 }
 /** What the desk says when the model is asked to go on from a plan the person approved: the contract itself, where
  * each step stands, and how a step is started. It is a message of its own that goes last in the conversation, never
@@ -79,6 +82,9 @@ export const leadContinuation = (facts: LeadContinuationFacts): readonly Message
     'The person approved your plan. Continue from the approved contract and fresh desk observations.',
     `Approved contract: ${JSON.stringify(contract)}`,
     `Step states: ${states}.`,
+    ...(facts.runs ? [`Runs owned by these steps (including settled runs): ${JSON.stringify(facts.runs)}.`] : []),
+    ...(facts.mayProposeNewPlan ? ['The desk has confirmed that every started step has settled and no result is awaiting your decision. The new person message permits you to propose a new plan now.'] : []),
+    'If every approved step has started and fresh desk observations confirm its run has settled with no result possible, respond to a new person message with a new plan for approval. Use new step ids, a higher contract revision and the same project. Do not ask the person to approve a plan you have not proposed. The earlier approval covers only its own steps; start nothing new until the new plan is approved.',
     'The desk keeps no separate goal record for this contract, so do not look for one. ' +
       "To start a step, call flow_preview with root (the project root), source (the private Flow in your instructions, unchanged), seats (each of the step's assignments as its role mapped to a list holding its seat), " +
       "vars (the step's variables) and attended (true when the step is attended). Then call flow_start_goal with the same fields plus token (from the preview) and sentence (the contract's goal, unchanged). " +

@@ -120,7 +120,8 @@ export class LeadBudgets implements FlowLeadGuard {
     const journal = this.#journal(run), lead = run.lead!
     if (!await this.port.member(journal.state.contract!.project)) throw new Error('lead-project-withdrawn')
     const state = journal.state
-    if (state.budget!.goalId !== null && state.budget!.goalId !== run.goal && state.contract!.steps.length <= 1) throw new Error('lead-start-not-approved')
+    const priorPlan = state.runs.some(owned => !state.steps.some(step => step.attemptId === owned.correlationId))
+    if (state.budget!.goalId !== null && state.budget!.goalId !== run.goal && state.contract!.steps.length <= 1 && !priorPlan) throw new Error('lead-start-not-approved')
     const pending = this.#pending.get(lead.startId)
     const owned = state.runs.find(item => item.correlationId === lead.startId || item.runId === run.id)
     if (owned ? owned.runId !== run.id || owned.teamId !== run.goal || owned.correlationId !== lead.startId
@@ -152,7 +153,17 @@ export class LeadBudgets implements FlowLeadGuard {
    * It takes the journal itself, because the request comes before the child that registers it. */
   async meter(journal: LeadJournal): Promise<void> {
     const id = journal.state.budget?.logicalGoalId
-    const run = id ? this.port.runs().find(one => one.lead?.logicalGoalId === id) : undefined
+    const runs = id ? this.port.runs().filter(one => one.lead?.logicalGoalId === id) : []
+    // An explicit request also refreshes settled-run bindings. Do this here,
+    // outside any card-decision journal queue and without crash recovery of a
+    // live child. A missing or still-running execution proves nothing.
+    for (const run of runs) {
+      const owned = journal.state.runs.find(owned => owned.runId === run.id && owned.teamId === run.goal && owned.correlationId === run.lead?.startId)
+      const attempt = owned && journal.state.attempts.get(owned.correlationId)
+      if (['settled', 'stopped'].includes(run.state) && attempt?.outcome === 'succeeded' && !attempt.resolutionPending && !attempt.contested)
+        await journal.observeSettledRun(run.id, leadRoundId(run.id, 1))
+    }
+    const run = runs[0]
     if (!run) return
     // A reading already out is dated from its start: one asked for now must begin now.
     const active = this.#metering.get(id!)

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createLeadJournal, leadBudgetProjection, type LeadJournalRecord } from '@harnessdesk/lead'
+import { canReplaceLeadPlan, createLeadJournal, leadBudgetProjection, type LeadJournalRecord } from '@harnessdesk/lead'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 import { sourceDigest } from '../src/flow-execution.js'
 import { LeadBudgets } from '../src/lead/budgets.js'
@@ -31,6 +31,54 @@ test('host recovery refuses to run while a registered Lead child is live', async
   assert.deepEqual(s.records, before, 'refusal precedes every recovery write')
   ended()
   await s.budgets.recover()
+})
+
+test('a fresh person request observes its settled run without recovering a live management child', async t => {
+  const s = await leadRig(t)
+  await s.start()
+  await s.journal.appendMessage('new-request', 'Propose a new attempt.')
+  const end = s.budgets.childStarted(s.journal)
+  t.after(async () => { end() })
+  await s.budgets.meter(s.journal)
+  assert.equal(canReplaceLeadPlan(s.journal.state), false, 'a live run keeps the plan locked')
+  const runs = s.budgets.port.runs()
+  t.mock.method(s.budgets.port, 'runs', () => runs.map(run => ({ ...run, state: 'settled' as const })))
+  const { LeadControls } = await import('../src/lead/controls.js')
+  let continuation = ''
+  const controls = new LeadControls({ journal: s.journal, project: s.project, model: 'fixture', now: () => 100, nextId: () => 'new-plan', push() {},
+    meterSpend: () => s.budgets.meter(s.journal), decidePerson: async () => {}, decideResult: async () => {},
+    service: { async status() { return { configured: true, protection: 'encrypted' as const } }, async setKey() {}, async deleteKey() {}, async assertPublic() {},
+      async send(request) { continuation = JSON.stringify(request.messages.at(-1)); return { status: 'completed' } } } })
+  t.after(async () => { controls.close() })
+  await controls.send({ idempotencyKey: 'after-settlement', text: 'Propose a new attempt now.' })
+  await controls.idle()
+  assert.match(continuation, /The desk has confirmed that every started step has settled/)
+  assert.equal(canReplaceLeadPlan(s.journal.state), true, 'a settled run leaves a way to propose fresh work')
+  assert.equal(s.journal.state.runs.length, 1)
+  assert.equal(s.journal.state.steps[0]!.state, 'started')
+})
+
+test('approval of a replacement one-step plan binds its new Team while retaining the earlier spend', async t => {
+  const s = await leadRig(t)
+  await s.start(); await s.observe(7)
+  const old = s.rig.flows.leadRuns()[0]!
+  await s.journal.observeSettledRun(old.id, leadRoundId(old.id, 1))
+  await s.journal.appendMessage('new-request', 'Try again with a new plan.')
+  const contract = { ...s.contract, revision: 2, digest: 'b'.repeat(64), steps: [{ ...s.contract.steps[0]!, id: 'fresh-work' }] }
+  await s.journal.offerCard({ version: 1, id: 'replacement', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  await s.journal.decideCard({ version: 1, cardId: 'replacement', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 1000)
+  const params = await s.params(), step = contract.steps[0]!
+  const result = await s.journal.execute({ id: 'replacement-start', stepId: step.id,
+    request: { method: 'flow/start-goal', params, project: s.project, runId: null, start: step },
+    context: { desk: s.journal.state.policy!, projectPolicy: null, project: s.project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } }, async () => {
+      s.budgets.prepare('replacement-start', s.journal, step.id, params, s.project)
+      await s.budgets.bind({ ...old, id: 'replacement-run', goal: 'replacement-team', lead: { ...old.lead!, contractDigest: contract.digest, startId: 'replacement-start', stepId: step.id } })
+      return { value: null, identity: { correlationId: 'replacement-start', runId: 'replacement-run', teamId: 'replacement-team' } }
+    })
+  assert.equal(result.outcome, 'succeeded')
+  assert.deepEqual(s.journal.state.budget!.executionIds, [old.id, 'replacement-run'])
+  assert.equal(s.journal.state.budget!.workerUsdMicros, 7)
+  assert.deepEqual(s.journal.state.runs.map(run => run.teamId), [old.goal, 'replacement-team'])
 })
 
 test('child exit unregisters its budget owner, live latch and pending retries', async t => {

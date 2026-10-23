@@ -49,6 +49,30 @@ const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.r
 /** Card decisions, not phase changes or recovery, release the plan fence. */
 export const hasPendingLeadPlan = (state: LeadState): boolean => state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(cardKey(card)))
 
+/** Earlier runs stay owned for accounting and recovery, but judge only this plan. */
+export const leadPlanRuns = (state: LeadState): readonly LeadRunIdentity[] => state.runs.filter(run =>
+  state.steps.some(step => step.state === 'started' && step.attemptId === run.correlationId))
+
+/** A fresh person request can replace exhausted work, never resume a spent step. */
+export const canReplaceLeadPlan = (state: LeadState): boolean => {
+  if (!state.contract || !state.steps.length || state.recoveryBlocked || state.budget?.stop || state.budget?.requests.length ||
+    ['stopped', 'accepted', 'declined'].includes(state.phase) || !state.steps.every(step => step.state === 'started')) return false
+  if ([...state.attempts.values()].some(attempt => attempt.kind === 'mutation' &&
+    (attempt.phase !== 'finished' || attempt.resolutionPending || attempt.contested || attempt.outcome === 'uncertain'))) return false
+  if (state.cards.some(card => card.contractDigest === state.contract!.digest && !state.decidedCards.includes(cardKey(card)) &&
+    (card.type === 'result' || card.type === 'waiting' && card.kind === 'person'))) return false
+  const approved = state.cards.find(card => card.type === 'plan' && card.contractDigest === state.contract!.digest && state.decidedCards.includes(cardKey(card)))
+  if (!approved || !state.messages.some(message => message.role === 'user' && message.revision > state.cardPositions[approved.id]!)) return false
+  return state.steps.every(step => {
+    const attempt = state.attempts.get(step.attemptId!)
+    const runs = state.runs.filter(run => run.correlationId === step.attemptId)
+    if (attempt?.outcome !== 'succeeded' || attempt.evidence === null || !runs.length) return false
+    if (!state.messages.some(message => message.role === 'user' && message.revision > (attempt.evidenceSeq ?? state.seq))) return false
+    const evidence = parseLeadRunEvidence(attempt.evidence)
+    return runs.every(run => evidence.some(observed => observed.runId === run.runId && observed.teamId === run.teamId && observed.terminal))
+  })
+}
+
 /** A cancelled goal may be replaced only after cancellation and recovery are settled. */
 export const canBeginLeadGoal = (state: LeadState): boolean =>
   ['stopped', 'accepted', 'declined'].includes(state.phase) && !!state.budget && state.stopEffectsPending === null &&
@@ -61,10 +85,17 @@ export const assertPlanApprovable = (state: LeadState, contract: LeadAcceptanceC
   ensure(state.contract === null || contract.revision > state.contract.revision)
   // An admitted attempt may already have spent, even when its response is uncertain.
   const locked = state.steps.filter(step => step.state !== 'pending')
+  const spent = new Set([...state.attempts.values()].filter(attempt => attempt.method === 'flow/start-goal' && attempt.dispatched &&
+    attempt.outcome === 'succeeded').map(attempt => attempt.stepId))
+  ensure(contract.steps.every(step => locked.some(existing => existing.id === step.id) || !spent.has(step.id)))
   if (locked.length) {
     ensure(contract.project.id === state.contract?.project.id && contract.project.path === state.contract.project.path)
-    ensure(locked.every((step, index) => step.id === contract.steps[index]?.id &&
-      JSON.stringify(contract.steps[index]) === JSON.stringify(state.contract?.steps[index])))
+    const preserves = locked.every((step, index) => step.id === contract.steps[index]?.id &&
+      JSON.stringify(contract.steps[index]) === JSON.stringify(state.contract?.steps[index]))
+    if (!preserves) {
+      ensure(canReplaceLeadPlan(state))
+      ensure(contract.steps.every(step => !spent.has(step.id)))
+    }
   }
 }
 const managementPhase = (state: LeadState): LeadState['phase'] => state.phase !== 'awaiting-plan' ? state.phase :
@@ -204,7 +235,9 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
           ensure(event.expiresAt !== null && event.expiresAt > 0)
           const contract = card!.contract
           const locked = state.steps.filter(step => step.state !== 'pending')
-          state = { ...state, contract, phase: 'running', teams: renewal || locked.length ? state.teams : [], runs: renewal || locked.length ? state.runs : [],
+          // A new-goal record resets ownership. Revising a plan within this goal
+          // must keep earlier executions, even when its new steps are pending.
+          state = { ...state, contract, phase: 'running',
             consent: { contractDigest: card!.contract.digest, contractRevision: card!.contract.revision,
               policyRevision: card!.contract.policyRevision, expiresAt: event.expiresAt! },
             steps: contract.steps.map(step => locked.find(existing => existing.id === step.id) ?? { id: step.id, state: 'pending', attemptId: null, contractDigest: null }),
@@ -303,7 +336,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         // A conflicting lookup leaves the attempt uncertain; the window may confirm the retained run.
         ensure(['succeeded', 'uncertain'].includes(attempt!.outcome!) && identities.length === 1 &&
           identities[0]!.correlationId === event.identity.correlationId && identities[0]!.runId === event.identity.runId && identities[0]!.teamId === event.identity.teamId)
-        ensure(event.goalId === event.identity.teamId && (state.budget!.goalId === null || state.budget!.goalId === event.goalId || state.contract!.steps.length > 1))
+        const priorPlan = state.runs.some(run => !state.steps.some(step => step.attemptId === run.correlationId))
+        ensure(event.goalId === event.identity.teamId && (state.budget!.goalId === null || state.budget!.goalId === event.goalId || state.contract!.steps.length > 1 || priorPlan))
         ensure(state.teams.includes(event.identity.teamId) && state.runs.some(run => JSON.stringify(run) === JSON.stringify(event.identity)))
         state = { ...state, budget: reduceLeadBudget(state.budget, { version: 1, type: 'bind', now: state.budget!.now,
           startId: event.id, firstRoundId: identities[0]!.firstRoundId, goalId: event.goalId, executionId: event.identity.runId }) }
@@ -329,16 +363,16 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(attempt!.evidence !== event.evidence)
       ensure(identities.every(identity => identity.correlationId === attempt!.correlationId &&
         !state.runs.some(run => run.runId === identity.runId && run.correlationId !== identity.correlationId)))
-      const live = identities.filter(run => !run.terminal)
       // A missing lookup row is not a terminal report. The port merges evidence;
       // replay independently refuses a record that would silently drop a live run.
       ensure(state.runs.filter(run => run.correlationId === attempt!.correlationId).every(run => identities.some(identity => identity.runId === run.runId)))
       // A completed start is still the step's run after it settles. Unresolved
       // discoveries keep their live-only index so recovery can release a proven
       // no-run start, but must not erase an already-started step's history.
-      const started = attempt!.outcome === 'succeeded' && !attempt!.resolutionPending &&
-        state.steps.some(step => step.state === 'started' && step.attemptId === attempt!.id)
-      const runs = [...state.runs.filter(run => run.correlationId !== attempt!.correlationId), ...(started ? identities : live).map(run => ({ correlationId: run.correlationId, runId: run.runId, teamId: run.teamId }))]
+      const started = attempt!.outcome === 'succeeded' && !attempt!.resolutionPending
+      const retained = identities.filter(run => !run.terminal || started && state.runs.some(owned =>
+        owned.correlationId === attempt!.correlationId && owned.runId === run.runId && owned.teamId === run.teamId))
+      const runs = [...state.runs.filter(run => run.correlationId !== attempt!.correlationId), ...retained.map(run => ({ correlationId: run.correlationId, runId: run.runId, teamId: run.teamId }))]
       let budget = state.budget
       for (const run of identities) if (budget) budget = reduceLeadBudget(budget, { version: 1, type: 'bind', now: budget.now,
         goalId: run.teamId, executionId: run.runId, startId: event.id, firstRoundId: run.firstRoundId })

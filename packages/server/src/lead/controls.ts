@@ -4,7 +4,7 @@ import {
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification,
 } from '@harnessdesk/protocol'
-import { canBeginLeadGoal, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -152,6 +152,11 @@ export class LeadControls {
     try { configured = (await service.status('anthropic')).configured } catch { throw leadRefusal('lead-protection-unavailable') }
     if (!configured) throw leadRefusal('lead-key-missing')
     try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
+    // Record terminal host observations before the new message, so an earlier
+    // request cannot become permission to replace work when it later settles.
+    if (!newGoal && journal.state.steps.length && journal.state.steps.every(step => step.state === 'started')) {
+      try { await this.options.meterSpend?.() } catch { /* The request loop still fences unknown spend. */ }
+    }
     if (newGoal) {
       // Flow cleanup alone cannot prove that the old model process has ended.
       // Retry its stop even after a previous cancellation marker was acknowledged.
@@ -215,7 +220,7 @@ export class LeadControls {
       // Once a plan is approved every request ends with the contract, because the standing instructions say it
       // arrives in a message and the history above holds only words. Before that, a request still ends in a user turn.
       const { contract, steps } = journal.state
-      if (contract) messages.push({ role: 'user', content: leadContinuation({ contract, steps }) })
+      if (contract) messages.push({ role: 'user', content: leadContinuation({ contract, steps, runs: leadPlanRuns(journal.state), mayProposeNewPlan: canReplaceLeadPlan(journal.state) }) })
       else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
         { type: 'text', text: 'No plan is approved yet. Continue with a plan for the person to approve.' },
       ] })

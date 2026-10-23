@@ -7,6 +7,7 @@ import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, Mess
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
 import { evaluateLeadAcceptance, type LeadAcceptanceEvidence, type LeadAcceptanceResult } from './acceptance.js'
 import { leadBudgetProjection } from './budget.js'
+import { leadPlanRuns } from './state.js'
 import type { LeadDeskPort } from './ports.js'
 import type { LeadPermissionCall } from './permissions.js'
 
@@ -120,7 +121,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const state = journal.state, contract = state.contract
       relays = (next.waiting ?? []).filter(item => item.kind === 'approval' && item.team !== null && state.teams.includes(item.team)).map(leadWorkerApprovalRelay)
       const evaluated: typeof acceptance = []
-      for (const run of state.runs) {
+      for (const run of leadPlanRuns(state)) {
         await read({ method: 'flow/execution', params: { run: run.runId } })
         const facts = structuredClone(await options.readEvidence(run.runId, read))
         if (closed || generation !== expected) return
@@ -263,7 +264,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     }
     // An approved goal whose turn ended without a tool call and with nothing started goes nowhere on its own,
     // because nothing on the desk will wake the model. Say so, and leave the way on to the person.
-    else if (!result.toolResults?.length && journal.state.phase === 'running' && journal.state.contract && !journal.state.runs.length)
+    else if (!result.toolResults?.length && journal.state.phase === 'running' && journal.state.contract && !leadPlanRuns(journal.state).length)
       await waitForUser('lead-run-not-started')
     return result
   }
