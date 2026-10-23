@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 
 import type { FindingSeries, FindingView, RepairPacket } from '@harnessdesk/protocol'
 
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 import { isSha } from '../evidence/records.js'
 import { isResolved } from './model.js'
 
@@ -35,7 +36,7 @@ const GIT_TIMEOUT_MS = 20_000
 /** One git command, by argument vector, in the subject's checkout: its output, or null for any refusal. */
 const git = (cwd: string, args: readonly string[], limit = DELTA_LIMIT): Promise<{ readonly code: number; readonly out: string } | null> =>
   new Promise((resolve) => {
-    execFile('git', ['-C', cwd, '--no-replace-objects', '-c', 'core.quotePath=true', ...args], {
+    execFile('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, '--no-replace-objects', '-c', 'core.quotePath=true', ...args], {
       timeout: GIT_TIMEOUT_MS,
       // One byte past the limit is how an oversize delta is told from one exactly at it.
       maxBuffer: limit + 1,

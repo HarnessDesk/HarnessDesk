@@ -4,6 +4,7 @@ import { realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 import { isRevisionName } from './git-revision.js'
 
 import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@harnessdesk/protocol'
@@ -42,10 +43,14 @@ const run = promisify(execFile)
 /** Copying a tree out or deleting one is not a hang; give it room. */
 const SLOW = 120_000
 
-const git = async (cwd: string, args: readonly string[], timeout = 20_000): Promise<string> => {
+const personGit = async (cwd: string, args: readonly string[], timeout = 20_000): Promise<string> => {
   const { stdout } = await run('git', ['-C', cwd, ...args], { timeout, maxBuffer: 16 * 1024 * 1024 })
   return stdout
 }
+
+/** Read-only queries never run the repository's own programs. */
+const git = (cwd: string, args: readonly string[], timeout = 20_000): Promise<string> =>
+  personGit(cwd, [...HARDENED_GIT_CONFIG, ...args], timeout)
 
 /**
  * Both streams, for the one verb that reports on the wrong one: `worktree
@@ -53,7 +58,7 @@ const git = async (cwd: string, args: readonly string[], timeout = 20_000): Prom
  * this module announce that it pruned nothing while git pruned three.
  */
 const gitSaid = async (cwd: string, args: readonly string[]): Promise<string> => {
-  const { stdout, stderr } = await run('git', ['-C', cwd, ...args], {
+  const { stdout, stderr } = await run('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
     timeout: 20_000,
     maxBuffer: 16 * 1024 * 1024,
   })
@@ -445,7 +450,7 @@ export const add = async (
     throw new Error(`${target} moved while it was being checked; nothing was created.`)
   }
   try {
-    await git(root, args, SLOW)
+    await personGit(root, args, SLOW)
   } catch (error) {
     fail('Could not add the worktree', error)
   }
@@ -522,7 +527,7 @@ export const remove = async (
     }
   }
   try {
-    await git(root, ['worktree', 'remove', ...(force ? ['--force'] : []), target], SLOW)
+    await personGit(root, ['worktree', 'remove', ...(force ? ['--force'] : []), target], SLOW)
   } catch (error) {
     fail('Could not remove the worktree', error)
   }
@@ -549,7 +554,7 @@ export const prune = async (root: string): Promise<{ summary: string; removed: s
       .map((line) => /^Removing (?:worktrees\/)?(.+?):/.exec(line.trim())?.[1] ?? null)
       .filter((name): name is string => name !== null)
     if (removed.length === 0) return { summary: 'Nothing to prune — every worktree is where git left it.', removed }
-    await git(root, ['worktree', 'prune'])
+    await personGit(root, ['worktree', 'prune'])
   } catch (error) {
     fail('Could not prune', error)
   }
@@ -579,7 +584,7 @@ export const setLock = async (
   const target = await canonical(entry.path)
   const said = reason?.trim()
   try {
-    await git(
+    await personGit(
       root,
       locked
         ? ['worktree', 'lock', ...(said && said.length > 0 ? ['--reason', said] : []), target]
@@ -612,7 +617,7 @@ export const move = async (
     throw new Error(`${target} moved while it was being checked; nothing was moved.`)
   }
   try {
-    await git(root, ['worktree', 'move', await canonical(entry.path), target], SLOW)
+    await personGit(root, ['worktree', 'move', await canonical(entry.path), target], SLOW)
   } catch (error) {
     fail('Could not move the worktree', error)
   }

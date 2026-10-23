@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
+
 import type {
   FlowPreview,
   FlowProblem,
@@ -277,7 +279,7 @@ const exec = (file: string, args: readonly string[], cwd: string, maxBuffer: num
 
 /** The host's own git and forge reads, bounded, argument vectors only. */
 export const hostContextPort = (gh: (args: readonly string[], cwd: string) => Promise<{ readonly stdout: string; readonly exitCode: number }>): ContextPort => ({
-  git: (root, args) => exec('git', ['-C', root, '--no-optional-locks', '-c', 'core.fsmonitor=false', ...args], root, 16 * 1024 * 1024),
+  git: (root, args) => exec('git', ['-C', root, ...HARDENED_GIT_CONFIG, '--no-optional-locks', ...args], root, 16 * 1024 * 1024),
   pullRequest: async (root, number) => {
     const read = await gh(['pr', 'view', String(number), '--json', 'number,headRefOid,baseRefOid,headRefName'], root)
     if (read.exitCode !== 0) return null

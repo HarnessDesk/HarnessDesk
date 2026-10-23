@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 import { concluding } from './git.js'
 import { withGitMutation } from './git-mutation.js'
 import { isRevisionName, isSha } from './git-revision.js'
@@ -28,20 +29,19 @@ const run = promisify(execFile)
 
 type GitRunner = (root: string, args: readonly string[], timeout?: number) => Promise<string>
 
-/** Network verbs wait longer: a fetch over a slow link is not a hang. */
-let gitRunner: GitRunner = async (root: string, args: readonly string[], timeout = 20_000): Promise<string> => {
+/** Requested mutations retain the person's Git configuration. */
+const personRunner: GitRunner = async (root, args, timeout = 20_000) => {
   const { stdout } = await run('git', ['-C', root, ...args], { timeout, maxBuffer: 32 * 1024 * 1024 })
   return stdout
 }
 
-export const setGitRunnerForTest = (runner: GitRunner | null): void => {
-  gitRunner = runner ?? (async (root: string, args: readonly string[], timeout = 20_000) => {
-    const { stdout } = await run('git', ['-C', root, ...args], { timeout, maxBuffer: 32 * 1024 * 1024 })
-    return stdout
-  })
-}
+let testRunner: GitRunner | null = null
+export const setGitRunnerForTest = (runner: GitRunner | null): void => { testRunner = runner }
 
-const git: GitRunner = (root, args, timeout) => gitRunner(root, args, timeout)
+const personGit: GitRunner = (root, args, timeout) => (testRunner ?? personRunner)(root, args, timeout)
+const git: GitRunner = (root, args, timeout) => testRunner
+  ? testRunner(root, args, timeout)
+  : personRunner(root, [...HARDENED_GIT_CONFIG, ...args], timeout)
 
 const NETWORK = 120_000
 
@@ -234,11 +234,11 @@ export const commitAll = async (
       // and only for the untracked: intent-to-add refuses a path that no
       // longer exists, which is exactly what a rename's origin is.
       const fresh = named.filter((path) => untracked.has(path)).map(literal)
-      if (fresh.length > 0) await git(root, ['add', '--intent-to-add', '--', ...fresh])
-      await git(root, ['commit', '-m', message, '--', ...named.map(literal)])
+      if (fresh.length > 0) await personGit(root, ['add', '--intent-to-add', '--', ...fresh])
+      await personGit(root, ['commit', '-m', message, '--', ...named.map(literal)])
     } else {
-      await git(root, ['add', '-A'])
-      await git(root, ['commit', '-m', message])
+      await personGit(root, ['add', '-A'])
+      await personGit(root, ['commit', '-m', message])
     }
   } catch (error) {
     fail('Could not commit', error)
@@ -259,7 +259,7 @@ export const commitAll = async (
 export const pull = async (root: string): Promise<MergeOutcome> => withGitMutation(root, async () => {
   const before = await head(root)
   try {
-    await git(root, ['pull', '--no-rebase', '--no-edit'], NETWORK)
+    await personGit(root, ['pull', '--no-rebase', '--no-edit'], NETWORK)
   } catch (error) {
     const conflicts = await conflictedFiles(root).catch(() => [])
     if (conflicts.length > 0) {
@@ -297,7 +297,7 @@ export const push = async (root: string): Promise<{ summary: string }> => {
   if (upstream) {
     const ahead = Number((await git(root, ['rev-list', '--count', `${upstream}..HEAD`]).catch(() => '')).trim())
     try {
-      await git(root, ['push'], NETWORK)
+      await personGit(root, ['push'], NETWORK)
     } catch (error) {
       fail('Could not push', error)
     }
@@ -313,7 +313,7 @@ export const push = async (root: string): Promise<{ summary: string }> => {
   const remote = remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0]! : null
   if (!remote) throw new Error(`Several remotes (${remotes.join(', ')}) and no upstream — set one first.`)
   try {
-    await git(root, ['push', '-u', remote, 'HEAD'], NETWORK)
+    await personGit(root, ['push', '-u', remote, 'HEAD'], NETWORK)
   } catch (error) {
     fail('Could not push', error)
   }
@@ -325,7 +325,7 @@ export const fetch = async (root: string): Promise<{ summary: string }> => {
   const remotes = await listRemotes(root)
   if (remotes.length === 0) throw new Error('This repository has no remote to fetch from.')
   try {
-    await git(root, ['fetch', '--all', '--prune'], NETWORK)
+    await personGit(root, ['fetch', '--all', '--prune'], NETWORK)
   } catch (error) {
     fail('Could not fetch', error)
   }
@@ -348,7 +348,7 @@ const mergeWithin = async (root: string, ref: string, expectedBranch?: string, p
   const check = await prepare?.()
   check?.()
   try {
-    await git(root, ['merge', '--no-edit', revision])
+    await personGit(root, ['merge', '--no-edit', revision])
   } catch (error) {
     const conflicts = await conflictedFiles(root).catch(() => [])
     if (conflicts.length > 0) {
@@ -404,14 +404,14 @@ export const mergeVerified = async (root: string, revision: string, expectedBran
 export const rebase = async (root: string, onto: string): Promise<{ summary: string }> => withGitMutation(root, async () => {
   await resolveCommitish(root, onto)
   try {
-    await git(root, ['rebase', onto])
+    await personGit(root, ['rebase', onto])
   } catch (error) {
     // Read the wreckage before undoing it: the abort is what makes this verb
     // safe, and it is also what destroys the only evidence of *where* the
     // rebase stopped. "It would not apply cleanly" with no files named leaves
     // a person to re-run the rebase by hand just to learn that much.
     const conflicts = await conflictedFiles(root).catch(() => [])
-    await git(root, ['rebase', '--abort']).catch(() => {})
+    await personGit(root, ['rebase', '--abort']).catch(() => {})
     const named =
       conflicts.length > 0
         ? ` ${conflicts.length === 1 ? 'The file that clashed' : `The ${conflicts.length} files that clashed`}: ${conflicts.join(', ')}.`
@@ -435,7 +435,7 @@ export const revertCommit = async (root: string, sha: string): Promise<MergeOutc
   const parents = (await git(root, ['show', '-s', '--format=%P', sha])).trim().split(' ').filter(Boolean)
   const mainline = parents.length > 1 ? ['-m', '1'] : []
   try {
-    await git(root, ['revert', '--no-edit', ...mainline, sha])
+    await personGit(root, ['revert', '--no-edit', ...mainline, sha])
   } catch (error) {
     const conflicts = await conflictedFiles(root).catch(() => [])
     if (conflicts.length > 0) {
@@ -457,7 +457,7 @@ export const cherryPick = async (root: string, sha: string): Promise<MergeOutcom
     throw new Error('That is a merge commit; cherry-pick the commits it merged instead.')
   }
   try {
-    await git(root, ['cherry-pick', sha])
+    await personGit(root, ['cherry-pick', sha])
   } catch (error) {
     const conflicts = await conflictedFiles(root).catch(() => [])
     if (conflicts.length > 0) {
@@ -485,7 +485,7 @@ export const reset = async (root: string, to: string, mode: ResetMode): Promise<
   if (mode !== 'soft' && mode !== 'mixed' && mode !== 'hard') throw new Error(`"${mode}" is not a reset mode.`)
   const target = await resolveCommitish(root, to)
   try {
-    await git(root, ['reset', `--${mode}`, target])
+    await personGit(root, ['reset', `--${mode}`, target])
   } catch (error) {
     fail('Could not reset', error)
   }
@@ -501,7 +501,7 @@ export const reset = async (root: string, to: string, mode: ResetMode): Promise<
 export const checkoutCommit = async (root: string, sha: string): Promise<void> => withGitMutation(root, async () => {
   if (!isSha(sha)) throw new Error(`"${sha}" is not a commit id.`)
   try {
-    await git(root, ['checkout', '--detach', sha])
+    await personGit(root, ['checkout', '--detach', sha])
   } catch (error) {
     fail('Could not check the commit out', error)
   }
@@ -513,7 +513,7 @@ export const renameBranch = async (root: string, from: string, to: string): Prom
   await checkBranchName(root, from)
   await checkBranchName(root, to)
   try {
-    await git(root, ['branch', '-m', from, to])
+    await personGit(root, ['branch', '-m', from, to])
   } catch (error) {
     fail(`Could not rename ${from}`, error)
   }
@@ -530,7 +530,7 @@ export const deleteBranch = async (root: string, name: string, force = false): P
     throw new Error(`${name} is checked out; switch away before deleting it.`)
   }
   try {
-    await git(root, ['branch', force ? '-D' : '-d', name])
+    await personGit(root, ['branch', force ? '-D' : '-d', name])
   } catch (error) {
     fail(`Could not delete ${name}`, error)
   }
@@ -548,7 +548,7 @@ export const createTag = async (root: string, name: string, at: string, message?
     throw new Error(`"${name}" is not a usable tag name.`)
   }
   try {
-    await git(root, message && message.trim().length > 0 ? ['tag', '-a', name, '-m', message, at] : ['tag', name, at])
+    await personGit(root, message && message.trim().length > 0 ? ['tag', '-a', name, '-m', message, at] : ['tag', name, at])
   } catch (error) {
     fail(`Could not tag ${at.slice(0, 7)}`, error)
   }
@@ -557,7 +557,7 @@ export const createTag = async (root: string, name: string, at: string, message?
 export const deleteTag = async (root: string, name: string): Promise<void> => {
   if (name.startsWith('-')) throw new Error(`"${name}" is not a usable tag name.`)
   try {
-    await git(root, ['tag', '-d', name])
+    await personGit(root, ['tag', '-d', name])
   } catch (error) {
     fail(`Could not delete the tag ${name}`, error)
   }
@@ -569,7 +569,7 @@ export const deleteTag = async (root: string, name: string): Promise<void> => {
 export const stashSave = async (root: string, message?: string): Promise<void> => {
   const label = message?.trim()
   try {
-    const out = await git(root, [
+    const out = await personGit(root, [
       'stash',
       'push',
       '--include-untracked',
@@ -589,7 +589,7 @@ export const stashSave = async (root: string, message?: string): Promise<void> =
 export const stashApply = async (root: string, ref: string, pop = false): Promise<MergeOutcome> => {
   checkStashRef(ref)
   try {
-    await git(root, ['stash', pop ? 'pop' : 'apply', ref])
+    await personGit(root, ['stash', pop ? 'pop' : 'apply', ref])
   } catch (error) {
     const conflicts = await conflictedFiles(root).catch(() => [])
     if (conflicts.length > 0) {
@@ -606,7 +606,7 @@ export const stashApply = async (root: string, ref: string, pop = false): Promis
 export const stashDrop = async (root: string, ref: string): Promise<void> => {
   checkStashRef(ref)
   try {
-    await git(root, ['stash', 'drop', ref])
+    await personGit(root, ['stash', 'drop', ref])
   } catch (error) {
     fail('Could not drop the stash', error)
   }

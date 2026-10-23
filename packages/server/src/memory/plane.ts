@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
+
 import type {
   GoalCitation,
   GoalId,
@@ -22,7 +24,7 @@ const exec = promisify(execFile)
 /** Whether a commit is still reachable in this repository — existence only, never its content. */
 const commitExists = async (root: string, at: string): Promise<boolean> => {
   try {
-    await exec('git', ['--no-replace-objects', '-C', root, 'cat-file', '-e', `${at}^{commit}`], {
+    await exec('git', [...HARDENED_GIT_CONFIG, '--no-replace-objects', '-C', root, 'cat-file', '-e', `${at}^{commit}`], {
       timeout: 5000,
       env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_NO_LAZY_FETCH: '1' },
     })
