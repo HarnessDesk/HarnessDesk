@@ -253,6 +253,71 @@ test('parent status propagates its untracked selection to child repositories', a
 })
 
 for (const detached of [false, true]) {
+  for (const name of ['unset', 'unspecified']) {
+    test(`automatic ${detached ? 'detached' : 'branch'} checkout refuses the literal filter name ${name}`, async (t) => {
+      const f = await fixture(t)
+      await writeFile(join(f.root, '.gitattributes'), `*.txt filter=${name}\n`)
+      await f.git('add', '.')
+      await f.git('commit', '-qm', 'Set target attributes')
+      const at = await f.git('rev-parse', 'HEAD')
+      const stateDir = join(f.base, 'state')
+      await assert.rejects(detached
+        ? createDetached(f.root, { name: 'literal', at, stateDir })
+        : create(f.root, { name: 'literal', base: at, stateDir }), /filter/i)
+      assert.equal((await f.git('worktree', 'list', '--porcelain')).split('worktree ').length - 1, 1)
+      assert.equal(await f.git('branch', '--list', 'harnessdesk/literal'), '')
+    })
+  }
+
+  test(`automatic ${detached ? 'detached' : 'branch'} checkout keeps later configuration out of materialization`, async (t) => {
+    const f = await fixture(t)
+    await writeFile(f.script, '#!/bin/sh\nprintf called > "$0.mark"\ncat\n')
+    const attributes = join(f.base, 'attributes')
+    await writeFile(attributes, '*.txt filter=late\n')
+    const realGit = (await run('which', ['git'])).stdout.trim()
+    const bin = join(f.base, 'bin')
+    await mkdir(bin)
+    await writeFile(join(bin, 'git'), `#!${process.execPath}
+const { execFileSync } = require('node:child_process')
+const args = process.argv.slice(2)
+if (args.includes('reset') || args.includes('checkout-index')) {
+  execFileSync(${JSON.stringify(realGit)}, ['-C', ${JSON.stringify(f.root)}, 'config', 'core.attributesFile', ${JSON.stringify(attributes)}])
+  execFileSync(${JSON.stringify(realGit)}, ['-C', ${JSON.stringify(f.root)}, 'config', 'filter.late.smudge', ${JSON.stringify(f.script)}])
+}
+try { process.stdout.write(execFileSync(${JSON.stringify(realGit)}, args)) }
+catch (error) { process.stderr.write(error.stderr || ''); process.exit(error.status || 1) }
+`, { mode: 0o755 })
+    const before = process.env.PATH
+    process.env.PATH = `${bin}:${before}`
+    try {
+      const stateDir = join(f.base, 'state')
+      const tree = detached
+        ? await createDetached(f.root, { name: 'later', at: f.head, stateDir })
+        : (await create(f.root, { name: 'later', stateDir })).path
+      assert.equal(await f.marker(), '')
+      assert.equal(await readFile(join(tree, 'page.txt'), 'utf8'), 'page\n')
+      assert.equal((await readGit(tree, ['status', '--porcelain=v1'])).stdout, '')
+    } finally {
+      process.env.PATH = before
+    }
+    assert.equal(await f.git('config', '--get', 'filter.late.smudge'), f.script)
+  })
+
+  for (const attribute of ['-filter', '!filter']) {
+    test(`automatic ${detached ? 'detached' : 'branch'} checkout accepts ${attribute} attributes`, async (t) => {
+      const f = await fixture(t)
+      await writeFile(join(f.root, '.gitattributes'), `*.txt ${attribute}\n`)
+      await f.git('add', '.')
+      await f.git('commit', '-qm', 'Unset file filtering')
+      const at = await f.git('rev-parse', 'HEAD')
+      const stateDir = join(f.base, 'state')
+      const tree = detached
+        ? await createDetached(f.root, { name: 'plain', at, stateDir })
+        : (await create(f.root, { name: 'plain', stateDir })).path
+      assert.equal(await readFile(join(tree, 'page.txt'), 'utf8'), 'page\n')
+    })
+  }
+
   test(`automatic ${detached ? 'detached' : 'branch'} checkout refuses target files with a filter`, async (t) => {
     const f = await fixture(t)
     await writeFile(join(f.root, '.gitattributes'), '*.txt filter=demo\n')

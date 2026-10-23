@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -25,8 +25,9 @@ type Output = { readonly stdout: string; readonly stderr: string }
 type Setting = { readonly key: string; readonly value: string | null }
 interface View {
   readonly root: string
+  readonly gitDir: string
   readonly settings: readonly Setting[]
-  run(args: readonly string[]): Promise<Output>
+  run(args: readonly string[], input?: string): Promise<Output>
 }
 
 const settingsOf = (text: string): Setting[] => text.split('\0').filter(Boolean).map(field => {
@@ -94,12 +95,63 @@ const withView = async <T>(cwd: string, options: ReadOptions, consume: (view: Vi
       GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat',
       ...(options.env?.GIT_INDEX_FILE ? { GIT_INDEX_FILE: options.env.GIT_INDEX_FILE } : {}),
     })
-    return await consume({ root: root!, settings, run: args => exec('git', [
-      '-C', cwd, `--git-dir=${home}`, `--work-tree=${root}`, ...HARDENED_GIT_CONFIG,
-      '-c', 'core.bare=false', ...args,
-    ], { ...options, env, timeout: options.timeout ?? 20_000, maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024 }) })
+    return await consume({ root: root!, gitDir: dir!, settings, run: async (args, input) => {
+      const pending = exec('git', [
+        '-C', cwd, `--git-dir=${home}`, `--work-tree=${root}`, ...HARDENED_GIT_CONFIG,
+        '-c', 'core.bare=false', ...args,
+      ], { ...options, env, timeout: options.timeout ?? 20_000, maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024 })
+      const closed = new Promise<void>(resolve => pending.child.once('close', () => resolve()))
+      if (input !== undefined) {
+        pending.child.stdin?.on('error', () => {}) // the process result owns a refusal
+        pending.child.stdin?.end(input)
+      }
+      // Keep the private view until an aborted process has finished writing.
+      try { return await pending } finally { await closed }
+    } })
   } finally {
     await rm(home, { recursive: true, force: true })
+  }
+}
+
+/** Validate and optionally materialize a tree using one private configuration and index. */
+export const automaticCheckout = async (
+  cwd: string, revision: string, options: ReadOptions & { readonly materialize?: boolean } = {},
+): Promise<{ readonly at: string; readonly config: readonly string[] }> => {
+  const scratch = await mkdtemp(join(tmpdir(), 'hd-checkout-index-'))
+  const index = join(scratch, 'index')
+  try {
+    return await withView(cwd, { ...options, env: { ...(options.env ?? process.env), GIT_INDEX_FILE: index } }, async view => {
+      const at = (await view.run(['rev-parse', '--verify', '--end-of-options', `${revision}^{commit}`])).stdout.trim()
+      await view.run(['read-tree', at])
+      const paths = (await view.run(['ls-files', '-z'])).stdout
+      const fields = (await view.run(['check-attr', '--cached', '--all', '-z', '--stdin'], paths)).stdout.split('\0')
+      const ambiguous: string[] = []
+      for (let i = 2; i < fields.length; i += 3) {
+        if (fields[i - 1] !== 'filter') continue
+        ambiguous.push(fields[i - 2]!)
+        if (fields[i] !== 'unspecified' && fields[i] !== 'unset') {
+          throw new Error('This checkout needs a git filter (such as LFS). Create it yourself so its files are converted.')
+        }
+      }
+      if (options.materialize) {
+        await view.run(['checkout-index', '--all', '--force', '--index'])
+        // --all omits unspecified attributes. For explicit attributes, Git
+        // prints the same value for -filter and filter=unset. Ask its clean
+        // conversion to distinguish literal names with required, commandless
+        // drivers. Empty input validates attributes without reading file data.
+        for (const path of ambiguous) {
+          await view.run(['-c', 'filter.unset.required=true', '-c', 'filter.unspecified.required=true',
+            'hash-object', `--path=${path}`, '--stdin'], '')
+        }
+        const lock = join(view.gitDir, 'index.lock')
+        await writeFile(lock, await readFile(index), { flag: 'wx' })
+        try { await rename(lock, join(view.gitDir, 'index')) }
+        finally { await rm(lock, { force: true }) }
+      }
+      return { at, config: HARDENED_GIT_CONFIG }
+    })
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
   }
 }
 

@@ -11,8 +11,8 @@ import { defaultStateDir } from './state.js'
 import { assertAbsolute } from './workspace.js'
 
 import { parsePorcelain } from './porcelain.js'
-import { HARDENED_GIT_CONFIG, automaticCheckout } from './git-hardening.js'
-import { readGit } from './git-read.js'
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { automaticCheckout, readGit } from './git-read.js'
 import { commonDir } from './git-ops.js'
 import { withGitMutation } from './git-mutation.js'
 
@@ -453,10 +453,7 @@ export const create = async (
   await git(main, [...target.config, 'worktree', 'add', '--no-checkout', '-b', branch, path, target.at])
   try {
     // Conditional includes can select different attributes in the new worktree.
-    const checked = await automaticCheckout(path, target.at)
-    await checkoutGit('git', ['-C', path, ...checked.config, 'reset', '--hard', checked.at], {
-      timeout: CHECKOUT_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024,
-    })
+    await automaticCheckout(path, target.at, { materialize: true, timeout: CHECKOUT_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 })
   } catch (error) {
     await git(main, ['worktree', 'remove', '--force', path]).catch(() => undefined)
     await rm(path, { recursive: true, force: true })
@@ -508,9 +505,8 @@ export const createDetached = async (
     await execute('git', ['-C', main, ...target.config, 'worktree', 'add', '--quiet', '--no-checkout', '--detach', path, target.at], {
       timeout, maxBuffer: 8 * 1024 * 1024, ...(options.signal ? { signal: options.signal } : {}),
     })
-    const checked = await automaticCheckout(path, target.at, { signal: options.signal })
-    await checkoutGit('git', ['-C', path, ...checked.config, 'reset', '--hard', checked.at], {
-      timeout, maxBuffer: 8 * 1024 * 1024, ...(options.signal ? { signal: options.signal } : {}),
+    await automaticCheckout(path, target.at, {
+      materialize: true, timeout, maxBuffer: 8 * 1024 * 1024, ...(options.signal ? { signal: options.signal } : {}),
     })
   } catch (error) {
     // The child has exited. Cleanup must run even when the caller's signal

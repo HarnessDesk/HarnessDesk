@@ -1,7 +1,4 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 /**
@@ -22,9 +19,10 @@ import { promisify } from 'node:util'
  *
  * Filter names are configuration-defined, so automatic reads use an isolated
  * configuration (`git-read.ts`) with those definitions omitted. Host diffs also pass
- * `--no-ext-diff --no-textconv`. Automatic checkouts inspect the target's
- * attributes and refuse filtered paths; `commit_work` does the same for its
- * files, and also excludes system and global configuration.
+ * `--no-ext-diff --no-textconv`. Automatic checkouts keep that private
+ * configuration through materialization, inspect the target's attributes and
+ * refuse filtered paths; `commit_work` does the same for its files, and also
+ * excludes system and global configuration.
  *
  * Verbs a person triggers themselves — bringing a branch home, the git
  * client's own commit, checkout and worktree verbs — run with the person's
@@ -75,41 +73,3 @@ export const automaticMutationConfig = async (cwd: string, args: readonly string
   args.includes('worktree') && args.includes('remove')
     ? [...HARDENED_GIT_CONFIG, ...await gitFiltersOff(cwd, options)]
     : HARDENED_GIT_CONFIG
-
-/**
- * Inspect attributes in the target tree, using a private index so neither the
- * current index nor its .gitattributes determines what the new checkout needs.
- * Refuse rather than materialize filtered files without their conversion.
- */
-export const automaticCheckout = async (cwd: string, revision: string, options: ReadOptions = {}): Promise<{
-  readonly at: string; readonly config: readonly string[]
-}> => {
-  const config = [...HARDENED_GIT_CONFIG, ...await gitFiltersOff(cwd, options)]
-  const read = async (args: readonly string[], env = options.env): Promise<string> =>
-    (await run('git', ['-C', cwd, ...config, ...args], {
-      ...options, env, timeout: 20_000, maxBuffer: 16 * 1024 * 1024,
-    })).stdout
-  const at = (await read(['rev-parse', '--verify', '--end-of-options', `${revision}^{commit}`])).trim()
-  const scratch = await mkdtemp(join(tmpdir(), 'hd-checkout-index-'))
-  try {
-    const env = { ...(options.env ?? process.env), GIT_INDEX_FILE: join(scratch, 'index') }
-    await read(['read-tree', at], env)
-    const paths = await read(['ls-files', '-z'], env)
-    const attributes = await new Promise<string>((resolve, reject) => {
-      const child = execFile('git', ['-C', cwd, ...config, 'check-attr', '--cached', '-z', '--stdin', 'filter'], {
-        ...options, env, timeout: 20_000, maxBuffer: 16 * 1024 * 1024,
-      }, (error, stdout) => error ? reject(error) : resolve(stdout))
-      child.stdin?.on('error', () => {}) // the process result owns a refusal
-      child.stdin?.end(paths)
-    })
-    const fields = attributes.split('\0')
-    for (let i = 2; i < fields.length; i += 3) {
-      if (fields[i] !== 'unspecified' && fields[i] !== 'unset') {
-        throw new Error('This checkout needs a git filter (such as LFS). Create it yourself so its files are converted.')
-      }
-    }
-    return { at, config }
-  } finally {
-    await rm(scratch, { recursive: true, force: true })
-  }
-}
