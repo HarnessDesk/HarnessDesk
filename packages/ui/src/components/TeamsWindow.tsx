@@ -129,7 +129,7 @@ const TeamsList = ({onNew}: TeamsPageProps) => {
   void store.openTeamRoom(row.id)
  }
  const say=(row:TeamListRow):RowWords=>text.get(row.id) ?? rowWords(row)
- const faces=(row:TeamListRow)=>row.seats.length ? <AvatarStack size="stack" aria-label={`${row.seats.length} ${row.seats.length === 1 ? 'seat' : 'seats'}`} members={row.seats.map((seat,index)=>{
+ const faces=(row:TeamListRow)=>row.seats.length ? <AvatarStack size="stack" overlap={false} aria-label={`${row.seats.length} ${row.seats.length === 1 ? 'seat' : 'seats'}`} members={row.seats.map((seat,index)=>{
   const runtime=marks.get(seat.seat)
   return {id:seat.seat,name:say(row).seats[index] ?? plain(seat.name),tint:runtime?runtimeTint(runtime):'blue',mark:runtime?<RuntimeMark runtime={runtime}/>:<AgentIcon/>}
  })}/>:undefined

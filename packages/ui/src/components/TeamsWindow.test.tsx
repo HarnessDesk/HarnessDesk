@@ -54,6 +54,9 @@ it('shows three attention columns, cards and the existing face stack',async()=>{
  expect(container.querySelectorAll('[data-team-row] [data-shape="face"]')).toHaveLength(2)
  expect(container.querySelector('[data-team-row]')?.textContent).toContain('round 2')
  expect(container.querySelector('[role="tablist"]')).toBeNull()
+ const faces=container.querySelector('[data-team-row] [data-slot="avatar-stack"] > span')!
+ expect(faces.className).toContain('gap-(--hd-space-2)')
+ expect(faces.className).not.toContain('-space-x-')
 })
 it('keeps ready Teams visible without opening a fold',async()=>{
  await mount('done')
@@ -332,7 +335,7 @@ it('reports a refused Refresh Teams without an unhandled rejection', async()=>{
  </TopBarProvider></StoreProvider>))
  await act(async()=>container.querySelector<HTMLButtonElement>('button[aria-label="More"]')!.click())
  const refresh=[...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el=>el.textContent?.includes('Refresh Teams'))!
- await act(async()=>{refresh.click();await new Promise(resolve=>setTimeout(resolve,0))})
+ await act(async()=>{refresh.click();await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
  expect(store.transport.request).toHaveBeenCalledWith('goal/list',{})
  expect(container.textContent).toContain('Team list unavailable')
 })
