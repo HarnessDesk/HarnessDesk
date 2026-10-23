@@ -32,8 +32,10 @@ export const LeadSettings = ({ settings, expiry, update, onError, error, cards =
   const [editingKey, setEditingKey] = useState(false)
   const [policy, setPolicy] = useState(settings.policy)
   const [dollars, setDollars] = useState(String(settings.caps.usdMicros / 1000000)), [rounds, setRounds] = useState(String(settings.caps.rounds))
-  useEffect(() => { setPolicy(settings.policy) }, [settings.policy.revision])
-  useEffect(() => { setDollars(String(settings.caps.usdMicros / 1000000)); setRounds(String(settings.caps.rounds)) }, [settings.caps.usdMicros, settings.caps.rounds])
+  // A widening waits on a card, and a declined one changes nothing: the draft goes back to what holds once the card settles.
+  const policyCard = cards.find(card => card.type === 'permission-change')?.id ?? null, capsCard = cards.find(card => card.type === 'budget-change')?.id ?? null
+  useEffect(() => { if (!policyCard) setPolicy(settings.policy) }, [settings.policy.revision, policyCard])
+  useEffect(() => { if (!capsCard) { setDollars(String(settings.caps.usdMicros / 1000000)); setRounds(String(settings.caps.rounds)) } }, [settings.caps.usdMicros, settings.caps.rounds, capsCard])
   const policyChanged = JSON.stringify({ ...policy, revision: 0 }) !== JSON.stringify({ ...settings.policy, revision: 0 })
   const widening = leadPolicyWidens(settings.policy, policy)
   const micros = Math.round(Number(dollars) * 1000000), roundCount = Number(rounds)

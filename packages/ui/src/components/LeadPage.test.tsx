@@ -208,6 +208,21 @@ it('retries expiry reads with bounded backoff until the host reflects expiry', a
   } finally { vi.useRealTimers() }
 })
 
+it('puts a declined widening back to what holds, rather than leaving it as the draft', async () => {
+  const { store, update } = await mount()
+  await act(async () => button('Settings').click())
+  const select = document.querySelector<HTMLSelectElement>('[aria-label="Permission mode"]')!, dollars = document.querySelector<HTMLInputElement>('[aria-label="Dollar allowance"]')!
+  const before = select.value, cap = dollars.value, state = store.lead.state, policy = state.settings!.policy, caps = state.settings!.caps
+  await act(async () => { select.value = 'manage'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  await input(dollars, String(Number(cap) + 5))
+  await update({ thread: { ...state.thread!, cards: [{ version: 1, id: 'policy', revision: 1, type: 'permission-change', contractDigest: null, previous: policy, proposed: { ...policy, revision: 2, mode: 'manage' } },
+    { version: 1, id: 'caps', revision: 1, type: 'budget-change', contractDigest: null, logicalGoalId: 'goal', previous: { revision: 1, caps }, proposed: { ...caps, usdMicros: caps.usdMicros + 5_000_000 } }] } })
+  expect(select.value).toBe('manage')
+  await update({ thread: { ...state.thread!, cards: [] } })
+  expect(select.value).toBe(before); expect(dollars.value).toBe(cap)
+  expect(button('Save permissions').disabled).toBe(true); expect(button('Save allowances').disabled).toBe(true)
+})
+
 it('refreshes settings drafts when the projection changes underneath them and clears section refusals on leaving', async () => {
   const { store, box, update } = await mount(); await act(async () => button('Settings').click())
   const select = document.querySelector<HTMLSelectElement>('[aria-label="Permission mode"]')!
