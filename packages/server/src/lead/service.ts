@@ -8,7 +8,7 @@ import type { LeadAdmission } from './admission.js'
 import { leadProviderTransport } from './provider-transport.js'
 import { loadLeadProjectPolicy } from './project-policy.js'
 import { admitLeadCard } from './projection.js'
-import { leadContainsSecret } from './secrets.js'
+import { leadContainsSecret, leadMessagesContainSecret } from './secrets.js'
 
 const publicRefusal = (wireCode: LeadControlRefusal) => Object.assign(new Error(wireCode), { wireCode })
 
@@ -140,7 +140,7 @@ export class LeadService {
           const key = await options.broker.resolveLead('anthropic')
           this.#assertOpen()
           if (generation !== this.#generation || this.#changingKeys) throw new Error('lead-lifecycle-changed')
-          if (signal.aborted || leadContainsSecret(payload, key)) throw new Error('lead-provider-failed')
+          if (signal.aborted || leadMessagesContainSecret(payload, key)) throw new Error('lead-provider-failed')
           const previousUsage = this.#providerUsage.get(requestId)
           this.#providerUsage.set(requestId, null)
           const response = await (options.messagesTransport ?? leadProviderTransport).send({

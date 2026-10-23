@@ -884,3 +884,47 @@ test('host screens nested and JSON-encoded tool results before provider transpor
   }
   assert.deepEqual(requests, [])
 })
+
+test('Flow token fields retain value screening and other token fields remain private', async t => {
+  const requests: unknown[] = []
+  const s = await providerRig(t, async request => { requests.push(request); return { status: 429, body: '{}' } })
+  const token = '11111111-1111-4111-8111-111111111111'
+  const cases = [
+    { name: 'flow_preview', input: {}, result: { token: key } },
+    { name: 'flow_preview', input: {}, result: { token: 'ghp_' + 'a'.repeat(36) } },
+    { name: 'flow_preview', input: {}, result: { token, nested: { token: 'demo-private-value' } } },
+    { name: 'flow_preview', input: {}, result: { token, Authorization: 'Bearer demo-value' } },
+    { name: 'evidence_board', input: {}, result: { token } },
+    { name: 'flow_preview', input: { token }, result: {} },
+    { name: 'flow_start_goal', input: {}, result: { token } },
+    { name: 'flow_start_goal', input: { token: key }, result: {} },
+    { name: 'flow_start_goal', input: { token: 'ghp_' + 'b'.repeat(36) }, result: {} },
+    { name: 'flow_start_goal', input: { token, vars: { token: 'demo-private-value' } }, result: {} },
+  ]
+  for (const [i, item] of cases.entries()) {
+    const body = providerBody({ messages: [
+      { role: 'user', content: [{ type: 'text', text: 'Continue approved work' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'use', name: item.name, input: item.input }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'use', content: JSON.stringify(item.result), is_error: false }] },
+    ] })
+    const id = `flow-value-screen-${i}`
+    await providerReserve(s.journal, id, body)
+    await assert.rejects(s.settings.providerSend(id, body, new AbortController().signal), /lead-provider-failed/)
+  }
+  assert.deepEqual(requests, [])
+})
+
+test('a Flow token equal to the resolved key never reaches provider transport', async t => {
+  const token = '22222222-2222-4222-8222-222222222222', requests: unknown[] = []
+  const s = await providerRig(t, async request => { requests.push(request); return { status: 429, body: '{}' } }, { resolveLead: async () => token })
+  for (const name of ['flow_preview', 'flow_start_goal']) {
+    const body = providerBody({ messages: [
+      { role: 'user', content: [{ type: 'text', text: 'Continue approved work' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'use', name, input: name === 'flow_start_goal' ? { token } : {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'use', content: JSON.stringify(name === 'flow_preview' ? { token } : {}), is_error: false }] },
+    ] })
+    await providerReserve(s.journal, name, body)
+    await assert.rejects(s.settings.providerSend(name, body, new AbortController().signal), /lead-provider-failed/)
+  }
+  assert.deepEqual(requests, [])
+})

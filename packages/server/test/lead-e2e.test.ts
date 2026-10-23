@@ -39,6 +39,27 @@ test('plan approval is required before the full fixture starts a worker or Flow'
   await rig.assertNoForbiddenEffects()
 })
 
+test('a Flow preview token survives provider continuations through an owned start', async t => {
+  const rig = await createLeadRig({ holdWorkers: true, manualChecks: true }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve')
+  const continued = () => rig.provider.requests.some(request => {
+    const blocks = request.body.messages.flatMap((turn: any) => turn.content)
+    const start = blocks.find((block: any) => block.type === 'tool_use' && block.name === 'flow_start_goal')
+    return start && blocks.some((block: any) => block.type === 'tool_result' && block.tool_use_id === start.id && !block.is_error)
+  })
+  await rig.waitFor(() => continued() || ['waiting-for-user', 'stopped'].includes(rig.journal.state.phase), 'preview-to-start continuation')
+  assert.equal(continued(), true, `the provider must receive the successful start result; reason=${rig.journal.state.managementReason}`)
+  assert.equal(rig.journal.state.runs.length, 1)
+  const blocks = rig.provider.requests.at(-1)!.body.messages.flatMap((turn: any) => turn.content)
+  const preview = blocks.find((block: any) => block.type === 'tool_use' && block.name === 'flow_preview')
+  const result = blocks.find((block: any) => block.type === 'tool_result' && block.tool_use_id === preview.id)
+  const token = JSON.parse(result.content).token
+  assert.match(token, /^[0-9a-f-]{36}$/)
+  assert.equal(blocks.find((block: any) => block.type === 'tool_use' && block.name === 'flow_start_goal').input.token, token)
+  assert.equal((await rig.host.call('flow/execution', { run: rig.journal.state.runs[0]!.runId })).state, 'running')
+})
+
 test('the model gets one standing text for the whole goal, the contract in a message after approval, and its words are kept in order', async t => {
   const rig = await createLeadRig(); t.after(() => rig.dispose())
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
