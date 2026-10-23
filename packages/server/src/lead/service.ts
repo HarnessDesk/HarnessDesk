@@ -18,6 +18,7 @@ export interface LeadProcess {
   send(input: LeadMessagesRequest): Promise<LeadMessagesResult>
   stop(reason?: string): Promise<void>
   ownershipWithdrawn(runId: string): void
+  evidenceChanged?(): void
 }
 export interface LeadServiceOptions {
   readonly journal: LeadJournal
@@ -348,6 +349,14 @@ export class LeadService {
     return this.#changeKey(provider, async () => { check(); await this.options.broker.storeLead(provider, key) })
   }
   deleteKey(provider: 'anthropic'): Promise<void> { return this.#changeKey(provider, () => this.options.broker.deleteLead(provider), true) }
+  /** A host that ended without its shutdown (a crash, a force quit) left the goal running with no process to watch it:
+   * the person is shown it stopped, with Resume, as after a clean quit. */
+  recoverInterrupted(): Promise<void> {
+    return this.#queue(async () => {
+      const phase = this.options.journal.state.phase
+      if (!this.#closed && !this.#supervisor.live && (phase === 'running' || phase === 'planning')) await this.#latch('lead-host-shutdown')
+    })
+  }
   async recover(): Promise<void> {
     if (this.#supervisor.live) throw new Error('lead-child-live')
     await this.#queue(async () => {
@@ -368,6 +377,8 @@ export class LeadService {
     try { await this.#latch('lead-ownership-withdrawn') }
     finally { await this.options.stopOwned('lead-ownership-withdrawn').catch(error => { this.#cleanupFailed = true; throw error }) }
   }
+  /** A check or other evidence landed on a Team this goal owns; no desk event carries it to the loop. */
+  evidenceChanged(): void { this.#supervisor.evidenceChanged?.() }
   /** Stop the model process too, so no old reply or dispatch can reach a new goal. */
   stopGoal(): Promise<void> {
     ++this.#generation

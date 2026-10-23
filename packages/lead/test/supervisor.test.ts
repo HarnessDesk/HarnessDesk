@@ -163,6 +163,31 @@ test('startup and shutdown deadlines terminate only their unresponsive child pid
   assert.equal(shutdownPid, 4242)
 })
 
+test('evidence that reaches the desk without a run or card event makes the child read the desk again', async () => {
+  const childModule = await import('../src/' + 'child.js')
+  const { fixture: managementFixture } = await import('./fixtures/loop.js')
+  const management = await managementFixture(), input = new PassThrough(), output = new PassThrough()
+  const received: any[] = []
+  // Answer the child's journal and desk calls as the host would, so its loop starts and can refresh.
+  decode(output, message => {
+    received.push(message)
+    if (message.type === 'rpc') input.write(frame({ version: 1, type: 'reply', id: message.id, ok: true, value: null, state: management.journal.state }))
+  })
+  let reads = 0
+  const runtime = childModule.runLeadChild({ input, output, connectDesk: async () => ({ ...management.options.desk,
+    synced: async () => { reads++; await management.options.desk.synced() },
+    close: async () => { await management.options.desk.events()[Symbol.asyncIterator]().return() } }), onExit: () => {} })
+  input.write(frame({ version: 1, type: 'initialize', config: { key: secret, descriptor, project: { id: 'project', path: '/demo/project' }, model: 'fixture-model', prices: management.options.messages.prices }, state: management.journal.state }))
+  for (let i = 0; i < 30; i++) await Promise.resolve()
+  const before = reads
+  // A check a person ran lands as evidence alone: nothing in the subscription wakes the loop.
+  input.write(frame({ version: 1, type: 'evidence-changed' }))
+  for (let i = 0; i < 100; i++) await Promise.resolve()
+  assert.equal(reads > before, true)
+  assert.equal(received.some(message => message.type === 'desk-lost'), false)
+  await runtime.close()
+})
+
 test('withdrawn ownership ends the actual child subscription wait with a typed reason', async () => {
   const childModule = await import('../src/' + 'child.js')
   const { fixture: managementFixture } = await import('./fixtures/loop.js')

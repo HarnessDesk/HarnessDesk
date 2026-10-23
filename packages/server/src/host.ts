@@ -3570,7 +3570,11 @@ export class Host {
         }))
         return writer === null || reviewer === null || writer === reviewer ? 'lead-plan-not-independent' : null
       },
-      create: async inputs => { await this.createLeadService({ ...inputs, ...(this.options.leadMessagesTransport ? { messagesTransport: this.options.leadMessagesTransport } : {}) }).setEnabled(true) } })
+      create: async inputs => {
+        const service = this.createLeadService({ ...inputs, ...(this.options.leadMessagesTransport ? { messagesTransport: this.options.leadMessagesTransport } : {}) })
+        await service.setEnabled(true)
+        await service.recoverInterrupted()
+      } })
   }
 
   async #leadWindow(): Promise<LeadControls> {
@@ -9098,6 +9102,8 @@ export class Host {
     }
     if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {
       this.#provenance.evidenceChanged(this.#team.stateFor(notification.params.room).root)
+      const room = notification.params.room
+      if (this.#leadService && this.#flows.leadRuns().some(run => run.goal === room)) this.#leadService.evidenceChanged()
     }
     if (!this.#disposed && (notification.method === 'session/removed' ||
       (notification.method === 'event' && notification.params.event.type === 'session/started'))) {

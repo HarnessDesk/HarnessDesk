@@ -382,6 +382,11 @@ export class LeadSupervisor {
     const running = this.#running
     if (running && !running.exited && running.ready) { try { write(running, { type: 'ownership-withdrawn', runId: ipcText(runId, 256) }) } catch { this.#protocolFailure(running) } }
   }
+  /** Evidence reaches the desk with no run or card event (a check a person ran): the loop reads it again. */
+  evidenceChanged(): void {
+    const running = this.#running
+    if (running && !running.exited && running.ready) { try { write(running, { type: 'evidence-changed' }) } catch { this.#protocolFailure(running) } }
+  }
   stop(reason = 'stopped'): Promise<void> {
     if (this.#stopping) return this.#stopping
     this.#generation++; this.#startAbort?.abort()

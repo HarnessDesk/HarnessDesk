@@ -11,6 +11,7 @@ import type { LeadDispatch } from './journal.js'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadAcceptanceEvidence } from './acceptance.js'
 import { createLeadLoop, type LeadLoop } from './loop.js'
+import { leadBudgetProjection } from './budget.js'
 import { parseLeadSeatChoices } from './instructions.js'
 import { createLeadTools, type LeadResolvedTool } from './tools.js'
 import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js'
@@ -63,6 +64,8 @@ const parseBootstrap = (value: unknown): LeadChildConfig => {
 }
 /** The only child entry. No journal storage is opened: every journal operation
  * and host-derived scope crosses the bounded, validated stdin/stdout port. */
+const spendKnown = (state: LeadState | null) => !!state?.budget && leadBudgetProjection(state.budget, Date.now()).spend === 'known'
+
 export const runLeadChild = (options: ChildOptions = {}) => {
   const input = options.input ?? process.stdin, output = options.output ?? process.stdout
   const exit = options.onExit ?? ((code: number) => process.exit(code))
@@ -146,7 +149,14 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           readEvidence: async runId => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence })
         send({ type: 'ready' }); void loop.start().catch(fail); return
       }
-      case 'state': if (!initialized) throw denied(); sync(message.state); return
+      case 'state': {
+        if (!initialized) throw denied()
+        const fenced = !spendKnown(state)
+        sync(message.state)
+        // A reading the host freshened while the loop was fenced on spend comes with no desk event to wake it.
+        if (fenced && spendKnown(state)) void loop?.refresh().catch(() => {})
+        return
+      }
       case 'reply': {
         const entry = pending.get(message.id as number)
         if (!entry) throw denied()
@@ -195,6 +205,9 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         if (!loop) throw denied()
         send({ type: 'wait-ended', runId: message.runId, reason: 'ownership-withdrawn' })
         await close(); exit(0); return
+      case 'evidence-changed':
+        if (!loop) throw denied()
+        void loop.refresh().catch(() => {}); return
       case 'shutdown': await close(); exit(0); return
       default: throw denied()
     }

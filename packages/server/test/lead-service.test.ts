@@ -113,6 +113,20 @@ test('disable and host shutdown latch sends closed before yielding', async t => 
   assert.equal(s.process().live, false)
 })
 
+test('a goal a crashed host left in flight is shown stopped for the person to resume, and a settled one is left alone', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true)
+  // Nothing latched it: the host ended without its shutdown, and no process watches the goal now.
+  await s.journal.setManagementPhase('planning')
+  await s.service.recoverInterrupted()
+  assert.equal(s.journal.state.phase, 'waiting-for-user')
+  assert.equal(s.journal.state.managementReason, 'lead-host-shutdown')
+  assert.equal(s.spawns(), 0)
+  const seq = s.journal.state.seq
+  await s.service.recoverInterrupted()
+  assert.equal(s.journal.state.seq, seq)
+})
+
 test('child exit stops owned work, unregisters budgets and cancels cleanup retries before recovery', async t => {
   const s = await rig(t)
   await s.service.setEnabled(true); await s.service.send(input)
