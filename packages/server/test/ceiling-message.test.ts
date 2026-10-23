@@ -152,7 +152,7 @@ for (const owner of ['runtime', 'session'] as const) {
   })
 }
 
-for (const ending of ['detach', 'close', 'unavailable', 'unregister'] as const) {
+for (const ending of ['detach', 'close', 'close without an event', 'unavailable', 'unregister'] as const) {
   test(`a held approval settles without allowing work after ${ending}`, async (t) => {
     const d = await room(t)
     await d.message('Merge #7.')
@@ -162,6 +162,10 @@ for (const ending of ['detach', 'close', 'unavailable', 'unregister'] as const) 
     assert.ok(approval)
     if (ending === 'detach') d.runtime.emit({ type: 'session/detached', sessionId: d.receiver.id })
     else if (ending === 'close') await d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
+    else if (ending === 'close without an event') {
+      t.mock.method(d.live(d.receiver), 'close', async () => { d.live(d.receiver).finish() })
+      await d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
+    }
     else if (ending === 'unavailable') d.runtime.setHealth({ state: 'unavailable', reason: 'unknown', message: 'Stopped' })
     else await d.host.unregister(FAKE_RUNTIME_ID)
     await settle()

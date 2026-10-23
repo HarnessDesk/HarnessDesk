@@ -417,6 +417,7 @@ export interface HostContext {
 
   readonly ceilings: {
     answerHeld(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): boolean
+    settleHeld(runtime: string, sessionId: string): void
   }
 
   readonly questions: {

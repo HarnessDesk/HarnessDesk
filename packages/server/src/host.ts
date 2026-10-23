@@ -4769,6 +4769,7 @@ export class Host {
       },
       ceilings: {
         answerHeld: (runtime, sessionId, approvalId, decision) => this.#answerHeld(runtime, sessionId, approvalId, decision),
+        settleHeld: (runtime, sessionId) => this.#settleHeld(runtime, sessionId),
       },
       questions: {
         answerStopped: (runtime, sessionId, approvalId, decision) => this.#answerStoppedQuestion(runtime, sessionId, approvalId, decision),
