@@ -19,7 +19,7 @@ export const leadProjection = (over: Partial<LeadWindowProjection> = {}): LeadWi
   thread: { version: 1, id: 'lead', revision: 10, state: 'draft', project: leadContract.project, olderMessages: 0, messages: [], cards: [] },
   requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, ...over })
 
-export const LEAD_SCENES = ['loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
+export const LEAD_SCENES = ['loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -30,7 +30,8 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (thread.cards.some(card => card.type === 'plan')) projection = { ...projection, wayOut: 'decide-plan' }
   if (scene === 'waiting') { thread.cards = [leadWaiting]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { waiting: 3 } }
   if (scene === 'result-person-gate') { thread.cards = [leadResult]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.cardPositions = { result: 3 } }
-  if (scene === 'worker-approval') { thread.cards = [{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = { ...leadBudget, spend: 'unknown' }; thread.cardPositions = { waiting: 3 } }
+  if (scene === 'required-check') { thread.state = 'running'; thread.contract = leadContract; projection = { ...projection, personActions: [{ kind: 'check', id: 'check-demo', runId: 'run-demo', name: 'verify', command: 'node --test' }] } }
+  if (scene === 'worker-approval') { projection = { ...projection, personActions: [{ kind: 'worker-approval', id: 'waiting', runId: 'run-demo', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'no'] }] }; thread.cards = [{ ...leadWaiting, kind: 'worker-approval', personCardId: null, summary: 'The code reviewer wants to read the git log. Answer on the card.' }]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = { ...leadBudget, spend: 'unknown' }; thread.cardPositions = { waiting: 3 } }
   if (scene === 'planning') { thread.state = 'planning'; projection = { ...projection, requestInFlight: true } }
   if (scene === 'running' || scene === 'running-message' || scene === 'stopped') {
     const running = scene !== 'stopped'

@@ -1,6 +1,6 @@
 import { useRef, useState, type MutableRefObject } from 'react'
-import type { LeadAcceptanceContract, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage } from '@harnessdesk/protocol'
-import { LeadContract, Text } from '../design'
+import type { LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage } from '@harnessdesk/protocol'
+import { Button, CodeText, Row, LeadContract, Text } from '../design'
 import { folderName } from '../lib/projects'
 import { LeadDecision } from './LeadDecision'
 import { PERMISSION_LABELS } from './lead-permission-labels'
@@ -29,7 +29,8 @@ const policyMode = { plan: 'Plan', default: 'Default', manage: 'Manage' }
 const ruleWords = (rule: { effect: string; method: keyof typeof PERMISSION_LABELS; action: string | null; project: string | null } | undefined) => rule ? `${rule.effect} · ${PERMISSION_LABELS[rule.method]} · ${rule.action ?? 'All actions'} · ${rule.project ?? 'Approved project'}` : 'No rule'
 
 /** Window-owned details and revision-bound decisions. The child never receives a click. */
-export const LeadCards = ({ cards, decisions = [], contract, budget, onDecide, onChanges, onApprovals, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, placement = 'both' }: {
+export const LeadCards = ({ cards, personActions = [], onPerform, decisions = [], contract, budget, onDecide, onChanges, onApprovals, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, placement = 'both' }: {
+  readonly personActions?: readonly LeadAction[]; readonly onPerform?: (input: LeadActionInput) => Promise<unknown>
   readonly decisionLock?: MutableRefObject<boolean>; readonly decisionPending?: string | null
   readonly setDecisionPending?: (id: string | null) => void; readonly expiry?: number | null
   readonly focusCard?: string | null
@@ -43,6 +44,15 @@ export const LeadCards = ({ cards, decisions = [], contract, budget, onDecide, o
   const localBusy = useRef(false), [localPending, setLocalPending] = useState<string | null>(null)
   const busy = decisionLock ?? localBusy, pending = decisionPending === undefined ? localPending : decisionPending
   const setPending = setDecisionPending ?? setLocalPending
+  const latestActions = useRef(personActions); latestActions.current = personActions
+  const currentDigest = useRef(contract?.digest); currentDigest.current = contract?.digest
+  const perform = async (action: LeadAction, choice: LeadActionInput['choice']) => {
+    if (busy.current || !onPerform || !contract || currentDigest.current !== contract.digest || !latestActions.current.some(current => current.id === action.id)) return
+    busy.current = true; setPending(action.id)
+    try { await onPerform({ id: action.id, contractDigest: contract.digest, choice }); onSettled?.() }
+    catch (error) { onError?.(error) }
+    finally { busy.current = false; setPending(null) }
+  }
   const focus = useRef(new Map<string, HTMLElement>())
   const decide = async (card: Exclude<LeadCard, { type: 'stopped' }>, choice: LeadCardDecision['choice']) => {
     if (busy.current || !latest.current.some(current => current.id === card.id && current.revision === card.revision && current.contractDigest === card.contractDigest)) return
@@ -61,7 +71,7 @@ export const LeadCards = ({ cards, decisions = [], contract, budget, onDecide, o
     const renewal = !choice && card.type === 'plan' && expiry != null && card.contractDigest === contract?.digest && JSON.stringify(card.contract) === JSON.stringify(contract)
     // A card is judged against the plan it was made under: a settled result from an earlier goal keeps its own verdict.
     const scope = card.type === 'plan' ? card.contract : card.contractDigest === contract?.digest ? contract : plans.get(card.contractDigest ?? '')
-    const summary = worker ? 'A worker is waiting for you to approve a command.' : card.type === 'plan' ? `${renewal ? `My earlier approval expired. Approve again to continue.\n\n` : ''}Here's my plan:\n\n${card.contract.steps.map((step, i) => `${i + 1}. ${step.title} — ${stepWork(step.assignments)}`).join('\n')}\n\nDone when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`
+    const summary = worker ? card.summary : card.type === 'plan' ? `${renewal ? `My earlier approval expired. Approve again to continue.\n\n` : ''}Here's my plan:\n\n${card.contract.steps.map((step, i) => `${i + 1}. ${step.title} — ${stepWork(step.assignments)}`).join('\n')}\n\nDone when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`
       : card.type === 'permission-change' ? `Change permission mode: ${policyMode[card.previous.mode]} → ${policyMode[card.proposed.mode]}\n\n${[...new Set([...card.previous.rules.map(rule => rule.id), ...card.proposed.rules.map(rule => rule.id)])].flatMap(id => { const old = card.previous.rules.find(rule => rule.id === id), next = card.proposed.rules.find(rule => rule.id === id); return JSON.stringify(old) === JSON.stringify(next) ? [] : [`- ${ruleWords(old)} → ${ruleWords(next)}`] }).join('\n')}`
       : card.type === 'budget-change' ? budgetQuestion(card.previous.caps, card.proposed)
       : card.type === 'stopped' ? card.reason === 'unknown-spend' ? 'Worker spend is unknown. Inspect the run before continuing.' : 'The Lead stopped. Inspect its allowance and run.' : card.summary
@@ -87,11 +97,17 @@ export const LeadCards = ({ cards, decisions = [], contract, budget, onDecide, o
           {spend && <Text as="p" role="meta">I spent {leadDollars(spend.leadUsdMicros)}{spend.spend === 'known' && <> · workers reported {leadDollars(spend.workerUsdMicros)}</>}.</Text>}
         </>}
       </LeadContract>}
-      {placement !== 'thread' && !state && active === card && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}
+      {placement !== 'thread' && !state && active === card && !personActions.some(action => action.id === card.id) && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}
         approveLabel={person ? 'Accept' : 'Approve'} onApprove={person || approval ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, person ? 'accept' : 'approve') } : undefined}
         onDecline={person || approval ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, 'decline') } : undefined}
         link={worker ? { label: 'Open approvals', run: () => onApprovals(card.runId) } : person ? { label: 'Open changes', run: onChanges } : undefined} />}
     </div>
-  })}</>
+  })}{placement !== 'thread' && personActions.map(action => <Row key={action.id} kind="record" layout="record"
+    title={action.kind === 'worker-approval' ? `The ${action.role} wants to ${action.request}` : `Run check ${action.name}`}
+    desc={action.kind === 'check' ? <CodeText block wrap>{action.command}</CodeText> : undefined}
+    control={action.kind === 'worker-approval' ? <>
+      {action.choices.includes('yes-once') && <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'yes-once')}>Yes once</Button>}
+      {action.choices.includes('no') && <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'no')}>No</Button>}
+    </> : <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'run')}>{`Run check ${action.name}`}</Button>} />)}</>
 }
 const LeadReason = ({ text }: { readonly text: string }) => <Markdown text={text} />

@@ -110,7 +110,7 @@ it('does not attribute a worker approval to every runtime in the plan', () => {
   const box = document.createElement('div'), root = createRoot(box)
   const other = { ...leadRuntime, id: 'second-runtime', presentation: { ...leadRuntime.presentation, name: 'Second worker' } }
   act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[{ ...leadWaiting, kind: 'worker-approval', personCardId: null }]} contract={{ ...leadContract, steps: [...leadContract.steps, { ...leadContract.steps[0]!, id: 'other', assignments: [{ ...leadContract.steps[0]!.assignments[0]!, seat: { runtime: other.id } }] }] }} onDecide={vi.fn()} onChanges={vi.fn()} onApprovals={vi.fn()} /></StoreProvider>))
-  try { expect(box.textContent).toContain('A worker is waiting for you to approve a command.'); expect(box.textContent).not.toContain('Second worker') }
+  try { expect(box.textContent).toContain(leadWaiting.summary); expect(box.textContent).not.toContain('Second worker') }
   finally { act(() => root.unmount()) }
 })
 
@@ -183,4 +183,21 @@ it('reads a findings gate passed with nothing to cite as no blocking findings, n
   const { box } = mount([none])
   expect([...box.querySelectorAll('p')].some(node => node.textContent === 'Checks passed · Review passed · No blocking findings')).toBe(true)
   expect(box.textContent).not.toContain('Findings not confirmed')
+})
+
+it('shows request-specific person actions and keeps them out of plan decisions', async () => {
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  const perform = vi.fn(async () => {}), decide = vi.fn(async () => {})
+  const actions = [{ kind: 'worker-approval', id: 'worker', runId: 'run', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'no'] },
+    { kind: 'check', id: 'check', runId: 'run', name: 'verify', command: 'node --test' }]
+  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[]} personActions={actions} contract={leadContract} onPerform={perform} onDecide={decide} onChanges={() => {}} onApprovals={() => {}} /></StoreProvider>))
+  clean.push(() => { act(() => root.unmount()); box.remove() })
+  expect(box.textContent).toContain('code reviewer'); expect(box.textContent).toContain('read the git log'); expect(box.textContent).toContain('node --test')
+  await act(async () => button(box, 'Yes once').click())
+  expect(perform).toHaveBeenCalledWith({ id: 'worker', contractDigest: leadContract.digest, choice: 'yes-once' })
+  await act(async () => button(box, 'No').click())
+  expect(perform).toHaveBeenCalledWith({ id: 'worker', contractDigest: leadContract.digest, choice: 'no' })
+  await act(async () => button(box, 'Run check verify').click())
+  expect(perform).toHaveBeenCalledWith({ id: 'check', contractDigest: leadContract.digest, choice: 'run' })
+  expect(decide).not.toHaveBeenCalled()
 })

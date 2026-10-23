@@ -2087,8 +2087,14 @@ attributed Lead and reported worker spend. Unknown values remain unknown.
 
 The shared ApprovalDialog docks the question and buttons above the composer.
 Plans and widenings offer Approve and Decline; a result offers Open changes,
-Accept and Decline. A worker command request offers Open approvals and cannot be
-answered by Lead. Decision clicks still carry the seen revision and digest, share
+Accept and Decline. A worker request names its role and what it asks, with Yes once
+and No when those choices are supported. The person answers directly in Lead or
+on a paired phone; Lead cannot answer it. After an approving review, each required
+check without counted evidence offers Run check with its whole command. That
+person's run counts on the Team; a worker's own run stays advisory. Chat replies
+answer neither request. These live actions are bound to the approved contract and
+the current request or reviewed commit, and use the desk's existing approval and
+check paths. Decision clicks still carry the seen revision and digest, share
 one page-wide lock, expose pending state and refuse stale revisions. Decided
 messages retain Approved, Declined or Accepted in the meta style; their controls
 leave the dock. New entries follow until the person scrolls up.

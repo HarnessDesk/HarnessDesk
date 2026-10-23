@@ -45,6 +45,11 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       emit({ ...current, revision, settings, thread: { ...current.thread, cards } })
       return params.name ? { version: 1, revision, settings: { name: settings.name } } : current
     }
+    if (method === 'lead/action/perform') {
+      if (params.contractDigest !== current.thread.contract?.digest || !current.personActions?.some(action => action.id === params.id)) throw { code: 'lead-card-stale' }
+      emit({ ...current, personActions: current.personActions.filter(action => action.id !== params.id), thread: { ...current.thread, cards: current.thread.cards.filter(card => card.id !== params.id) } })
+      return current
+    }
     if (method === 'lead/card/decide') {
       const card = current.thread.cards.find(card => card.id === params.cardId)
       if (!card || card.revision !== params.expectedRevision || card.type === 'stopped' || card.contractDigest !== params.contractDigest) throw { code: 'lead-card-stale' }

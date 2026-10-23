@@ -1,11 +1,12 @@
 import type {
-  HostMethodName, HostParams, HostResult, LeadCardDecision, LeadChanged, LeadProgress, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadProgress, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
   request<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>>
 }
 export interface LeadState {
+  readonly personActions: readonly LeadAction[]
   readonly revision: number
   readonly thread: LeadThread | null
   readonly settings: LeadSettingsProjection | null
@@ -21,7 +22,7 @@ export interface LeadState {
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
-  const initial = (): LeadState => ({ revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, error: null })
+  const initial = (): LeadState => ({ personActions: [], revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, error: null })
   let state = initial()
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
@@ -36,11 +37,11 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       // Worker approvals are live host relays. Their cards may change while
       // the journal revision used by settings and Resume stays unchanged.
       const approvals = (thread: LeadThread | null) => thread?.cards.filter(card => card.type === 'waiting' && card.kind === 'worker-approval') ?? []
-      if (JSON.stringify(approvals(projection.thread)) === JSON.stringify(approvals(state.thread))) return
+      if (JSON.stringify(approvals(projection.thread)) === JSON.stringify(approvals(state.thread)) && JSON.stringify(projection.personActions ?? []) === JSON.stringify(state.personActions)) return
     }
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
-      : structuredClone({ revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
+      : structuredClone({ personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
         requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, error: null })
     for (const listener of listeners) listener()
   }
@@ -56,6 +57,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       check()
       const before = state, result = await transport.request('lead/thread/read', {}); apply(result, before); return receipt
     },
+    async perform(input: LeadActionInput) { check(); const before = state, result = await transport.request('lead/action/perform', input); apply(result, before); return result },
     async decide(decision: LeadCardDecision) { check(); const before = state, result = await transport.request('lead/card/decide', decision); apply(result, before); return result },
     async updateSettings(update: Omit<LeadSettingsUpdate, 'expectedRevision'>) {
       checkRead()
