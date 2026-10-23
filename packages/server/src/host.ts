@@ -10,7 +10,7 @@ import { resumeSeatSession } from './session-resume.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
-import { constants } from 'node:fs'
+import { constants, readdirSync } from 'node:fs'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, sep } from 'node:path'
@@ -121,7 +121,7 @@ import { exportAgentFolders, importAgentFolder } from './agent-files.js'
 import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-file.js'
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
 import { AgentWatch } from './agent-watch.js'
-import { Agents } from './agents.js'
+import { Agents, isAgentFolderName } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
@@ -4885,7 +4885,10 @@ export class Host {
     })
   }
 
-  readonly #localFiles = new LocalFiles({ log: (message, details) => this.#logger.warn(message, details) })
+  readonly #localFiles = new LocalFiles({
+    log: (message, details) => this.#logger.warn(message, details),
+    roots: (mode) => this.#fileRoots(mode),
+  })
 
   /**
    * The reader for a request: the runtime's own view when it declares one,
@@ -4927,15 +4930,22 @@ export class Host {
    * the roster's own folders — this machine's for both, because a person
    * edits their own Agents in the desk's editor; the built-in one for reading
    * only, because nobody edits what ships (*Customize…* copies it first).
-   * `confine` compares path text by design, so a user Agent folder linked to a
-   * dotfiles checkout is read and saved through that link, just as the roster
-   * reads it. The built-in root never joins the write list.
+   * An Agent folder or its source linked into these host-owned roots is
+   * explicitly admitted, just as the roster reads it. Links in a project do
+   * not extend its roots. The built-in roots never join the write list.
    */
   #fileRoots(mode: 'read' | 'write'): string[] {
+    const agentRoots = (root: string): string[] => {
+      let entries
+      try { entries = readdirSync(root, { withFileTypes: true }) } catch { return [root] }
+      return [root, ...entries
+        .filter((entry) => isAgentFolderName(entry.name) && (entry.isDirectory() || entry.isSymbolicLink()))
+        .flatMap((entry) => [join(root, entry.name), join(root, entry.name, 'AGENT.md')])]
+    }
     return [
       ...this.#openRoots(),
-      join(this.#state.directory, 'agents'),
-      ...(mode === 'read' ? [this.#agents.roots.builtin] : []),
+      ...agentRoots(this.#agents.roots.user),
+      ...(mode === 'read' ? agentRoots(this.#agents.roots.builtin) : []),
     ]
   }
 

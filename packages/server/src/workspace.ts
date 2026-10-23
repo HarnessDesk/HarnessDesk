@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
+import { constants } from 'node:fs'
 import { isUtf8 } from 'node:buffer'
-import { lstat, open, readdir, stat, watch as fsWatch, writeFile } from 'node:fs/promises'
+import { lstat, readdir, stat, watch as fsWatch } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
@@ -13,6 +14,8 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
+import { openAgentFile } from './agent-file-open.js'
+import { canonicalTarget, isWithinPath } from './path-confinement.js'
 
 /**
  * Workspace file services.
@@ -53,24 +56,29 @@ export const assertAbsoluteCwd = (params: { readonly cwd?: string } | undefined)
 /**
  * Refuses a path that is not under one of the roots the user has opened.
  *
- * Lexical, on the resolved path: `..` segments are collapsed first, so
- * `root/../etc/passwd` is refused. A symlink inside a root that points
- * outside it is not caught here, because a runtime's reader resolves links on
- * its own side; that is a known limit, not an oversight.
+ * Both the spelling and the canonical target must be inside an admitted
+ * root. Missing names are resolved through their deepest existing ancestor.
+ * A root itself may be linked when the person opened it explicitly.
  */
 export const confine = (path: string, roots: readonly string[]): string => {
+  confinedTarget(path, roots)
+  return resolve(path)
+}
+
+const confinedTarget = (path: string, roots: readonly string[]): string => {
   assertAbsolute(path)
   const target = resolve(path)
+  const canonical = canonicalTarget(target)
   const inside = roots.some((root) => {
     const base = resolve(root)
-    return target === base || target.startsWith(base.endsWith(sep) ? base : base + sep)
+    return isWithinPath(base, target) && isWithinPath(canonicalTarget(base), canonical)
   })
   if (!inside) {
     throw new Error(
       `${target} is outside every open workspace. Open its folder first to read from it.`,
     )
   }
-  return target
+  return canonical
 }
 
 const IGNORED_DIRECTORIES = new Set([
@@ -197,6 +205,8 @@ export const searchFiles = async (
 export const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
 
 export interface LocalFilesOptions {
+  /** Recheck the admitted roots immediately before opening local content. */
+  readonly roots?: (mode: 'read' | 'write') => readonly string[]
   /** Where a folder a search had to pass over is named. */
   readonly log?: (message: string, details?: Record<string, unknown>) => void
 }
@@ -207,12 +217,25 @@ export class LocalFiles implements RuntimeFiles {
   /** Folders a search has already named: a search runs per keystroke, the line once. */
   readonly #unreadable = new Set<string>()
 
-  constructor(options: LocalFilesOptions = {}) {
+  constructor(private readonly options: LocalFilesOptions = {}) {
     this.#log = options.log ?? (() => {})
   }
 
   async write(path: string, data: Uint8Array): Promise<void> {
-    await writeFile(path, data)
+    const target = this.#target(path, 'write')
+    const handle = await openAgentFile(target, constants.O_WRONLY | constants.O_CREAT | constants.O_NONBLOCK)
+    try {
+      const info = await handle.stat()
+      if (!info.isFile() || info.nlink !== 1) throw new Error(`${path} is not an ordinary file with one link`)
+      await handle.truncate(0)
+      await handle.writeFile(data)
+    } finally {
+      await handle.close()
+    }
+  }
+
+  #target(path: string, mode: 'read' | 'write'): string {
+    return this.options.roots ? confinedTarget(path, this.options.roots(mode)) : canonicalTarget(path)
   }
 
   async search(roots: readonly string[], query: string, limit: number): Promise<readonly FileMatch[]> {
@@ -232,10 +255,10 @@ export class LocalFiles implements RuntimeFiles {
   }
 
   async read(path: string, maxBytes: number): Promise<Uint8Array> {
-    const info = await stat(path)
-    if (!info.isFile()) throw new Error(`${path} is not a file`)
-    const handle = await open(path, 'r')
+    const handle = await openAgentFile(this.#target(path, 'read'), constants.O_RDONLY | constants.O_NONBLOCK)
     try {
+      const info = await handle.stat()
+      if (!info.isFile()) throw new Error(`${path} is not a file`)
       const buffer = Buffer.alloc(Math.max(0, maxBytes))
       const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0)
       return buffer.subarray(0, bytesRead)
@@ -374,7 +397,7 @@ export const describeWorkspace = async (
 
 /** Editor navigation opts in to files, inside an already admitted conversation root.
  * Runtime entries are names only: reject path-shaped names and unknown kinds.
- * Confinement inherits the runtime reader's documented lexical link policy.
+ * Confinement checks the canonical target against the admitted root.
  */
 export const browseWorkspaceEntries = async (
   files: RuntimeFiles,
