@@ -3025,7 +3025,8 @@ export class AcpRuntime implements AgentRuntime {
   #observedAccount(hasKey: boolean): AccountStatus {
     const seen = this.#signIn
     if (seen.state === 'observed') {
-      if (hasKey) return { accounts: [], signInMethods: [] }
+      // A session may open before a required key is checked on the first prompt.
+      if (hasKey || this.#config.secrets?.some(secret => !secret.optional)) return { accounts: [], signInMethods: [] }
       return {
         accounts: [this.#identity() ?? { kind: 'agent', label: 'Signed in', anonymous: true }],
         signInMethods: [],

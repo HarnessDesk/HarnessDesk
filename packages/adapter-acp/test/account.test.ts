@@ -302,6 +302,10 @@ test('an agent whose only way in is a key, with none stored, is signed out rathe
     assert.deepEqual(status.accounts, [])
     assert.equal(status.unchecked, undefined)
     assert.deepEqual(status.signInMethods.map((method) => method.id), ['apiKey:HD_FAKE_ONLY_KEY'])
+    await runtime.createSession({ cwd: process.cwd() })
+    const opened = await runtime.getAccount()
+    assert.deepEqual(opened.accounts, [], 'an open session does not prove a required key exists')
+    assert.deepEqual(opened.signInMethods.map(method => method.id), ['apiKey:HD_FAKE_ONLY_KEY'])
   } finally {
     await runtime.dispose()
   }
