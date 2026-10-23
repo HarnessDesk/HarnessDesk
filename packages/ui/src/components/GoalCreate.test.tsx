@@ -67,6 +67,9 @@ it('keeps a caller-known project refusal and reports successful reopening', asyn
   vi.spyOn(store, 'openWorkspace').mockResolvedValue(true)
   await act(async () => {})
   expect(document.body.textContent).toContain(refusal)
+  const recovery=document.querySelector('[role="alert"]')!.closest('[data-measure]')!
+  expect(recovery.getAttribute('data-measure')).toBe('container')
+  expect(recovery.querySelector('[data-floating]')).toBeNull()
   await act(async () => press('Open repo'))
   expect(onProjectOpened).toHaveBeenCalledOnce()
   expect(document.body.textContent).not.toContain(refusal)
