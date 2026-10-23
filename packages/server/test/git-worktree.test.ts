@@ -717,6 +717,36 @@ test('a confirmation includes every unmerged index stage', async () => {
   assert.ok(await gone(made.path))
 })
 
+test('a confirmation covers descendants of an untracked nested repository', async (t) => {
+  for (const change of ['edit', 'add']) {
+    await t.test(change, async () => {
+      const { repo, state } = await seedRepo()
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      const nested = join(made.path, 'nested')
+      await mkdir(join(nested, 'src'), { recursive: true })
+      await git(nested, 'init', '-q', '-b', 'main')
+      await writeFile(join(nested, 'src', 'a.ts'), 'seen\n')
+      await git(nested, 'add', '.')
+      await git(nested, 'commit', '-qm', 'keep the nested file')
+      const outside = join(await tempDir('hd-inventory-outside-'), 'one.bin')
+      await writeFile(outside, 'outside notes\n')
+      await symlink(dirname(outside), join(nested, 'src', 'linked'), 'dir')
+      const held = await inventory(made.path)
+      assert.deepEqual(held.changes, [{ path: 'nested/', status: '??' }])
+      await writeFile(outside, 'different outside notes\n')
+      assert.equal(await confirmed(made.path), held.stateId)
+      const file = join(nested, 'src', change === 'edit' ? 'a.ts' : 'later.ts')
+      await writeFile(file, 'edit\n')
+
+      await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+      assert.equal(await readFile(file, 'utf8'), 'edit\n')
+      await remove(repo, made.path, true, await confirmed(made.path), state)
+      assert.ok(await gone(made.path))
+      assert.equal(await readFile(outside, 'utf8'), 'different outside notes\n')
+    })
+  }
+})
+
 test('the inventory names what is there and counts what it could not show', async () => {
   const { repo, state } = await seedRepo()
   const made = await add(repo, 'lots', { kind: 'new', branch: 'lots' }, state)

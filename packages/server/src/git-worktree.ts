@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstat, realpath, rm } from 'node:fs/promises'
+import { lstat, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -271,22 +271,37 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
   for (const entry of ignored) digest.update(`!!\u0000${entry}\u0000`)
   // Git can collapse wholly ignored directories even with all untracked
   // paths requested. Ask for every ignored file separately for the digest.
-  const fingerprint = async (file: string): Promise<string> => {
+  const fingerprint = async (file: string) => {
     const info = await inventoryEntry(root, file)
     // ctime changes on writes and cannot be restored by setting mtime. No
     // contents need opening, including large, unreadable or replaced files.
-    return `${file}\0${info
+    const text = `${file}\0${info
       ? `${info.mode}\0${info.dev}\0${info.ino}\0${info.size}\0${info.mtimeNs}\0${info.ctimeNs}`
       : 'missing'}\0`
+    return { file, text, directory: info?.isDirectory() ?? false }
   }
-  for (const file of [...new Set(changes.map((change) => change.path))].sort()) digest.update(await fingerprint(file))
+  type Fingerprint = Awaited<ReturnType<typeof fingerprint>>
+  const include = async (entry: Fingerprint): Promise<void> => {
+    digest.update(entry.text)
+    if (!entry.directory) return
+    // Git leaves nested repositories as a single directory. Include every
+    // descendant's metadata; a symbolic link is never a directory to descend.
+    const prefix = entry.file.replace(/\/$/, '')
+    for (const name of (await readdir(join(root, prefix))).sort()) {
+      await include(await fingerprint(`${prefix}/${name}`))
+    }
+    if ((await fingerprint(entry.file)).text !== entry.text) {
+      throw new Error('The worktree changed while reading its inventory. Review it again.')
+    }
+  }
+  for (const file of [...new Set(changes.map((change) => change.path))].sort()) await include(await fingerprint(file))
   digest.update('\0ignored\0')
   // Bound metadata reads while retaining Git's record order in the digest.
-  let batch: Promise<{ value: string } | { error: unknown }>[] = []
+  let batch: Promise<{ value: Fingerprint } | { error: unknown }>[] = []
   const flush = async (): Promise<void> => {
     for (const result of await Promise.all(batch)) {
       if ('error' in result) throw result.error
-      digest.update(result.value)
+      await include(result.value)
     }
     batch = []
   }
