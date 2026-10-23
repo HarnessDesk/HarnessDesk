@@ -10,7 +10,7 @@ import { resumeSeatSession } from './session-resume.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
-import { constants, readdirSync } from 'node:fs'
+import { constants, readdirSync, statSync } from 'node:fs'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, sep } from 'node:path'
@@ -4940,7 +4940,12 @@ export class Host {
       try { entries = readdirSync(root, { withFileTypes: true }) } catch { return [root] }
       return [root, ...entries
         .filter((entry) => isAgentFolderName(entry.name) && (entry.isDirectory() || entry.isSymbolicLink()))
-        .flatMap((entry) => [join(root, entry.name), join(root, entry.name, 'AGENT.md')])]
+        .flatMap((entry) => {
+          const folder = join(root, entry.name)
+          const source = join(folder, 'AGENT.md')
+          try { if (statSync(source).isFile()) return [folder, source] } catch { /* An absent or unreadable source grants no additional root. */ }
+          return [folder]
+        })]
     }
     return [
       ...this.#openRoots(),

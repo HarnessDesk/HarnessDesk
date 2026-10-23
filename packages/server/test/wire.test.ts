@@ -1665,6 +1665,12 @@ test('user Agent folders and source files linked into configuration remain reada
     assert.equal(saved.saved, true)
     assert.equal(await readFile(path, 'utf8'), 'updated source')
   }
+  // A source is one file; a folder at its name does not admit its contents.
+  await mkdir(join(agents, 'directory-source'))
+  await symlink(outside, join(agents, 'directory-source', 'AGENT.md'))
+  await assert.rejects(client.call('workspace/readFile', {
+    path: join(agents, 'directory-source', 'AGENT.md', 'source.md'),
+  }), /outside every open workspace/)
 })
 
 test('a save that races an external change is refused with the other content, never overwritten', async (t) => {
