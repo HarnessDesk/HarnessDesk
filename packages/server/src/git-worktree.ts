@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream } from 'node:fs'
-import { lstat, readlink, realpath, rm } from 'node:fs/promises'
+import { lstat, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -179,7 +178,7 @@ const parseList = (out: string): Listed[] => {
  * the strength of a number that is no longer true.
  *
  * Ignored directories stay collapsed in the displayed inventory. The digest
- * includes their descendants and file contents so the same names and counts
+ * includes their descendants and file metadata so the same names and counts
  * cannot confirm later edits.
  */
 const SHOWN = 40
@@ -190,7 +189,7 @@ const inventoryEntry = async (root: string, path: string) => {
   let at = root
   for (const [index, part] of parts.entries()) {
     at = join(at, part)
-    const info = await lstat(at).catch((error: NodeJS.ErrnoException) => {
+    const info = await lstat(at, { bigint: true }).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
       throw error
     })
@@ -236,19 +235,12 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
   const ignoredFiles = await git(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'])
   const files = new Set([...changes.map((change) => change.path), ...ignoredFiles.split('\0').filter(Boolean)])
   for (const file of [...files].sort()) {
-    const full = join(root, file)
     const info = await inventoryEntry(root, file)
-    digest.update(`${file}\0${info?.mode ?? 'missing'}\0`)
-    if (info?.isFile()) {
-      const content = createHash('sha256')
-      for await (const chunk of createReadStream(full)) content.update(chunk)
-      digest.update(content.digest())
-    } else if (info?.isSymbolicLink()) {
-      digest.update(await readlink(full))
-    } else if (info) {
-      digest.update(`${info.size}\0${info.mtimeMs}\0${info.ctimeMs}`)
-    }
-    digest.update('\0')
+    // ctime changes on writes and cannot be restored by setting mtime. No
+    // contents need opening, including large, unreadable or replaced files.
+    digest.update(`${file}\0${info
+      ? `${info.mode}\0${info.dev}\0${info.ino}\0${info.size}\0${info.mtimeNs}\0${info.ctimeNs}`
+      : 'missing'}\0`)
   }
 
   return {

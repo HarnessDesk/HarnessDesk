@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import fs from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
@@ -540,6 +542,60 @@ test('a confirmation is void after listed file contents change', async (t) => {
       assert.equal(await readFile(file, 'utf8'), 'edit\n')
       await remove(repo, made.path, true, await confirmed(made.path), state)
       assert.ok(await gone(made.path))
+    })
+  }
+})
+
+test('inventory can confirm unreadable working and ignored files from their metadata', async (t) => {
+  for (const path of ['a.txt', 'cache/one.bin']) {
+    await t.test(path, async () => {
+      const { repo, state } = await seedRepo()
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+      await mkdir(join(made.path, 'cache'))
+      const file = join(made.path, path)
+      await writeFile(file, 'local notes\n')
+      await chmod(file, 0o000)
+      try {
+        await remove(repo, made.path, true, await confirmed(made.path), state)
+        assert.ok(await gone(made.path))
+      } finally {
+        await chmod(file, 0o644).catch(() => {})
+      }
+    })
+  }
+})
+
+test('inventory does not open checked files after a path replacement', async (t) => {
+  for (const path of ['a.txt', 'cache/one.bin']) {
+    await t.test(path, async (t) => {
+      const { repo, state } = await seedRepo()
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+      await mkdir(join(made.path, 'cache'))
+      const file = join(made.path, path)
+      await writeFile(file, 'local notes\n')
+      const outside = join(await tempDir('hd-inventory-outside-'), 'one.bin')
+      await writeFile(outside, 'outside notes\n')
+      const original = fs.createReadStream
+      let opened = 0
+      t.mock.method(fs, 'createReadStream', (...args: Parameters<typeof fs.createReadStream>) => {
+        if (args[0] === file) {
+          opened++
+          fs.unlinkSync(file)
+          fs.symlinkSync(outside, file)
+        }
+        return original(...args)
+      })
+      syncBuiltinESMExports()
+      try {
+        await inventory(made.path)
+        assert.equal(opened, 0, 'inventory only needs file metadata')
+      } finally {
+        t.mock.restoreAll()
+        syncBuiltinESMExports()
+      }
+      assert.equal(await readFile(outside, 'utf8'), 'outside notes\n')
     })
   }
 })
