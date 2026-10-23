@@ -27,3 +27,5 @@ export type { LeadAcceptanceEvidence, LeadAcceptanceResult } from './acceptance.
 export { LEAD_REVIEWED_RESULT, leadReviewedResultSource } from './recipes/reviewed-result.js'
 export { leadInstructions, leadContinuation, leadObservation, parseLeadSeatChoices, LEAD_SEATS_PER_ROLE } from './instructions.js'
 export type { LeadSeatChoices, LeadInstructionFacts, LeadContinuationFacts } from './instructions.js'
+
+export { leadDataContainsCredential } from './journal-security.js'

@@ -32,7 +32,7 @@ test('owned worker cards name their role and request, and only once/deny options
 })
 
 test('approval descriptions are bounded and screened before truncation; hidden requests cannot be granted', async () => {
-  for (const secret of ['synthetic-secret', 'sk-ant-synthetic-key']) {
+  for (const secret of ['synthetic-secret', 'sk-ant-synthetic-key', 'Authorization: Bearer demo-value', 'ghp_' + 'a'.repeat(36)]) {
     const s = rig(); s.approval.summary = `read ${'x'.repeat(300)} ${secret}`
     const [action] = await s.actions.read()
     assert.ok(action?.kind === 'worker-approval')
@@ -44,7 +44,7 @@ test('approval descriptions are bounded and screened before truncation; hidden r
   }
   const s = rig(); s.approval.summary = `read\n${'x'.repeat(300)}`
   const [action] = await s.actions.read()
-  assert.ok(action?.kind === 'worker-approval'); assert.equal(action.request.length, 240); assert.ok(!action.request.includes('\n'))
+  assert.ok(action?.kind === 'worker-approval'); assert.ok(action.request.length <= 240); assert.ok(!action.request.includes('\n'))
 })
 
 test('changed approvals, changed contracts and unowned or closed seats refuse person actions', async () => {
@@ -54,4 +54,16 @@ test('changed approvals, changed contracts and unowned or closed seats refuse pe
   await assert.rejects(s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-once' }), { wireCode: 'lead-card-stale' })
   s.seat.board = 'another-team'; assert.deepEqual(await s.actions.read(), [])
   assert.deepEqual(s.calls, [])
+})
+
+test('requests with undisplayed text offer only No and direct the person to the desk', async () => {
+  for (const summary of ['x'.repeat(241), 'read\nfiles', 'read \u202efiles']) {
+    const s = rig(); s.approval.summary = summary
+    const [action] = await s.actions.read()
+    assert.ok(action?.kind === 'worker-approval')
+    assert.deepEqual(action.choices, ['no'])
+    assert.match(action.request, /full request is on the desk/)
+    await assert.rejects(s.actions.perform({ id: action.id, contractDigest: digest, choice: 'yes-once' }))
+    assert.deepEqual(s.calls, [])
+  }
 })

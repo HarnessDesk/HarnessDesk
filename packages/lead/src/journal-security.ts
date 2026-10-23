@@ -53,6 +53,16 @@ const secretName = /^(?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|token|sec
 const paginationName = /^(?:page|next|continuation)_(?:token|cursor)$/i
 const reference = /^broker:[A-Za-z0-9._:/-]{1,200}$/
 const mask = (text: string) => text.replace(tokens, '[redacted]').replace(headers, '$1: [redacted]').replace(assignments, '$1=[redacted]')
+/** Shared screening for public projections and outbound model content, including encoded tool results. */
+export const leadDataContainsCredential = (value: unknown, canaries: readonly string[] = []): boolean => {
+  if (typeof value === 'string') {
+    if (canaries.some(key => key.length > 0 && value.includes(key)) || mask(value) !== value) return true
+    try { const decoded: unknown = JSON.parse(value); return decoded !== value && leadDataContainsCredential(decoded, canaries) }
+    catch { return false }
+  }
+  return value !== null && typeof value === 'object' && Object.entries(value).some(([name, child]) =>
+    leadDataContainsCredential(name, canaries) || leadDataContainsCredential(child, canaries))
+}
 export const prepareLeadJournalData = (value: unknown, security: LeadJournalSecurity = {}): unknown => {
   const snapshot = snapshotLeadData(value)
   const checkCanary = (text: string): void => {

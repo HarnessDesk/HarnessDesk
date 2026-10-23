@@ -36,9 +36,9 @@ export class LeadPersonActions {
       for (const approval of record.approvals.values()) {
         const raw = requestOf(approval)
         let request = wellFormed(raw.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' '))
-        let safe = !leadContainsSecret(raw)
+        let safe = request === raw && request.length <= 240 && !leadContainsSecret(raw)
         try { await this.assertPublic(raw) } catch { safe = false }
-        request = safe ? request.length > 240 ? `${wellFormed(request.slice(0, 239))}…` : request : 'a request whose details are hidden for privacy'
+        request = safe ? request : 'Request details are hidden; the full request is on the desk.'
         const options = 'options' in approval ? approval.options : []
         const yes = safe ? options.find(option => option.intent === 'approve') : undefined
         const no = options.find(option => option.intent === 'deny') ?? options.find(option => option.intent === 'cancel')
