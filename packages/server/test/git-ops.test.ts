@@ -116,6 +116,44 @@ test('a turn outside the repository remains unproven by commit lookup', async (t
   assert.equal(await turnCommit(dir, turn), null)
 })
 
+test('undo and redo preserve a recorded UTF-8 BOM in file contents', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'bom.txt')
+  const content = '\uFEFFtext\n'
+  await writeFile(path, content)
+  const turn = turnOf([fileChange(dir, [{ path: 'bom.txt', kind: { type: 'add' }, diff: content }])])
+
+  assert.deepEqual(await revertTurn(dir, turn), ['bom.txt'])
+  await assert.rejects(stat(path), { code: 'ENOENT' })
+  assert.deepEqual(await reapplyTurn(dir, turn), ['bom.txt'])
+  assert.deepEqual(await readFile(path), Buffer.from(content))
+  assert.deepEqual(await revertTurn(dir, turn), ['bom.txt'])
+  await assert.rejects(stat(path), { code: 'ENOENT' })
+})
+
+test('a refused undo removes the BOM file it restored before the refusal', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const restored = join(dir, 'bom.txt')
+  await writeFile(join(dir, 'new.txt'), 'changed since the turn\n')
+  const turn = turnOf([fileChange(dir, [
+    { path: 'new.txt', kind: { type: 'add' }, diff: 'recorded\n' },
+    { path: 'bom.txt', kind: { type: 'delete' }, diff: '\uFEFFtext\n' },
+  ])])
+  let refusal: RevertError | undefined
+  await assert.rejects(revertTurn(dir, turn), (error: unknown) => {
+    assert.ok(error instanceof RevertError)
+    refusal = error
+    return true
+  })
+
+  await assert.rejects(stat(restored), { code: 'ENOENT' })
+  assert.deepEqual(refusal!.reverted, [])
+  assert.equal(refusal!.wireData, undefined)
+  assert.equal(await readFile(join(dir, 'new.txt'), 'utf8'), 'changed since the turn\n')
+})
+
 test('reverts an update, an add and a delete from the reported changes', async () => {
   const dir = await repo()
   try {

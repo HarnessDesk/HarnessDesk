@@ -243,7 +243,7 @@ export const applyTurn = async (
   const done: string[] = []
   const tree = await ConfinedTree.open(top)
   const readRecorded = async (path: string, expected: string, mismatch: string): Promise<string | null> => {
-    try { return await tree.read(path, Buffer.byteLength(expected)) } catch (error) {
+    try { return await tree.read(path, Buffer.byteLength(expected), { preserveBOM: true }) } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'HD_TREE_TOO_BIG') throw new Error(mismatch)
       throw error
     }
