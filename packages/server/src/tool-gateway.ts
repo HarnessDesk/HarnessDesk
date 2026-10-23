@@ -137,6 +137,8 @@ export class ToolGateway {
   readonly #sockets = new Set<Socket>()
 
   async stop(): Promise<void> {
+    // A host refused by the home writer lock never owned this socket.
+    if (!this.#server) return
     await new Promise<void>((resolve) => {
       if (!this.#server) return resolve()
       this.#server.close(() => resolve())

@@ -475,6 +475,8 @@ export interface HostOptions {
   /** Optional: HarnessDesk runs fine with no extension kernel at all. */
   readonly extensions?: ExtensionHost
   readonly state?: StateStore
+  /** Bootstrap starts the shared tool socket only after this host owns the home. */
+  readonly startToolGateway?: () => void
   /** Opens a native directory picker. Supplied by the desktop shell. */
   readonly pickDirectory?: () => Promise<string | null>
   /** Shows a folder in the OS file browser. Supplied by the desktop shell. */
@@ -2576,6 +2578,7 @@ export class Host {
       return
     }
     this.#goalWriter = writer
+    this.options.startToolGateway?.()
     await this.#state.load()
     if (this.#disposed) return
     await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)

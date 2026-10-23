@@ -458,7 +458,6 @@ export const createDefaultHost = (
       ),
     ...mcpBackend,
   })
-  gateway.start()
   const bridgeEntry = toolBridgeEntry()
   if (bridgeEntry === null) {
     logger.warn('the plugin tool bridge is missing; ACP agents will run without HarnessDesk tools', {
@@ -580,6 +579,7 @@ export const createDefaultHost = (
     state: new StateStore(join(stateDir, 'state.json')),
     version: options.version ?? '0.1.0',
     extensions,
+    startToolGateway: () => gateway.start(),
     ...(updates ? { updates } : {}),
     // Minutes between re-asking each agent what it offers; 0 turns the timer
     // off. Cursor adds models server-side; this is how a long-open window
