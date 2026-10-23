@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Account, AccountStatus, RuntimeInfo } from '@harnessdesk/protocol'
 
+import { AcpRuntime } from '../../../adapter-acp/dist/src/runtime.js'
+
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, AppStore, type AppSnapshot } from '../state/store'
 import { SignIn } from './SignIn'
@@ -126,6 +128,29 @@ it('still says an agent needs no account when it has answered and offers none', 
 
   expect(container.textContent).toContain('needs no account here')
   expect(container.textContent).not.toContain('Starting Codex')
+})
+
+it('renders an empty adapter identity record as signed out in both rail and card (#1776)', async () => {
+  // The empty-home response comes from the adapter, with no declared ACP
+  // methods; the renderer must not mistake it for an accountless agent.
+  const adapter = new AcpRuntime({
+    id: 'agent', name: 'Agent', command: 'unused',
+    identityIsStatus: true, resolveIdentity: () => null,
+  })
+  await mount({
+    runtimes: [adapter.info], activeRuntime: adapter.info.id,
+    healthByRuntime: { [adapter.info.id]: { state: 'ready' } },
+    accountsByRuntime: { [adapter.info.id]: await adapter.getAccount() },
+  }, 'agent')
+
+  const rail = container.querySelector('nav[aria-label="Runtimes"]')
+  expect(rail?.querySelector('[aria-label="Connected"]')).toBeNull()
+  expect(rail?.querySelector('[aria-label="Not connected"]')?.textContent).toContain('Agent')
+  expect(detail().querySelector('[data-slot="sign-in-head"]')?.textContent).toContain('Not connected.')
+  expect(detail().textContent).toContain('Sign in outside HarnessDesk')
+  expect(container.textContent).not.toContain('Runs without one')
+  expect(container.textContent).not.toContain('needs no account here')
+  expect(container.textContent).not.toContain('Signed in elsewhere')
 })
 
 /* #1759. An ACP agent says whether it is signed in only when a session

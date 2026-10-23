@@ -121,7 +121,7 @@ const STATUS_LABEL: Record<Status, string> = {
   in: 'Signed in',
   key: 'Key stored',
   out: 'Not connected',
-  manual: 'Signed in elsewhere',
+  manual: 'Not connected',
   none: 'No account',
   asking: 'Starting…',
   unchecked: 'Not checked yet',

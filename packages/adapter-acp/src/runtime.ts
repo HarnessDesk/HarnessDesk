@@ -3043,7 +3043,18 @@ export class AcpRuntime implements AgentRuntime {
     const seen = this.#signIn
     if (seen.state !== 'required' && this.#config.identityIsStatus && !hasKey) {
       const identity = this.#identity()
-      return { accounts: identity ? [identity] : [], signInMethods: identity ? [] : this.#declaredMethods() }
+      if (identity) return { accounts: [identity], signInMethods: [] }
+      const declared = this.#declaredMethods()
+      // This record answers signed out, even after a session opened. No
+      // declared ACP method means the sign-in happens outside the desk,
+      // rather than that the agent runs without an account.
+      return {
+        accounts: [],
+        signInMethods: declared.length > 0 ? declared : [{
+          id: 'external', label: 'Sign in outside HarnessDesk', flow: 'external',
+          description: "Sign in using the agent's own application or command line.",
+        }],
+      }
     }
     if (seen.state === 'observed') {
       // A session may open before a required key is checked on the first prompt.

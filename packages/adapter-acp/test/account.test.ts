@@ -1961,3 +1961,24 @@ test('a delayed status refresh cannot clear a newer identical refusal (#1765)', 
     await runtime.dispose()
   }
 })
+
+test('an empty identity status offers external sign-in rather than an accountless answer (#1776)', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath,
+    args: [FAKE_AGENT], env: { FAKE_ACP_AUTH_METHODS: '[]' },
+    identityIsStatus: true, resolveIdentity: () => null,
+  })
+  await runtime.start()
+  try {
+    for (const opened of [false, true]) {
+      if (opened) await runtime.createSession({ cwd: process.cwd() })
+      const status = await runtime.getAccount()
+      assert.deepEqual(status.accounts, [])
+      assert.equal(status.unchecked, undefined, 'the identity record has answered')
+      assert.equal(status.signInMethods[0]?.flow, 'external', 'the empty home needs a sign-in elsewhere')
+      assert.ok(status.signInMethods[0]?.description)
+    }
+  } finally {
+    await runtime.dispose()
+  }
+})
