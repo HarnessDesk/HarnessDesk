@@ -1,10 +1,27 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { promisify } from 'node:util'
 
 import { clearAgentNotes, readAgentNotes } from '../src/attachments/notes.js'
 import { tempDir } from './scratch.js'
+
+test('a notes FIFO without a writer returns an ordinary-file refusal promptly', { skip: process.platform === 'win32' }, async () => {
+  const folder = tempDir('hd-notes-')
+  const path = join(folder, 'NOTES.md')
+  await promisify(execFile)('mkfifo', [path])
+  // Bound the process too: a blocked filesystem worker cannot be cancelled.
+  const module = new URL('../src/attachments/notes.js', import.meta.url).href
+  const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e',
+    `import { readAgentNotes } from ${JSON.stringify(module)}; console.log(JSON.stringify(await readAgentNotes(process.argv[1], true)))`, folder,
+  ], { timeout: 2_000, killSignal: 'SIGKILL' })
+  const view = JSON.parse(stdout)
+  assert.equal(view.text, null)
+  assert.equal(view.writable, false)
+  assert.match(view.problem ?? '', /not an ordinary file/)
+})
 
 /**
  * `NOTES.md` beside an Agent's file: read confined and bounded, cleared only

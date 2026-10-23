@@ -60,7 +60,7 @@ export async function readAgentNotes(folder: string, writable: boolean): Promise
   await confinedFolder(folder)
   let handle
   try {
-    handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+    handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0))
   } catch (error) {
     if (errnoOf(error) === 'ENOENT') return { path, text: null, digest: null, writable, problem: null }
     if (errnoOf(error) === 'ELOOP') return { path, text: null, digest: null, writable: false, problem: `${path} is a link; it is never read through one.` }
