@@ -928,3 +928,46 @@ test('a Flow token equal to the resolved key never reaches provider transport', 
   }
   assert.deepEqual(requests, [])
 })
+
+test('preview-result duplicate fields refuse before provider transport', async t => {
+  const requests: unknown[] = []
+  const s = await providerRig(t, async request => { requests.push(request); return { status: 429, body: '{}' } })
+  const token = '11111111-1111-4111-8111-111111111111'
+  const encodedKey = [...key].map(char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')).join('')
+  const cases = [
+    ['token', `{"token":${JSON.stringify(key)},"token":"${token}"}`],
+    ['escaped token name and value', `{"token":"${encodedKey}","to\\u006ben":"${token}"}`],
+    ['nested field', `{"token":"${token}","details":{"text":${JSON.stringify(key)},"text":"Ready"}}`],
+    ['nested array field', `{"token":"${token}","items":[{"details":{"text":${JSON.stringify(key)},"text":"Ready"}}]}`],
+    ['replaced object', `{"token":"${token}","details":{"text":${JSON.stringify(key)}},"details":{"text":"Ready"}}`],
+    ['JSON-encoded nested field', JSON.stringify({ token, details: `{"text":"${encodedKey}","text":"Ready"}` })],
+    ['ordinary duplicate', `{"token":"${token}","title":"First","title":"Last"}`],
+  ] as const
+  for (const [i, [name, content]] of cases.entries()) await t.test(name, async () => {
+    const body = providerBody({ messages: [
+      { role: 'user', content: [{ type: 'text', text: 'Preview approved work' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'preview', name: 'flow_preview', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'preview', content, is_error: false }] },
+    ] })
+    const id = `preview-duplicate-${i}`
+    await providerReserve(s.journal, id, body)
+    await assert.rejects(s.settings.providerSend(id, body, new AbortController().signal), /lead-provider-failed/)
+    assert.deepEqual(requests, [])
+  })
+})
+
+test('preview results may repeat field names in distinct objects and preserve their original content', async t => {
+  const requests: any[] = []
+  const s = await providerRig(t, async request => { requests.push(request); return { status: 429, body: '{}' } })
+  const content = JSON.stringify({ token: '11111111-1111-4111-8111-111111111111',
+    items: [{ title: 'First', text: 'A quoted key: "title": {}' }, { title: 'Second', text: 'Ready' }] })
+  const body = providerBody({ messages: [
+    { role: 'user', content: [{ type: 'text', text: 'Preview approved work' }] },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'preview', name: 'flow_preview', input: {} }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'preview', content, is_error: false }] },
+  ] })
+  await providerReserve(s.journal, 'preview-distinct-fields', body)
+  await s.settings.providerSend('preview-distinct-fields', body, new AbortController().signal)
+  assert.equal(requests.length, 1)
+  assert.equal(JSON.parse(requests[0].body).messages.at(-1).content[0].content, content)
+})
