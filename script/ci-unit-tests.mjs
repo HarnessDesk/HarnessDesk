@@ -3,7 +3,8 @@
 // for a change to the UI's own source: it runs the tests whose modules depend on
 // the files that changed. Anything that cannot be followed that way (a change
 // outside the UI's source, a deleted file, the test setup) runs every test, and so
-// does `main`.
+// does `main`, and so does a change that reaches more than a third of them: that
+// many run one after another outlast the four shards of the whole suite.
 //
 //   node script/ci-unit-tests.mjs <changed paths, NUL separated>
 //   → mode=all | related | none, files=<paths relative to packages/ui>, summary=…
@@ -12,7 +13,8 @@ import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { IMPORT, SOURCE, uiPackages, walk } from './ci-imports.mjs'
-import { queriedImporters, uiSource } from './ui-impact.mjs'
+import { testFiles } from './ci-unit-shards.mjs'
+import { queriedImporters, uiImporters, uiSource } from './ui-impact.mjs'
 
 const UI = 'packages/ui/'
 const TRACKED = /^packages\/ui\/(?:src|site-demo)\//
@@ -22,6 +24,10 @@ const IGNORED = [/^docs\//, /^[^/]+\.md$/, /^e2e\/ui-system\//]
 const SETUP = /(?:^|\/)(?:setup-tests\.[cm]?[jt]s|vitest[^/]*\.[cm]?[jt]s)$/
 const TEST = /\.test\.[cm]?[jt]sx?$/
 const MOST = 300
+// A related run may reach at most one test file in this many of the suite. One serial run takes about 2 s a file
+// on a runner (PR #1842 got through 448 files before the job's 15 minutes ran out), so a third of the suite is
+// about 8 minutes of tests, well inside the 15; past it the four shards of the full deal finish first.
+const RELATED_ONE_IN = 3
 
 // Include literal template dynamic imports as well as the ordinary import forms.
 const imports = text => [...text.matchAll(IMPORT)].map(([, specifier]) => specifier)
@@ -211,6 +217,23 @@ export function outsideReads(root) {
   return [...reads].sort()
 }
 
+// The files that import one of `start`, and the files that import those, to the end of the chain: the modules a
+// change reaches, which is what `vitest related` follows at run time (it is not installed yet when this runs).
+const dependents = (root, start) => {
+  const importers = uiImporters(root)
+  const seen = new Set(start)
+  const queue = [...seen]
+  while (queue.length > 0) {
+    for (const importer of importers.get(queue.pop()) ?? []) {
+      if (!seen.has(importer)) {
+        seen.add(importer)
+        queue.push(importer)
+      }
+    }
+  }
+  return seen
+}
+
 export function unitPlan(root, { event, paths }) {
   const all = reason => ({ mode: 'all', files: [], summary: `UI unit tests: all, ${reason}.` })
   if (event !== 'pull_request') return all('this is not a pull request')
@@ -246,6 +269,11 @@ export function unitPlan(root, { event, paths }) {
     for (const importer of queried.get(path) ?? []) reached.add(importer)
   }
   const run = [...new Set([...[...reached].map(path => path.slice(UI.length)), ...readers])].sort()
+  // What the one serial run will hold: the tests that depend on the change, and the readers.
+  const suite = existsSync(join(root, UI, 'src')) ? testFiles(root) : []
+  const depending = dependents(root, reached)
+  const selected = suite.filter(file => readers.includes(file) || depending.has(`${UI}${file}`))
+  if (selected.length > Math.floor(suite.length / RELATED_ONE_IN)) return all(`${selected.length} of ${suite.length} test files depend on the change`)
   return { mode: 'related', files: run, summary: `UI unit tests: those that depend on ${files.length} changed file${files.length === 1 ? '' : 's'}, and ${readers.length} that read the tree.` }
 }
 
