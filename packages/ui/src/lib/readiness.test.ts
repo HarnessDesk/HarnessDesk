@@ -12,6 +12,7 @@ const STATES = Object.keys({
   available: true,
   ready: true,
   unknown: true,
+  starting: true,
 } satisfies Record<Readiness, true>) as Readiness[]
 
 const account: AccountStatus = {
@@ -128,8 +129,9 @@ describe('readinessOf', () => {
     ).toBe('ready')
   })
 
-  it('treats a starting host as ready rather than broken', () => {
-    expect(readinessOf({ registered: true, health: { state: 'starting' }, account })).toBe('ready')
+  it('names a starting host before its account answer', () => {
+    expect(readinessOf({ registered: true, health: { state: 'starting' }, account })).toBe('starting')
+    expect(readinessOf({ registered: true, health: { state: 'starting' }, account: null })).toBe('starting')
   })
 })
 
@@ -171,7 +173,7 @@ describe('isBlocking', () => {
 
   it('answers for every state', () => {
     const answers = Object.fromEntries(STATES.map((state) => [state, isBlocking(state)]))
-    expect(answers).toEqual({ broken: true, signin: true, limit: true, available: false, ready: false, unknown: false })
+    expect(answers).toEqual({ broken: true, signin: true, limit: true, available: false, ready: false, unknown: false, starting: false })
   })
 
   // The nav dot asks `isBlocking(worstReadiness(...))` and the Runtimes page

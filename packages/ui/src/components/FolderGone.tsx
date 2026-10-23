@@ -1,5 +1,6 @@
 import { sessionKey, splitSessionKey } from '@harnessdesk/protocol'
 
+import { indexedSessionLabel } from '../lib/sessions'
 import { useSessionKey, useSnapshot, useStore } from '../state/context'
 import { Banner, BannerAction, MiddleTruncate } from '../design'
 
@@ -56,7 +57,9 @@ export const FolderGone = ({ folder, said }: { readonly folder: string; readonly
         <BannerAction variant="secondary" onClick={() => {
           if (!key) return
           const { runtime, id } = splitSessionKey(key)
-          void store.archiveSession(id, runtime)
+          const live = snapshot.sessions.get(key)
+          const indexed = snapshot.history.find(summary => summary.id === id && summary.runtime === runtime)
+          void store.archiveSession(id, runtime, indexedSessionLabel(indexed ?? live ?? {}, live))
         }}>Archive</BannerAction>
       </>}
     >
