@@ -185,7 +185,7 @@ export class TriggerBudgets {
     if (refused) return { ok: false, reason: spend.spentMicros === null && refused.startsWith('Spend is unknown') && spend.why ? `${refused} ${spend.why}` : refused }
     if (committedToday(snapshot, utcDay(now)) > this.#port.capMicros()) return { ok: false, reason: CAP_HOLD, transient: true }
     const pendingHold = this.#holdReason(budget, run)
-    if (pendingHold) return { ok: false, reason: pendingHold, transient: true }
+    if (pendingHold) return { ok: false, reason: 'This Goal waits while its interrupted work is cleaned up.', transient: true }
     return { ok: true }
   }
 

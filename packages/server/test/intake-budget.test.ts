@@ -56,6 +56,37 @@ for (const settled of [false, true]) test(`legacy budget stops never repeat Goal
   assert.deepEqual(restored.budgets.pendingStops(), [])
 })
 
+for (const gate of ['pause', 'cap'] as const) test(`lifting a ${gate} names pending interruption cleanup instead of the lifted gate`, async () => {
+  let paused = false
+  let cap = usdMicros(20)
+  let fail = true
+  const d = await desk(tempDir('hd-intake-hold-reason-'), { paused: () => paused, capMicros: () => cap })
+  const goal = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  await d.settle()
+  const run = () => d.flows.executionsFor(goal)[0]!
+  const watch = new BudgetWatch(d.budgets, () => run(), {
+    stopRun: async () => { assert.fail('a transient hold must never stop the run') },
+    interrupt: async () => {},
+    hold: async (_goal, reason) => {
+      await d.flows.holdTriggered(run().id, reason)
+      if (fail) throw new Error('interrupt failed')
+      return run().intake!.holdGeneration ?? 0
+    },
+  })
+  if (gate === 'pause') paused = true
+  else cap = 0
+  await assert.rejects(watch.tick(), /cleanup failed/i)
+  paused = false
+  cap = usdMicros(20)
+  const reason = 'This Goal waits while its interrupted work is cleaned up.'
+  assert.deepEqual(d.budgets.check(run()), { ok: false, transient: true, reason })
+  await assert.rejects(watch.tick(), /cleanup failed/i)
+  assert.equal(run().intake?.heldFor, reason, 'the saved run tells the person what still holds it')
+  fail = false
+  await watch.tick()
+  assert.deepEqual(d.budgets.check(run()), { ok: true }, 'completed cleanup allows dispatch again')
+})
+
 for (const fails of ['stop', 'interrupt'] as const) test(`budget cleanup retries after ${fails} fails, including after restart`, async () => {
   const home = tempDir('hd-intake-stop-retry-')
   const clock = new Clock(DAY)
