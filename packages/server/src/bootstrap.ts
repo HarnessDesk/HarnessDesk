@@ -638,6 +638,13 @@ export const createDefaultHost = (
 
   void host.credentials.warm()
   for (const agent of agentRegistry.configs()) {
+    if (host.hasRuntime(runtimeId(agent.id))) {
+      logger.child('agents').warn('an agent in agents.json was ignored', {
+        agent: agent.id,
+        reason: 'runtime id is already registered',
+      })
+      continue
+    }
     const local = localUsageFor(
       { ...agent, accountOf: agentRegistry.entry(agent.id)?.['accountOf'] },
       installs.knowledgeFor(agent),

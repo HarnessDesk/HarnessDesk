@@ -2270,6 +2270,10 @@ export class Host {
     }
   }
 
+  hasRuntime(id: RuntimeId): boolean {
+    return this.#runtimes.has(id)
+  }
+
   /**
    * Registers a runtime. Starting it is separate and allowed to fail: a machine
    * without Codex installed should still open the app and explain itself.
