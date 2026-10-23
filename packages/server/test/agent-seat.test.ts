@@ -3659,6 +3659,25 @@ test("through the host: this Mac's seats are set and cleared by one verb, and ev
   assert.deepEqual(await client.call('agent/seating/read', {}), cleared)
 })
 
+test('the wire refuses a stale save that expected no seating override', async (t) => {
+  const { harness, client } = await desk(t)
+  const other = await Client.connect(harness.server)
+  t.after(() => other.close())
+  assert.deepEqual((await client.call('agent/seating/read', {}) as MachineSeating).entries, [])
+  assert.deepEqual((await other.call('agent/seating/read', {}) as MachineSeating).entries, [])
+
+  const first = await client.call('agent/seating/set', {
+    id: 'reviewer', seats: [{ runtime: 'seatfake', model: 'small' }], expected: null,
+  }) as MachineSeating
+  const before = await readFile(first.path, 'utf8')
+  await assert.rejects(other.call('agent/seating/set', {
+    id: 'reviewer', seats: [{ runtime: 'seatfake', model: 'big' }], expected: null,
+  }), /changed in another window/)
+  assert.equal(await readFile(first.path, 'utf8'), before)
+  assert.deepEqual(await other.call('agent/seating/read', {}), first)
+  assert.equal(machineNotices(client), 1)
+})
+
 test('the wire refuses more seats than an Agent may name, and the file refuses an empty list', async (t) => {
   const { client } = await desk(t)
   const nine = Array.from({ length: 9 }, () => ({ runtime: 'seatfake' }))

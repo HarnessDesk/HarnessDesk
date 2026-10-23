@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, realpath, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { promisify } from 'node:util'
@@ -8,6 +8,8 @@ import type { FileChange, Turn } from '@harnessdesk/protocol'
 import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 import { readGit } from './git-read.js'
 import { withGitMutation } from './git-mutation.js'
+import { ConfinedTree } from './confined-tree.js'
+import { canonicalTarget, isWithinPath } from './path-confinement.js'
 
 /**
  * The few things the host does *to* a repository, as opposed to reading it
@@ -87,7 +89,8 @@ const canonical = async (path: string): Promise<string> => {
 
 /** Paths in a patch are relative to the repository root, wherever the session ran. */
 const locate = async (root: string, top: string, path: string): Promise<{ absolute: string; inRepo: string }> => {
-  const absolute = await canonical(isAbsolute(path) ? path : join(root, path))
+  const absolute = await canonicalTarget(isAbsolute(path) ? path : join(root, path))
+  if (!isWithinPath(top, absolute) || absolute === top) throw new Error('A reported file resolves outside the repository or names its root.')
   return { absolute, inRepo: relative(top, absolute).replace(/\\/g, '/') }
 }
 
@@ -165,7 +168,15 @@ export const applyTurn = async (
   const changes = turn.items.flatMap((item) => (item.type === 'fileChange' ? item.changes : []))
   if (changes.length === 0) throw new RevertError('This turn did not change any files.', [])
   const top = await canonical((await topLevel(root)) ?? root)
-  const paths = [...new Set(await Promise.all(changes.map(async (change) => (await locate(root, top, change.path)).inRepo)))]
+  // Resolve every reported target before applying even the first step, and
+  // retain those targets rather than following a link again during the pass.
+  const targets = new Map<FileChange, Awaited<ReturnType<typeof locate>>>()
+  try {
+    for (const change of changes) targets.set(change, await locate(root, top, change.path))
+  } catch (error) {
+    throw new RevertError(`${describeGit(error)} Nothing was changed.`, [])
+  }
+  const paths = [...new Set([...targets.values()].map((target) => target.inRepo))]
 
   if (turn.diff && turn.diff.trim().length > 0) {
     try {
@@ -197,7 +208,7 @@ export const applyTurn = async (
   if (direction === 'undo') {
     const blank = changes.filter((change) => change.kind.type === 'delete' && change.diff === '')
     if (blank.length > 0) {
-      const names = [...new Set(await Promise.all(blank.map(async (change) => (await locate(root, top, change.path)).inRepo)))]
+      const names = [...new Set(blank.map((change) => targets.get(change)!.inRepo))]
       const rest = changes.filter((change) => !blank.includes(change))
       const said = `the agent recorded no content for ${names.length === 1 ? 'it' : 'them'}`
       /* The refusal stands as the default. What it lacked was a second door:
@@ -235,8 +246,15 @@ export const applyTurn = async (
      for a turn that was never put back whole. */
   const steps: Array<{ readonly path: string; readonly undoStep: () => Promise<void> }> = []
   const done: string[] = []
+  const tree = await ConfinedTree.open(top)
+  const readRecorded = async (path: string, expected: string, mismatch: string): Promise<string | null> => {
+    try { return await tree.read(path, Buffer.byteLength(expected), { preserveBOM: true }) } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'HD_TREE_TOO_BIG') throw new Error(mismatch)
+      throw error
+    }
+  }
   for (const change of direction === 'undo' ? [...pending].reverse() : pending) {
-    const { absolute, inRepo: path } = await locate(root, top, change.path)
+    const { inRepo: path } = targets.get(change)!
     // An undo takes an added file away and writes a deleted one back; a redo
     // does the opposite. Either way the file must still be what the agent
     // left, or the pass refuses rather than overwriting somebody's work.
@@ -246,7 +264,9 @@ export const applyTurn = async (
         await applyPatch(top, patchFor(path, change), direction)
         steps.push({ path, undoStep: () => applyPatch(top, patchFor(path, change), direction === 'undo' ? 'redo' : 'undo') })
       } else if (removes) {
-        const current = await readFile(absolute, 'utf8').catch(() => null)
+        const blankDeletion = "it can't be deleted again: the agent recorded nothing of it, so what's there now can't be told from what it deleted"
+        const current = await readRecorded(path, change.diff,
+          change.kind.type === 'delete' && change.diff === '' ? blankDeletion : 'it has been edited since the agent wrote it')
         if (current === null) continue // already gone
         /* A deletion the agent recorded nothing of can't be checked: what's
            there now can't be told from what it deleted (review of #153). Not
@@ -254,36 +274,37 @@ export const applyTurn = async (
            (review of #238, round 1). Said of "it": the sentence around it
            names the file. */
         if (change.kind.type === 'delete' && change.diff === '') {
-          throw new Error(
-            "it can't be deleted again: the agent recorded nothing of it, so what's there now can't be told from what it deleted",
-          )
+          throw new Error(blankDeletion)
         }
         if (current !== change.diff) throw new Error('it has been edited since the agent wrote it')
-        await unlink(absolute)
+        await tree.removeFile(path, current)
         steps.push({
           path,
           // Written back only while the path is still empty: something put
           // there since is somebody's work, and the take-back refuses it.
-          undoStep: () => writeFile(absolute, current, { flag: 'wx' }),
+          undoStep: () => tree.createFile(path, current, 0o666 & ~process.umask()),
         })
       } else {
-        const current = await readFile(absolute, 'utf8').catch(() => null)
+        const current = await readRecorded(path, change.diff, 'it exists again; not overwriting it')
         if (current === change.diff) continue // already there
         if (current !== null) throw new Error('it exists again; not overwriting it')
-        await writeFile(absolute, change.diff)
+        await tree.createFile(path, change.diff, 0o666 & ~process.umask())
         steps.push({
           path,
           // Taken away only while it is still exactly what this pass wrote.
           undoStep: async () => {
-            const now = await readFile(absolute, 'utf8').catch(() => null)
+            const now = await readRecorded(path, change.diff, 'it has changed since this pass wrote it')
             if (now !== change.diff) throw new Error('it has changed since this pass wrote it')
-            await unlink(absolute)
+            await tree.removeFile(path, change.diff)
           },
         })
       }
       if (!done.includes(path)) done.push(path)
     } catch (error) {
-      const why = `Stopped at ${path}: ${describeGit(error)}.`
+      const detail = (error as NodeJS.ErrnoException).code === 'HD_TREE_PLATFORM'
+        ? 'Workspace file changes for per-file undo and redo are supported on macOS and Linux'
+        : describeGit(error)
+      const why = `Stopped at ${path}: ${detail}.`
       // Taken back newest first, the way they were stacked.
       while (steps.length > 0) {
         const step = steps[steps.length - 1]!
@@ -508,7 +529,8 @@ export const turnCommit = async (root: string, turn: Turn): Promise<string | nul
   const top = await topLevel(root)
   if (!top) return null
   const located = await Promise.all(changes.map(async (change) => ({ change, path: (await locate(root, top, change.path)).inRepo })))
-  if (located.some(({ path }) => path === '..' || path.startsWith('../'))) return null
+    .catch(() => null)
+  if (!located) return null
   const dir = await mkdtemp(join(tmpdir(), 'hd-turn-commit-'))
   const env = { ...process.env, GIT_INDEX_FILE: join(dir, 'index') }
   const read = async (args: string[]): Promise<string> => (await run('git', ['-C', top, ...HARDENED_GIT_CONFIG, ...args], {

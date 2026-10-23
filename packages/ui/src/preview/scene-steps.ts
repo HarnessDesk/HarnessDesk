@@ -47,12 +47,12 @@ const settle = () => new Promise<void>((resolve) => requestAnimationFrame(() => 
  * A click, then — if nothing opened — the whole press a pointer makes. Every
  * trigger here answers a plain click; the press is for one that waits for it.
  */
-const press = async (el: HTMLElement) => {
+const press = async (el: HTMLElement, signal?: AbortSignal) => {
   const popups = () => document.querySelectorAll('[data-popup-kind]').length
   const before = popups()
   el.click()
   await settle()
-  if (popups() > before || el.getAttribute('aria-expanded') === 'true' || !el.matches('[aria-haspopup], [data-slot$="trigger"]')) return
+  if (signal?.aborted || popups() > before || el.getAttribute('aria-expanded') === 'true' || !el.matches('[aria-haspopup], [data-slot$="trigger"]')) return
   for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup']) {
     el.dispatchEvent(new (type.startsWith('pointer') ? PointerEvent : MouseEvent)(type, { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse', isPrimary: true, pointerId: 1 } as PointerEventInit))
   }
@@ -86,38 +86,47 @@ const quiet = async () => {
  * which the guides standard turns into a red test rather than a measurement of
  * the wrong state.
  */
-export const runSceneSteps = async (steps: readonly SceneStep[]) => {
+export const runSceneSteps = async (steps: readonly SceneStep[], signal?: AbortSignal) => {
+  if (signal?.aborted) return
   const root = document.documentElement
   root.dataset.sceneSteps = 'running'
   const missed: string[] = []
   await quiet()
+  if (signal?.aborted) return
   for (const step of steps) {
     await settle()
+    if (signal?.aborted) return
     if ('focus' in step) {
       const el = await find(step.focus)
+      if (signal?.aborted) return
       if (!el) { missed.push(step.focus); continue }
       el.focus()
       el.dispatchEvent(new KeyboardEvent('keydown', { key: step.key, code: step.key, bubbles: true, cancelable: true, shiftKey: step.key === 'F10' }))
     } else if ('scroll' in step) {
       const el = await find(step.scroll)
+      if (signal?.aborted) return
       if (!el) { missed.push(step.scroll); continue }
       el.scrollIntoView({ block: 'center' })
     } else if ('hover' in step) {
       const el = await find(step.hover)
+      if (signal?.aborted) return
       if (!el) { missed.push(step.hover); continue }
       for (const type of ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove']) el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'mouse' }))
     } else if ('text' in step) {
       const el = await find(step.within, step.text)
-      if (el) await press(el)
+      if (signal?.aborted) return
+      if (el) await press(el, signal)
       else missed.push(`${step.within} "${step.text}"`)
     } else {
       if ('unless' in step && document.querySelector(step.unless)) continue
       const el = await find(step.click)
-      if (el) await press(el)
+      if (signal?.aborted) return
+      if (el) await press(el, signal)
       else missed.push(step.click)
     }
   }
   await settle()
+  if (signal?.aborted) return
   if (missed.length) {
     root.dataset.sceneStepsMissed = missed.join(' · ')
     console.warn(`[scene] steps found nothing to act on: ${missed.join(' · ')}`)

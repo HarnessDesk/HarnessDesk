@@ -64,6 +64,12 @@ export const optional =
   (value, path = '') =>
     value === undefined || value === null ? undefined : inner(value, path)
 
+/** A nullable field keeps an explicit null; only an omitted value is undefined. */
+export const optionalNullable =
+  <T>(inner: Validator<T>): Validator<T | null | undefined> =>
+  (value, path = '') =>
+    value === undefined || value === null ? value : inner(value, path)
+
 export const literalUnion =
   <const T extends readonly string[]>(...allowed: T): Validator<T[number]> =>
   (value, path = '') => {

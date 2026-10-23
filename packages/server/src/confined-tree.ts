@@ -191,7 +191,7 @@ export class ConfinedTree {
     }
   }
 
-  async #readText(parts: readonly string[], limit: number): Promise<{ readonly text: string; readonly mode: number } | null> {
+  async #readText(parts: readonly string[], limit: number, preserveBOM = false): Promise<{ readonly text: string; readonly mode: number } | null> {
     const rel = parts.join('/')
     let handle
     try {
@@ -207,7 +207,7 @@ export class ConfinedTree {
       const bytes = await readBounded(handle, limit)
       if (bytes.length > limit) throw coded(`"${rel}" is larger than ${Math.floor(limit / 1024)} KiB, so it was not read.`, 'HD_TREE_TOO_BIG')
       let text: string
-      try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch {
+      try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: preserveBOM }).decode(bytes) } catch {
         throw coded(`"${rel}" is not UTF-8 text, so it was not read.`, 'HD_TREE_NOT_TEXT')
       }
       return { text, mode: Number(info.mode) & 0o777 }
@@ -274,11 +274,11 @@ export class ConfinedTree {
     return join(this.root, ...parts)
   }
 
-  /** A regular, singly linked UTF-8 file of at most `limit` bytes; null when it is not there. */
-  async read(rel: string, limit: number): Promise<string | null> {
+  /** A regular, singly linked UTF-8 file of at most `limit` bytes; null when absent. Preserve the BOM for recorded-content comparisons. */
+  async read(rel: string, limit: number, options: { readonly preserveBOM?: boolean } = {}): Promise<string | null> {
     const parts = partsOf(rel)
     await this.#checkRoot()
-    return (await this.#readText(parts, limit))?.text ?? null
+    return (await this.#readText(parts, limit, options.preserveBOM))?.text ?? null
   }
 
   /** Makes each missing folder of `rel`, looking at its parent through the no-follow open first. */
@@ -396,6 +396,20 @@ export class ConfinedTree {
     await this.#checkRoot()
     await this.#directory(parent)
     await this.#writeNew(parts, text, mode)
+    await this.#syncDirectory(parent)
+  }
+
+  /** Removes one regular file only while it still holds the recorded text. */
+  async removeFile(rel: string, before: string): Promise<void> {
+    this.#mayWrite()
+    const parts = partsOf(rel)
+    const parent = parts.slice(0, -1)
+    await this.#checkRoot()
+    await this.#directory(parent)
+    const current = await this.#readText(parts, Buffer.byteLength(before), true)
+    if (current?.text !== before) throw coded(`"${rel}" changed before it could be removed.`, 'HD_TREE_CHANGED')
+    await this.#directory(parent)
+    await unlink(join(this.root, ...parts))
     await this.#syncDirectory(parent)
   }
 

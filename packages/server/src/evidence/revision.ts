@@ -204,22 +204,22 @@ const asking = new Map<string, Promise<string>>()
 /**
  * The project a folder belongs to: its repository's main checkout, or the
  * folder itself when it is in no repository. The key a store is kept under.
+ * A Team may supply its root as a fallback when its checkout has gone.
  *
  * Each read of a Team's review asks this several times, and a page reads
  * every open Team's at once, mostly about the same few project folders: a
  * question already being asked shares its answer rather than starting git
- * again. A folder that is gone answers as written without asking git, which
- * is where git's refusal led anyway — a wrapped Team's checkout is usually in
- * the Trash.
+ * again. A folder that is gone uses the fallback, or answers as written
+ * without asking git — a wrapped Team's checkout is usually in the Trash.
  */
-export const projectOf = (folder: string): Promise<string> => {
+export const projectOf = (folder: string, fallback?: string): Promise<string> => {
   // Lexical normalisation erases symlink traversal before `..`.
-  const key = folder
+  const key = JSON.stringify([folder, fallback])
   const known = asking.get(key)
   if (known) return known
   const answer = (async () => {
     const real = await realpath(folder).catch(() => null)
-    if (real === null) return resolve(folder)
+    if (real === null) return fallback !== undefined && fallback !== folder ? projectOf(fallback) : resolve(folder)
     return (await repositoryRoot(folder)) ?? real
   })().finally(() => asking.delete(key))
   asking.set(key, answer)

@@ -481,7 +481,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     ? <Button variant="secondary" disabled={openingProject} onClick={() => void openProject()}>{openingProject ? 'Opening…' : `Open ${project}`}</Button>
     : undefined
   const failure = (text: string) => recovery(text)
-    ? <Banner tone="danger" role="alert" actions={recovery(text)}>{text}</Banner>
+    ? <Banner measure="container" tone="danger" role="alert" actions={recovery(text)}>{text}</Banner>
     : <ActionError>{text}</ActionError>
   const flowCard = (entry: FlowEntry) => <FlowCard key={`${entry.origin}-${entry.id}`} name={entry.name}
       aria-label={entry.name} title={entry.description ?? entry.name}
@@ -537,7 +537,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
           showGraph={plainTeam || !flow}
           loading={!plainTeam && initializingChoice && !compiled && !problem}
           disabled={locked || policyPending || readingAccounts} onChange={changeFlow} /></div>}
-        {!pickerOpen && unlisted !== null && <Banner tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
+        {!pickerOpen && unlisted !== null && <Banner measure="container" tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
         {pickerOpen && <section className={styles.picker} aria-label="Flow" ref={pickerRef} onFocusCapture={event => {
           const index = pickerCards().indexOf(event.target as HTMLButtonElement)
           if (index >= 0) setActiveCard(index)
@@ -558,7 +558,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
             <Button variant="outline" size="sm" disabled={locked || policyPending || readingAccounts} onClick={() => { store.openDestination({ kind: 'flows', root, id: null, origin: null, start: { context, ...(goal ? { goal } : {}), task, done: sentence } }); onClose() }}>Build your own</Button>
           </>} />
           <Search label="Search Flows" placeholder="Search Flows…" value={query} onChange={value => { setQuery(value); setActiveCard(0) }} />
-          {unlisted !== null && <Banner tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
+          {unlisted !== null && <Banner measure="container" tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
           {entries === null && !unlisted && <div aria-label="Loading Flows" aria-busy="true"><Rows><Row title="Reading Flows…" /><Row title="Reading project choices…" /></Rows></div>}
           {completeCatalog ? <>{group('This project', sections.project)}{group('Most used', sections.most)}{group('More Flows', sections.more)}</> : <FlowCardGrid>{cards.map(flowCard)}{showPlain && plainCard}</FlowCardGrid>}
           {draftCard && <FlowCardGrid><FlowCard name={draftCard.name} aria-label={draftCard.name} origin="Draft" policy={compiled?.format === 'agents' ? compiled.flow : undefined} summary={compiled?.format === 'agents' ? compiled.flow.summary ?? compiled.flow.description ?? '' : ''} selected disabled={locked || policyPending || readingAccounts} onClick={() => {}} /></FlowCardGrid>}
@@ -571,7 +571,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
             {(chosen.id === 'comparison' ? ['Attempt A', 'Attempt B'] : ['Agents', 'Options']).map(label => <Row key={label} title={label} control={<Input aria-label={`${label} loading`} disabled placeholder="…" />} />)}
           </Rows></section>}
           {problem && failure(problem)}
-          {compiled?.format === 'legacy' && <Banner tone="warning">Update this Flow from its Flows page before it can start a Team here.</Banner>}
+          {compiled?.format === 'legacy' && <Banner measure="container" tone="warning">Update this Flow from its Flows page before it can start a Team here.</Banner>}
           {compiled?.format === 'agents' && flow && <FlowStart root={root} onChange={() => {}} team={{ flow: compiled.flow, template: templates.current ?? compiled.flow, preview: flow, roster, vars, primary: primary?.id, disabled: starting || policyPending, editingDisabled: starting, onVar: setVar, onReadingChange: setBriefReading, onPolicy: policy => void editPolicy(policy),
             details: <>
               {preview && context.kind !== 'project' && <Row title={preview.target.head ? <span title={preview.target.head}>{`${preview.target.label} at ${shortSha(preview.target.head)}`}</span> : preview.target.label} desc={[preview.target.dirty ? 'Not committed — a working-tree snapshot, never a committed head.' : null, preview.target.independence === 'unknown' ? 'Independence from the author is unknown.' : null].filter(Boolean).join(' ') || undefined} />}
@@ -579,7 +579,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
               {initialSource === undefined && <Button variant="quiet" disabled={starting} onClick={() => setEveryTime(true)}>Every time…</Button>}
             </>,
           }} />}
-          {errors.length > 0 && <Banner tone="danger" title="This will not run yet" actions={recovery(errors.map(one => one.text).join(' '))}><ul>{errors.map(one => <li key={`${one.at}-${one.text}`}>{one.text}</li>)}</ul></Banner>}
+          {errors.length > 0 && <Banner measure="container" tone="danger" title="This will not run yet" actions={recovery(errors.map(one => one.text).join(' '))}><ul>{errors.map(one => <li key={`${one.at}-${one.text}`}>{one.text}</li>)}</ul></Banner>}
         </>}
         {plainTeam && <>
           <Fieldset legend="Who does what"><Rows>{plainAgents.map(agent => <Row key={agent.id} title={agentName(agent)} control={<Checkbox checked={selectedAgents.has(agent.id)} disabled={seated.has(agent.id) || starting} aria-label={`Seat ${agentName(agent)}`} onCheckedChange={checked => {

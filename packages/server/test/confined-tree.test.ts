@@ -26,6 +26,36 @@ const planted = async () => {
   return { scratch, project, outside }
 }
 
+test('removal keeps changed contents and refuses linked files and parents', async () => {
+  const { project, outside } = await planted()
+  const tree = await ConfinedTree.open(project)
+  await symlink(outside, join(project, 'linked'))
+  await symlink(join(outside, 'secret.yml'), join(project, 'linked.yml'))
+  for (const path of ['linked/secret.yml', 'linked.yml']) {
+    await assert.rejects(tree.removeFile(path, 'outside bytes'), /link/i)
+    assert.equal(await readFile(join(outside, 'secret.yml'), 'utf8'), 'outside bytes')
+  }
+  await assert.rejects(tree.removeFile('real/deeper/file.yml', 'other bytes'))
+  assert.equal(await tree.read('real/deeper/file.yml', 1024), 'inside bytes')
+  await tree.removeFile('real/deeper/file.yml', 'inside bytes')
+  assert.equal(await tree.read('real/deeper/file.yml', 1024), null)
+})
+
+test('recorded-content reads and removal preserve a UTF-8 BOM', async () => {
+  const { project } = await planted()
+  const tree = await ConfinedTree.open(project)
+  const content = '\uFEFFtext\n'
+  const limit = Buffer.byteLength(content)
+  await tree.createFile('bom.txt', content)
+
+  assert.equal(await tree.read('bom.txt', limit), 'text\n')
+  assert.equal(await tree.read('bom.txt', limit, { preserveBOM: true }), content)
+  await assert.rejects(tree.removeFile('bom.txt', 'text\n'))
+  assert.deepEqual(await readFile(join(project, 'bom.txt')), Buffer.from(content))
+  await tree.removeFile('bom.txt', content)
+  assert.equal(await tree.read('bom.txt', limit), null)
+})
+
 for (const platform of ['darwin', 'linux'] as const) {
   test(`${platform}: a planted link in any ancestor or as the file itself is refused on read`, async () => {
     const { project, outside } = await planted()

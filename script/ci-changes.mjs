@@ -212,6 +212,7 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, refNam
     // An unresolvable suite/read input cannot be sampled. Other inputs with an
     // available map can still use its per-file reach to rank a conservative cap.
     resolvable = reached !== null
+    if (reached === null) basis = 'unresolved suite input; running every browser spec'
     if (touched.specs === null) basis = oneLine(touched.reason ?? 'no impact map available')
     if (reached && touched.specs && otherResolved) {
       selected = [...new Set([...reached, ...readSpecs, ...touched.specs.map(spec => `e2e/ui-system/${spec}`), ...(serverInputs ? serverSpecs(root, uiPackages(root)) : [])])].sort()
@@ -230,8 +231,8 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, refNam
   const matrix = tier === 'bounded' ? 'pr' : 'full'
   // Global inputs keep the cap without needing a map. Unknown ranges, missing
   // maps needed for UI reach, and unresolved suite reads still run uncapped.
-  const unnarrowedDevelopment = event === 'push' && refName === 'development' && selected === null && !((impact || globals.length > 0) && resolvable)
-  if (unnarrowedDevelopment && !basis) basis = 'no usable impact selection; running every browser spec'
+  const unnarrowedDevelopment = event === 'push' && refName === 'development' && selected === null && !((impact || (globals.length > 0 && !inputs.some(path => uiSource(path)))) && resolvable)
+  if (unnarrowedDevelopment && !basis.includes('running every browser spec')) basis = `${basis || 'no usable impact selection'}; running every browser spec`
   const bounded = tier === 'bounded' && browser === 'all' && !unknownChange && !unnarrowedDevelopment && !executionConfig ? boundedSpecs(root, selected ?? all, inputs, impact, graph ?? repositoryGraph(root), globals.length > 0 ? sha || before : null) : null
   if (bounded && (selected !== null || bounded.deferred.length > 0)) selected = bounded.selected
   const count = browser === 'all'

@@ -12,7 +12,7 @@ import { TeamBoardPane } from '../components/TeamBoardPane'
 import { TeamRoomPane } from '../components/TeamRoomPane'
 import { TerminalSurface, terminalName } from '../components/TerminalPane'
 import {
-  SubagentIcon,
+  AgentIcon,
   BackgroundIcon,
   DiffIcon,
   FileIcon,
@@ -372,7 +372,7 @@ registerView({
   menu: true,
   label: 'Agents',
   hint: 'Every sub-agent this session started, and what it was asked.',
-  icon: SubagentIcon,
+  icon: AgentIcon,
   mounts: ['right', 'bottom', 'sidebar'],
   defaultMount: 'right',
   component: AgentsView,

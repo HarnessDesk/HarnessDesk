@@ -834,7 +834,7 @@ Agent’s role name and Seat; its runtime name comes from `RuntimeInfo.presentat
 Library’s **Declared by** filter selects Agent roles, while **Loaded by**,
 **Install for**, and **Which runtimes load it** describe runtimes.
 
-While a draft’s runtime starts, its composer row shows **Not answered yet**;
+While a draft’s runtime starts, its composer row shows **Starting**;
 an unavailable runtime shows an **Unavailable** chip that opens its page in
 Settings › Runtimes. Send stays disabled and its hover title explains why,
 including **Choose a working installation in Settings** after a failed version

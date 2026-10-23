@@ -304,6 +304,42 @@ test('through the host: cross-runtime eviction keeps the evicted root unresolved
   assert.deepEqual(ran, [], 'the lost root cannot reach either protected tool')
 })
 
+test('through the host: a replaced runtime must freshly report a delegated child before it can publish or merge', async (t) => {
+  const { host, runtime, ran, call, agent, work } = await desk(t)
+  await agent('releaser', 'ceiling: merge')
+  const root = (await host.call('agent/seat', { id: 'releaser', cwd: work, permission: 'merge' })) as Session
+  const turn = host.registry.get(FAKE_RUNTIME_ID, root.id)?.session.turns.at(-1)
+  assert.ok(turn, 'the merge-capable root started its standing order')
+  const child = sessionId('replacement-child')
+  runtime.emit({
+    type: 'item/completed', sessionId: root.id, turnId: turnId(String(turn.id)),
+    item: { id: itemId('spawn-before-replacement'), type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: String(child) }] },
+  })
+  const scope = { runtime: FAKE_RUNTIME_ID, sessionId: child }
+  for (const tool of ['pr_create', 'pr_merge']) assert.equal((await call(tool, scope)).ok, true)
+  ran.length = 0
+
+  await host.unregister(FAKE_RUNTIME_ID)
+  const replacement = new FakeRuntime()
+  host.register(replacement)
+
+  const results: boolean[] = []
+  for (const tool of ['pr_create', 'pr_merge']) results.push((await call(tool, scope)).ok)
+  assert.deepEqual(results, [false, false], 'neither tool may reuse a delegation from the removed runtime')
+  assert.deepEqual(ran, [], 'the child waits for a fresh report before either tool runs')
+
+  await host.call('session/resume', { runtime: FAKE_RUNTIME_ID, sessionId: root.id })
+  await host.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: root.id, input: [{ type: 'text', text: 'Continue the work.' }] })
+  const freshTurn = host.registry.get(FAKE_RUNTIME_ID, root.id)?.session.turns.at(-1)
+  assert.ok(freshTurn, 'the replacement runtime started a turn on the retained root')
+  replacement.emit({
+    type: 'item/completed', sessionId: root.id, turnId: turnId(String(freshTurn.id)),
+    item: { id: itemId('spawn-after-replacement'), type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: String(child) }] },
+  })
+  for (const tool of ['pr_create', 'pr_merge']) assert.equal((await call(tool, scope)).ok, true)
+  assert.deepEqual(ran, ['pr_create', 'pr_merge'], 'a fresh delegation report restores the child scope')
+})
+
 test('through the host: a restarted runtime must freshly report a delegated child before it can publish or merge', async (t) => {
   const { host, runtime, ran, call, agent, work } = await desk(t)
   await agent('releaser', 'ceiling: merge')

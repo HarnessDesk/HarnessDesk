@@ -192,7 +192,7 @@ it('edits the exact role policy from its local configuration and preserves autom
   expect(current.roles.find(role => role.id === 'fixer')).toMatchObject({ uses: ['tester'], seats: [{ runtime: 'gamma', model: 'large', effort: 'high' }] })
   await pick('Runtime', 'Delta')
   expect(current.roles.find(role => role.id === 'fixer')).toMatchObject({ uses: ['tester'], seats: [{ runtime: 'delta' }] })
-}, 10_000)
+})
 
 it('shows pinned model and effort from the automatic winner without making the role explicit', async () => {
   const policy = TEAM_START_POLICIES['fix-and-review']
@@ -328,7 +328,7 @@ it.each([false, true])('keeps the attempt check editable when empty, including a
   expect(current.rules.filter(rule => rule.on === 'competitor').map(rule => rule.then.role)).toEqual(['verify'])
   expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
   await act(async () => {})
-}, 10_000)
+})
 
 it('offers the same optional attempt check for a contest without a judge', async () => {
   const template = CONTEST_START_POLICY
@@ -381,7 +381,7 @@ it('keeps a saved custom check’s success and incoming guards through clearing,
   expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toEqual(success)
   expect(current.rules.find(rule => rule.id === 'retry')).toEqual(template.rules.find(rule => rule.id === 'retry'))
   await act(async () => {})
-}, 10_000)
+})
 
 it('the review options preserve the review cap and require recorded approval before automatic merging', async () => {
   const flow: import('@harnessdesk/protocol').FlowPolicy = TEAM_START_POLICIES['fix-and-review']

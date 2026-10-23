@@ -5,8 +5,34 @@ import { runtimeId, type PlanEntry, type UsageReport } from '@harnessdesk/protoc
 
 import { usageMethods } from '../src/methods/usage.js'
 import type { HostContext } from '../src/methods/context.js'
+import { Client, start, stop } from './fixtures/harness.js'
 
 const CLAUDE = runtimeId('claude-code')
+
+test('the wire clears a stored fee and budget independently while omitted fields are kept', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const base = { runtime: CLAUDE, account: 'dev@example.com' }
+  const stored = await client.call('usage/plan/set', {
+    ...base,
+    fee: { amount: 20, currency: 'USD', period: 'month' },
+    budget: { amount: 50, currency: 'USD' },
+  }) as PlanEntry
+  assert.equal(stored.fee?.amount, 20)
+  assert.equal(stored.budget?.amount, 50)
+  assert.deepEqual(await client.call('usage/plan/set', base), stored)
+
+  const feeCleared = await client.call('usage/plan/set', { ...base, fee: null }) as PlanEntry
+  assert.equal(feeCleared.fee, undefined)
+  assert.deepEqual(feeCleared.budget, stored.budget)
+  const read = await client.call('usage/plan/read', base) as { entry: PlanEntry | null }
+  assert.deepEqual(read.entry, feeCleared)
+
+  assert.deepEqual(await client.call('usage/plan/set', { ...base, budget: null }), {})
+  assert.equal((await client.call('usage/plan/read', base) as { entry: PlanEntry | null }).entry, null)
+})
 
 const report: UsageReport = {
   runtime: CLAUDE,

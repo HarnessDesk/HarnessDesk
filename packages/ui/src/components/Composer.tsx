@@ -1083,11 +1083,11 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
   // on the toolbar, with the full reason and remediation on Send.
   const draftReadiness = !session && !awaitingConversation
     ? snapshot.health?.state === 'unavailable' ? 'broken'
-      : snapshot.health?.state === 'starting' ? 'unknown' : null
+      : snapshot.health?.state === 'starting' ? 'starting' : null
     : null
   const readinessTitle = draftReadiness === 'broken' && snapshot.health?.state === 'unavailable'
     ? [snapshot.health.message, snapshot.health.remediation].filter(Boolean).join(' ')
-    : draftReadiness === 'unknown' ? 'Waiting for the runtime to start' : undefined
+    : draftReadiness === 'starting' ? 'Waiting for the runtime to start' : undefined
   const sendTitle = readinessTitle ?? (awaitingConversation
     ? 'Waiting for the conversation to open'
     : !canSend
@@ -1316,7 +1316,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
           <ComposerTrack name="extension" contentSized={Boolean(draftReadiness)}>
             <Slot name="composer.action" />
             {draftReadiness && (draftReadiness === 'broken' ? (
-              <Button type="button" variant="ghost" size="content" title={readinessTitle}
+              <Button type="button" variant="ghost" size="content" title={readinessTitle} aria-label="Open runtime Settings"
                 onClick={() => store.askSettings('runtimes', String(runtime.id))}>
                 <Chip state={draftReadiness}>{READINESS_LABEL[draftReadiness]}</Chip>
               </Button>

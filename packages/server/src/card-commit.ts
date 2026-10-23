@@ -271,7 +271,8 @@ export const commitCardWork = async (cwd: string, before: readonly string[], mes
   }
   const own = entries.filter((entry, index) => merging
     ? entry.status[0] !== ' ' && entry.status[0] !== '?'
-    : !seen.has(shown[index]!))
+    : !seen.has(shown[index]!) && !dirtyAtClaim(entry.path, seen)
+      && (entry.from === null || !dirtyAtClaim(entry.from, seen)))
   if (!merging && own.length === 0) return { refused: 'Nothing to commit: no file changed since this card was claimed is uncommitted.' }
   const paths = [...new Set(own.flatMap((entry) => (entry.from ? [entry.path, entry.from] : [entry.path])))]
   const filtered = await filteredAmong(top, paths).catch(() => null)

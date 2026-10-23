@@ -86,6 +86,8 @@ export type StoredFlowExecution = FlowExecution & {
   operationTimes: Readonly<Record<string, { preparedAt: number; startedAt: number | null; finishedAt: number | null }>>
   /** Each check round's plan, by round number, written when the round's cards were: see `CheckPlan`. */
   checkPlans?: Readonly<Record<string, CheckPlan>>
+  /** Mapped check results whose card completion is still pending, saved with the finished operation. */
+  checkCompletions?: Readonly<Record<string, { readonly outcome: string; readonly tail: string }>>
   /** Each agent round's seating against the work it is handed, by round number, written before any of its Seats opens: see `SeatPlan`. */
   seatPlans?: Readonly<Record<string, SeatPlan>>
   /** Each finding command a Seat of this run made, by operation key, journaled before its record is appended. */
@@ -2078,7 +2080,14 @@ export class FlowExecutions {
     if (!found) return null
     const { run, round } = found
     const { seat } = this.#seatForCard(run, card)
-    if (!seat || seat.closed || seat.session.runtime !== caller.runtime || seat.session.sessionId !== caller.sessionId) return null
+    const held = (): boolean => {
+      const currentSeat = this.#seatForCard(this.#get(run.id), card).seat
+      const intent = this.#team.stateFor(goal).intents.find((one) => one.id === card)
+      return !!currentSeat && !currentSeat.closed && !currentSeat.restored && currentSeat.id === seat?.id &&
+        currentSeat.session.runtime === caller.runtime && currentSeat.session.sessionId === caller.sessionId &&
+        intent?.state === 'claimed' && intent.claim?.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId
+    }
+    if (!seat || !held()) return null
     const role = run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round.role) : undefined
     const answers = role?.kind === 'agent'
       ? roleAnswers(policyOf(run), role.id, bindingsFor(run, role.id)[found.slot]?.agent.answers ?? [])
@@ -2095,6 +2104,7 @@ export class FlowExecutions {
       this.#team.reviewAvailability(goal, card, closure.refusal ?? null)
       await this.#team.flush()
     }
+    if (!held()) return null
     return { seat: String(seat.id), answers, round: round.n, subjects: closure.subjects, unsettled: closure.unsettled,
       ...(closure.refusal ? { refusal: closure.refusal } : {}) }
   }
@@ -2977,7 +2987,7 @@ export class FlowExecutions {
     if (!run.intake || run.state !== 'running') return
     if (run.intake.dispatchHeld && run.intake.heldFor === why) return
     const first = (run.intake.heldFor ?? null) === null
-    await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true, heldFor: why } })
+    await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true, heldFor: why, holdGeneration: (run.intake.holdGeneration ?? 0) + 1 } })
     /* Whoever set the hold first — a turn ending, a Seat about to open, the
        budget watch — every other Seat of the run still inside a turn is
        interrupted with it, so nothing keeps working through a pause because
@@ -3704,7 +3714,7 @@ export class FlowExecutions {
     }
     let run = this.#get(id)
     const prior = run.operations.find((one) => one.key === key)
-    if (prior?.state === 'finished') return true
+    if (prior?.state === 'finished') return this.#completeCheckCard(id, key, card)
     if (prior?.state === 'started' || prior?.state === 'uncertain') {
       if (prior.state === 'started' && this.#liveCheckOperations.has(live)) return false
       await stall(`This check was interrupted. Inspect its effects, then choose Run again.`)
@@ -3766,10 +3776,12 @@ export class FlowExecutions {
           await stall(outcome.problem)
           return false
         }
-        await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'finished', card, seat: null }))
         const said = check.exits[String(outcome.result.exit)] ?? check.otherwise
-        await this.#team.intentAction(run.goal, card, 'done', outcome.result.tail.slice(0, 400) || undefined, said, undefined, undefined, run.intake ? { kind: 'trigger', trigger: run.intake.trigger } : { kind: 'flow', name: run.document.flow.name })
-        return true
+        const current = this.#get(id)
+        await this.#put(this.#operation({ ...current, checkCompletions: {
+          ...current.checkCompletions, [key]: { outcome: said, tail: outcome.result.tail.slice(0, 400) },
+        } }, key, { kind: 'check', state: 'finished', card, seat: null }))
+        return this.#completeCheckCard(id, key, card)
       }
       if (!background) return complete()
       return this.#queue.within(id, async () => {
@@ -3791,6 +3803,23 @@ export class FlowExecutions {
       this.#port.log('a retried check could not finish', { run: id, card, error: String(error) })
     })
     await started
+    return true
+  }
+
+  /** A durable check result completes its card idempotently; replay never launches a command. */
+  async #completeCheckCard(id: string, key: string, card: number): Promise<boolean> {
+    const run = this.#get(id)
+    const result = run.checkCompletions?.[key]
+    if (!result) return true
+    await this.#team.intentAction(run.goal, card, 'done', result.tail || undefined, result.outcome, undefined, undefined,
+      run.intake ? { kind: 'trigger', trigger: run.intake.trigger } : { kind: 'flow', name: run.document.flow.name })
+    // The board can roll back an unsuccessful save without throwing. Keep the result pending until it is durable.
+    const completed = this.#team.stateFor(run.goal).intents.find((one) => one.id === card)
+    if (completed?.state !== 'done' || completed.outcome !== result.outcome) throw new Error(`Check card #${card} could not be saved. Its result is kept for recovery.`)
+    const current = this.#get(id)
+    const pending = { ...current.checkCompletions }
+    delete pending[key]
+    await this.#put({ ...current, checkCompletions: pending })
     return true
   }
 
@@ -3850,7 +3879,10 @@ export class FlowExecutions {
       const operationTimes = { ...run.operationTimes }
       delete operationTimes[key]
       if (last) delete operationTimes[`close:${round.n}`]
+      const checkCompletions = { ...run.checkCompletions }
+      delete checkCompletions[key]
       run = await this.#put({ ...run, ...(last ? { state: 'running' as const, reason: null } : {}), operations, operationTimes,
+        checkCompletions,
         rounds: last ? run.rounds.map((one) => one.n === round.n ? { ...one, state: 'running' as const } : one) : run.rounds,
         checkPlans: { ...run.checkPlans, [String(round.n)]: { ...plan, targets: plan.targets.map((one, index) => index === slot ? target : one) } },
       })
@@ -3917,15 +3949,18 @@ export class FlowExecutions {
       const previous = run.rounds.find((one) => one.n === last.n - 1)
       if (last.cause.startsWith('cause:intake:') && run.intake?.again) {
         await this.#open(id, run.intake.again, { key: last.cause, evidence: last.evidence }, [])
+        if (this.#get(id).rounds.at(-1)?.state !== 'opening') await this.#advance(id)
         return
       }
       if (last.cause === 'seed' || !previous) {
         await this.#open(id, policyOf(run).seed, { key: last.cause, evidence: last.evidence }, [])
+        if (this.#get(id).rounds.at(-1)?.state !== 'opening') await this.#advance(id)
         return
       }
       const earlier = await this.#decision(run, previous)
       if (earlier?.decision.kind === 'fire') {
         await this.#open(id, earlier.decision.rule.then, { key: last.cause, evidence: last.evidence }, earlier.completed)
+        if (this.#get(id).rounds.at(-1)?.state !== 'opening') await this.#advance(id)
       }
       return
     }
@@ -4302,6 +4337,19 @@ export class FlowExecutions {
       if (run.state !== 'stopped') continue
       await this.#queue.within(run.id, () => this.#abandonStoppedPeople(run.id)).catch((error: unknown) => {
         this.#port.log('a stopped flow run could not abandon its person cards at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'running' && run.state !== 'stalled') continue
+      if (!Object.keys(run.checkCompletions ?? {}).length) continue
+      await this.#queue.within(run.id, async () => {
+        for (const operation of run.operations) {
+          if (operation.kind === 'check' && operation.state === 'finished' && operation.card !== null && this.#get(run.id).checkCompletions?.[operation.key]) {
+            await this.#completeCheckCard(run.id, operation.key, operation.card)
+          }
+        }
+      }).catch((error: unknown) => {
+        this.#port.log('a recorded check result could not complete its card at restart', { run: run.id, error: error instanceof Error ? error.message : String(error) })
       })
     }
     for (const run of [...this.#runs.values()]) {

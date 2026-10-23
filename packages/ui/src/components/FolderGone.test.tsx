@@ -135,11 +135,11 @@ describe('FolderGone (#387)', () => {
 
 describe('FolderGone (#1771)', () => {
   it('archives the pane conversation with the existing archive action, after the copy action', () => {
-    const { store } = mount({})
+    const { store } = mount({ history: [{ id: sessionId('s-1'), runtime: RUNTIME, cwd: FOLDER, title: 'Review changes', status: { type: 'idle' }, createdAt: 1000, updatedAt: 1000 }] })
     const buttons = [...container.querySelectorAll('button')]
     expect(buttons.map(button => button.textContent)).toEqual(['Open a copy in another folder', 'Archive'])
     act(() => buttons[1]!.click())
-    expect(store.archiveSession).toHaveBeenCalledWith(sessionId('s-1'), RUNTIME)
+    expect(store.archiveSession).toHaveBeenCalledWith(sessionId('s-1'), RUNTIME, 'Review changes')
   })
 
   it('names only the last folder segment and keeps the full path on hover', () => {

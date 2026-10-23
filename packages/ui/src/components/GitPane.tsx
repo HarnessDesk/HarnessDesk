@@ -628,8 +628,8 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   const activeDescendant = currentActiveSha !== null && commits.slice(first, last).some((commit) => commit.sha === currentActiveSha)
     ? `git-commit-${currentActiveSha}`
     : undefined
-  // What the graph would like, before anyone drags it.
-  const wanted = searching ? 0 : Math.min(lanes, LANE_CAP) * LANE_W + GUTTER_PAD
+  // Before a resize, leave room for the Graph label as well as its lanes.
+  const wanted = searching ? 0 : Math.max(64, Math.min(lanes, LANE_CAP) * LANE_W + GUTTER_PAD)
   const chosen = snapshot.listPrefs.gitColumns ?? {}
   const widths = {
     graph: chosen.graph ?? wanted,

@@ -129,7 +129,7 @@ const TeamsList = ({onNew}: TeamsPageProps) => {
   void store.openTeamRoom(row.id)
  }
  const say=(row:TeamListRow):RowWords=>text.get(row.id) ?? rowWords(row)
- const faces=(row:TeamListRow)=>row.seats.length ? <AvatarStack size="stack" aria-label={`${row.seats.length} ${row.seats.length === 1 ? 'seat' : 'seats'}`} members={row.seats.map((seat,index)=>{
+ const faces=(row:TeamListRow)=>row.seats.length ? <AvatarStack size="stack" overlap={false} aria-label={`${row.seats.length} ${row.seats.length === 1 ? 'seat' : 'seats'}`} members={row.seats.map((seat,index)=>{
   const runtime=marks.get(seat.seat)
   return {id:seat.seat,name:say(row).seats[index] ?? plain(seat.name),tint:runtime?runtimeTint(runtime):'blue',mark:runtime?<RuntimeMark runtime={runtime}/>:<AgentIcon/>}
  })}/>:undefined
@@ -138,7 +138,7 @@ const TeamsList = ({onNew}: TeamsPageProps) => {
   issue={item.column==='needs-you'?plain(item.summary):undefined} attention={item.column==='needs-you'} unread={item.row.unread}
   path={item.path} faces={faces(item.row)} project={folderName(item.row.project)} age={<StateTime since={item.createdAt}/>} open={()=>open(item.row)}/>
  return <MinuteClock><Page width="wide" fill>
-  <DestinationBar place="Teams" more={close=><MenuItem icon={<ResetIcon/>} label="Refresh Teams" onSelect={()=>{void store.loadGoals();close()}}/>}/>
+  <DestinationBar place="Teams" more={close=><MenuItem icon={<ResetIcon/>} label="Refresh Teams" onSelect={()=>{void store.loadGoals().catch(()=>undefined);close()}}/>}/>
   <TeamsBoardToolbar create={onNew} disabled={!snapshot.workspace} project={project} projects={projects} changeProject={setProject} search={search} changeSearch={setSearch}/>
   {snapshot.goalProblem && <Banner tone="warning" title="Teams could not be refreshed">{words(snapshot.goalProblem)}</Banner>}
   {items.length===0?<EmptyState fill icon={<TeamIcon/>} title="No Teams yet" description="Create a Team to bring agents together on a project.">

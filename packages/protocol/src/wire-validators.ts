@@ -25,6 +25,7 @@ import {
   isUnknown,
   literalUnion,
   optional,
+  optionalNullable,
   recordOf,
   shape,
   taggedUnion,
@@ -771,7 +772,7 @@ const flowPolicyValidator: Validator<FlowPolicy> = goalShape({
   wait: goalInteger(1),
   rearm: optional(goalInteger(0)),
   budget: optional(flowBudgetValidator),
-  layout: optional(flowLayoutValidator),
+  layout: optionalNullable(flowLayoutValidator),
 }) as Validator<FlowPolicy>
 
 /**
@@ -1024,12 +1025,12 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     groupBy: literalUnion('runtime', 'model', 'project'),
   }),
   'usage/scan': shape({ full: optional(isBoolean) }),
-  'usage/plan/read': shape({ runtime: planRuntime, account: planAccount, plan: optional(nullableString) }),
+  'usage/plan/read': shape({ runtime: planRuntime, account: planAccount, plan: optionalNullable(isString) }),
   'usage/plan/set': shape({
     runtime: planRuntime,
     account: planAccount,
-    fee: optional((value: unknown, path = '') => (value === null ? null : planFeeInputValidator(value, path))),
-    budget: optional((value: unknown, path = '') => (value === null ? null : planBudgetInputValidator(value, path))),
+    fee: optionalNullable(planFeeInputValidator),
+    budget: optionalNullable(planBudgetInputValidator),
   }),
   'runtime/options': shape({ runtime: isString }),
   'runtime/refreshCatalog': shape({ runtime: isString }),
@@ -1365,7 +1366,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     token: isFilled,
     sentence: isString,
     vars: optional(recordOf(isString)),
-    continues: optional((value: unknown, path = '') => value === null ? null : isFilled(value, path)),
+    continues: optionalNullable(isFilled),
     goal: optional(startGoal),
   }),
   'flow/execution': goalShape({ run: isFilled }),
@@ -1397,7 +1398,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'agent/seating/set': shape({
     id: isFilled,
     seats: (value: unknown, path = '') => (value === null ? null : seatListValidator(value, path)),
-    expected: optional((value: unknown, path = '') => (value === null ? null : seatListValidator(value, path))),
+    expected: optionalNullable(seatListValidator),
   }),
   'agent/create': shape({
     name: atMost(AGENT_NAME_LIMIT, isFilled),

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { EvidencePlane } from '../src/evidence/plane.js'
+
 import {
   answer, board, claimed, cwdOf, desk, E2E, git, person, review, scopeOf, settled, shipped, start, TASK, type Behaviour, whenChanged, workInsideTheBrief, write,
 } from './fixtures/flow-host-evidence.js'
@@ -175,4 +177,20 @@ test('a new review record wakes reviews-only readers before the round has a publ
   await d.host.teamPlane.recordReview(input, scope)
   await d.host.call('finding/run', { goal: run.goal, run: run.id })
   assert.equal(goals.length, 1, 'duplicate review records and reads do not trigger another refresh')
+})
+
+test('a review released after binding is refused at the evidence append', E2E, async (t) => {
+  const d = await desk(t)
+  const run = await start(d, await shipped(d, 'independent-review'), TASK)
+  await write(d, (await claimed(d, run.goal, 'build', 1))[0]!, 'built')
+  const card = (await claimed(d, run.goal, 'specialists', 3))[0]!
+  const scope = scopeOf(card)
+  const [candidate] = await d.host.teamPlane.reviewCandidates(card.id, scope)
+  const append = EvidencePlane.prototype.appendReview
+  EvidencePlane.prototype.appendReview = async function (...args) {
+    if (args[1].card?.id === card.id) await d.host.teamPlane.release(card.id, {}, scope)
+    return append.apply(this, args)
+  }
+  t.after(() => { EvidencePlane.prototype.appendReview = append })
+  await assert.rejects(d.host.teamPlane.recordReview({ intent: card.id, candidate: candidate!.id, verdict: 'approve' }, scope), /do not hold this card/)
 })

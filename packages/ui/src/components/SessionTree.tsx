@@ -935,6 +935,14 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
       .sort().join('\u0000'),
     [snapshot.teams, snapshot.workspace, snapshot.workspaces],
   )
+  // Wrapped Teams remain in the gone-folder accounting, but only open
+  // Teams can earn a project row without independent conversation history.
+  const openRoomRoots = useMemo(
+    () => [...new Set([...snapshot.teams.values()]
+      .filter(team => snapshot.goals.get(team.id)?.goal.state !== 'wrapped')
+      .map(team => roomGroupRootOf(team, [snapshot.workspace, ...snapshot.workspaces])))].sort().join('\u0000'),
+    [snapshot.teams, snapshot.goals, snapshot.workspace, snapshot.workspaces],
+  )
   return useMemo(() => {
     const listed = [...liveRef.current, ...snapshot.history]
     const historyIdentityKeys = new Set(
@@ -1018,7 +1026,7 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
        made that row — so past two projects it waits inside "Other projects"
        with everything else you are not standing in. */
     const claimed = new Set(list.flatMap((group) => projectRoots(group)))
-    for (const root of roomRoots.split('\u0000')) {
+    for (const root of openRoomRoots.split('\u0000')) {
       // The empty string is "no rooms at all", and a room with no folder has
       // none to be filed under either — the same answer serves both.
       if (isChatFolder(root, snapshot.chatsFolderRoots) || claimed.has(root) || !searching && snapshot.foldersGone.has(root)) continue
@@ -1056,9 +1064,9 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
     })
     const noFolder = shown.filter((summary) => isChatFolder(summary.cwd, snapshot.chatsFolderRoots)).sort((a, b) => b.updatedAt - a.updatedAt)
     const chatFolders = [...new Set([...noFolder.map(summary => summary.cwd),
-      ...roomRoots.split('\u0000').filter(root => root !== '' && isChatFolder(root, snapshot.chatsFolderRoots))])]
+      ...openRoomRoots.split('\u0000').filter(root => root !== '' && isChatFolder(root, snapshot.chatsFolderRoots))])]
     return { groups, noFolder, chatFolders, hiddenPinned, gone }
-  }, [snapshot.history, snapshot.historyIdentity, snapshot.goals, snapshot.chatsFolderRoots, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, searching])
+  }, [snapshot.history, snapshot.historyIdentity, snapshot.goals, snapshot.chatsFolderRoots, liveKey, snapshot.listPrefs.agent, snapshot.listPrefs.pinned, snapshot.listPrefs.pinnedSessions, snapshot.listPrefs.sort, snapshot.listPrefs.forgottenFolders, snapshot.foldersGone, snapshot.workspace, snapshot.workspaces, roomRoots, openRoomRoots, searching])
 }
 
 /** The projects alone: what the section's own controls act on. */

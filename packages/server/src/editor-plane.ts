@@ -80,7 +80,7 @@ export class EditorPlane implements EditorEngine {
   // ------------------------------------------------------------ the plugins' side
 
   async open(path: string, pluginId: string): Promise<void> {
-    const target = this.#confine(path)
+    const target = await this.#confine(path)
     const existing = this.#documents.get(target)
     if (existing) {
       // Already shown. Re-opening is not an error and must not reset the
@@ -101,7 +101,7 @@ export class EditorPlane implements EditorEngine {
     decorations: readonly UiDecoration[],
     pluginId: string,
   ): Promise<void> {
-    const target = this.#confine(path)
+    const target = await this.#confine(path)
     // Marking a file that is not open opens it. A plugin that has found
     // something worth pointing at should not also have to remember to ask
     // for the file first, and the alternative — dropping the marks — is a
@@ -119,7 +119,7 @@ export class EditorPlane implements EditorEngine {
     edits: readonly EditorEdit[],
     pluginId: string,
   ): Promise<{ hash: string }> {
-    const target = this.#confine(path)
+    const target = await this.#confine(path)
     const files = this.options.files()
     if (!files.write) {
       throw new Error('This runtime cannot write files from the interface.')
@@ -147,7 +147,7 @@ export class EditorPlane implements EditorEngine {
   }
 
   async close(path: string): Promise<void> {
-    const target = this.#confine(path)
+    const target = await this.#confine(path)
     if (!this.#documents.delete(target)) return
     this.#publish()
   }
@@ -211,7 +211,7 @@ export class EditorPlane implements EditorEngine {
    * terms, because the two answer different questions: the gate asks what
    * this plugin may reach, and this asks what is open at all.
    */
-  #confine(path: string): string {
+  #confine(path: string): Promise<string> {
     return confine(path, this.options.roots())
   }
 }

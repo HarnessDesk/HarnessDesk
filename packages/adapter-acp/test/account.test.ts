@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentEvent } from '@harnessdesk/protocol'
+import type { AccountStatus, AgentEvent } from '@harnessdesk/protocol'
 
 import { EventEmitter } from 'node:events'
 
@@ -302,6 +302,10 @@ test('an agent whose only way in is a key, with none stored, is signed out rathe
     assert.deepEqual(status.accounts, [])
     assert.equal(status.unchecked, undefined)
     assert.deepEqual(status.signInMethods.map((method) => method.id), ['apiKey:HD_FAKE_ONLY_KEY'])
+    await runtime.createSession({ cwd: process.cwd() })
+    const opened = await runtime.getAccount()
+    assert.deepEqual(opened.accounts, [], 'an open session does not prove a required key exists')
+    assert.deepEqual(opened.signInMethods.map(method => method.id), ['apiKey:HD_FAKE_ONLY_KEY'])
   } finally {
     await runtime.dispose()
   }
@@ -1882,6 +1886,164 @@ test('a row run by a launcher keeps its own account commands when the start chos
   await runtime.start()
   try {
     assert.equal((await runtime.getAccount()).accounts[0]?.email, 'tester@example.com')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+
+test('a missing API key refusal offers all declared sign-in methods (#1762)', async () => {
+  const ids = ['oauth-personal', 'gemini-api-key', 'vertex-ai', 'gateway']
+  const runtime = bare({
+    FAKE_ACP_MISSING_API_KEY: '1',
+    FAKE_ACP_AUTH_METHODS: JSON.stringify(ids.map(id => ({ id, name: id }))),
+  })
+  await runtime.start()
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /API key is missing/)
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [])
+    assert.equal(status.unchecked, undefined)
+    assert.equal(status.refusal, 'Gemini API key is missing or not configured.')
+    assert.deepEqual(status.signInMethods.map(method => method.id), ids.map(id => `acp:${id}`))
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+
+test('a session refusal outranks the last CLI status until a fresh status or session succeeds (#1765)', async () => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts.length, 1)
+    runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
+    const refused = await runtime.getAccount()
+    assert.deepEqual(refused.accounts, [])
+    assert.equal(refused.refusal, 'Authentication required.')
+    assert.ok(refused.signInMethods.some(method => method.id === 'cli-browser'))
+    assert.equal((await runtime.getAccount()).accounts.length, 1, 'a subsequent status answer can restore sign-in')
+    assert.equal((await runtime.getAccount()).refusal, undefined)
+    runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.equal((await runtime.getAccount()).accounts.length, 1, 'a successful session clears the refusal')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a delayed status refresh cannot clear a newer identical refusal (#1765)', async (t) => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    const signedIn = await runtime.getAccount()
+    assert.equal(signedIn.accounts.length, 1)
+    const refusal = new Error('Authentication required. Sign in again.')
+    runtime.refusedForSignIn(refusal)
+    assert.equal((await runtime.getAccount()).refusal, 'Authentication required.')
+
+    let release!: (status: AccountStatus) => void
+    const statusReply = new Promise<AccountStatus>(resolve => { release = resolve })
+    const statusRead = t.mock.method(CliAccount.prototype, 'status', () => statusReply)
+    const pending = runtime.getAccount()
+    assert.equal(statusRead.mock.callCount(), 1, 'the refresh has begun')
+    const events: AgentEvent[] = []
+    runtime.subscribe(event => events.push(event))
+    runtime.refusedForSignIn(refusal)
+    assert.equal(events.filter(event => event.type === 'account/changed').length, 0,
+      'identical refusals still deduplicate notifications')
+    release(signedIn)
+
+    const result = await pending
+    assert.deepEqual(result.accounts, [], 'the old status cannot restore the rejected account')
+    assert.equal(result.refusal, 'Authentication required.')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('the first read after a sign-out reports the refusal, not the account the CLI still names (#1765)', async () => {
+  // The fake CLI's `status` keeps answering signed in after `logout`, as a
+  // real CLI does while its credential file lags the command. The sign-out is
+  // a refusal newer than that answer, so the read must not ask the CLI first.
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts.length, 1)
+    await runtime.logout()
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [], 'the old account is not reported')
+    assert.equal(status.refusal, 'Signed out.')
+    assert.ok(status.signInMethods.some(method => method.id === 'cli-browser'), 'the way back in is offered')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a sign-out the CLI refuses leaves no signed-out refusal behind (#1765)', async (t) => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts.length, 1)
+    t.mock.method(CliAccount.prototype, 'logout', async () => { throw new Error('keychain refused') })
+    await assert.rejects(runtime.logout(), /keychain refused/)
+    const status = await runtime.getAccount()
+    assert.equal(status.accounts.length, 1, 'the account is still signed in')
+    assert.equal(status.refusal, undefined)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a refused sign-out puts the refusal bookkeeping back as it found it (#1765)', async (t) => {
+  const runtime = make()
+  await runtime.start()
+  try {
+    assert.equal((await runtime.getAccount()).accounts.length, 1)
+    runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
+    assert.equal((await runtime.getAccount()).refusal, 'Authentication required.', 'the refusal was published once')
+    t.mock.method(CliAccount.prototype, 'logout', async () => { throw new Error('keychain refused') })
+    await assert.rejects(runtime.logout(), /keychain refused/)
+    // The refusal had been published already, so the next read asks the CLI
+    // again, exactly as it would have had the sign-out never been tried.
+    const status = await runtime.getAccount()
+    assert.equal(status.accounts.length, 1, 'the CLI is asked again, as before the attempt')
+    assert.equal(status.refusal, undefined)
+    // And a later refusal is still the newer observation.
+    runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
+    const refused = await runtime.getAccount()
+    assert.deepEqual(refused.accounts, [])
+    assert.equal(refused.refusal, 'Authentication required.')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an empty identity status offers external sign-in rather than an accountless answer (#1776)', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath,
+    args: [FAKE_AGENT], env: { FAKE_ACP_AUTH_METHODS: '[]' },
+    identityIsStatus: true, resolveIdentity: () => null,
+  })
+  await runtime.start()
+  try {
+    for (const opened of [false, true]) {
+      if (opened) await runtime.createSession({ cwd: process.cwd() })
+      const status = await runtime.getAccount()
+      assert.deepEqual(status.accounts, [])
+      assert.equal(status.unchecked, undefined, 'the identity record has answered')
+      assert.equal(status.signInMethods[0]?.flow, 'external', 'the empty home needs a sign-in elsewhere')
+      assert.ok(status.signInMethods[0]?.description)
+      // The UI's SignIn.accounts.test.tsx holds this answer as a literal, since
+      // it cannot import this package's build. Keep the two the same.
+      assert.deepEqual(status, {
+        accounts: [],
+        signInMethods: [{
+          id: 'external', label: 'Sign in outside HarnessDesk', flow: 'external',
+          description: "Sign in using the agent's own application or command line.",
+        }],
+      })
+    }
   } finally {
     await runtime.dispose()
   }

@@ -167,8 +167,16 @@ the importers of a file that is imported with a query (`?raw`), which Vitest doe
 not follow; a pull request that changes anything a test may read from elsewhere
 (another package the UI is built from, or one a file of the UI reads by import or
 pattern), a deleted file or anything the test setup imports, and every run of
-`main`, runs them all. A package the UI is not built from and does not read is
-nothing to these tests (`script/ci-unit-tests.mjs`).
+`main`, runs them all. So does one whose files reach more than a third of the test
+files (counted from the imports, before anything is installed): that many run in one
+serial shard outlast the four shards of the full suite. A package the UI is not built
+from and does not read is nothing to these tests (`script/ci-unit-tests.mjs`).
+
+DOM unit tests share a 10-second per-test budget in `packages/ui/vitest.config.ts`.
+This includes full App, page and dialog renders (such as navigation, Library and
+Flow start), whose first render can cross the default 5 seconds on a loaded
+runner. Pure Node tests retain Vitest's 5-second default. Use the shared budget
+rather than per-test timeout literals; investigate any render that exceeds it.
 
 Full unit runs are sharded by measured file time, longest first onto the lightest
 shard, using `script/ci-unit-shards.mjs` and `script/ci-unit-durations.json`.

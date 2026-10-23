@@ -45,10 +45,10 @@ const openFrame = async (page: Page, query: string, width = 1280, theme: 'light'
     await expect(textarea).toBeEnabled()
     await expect(textarea).toHaveAttribute('placeholder', 'Describe a task to start a session — / for commands, @ for files')
     const tools = page.locator('[data-slot="composer-tools"]')
-    const readiness = tools.locator(`[data-slot="chip"][data-state="${state === 'failed' ? 'broken' : 'unknown'}"]`)
+    const readiness = tools.locator(`[data-slot="chip"][data-state="${state === 'failed' ? 'broken' : 'starting'}"]`)
     await expect(readiness).toBeVisible()
     expect((await tools.locator('[data-composer-track="work-in"]').boundingBox())!.width).toBeGreaterThanOrEqual(24)
-    await expect(readiness).toHaveText(state === 'failed' ? 'Unavailable' : 'Not answered yet')
+    await expect(readiness).toHaveText(state === 'failed' ? 'Unavailable' : 'Starting')
     await textarea.fill('Review the checkout changes.')
     await expect(send).toBeDisabled()
     await expect(send).toHaveAttribute('title', state === 'failed'
@@ -56,7 +56,7 @@ const openFrame = async (page: Page, query: string, width = 1280, theme: 'light'
       : 'Waiting for the runtime to start')
     if (process.env.HD_1737_FRAMES) await page.screenshot({ path: `${process.env.HD_1737_FRAMES}/draft-${state}-${theme}.png` })
     if (state === 'failed') {
-      await tools.getByRole('button', { name: 'Unavailable', exact: true }).click()
+      await tools.getByRole('button', { name: 'Open runtime Settings', exact: true }).click()
       await expect(page.getByRole('heading', { name: 'Runtimes', exact: true })).toBeVisible()
     }
 

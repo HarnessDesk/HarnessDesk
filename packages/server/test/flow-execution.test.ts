@@ -1442,6 +1442,23 @@ rules:
 `
 const FAN_OUT_AGENTS = [agent('builder', ['done']), agent('reviewer', ['approve', 'request-changes'])]
 
+test('a reviewer whose claim was released cannot obtain candidates or record a review', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo', { at: 'b'.repeat(40), dirty: false })
+  const run = await rig.start(FAN_OUT, FAN_OUT_AGENTS)
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  const scope = rig.sessionOf('seat-2')
+  const [candidate] = await rig.review.candidates(2, scope)
+  assert.ok(candidate)
+  await rig.team.release(2, {}, scope)
+  assert.equal(rig.seats.get('seat-2')!.closed, null, 'the original Seat remains open')
+  assert.deepEqual(await rig.review.candidates(2, scope), [])
+  await assert.rejects(rig.review.record({ intent: 2, candidate: candidate.id, verdict: 'approve' }, scope), /do not hold this card/)
+  assert.equal((rig.facts.get(run.goal) ?? []).filter((one) => one.fact.kind === 'review').length, 0)
+})
+
 test('a fan-out reviewer recording request-changes is accepted, and the run stops for a person at once, naming the card and the word', async (t) => {
   const rig = await goalRig(t)
   const run = await rig.start(FAN_OUT, FAN_OUT_AGENTS)

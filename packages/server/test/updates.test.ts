@@ -322,7 +322,9 @@ test('a runtime registered in the place of one being measured is measured on its
     await held
     return { ok: true, json: async () => ({ latest: LATEST }) }
   }
-  const desk = await deskWith(t, upgradable('0.149.0').runtime, { fetch })
+  const original = upgradable('0.149.0').runtime
+  const desk = await deskWith(t, original, { fetch })
+  await desk.host.unregister(original.info.id)
   desk.host.register(upgradable('0.150.0').runtime)
   const opening = await desk.shown()
   assert.equal(opening.version, '0.150.0')

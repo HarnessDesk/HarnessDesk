@@ -98,7 +98,10 @@ export const serve = async (options: ServeOptions): Promise<RunningServer> => {
       response.writeHead(403).end('Forbidden')
       return
     }
-    void handleHttp(request, response, { uiRoot, token, logger, host: options.host })
+    void handleHttp(request, response, { uiRoot, token, logger, host: options.host }).catch((error: unknown) => {
+      logger.warn('HTTP request failed', { error: String(error) })
+      response.destroy()
+    })
   })
 
   const sockets = new WebSocketServer({ noServer: true })
@@ -108,7 +111,13 @@ export const serve = async (options: ServeOptions): Promise<RunningServer> => {
       socket.destroy()
       return
     }
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+    let url: URL
+    try {
+      url = new URL(request.url ?? '/', 'http://127.0.0.1')
+    } catch {
+      socket.destroy()
+      return
+    }
     if (url.pathname !== '/ws' || !tokenMatches(token, url.searchParams.get('token'))) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
       socket.destroy()

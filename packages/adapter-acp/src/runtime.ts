@@ -316,6 +316,8 @@ export interface AcpAgentConfig {
    * registry.
    */
   readonly resolveIdentity?: () => Account | null
+  /** The identity record is also the sign-in status: null means signed out. */
+  readonly identityIsStatus?: boolean
   /**
    * Which vendor's models the agent's sessions reach, from the agent's own
    * configuration, for a session in `cwd` when one is named — or null when
@@ -1173,7 +1175,7 @@ export class AcpRuntime implements AgentRuntime {
       // agent's own answers have shown the state, a session that opened or
       // one it refused for want of a sign-in.
       account:
-        this.#account !== null || (this.#config.secrets?.length ?? 0) > 0 || this.#signIn.state !== 'unknown',
+        this.#account !== null || this.#config.identityIsStatus === true || (this.#config.secrets?.length ?? 0) > 0 || this.#signIn.state !== 'unknown',
       ...(shaken
         ? {
             resume:
@@ -2060,14 +2062,25 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     if (this.#account && this.#health.state === 'ready') {
-      const status = await this.#account.status()
+      const beforeStatus = this.#signIn
+      const refusalGeneration = this.#refusalGeneration
+      // Publish a newer session refusal before asking the CLI again. Its
+      // credential file may still describe the sign-in the session rejected.
+      const freshRefusal = this.#config.account?.status && beforeStatus.state === 'required' && this.#statusObservation !== refusalGeneration
+      const status = freshRefusal
+        ? { accounts: [], signInMethods: this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : [] }
+        : await this.#account.status()
+      this.#statusObservation = refusalGeneration
+      if (!freshRefusal && this.#config.account?.status && this.#refusalGeneration === refusalGeneration && this.#signIn === beforeStatus && beforeStatus.state === 'required') {
+        this.#noteSignIn({ state: 'observed' })
+      }
       // An interactive-only CLI has no safe status probe. In that case the
       // ACP session observation is the sign-in proof, while the CLI commands
       // remain the source of the driveable sign-in/sign-out methods.
-      const observed = this.#config.account?.status
+      const observed = this.#config.account?.status && this.#signIn.state !== 'required'
         ? { accounts: [], signInMethods: [] }
         : this.#observedAccount(keyAccounts.length > 0)
-      const accounts = [...status.accounts, ...keyAccounts, ...observed.accounts]
+      const accounts = observed.refusal ? [] : [...status.accounts, ...keyAccounts, ...observed.accounts]
       return this.#lastAccount = {
         accounts,
         signInMethods: [...status.signInMethods, ...keyMethods, ...observed.signInMethods],
@@ -2251,10 +2264,18 @@ export class AcpRuntime implements AgentRuntime {
     const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
     const before = this.#signIn
+    const beforeGeneration = this.#refusalGeneration
+    const beforeObservation = this.#statusObservation
     // Make the state transition visible to the account/changed event emitted
-    // by CliAccount when its command succeeds. Restore it if the command
-    // itself fails, since the provider may still be signed in.
-    this.#signIn = { state: 'required', message: 'Signed out.' }
+    // by CliAccount when its command succeeds. It is a refusal like any
+    // other, newer than whatever the CLI last said, so it advances the
+    // generation: the first read after it must not ask the CLI, whose
+    // credential file may still name the account just signed out. Restore
+    // all of it if the command itself fails, since the provider may still be
+    // signed in.
+    const signedOut: SignInObservation = { state: 'required', message: 'Signed out.' }
+    this.#signIn = signedOut
+    const signedOutGeneration = ++this.#refusalGeneration
     try {
       if (overAcp) {
         await this.#connection.request(ACP_LOGOUT, {})
@@ -2264,7 +2285,13 @@ export class AcpRuntime implements AgentRuntime {
         await this.#account!.logout()
       }
     } catch (error) {
-      this.#signIn = before
+      // Only what this sign-out wrote is taken back: an answer that landed
+      // while the command ran is newer than the rollback and stands.
+      if (this.#signIn === signedOut) this.#signIn = before
+      if (this.#refusalGeneration === signedOutGeneration) {
+        this.#refusalGeneration = beforeGeneration
+        this.#statusObservation = beforeObservation
+      }
       throw error
     }
   }
@@ -2805,6 +2832,9 @@ export class AcpRuntime implements AgentRuntime {
   }
   /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
   #signIn: SignInObservation = { state: 'unknown' }
+  /** Every refusal counts, even when its unchanged message needs no notification. */
+  #refusalGeneration = 0
+  #statusObservation = -1
   /** Last complete history answer; sidebar reads must not wake an idle helper. */
   #historyCache: Page<SessionSummary> | null = null
   /** The agent's models as last declared, for the settings catalogue. */
@@ -2985,6 +3015,7 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   #noteSignIn(next: SignInObservation): void {
+    if (next.state === 'required') this.#refusalGeneration++
     const before = this.#signIn
     if (before.state === next.state && (next.state !== 'required' || before.state !== 'required' || before.message === next.message)) return
     this.#signIn = next
@@ -3024,8 +3055,24 @@ export class AcpRuntime implements AgentRuntime {
    */
   #observedAccount(hasKey: boolean): AccountStatus {
     const seen = this.#signIn
+    if (seen.state !== 'required' && this.#config.identityIsStatus && !hasKey) {
+      const identity = this.#identity()
+      if (identity) return { accounts: [identity], signInMethods: [] }
+      const declared = this.#declaredMethods()
+      // This record answers signed out, even after a session opened. No
+      // declared ACP method means the sign-in happens outside the desk,
+      // rather than that the agent runs without an account.
+      return {
+        accounts: [],
+        signInMethods: declared.length > 0 ? declared : [{
+          id: 'external', label: 'Sign in outside HarnessDesk', flow: 'external',
+          description: "Sign in using the agent's own application or command line.",
+        }],
+      }
+    }
     if (seen.state === 'observed') {
-      if (hasKey) return { accounts: [], signInMethods: [] }
+      // A session may open before a required key is checked on the first prompt.
+      if (hasKey || this.#config.secrets?.some(secret => !secret.optional)) return { accounts: [], signInMethods: [] }
       return {
         accounts: [this.#identity() ?? { kind: 'agent', label: 'Signed in', anonymous: true }],
         signInMethods: [],
@@ -3900,7 +3947,7 @@ const PACKAGE_RUNNERS: Readonly<Record<string, string>> = {
 const KEY_REMOVED = 'Its key was removed. Sign in again, or store a key.'
 
 const AUTH_REQUIRED_WORDS =
-  /authentication required|not authenticated|unauthenticated|auth(?:Required|[_ -]required)|login required|sign[- ]?in required|not (?:signed|logged) in|please (?:log|sign) in|(?:log|sign) in to (?:use|continue|access)|authenticate again/i
+  /api key is missing(?: or not configured)?|authentication required|not authenticated|unauthenticated|auth(?:Required|[_ -]required)|login required|sign[- ]?in required|not (?:signed|logged) in|please (?:log|sign) in|(?:log|sign) in to (?:use|continue|access)|authenticate again/i
 const isAuthRefusal = (error: unknown): boolean =>
   (error instanceof AcpError || error instanceof Error) &&
   AUTH_REQUIRED_WORDS.test(`${error.message}\n${(error as AcpError).details ?? ''}`)
