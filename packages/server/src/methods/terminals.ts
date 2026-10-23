@@ -58,7 +58,7 @@ export const terminalMethods = {
           'and no other runtime is available to host a terminal.',
       )
     }
-    const cwd = confine(params.cwd, ctx.workspaces.openRoots())
+    const cwd = await confine(params.cwd, ctx.workspaces.openRoots())
     const terminalId = await ctx.terminals.open({
       runtime: provider.info.id,
       processes: provider.processes,

@@ -1,7 +1,16 @@
-import { lstatSync, readlinkSync, realpathSync } from 'node:fs'
+import { lstat, readlink, realpath } from 'node:fs/promises'
 import { basename, dirname, join, parse, relative, resolve, sep, isAbsolute } from 'node:path'
 
 import { errnoOf, NOTHING_HERE } from './errno.js'
+
+/**
+ * Where a path really leads, asked of the disk without waiting on it here.
+ *
+ * Every call below goes through `fs/promises`, so a volume that has stopped
+ * answering holds one worker of the thread pool and not the host's own thread,
+ * which would stop every request and every stream behind it. A signal ends the
+ * walk between two calls; it cannot take back one already asked.
+ */
 
 /** The most links one walk to a destination follows; the kernel allows about as many. */
 const MAX_LINKS = 40
@@ -14,9 +23,9 @@ const NAME_SEPARATOR = sep === '\\' ? /[\\/]+/ : /\/+/
 const namesOf = (target: string): string[] => target.split(NAME_SEPARATOR).filter((name) => name !== '' && name !== '.')
 
 /** Where a link at `path` points, or null when `path` is not a link (or is not there at all). */
-const linkAt = (path: string): string | null => {
+const linkAt = async (path: string): Promise<string | null> => {
   try {
-    return lstatSync(path).isSymbolicLink() ? readlinkSync(path) : null
+    return (await lstat(path)).isSymbolicLink() ? await readlink(path) : null
   } catch (error) {
     // `EINVAL` is a path that stopped being a link between the two calls.
     if (NOTHING_HERE.has(errnoOf(error)) || errnoOf(error) === 'EINVAL') return null
@@ -37,11 +46,12 @@ const linkAt = (path: string): string | null => {
  * exists is replaced by its real path, and a link that does not lead anywhere
  * yet is followed in turn. Names are only appended once one is missing.
  */
-const destinationOf = (parent: string, target: string): string => {
+const destinationOf = async (parent: string, target: string, signal?: AbortSignal): Promise<string> => {
   let real = isAbsolute(target) ? parse(target).root : parent
   const pending = namesOf(target)
   let followed = 1
   while (pending.length > 0) {
+    signal?.throwIfAborted()
     const name = pending.shift()!
     if (name === '..') {
       real = dirname(real)
@@ -49,12 +59,12 @@ const destinationOf = (parent: string, target: string): string => {
     }
     const next = join(real, name)
     try {
-      real = realpathSync.native(next)
+      real = await realpath(next)
       continue
     } catch (error) {
       if (!NOTHING_HERE.has(errnoOf(error))) throw error
     }
-    const link = linkAt(next)
+    const link = await linkAt(next)
     if (link === null) {
       // Nothing is here, so nothing below it can be reached either: the names that
       // follow are where it would be made, and a `..` among them has no folder to go up from.
@@ -69,19 +79,25 @@ const destinationOf = (parent: string, target: string): string => {
   return real
 }
 
-/** Resolve links through the deepest existing ancestor, retaining missing names. */
-export const canonicalTarget = (path: string): string => {
+/**
+ * Resolve links through the deepest existing ancestor, retaining missing names.
+ *
+ * `realpath` here is `realpath(3)`, as `realpathSync.native` was: it keeps the
+ * casing the disk has, which a turn's targets are compared in.
+ */
+export const canonicalTarget = async (path: string, signal?: AbortSignal): Promise<string> => {
   let ancestor = resolve(path)
   const missing: string[] = []
   for (;;) {
+    signal?.throwIfAborted()
     try {
-      return join(realpathSync.native(ancestor), ...missing)
+      return join(await realpath(ancestor), ...missing)
     } catch (error) {
       if (!NOTHING_HERE.has(errnoOf(error))) throw error
     }
     // A dangling link still names a destination; do not treat it as an absent file.
-    const link = linkAt(ancestor)
-    if (link !== null) return join(destinationOf(realpathSync.native(dirname(ancestor)), link), ...missing)
+    const link = await linkAt(ancestor)
+    if (link !== null) return join(await destinationOf(await realpath(dirname(ancestor)), link, signal), ...missing)
     const parent = dirname(ancestor)
     if (parent === ancestor) throw new Error('This path has no existing ancestor.')
     missing.unshift(basename(ancestor))

@@ -103,7 +103,7 @@ export const workspaceMethods = {
     }
     // Confined like every other path the renderer names: only an opened
     // workspace, or something inside one, can be revealed.
-    await ctx.options.revealPath(confine(params.path, ctx.workspaces.openRoots()))
+    await ctx.options.revealPath(await confine(params.path, ctx.workspaces.openRoots()))
     return null
   },
 
@@ -115,20 +115,20 @@ export const workspaceMethods = {
     return picked ? ctx.workspaces.open(picked) : null
   },
 
-  'workspace/files': (ctx, params) => {
-    const root = confine(params.root, ctx.workspaces.openRoots())
+  'workspace/files': async (ctx, params) => {
+    const root = await confine(params.root, ctx.workspaces.openRoots())
     return ctx.runtimes.files(params.runtime).search([root], params.query, params.limit ?? 40)
   },
 
-  'workspace/browse': (ctx, params) => {
+  'workspace/browse': async (ctx, params) => {
     if (params.mode !== 'entries') return browseDirectories(ctx.runtimes.files(params.runtime), params.path)
-    const root = confine(params.root, ctx.workspaces.fileRoots('read'))
-    const path = confine(params.path ?? root, [root])
+    const root = await confine(params.root, await ctx.workspaces.fileRoots('read'))
+    const path = await confine(params.path ?? root, [root])
     return browseWorkspaceEntries(ctx.runtimes.files(params.runtime), root, path)
   },
 
   'workspace/readFile': async (ctx, params) => {
-    const path = confine(params.path, ctx.workspaces.fileRoots('read'))
+    const path = await confine(params.path, await ctx.workspaces.fileRoots('read'))
     const files = ctx.runtimes.files(params.runtime)
     let metadata
     try {
@@ -173,18 +173,18 @@ export const workspaceMethods = {
     return { kind: 'text' as const, ...asText(bytes, maxBytes), hash: sha256(bytes) }
   },
 
-  'workspace/stat': (ctx, params) =>
-    ctx.runtimes.files(params.runtime).stat(confine(params.path, ctx.workspaces.fileRoots('read'))),
+  'workspace/stat': async (ctx, params) =>
+    ctx.runtimes.files(params.runtime).stat(await confine(params.path, await ctx.workspaces.fileRoots('read'))),
 
-  'preview/ticket': (ctx, params) => {
+  'preview/ticket': async (ctx, params) => {
     // Confinement is checked at issue time and again at redemption, so a
     // workspace being closed between the two closes the window as well.
-    confine(params.path, ctx.workspaces.fileRoots('read'))
+    await confine(params.path, await ctx.workspaces.fileRoots('read'))
     return { ticket: ctx.workspaces.issuePreviewTicket(params.path, params.runtime) }
   },
 
   'file/save': async (ctx, params) => {
-    const path = confine(params.path, ctx.workspaces.fileRoots('write'))
+    const path = await confine(params.path, await ctx.workspaces.fileRoots('write'))
     const files = ctx.runtimes.files(params.runtime)
     if (!files.write) throw new Error('This runtime cannot write files from the interface.')
     // A failed stat/read is not permission to create over a file the host

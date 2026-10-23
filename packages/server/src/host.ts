@@ -10,7 +10,7 @@ import { resumeSeatSession } from './session-resume.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
-import { constants, readdirSync, statSync } from 'node:fs'
+import { constants } from 'node:fs'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, sep } from 'node:path'
@@ -120,8 +120,9 @@ import { packagedPath, type AgentDirectory } from './agent-registry.js'
 import { exportAgentFolders, importAgentFolder } from './agent-files.js'
 import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-file.js'
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
+import { AgentFileRoots } from './agent-file-roots.js'
 import { AgentWatch } from './agent-watch.js'
-import { Agents, isAgentFolderName } from './agents.js'
+import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
@@ -896,6 +897,12 @@ export class Host {
    * constructor, so a host that is built and never started watches nothing.
    */
   #agentWatch: AgentWatch | null = null
+  /**
+   * The roster's own folders as roots a file may be read or written under
+   * (`#fileRoots`). Read off the thread and kept until the roster changes
+   * (`#push` below), not listed again for every file request.
+   */
+  readonly #agentFileRoots = new AgentFileRoots({ roots: () => this.#agents.roots })
   /**
    * Bumped on every call to `#watchProjects`; a call applies its snapshot only
    * if it is still the latest by the time it has one, so a slower, older call
@@ -4933,25 +4940,13 @@ export class Host {
    * An Agent folder or its source linked into these host-owned roots is
    * explicitly admitted, just as the roster reads it. Links in a project do
    * not extend its roots. The built-in roots never join the write list.
+   *
+   * Asked, not computed on the spot: the roster's folders are listed off the
+   * thread and kept (`AgentFileRoots`), because this is asked for every file
+   * request and a listing that waited on the disk here stopped them all.
    */
-  #fileRoots(mode: 'read' | 'write'): string[] {
-    const agentRoots = (root: string): string[] => {
-      let entries
-      try { entries = readdirSync(root, { withFileTypes: true }) } catch { return [root] }
-      return [root, ...entries
-        .filter((entry) => isAgentFolderName(entry.name) && (entry.isDirectory() || entry.isSymbolicLink()))
-        .flatMap((entry) => {
-          const folder = join(root, entry.name)
-          const source = join(folder, 'AGENT.md')
-          try { if (statSync(source).isFile()) return [folder, source] } catch { /* An absent or unreadable source grants no additional root. */ }
-          return [folder]
-        })]
-    }
-    return [
-      ...this.#openRoots(),
-      ...agentRoots(this.#agents.roots.user),
-      ...(mode === 'read' ? agentRoots(this.#agents.roots.builtin) : []),
-    ]
+  async #fileRoots(mode: 'read' | 'write'): Promise<string[]> {
+    return [...this.#openRoots(), ...(await this.#agentFileRoots.list(mode))]
   }
 
   /**
@@ -4999,7 +4994,7 @@ export class Host {
     let admitted = true
     let fallbackOpened: string[] | undefined
     try {
-      confine(real, opened)
+      await confine(real, opened)
     } catch (refusal) {
       admitted = false
       fallbackOpened = []
@@ -5475,7 +5470,7 @@ export class Host {
     const entry = this.#previewTickets.get(ticket)
     this.#previewTickets.delete(ticket)
     if (!entry || entry.expiresAt < Date.now()) return null
-    const path = confine(entry.path, this.#fileRoots('read'))
+    const path = await confine(entry.path, await this.#fileRoots('read'))
     const files = this.#files(entry.runtime)
     const metadata = await files.stat(path)
     if (metadata.size !== undefined && metadata.size > WORKSPACE_BINARY_LIMIT_BYTES) {
@@ -8861,6 +8856,9 @@ export class Host {
   }
 
   #push(notification: WireNotification): void {
+    // This machine's roster changed — however: the watch noticed, or a method wrote it — so the
+    // Agent folders linked into it may have too.
+    if (notification.method === 'agent/changed' && notification.params.project === null) this.#agentFileRoots.invalidate()
     if (!this.#disposed && notification.method === 'team/changed') this.#indexTeam(notification.params.state)
     if (!this.#disposed && notification.method === 'session/removed' && !this.#sessionIndex.isRemoved(notification.params.runtime, notification.params.sessionId)) {
       this.#cancelSessionIndex(notification.params.runtime, notification.params.sessionId)

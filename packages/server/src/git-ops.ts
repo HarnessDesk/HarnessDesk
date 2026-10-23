@@ -84,7 +84,7 @@ const canonical = async (path: string): Promise<string> => {
 
 /** Paths in a patch are relative to the repository root, wherever the session ran. */
 const locate = async (root: string, top: string, path: string): Promise<{ absolute: string; inRepo: string }> => {
-  const absolute = canonicalTarget(isAbsolute(path) ? path : join(root, path))
+  const absolute = await canonicalTarget(isAbsolute(path) ? path : join(root, path))
   if (!isWithinPath(top, absolute) || absolute === top) throw new Error('A reported file resolves outside the repository or names its root.')
   return { absolute, inRepo: relative(top, absolute).replace(/\\/g, '/') }
 }

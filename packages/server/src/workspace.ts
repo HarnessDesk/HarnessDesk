@@ -16,6 +16,7 @@ import type {
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { openAgentFile } from './agent-file-open.js'
 import { canonicalTarget, isWithinPath } from './path-confinement.js'
+import { within } from './seat-reads.js'
 
 /**
  * Workspace file services.
@@ -54,30 +55,61 @@ export const assertAbsoluteCwd = (params: { readonly cwd?: string } | undefined)
 }
 
 /**
+ * How long a path may take to be checked against the disk before it is refused.
+ *
+ * Confinement asks where a path really leads, and a volume that has stopped
+ * answering — a network mount, a drive that went to sleep — never says. The
+ * checks run off the host's thread, so one such path costs its own request and
+ * not the host; this is how long that request waits before it says so.
+ */
+export const CONFINE_DEADLINE_MS = 10_000
+
+export interface ConfineOptions {
+  /** How long the disk may take to answer; `CONFINE_DEADLINE_MS` when left out. */
+  readonly deadlineMs?: number
+}
+
+/**
  * Refuses a path that is not under one of the roots the user has opened.
  *
  * Both the spelling and the canonical target must be inside an admitted
  * root. Missing names are resolved through their deepest existing ancestor.
  * A root itself may be linked when the person opened it explicitly.
+ *
+ * Answers the spelling, which is what the caller keeps. The spelling is judged
+ * first and costs nothing: a path outside every root's spelling is refused
+ * before the disk is asked about it. The disk is asked only about the roots
+ * that spell it, and not for longer than the deadline.
  */
-export const confine = (path: string, roots: readonly string[]): string => {
-  confinedTarget(path, roots)
+export const confine = async (path: string, roots: readonly string[], options: ConfineOptions = {}): Promise<string> => {
+  await confinedTarget(path, roots, options.deadlineMs)
   return resolve(path)
 }
 
-const confinedTarget = (path: string, roots: readonly string[]): string => {
+const outsideEveryWorkspace = (target: string): Error =>
+  new Error(`${target} is outside every open workspace. Open its folder first to read from it.`)
+
+const confinedTarget = async (
+  path: string,
+  roots: readonly string[],
+  deadlineMs = CONFINE_DEADLINE_MS,
+): Promise<string> => {
   assertAbsolute(path)
   const target = resolve(path)
-  const canonical = canonicalTarget(target)
-  const inside = roots.some((root) => {
-    const base = resolve(root)
-    return isWithinPath(base, target) && isWithinPath(canonicalTarget(base), canonical)
-  })
-  if (!inside) {
-    throw new Error(
-      `${target} is outside every open workspace. Open its folder first to read from it.`,
-    )
+  const named = [...new Set(roots.map((root) => resolve(root)).filter((base) => isWithinPath(base, target)))]
+  if (named.length === 0) throw outsideEveryWorkspace(target)
+  const stop = new AbortController()
+  const answered = await within(
+    () => Promise.all([target, ...named].map((one) => canonicalTarget(one, stop.signal))),
+    deadlineMs,
+  )
+  if (answered.settled === 'late') {
+    stop.abort()
+    throw new Error(`${target} could not be checked: its volume did not answer in time.`)
   }
+  if (answered.settled === 'error') throw answered.error
+  const [canonical = target, ...real] = answered.value
+  if (!real.some((base) => isWithinPath(base, canonical))) throw outsideEveryWorkspace(target)
   return canonical
 }
 
@@ -206,7 +238,7 @@ export const sha256 = (bytes: Uint8Array): string => createHash('sha256').update
 
 export interface LocalFilesOptions {
   /** Recheck the admitted roots immediately before opening local content. */
-  readonly roots?: (mode: 'read' | 'write') => readonly string[]
+  readonly roots?: (mode: 'read' | 'write') => readonly string[] | Promise<readonly string[]>
   /** Where a folder a search had to pass over is named. */
   readonly log?: (message: string, details?: Record<string, unknown>) => void
 }
@@ -222,7 +254,7 @@ export class LocalFiles implements RuntimeFiles {
   }
 
   async write(path: string, data: Uint8Array): Promise<void> {
-    const target = this.#target(path, 'write')
+    const target = await this.#target(path, 'write')
     const handle = await this.#open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_NONBLOCK)
     try {
       const info = await handle.stat()
@@ -234,8 +266,8 @@ export class LocalFiles implements RuntimeFiles {
     }
   }
 
-  #target(path: string, mode: 'read' | 'write'): string {
-    return this.options.roots ? confinedTarget(path, this.options.roots(mode)) : canonicalTarget(path)
+  async #target(path: string, mode: 'read' | 'write'): Promise<string> {
+    return this.options.roots ? confinedTarget(path, await this.options.roots(mode)) : canonicalTarget(path)
   }
 
   #assertFile(path: string, info: Stats): void {
@@ -277,7 +309,7 @@ export class LocalFiles implements RuntimeFiles {
   }
 
   async read(path: string, maxBytes: number): Promise<Uint8Array> {
-    const handle = await this.#open(this.#target(path, 'read'), constants.O_RDONLY | constants.O_NONBLOCK)
+    const handle = await this.#open(await this.#target(path, 'read'), constants.O_RDONLY | constants.O_NONBLOCK)
     try {
       const info = await handle.stat()
       this.#assertFile(path, info)
@@ -430,7 +462,7 @@ export const browseWorkspaceEntries = async (
   parent: string | null
   entries: { name: string; path: string; kind: 'file' | 'directory' }[]
 }> => {
-  const target = confine(path, [root])
+  const target = await confine(path, [root])
   const entries = (await files.list(target))
     .filter((entry): entry is FileEntry & { kind: 'file' | 'directory' } =>
       (entry.kind === 'file' || entry.kind === 'directory') && entry.name !== '.git' &&

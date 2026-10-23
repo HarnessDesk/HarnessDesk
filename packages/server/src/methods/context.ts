@@ -488,8 +488,11 @@ export interface HostContext {
   readonly workspaces: {
     /** Every folder a path may be confined to: open workspaces and live conversations' cwds. Absolute paths only. */
     openRoots(): string[]
-    /** Where a file may be read or written by path: the open roots and the roster's own folders (`#fileRoots`). */
-    fileRoots(mode: 'read' | 'write'): string[]
+    /**
+     * Where a file may be read or written by path: the open roots and the roster's own folders (`#fileRoots`).
+     * Asked of the disk without waiting on it here, and answered from what the roster looked like a moment ago.
+     */
+    fileRoots(mode: 'read' | 'write'): Promise<string[]>
     /** A repository root the renderer named, confined and made real. A relative one is refused. */
     confineGitRoot(root: string): Promise<string>
     /** The canonical project of an open linked checkout, confined for provenance controls. */

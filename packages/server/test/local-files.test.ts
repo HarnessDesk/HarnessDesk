@@ -210,7 +210,7 @@ test('an opened linked root and links within it retain ordinary read and save be
   const saved = await workspaceMethods['file/save'](ctx, { path, content: 'changed', expectedHash: sha256(Buffer.from('inside')) })
   assert.equal(saved.saved, true)
   assert.equal(await readFile(join(project, 'file.txt'), 'utf8'), 'changed')
-  assert.equal(confine(join(alias, 'missing', 'deeper.txt'), [alias]), join(alias, 'missing', 'deeper.txt'))
+  assert.equal(await confine(join(alias, 'missing', 'deeper.txt'), [alias]), join(alias, 'missing', 'deeper.txt'))
 })
 
 test('LocalFiles refuses a parent link introduced just before opening content', async (t) => {
@@ -255,7 +255,7 @@ test('LocalFiles rechecks roots when a previously admitted parent now leads outs
   await mkdir(outside)
   await mkdir(join(project, 'nested'))
   await writeFile(join(outside, 'file.txt'), 'outside')
-  const admitted = confine(join(project, 'nested', 'file.txt'), [project])
+  const admitted = await confine(join(project, 'nested', 'file.txt'), [project])
   await rename(join(project, 'nested'), join(project, 'kept'))
   await symlink(outside, join(project, 'nested'))
   const files = new LocalFiles({ roots: () => [project] })

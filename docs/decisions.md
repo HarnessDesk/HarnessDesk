@@ -1650,6 +1650,36 @@ both links and is where a runtime's own writer creates the file. A `..` after
 a name that does not exist has no folder to go up from, so the walk refuses it
 rather than guessing.
 
+## Confinement asks the disk off the host's thread, under a deadline
+
+Every file request is confined: the renderer reads, stats, saves and lists by
+path, and polls `workspace/stat` every few seconds for each open editor tab.
+Confinement looks at the disk — where the path really leads, and which of the
+roster's folders are linked into this machine's Agents root — and it did so
+with synchronous calls on the host's own thread. A single link onto a volume
+that had stopped answering then stopped every wire method and every session's
+stream behind it, for as long as the volume stayed silent.
+
+So the walk uses `fs/promises`, where a silent volume holds one worker of the
+thread pool and nothing else. The spelling is judged first and costs nothing:
+a path outside every root's spelling is refused without the disk being asked.
+Only then are the target and the roots that spell it resolved, together, and
+only for `CONFINE_DEADLINE_MS`. When that is up the request is refused with
+the volume named as the reason — a late answer never admits a path — and the
+walk is told to stop: a call already asked cannot be taken back, but no next
+one is started.
+
+The roster's own folders (`AgentFileRoots`) are the other disk read a file
+request made. They are listed off the thread, kept for a few seconds, shared by
+requests that arrive together, and dropped the moment the host says
+`agent/changed` for this machine's roots. A request waits for a listing no
+longer than two seconds in all, and a listing already late is not waited for
+again; it is answered with the last listing, or with the root alone. A folder
+not yet seen is not admitted, which is the safe way for a slow disk to be
+wrong. What it costs: an Agent folder linked in by hand is readable by path
+once the roster watch has noticed (a moment), or when the listing is five
+seconds old, where it used to be at once.
+
 ## An evidence guard judges revisions, found by card and revision, never by round
 
 A finished round's rule asks whether some work is good enough to move on,
