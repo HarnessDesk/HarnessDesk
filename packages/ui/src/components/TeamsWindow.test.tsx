@@ -3,12 +3,12 @@ import { DestinationPageScope } from '../panels/destination-page'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
-import { TopBarProvider } from '../panels/top-bar'
+import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { type TeamFilter } from '../lib/teams-list'
 import { TeamsWindow } from './TeamsWindow'
 import { overviewTeamStore } from '../preview/team-overview-fixture'
 import type { FindingRunView } from '@harnessdesk/protocol'
-import type { AppStore } from '../state/store'
+import { AppStore } from '../state/store'
 
 const drawn=vi.hoisted(()=>({marks:0,context:null as import('react').Context<boolean>|null}))
 vi.mock('./BrandIcons',async original=>{
@@ -321,4 +321,18 @@ it('E5 controlled page opens a room exactly once',async()=>{
  await act(async()=>root.render(<StoreProvider store={store}><TopBarProvider><DestinationPageScope owner="destination:teams" active><TeamsWindow filter="active" onFilter={()=>{}} onNew={()=>{}}/></DestinationPageScope></TopBarProvider></StoreProvider>))
  await act(async()=>container.querySelector<HTMLButtonElement>('[data-team-row][aria-label^="Open "]')!.click())
  expect(open).toHaveBeenCalledOnce();expect(close).not.toHaveBeenCalled()
+})
+
+it('reports a refused Refresh Teams without an unhandled rejection', async()=>{
+ const store=new AppStore('ws://localhost:0/')
+ vi.spyOn(store.transport,'request').mockRejectedValue(new Error('Team list unavailable'))
+ await act(async()=>root.render(<StoreProvider store={store}><TopBarProvider>
+  <TopBarOutlet owner="destination:teams" fallback={{place:null,more:()=>null}}/>
+  <DestinationPageScope owner="destination:teams" active><TestPage/></DestinationPageScope>
+ </TopBarProvider></StoreProvider>))
+ await act(async()=>container.querySelector<HTMLButtonElement>('button[aria-label="More"]')!.click())
+ const refresh=[...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el=>el.textContent?.includes('Refresh Teams'))!
+ await act(async()=>{refresh.click();await new Promise(resolve=>setTimeout(resolve,0))})
+ expect(store.transport.request).toHaveBeenCalledWith('goal/list',{})
+ expect(container.textContent).toContain('Team list unavailable')
 })
