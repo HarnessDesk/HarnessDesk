@@ -450,19 +450,72 @@ export const create = async (
     base ??= 'HEAD'
   }
   const target = await automaticCheckout(main, base ?? 'HEAD')
+  const upstream = await remoteTrackingBase(main, base ?? 'HEAD')
   await git(main, [...target.config, 'worktree', 'add', '--no-checkout', '-b', branch, path, target.at])
+  // The base is resolved to a commit id so the checkout is exactly that
+  // commit, which drops the tracking `git worktree add` gives a remote-tracking
+  // start point. Set it from the ref the caller named, so `@{upstream}` — and
+  // the ahead/behind a lane shows — still answers.
+  if (upstream) await git(main, ['branch', '--set-upstream-to', upstream, branch]).catch(() => undefined)
+  const admin = await createdWorktreeAdmin(main, path)
   try {
     // Conditional includes can select different attributes in the new worktree.
     await automaticCheckout(path, target.at, { materialize: true, timeout: CHECKOUT_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 })
   } catch (error) {
-    await git(main, ['worktree', 'remove', '--force', path]).catch(() => undefined)
-    await rm(path, { recursive: true, force: true })
-    await git(main, ['worktree', 'prune', '--expire', 'now'])
-    // Only the branch made above, and only while it still names our starting commit.
-    await git(main, ['update-ref', '-d', `refs/heads/${branch}`, target.at])
+    await discardCreatedWorktree(main, path, admin).catch(() => undefined)
+    // Only the branch made above, and only while it still names our starting
+    // commit. A cleanup failure must not replace the refusal that caused it.
+    await git(main, ['update-ref', '-d', `refs/heads/${branch}`, target.at]).catch(() => undefined)
     throw error
   }
   return { path, branch, head: (await git(path, ['rev-parse', 'HEAD'])).trim(), isMain: false, managed: true }
+}
+
+/**
+ * The remote-tracking ref `base` still names, as `refs/remotes/<remote>/<branch>`;
+ * null for a local branch, a tag, `HEAD`, a commit id, or a remote ref no
+ * configured remote fetches — git refuses to express an upstream for that last
+ * one (`@{upstream}` answers "not stored as a remote-tracking branch").
+ */
+const remoteTrackingBase = async (main: string, base: string): Promise<string | null> => {
+  // Nothing here takes an option: `--symbolic-full-name` reads every following
+  // argument as a revision, so `--end-of-options` cannot terminate them. A
+  // symbolic `origin/HEAD` already answers as the branch it points at.
+  if (base.startsWith('-')) return null
+  const named = await git(main, ['rev-parse', '--symbolic-full-name', base]).then(out => out.trim(), () => '')
+  if (!named.startsWith('refs/remotes/')) return null
+  const remotes = (await git(main, ['remote'])).split(/[\r\n]+/).filter((line) => line.length > 0)
+  return remotes.some((remote) => named.startsWith(`refs/remotes/${remote}/`)) ? named : null
+}
+
+/**
+ * The administrative folder `worktree add` made for exactly `path` —
+ * `<common>/worktrees/<id>`, read from the new checkout's own git directory
+ * while it exists. Cleanup can then take that entry and no other.
+ */
+const createdWorktreeAdmin = async (main: string, path: string): Promise<string | null> => {
+  const [common, dir] = await Promise.all([
+    commonDir(main).catch(() => null),
+    git(path, ['rev-parse', '--path-format=absolute', '--git-dir']).then(out => out.trim(), () => ''),
+  ])
+  if (!common || !dir) return null
+  const root = join(common, 'worktrees')
+  const id = dir.startsWith(`${root}${sep}`) ? dir.slice(root.length + 1) : ''
+  return id.length > 0 && !id.includes(sep) ? dir : null
+}
+
+/**
+ * Undoes the worktree this call made, and only it. `worktree prune --expire
+ * now` would also drop the registration and metadata — the staged index — of
+ * every unrelated worktree whose folder is missing at that moment, such as a
+ * checkout on a volume that is not mounted. `worktree remove --force` names
+ * this one; where git will not remove it, deleting the entry's own
+ * administrative folder is what prune would have done to it alone.
+ */
+const discardCreatedWorktree = async (main: string, path: string, admin: string | null): Promise<void> => {
+  await git(main, ['worktree', 'remove', '--force', path]).catch(() => undefined)
+  await rm(path, { recursive: true, force: true })
+  if (admin) await rm(admin, { recursive: true, force: true })
 }
 
 type CheckoutGitRunner = (
@@ -500,20 +553,20 @@ export const createDetached = async (
   await mkdir(home, { recursive: true })
   const path = join(home, `${slugify(options.name)}-${randomBytes(4).toString('hex')}`)
   const timeout = options.timeoutMs ?? CHECKOUT_TIMEOUT_MS
+  let admin: string | null = null
   try {
     const target = await automaticCheckout(main, options.at, { signal: options.signal })
     await execute('git', ['-C', main, ...target.config, 'worktree', 'add', '--quiet', '--no-checkout', '--detach', path, target.at], {
       timeout, maxBuffer: 8 * 1024 * 1024, ...(options.signal ? { signal: options.signal } : {}),
     })
+    admin = await createdWorktreeAdmin(main, path)
     await automaticCheckout(path, target.at, {
       materialize: true, timeout, maxBuffer: 8 * 1024 * 1024, ...(options.signal ? { signal: options.signal } : {}),
     })
   } catch (error) {
     // The child has exited. Cleanup must run even when the caller's signal
     // is aborted, and even when add left too little metadata for remove.
-    await git(main, ['worktree', 'remove', '--force', path]).catch(() => undefined)
-    await rm(path, { recursive: true, force: true })
-    await git(main, ['worktree', 'prune', '--expire', 'now'])
+    await discardCreatedWorktree(main, path, admin).catch(() => undefined)
     if (options.signal?.aborted) throw new Error('Cutting the checkout was stopped.', { cause: error })
     const failure = error as { killed?: boolean; code?: string }
     if (failure?.killed && failure.code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {

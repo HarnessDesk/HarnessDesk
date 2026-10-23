@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -378,6 +378,26 @@ catch (error) { process.stderr.write(error.stderr || ''); process.exit(error.sta
     assert.equal(await f.git('branch', '--list', 'harnessdesk/conditional'), '')
   })
 }
+
+test('a failed automatic checkout leaves unrelated missing worktrees registered', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, '.gitattributes'), '*.txt filter=unset\n')
+  await f.git('add', '.')
+  await f.git('commit', '-qm', 'Set target attributes')
+  const at = await f.git('rev-parse', 'HEAD')
+  // A person's checkout on a volume that is not mounted right now: registered,
+  // folder absent, metadata — including a staged index — still theirs.
+  const unattached = join(f.base, 'unmounted')
+  await f.git('worktree', 'add', '-q', '--no-checkout', '-b', 'elsewhere', unattached, f.head)
+  const admin = (await run('git', ['-C', unattached, 'rev-parse', '--path-format=absolute', '--git-dir'])).stdout.trim()
+  await rm(unattached, { recursive: true, force: true })
+  const stateDir = join(f.base, 'state')
+  await assert.rejects(create(f.root, { name: 'pruning', base: at, stateDir }), /filter/i)
+  assert.equal(await stat(admin).then(() => true, () => false), true, 'the unrelated entry keeps its metadata')
+  const listed = await f.git('worktree', 'list', '--porcelain')
+  assert.equal(listed.includes(unattached), true, 'and it is still registered')
+  assert.equal(await f.git('branch', '--list', 'harnessdesk/pruning'), '')
+})
 
 for (const operation of ['repair packet', 'worktree list', 'worktree inventory', 'checkout preflight'] as const) {
   test(`${operation} leaves the repository filesystem monitor off`, async (t) => {
