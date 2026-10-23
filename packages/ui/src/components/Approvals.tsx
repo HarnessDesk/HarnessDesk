@@ -7,7 +7,7 @@ import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } fr
 import { wholeFileOf, DiffView } from '../editor'
 import { boardToolPhrase } from '../lib/tool-names'
 import { approvalChoiceOrder } from '../lib/approval-order'
-import { boardToolLabel, boardToolNamedBy, boardToolNote, boardToolPlacement, offersPermanentGrant } from '../lib/board-tool-note'
+import { boardToolLabel, boardToolNamedBy, boardToolNote, boardToolPlacement, offersPermanentGrant, permissionSummary } from '../lib/board-tool-note'
 import { folderShown } from '../lib/projects'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
 import {
@@ -117,7 +117,7 @@ const PermissionBody = ({ approval, hideSummary = false }: {
   hideSummary?: boolean
 }) => (
   <>
-    {!hideSummary && <ApprovalReason className={styles.reason}>{approval.summary}</ApprovalReason>}
+    {!hideSummary && <ApprovalReason className={styles.reason}>{permissionSummary(approval.summary)}</ApprovalReason>}
     {/* Why the agent is asking, when it said. The summary is the tool it wants
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
