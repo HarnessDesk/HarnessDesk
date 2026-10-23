@@ -1,5 +1,6 @@
 import { useId, useState, type ReactNode } from 'react'
 
+import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
@@ -30,7 +31,11 @@ export const AgentCatalogueCard = ({ name, description, face, runtime, ceiling, 
   const runtimeId = useId()
   const stateId = useId()
   const problemId = useId()
-  return <Button variant="ghost" size="pattern" render={<Card as="button" spacing="compact" />} className={styles.card} data-slot="agent-card" data-kind="record"
+  return <Button variant="ghost" size="pattern" render={<Card as="button" spacing="compact" />}
+    /* The gap is a utility, not a rule in the module: the compact Card brings `gap-2`, and a module rule that
+       restates it ties on specificity and wins only when its sheet is written later (the dev server) and loses
+       when the build writes it earlier. Passed here, the Card's own merge settles it, in both. */
+    className={cn('gap-4', styles.card)} data-slot="agent-card" data-kind="record"
     aria-label={name} aria-describedby={[description ? descriptionId : null, runtime ? runtimeId : null, status || ceiling ? stateId : null, problem ? problemId : null].filter(Boolean).join(' ') || undefined} onClick={onOpen}>
     <span className={styles.head}>
       <span data-slot="agent-card-face" className={styles.face}>{face}</span>
