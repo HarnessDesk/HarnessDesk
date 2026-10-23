@@ -221,3 +221,29 @@ test('non-test UI source names only built pages and no dev-server module URLs', 
   assert.ok(imports.E2E_PAGES.includes('src/preview/tile-page.html'))
   assert.ok(!imports.E2E_PAGES.includes('src/preview/browser-lanes.html'))
 })
+
+test('a regex with an escaped final slash does not hide a later file read', () => {
+  fixture({
+    'e2e/ui-system/example.spec.ts': "import '../../script/reader.mjs'",
+    'script/reader.mjs': String.raw`const pattern = /docs\//; readFileSync('docs/actual.md', 'utf8') // readFileSync('docs/comment.md')`,
+    'docs/actual.md': 'contract',
+    'docs/comment.md': 'comment',
+  }, root => {
+    const graph = imports.repositoryGraph(root)
+    assert.deepEqual(imports.specsReaching(graph, [join(root, 'docs/actual.md')]), [join(root, 'e2e/ui-system/example.spec.ts')])
+    assert.equal(graph.importers.has(join(root, 'docs/comment.md')), false)
+  })
+})
+
+test('nested templates preserve reads after URL text and ignore expression comments', () => {
+  fixture({
+    'e2e/ui-system/example.spec.ts': "import '../../script/reader.mjs'",
+    'script/reader.mjs': 'const value = `outer ${`https://example.com/${1 /* readFileSync(\'docs/comment.md\') */}`}`; readFileSync(\'docs/actual.md\')',
+    'docs/actual.md': 'contract',
+    'docs/comment.md': 'comment',
+  }, root => {
+    const graph = imports.repositoryGraph(root)
+    assert.deepEqual(imports.specsReaching(graph, [join(root, 'docs/actual.md')]), [join(root, 'e2e/ui-system/example.spec.ts')])
+    assert.equal(graph.importers.has(join(root, 'docs/comment.md')), false)
+  })
+})
