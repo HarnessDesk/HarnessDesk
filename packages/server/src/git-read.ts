@@ -72,7 +72,7 @@ const launch = (
     })
   }
   const closed = new Promise<void>((resolve, reject) => {
-    child.once('error', (error) => { failure ??= error })
+    child.on('error', (error) => { failure ??= error })
     child.once('close', (code, signal) => {
       if (failure !== undefined) reject(failure)
       else if (code === 0) resolve()

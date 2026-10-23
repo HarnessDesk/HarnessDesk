@@ -399,6 +399,28 @@ test('a failed automatic checkout leaves unrelated missing worktrees registered'
   assert.equal(await f.git('branch', '--list', 'harnessdesk/pruning'), '')
 })
 
+test('a failed automatic checkout from a remote-tracking base leaves no branch configuration behind', async (t) => {
+  const f = await fixture(t)
+  await writeFile(join(f.root, '.gitattributes'), '*.txt filter=unset\n')
+  await f.git('add', '.')
+  await f.git('commit', '-qm', 'Set target attributes')
+  const target = await f.git('rev-parse', 'HEAD')
+  await f.git('remote', 'add', 'origin', 'https://example.invalid/widgets.git')
+  await f.git('update-ref', 'refs/remotes/origin/trunk', target)
+  await f.git('checkout', '-q', f.head)
+  // Someone else's branch and its upstream: the cleanup must not touch it.
+  await f.git('branch', '--track', 'keeper', 'origin/trunk')
+  const stateDir = join(f.base, 'state')
+  await assert.rejects(create(f.root, { name: 'tracked.lane', base: 'origin/trunk', stateDir }), /filter/i)
+  assert.equal(await f.git('branch', '--list', 'harnessdesk/tracked.lane'), '', 'no branch was left behind')
+  await assert.rejects(
+    run('git', ['-C', f.root, 'config', '--get-regexp', '^branch\\.harnessdesk/tracked\\.lane\\.']),
+    (error: { code?: number }) => error.code === 1,
+    'and no upstream setting for it',
+  )
+  assert.equal(await f.git('config', '--get', 'branch.keeper.remote'), 'origin', 'another branch keeps its own')
+})
+
 for (const operation of ['repair packet', 'worktree list', 'worktree inventory', 'checkout preflight'] as const) {
   test(`${operation} leaves the repository filesystem monitor off`, async (t) => {
     const f = await fixture(t)

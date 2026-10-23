@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
-import { mkdir, readdir, realpath, rm } from 'node:fs/promises'
+import { mkdir, readdir, realpath, rm, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, parse, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -466,6 +466,11 @@ export const create = async (
     // Only the branch made above, and only while it still names our starting
     // commit. A cleanup failure must not replace the refusal that caused it.
     await git(main, ['update-ref', '-d', `refs/heads/${branch}`, target.at]).catch(() => undefined)
+    // `update-ref -d` leaves the `[branch "<name>"]` section the upstream above
+    // wrote; drop it with the ref, but not while a branch of that name is still
+    // there (it moved on, so it is no longer only ours).
+    const kept = await git(main, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]).then(() => true, () => false)
+    if (!kept) await git(main, ['config', '--remove-section', `branch.${branch}`]).catch(() => undefined)
     throw error
   }
   return { path, branch, head: (await git(path, ['rev-parse', 'HEAD'])).trim(), isMain: false, managed: true }
@@ -554,11 +559,16 @@ export const createDetached = async (
   const path = join(home, `${slugify(options.name)}-${randomBytes(4).toString('hex')}`)
   const timeout = options.timeoutMs ?? CHECKOUT_TIMEOUT_MS
   let admin: string | null = null
+  // A folder that was already there is not ours to remove when `add` refused it.
+  let existed = false
+  let added = false
   try {
     const target = await automaticCheckout(main, options.at, { signal: options.signal })
+    existed = await stat(path).then(() => true, () => false)
     await execute('git', ['-C', main, ...target.config, 'worktree', 'add', '--quiet', '--no-checkout', '--detach', path, target.at], {
       timeout, maxBuffer: 8 * 1024 * 1024, ...(options.signal ? { signal: options.signal } : {}),
     })
+    added = true
     admin = await createdWorktreeAdmin(main, path)
     await automaticCheckout(path, target.at, {
       materialize: true, timeout, maxBuffer: 8 * 1024 * 1024, ...(options.signal ? { signal: options.signal } : {}),
@@ -566,7 +576,7 @@ export const createDetached = async (
   } catch (error) {
     // The child has exited. Cleanup must run even when the caller's signal
     // is aborted, and even when add left too little metadata for remove.
-    await discardCreatedWorktree(main, path, admin).catch(() => undefined)
+    if (added || !existed) await discardCreatedWorktree(main, path, admin).catch(() => undefined)
     if (options.signal?.aborted) throw new Error('Cutting the checkout was stopped.', { cause: error })
     const failure = error as { killed?: boolean; code?: string }
     if (failure?.killed && failure.code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
