@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
+import childProcess from 'node:child_process'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
+import fsPromises from 'node:fs/promises'
 import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 import { add, inventory, inventoryOf, list, move, prune, remove, setLock } from '../src/git-worktree.js'
@@ -613,6 +616,167 @@ test('a confirmation covers file contents beyond the inventory display cap', asy
 
   await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
   assert.equal(await readFile(join(made.path, 'f44.txt'), 'utf8'), 'edit\n')
+})
+
+test('inventory survives a reader held back beyond the Git listing deadline', { timeout: 30_000 }, async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+  const directory = `cache/${'a'.repeat(200)}/${'b'.repeat(200)}`
+  await mkdir(join(made.path, directory), { recursive: true })
+  const seed = join(made.path, directory, 'seed')
+  await writeFile(seed, '')
+  for (let start = 0; start < 4096; start += 64) {
+    await Promise.all(Array.from({ length: 64 }, (_, offset) =>
+      link(seed, join(made.path, directory, `${start + offset}-${'x'.repeat(180)}`))))
+  }
+
+  const spawn = childProcess.spawn
+  let listing: ReturnType<typeof spawn> | undefined
+  t.mock.method(childProcess, 'spawn', ((command, args, options) => {
+    // Compress the production deadline so this regression takes milliseconds,
+    // while keeping real Git, pipes, backpressure and the child kill timer.
+    const ignored = args?.includes('--ignored')
+    const child = spawn(command, args!, ignored && options?.timeout
+      ? { ...options, timeout: 250 } : options!)
+    if (ignored) listing = child
+    return child
+  }) as typeof spawn)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let reached!: () => void
+  const blocked = new Promise<void>((resolve) => { reached = resolve })
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === join(made.path, 'cache')) {
+      reached()
+      await held
+    }
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    const reading = inventory(made.path)
+    await blocked
+    assert.ok(listing)
+    assert.equal(listing.exitCode, null, 'Git is still writing when the reader stops')
+    await delay(500)
+    release()
+    assert.deepEqual((await reading).ignored, ['cache/'])
+  } finally {
+    release()
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+test('inventory checks shared parents once before and after each metadata batch', async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+  await mkdir(join(made.path, 'cache', 'deep'), { recursive: true })
+  await Promise.all(Array.from({ length: 64 }, (_, index) =>
+    writeFile(join(made.path, 'cache', 'deep', `${index}.bin`), 'notes\n')))
+  const lstat = fsPromises.lstat
+  const reads = new Map<string, number>()
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    const path = String(args[0])
+    reads.set(path, (reads.get(path) ?? 0) + 1)
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    await inventory(made.path)
+    assert.equal(reads.get(join(made.path, 'cache')), 2)
+    assert.equal(reads.get(join(made.path, 'cache', 'deep')), 2)
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+})
+
+test('inventory refuses a parent changed during a metadata batch', async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+  const directory = join(made.path, 'cache')
+  await mkdir(directory)
+  const file = join(directory, 'one.bin')
+  await writeFile(file, 'notes\n')
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === file) await chmod(directory, (await stat(directory)).mode ^ 0o040)
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    await assert.rejects(inventory(made.path), /changed while reading its inventory/)
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+})
+
+test('forced removal refuses when inventory metadata cannot be read', async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const file = join(made.path, 'a.txt')
+  await writeFile(file, 'notes\n')
+  const held = await confirmed(made.path)
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === file) throw Object.assign(new Error('inventory metadata refused'), { code: 'EACCES' })
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    await assert.rejects(remove(repo, made.path, true, held, state), /inventory metadata refused/)
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  assert.equal(await readFile(file, 'utf8'), 'notes\n')
+})
+
+test('inventory walks nested repository folders in parallel', async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const nested = join(made.path, 'nested')
+  await mkdir(nested)
+  await git(nested, 'init', '-q', '-b', 'main')
+  for (let index = 0; index < 8; index++) {
+    const directory = join(nested, `folder${index}`)
+    await mkdir(directory)
+    await writeFile(join(directory, 'one.txt'), 'notes\n')
+  }
+  const lstat = fsPromises.lstat
+  let active = 0
+  let peak = 0
+  let reverse = false
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (!String(args[0]).endsWith('/one.txt')) return lstat(...args)
+    active++
+    peak = Math.max(peak, active)
+    try {
+      const index = Number(String(args[0]).match(/folder(\d+)/)?.[1] ?? 0)
+      await delay(reverse ? 8 - index : index + 1)
+      return await lstat(...args)
+    } finally {
+      active--
+    }
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    const held = await inventory(made.path)
+    reverse = true
+    assert.equal(held.stateId, await confirmed(made.path), 'completion order cannot change the digest')
+    assert.ok(peak > 1, `nested folders were checked ${peak} at a time`)
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
 })
 
 test('inventory handles large ignored listings and clean indexes', { timeout: 120_000 }, async (t) => {

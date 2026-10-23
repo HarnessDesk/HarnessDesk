@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import type { BigIntStats } from 'node:fs'
 import { lstat, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -187,7 +188,9 @@ const SHOWN = 40
 /** NUL records arrive incrementally, without buffering a whole tree listing. */
 const inventoryGitFields = async function* (cwd: string, args: readonly string[]): AsyncGenerator<string> {
   const child = spawn('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
-    stdio: ['ignore', 'pipe', 'pipe'], timeout: SLOW,
+    // The consumer pauses this stream for metadata checks. A wall-clock
+    // deadline would charge that work to Git while its pipe is blocked.
+    stdio: ['ignore', 'pipe', 'pipe'],
   })
   let stderr = ''
   child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString('utf8')).slice(-8_192) })
@@ -216,22 +219,37 @@ const inventoryGitFields = async function* (cwd: string, args: readonly string[]
   }
 }
 
+const metadataText = (info: BigIntStats | null): string => info
+  ? `${info.mode}\0${info.dev}\0${info.ino}\0${info.size}\0${info.mtimeNs}\0${info.ctimeNs}`
+  : 'missing'
+
+const inventoryMetadata = async (path: string) => {
+  const info = await lstat(path, { bigint: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
+    throw error
+  })
+  return { info, text: metadataText(info) }
+}
+type ParentMetadata = Map<string, ReturnType<typeof inventoryMetadata>>
+
 /** A replaced directory leaves its former descendants absent from this checkout. */
-const inventoryEntry = async (root: string, path: string) => {
+const inventoryEntry = async (root: string, path: string, parents: ParentMetadata) => {
   const parts = path.replace(/\/$/, '').split('/')
   let at = root
   for (const [index, part] of parts.entries()) {
     at = join(at, part)
-    const info = await lstat(at, { bigint: true }).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
-      throw error
-    })
-    if (!info || index === parts.length - 1) return info
+    if (index === parts.length - 1) return inventoryMetadata(at)
+    let pending = parents.get(at)
+    if (!pending) {
+      pending = inventoryMetadata(at)
+      parents.set(at, pending)
+    }
+    const entry = await pending
     // Inspect each parent before reading below it. A link is an entry of its
     // own, never a directory through which to read a former child's contents.
-    if (!info.isDirectory()) return null
+    if (!entry.info?.isDirectory()) return { info: null, text: 'missing' }
   }
-  return null
+  return { info: null, text: 'missing' }
 }
 
 export const inventory = async (path: string): Promise<GitWorktreeInventory> => {
@@ -271,42 +289,60 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
   for (const entry of ignored) digest.update(`!!\u0000${entry}\u0000`)
   // Git can collapse wholly ignored directories even with all untracked
   // paths requested. Ask for every ignored file separately for the digest.
-  const fingerprint = async (file: string) => {
-    const info = await inventoryEntry(root, file)
+  const fingerprint = async (file: string, parents: ParentMetadata) => {
+    const { info, text } = await inventoryEntry(root, file, parents)
     // ctime changes on writes and cannot be restored by setting mtime. No
     // contents need opening, including large, unreadable or replaced files.
-    const text = `${file}\0${info
-      ? `${info.mode}\0${info.dev}\0${info.ino}\0${info.size}\0${info.mtimeNs}\0${info.ctimeNs}`
-      : 'missing'}\0`
-    return { file, text, directory: info?.isDirectory() ?? false }
+    return { file, text: `${file}\0${text}\0`, directory: info?.isDirectory() ?? false }
   }
   type Fingerprint = Awaited<ReturnType<typeof fingerprint>>
-  const include = async (entry: Fingerprint): Promise<void> => {
-    digest.update(entry.text)
-    if (!entry.directory) return
+  const changed = () => new Error('The worktree changed while reading its inventory. Review it again.')
+  const include = async (entry: Fingerprint, concurrency: number, parents: ParentMetadata): Promise<string> => {
+    if (!entry.directory) return entry.text
+    // Each subtree has its own digest, so parallel siblings cannot reorder
+    // the confirmation. Divide the batch's worker budget among its subtrees.
+    const subtree = createHash('sha256').update(entry.text)
     // Git leaves nested repositories as a single directory. Include every
     // descendant's metadata; a symbolic link is never a directory to descend.
     const prefix = entry.file.replace(/\/$/, '')
-    for (const name of (await readdir(join(root, prefix))).sort()) {
-      await include(await fingerprint(`${prefix}/${name}`))
+    const names = (await readdir(join(root, prefix))).sort()
+    for (let start = 0; start < names.length; start += concurrency) {
+      for (const text of await readBatch(names.slice(start, start + concurrency).map((name) => `${prefix}/${name}`), concurrency)) {
+        subtree.update(text)
+      }
     }
-    if ((await fingerprint(entry.file)).text !== entry.text) {
-      throw new Error('The worktree changed while reading its inventory. Review it again.')
-    }
+    if ((await fingerprint(entry.file, parents)).text !== entry.text) throw changed()
+    return `${entry.text}${subtree.digest('hex')}\0`
   }
-  for (const file of [...new Set(changes.map((change) => change.path))].sort()) await include(await fingerprint(file))
+  const readBatch = async (files: string[], concurrency = 64): Promise<string[]> => {
+    // Cache promises as well as their metadata text: siblings share the
+    // in-flight parent check, and every cached ancestor is checked again
+    // after the batch (including any nested traversal) has finished.
+    const parents: ParentMetadata = new Map()
+    const entries = await Promise.all(files.map((file) => fingerprint(file, parents)))
+    const share = Math.max(1, Math.floor(concurrency / Math.max(1, files.length)))
+    const texts = await Promise.all(entries.map((entry) => include(entry, share, parents)))
+    const ancestors = [...parents]
+    for (let start = 0; start < ancestors.length; start += concurrency) {
+      await Promise.all(ancestors.slice(start, start + concurrency).map(async ([path, before]) => {
+        if ((await inventoryMetadata(path)).text !== (await before).text) throw changed()
+      }))
+    }
+    return texts
+  }
+  const changedFiles = [...new Set(changes.map((change) => change.path))].sort()
+  for (let start = 0; start < changedFiles.length; start += 64) {
+    for (const text of await readBatch(changedFiles.slice(start, start + 64))) digest.update(text)
+  }
   digest.update('\0ignored\0')
   // Bound metadata reads while retaining Git's record order in the digest.
-  let batch: Promise<{ value: Fingerprint } | { error: unknown }>[] = []
+  let batch: string[] = []
   const flush = async (): Promise<void> => {
-    for (const result of await Promise.all(batch)) {
-      if ('error' in result) throw result.error
-      await include(result.value)
-    }
+    for (const text of await readBatch(batch)) digest.update(text)
     batch = []
   }
   for await (const file of inventoryGitFields(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'])) {
-    batch.push(fingerprint(file).then((value) => ({ value }), (error: unknown) => ({ error })))
+    batch.push(file)
     if (batch.length === 64) await flush()
   }
   await flush()
