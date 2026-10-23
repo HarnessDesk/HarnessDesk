@@ -111,6 +111,66 @@ test('workspace saves resolve a dangling relative link from its real parent', as
   }
 })
 
+/**
+ * `..` after a link goes up from the folder the link led to, not from the
+ * folder the text before it names. A cloned repository can carry both links:
+ * `sub` leads out of the project, and `new` reads as `sub/../x` — a sibling
+ * of `sub` as text, a file in the folder above `sub`'s target for the kernel.
+ * A runtime's own writer follows the link, so the check has to name the file
+ * the writer will create.
+ */
+test('workspace saves through a dangling link follow ".." from the folder a link reached', async (t) => {
+  for (const provider of ['local', 'runtime'] as const) {
+    await t.test(provider, async (t) => {
+      const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+      t.after(() => rm(dir, { recursive: true, force: true }))
+      const root = join(dir, 'project')
+      await mkdir(root)
+      await mkdir(join(dir, 'elsewhere', 'dir'), { recursive: true })
+      await symlink(join(dir, 'elsewhere', 'dir'), join(root, 'sub'))
+      await symlink('sub/../x', join(root, 'new'))
+      const files = new LocalFiles()
+      if (provider === 'runtime') files.write = async (target, data) => writeFile(target, data)
+      const ctx = { workspaces: { fileRoots: () => [root] }, runtimes: { files: () => files } } as unknown as HostContext
+      const path = join(root, 'new')
+      await assert.rejects(workspaceMethods['workspace/readFile'](ctx, { path }), /outside every open workspace/)
+      await assert.rejects(workspaceMethods['file/save'](ctx, { path, content: 'new contents', expectedHash: '' }), /outside every open workspace/)
+      await assert.rejects(readFile(join(dir, 'elsewhere', 'x')), { code: 'ENOENT' })
+      await assert.rejects(readFile(join(root, 'x')), { code: 'ENOENT' })
+    })
+  }
+})
+
+test('workspace saves through a dangling link keep to the file it names when that file is inside the project', async (t) => {
+  for (const provider of ['local', 'runtime'] as const) {
+    await t.test(provider, async (t) => {
+      const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+      t.after(() => rm(dir, { recursive: true, force: true }))
+      const root = join(dir, 'project')
+      await mkdir(join(root, 'real', 'deep'), { recursive: true })
+      await mkdir(join(root, 'docs'))
+      await mkdir(join(root, 'build'))
+      await symlink(join(root, 'real', 'deep'), join(root, 'sub'))
+      // As text this is project/x. The file it names is project/real/x.
+      await symlink('sub/../x', join(root, 'new'))
+      // The plain case: a documentation link to a build output that is not built yet.
+      await symlink('../build/out.md', join(root, 'docs', 'latest.md'))
+      const files = new LocalFiles()
+      if (provider === 'runtime') files.write = async (target, data) => writeFile(target, data)
+      const ctx = { workspaces: { fileRoots: () => [root] }, runtimes: { files: () => files } } as unknown as HostContext
+      for (const [link, named] of [
+        [join(root, 'new'), join(root, 'real', 'x')],
+        [join(root, 'docs', 'latest.md'), join(root, 'build', 'out.md')],
+      ] as const) {
+        const saved = await workspaceMethods['file/save'](ctx, { path: link, content: 'new contents', expectedHash: '' })
+        assert.equal(saved.saved, true, link)
+        assert.equal(await readFile(named, 'utf8'), 'new contents', link)
+      }
+      await assert.rejects(readFile(join(root, 'x')), { code: 'ENOENT' })
+    })
+  }
+})
+
 test('workspace reads and saves refuse file and directory links outside the opened root', async (t) => {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
   t.after(() => rm(dir, { recursive: true, force: true }))

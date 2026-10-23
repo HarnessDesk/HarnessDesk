@@ -1632,6 +1632,24 @@ copy with one filesystem link can be edited here. This deliberately refuses
 hard links in package stores and copy trees as well; symbolic paths whose
 canonical target stays inside an admitted root keep their existing behavior.
 
+## Path confinement walks a link's target the way the kernel does
+
+A path is admitted when its spelling and its canonical target are both inside
+an admitted root. The canonical target of a name that is not there yet is its
+deepest existing ancestor with the missing names appended, and a link that
+leads nowhere yet still names a destination: that destination is part of the
+answer. It is found by walking the link's target one name at a time, from the
+link's real parent (from the root of the filesystem for an absolute target).
+A `..` takes the parent of the real folder reached so far, a name that exists
+becomes its real path, and a link met on the way is followed in turn.
+
+Reading the target as text is wrong exactly when a `..` follows a link:
+`sub/../x` is a sibling of `sub` as text, but for the kernel it is a file
+beside the folder `sub` leads to, which can be outside the project that holds
+both links and is where a runtime's own writer creates the file. A `..` after
+a name that does not exist has no folder to go up from, so the walk refuses it
+rather than guessing.
+
 ## An evidence guard judges revisions, found by card and revision, never by round
 
 A finished round's rule asks whether some work is good enough to move on,
