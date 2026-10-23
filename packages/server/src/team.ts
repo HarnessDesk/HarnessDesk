@@ -5151,7 +5151,9 @@ export class Team {
       const detail = intent.detail && intent.state !== 'done' ? `\n    ${intent.detail}` : ''
       return `#${intent.id} ${status} — ${intent.title}${note}${detail}${files}${handoff}`
     })
-    return `${this.#counts(board)}.\n\n${lines.join('\n')}`
+    // The same first line status gives: a Seat that only lists the board inside its brief's turn still reads what the Team is for.
+    const named = board.name?.trim() ? `Team: ${board.name.trim()}\n` : ''
+    return `${named}${this.#counts(board)}.\n\n${lines.join('\n')}`
   }
 
   /**
