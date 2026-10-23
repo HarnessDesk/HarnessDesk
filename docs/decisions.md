@@ -1619,6 +1619,19 @@ The host's per-file turn fallback has the same platform limit for creating
 and removing files, including rollback. Its refusal names workspace file
 changes. Aggregated patches and individual update hunks still go through Git.
 
+## Local workspace editing requires one filesystem link
+
+Local workspace reads and saves both require a regular file with exactly one
+filesystem link. A hard-linked file is returned as unreadable, without an
+editor hash, before an edit can begin. A save checks the opened descriptor
+again before truncating it. The same workspace refusal explains both cases.
+
+Several hard-linked pathnames share their contents, so a save would also
+change the other names, including any outside the admitted roots. A separate
+copy with one filesystem link can be edited here. This deliberately refuses
+hard links in package stores and copy trees as well; symbolic paths whose
+canonical target stays inside an admitted root keep their existing behavior.
+
 ## An evidence guard judges revisions, found by card and revision, never by round
 
 A finished round's rule asks whether some work is good enough to move on,

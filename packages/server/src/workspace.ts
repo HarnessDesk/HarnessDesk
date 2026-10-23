@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { constants } from 'node:fs'
+import { constants, type Stats } from 'node:fs'
 import { isUtf8 } from 'node:buffer'
 import { lstat, readdir, stat, watch as fsWatch } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -226,7 +226,7 @@ export class LocalFiles implements RuntimeFiles {
     const handle = await this.#open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_NONBLOCK)
     try {
       const info = await handle.stat()
-      if (!info.isFile() || info.nlink !== 1) throw new Error(`${path} is not an ordinary file with one link`)
+      this.#assertFile(path, info)
       await handle.truncate(0)
       await handle.writeFile(data)
     } finally {
@@ -236,6 +236,13 @@ export class LocalFiles implements RuntimeFiles {
 
   #target(path: string, mode: 'read' | 'write'): string {
     return this.options.roots ? confinedTarget(path, this.options.roots(mode)) : canonicalTarget(path)
+  }
+
+  #assertFile(path: string, info: Stats): void {
+    if (!info.isFile()) throw new Error(`${path} is not a file`)
+    if (info.nlink !== 1) {
+      throw new Error('Workspace files need exactly one filesystem link to be read or saved. Open a separate copy to edit this file.')
+    }
   }
 
   async #open(path: string, flags: number) {
@@ -273,7 +280,7 @@ export class LocalFiles implements RuntimeFiles {
     const handle = await this.#open(this.#target(path, 'read'), constants.O_RDONLY | constants.O_NONBLOCK)
     try {
       const info = await handle.stat()
-      if (!info.isFile()) throw new Error(`${path} is not a file`)
+      this.#assertFile(path, info)
       const buffer = Buffer.alloc(Math.max(0, maxBytes))
       const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0)
       return buffer.subarray(0, bytesRead)

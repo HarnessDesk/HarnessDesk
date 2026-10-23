@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { constants } from 'node:fs'
-import { chmod, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, link, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,6 +10,29 @@ import { errnoOf } from '../src/errno.js'
 import { confine, isBinaryFile, isMissingWorkspaceFileError, LocalFiles, sha256 } from '../src/workspace.js'
 import { workspaceMethods } from '../src/methods/workspace.js'
 import type { HostContext } from '../src/methods/context.js'
+
+test('workspace reads refuse hard-linked files before returning an editable hash', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const root = join(dir, 'project')
+  await mkdir(root)
+  const path = join(root, 'file.txt')
+  const other = join(dir, 'other.txt')
+  await writeFile(path, 'original')
+  await link(path, other)
+  const files = new LocalFiles()
+  const ctx = { workspaces: { fileRoots: () => [root] }, runtimes: { files: () => files } } as unknown as HostContext
+  const result = await workspaceMethods['workspace/readFile'](ctx, { path })
+  assert.equal(result.kind, 'unreadable')
+  assert.equal('hash' in result, false)
+  if (result.kind === 'unreadable') assert.match(result.message, /one filesystem link/)
+  await assert.rejects(workspaceMethods['file/save'](ctx, {
+    path, content: 'replacement', expectedHash: sha256(Buffer.from('original')),
+  }), /one filesystem link/)
+  await assert.rejects(files.write(path, Buffer.from('replacement')), /one filesystem link/)
+  assert.equal(await readFile(path, 'utf8'), 'original')
+  assert.equal(await readFile(other, 'utf8'), 'original')
+})
 
 test('unsupported local content opens explain the workspace platform requirement', async (t) => {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
