@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { HARDENED_GIT_CONFIG, hardenedNetworkGit } from './git-hardening.js'
 import { concluding } from './git.js'
 import { withGitMutation } from './git-mutation.js'
 import { isRevisionName, isSha } from './git-revision.js'
@@ -249,8 +249,8 @@ export const commitAll = async (
 
 /** A host-owned destination: explicit refspec, no implicit upstream and no history rewrite.
  * An empty lease makes first publication create-only, including races with another writer. */
-export const pushBranch = async (root: string, remoteUrl: string, head: string, ref: string, createOnly: boolean): Promise<void> => {
-  await git(root, [...HARDENED_GIT_CONFIG, 'push', '--porcelain', ...(createOnly ? [`--force-with-lease=${ref}:`] : []), '--', remoteUrl, `${head}:${ref}`], NETWORK)
+export const pushBranch = async (root: string, remoteUrl: string, head: string, ref: string, createOnly: boolean, allowLocalFile = false): Promise<void> => {
+  await hardenedNetworkGit(root, ['push', '--porcelain', ...(createOnly ? [`--force-with-lease=${ref}:`] : []), '--', remoteUrl, `${head}:${ref}`], { allowLocalFile })
 }
 
 // ------------------------------------------------------------ pull and push

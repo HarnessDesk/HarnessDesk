@@ -4,7 +4,7 @@ import { isDeepStrictEqual, promisify } from 'node:util'
 import { parseLeadCardDecisionFor, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadPullRequest, type TriggerFact } from '@harnessdesk/protocol'
 import { parseLeadPublicationSource, type LeadJournal, type LeadPublicationSource, type LeadPublicationOperation, type LeadOwnedPush } from '@harnessdesk/lead'
 import type { PullObservation, PullWatch } from '../intake/forge.js'
-import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
+import { HARDENED_GIT_CONFIG, hardenedNetworkGit, rawPushUrl, githubRepositoryFromUrl } from '../git-hardening.js'
 import { pushBranch } from '../git-actions.js'
 
 const run = promisify(execFile)
@@ -16,18 +16,20 @@ const git = async (cwd: string, args: readonly string[]): Promise<string> => {
 export const verifyPublicationSource = async (value: LeadPublicationSource): Promise<void> => {
   const source = parseLeadPublicationSource(value)
   if (source.branch === source.defaultBranch) throw new Error('lead-push-default-branch')
+  const configured = await rawPushUrl(source.cwd, source.remote)
+  const destinationMatches = configured === source.remoteUrl || githubRepositoryFromUrl(configured) === source.repository && githubRepositoryFromUrl(source.remoteUrl) === source.repository
   if (await git(source.cwd, ['symbolic-ref', '--short', 'HEAD']) !== source.branch || await git(source.cwd, ['rev-parse', 'HEAD']) !== source.head ||
-    await git(source.cwd, ['remote', 'get-url', '--push', '--all', source.remote]) !== source.remoteUrl)
+    !destinationMatches)
     throw new Error('lead-publication-checkout-changed')
 }
 /** New branches are create-only; updates require the exact owned tip and proven ancestry.
  * The empty lease is a create-if-absent assertion, never permission to replace a branch. */
-export const pushToOwnedBranch = async (source: LeadPublicationSource, ownedHead: string | null, reconcile = false): Promise<{ pushed: boolean }> => {
+export const pushToOwnedBranch = async (source: LeadPublicationSource, ownedHead: string | null, reconcile = false, beforePush: () => Promise<void> = async () => {}, allowLocalFile = false): Promise<{ pushed: boolean }> => {
   await verifyPublicationSource(source)
   const ref = `refs/heads/${source.branch}`
-  const read = await git(source.cwd, ['ls-remote', '--heads', source.remoteUrl, ref])
+  const read = await hardenedNetworkGit(source.cwd, ['ls-remote', '--heads', source.remoteUrl, ref], { allowLocalFile })
   const remote = read.split('\n').map(line => line.split(/\s+/)).find(([, name]) => name === ref)?.[0] ?? null
-  if (remote === source.head && (ownedHead !== null || reconcile)) return { pushed: false }
+  if (remote === source.head && (ownedHead === source.head || reconcile)) return { pushed: false }
   if (ownedHead === null && remote !== null) throw new Error('lead-push-branch-exists-not-owned')
   if (ownedHead !== null) {
     if (remote !== ownedHead) throw new Error('lead-push-owned-head-changed')
@@ -35,8 +37,9 @@ export const pushToOwnedBranch = async (source: LeadPublicationSource, ownedHead
     catch { throw new Error('lead-push-not-fast-forward') }
   }
   await verifyPublicationSource(source)
-  await pushBranch(source.cwd, source.remoteUrl, source.head, ref, ownedHead === null)
-  if ((await git(source.cwd, ['ls-remote', '--heads', source.remoteUrl, ref])).split(/\s/)[0] !== source.head)
+  await beforePush()
+  await pushBranch(source.cwd, source.remoteUrl, source.head, ref, ownedHead === null, allowLocalFile)
+  if ((await hardenedNetworkGit(source.cwd, ['ls-remote', '--heads', source.remoteUrl, ref], { allowLocalFile })).split(/\s/)[0] !== source.head)
     throw new Error('lead-push-head-changed')
   return { pushed: true }
 }
@@ -45,15 +48,18 @@ export const pushToOwnedBranch = async (source: LeadPublicationSource, ownedHead
 export const pushOwnedLeadBranch = async (options: {
   readonly journal: LeadJournal; readonly source: LeadPublicationSource; readonly now: () => number
   readonly validate: () => Promise<void>
+  readonly allowLocalFile?: boolean
 }): Promise<void> => {
   const { journal, validate } = options, source = parseLeadPublicationSource(options.source)
   const previous = journal.state.ownedPush, pr = journal.state.pr
   if (!pr) throw new Error('lead-push-unowned')
   if (previous?.stage === 'completed' && previous.source.head === source.head && pr.head === source.head) return
   await validate()
-  const replay = previous?.source.head === source.head
-  let operation: LeadOwnedPush = replay ? { ...previous!, stage: 'prepared' } :
-    { source, number: pr.number, previousHead: pr.head, at: options.now(), stage: 'prepared' }
+  if (previous?.stage === 'needs-you' && previous.source.head !== source.head && previous.effectStarted === false)
+    await journal.ownedPush({ ...previous, stage: 'superseded' })
+  const replay = previous?.source.head === source.head && previous.stage !== 'superseded'
+  let operation: LeadOwnedPush = replay ? { ...previous!, stage: previous!.stage === 'push-started' ? 'push-started' : 'prepared' } :
+    { source, number: pr.number, previousHead: pr.head, at: options.now(), stage: 'prepared', effectStarted: false }
   if (!isDeepStrictEqual(operation.source, source)) throw new Error('lead-push-source-changed')
   await journal.ownedPush(operation)
   try {
@@ -61,7 +67,9 @@ export const pushOwnedLeadBranch = async (options: {
     const current = journal.state
     if (current.pr?.head !== operation.previousHead || current.pr.number !== operation.number || current.pr.state !== 'open' ||
       ['accepted', 'declined', 'stopped'].includes(current.phase) || current.recoveryBlocked || current.budget?.stop) throw new Error('lead-push-owner-changed')
-    await pushToOwnedBranch(source, operation.previousHead, !!replay)
+    await pushToOwnedBranch(source, operation.previousHead, !!replay && (previous?.effectStarted === true || previous?.stage === 'push-started'), async () => {
+      operation = { ...operation, stage: 'push-started', effectStarted: true }; await journal.ownedPush(operation)
+    }, options.allowLocalFile)
     operation = { ...operation, stage: 'completed' }
     await journal.ownedPush(operation)
   } catch (error) {
@@ -74,6 +82,7 @@ export interface LeadPrCandidate { readonly repository: string; readonly number:
 type ResultCard = Extract<LeadCard, { type: 'result' }>
 export interface LeadPrFollowOptions {
   readonly journal: LeadJournal
+  readonly allowLocalFile?: boolean
   readonly now: () => number
   readonly validate: (card: ResultCard, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly source: (card: ResultCard, contract: LeadAcceptanceContract) => Promise<LeadPublicationSource>
@@ -104,27 +113,31 @@ export class LeadPrFollow {
     const source = parseLeadPublicationSource(await this.options.source(card, contract))
     this.#card(decision)
     const previous = this.options.journal.state.publication
-    const retry = previous?.stage === 'needs-you' && isDeepStrictEqual(previous.decision, decision) && isDeepStrictEqual(previous.source, source)
+    const same = previous && isDeepStrictEqual(previous.decision, decision) && isDeepStrictEqual(previous.source, source)
+    if (same && !['completed', 'needs-you', 'superseded'].includes(previous.stage)) { await this.#run(previous.effectStarted === true); return }
+    const retry = previous?.stage === 'needs-you' && same
+    if (previous?.stage === 'needs-you' && !retry && previous.effectStarted === false)
+      await this.options.journal.publication({ ...previous, stage: 'superseded' })
     const id = retry ? previous.id : `publication-${randomUUID()}`
-    if (previous && previous.stage !== 'completed' && !retry) throw new Error('lead-publication-pending')
-    await this.options.journal.publication(retry ? { ...previous, stage: 'push-prepared' } : { id, decision, source, at: this.options.now(), stage: 'push-prepared' })
-    await this.#run(retry)
+    if (previous && !['completed', 'superseded'].includes(this.options.journal.state.publication!.stage) && !retry) throw new Error('lead-publication-pending')
+    await this.options.journal.publication(retry ? { ...previous, stage: 'push-prepared' } : { id, decision, source, at: this.options.now(), stage: 'push-prepared', effectStarted: false })
+    await this.#run(!!retry && previous?.effectStarted === true)
 
   }) }
   pushOwned(source: LeadPublicationSource, validate: () => Promise<void>): Promise<void> {
-    return this.#queue(() => pushOwnedLeadBranch({ journal: this.options.journal, source, now: this.options.now, validate }))
+    return this.#queue(() => pushOwnedLeadBranch({ journal: this.options.journal, source, now: this.options.now, validate, allowLocalFile: this.options.allowLocalFile }))
   }
   reconcile(): Promise<void> { return this.#queue(async () => {
     const op = this.options.journal.state.publication
-    if (!op || op.stage === 'needs-you' || this.options.journal.state.decidedCards.includes(`${op.decision.cardId}:${op.decision.expectedRevision}`)) return
-    await this.#run(true)
+    if (!op || op.stage === 'needs-you' || op.stage === 'superseded' || this.options.journal.state.decidedCards.includes(`${op.decision.cardId}:${op.decision.expectedRevision}`)) return
+    await this.#run(op.effectStarted === true || ['push-started', 'pushed', 'create-prepared', 'completed'].includes(op.stage))
   }) }
   async #run(recovering: boolean): Promise<void> {
     const { journal, validate, source: readSource, find, create } = this.options
     let op = journal.state.publication!
     const { card, contract } = this.#card(op.decision)
     const advance = async (stage: LeadPublicationOperation['stage'], pr: LeadPullRequest | null = null) => {
-      op = { ...op, stage }; await journal.publication(op, pr)
+      op = { ...op, stage, ...(stage === 'push-started' ? { effectStarted: true } : {}) }; await journal.publication(op, pr)
     }
     const guard = async () => {
       this.#card(op.decision)
@@ -141,10 +154,13 @@ export class LeadPrFollow {
         candidates[0]!.branch === op.source.branch && candidates[0]!.head === op.source.head && (!owned || candidates[0]!.number === owned.number)
       if (owned && candidates.length === 1 && candidates[0]!.repository === owned.repository && candidates[0]!.number === owned.number && candidates[0]!.branch === owned.branch && candidates[0]!.head === owned.head && owned.head !== op.source.head) candidates = []
       if (candidates.length && !matching()) throw new Error('lead-publication-conflict')
-      if (op.stage === 'push-prepared') {
+      if (op.stage === 'push-prepared' || op.stage === 'push-started') {
         if (!candidates.length) {
           await guard()
-          await (this.options.push ?? pushToOwnedBranch)(op.source, owned?.head ?? null, recovering)
+          if (this.options.push) {
+            await advance('push-started')
+            await this.options.push(op.source, owned?.head ?? null, recovering)
+          } else await pushToOwnedBranch(op.source, owned?.head ?? null, recovering, () => advance('push-started'), this.options.allowLocalFile)
         }
         await advance('pushed')
       }
@@ -188,8 +204,8 @@ export class LeadPrFollow {
   async observe(observation: PullObservation): Promise<void> {
     const { journal } = this.options, state = journal.state, pr = state.pr
     if (!pr || !this.watches().length || observation.repository !== pr.repository || observation.number !== pr.number ||
-      observation.head !== pr.head || observation.at < pr.at) return
-    const next = { ...pr, state: observation.state, check: state.follow.checks ? observation.check?.head === pr.head ? observation.check : null : pr.check, at: observation.at }
+      observation.at < pr.at) return
+    const next = { ...pr, observedHead: observation.head, state: observation.state, check: state.follow.checks ? observation.check?.head === pr.head ? observation.check : null : pr.check, at: observation.at }
     if (JSON.stringify(next) !== JSON.stringify(pr)) await journal.observePr(next)
   }
 }

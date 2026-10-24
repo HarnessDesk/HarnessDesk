@@ -1,17 +1,18 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createPullRequest, DEFAULT_SIGNATURE, deskMarked, renderSignature, signDescription, unmarked, type GhPullRequest } from '@harnessdesk/plugins'
-import { leadPlanRuns, type LeadAcceptanceEvidence, type LeadJournal, type LeadPublicationSource } from '@harnessdesk/lead'
+import { leadPlanRuns, leadPublicationEvidenceRevision, type LeadAcceptanceEvidence, type LeadJournal, type LeadPublicationSource } from '@harnessdesk/lead'
 import type { ForgeReference, LeadProject, SeatRecord } from '@harnessdesk/protocol'
 import type { ForgePlane } from '../forge.js'
 import { shellCheckoutIdentity } from '../worktree.js'
-import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
+import { HARDENED_GIT_CONFIG, hardenedNetworkGit, rawPushUrl, githubRepositoryFromUrl } from '../git-hardening.js'
 import { repositoryOf } from '../findings/publication.js'
 import { verifyPublicationSource, type LeadPrCandidate, type LeadPrFollowOptions } from './pr-follow.js'
 
 const run = promisify(execFile)
 interface PublicationPorts {
   readonly journal: LeadJournal
+  readonly allowLocalFile?: boolean
   readonly project: LeadProject
   readonly forge: Pick<ForgePlane, 'publicationAllowed' | 'seat' | 'identity' | 'publish'>
   readonly seats: () => readonly SeatRecord[]
@@ -65,7 +66,7 @@ export const leadPublicationPorts = (port: PublicationPorts): Pick<LeadPrFollowO
     return pr
   }
   return {
-    source: async (_card, contract) => {
+    source: async (card, contract) => {
       if (contract.project.id !== port.project.id || contract.project.path !== port.project.path) throw new Error('lead-publication-project-changed')
       const runs = leadPlanRuns(port.journal.state)
       const sources: LeadPublicationSource[] = []
@@ -83,11 +84,15 @@ export const leadPublicationPorts = (port: PublicationPorts): Pick<LeadPrFollowO
         const remotes = (await git(cwd, ['remote'])).split('\n').filter(Boolean)
         const remote = remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0]! : ''
         if (!remote) throw new Error('lead-publication-remote-unverifiable')
-        const remoteUrl = await git(cwd, ['remote', 'get-url', '--push', '--all', remote])
-        const repo = JSON.parse(await gh(cwd, ['repo', 'view', '--json', 'nameWithOwner,url,defaultBranchRef'])) as {
+        const configuredUrl = await rawPushUrl(cwd, remote)
+        const remoteRepo = githubRepositoryFromUrl(configuredUrl)
+        if (!contract.publicationRepository || remoteRepo !== contract.publicationRepository) throw new Error('lead-publication-repository-changed')
+        const remoteUrl = configuredUrl.startsWith('https:') ? `https://github.com/${contract.publicationRepository}.git` : `git@github.com:${contract.publicationRepository}.git`
+        if (card.publication === 'push' && (!card.publicationSource || card.publicationSource.runId !== run.runId ||
+          card.publicationSource.reviewedHead !== head || card.publicationSource.evidenceRevision !== leadPublicationEvidenceRevision(evidence))) throw new Error('lead-card-stale')
+        const repo = JSON.parse(await gh(cwd, ['repo', 'view', contract.publicationRepository, '--json', 'nameWithOwner,url,defaultBranchRef'])) as {
           nameWithOwner: string; url: string; defaultBranchRef?: { name?: string }
         }
-        const remoteRepo = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(remoteUrl)?.[1]
         if (!remoteRepo || remoteRepo !== repo.nameWithOwner || repo.url !== `https://github.com/${remoteRepo}` || !repo.defaultBranchRef?.name)
           throw new Error('lead-publication-repository-changed')
         sources.push({ repository: repo.nameWithOwner, cwd, remote, remoteUrl, defaultBranch: repo.defaultBranchRef.name, branch, head,
@@ -101,9 +106,11 @@ export const leadPublicationPorts = (port: PublicationPorts): Pick<LeadPrFollowO
     },
     find: async (source, recovering) => {
       await allowed(source)
-      const rows = JSON.parse(await gh(source.cwd, ['pr', 'list', '--repo', source.repository, '--head', source.branch, '--state', 'open', '--json', 'number,url,headRefName,headRefOid,body'])) as
-        { number: number; url: string; headRefName: string; headRefOid: string; body?: string }[]
-      if (!Array.isArray(rows) || rows.length > 1) throw new Error('lead-publication-pr-unverifiable')
+      const listed = JSON.parse(await gh(source.cwd, ['pr', 'list', '--repo', source.repository, '--head', source.branch, '--state', 'open', '--json', 'number,url,headRefName,headRefOid,body,isCrossRepository,headRepositoryOwner'])) as
+        { number: number; url: string; headRefName: string; headRefOid: string; body?: string; isCrossRepository?: boolean; headRepositoryOwner?: { login: string } }[]
+      if (!Array.isArray(listed)) throw new Error('lead-publication-pr-unverifiable')
+      const rows = listed.filter(row => row.isCrossRepository !== true && (!row.headRepositoryOwner || row.headRepositoryOwner.login.toLowerCase() === source.repository.split('/')[0]!.toLowerCase()))
+      if (rows.length > 1) throw new Error('lead-publication-pr-unverifiable')
       const publications = await port.publications(source), owned = port.journal.state.pr
       const verified: LeadPrCandidate[] = []
       for (const row of rows) {
@@ -119,12 +126,19 @@ export const leadPublicationPorts = (port: PublicationPorts): Pick<LeadPrFollowO
     create: async (source, _card, contract) => {
       await verifyPublicationSource(source)
       await allowed(source)
-      const published = await git(source.cwd, ['ls-remote', '--heads', source.remoteUrl, `refs/heads/${source.branch}`])
+      const published = await hardenedNetworkGit(source.cwd, ['ls-remote', '--heads', source.remoteUrl, `refs/heads/${source.branch}`], { allowLocalFile: port.allowLocalFile })
       if (published.split(/\s/)[0] !== source.head) throw new Error('lead-publication-remote-head-changed')
       const seat = await port.forge.seat(source), template = port.signature() ?? DEFAULT_SIGNATURE
       if (!seat) throw new Error('lead-publication-seat-unavailable')
       const read = async (selector: string) => JSON.parse(await gh(source.cwd, ['pr', 'view', selector, '--repo', source.repository, '--json', 'number,title,state,url,body,headRefName,headRefOid'])) as GhPullRequest & { headRefOid: string }
-      const pr = await createPullRequest({ git: args => git(source.cwd, args), runGit: args => gitResult(source.cwd, args),
+      const publicationGit = async (args: readonly string[]) => {
+        const verb = args.findIndex(arg => ['ls-remote', 'fetch', 'push'].includes(arg))
+        if (verb < 0) return gitResult(source.cwd, args)
+        const command = args.slice(verb).map(arg => arg === source.remote ? source.remoteUrl : arg)
+        try { return { stdout: await hardenedNetworkGit(source.cwd, command, { allowLocalFile: port.allowLocalFile }), stderr: '', exitCode: 0 } }
+        catch (error) { const result = error as { stdout?: string; stderr?: string; code?: number }; return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', exitCode: result.code ?? -1 } }
+      }
+      const pr = await createPullRequest({ git: async args => { const result = await publicationGit(args); if (result.exitCode !== 0) throw new Error('lead-publication-git-unavailable'); return result.stdout.trim() }, runGit: publicationGit,
         gh: args => gh(source.cwd, [...args, '--repo', source.repository]), viewPullRequest: read, publicationAllowed: () => allowed(source),
         description: async body => `${deskMarked(signDescription(unmarked(body), template, seat))}\n\n<!-- harnessdesk:lead:${port.journal.state.budget!.logicalGoalId}:${port.journal.state.publication!.id} -->`,
       }, { title: contract.goal.split(/\r?\n/)[0]!.slice(0, 256), body: contract.goal })

@@ -503,7 +503,18 @@ test('following refuses worker dispatch at the host budget gate without admittin
   const s = await leadRig(t)
   await s.start()
   const state = s.journal.state, before = state.budget?.rounds.length
-  t.mock.getter(s.journal, 'state', () => ({ ...state, phase: 'following' as const }))
+  t.mock.getter(s.journal, 'state', () => ({ ...state, phase: 'following' as const, pr: { repository: 'acme/widgets', number: 7,
+    head: 'a'.repeat(40), branch: 'worker', state: 'open' as const, check: null, at: 100 } }))
+  const run = s.budgets.port.runs().at(-1)!
+  assert.deepEqual(await s.budgets.gate(run), { ok: false, reason: 'lead-budget-stopped' })
+  assert.equal(s.journal.state.budget?.rounds.length, before)
+})
+
+for (const phase of ['running', 'waiting-for-user'] as const) test(`an open PR fences the host worker gate even in ${phase}`, async t => {
+  const s = await leadRig(t); await s.start()
+  const state = s.journal.state, before = state.budget?.rounds.length
+  t.mock.getter(s.journal, 'state', () => ({ ...state, phase, pr: { repository: 'acme/widgets', number: 7,
+    head: 'a'.repeat(40), branch: 'worker', state: 'open' as const, check: null, at: 100 } }))
   const run = s.budgets.port.runs().at(-1)!
   assert.deepEqual(await s.budgets.gate(run), { ok: false, reason: 'lead-budget-stopped' })
   assert.equal(s.journal.state.budget?.rounds.length, before)

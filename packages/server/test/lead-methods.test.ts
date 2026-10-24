@@ -1722,3 +1722,20 @@ test('accept-open-pr and a push result use host publication after stale-card ref
   assert.equal(s.answers.length, 0, 'publication owns the live gate check; no bare effect runs in beforeDecision')
   s.controls.close()
 })
+
+test('declining a push card only dismisses it without answering the worker result gate', async () => {
+  const s = await rig(); await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  await s.journal.offerCard({ version: 1, id: 'push', revision: 1, type: 'result', publication: 'push', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Push reviewed work', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) })
+  await s.call('lead/card/decide', { version: 1, cardId: 'push', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'decline' })
+  assert.equal(s.answers.length, 0)
+  assert.equal(s.journal.state.phase, 'running')
+})
+
+test('a stale publication source preserves the lead-card-stale refusal code', async () => {
+  const s = await rig({ controls: { publishResult: async () => { throw new Error('lead-card-stale') } } })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  await s.journal.offerCard({ version: 1, id: 'push', revision: 1, type: 'result', publication: 'push', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Push reviewed work', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) })
+  await assert.rejects(s.call('lead/card/decide', { version: 1, cardId: 'push', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }), code('lead-card-stale'))
+})

@@ -1807,3 +1807,33 @@ test('publication intents bind the live result click and checkpoint migration de
   checkpoint.state.follow = null
   assert.throws(() => lead.parseLeadCheckpoint(checkpoint))
 })
+
+test('only Needs-you operations with proven absence of effects may be superseded', async () => {
+  for (const started of [false, true]) {
+    const storage = memory(), journal = await prepare(storage)
+    const card = { version: 1, id: 'result-pr', revision: 1, type: 'result', outcome: 'reviewed', contractDigest: contract.digest,
+      summary: 'Reviewed work', assertions: [], budget: { ...context.budget, reservedUsdMicros: 0 } }
+    await journal.offerCard(card)
+    let op = { id: 'publish-1', at: 100, stage: 'push-prepared', effectStarted: false, source: {
+      repository: 'acme/widgets', cwd: '/workspace/demo-worker', branch: 'worker', head: 'a'.repeat(40), remote: 'origin',
+      remoteUrl: 'https://github.com/acme/widgets.git', defaultBranch: 'main', runId: 'run-1', teamId: 'team-1', runtime: 'fixture', sessionId: 'worker-1' },
+      decision: { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' } }
+    await journal.publication(op)
+    if (started) { op = { ...op, stage: 'push-started', effectStarted: true }; await journal.publication(op) }
+    op = { ...op, stage: 'needs-you' }; await journal.publication(op)
+    if (started) await assert.rejects(journal.publication({ ...op, stage: 'superseded' }))
+    else { await journal.invalidateResults(); assert.equal(journal.state.publication.stage, 'superseded') }
+    assert.deepEqual((await open(storage)).state, journal.state)
+    assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint(journal.state, 'b'.repeat(64))).state, journal.state)
+  }
+})
+
+test('push-started cannot claim the absence of an external effect in either journal operation', () => {
+  const source = { repository: 'acme/widgets', cwd: '/workspace/demo-worker', branch: 'worker', head: 'a'.repeat(40), remote: 'origin',
+    remoteUrl: 'https://github.com/acme/widgets.git', defaultBranch: 'main', runId: 'run-1', teamId: 'team-1', runtime: 'fixture', sessionId: 'worker-1' }
+  for (const effectStarted of [false, undefined]) {
+    assert.throws(() => lead.parseLeadOwnedPush({ source, number: 7, previousHead: 'b'.repeat(40), at: 100, stage: 'push-started', effectStarted }))
+    assert.throws(() => lead.parseLeadPublicationOperation({ source, id: 'publish-1', at: 100, stage: 'push-started', effectStarted,
+      decision: { version: 1, cardId: 'result', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' } }))
+  }
+})

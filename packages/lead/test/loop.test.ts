@@ -1472,9 +1472,26 @@ test('a chat push proposal uses the existing output path and rebuilds its approv
     const push = journal.state.cards.find(card => card.type === 'result' && card.publication === 'push')
     assert.ok(push && push.type === 'result')
     assert.equal(push.summary, 'Push the reviewed branch and open its pull request.')
+    assert.equal((push as any).publicationSource?.reviewedHead, 'head-1')
+    assert.equal(typeof (push as any).publicationSource?.evidenceRevision, 'string')
     assert.equal(push.assertions.length, contract.assertions.length)
     assert.ok(push.assertions.every(assertion => assertion.status === 'passed'))
     assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
     assert.equal(s.fake.requests.length, 2)
+  } finally { await loop.close() }
+})
+
+test('an open PR stays passive after a request failure and Resume', async () => {
+  const s = await fixture([message([tool('late', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve()
+  const state: any = { ...s.journal.state, phase: 'following', pr: {
+    repository: 'acme/widgets', number: 7, head: 'a'.repeat(40), branch: 'worker', state: 'open', check: null, at: 100 } }
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  await journal.resume()
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  try {
+    await loop.request(input)
+    assert.equal(s.calls.some(call => call.method === 'flow/start-goal'), false)
   } finally { await loop.close() }
 })

@@ -463,3 +463,9 @@ it('puts a steer where it was said, not after everything that followed', async (
   expect(text.indexOf('Keep the public API unchanged.')).toBeGreaterThan(text.indexOf('Repair the failing check'))
   expect(text.indexOf('Keep the public API unchanged.')).toBeLessThan(text.indexOf('Step two is done.'))
 })
+
+it('explains a foreign PR head while the goal needs the person', async () => {
+  const base = leadProjection(), { box } = await mount({ ...base, wayOut: 'resume', waitReason: 'lead-pr-head-changed',
+    thread: { ...base.thread, state: 'waiting-for-user', cards: [] } })
+  expect(box.textContent).toContain('The pull request head changed outside this goal. Inspect the pull request before continuing.')
+})

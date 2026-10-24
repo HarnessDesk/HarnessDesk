@@ -69,3 +69,13 @@ export const evaluateLeadAcceptance = (value: LeadAcceptanceContract, evidence: 
   return { status: assertions.some(assertion => assertion.status === 'failed') ? 'failed' :
     compatible && gates && assertions.every(assertion => assertion.status === 'passed') ? 'reviewed' : 'unknown', assertions }
 }
+
+/** Stable identity of the recorded evidence behind a publication card. Clocks
+ * and accounting refreshes do not change it; a new review/check/finding does. */
+export const leadPublicationEvidenceRevision = (evidence: LeadAcceptanceEvidence): string => JSON.stringify({
+  revision: evidence.revision,
+  checks: evidence.checks.map(({ observedAt: _, ...fact }) => fact),
+  reviews: evidence.reviews.map(({ observedAt: _, ...fact }) => fact),
+  findings: evidence.findings,
+  diffs: evidence.diffs.map(({ observedAt: _, ...fact }) => fact),
+})

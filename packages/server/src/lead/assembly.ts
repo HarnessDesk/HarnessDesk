@@ -6,6 +6,9 @@ import { createLeadJournal, leadBudgetProjection, LEAD_MESSAGES_DEFAULTS, parseL
   type LeadAcceptanceEvidence, type LeadJournal, type LeadPermissionCall, type LeadResolvedTool, type LeadSeatChoices, type MessagesPrice } from '@harnessdesk/lead'
 import { readChecksAt } from '../evidence/checks-file.js'
 import { LeadFileJournal } from './journal.js'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { rawPushUrl, githubRepositoryFromUrl, HARDENED_GIT_CONFIG } from '../git-hardening.js'
 import { leadRefusal } from './controls.js'
 
 /** Price per million tokens in micro-dollars, per model the Lead may be set to. An unlisted model is
@@ -22,8 +25,17 @@ const FRESHNESS_MS = 60_000
 const PROJECT_FILE = 'project.json'
 
 /** The digest every plan is frozen with: sha256 of its canonical JSON, the way the approval cards name it. */
-export const freezeLeadPlan = async (value: LeadAcceptanceContract): Promise<LeadAcceptanceContract> =>
-  ({ ...value, digest: createHash('sha256').update(JSON.stringify(value)).digest('hex') })
+export const freezeLeadPlan = async (value: LeadAcceptanceContract): Promise<LeadAcceptanceContract> => {
+  let publicationRepository: string | null = null
+  try {
+    const { stdout } = await promisify(execFile)('git', ['-C', value.project.path, ...HARDENED_GIT_CONFIG, 'remote'], { timeout: 20_000 })
+    const remotes = stdout.trim().split('\n').filter(Boolean)
+    const remote = remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0]! : ''
+    if (remote) publicationRepository = githubRepositoryFromUrl(await rawPushUrl(value.project.path, remote))
+  } catch { /* A local-only plan grants no publication destination. */ }
+  const pinned = { ...value, publicationRepository }
+  return { ...pinned, digest: createHash('sha256').update(JSON.stringify(pinned)).digest('hex') }
+}
 
 /** A project's identity is its path, so a restart names the same project without storing anything else. */
 export const leadProjectOf = (path: string): LeadProject => ({ id: `project-${createHash('sha256').update(path).digest('hex').slice(0, 16)}`, path })

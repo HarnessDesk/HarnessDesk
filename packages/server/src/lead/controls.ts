@@ -289,7 +289,7 @@ export class LeadControls {
         const contract = journal.state.contract
         if (!contract || contract.digest !== card.contractDigest) throw leadRefusal('lead-card-stale')
         if (card.type === 'waiting') await this.options.decidePerson(card, decision, contract)
-        else await this.options.decideResult(card, decision, contract)
+        else if (!(card.publication === 'push' && decision.choice === 'decline')) await this.options.decideResult(card, decision, contract)
       } : undefined, committed)
     if (card.type === 'plan' && decision.choice === 'approve') await this.#commitRequest(commit)
     else {
@@ -302,7 +302,7 @@ export class LeadControls {
       if (card.type === 'result' && (decision.choice === 'accept-open-pr' || card.publication === 'push' && decision.choice === 'accept')) {
         if (!this.options.publishResult || !journal.state.contract) throw leadRefusal('lead-operation-refused')
         try { await this.options.publishResult(card, decision, journal.state.contract) }
-        catch { throw leadRefusal('lead-operation-refused') }
+        catch (error) { throw leadRefusal(error instanceof Error && error.message === 'lead-card-stale' ? 'lead-card-stale' : 'lead-operation-refused') }
       } else await commit()
     }
     return this.#projection()
