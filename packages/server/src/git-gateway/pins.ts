@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { validateRepository, type GitRequester } from './record.js'
+import { canonicalRepository, type GitRequester } from './record.js'
 
 interface Pin { readonly root: string; readonly repository: string; readonly by: GitRequester; readonly at: number }
 /** A project destination is host state; remotes in a checkout are never consulted. */
@@ -20,14 +20,13 @@ export class GitPins {
   async pinned(root: string): Promise<string | null> {
     await this.#tail
     const key = await this.#root(root), pin = (await this.#read()).find(row => row.root === key)
-    if (pin) validateRepository(pin.repository)
-    return pin?.repository ?? null
+    return pin ? canonicalRepository(pin.repository) : null
   }
   pin(root: string, repository: string, by: GitRequester): Promise<void> {
     const result = this.#tail.then(async () => {
-      validateRepository(repository)
+      repository = canonicalRepository(repository)
       const key = await this.#root(root), rows = await this.#read(), previous = rows.find(row => row.root === key)
-      if (previous) { if (previous.repository !== repository) throw new Error('git-gateway-repository-already-pinned'); return }
+      if (previous) { if (canonicalRepository(previous.repository) !== repository) throw new Error('git-gateway-repository-already-pinned'); return }
       rows.push({ root: key, repository, by, at: Date.now() })
       await mkdir(this.stateDirectory, { recursive: true, mode: 0o700 })
       const temporary = `${this.#path}.${randomUUID()}.tmp`

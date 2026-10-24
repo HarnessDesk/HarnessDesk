@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
 import { mkdtempSync, writeFileSync, existsSync, readFileSync, chmodSync, realpathSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -20,6 +21,39 @@ const fixture = async () => {
   const request = { repository: 'acme/widgets', branch: 'worker', sha: git(worker, 'rev-parse', 'HEAD'), tree: git(worker, 'rev-parse', 'HEAD^{tree}'),
     objectStore: join(worker, '.git'), previousSha: null, requester: { kind: 'lead-goal', id: 'goal-1' } }
   return { root, worker, remote, decoy, options, gateway, request, module }
+}
+// A separate HTTP receive-pack process exercises both authentication and
+// remote hooks without inheriting the gateway client's command-line config.
+const serveGit = async (root: string, authenticated = false) => {
+  let challenges = 0, authorized = 0
+  const server = createServer((request, response) => {
+    if (authenticated && request.headers.authorization !== `Basic ${Buffer.from('fixture:fixture-token').toString('base64')}`) {
+      challenges++; response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="fixture"' }); response.end(); return
+    }
+    authorized++
+    const url = new URL(request.url!, 'http://127.0.0.1')
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+    const child = spawn('git', ['http-backend'], { env: { ...env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
+      GIT_PROJECT_ROOT: root, GIT_HTTP_EXPORT_ALL: '1', REQUEST_METHOD: request.method!, PATH_INFO: url.pathname,
+      QUERY_STRING: url.search.slice(1), CONTENT_TYPE: request.headers['content-type'] ?? '', REMOTE_USER: 'fixture' } })
+    request.pipe(child.stdin); child.stdin.on('error', () => {})
+    const chunks: Buffer[] = []; child.stdout.on('data', chunk => chunks.push(chunk)); child.stderr.resume()
+    child.on('close', code => {
+      const out = Buffer.concat(chunks), headerEnd = out.indexOf('\r\n\r\n')
+      if (code || headerEnd < 0) { response.writeHead(500); response.end(); return }
+      let status = 200
+      const headers: Record<string, string> = {}
+      for (const line of out.subarray(0, headerEnd).toString().split('\r\n')) {
+        const colon = line.indexOf(':'), key = line.slice(0, colon).toLowerCase(), value = line.slice(colon + 1).trim()
+        if (key === 'status') status = Number(value.split(' ')[0]); else headers[key] = value
+      }
+      response.writeHead(status, headers); response.end(out.subarray(headerEnd + 4))
+    })
+  })
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
+  const address = server.address() as { port: number }
+  return { url: `http://127.0.0.1:${address.port}/remote.git`, counts: () => ({ challenges, authorized }),
+    close: () => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())) }
 }
 test('mirror ignores worker programs, rewrites and remotes; ledger survives reopening', async () => {
   const f = await fixture(), marker = join(f.root, 'marker'), hook = join(f.worker, '.git', 'hooks', 'pre-push')
@@ -119,8 +153,8 @@ test('git record chains exact lines, detects edits and filters newest first', as
   await f.gateway.push(f.request)
   await assert.rejects(f.gateway.push(f.request))
   const record = f.gateway.gitRecord
-  assert.deepEqual(await record.verify(f.request.repository), { ok: true })
-  assert.deepEqual(await record.verify(), { ok: true })
+  assert.deepEqual(await record.verify(f.request.repository), { ok: true, damaged: 0 })
+  assert.deepEqual(await record.verify(), { ok: true, damaged: 0 })
   const rows = await record.list({ repository: f.request.repository, limit: 100 })
   assert.equal(rows[0].outcome, 'refused')
   assert.equal((await record.list({ repository: f.request.repository, view: 'refused', limit: 100 })).length, 1)
@@ -129,8 +163,8 @@ test('git record chains exact lines, detects edits and filters newest first', as
   const lines = readFileSync(path, 'utf8').split('\n')
   lines[0] = lines[0]!.replace('lead-goal', 'person')
   writeFileSync(path, lines.join('\n'))
-  assert.deepEqual(await record.verify(f.request.repository), { ok: false, line: 2 })
-  await assert.rejects(record.attribute(f.request.repository, 'worker', f.request.sha), /git-record-broken/)
+  assert.deepEqual(await record.verify(f.request.repository), { ok: false, line: 1, damaged: 1 })
+  assert.equal(await record.attribute(f.request.repository, 'worker', f.request.sha), 'outside')
 })
 
 test('startup reconciles interrupted push intents against the pinned remote', async () => {
@@ -209,7 +243,7 @@ test('repository queues allow independent writes while serializing the same repo
   } })
   const first = gateway.updatePullRequest({ repository: 'acme/widgets', number: 1, title: 'Fixture', requester: f.request.requester })
   await entered
-  const same = gateway.updatePullRequest({ repository: 'acme/widgets', number: 2, title: 'Fixture', requester: f.request.requester })
+  const same = gateway.updatePullRequest({ repository: 'Acme/Widgets', number: 2, title: 'Fixture', requester: f.request.requester })
   try {
     await gateway.updatePullRequest({ repository: 'acme/other', number: 1, title: 'Fixture', requester: f.request.requester })
     assert.deepEqual(calls, ['acme/widgets', 'acme/other'])
@@ -280,4 +314,136 @@ test('session protection is checked at the pinned forge and cannot be bypassed b
   await assert.rejects(gateway.push({ ...f.request, requester: { kind: 'session', id: 'session-1' } }), /protected-branch/)
   assert.ok(calls.some(args => args.includes('repos/acme/widgets/branches/worker')))
   assert.equal((await gateway.record({ repository: f.request.repository, limit: 1 }))[0].outcome, 'refused')
+})
+
+test('invalid forge arguments are refused durably before invoking gh', async () => {
+  const f = await fixture(); let calls = 0
+  const gateway = new f.module.GitGateway({ ...f.options, gh: async () => { calls++; return { stdout: '', stderr: '', exitCode: 0 } } })
+  const target = { repository: f.request.repository, requester: f.request.requester, number: 1 }
+  const invalid = [
+    () => gateway.mergePullRequest({ ...target, head: '', method: 'squash' }),
+    () => gateway.mergePullRequest({ ...target, head: f.request.sha, method: 'x' }),
+    () => gateway.review({ ...target, body: 'Fixture', event: 'x' }),
+    () => gateway.review({ ...target, body: 7, event: 'approve' }),
+    ...[0, -1, 1.5, NaN].map(number => () => gateway.updatePullRequest({ ...target, number, title: 'Fixture' })),
+    ...['bad..branch', 'bad.lock', 'bad branch', '-option', 'x@{y', 'x//y', ''].map(branch => () => gateway.createPullRequest({ ...target, branch, title: 'Fixture', body: 'Fixture' })),
+    () => gateway.createPullRequest({ ...target, branch: 'worker', base: 'bad..base', title: 'Fixture', body: 'Fixture' }),
+    () => gateway.createPullRequest({ ...target, branch: 'worker', title: '', body: 'Fixture' }),
+    () => gateway.createPullRequest({ ...target, branch: 'worker', title: 'Fixture', body: 'Fixture', draft: 'yes' }),
+    () => gateway.comment({ ...target, subject: 'x', body: 'Fixture' }),
+    () => gateway.updatePullRequest({ ...target, title: 'bad\0title' }),
+    () => gateway.updatePullRequest(target),
+    () => gateway.updatePullRequest({ ...target, requester: null, title: 'Fixture' }),
+    () => gateway.updatePullRequest({ ...target, requester: { kind: 'session', id: 7 }, title: 'Fixture' }),
+    () => gateway.updatePullRequest({ ...target, requester: { kind: 'x', id: 'fixture' }, title: 'Fixture' }),
+    () => gateway.updatePullRequest({ ...target, requester: { kind: 'session', id: 'fixture', seat: { label: 'Fixture', role: null, team: null, round: -1 } }, title: 'Fixture' }),
+    () => gateway.updatePullRequest({ ...target, approval: { by: 'x' }, title: 'Fixture' }),
+    () => gateway.updatePullRequest({ ...target, approval: false, title: 'Fixture' }),
+    () => gateway.updatePullRequest({ ...target, approval: { by: 'person', at: 1.5 }, title: 'Fixture' }),
+  ]
+  for (const invoke of invalid) {
+    await assert.rejects(invoke(), /target-invalid/)
+    assert.equal((await gateway.record({ repository: target.repository, limit: 1 }))[0].outcome, 'refused')
+  }
+  assert.equal(calls, 0)
+})
+
+test('repository case shares the queue, mirror, record and pin; ambiguous owners are refused', async () => {
+  const f = await fixture()
+  await f.gateway.push({ ...f.request, repository: 'Acme/Widgets' })
+  assert.deepEqual(await f.gateway.attribute('acme/widgets', 'worker', f.request.sha), f.request.requester)
+  assert.equal((await f.gateway.record({ repository: 'ACME/WIDGETS', limit: 10 }))[0].repository, 'acme/widgets')
+  await f.gateway.pins.pin(f.worker, 'Acme/Widgets', f.request.requester)
+  await f.gateway.pins.pin(f.worker, 'acme/widgets', f.request.requester)
+  assert.equal(await f.gateway.pins.pinned(f.worker), 'acme/widgets')
+  for (const repository of ['a_b/c', 'a__b/c', '-acme/widgets', 'acme-/widgets'])
+    await assert.rejects(f.gateway.push({ ...f.request, repository }), /repository-invalid/)
+})
+
+test('a remote hook decline is refused rather than a lease rejection', async () => {
+  const f = await fixture()
+  writeFileSync(join(f.remote, 'hooks', 'pre-receive'), '#!/bin/sh\necho "fixture declined: stale info" >&2\nexit 1\n', { mode: 0o755 })
+  const http = await serveGit(f.root)
+  try {
+    const gateway = new f.module.GitGateway({ ...f.options, localRemote: () => http.url })
+    await assert.rejects(gateway.push(f.request), /declined/)
+    const [row] = await gateway.record({ repository: f.request.repository, limit: 1 })
+    assert.equal(row.outcome, 'refused'); assert.match(row.reason, /declined/)
+  } finally { await http.close() }
+})
+
+
+test('HTTP push authenticates only through the host one-shot helper and ignores worker proxy', async () => {
+  const f = await fixture(), http = await serveGit(f.root, true)
+  const workerMarker = join(f.root, 'worker-helper'), hostMarker = join(f.root, 'host-helper'), hostConfig = join(f.root, 'host.config')
+  const helper = join(f.root, 'host-credential')
+  writeFileSync(helper, `#!/bin/sh\necho "$1" >> '${hostMarker}'\nif [ "$1" = get ]; then printf 'username=fixture\\npassword=fixture-token\\n'; fi\n`, { mode: 0o700 })
+  writeFileSync(hostConfig, `[credential]\n helper = ${helper}\n`)
+  git(f.worker, 'config', 'credential.helper', `!touch '${workerMarker}'`)
+  git(f.worker, 'config', 'http.proxy', 'http://127.0.0.1:1')
+  const saved = process.env.GIT_CONFIG_GLOBAL
+  process.env.GIT_CONFIG_GLOBAL = hostConfig
+  const gateway = new f.module.GitGateway({ ...f.options, localRemote: () => http.url })
+  if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = saved
+  try {
+    await gateway.push(f.request)
+    assert.ok(http.counts().challenges > 0); assert.ok(http.counts().authorized > 0)
+    assert.match(readFileSync(hostMarker, 'utf8'), /get/)
+    assert.equal(existsSync(workerMarker), false)
+    assert.equal(git(f.remote, 'rev-parse', 'refs/heads/worker'), f.request.sha)
+  } finally { await http.close() }
+})
+
+test('mirror config is restored and recorded before every network operation', async () => {
+  const f = await fixture()
+  await f.gateway.push(f.request)
+  const { createHash } = await import('node:crypto')
+  const mirror = join(f.root, 'host', `${createHash('sha256').update(f.request.repository).digest('hex')}.git`)
+  const marker = join(f.root, 'mirror-helper')
+  const corrupt = () => writeFileSync(join(mirror, 'config'), `[core]\n bare = true\n hooksPath = ${f.worker}/.git/hooks\n sshCommand = touch ${marker}\n[remote "origin"]\n url = ${f.decoy}\n[url "${f.decoy}"]\n insteadOf = ${f.remote}\n[credential]\n helper = !touch ${marker}\n[http]\n proxy = http://127.0.0.1:1\n[include]\n path = ${f.worker}/.git/config\n`)
+  corrupt()
+  assert.equal(await f.gateway.remoteHead('Acme/Widgets', 'worker'), f.request.sha)
+  assert.doesNotMatch(readFileSync(join(mirror, 'config'), 'utf8'), /remote|url |credential|sshCommand|include|proxy/)
+  git(f.worker, 'commit', '--allow-empty', '-m', 'Next')
+  corrupt()
+  await f.gateway.push({ ...f.request, sha: git(f.worker, 'rev-parse', 'HEAD'), previousSha: f.request.sha }, { beforePush: async () => corrupt() })
+  assert.equal(existsSync(marker), false)
+  const rows = await f.gateway.record({ repository: f.request.repository, limit: 100 })
+  assert.equal(rows.filter((row: any) => row.reason === 'git-gateway-mirror-config-reset').length, 3)
+})
+
+// Faults happen after real receive-pack has updated the local bare remote.
+// The wrapper delegates every command to the real git; only its replies fail.
+test('accepted pushes survive verification loss or ambiguous push exit without outside attribution', async () => {
+  for (const fault of ['verify-once', 'verify-offline', 'push-exit', 'push-signal']) {
+    const f = await fixture(), bin = join(f.root, 'bin'), marker = join(f.root, 'accepted'), failed = join(f.root, 'verification-failed')
+    const { mkdirSync } = await import('node:fs'); mkdirSync(bin)
+    const realGit = execFileSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).trim()
+    writeFileSync(join(bin, 'git'), `#!${process.execPath}\nconst {spawnSync}=require('node:child_process'),fs=require('node:fs');
+const args=process.argv.slice(2), accepted=${JSON.stringify(marker)}, failed=${JSON.stringify(failed)};
+if(args.includes('ls-remote')&&fs.existsSync(accepted)&&${JSON.stringify(fault)}.startsWith('verify')&&(${JSON.stringify(fault)}==='verify-offline'||!fs.existsSync(failed))){fs.writeFileSync(failed,'yes');process.exit(1)}
+const result=spawnSync(${JSON.stringify(realGit)},args,{stdio:'inherit'});
+if(args.includes('push')&&result.status===0){fs.writeFileSync(accepted,'yes');if(${JSON.stringify(fault)}==='push-exit')process.exit(1);if(${JSON.stringify(fault)}==='push-signal')process.kill(process.pid,'SIGTERM')}
+process.exit(result.status??1);\n`, { mode: 0o755 })
+    const saved = process.env.PATH; process.env.PATH = `${bin}:${saved}`
+    const gateway = new f.module.GitGateway(f.options)
+    process.env.PATH = saved
+    if (fault === 'verify-offline') await assert.rejects(gateway.push(f.request)); else await gateway.push(f.request)
+    assert.equal(git(f.remote, 'rev-parse', 'refs/heads/worker'), f.request.sha)
+    const rows = await gateway.record({ repository: f.request.repository, limit: 100 })
+    assert.ok(rows.every((row: any) => ['ok', 'intent'].includes(row.outcome)))
+    assert.equal(rows[0].outcome, fault === 'verify-offline' ? 'intent' : 'ok')
+    await gateway.observe(f.request.repository, 'worker', f.request.sha, null)
+    assert.equal((await gateway.record({ repository: f.request.repository, view: 'outside', limit: 100 })).length, 0)
+    if (fault === 'verify-offline') {
+      process.env.PATH = `${bin}:${saved}`
+      const offline = new f.module.GitGateway(f.options)
+      process.env.PATH = saved
+      await offline.ready()
+      assert.equal((await offline.record({ repository: f.request.repository, limit: 1 }))[0].outcome, 'intent')
+    }
+    const reopened = new f.module.GitGateway(f.options); await reopened.ready()
+    assert.equal((await reopened.record({ repository: f.request.repository, limit: 1 }))[0].outcome, 'ok')
+    assert.equal(await reopened.hasSucceededPush({ ...f.request }), true)
+  }
 })
