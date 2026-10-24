@@ -1011,7 +1011,7 @@ test('a replaced directory can be removed while its outside destination is unrea
 /**
  * A dev server or a watcher writes into folders git ignores while a person
  * decides to remove the lane. What is ignored is made again by whatever made
- * it, so a confirmation holds it to its names, types and sizes. What git
+ * it, so a confirmation holds it to its names, types, sizes and modes. What git
  * reports as changed, tracked or not, is the person's own work and stays held
  * to its contents and its times.
  */
@@ -1054,6 +1054,17 @@ test('a writer touching an ignored folder between looking and removing does not 
 
   assert.equal((await inventory(made.path)).stateId, held.stateId)
   await remove(repo, made.path, true, held.stateId, state)
+  assert.ok(await gone(made.path))
+})
+
+test('a confirmation is void after an ignored file changes mode', async () => {
+  const { repo, state, made, file } = await withCache('holding-mode')
+  const held = await inventory(made.path)
+  await chmod(file, (await stat(file)).mode ^ 0o100)
+
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  assert.ok(!(await gone(made.path)))
+  await remove(repo, made.path, true, await confirmed(made.path), state)
   assert.ok(await gone(made.path))
 })
 

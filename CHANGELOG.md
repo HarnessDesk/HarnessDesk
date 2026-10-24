@@ -19,7 +19,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Files with more than one name on disk explain why they cannot open.** Reads and previews refuse these files, and saving one still asks for a separate copy so the other names are kept as they are.
 
-- **Removing a lane with a running dev server works.** Files a dev server or build tool keeps writing in ignored folders, such as `node_modules/.cache`, no longer stop a lane from being removed, and a lane whose folder stops answering is refused after twenty seconds instead of hanging.
+- **Removing a lane with a running dev server works.** Files a dev server or build tool keeps writing in ignored folders, such as `node_modules/.cache`, no longer stop a lane from being removed unless a name, type, size or mode changes, and a lane whose folder stops answering is refused after twenty seconds instead of hanging.
 
 ## 0.6.0 — 2026-10-21
 

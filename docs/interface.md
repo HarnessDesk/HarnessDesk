@@ -723,7 +723,7 @@ and lists what git ignores there on the same footing: the branch is kept either
 way, but the folder goes and an `.env` in it goes with the folder. Files a dev
 server or build tool keeps writing in ignored folders, such as a cache, do not
 make the removal fail or ask again unless a name appears or goes or a file
-changes size. The reading has twenty seconds; past that the removal is refused
+changes size or mode. The reading has twenty seconds; past that the removal is refused
 with "Couldn't list what this worktree holds in time; nothing was removed", and
 nothing is taken.
 

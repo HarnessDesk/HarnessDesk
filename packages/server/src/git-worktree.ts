@@ -193,9 +193,9 @@ const parseList = (out: string): Listed[] => {
  * it and setting mtime cannot put it back. What git ignores is what a tool
  * makes again — dependencies, build output, caches — and a dev server or a
  * watcher is often writing there while a person decides, so held to its times
- * it would make the lane impossible to remove. It is held to its path, type
- * and size instead, and the folders it is read through to their mode and
- * identity: a name that appears or goes, a file that changes size, or a folder
+ * it would make the lane impossible to remove. It is held to its path, type,
+ * size and mode instead, and the folders it is read through to their mode and
+ * identity: a name that appears or goes, a file that changes size or mode, or a folder
  * swapped for another still voids a confirmation, and a write that leaves the
  * size alone does not.
  *
@@ -288,10 +288,10 @@ const kindOf = (info: BigIntStats): string =>
 /** Changed work: everything a write, a replacement or a chmod moves. */
 const EXACT: Holding = { entry: metadataText, folder: metadataText, skipsAbsent: false }
 
-/** Ignored files: what is there and how big, never when something last touched it. */
+/** Ignored files: what is there, its size and mode, never when something last touched it. */
 const IGNORED: Holding = {
   // A folder's size and times move with every name made or removed in it.
-  entry: (info) => !info ? 'missing' : info.isDirectory() ? 'folder' : `${kindOf(info)}\0${info.size}`,
+  entry: (info) => !info ? 'missing' : info.isDirectory() ? `folder\0${info.mode}` : `${kindOf(info)}\0${info.size}\0${info.mode}`,
   folder: (info) => info ? `${info.mode}\0${info.dev}\0${info.ino}` : 'missing',
   skipsAbsent: true,
 }
