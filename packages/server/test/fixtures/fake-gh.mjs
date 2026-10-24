@@ -174,6 +174,22 @@ if (args[0] === 'repo' && args[1] === 'view') {
     state.pulls.push({ number, head, branch: after('--head'), state: 'open', title: after('--title'), body: after('--body'), created: now, updated: now })
     writeFileSync(statePath, JSON.stringify(state, null, 2))
     process.stdout.write(`https://github.com/${state.repo}/pull/${number}\n`)
+  } else if (['edit', 'merge', 'comment', 'review'].includes(args[1])) {
+    const one = state.pulls.find(one => one.number === Number(args[2]))
+    if (!one) { process.stderr.write('PR not found\n'); process.exitCode = 1 }
+    else if (args[1] === 'merge' && one.head !== after('--match-head-commit')) {
+      process.stderr.write('Head changed: --match-head-commit does not match\n'); process.exitCode = 1
+    } else {
+      if (args[1] === 'edit') {
+        if (args.includes('--title')) one.title = after('--title')
+        if (args.includes('--body')) one.body = after('--body')
+      } else if (args[1] === 'merge') { one.merged = true; one.state = 'closed' }
+      else if (args[1] === 'comment') (one.comments ??= []).push({ body: after('--body') })
+      else (one.reviews ??= []).push({ body: after('--body'), event: args.find(arg => ['--approve', '--request-changes', '--comment'].includes(arg)) })
+      one.updated = Date.now()
+      writeFileSync(statePath, JSON.stringify(state, null, 2))
+      process.stdout.write(`https://github.com/${state.repo}/pull/${one.number}\n`)
+    }
   } else if (args[1] === 'view') {
     const selector = args[2], number = Number(selector.split('/').at(-1))
     const one = state.pulls.find(one => one.number === number || one.branch === selector)

@@ -1227,7 +1227,7 @@ export class Host {
         frozen: join(this.#state.directory, 'attachments', 'frozen'),
       },
     )
-    this.#gitGateway = new GitGateway({ directory: join(this.#state.directory, 'git-gateway'),
+    this.#gitGateway = new GitGateway({ directory: join(this.#state.directory, 'git-gateway'), stateDirectory: this.#state.directory,
       ...(this.options.forge?.gh ? { gh: (_cwd, args) => this.options.forge!.gh!(args) } : {}) })
     this.#forge = new ForgePlane(
       {
@@ -4727,6 +4727,7 @@ export class Host {
   #buildContext(): HostContext {
     return {
       options: this.options,
+      gitGateway: this.#gitGateway,
       registry: this.registry,
       state: this.#state,
       logger: this.#logger,

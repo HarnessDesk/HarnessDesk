@@ -1,3 +1,4 @@
+import type { GitGateway } from '../git-gateway/index.js'
 import type { ConversationLoadouts } from '@harnessdesk/protocol'
 import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
@@ -103,6 +104,7 @@ import type { AttachmentResolution, ResolvedAttachment } from '../attachments/ca
  * is a handler nobody can test alone.
  */
 export interface HostContext {
+  readonly gitGateway: GitGateway
   readonly options: HostOptions
   readonly registry: SessionRegistry
   readonly state: StateStore

@@ -213,7 +213,7 @@ export class LeadPrFollow {
     let head = pr.head, branchOwner = pr.branchOwner ?? 'lead', releaseReason = pr.releaseReason, branchChange = pr.branchChange
     if (observation.state === 'open' && observation.head !== pr.head && branchOwner !== 'person') {
       const author = await gateway.attribute(pr.repository, pr.branch, observation.head)
-      if (author !== 'unknown' && author.kind === 'lead-goal' && author.id === state.budget?.logicalGoalId) {
+      if (author !== 'outside' && author.kind === 'lead-goal' && author.id === state.budget?.logicalGoalId) {
         head = observation.head
         const pending = journal.state.ownedPush
         if (pending && pending.source.head === head && pending.number === pr.number && !['completed', 'superseded'].includes(pending.stage)) {
@@ -225,7 +225,7 @@ export class LeadPrFollow {
         // An unavailable ancestry proof must never grant push authority.
         const fastForward = await gateway.isAncestor(pr.repository, pr.head, observation.head).catch(() => false)
         branchChange = fastForward ? 'fast-forward' : 'rewrite'
-        releaseReason = `Branch ${fastForward ? 'extended' : 'rewritten'} by ${author === 'unknown' ? 'an unknown writer' : `${author.kind} ${author.id}`}. Automatic updates are paused.`
+        releaseReason = `Branch ${fastForward ? 'extended' : 'rewritten'} by ${author === 'outside' ? 'an unknown writer' : `${author.kind} ${author.id}`}. Automatic updates are paused.`
       }
     }
     const next: LeadPullRequest = { ...pr, head, branchOwner, observedHead: observation.head,
