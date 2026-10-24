@@ -2039,10 +2039,14 @@ export class AcpRuntime implements AgentRuntime {
           }]
         : []
     })
+    // The desk's own sign-out gives way to the agent's record at rest too:
+    // the saved answer below still says "Signed out." and is no longer true,
+    // so a read that lifted it answers from the record instead.
+    const lifted = this.#liftSignOut(keyAccounts.length > 0)
     // Key presence and precedence are local reads, even while the agent is
     // idle. Refresh them before returning observations from an older cache;
     // only the agent-owned identities still need their saved answer.
-    if (this.#health.state !== 'ready' && saved) {
+    if (this.#health.state !== 'ready' && saved && !lifted) {
       const { unchecked: _was, ...rest } = saved
       const accounts = [...saved.accounts.filter(account => account.kind !== 'apiKey' && account.kind !== 'externalKey'), ...keyAccounts]
       const observed = this.#observedAccount(keyAccounts.length > 0)
@@ -2061,7 +2065,6 @@ export class AcpRuntime implements AgentRuntime {
           : {}),
       }
     }
-    this.#liftSignOut(keyAccounts.length > 0)
     if (this.#account && this.#health.state === 'ready') {
       const beforeStatus = this.#signIn
       const refusalGeneration = this.#refusalGeneration
@@ -3038,13 +3041,15 @@ export class AcpRuntime implements AgentRuntime {
    * the desk shows nowhere but there, and nothing else would say so until a
    * session opened. Only once the sign-out command has ended — until then
    * the record still names the account going out — and never a refusal,
-   * which is the agent's own and outranks the record.
+   * which is the agent's own and outranks the record. Answers whether it
+   * lifted one.
    */
-  #liftSignOut(hasKey: boolean): void {
+  #liftSignOut(hasKey: boolean): boolean {
     const seen = this.#signIn
-    if (seen.state !== 'required' || !seen.signedOut || this.#signingOut > 0) return
-    if (!this.#config.identityIsStatus || hasKey || !this.#identity()) return
+    if (seen.state !== 'required' || !seen.signedOut || this.#signingOut > 0) return false
+    if (!this.#config.identityIsStatus || hasKey || !this.#identity()) return false
     this.#noteSignIn({ state: 'observed' })
+    return true
   }
 
   /** Keep an interactive CLI's observation in step with its account events. */

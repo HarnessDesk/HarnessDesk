@@ -931,6 +931,32 @@ test('after a sign-out, an account the agent’s record later names reads as sig
   }
 })
 
+test('a runtime that rested after a sign-out reads the account the record later names, not the saved “Signed out.”', async () => {
+  let record: Named = null
+  const runtime = statusIsRecord(() => record, { FAKE_ACP_LOGOUT: '1' })
+  await runtime.start()
+  try {
+    await runtime.logout()
+    const out = await runtime.getAccount()
+    assert.deepEqual(out.accounts, [])
+    assert.equal(out.refusal, 'Signed out.')
+    assert.equal(await runtime.stopForIdle(), true)
+    assert.equal(runtime.health().state, 'idle')
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.', 'resting changes nothing about the sign-out')
+
+    // The person signs in outside HarnessDesk while the agent rests: its record is a local read, and reading it wakes nothing.
+    record = OTHER
+    const back = await runtime.getAccount()
+    assert.deepEqual(back.accounts, [OTHER])
+    assert.equal(back.refusal, undefined, 'no longer signed out')
+    assert.deepEqual(back.signInMethods, [])
+    assert.equal(runtime.health().state, 'idle')
+    assert.deepEqual((await runtime.getAccount()).accounts, [OTHER], 'and it stays')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a sign-out stands while its command still runs, and the record still names the account', async (t) => {
   let record: Named = DEV
   let release!: () => void
