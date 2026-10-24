@@ -334,6 +334,7 @@ export class LocalFiles implements RuntimeFiles {
     try {
       const info = await handle.stat()
       this.#assertFile(path, info)
+      this.#assertOneName(info)
       await handle.truncate(0)
       await handle.writeFile(data)
     } finally {
@@ -345,10 +346,20 @@ export class LocalFiles implements RuntimeFiles {
     return this.options.roots ? confinedTarget(path, await this.options.roots(mode)) : canonicalTarget(path)
   }
 
+  /** What a read and a save both need: a regular file, whatever else is linked to it. */
   #assertFile(path: string, info: Stats): void {
     if (!info.isFile()) throw new Error(`${path} is not a file`)
+  }
+
+  /**
+   * What only a save needs. It truncates the file in place, so every name that
+   * shares the contents changes with it, including names outside the admitted
+   * roots. A read changes nothing and shows only what whoever made the link
+   * could already read, which is why it is not held to this.
+   */
+  #assertOneName(info: Stats): void {
     if (info.nlink !== 1) {
-      throw new Error('Workspace files need exactly one filesystem link to be read or saved. Open a separate copy to edit this file.')
+      throw new Error('Workspace files need exactly one filesystem link to be saved, because a save would change every other name that shares them. Open a separate copy to edit this file.')
     }
   }
 
