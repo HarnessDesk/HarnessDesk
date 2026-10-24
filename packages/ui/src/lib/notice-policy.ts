@@ -329,6 +329,8 @@ export const NOTICE_KINDS: readonly NoticeKind[] = [
     ['usage:crossing', 'Usage changes', 'A runtime crossed a usage threshold. Its standing condition stays beside the composer.'],
   ] as const).map(([kind, title, detail]): NoticeKind => ({ kind, title, detail, lifetime: 'occurrence', use: 'info', surfaces: ['inbox'] })),
   ...([
+    ['git:outside', 'Outside git writes', 'A native write bypassed the gateway; no requester is named for it.'],
+    ['git:steering', 'Git write decisions', 'The host steered or refused a native git or forge write.'],
     ['conversation:warning', 'Conversation warnings', 'Information the runtime reports about this conversation.'],
     ['conversation:compacted', 'Context compacted', 'The runtime made room for more of the conversation.'],
     ['conversation:rerouted', 'Model changed', 'The runtime changed the model for this conversation.'],

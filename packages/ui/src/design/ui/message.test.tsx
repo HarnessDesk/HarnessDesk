@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { Message, MessageFooter, messageFooterVariants, messageVariants } from './message'
+import { Message, MessageContent, MessageFooter, messageFooterVariants, messageVariants } from './message'
 
 /**
  * The chat message row: which side it stands on, and the one meta line under
@@ -66,4 +66,10 @@ describe('MessageFooter', () => {
     expect(markup).toContain('data-edge-pull-slot=""')
     expect(markup).toContain('10:41 AM')
   })
+})
+
+it('sent content owns alignment and spacing without a screen layout utility', () => {
+  const markup = renderToStaticMarkup(<MessageContent align="end">Sent</MessageContent>)
+  expect(markup).toContain('items-end')
+  expect(markup).toContain('gap-(--hd-space-1-5)')
 })

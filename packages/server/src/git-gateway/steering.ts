@@ -4,7 +4,7 @@ import { accessSync, constants, mkdirSync, writeFileSync, readFileSync, realpath
 import { open, realpath } from 'node:fs/promises'
 import { delimiter, join, resolve, relative, isAbsolute, dirname } from 'node:path'
 import { promisify } from 'node:util'
-import { gitWritePreferences, parseGitWrite, parseGitCommand, redactGitCommand, type GitSteerMode, type GitWrite, type ToolResult } from '@harnessdesk/protocol'
+import { gitWritePreferences, parseGitWrite, parseGitCommand, gitCommandUsesAbsoluteBinary, redactGitCommand, type GitSteerMode, type GitWrite, type ToolResult } from '@harnessdesk/protocol'
 import type { HeldQuestion } from '../ceilings/gate.js'
 import type { GitGateway, GitRecordEntry } from './index.js'
 import { gitSteerContext } from './steer-context.js'
@@ -202,15 +202,17 @@ export class GitSteering {
     return { action: 'done', ok: exitCode === 0, output: 'HarnessDesk: own git result recorded as Outside (own-git-allowed).' }
   }
   async completed(scope: SteerScope, command: string, exitCode: number | null | undefined, cwd = scope.cwd): Promise<void> {
-    if (exitCode !== 0 || this.steerFor(scope.root) === 'off') return
+    if (exitCode !== 0) return
     const parsed = parseGitCommand(command)
     if (!parsed || parsed.kind === 'unmappable') return
-    const seen = this.#seen.get(this.#key(scope))
-    if (seen?.has(command)) return
-    // Match normalized argv too: the command item may use different quoting.
-    if (!command.trim().startsWith('/') && seen && [...seen].some(one => JSON.stringify(parseGitCommand(one)) === JSON.stringify(parsed))) return
-    this.#mark(scope, command)
-    this.port.say(scope, `${parsed.kind === 'push' ? 'A push' : 'A forge write'} went around HarnessDesk · ${redactGitCommand(command)}`, true)
+    if (this.steerFor(scope.root) !== 'off') {
+      const seen = this.#seen.get(this.#key(scope))
+      if (seen?.has(command)) return
+      // Match normalized argv too: the command item may use different quoting.
+      if (!gitCommandUsesAbsoluteBinary(command) && seen && [...seen].some(one => JSON.stringify(parseGitCommand(one)) === JSON.stringify(parsed))) return
+      this.#mark(scope, command)
+      this.port.say(scope, `${parsed.kind === 'push' ? 'A push' : 'A forge write'} went around HarnessDesk · ${redactGitCommand(command)}`, true)
+    }
     if (!this.recordOutside || parsed.kind !== 'push' || !await this.inside(scope.cwd, cwd)) return
     const branch = parsed.branch ?? await this.#gitRead(scope, ['branch', '--show-current'])
     const repository = await this.gateway.pins.pinned(scope.root)

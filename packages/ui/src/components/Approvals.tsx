@@ -194,8 +194,10 @@ const UserInputBody = ({
  * visible and leaves that false. For a caller replacing a focused composer,
  * a key already on its way from that sentence is not an answer (`TYPED_THROUGH_MS`).
  */
-export const Approvals = ({ placement = 'overlay', takeFocus = false, requester }: {
+export const Approvals = ({ placement = 'overlay', takeFocus = false, requester, gatewayOnly = false }: {
   requester?: { name: string; mark?: ReactNode; open: () => void }
+  /** Gateway questions are rendered in the conversation's existing dock. */
+  gatewayOnly?: boolean
   placement?: 'overlay' | 'docked'
   /** Docked only: explicitly transfer focus when replacing a focused control. Inline chat leaves this false. */
   takeFocus?: boolean
@@ -206,8 +208,12 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester 
   const key = useSessionKey()
   const focused = useIsFocusedPane()
   const mine = useMemo(
-    () => snapshot.approvals.filter((entry) => entry.key === key),
-    [snapshot.approvals, key],
+    () => snapshot.approvals.filter((entry) => {
+      if (entry.key !== key) return false
+      const gateway = entry.approval.type === 'permission' && entry.approval.facts?.some(fact => fact.label === 'Repository')
+      return gatewayOnly ? gateway : placement === 'overlay' ? !gateway : true
+    }),
+    [snapshot.approvals, key, gatewayOnly, placement],
   )
   const approval = mine[0]?.approval
   const TITLES = titles(runtime.presentation.name)

@@ -44,3 +44,11 @@ it('reclaims through the supplied head-bound action', async () => {
   await act(async () => box.querySelector<HTMLButtonElement>('button')!.click())
   expect(reclaim).toHaveBeenCalledTimes(1)
 })
+it('Git write preferences refresh on focus after another settings surface changes them', async () => {
+  const store = new AppStore('ws://localhost:0/'); let steer = 'ask'
+  vi.spyOn(store.transport, 'request').mockImplementation(async () => ({ gitWrites: { steer, recordOutside: true, projects: {} } }) as any)
+  await mount(<GitWriteSettings />, store)
+  steer = 'off'
+  await act(async () => window.dispatchEvent(new Event('focus')))
+  expect(box.querySelector<HTMLSelectElement>('select')?.value).toBe('off')
+})

@@ -398,3 +398,13 @@ test('a steering approval substitutes only for the same repository branch and he
   await gitSteerContext.run({ command: 'git push origin feature/widgets', admitted: true, approved: { repository: 'acme/other', branch, sha } }, () => f.run('git_push', {}))
   assert.equal(f.questions.length, 1, 'a different repository still asks its own pin question')
 })
+
+test('PR creation accepts a gateway continuation when the local upstream still names the earlier push', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  git(f.checkout, 'commit', '--allow-empty', '-qm', 'Continue widgets')
+  await f.run('git_push', {})
+  assert.notEqual(git(f.checkout, 'rev-parse', '@{u}'), git(f.checkout, 'rev-parse', 'HEAD'))
+  await f.run('pr_create', { title: 'Widgets', body: 'Published through the host.' })
+  assert.equal((await f.rows())[0]?.op, 'pr.create')
+})

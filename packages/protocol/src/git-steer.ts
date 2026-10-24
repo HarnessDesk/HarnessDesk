@@ -82,10 +82,13 @@ export function parseGitWrite(binary: string, argv: readonly string[]): GitWrite
 }
 /** Parse argv without evaluating substitutions. Shell wrappers are recursively
  * unwrapped; a simple leading cd is allowed only for recognition (never exec). */
-export function parseGitCommand(command: string, depth = 0): GitWrite | null {
-  if (depth > 8) return refuse('Too many shell wrappers.')
+export function parseGitCommand(command: string, depth = 0): GitWrite | null { return commandWrite(command, depth).write }
+/** The executable inside shell wrappers, rather than the shell's own path. */
+export function gitCommandUsesAbsoluteBinary(command: string): boolean { return /^(?:\/|[A-Za-z]:[\\/])/.test(commandWrite(command, 0).binary ?? '') }
+function commandWrite(command: string, depth: number): { write: GitWrite | null; binary?: string } {
+  if (depth > 8) return { write: refuse('Too many shell wrappers.') }
   const cd = /^\s*cd\s+(?:'[^']*'|"[^"$`]*"|[^\s;&|]+)\s*&&\s*([\s\S]+)$/.exec(command)
-  if (cd) return parseGitCommand(cd[1]!, depth + 1)
+  if (cd) return commandWrite(cd[1]!, depth + 1)
   const tokens: string[] = []; let word = '', quote = '', escaped = false, complex = false, started = false
   const flush = () => { if (started) tokens.push(word); word = ''; started = false }
   for (const char of command) {
@@ -99,17 +102,17 @@ export function parseGitCommand(command: string, depth = 0): GitWrite | null {
   }
   flush()
   if (/^(?:.*\/)?(?:ba|z|k|da|fi)?sh$/.test(tokens[0] ?? '') && /^-[a-zA-Z]*c$/.test(tokens[1] ?? '')) {
-    if (tokens.length === 3 && !complex && !quote && !escaped) return parseGitCommand(tokens[2]!, depth + 1)
-    return /\b(?:git|gh)\b.*\b(?:push|send-pack|create|edit|merge|comment|review)\b/.test(command) ? refuse('The shell script cannot be translated safely.') : null
+    if (tokens.length === 3 && !complex && !quote && !escaped) return commandWrite(tokens[2]!, depth + 1)
+    return { write: /\b(?:git|gh)\b.*\b(?:push|send-pack|create|edit|merge|comment|review)\b/.test(command) ? refuse('The shell script cannot be translated safely.') : null }
   }
   // Prose mentioning git is not an invocation. Environment prefixes and
   // compound invocations are refused, rather than silently passed through.
-  if (['echo', 'printf', 'man'].includes(tokens[0] ?? '')) return null
+  if (['echo', 'printf', 'man'].includes(tokens[0] ?? '')) return { write: null }
   for (let i = 0; i < tokens.length; i++) {
     const parsed = parseGitWrite(tokens[i]!, tokens.slice(i + 1))
-    if (parsed) return complex || quote || escaped || i !== 0 ? refuse('Compound shell commands cannot be translated safely.', parsed.kind === 'push' ? undefined : parsed.tool) : parsed
+    if (parsed) return { write: complex || quote || escaped || i !== 0 ? refuse('Compound shell commands cannot be translated safely.', parsed.kind === 'push' ? undefined : parsed.tool) : parsed, binary: tokens[i] }
   }
-  return null
+  return { write: null }
 }
 
 /** Durable text must never retain URL userinfo or a pasted body. */

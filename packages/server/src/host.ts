@@ -1321,7 +1321,7 @@ export class Host {
         return tools.invokeTool(tool.id, args, { runtime: runtimeId(scope.runtime), sessionId: makeSessionId(scope.sessionId), workspaceRoot: scope.cwd, ...(scope.turn ? { turnId: scope.turn as TurnId } : {}) })
       },
       say: (scope, text, banner) => {
-        this.#say(scope.runtime, scope.sessionId, text)
+        if (!banner) this.#say(scope.runtime, scope.sessionId, text, 'git:steering')
         if (banner) this.#onEvent(runtimeId(scope.runtime), { type: 'notice', class: 'conversation', kind: 'git:outside', sessionId: makeSessionId(scope.sessionId), level: 'warning', message: text })
       },
     })
@@ -6654,8 +6654,8 @@ export class Host {
   }
 
   /** Put a desk decision in the conversation's running or latest turn. */
-  #say(runtime: string, sessionId: string, text: string): boolean {
-    const item: NoticeItem = { id: itemId(`desk-${randomBytes(6).toString('hex')}`), type: 'notice', text }
+  #say(runtime: string, sessionId: string, text: string, kind?: string): boolean {
+    const item: NoticeItem = { id: itemId(`desk-${randomBytes(6).toString('hex')}`), type: 'notice', text, ...(kind ? { kind } : {}) }
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
     if (!record) return false
     const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
@@ -8235,6 +8235,15 @@ export class Host {
     // answered here, audited here, and reported as a notice.
     if (event.type === 'approval/requested') {
       if (this.#answerFlowBoardTool(runtime, event.approval)) return
+      const approval = event.approval
+      if (approval.type === 'command' && approval.kind !== 'stdin' || approval.type === 'permission' && !String(approval.id).startsWith('held-')) {
+        const write = parseGitCommand(approval.type === 'command' ? approval.command : approval.summary)
+        const record = this.registry.get(runtime, approval.sessionId)
+        const root = record?.shellCheckout?.project ?? record?.session.cwd
+        if (write?.kind === 'unmappable' && root && this.gitSteering.steerFor(root) !== 'off') {
+          event = { ...event, approval: { ...approval, reason: [approval.reason, redactGitCommand(write.reason)].filter(Boolean).join('\n') } }
+        }
+      }
       const verdict = this.#applyPolicy(runtime, event.approval)
       if (verdict) return
       // A question, not a yes/no: from a Seat nobody watches, it gets a deadline.

@@ -722,7 +722,7 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
 
 const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'lead-contract': ['LeadContract'],
-  'LeadAvatar': ['LeadAvatar', 'LeadNameChoice'],
+  'LeadAvatar': ['LeadAvatar', 'LeadNameChoice', 'LeadIdentity', 'LeadLineNote', 'LeadSlot', 'LeadTurn'],
   'ConversationShell': ['ConversationShell', 'ConversationThread', 'ConversationDock', 'ConversationComposerFrame', 'TranscriptAssistantMessage'],
   'ActionError': ['ActionError'],
   'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
@@ -777,7 +777,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'RefusedAction': ['RefusedAction'],
   'SeatList': ['SeatList'],
   'SelectionAction': ['SelectionAction'],
-  'Settings': ['AccountMark', 'Chip', 'Clipped', 'CodeText', 'DetailMark', 'Dot', 'Face', 'Field', 'FileButton', 'FormStack', 'InlineParts', 'Keycap', 'MetaList', 'Monogram', 'NavigationGroupHeader', 'NavigationList', 'Note', 'NoteList', 'Row', 'RowButton', 'RowChoice', 'RowInput', 'RowValue', 'Rows', 'Search', 'SectionHead', 'Segmented', 'SegmentedReadout', 'Spinner', 'Text', 'TextMark'],
+  'Settings': ['AccountMark', 'Chip', 'Clipped', 'CodeText', 'DetailMark', 'Dot', 'Face', 'Field', 'FileButton', 'FormStack', 'InlineParts', 'Keycap', 'MetaList', 'Monogram', 'NavigationGroupHeader', 'NavigationList', 'Note', 'NoteList', 'Row', 'RowButton', 'RowChoice', 'RowInput', 'RowMark', 'RowValue', 'Rows', 'Search', 'SectionHead', 'Segmented', 'SegmentedReadout', 'Spinner', 'Text', 'TextMark'],
   'SettingsChoices': ['AccentChoices', 'PictureChoices', 'RingChoices'],
   'SettingsRowMenu': ['SettingsRowMenu'],
   'SidebarMenuState': ['SidebarMenuState'],

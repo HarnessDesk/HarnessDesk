@@ -18,9 +18,9 @@ const peer = fileURLToPath(new URL('../../../adapter-acp/test/fixtures/fake-acp-
 const cursor = fileURLToPath(new URL('../../../cursor-acp/dist/src/main.js', import.meta.url))
 const cursorFake = fileURLToPath(new URL('../../../cursor-acp/test/fixtures/fake-cursor-agent.mjs', import.meta.url))
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim()
-const until = async (predicate: () => boolean, message: string) => {
+const until = async (predicate: () => boolean | Promise<boolean>, message: string) => {
   const end = Date.now() + 10_000
-  while (!predicate()) { assert.ok(Date.now() < end, message); await new Promise(resolve => setTimeout(resolve, 10)) }
+  while (!await predicate()) { assert.ok(Date.now() < end, message); await new Promise(resolve => setTimeout(resolve, 10)) }
 }
 async function fixture(t: { after(fn: () => void | Promise<void>): void }, kind: 'codex' | 'acp' | 'cursor' | 'claude', off: boolean | 'project' = false, approve = false) {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'hd-steer-runtime-'))), cwd = join(home, 'checkout'), stateDir = join(home, 'state'), remote = join(home, 'remote.git')
@@ -130,4 +130,22 @@ test('Claude bridge SDK actually receives the nested-shell steering denial', asy
   const f = await fixture(t, 'claude')
   const events = await f.turn('permission ' + JSON.stringify({ tool: 'Bash', input: { command: "bash -c 'git push origin x'" } }))
   assert.ok(JSON.stringify(events).includes('native guard denied.'), JSON.stringify(events))
+})
+
+test('unmappable native writes retain the ordinary approval with a steering explanation', async t => {
+  const f = await fixture(t, 'acp')
+  const command = 'git push origin x | cat'
+  const events = await f.turn('ceiling permission ' + JSON.stringify({ toolCallId: 'compound', title: command, kind: 'execute', rawInput: { command, cwd: f.cwd } }))
+  const native = events.find(event => event.type === 'approval/requested' && !String(event.approval.id).startsWith('held-'))
+  assert.ok(native?.type === 'approval/requested' && native.approval.reason?.includes('Compound shell commands cannot be translated safely.'), JSON.stringify(events))
+  assert.equal(events.some(event => event.type === 'approval/requested' && String(event.approval.id).startsWith('held-')), false)
+})
+
+test('Never leaves native git unchanged while a pinned outside push is still observed', async t => {
+  const f = await fixture(t, 'codex', true)
+  await f.engine.pins.pin(f.cwd, 'acme/widgets', { kind: 'person', id: 'person' })
+  const events = await f.turn('git-steer-run ' + JSON.stringify({ binary: 'git', args: ['push', 'origin', 'x'] }))
+  await until(async () => (await f.engine.record({ repository: 'acme/widgets', limit: 10 })).some(row => row.op === 'observed'), 'outside record with Never')
+  assert.equal(events.some(event => event.type === 'approval/requested' || event.type === 'notice' && event.message.includes('went around')), false)
+  assert.equal(await f.host.call('git/record/attribute', { root: f.cwd, branch: 'x', sha: git(f.cwd, 'rev-parse', 'HEAD') }), 'outside')
 })

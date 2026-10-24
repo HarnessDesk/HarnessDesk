@@ -593,8 +593,8 @@ test.describe('preview coverage', () => {
       if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', { name: 'Fill the window', exact: true })).toBeVisible()
       if (query === '?flows-page=catalogue') await expect(page.getByRole('button', { name: 'New Flow', exact: true })).toBeVisible()
       if (query === '?flows-page=editor') await expect(page.getByRole('main', { name: 'Flow editor', exact: true })).toBeVisible()
-      if (query.startsWith('?lead-synthetic=')) await expect(page.locator('h1').filter({ hasText: /^Lead$/ })).toBeVisible()
-      if (query === '?lead-synthetic=settings-configured') await expect(page.getByRole('dialog', { name: 'Lead settings', exact: true })).toBeVisible()
+      if (query.startsWith('?lead-synthetic=') && query !== '?lead-synthetic=settings-configured') await expect(page.getByRole('region', { name: / thread$/ })).toBeVisible()
+      if (query === '?lead-synthetic=settings-configured') await expect(page.getByRole('combobox', { name: 'Permission mode', exact: true })).toBeVisible()
       if (query.includes('frame-detail=skill')) await expect(page.locator('[data-slot="skill-page"]')).toBeVisible()
       await settleCoveragePage(page)
       const result = await collectCoverage(page)
@@ -938,3 +938,43 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(deletion).toHaveAttribute('title', 'Beta erases it for good, so delete it there')
   })
 }
+
+// Each exported gateway component earns coverage from its visible React
+// reference in preview.html, including all three record filters and no pin.
+for (const theme of ['light', 'dark'] as const) test(`git gateway components render in preview in ${theme}`, async ({ page }) => {
+  test.setTimeout(120_000)
+  const errors: string[] = [], covered = new Set<string>()
+  page.on('pageerror', error => errors.push(error.message))
+  for (const scene of ['push', 'steer', 'branch', 'merged', 'bypass', 'pr-record', 'project-all', 'project-outside', 'project-refused', 'project-empty', 'settings', 'override', 'outside-head', 'rewrite']) {
+    await page.goto(`/preview.html?git-gateway=${scene}&theme=${theme}`)
+    await expect(page.locator(`[data-frame-id="git-gateway-${scene}"]`)).toBeVisible()
+    await settleCoveragePage(page)
+    for (const component of (await collectCoverage(page)).covered) covered.add(component)
+  }
+  for (const component of ['GitRecordRows', 'PullRequestRecord', 'ProjectGitRecord', 'GitWriteSettings', 'ProjectGitWrites', 'OutsideHeadBanner']) {
+    expect(covered.has(`components/GitRecord.tsx#${component}`), component).toBe(true)
+  }
+  expect(errors).toEqual([])
+})
+
+test('git gateway catalogue fixture preserves the explorer root', async ({ page }) => {
+  await page.goto('/design.html?view=team-start')
+  await expect(page.getByRole('heading', { name: 'New Team', exact: true, level: 1 })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Picker', exact: true })).toBeVisible()
+  await page.getByRole('navigation').getByRole('button', { name: 'Git gateway', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Git gateway', exact: true, level: 1 })).toBeVisible()
+  await expect(page.locator('[data-slot="approval-card"]')).toHaveCount(2)
+  await expect(page.locator('[data-frame-id="coverage-retained-components"]')).toHaveCount(0)
+})
+
+test('retained Lead and phone states earn visible preview coverage', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto('/preview.html')
+  await page.getByRole('combobox', { name: 'saved component state', exact: true }).selectOption('recorded')
+  await expect(page.getByRole('alertdialog', { name: 'Allow this phone?', exact: true })).toBeVisible()
+  await settleCoveragePage(page)
+  const { covered } = await collectCoverage(page)
+  for (const component of ['LeadAway.tsx#LeadAway', 'LeadCheck.tsx#LeadCheck', 'LeadControls.tsx#LeadStatusPanel', 'PhoneSettings.tsx#PhoneAsk', 'PhoneSettings.tsx#PhoneSettingsSection']) expect(covered).toContain(`components/${component}`)
+  expect(errors).toEqual([])
+})

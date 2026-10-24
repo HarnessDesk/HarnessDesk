@@ -200,7 +200,7 @@ test('R3 nested hosts skip stand-ins when resolving real executables', async t =
 })
 test('R3 completed commands ignore prose and match the embedded steered write', async t => {
   const f = await rig(t); f.choose('refused'); await f.command('git', ['push', 'origin', 'x'])
-  for (const command of ['echo git push', 'man git push', '/usr/bin/git push --help', "zsh -lc 'cd /repo && git push origin x'"]) await f.steer.completed(f.scope, command, 0)
+  for (const command of ['echo git push', 'man git push', '/usr/bin/git push --help', "zsh -lc 'cd /repo && git push origin x'", "/bin/zsh -lc 'git push origin x'"]) await f.steer.completed(f.scope, command, 0)
   assert.equal(f.rows.filter(row => row.includes('went around')).length, 0)
 })
 test('R3 cwd accepts subdirectories and rejects observation of other checkouts', async t => {

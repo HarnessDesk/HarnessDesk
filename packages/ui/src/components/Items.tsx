@@ -40,6 +40,7 @@ import {
   AttachmentMedia,
   Bubble,
   BubbleContent,
+  Banner,
   Button,
   Card,
   CardViewport,
@@ -378,8 +379,8 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
   const unavailable = sessionUnavailable(useSnapshot(), useActiveSession())
   const copyFailed = useCopyFailed()
   return (
-    <MessageFooter align="end" className="gap-(--hd-space-0-5)">
-      {when && <Text as="span" role="meta" numeric className="mr-(--hd-space-1-5)">{when}</Text>}
+    <MessageFooter align="end">
+      {when && <Text as="span" role="meta" numeric>{when}</Text>}
       <span data-message-actions="user" className={styles.actions}>
         <CopyButton text={text} label="Copy this message" onError={copyFailed} />
         {!unavailable && <Button
@@ -480,7 +481,7 @@ const UserText = ({ text }: { text: string }) => {
       {overflowed && (
         <Button
           variant="quiet" size="sm"
-          className={`${styles.bubbleToggle} mt-(--hd-space-1)`}
+          className={styles.bubbleToggle}
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
         >
@@ -590,9 +591,8 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
       {text.length > 0 && (
         // The surface and its footer, in the same MessageContent the room's
         // own body and trouble line stand in — genuine structure, not a
-        // second box. `items-end` keeps both pinned to the row's own right
-        // edge; the gap replaces the row's own, so the rhythm holds.
-        <MessageContent className="items-end gap-(--hd-space-1-5)">
+        // second box. The content owns the sent message's alignment and rhythm.
+        <MessageContent align="end">
           <UserText text={text} />
           <UserMessageFooter text={text} at={item.startedAt ?? sentAt} />
         </MessageContent>
@@ -1407,6 +1407,7 @@ const Notice = ({ item }: { item: NoticeItem }) => {
   if (item.kind && surfaceFor(snapshot.noticePolicy, item.kind) === null) return null
   const text = sanitizeText(snapshot.home ? item.text.split(`${snapshot.home}/`).join('~/') : item.text)
   const count = item.count && item.count > 1 ? ` ×${item.count}` : ''
+  if (item.kind === 'git:outside') return <Banner tone="warning">{text}{count}</Banner>
   const long = text.length > 180 || text.split('\n').length > 4
   const warning = item.kind === 'conversation:warning' || item.kind === 'runtime:warning'
   // Kind, never a phrase in authored text, decides which notices are housekeeping.

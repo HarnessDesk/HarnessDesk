@@ -289,6 +289,76 @@
       "selector": "[data-frame-id=\"coverage-panel-actions\"] > div",
       "id": "coverage-panel-actions",
       "title": "Panel actions context"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-push\"] > div",
+      "id": "git-gateway-push",
+      "title": "Git gateway \u00b7 push"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-steer\"] > div",
+      "id": "git-gateway-steer",
+      "title": "Git gateway \u00b7 steer"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-branch\"] > div",
+      "id": "git-gateway-branch",
+      "title": "Git gateway \u00b7 branch"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-merged\"] > div",
+      "id": "git-gateway-merged",
+      "title": "Git gateway \u00b7 merged"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-bypass\"] > div",
+      "id": "git-gateway-bypass",
+      "title": "Git gateway \u00b7 bypass"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-pr-record\"] > div",
+      "id": "git-gateway-pr-record",
+      "title": "Git gateway \u00b7 pr-record"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-project-all\"] > div",
+      "id": "git-gateway-project-all",
+      "title": "Git gateway \u00b7 project-all"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-project-outside\"] > div",
+      "id": "git-gateway-project-outside",
+      "title": "Git gateway \u00b7 project-outside"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-project-refused\"] > div",
+      "id": "git-gateway-project-refused",
+      "title": "Git gateway \u00b7 project-refused"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-project-empty\"] > div",
+      "id": "git-gateway-project-empty",
+      "title": "Git gateway \u00b7 project-empty"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-settings\"] > div",
+      "id": "git-gateway-settings",
+      "title": "Git gateway \u00b7 settings"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-override\"] > div",
+      "id": "git-gateway-override",
+      "title": "Git gateway \u00b7 override"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-outside-head\"] > div",
+      "id": "git-gateway-outside-head",
+      "title": "Git gateway \u00b7 outside-head"
+    },
+    {
+      "selector": "[data-frame-id=\"git-gateway-rewrite\"] > div",
+      "id": "git-gateway-rewrite",
+      "title": "Git gateway \u00b7 rewrite"
     }
   ],
   "boards": [
@@ -302,6 +372,7 @@
     "Page and subject type",
     "Face",
     "Checklist",
+    "QrCode",
     "Notice",
     "CodeBlock",
     "Message \u00b7 Bubble",
@@ -337,6 +408,8 @@
     "Window \u00b7 panel controls",
     "Stat",
     "Delta",
+    "Lead avatar",
+    "Lead contract",
     "Plan card",
     "Usage meter row",
     "Section \u00b7 Toolbar",
@@ -392,6 +465,7 @@
     "Left bar",
     "Seats in the left bar",
     "Projects in the left bar",
+    "Git gateway",
     "Git history",
     "Panels",
     "Browser \u00b7 Terminal \u00b7 Editor",

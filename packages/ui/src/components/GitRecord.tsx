@@ -71,9 +71,15 @@ export const ProjectGitRecord = ({ root, initialView = 'all' }: { readonly root:
 
 const modes: Readonly<Record<GitSteerMode, string>> = { ask: 'Ask each time', redirect: 'Always', off: 'Never' }
 function usePreferences() {
-  const store = useStore(), [preferences, setPreferences] = useState<GitWritePreferences | null>(null), [problem, setProblem] = useState<string | null>(null)
+  const store = useStore(), active = useDestinationActive(), [preferences, setPreferences] = useState<GitWritePreferences | null>(null), [problem, setProblem] = useState<string | null>(null)
   const read = (raw: unknown): GitWritePreferences => ({ ...gitWritePreferences(raw), projects: (raw as GitWritePreferences | undefined)?.projects ?? {} })
-  useEffect(() => { let live = true; void store.transport.request('app/state/get', {}).then(value => { if (live) setPreferences(read(value?.['gitWrites'])) }, error => { if (live) setProblem(String(error)) }); return () => { live = false } }, [store])
+  useEffect(() => {
+    if (!active) return
+    let live = true, generation = 0
+    const refresh = () => { const revision = ++generation; void store.transport.request('app/state/get', {}).then(value => { if (live && generation === revision) { setPreferences(read(value?.['gitWrites'])); setProblem(null) } }, error => { if (live && generation === revision) setProblem(String(error)) }) }
+    refresh(); window.addEventListener('focus', refresh)
+    return () => { live = false; window.removeEventListener('focus', refresh) }
+  }, [store, active])
   const save = async (patch: Partial<GitWritePreferences>) => { try { const result = await store.transport.request('app/state/set', { patch: { gitWrites: patch } }); setPreferences(read(result['gitWrites'])); setProblem(null) } catch (error) { setProblem(String(error)) } }
   return { preferences, save, problem }
 }
