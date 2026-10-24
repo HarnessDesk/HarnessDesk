@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { LEAD_LIMITS, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, LeadSlot, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, Input, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
+import { openExternal } from '../lib/desktop'
 import { leadWakeLine } from '../lib/lead-presence'
 import { LeadAway } from './LeadAway'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
@@ -159,8 +160,10 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const requestPending = sending || state.requestInFlight
   // What the Lead is doing this second, as one quiet line at the end of the thread. A window that cannot trust its
   // projection says nothing; a plan on the table or a wait for the person is not work, and a stopped card speaks for itself.
-  const phase = state.thread?.state, progress = state.progress, pr = state.thread?.pr
+  const phase = state.thread?.state, progress = state.progress, pr = state.thread?.pr, origin = state.thread?.origin, handback = state.thread?.handback
+  const repairActive = phase === 'running' && handback?.stage === 'running' && pr?.branchOwner !== 'person'
   const live = state.error ? null
+    : repairActive ? <TurnWorkLive data-slot="lead-live-line" data-kind="handback">{`Repairing ${handback.kind === 'checks' ? 'checks' : 'review comments'} · round ${handback.round}`}</TurnWorkLive>
     : phase === 'running' && progress ? <TurnWorkLive data-slot="lead-live-line" data-kind="running">{`Step ${progress.step} of ${progress.steps}${contract?.steps[progress.step - 1] ? ` · ${contract.steps[progress.step - 1]!.title}` : ''} · ${runsWords(progress.runs)}`}</TurnWorkLive>
     : (phase === 'draft' || phase === 'planning') && state.requestInFlight ? <TurnWorkLive data-slot="lead-live-line" data-kind="planning">Planning…</TurnWorkLive>
     : phase === 'stopped' && !cards.some(card => card.type === 'stopped') ? <TurnWorkLive settled data-slot="lead-live-line" data-kind="stopped">{STOPPED[state.thread?.budget?.stop?.reason ?? 'cancelled']}</TurnWorkLive>
@@ -212,6 +215,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     <ConversationThread ref={thread} role="region" aria-label={`${label} thread`} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 24 }}>
       {entries.length || live || pr ? <Page width="reading" gutter="none">
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
+        {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{`From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`}</Button> : `From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`}</Text>}
         {entries.map(entry => entry.kind === 'message'
           ? <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             face={faces.has(entry.message.id)} />
@@ -219,16 +223,20 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
             note={<Chip tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
           : <LeadCards key={`card:${entry.card.id}`} {...cardProps} cards={[entry.card]} placement="thread" />)}
-        {pr && <Text as="p" role="meta" data-slot="lead-pr-status" title={pr.observedHead ?? pr.head}>
-          {`Pull request #${pr.number} · ${(pr.observedHead ?? pr.head).slice(0, 7)} · ${pr.state === 'merged' ? 'Merged' : pr.state === 'closed' ? 'Closed' : `Checks ${pr.check?.state ?? 'not confirmed'} · Review ${pr.review?.state ?? 'not confirmed'}`}${pr.branchOwner === 'person' ? ' · Branch managed by you' : ''}`}
-        </Text>}
+
+        {pr && <div data-slot="lead-pr-status"><InlineParts>
+          <Button variant="link" size="inline-link" title={pr.observedHead ?? pr.head} onClick={() => openExternal(`https://github.com/${pr.repository}/pull/${pr.number}`)}>{`#${pr.number}`}</Button>
+          <Text role="meta">{pr.state === 'merged' ? 'Merged' : pr.state === 'closed' ? 'Closed' : `Checks ${pr.check?.state ?? 'not confirmed'} · Review ${pr.review?.state?.replace(/-/g, ' ') ?? 'not confirmed'}`}</Text>
+          <Chip tone="neutral">{pr.branchOwner === 'person' ? 'Your branch' : 'Automatic repairs'}</Chip>
+        </InlineParts></div>}
+        {state.waitReason === 'lead-handback-limit' && <LeadCards {...cardProps} cards={[]} waitReason={state.waitReason} placement="thread" />}
         {live}
       </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
     </ConversationThread>
     {active && <ConversationDock ref={dock}>
       <ConversationComposerFrame before={<ComposerNoticeStack>
           <LeadAway active={active} state={state} label={label} />
-          {goalActive && <LeadSlot slot="lead-run-strip"><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}{phase === 'running' && leadWakeLine(state.presence) ? <Text as="span" role="muted">{` · ${leadWakeLine(state.presence)}`}</Text> : null}</Banner></LeadSlot>}
+          {goalActive && <LeadSlot slot="lead-run-strip"><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'following' ? `Following #${pr?.number ?? ''}` : repairActive ? `Repairing ${handback.kind === 'checks' ? 'checks' : 'review comments'} · round ${handback.round}` : phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}{phase === 'running' && leadWakeLine(state.presence) ? <Text as="span" role="muted">{` · ${leadWakeLine(state.presence)}`}</Text> : null}</Banner></LeadSlot>}
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
           {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replace('{label}', label)}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}

@@ -63,8 +63,8 @@ export const answerLeadPersonGate = async (options: PersonDecisionOptions, card:
   await (await prepareLeadPersonGate(options, card, decision, contract)).answer()
 }
 /** A terminal Lead result is still a collection of real person gates, never summary authority. */
-export const answerLeadResult = async (options: PersonDecisionOptions, card: Extract<LeadCard, { type: 'result' }>,
-  decision: LeadCardDecision, contract: LeadAcceptanceContract): Promise<void> => {
+const prepareLeadResult = async (options: PersonDecisionOptions, card: Extract<LeadCard, { type: 'result' }>,
+  decision: LeadCardDecision, contract: LeadAcceptanceContract) => {
   const state = options.journal.state, budget = state.budget && leadBudgetProjection(state.budget, options.now())
   const accounting = (value: typeof budget) => value && JSON.stringify({ caps: value.caps, lead: value.leadUsdMicros,
     workers: value.workerUsdMicros, reserved: value.reservedUsdMicros, spend: value.spend, stop: value.stop })
@@ -86,5 +86,12 @@ export const answerLeadResult = async (options: PersonDecisionOptions, card: Ext
   })
   if (leadAssertionFacts(combined) !== leadAssertionFacts(card.assertions)) throw leadRefusal('lead-gate-changed')
   for (const gate of gates) gate.check()
-  for (const gate of gates) await gate.answer()
+  return async () => { for (const gate of gates) await gate.answer() }
+}
+/** Publication preflight reads the gates without answering them or changing the board. */
+export const validateLeadResult = async (options: PersonDecisionOptions, card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract): Promise<void> => {
+  await prepareLeadResult(options, card, decision, contract)
+}
+export const answerLeadResult = async (options: PersonDecisionOptions, card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract): Promise<void> => {
+  await (await prepareLeadResult(options, card, decision, contract))()
 }

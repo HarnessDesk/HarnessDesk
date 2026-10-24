@@ -15,10 +15,10 @@ import { Settings } from '../components/Settings'
 import { LeadDecision } from '../components/LeadDecision'
 import { LeadCards } from '../components/LeadCards'
 import { LeadPage } from '../components/LeadPage'
-import { LeadAvatar, LeadNameChoice } from '../design'
+import { LeadAvatar, LeadNameChoice, LeadPlanFlow } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
-import { LEAD_SCENES, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
+import { LEAD_SCENES, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
 import type { HostMethodName, LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
@@ -34,6 +34,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       let settings = { ...current.settings }
       if (params.credential) settings = { ...settings, key: { ...settings.key, configured: params.credential.key !== null } }
       if (params.name) settings.name = params.name
+      if (params.follow) settings.follow = params.follow
       if (params.policy) {
         if (leadPolicyWidens(settings.policy, params.policy)) cards.push({ version: 1, id: `policy-${revision}`, revision: 1, type: 'permission-change', contractDigest: current.thread.contract?.digest ?? null, previous: settings.policy, proposed: params.policy })
         else settings = { ...settings, policy: params.policy }
@@ -55,13 +56,15 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       if (!card || card.revision !== params.expectedRevision || card.type === 'stopped' || card.contractDigest !== params.contractDigest) throw { code: 'lead-card-stale' }
       const settings = params.choice === 'approve' && card.type === 'permission-change' ? { ...current.settings, policy: card.proposed } : params.choice === 'approve' && card.type === 'budget-change' ? { ...current.settings, caps: card.proposed } : current.settings
       emit({ ...current, revision: current.revision + 1, settings, wayOut: null, thread: { ...current.thread,
-        state: card.type === 'result' ? params.choice === 'accept' ? 'accepted' : 'declined' : current.thread.state,
+        state: card.type === 'result' ? params.choice === 'accept-open-pr' ? 'following' : params.choice === 'accept' ? 'accepted' : 'declined' : current.thread.state,
         decisions: [...(current.thread.decisions ?? []), { card, choice: params.choice, position: current.thread.cardPositions?.[card.id] ?? current.revision }], cards: current.thread.cards.filter(one => one.id !== card.id) } })
       return current
     }
     if (method === 'lead/thread/send') { const revision = current.revision + 1; emit({ ...current, revision, thread: { ...current.thread, messages: [...current.thread.messages, { version: 1, id: `message-${revision}`, revision, role: 'user', text: params.text }] } }); return { messageId: `message-${revision}`, revision } }
     if (method === 'lead/stop') { const { progress: _running, ...rest } = current; emit({ ...rest, revision: current.revision + 1, requestInFlight: false, wayOut: null, waitReason: null, thread: { ...current.thread, state: 'stopped', cards: [] } }); return current }
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
+    if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
+    if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }
     if (method === 'lead/schedule/read') return schedule
     if (method === 'lead/schedule/update') return schedule = params.schedule
     if (method === 'lead/memory/read') return memory
@@ -114,3 +117,8 @@ export const LeadContractSpecimen = () => <div className="flex flex-col gap-6">{
 </div>)}</div>
 const LEAD_AVATAR_CATALOG_SIZES = ['navigation', 'turn', 'header', 'popover', 'picker'] as const
 export const LeadAvatarSpecimen = () => <div className="flex flex-col gap-3">{LEAD_AVATAR_CATALOG_SIZES.map(size => <div key={size} data-variant="default" data-state="default" data-size={size} className="flex items-center gap-3"><LeadAvatar name="dex" size={size} mood="working" /><LeadAvatar name="lex" size={size} mood="working" /></div>)}<LeadNameChoice value="dex" pending={false} onChange={() => {}} /></div>
+
+const LEAD_PLAN_FLOW_CATALOG_VARIANTS = ['default'] as const
+const LEAD_PLAN_FLOW_CATALOG_SIZES = ['default'] as const
+const LEAD_PLAN_FLOW_CATALOG_STATES = ['default'] as const
+export const LeadPlanFlowSpecimen = () => <div data-variant={LEAD_PLAN_FLOW_CATALOG_VARIANTS[0]} data-size={LEAD_PLAN_FLOW_CATALOG_SIZES[0]} data-state={LEAD_PLAN_FLOW_CATALOG_STATES[0]}><LeadPlanFlow steps={leadContract.steps} /></div>

@@ -213,3 +213,13 @@ test('a person message also fences a firing whose origin was reserved before a c
   await assert.rejects((s.controls.send as any)({ idempotencyKey: 'reserved-firing', text: 'Draft the reserved event' }, origin), (error: any) => error.wireCode === 'lead-request-in-flight')
   assert.equal(s.requests(), 0)
 })
+
+test('automatic trigger origin carries readable action and repository subject rather than its delivery hash', async t => {
+  const s = await automatic(t)
+  await s.owner.offerTrigger({ key: 'readable-origin', project: s.project.path, sentence: 'Draft a repair plan', fact: {
+    source: 'pull-request', event: 'a'.repeat(64), subject: '12', url: 'https://github.com/acme/widgets/pull/12', title: 'Fix checks', body: '', action: 'checks-failed',
+  } })
+  await s.controls.idle()
+  assert.equal(s.journal.state.origin?.event, 'checks-failed')
+  assert.equal(s.journal.state.origin?.subject, 'acme/widgets#12')
+})

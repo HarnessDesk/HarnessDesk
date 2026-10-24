@@ -3105,7 +3105,17 @@ export class FlowExecutions {
       await this.#lead.prepareRepair(run, op.key, op.round)
       if (run.state === 'stopped' || run.state === 'stalled' || !existing && run.rounds.length + 1 !== op.round) throw new Error('lead-repair-run-unavailable')
       if (!existing && run.rounds.at(-1)?.role !== 'accept') throw new Error('lead-repair-acceptance-missing')
-      run = await this.#put({ ...run, state: 'running', reason: null })
+      // Acceptance closes asynchronously outside this queue. Its outstanding
+      // findings close must land before a new repair resets the progress window.
+      const acceptance = run.rounds.at(-1)
+      const answered = acceptance?.cards.every(id => this.#team.stateFor(run.goal).intents.some(card => card.id === id && done(card)))
+      if (!existing && answered && (acceptance?.state !== 'closed' || run.findings && !run.operations.some(op => op.key === `close:${acceptance.n}` && op.state === 'finished')))
+        throw new Error('lead-repair-acceptance-pending')
+      // A newly observed external event begins a fresh progress window. Keep
+      // the total round ceiling and all findings; person acceptance itself
+      // produced no worker evidence and must not spend this repair's window.
+      run = await this.#put({ ...run, state: 'running', reason: null,
+        ...(!existing && run.findings ? { findings: { ...run.findings, idleRounds: 0 } } : {}) })
       return this.#openRound(run.id, { role: 'implement', title: 'Repair the followed pull request',
         detail: `${op.detail ?? 'Repair the observed checks or review on this branch.'}\n\nCommit the change and rerun the required checks. Independent review and person acceptance still apply. Never publish or merge.` },
         { key: cause, evidence: [] }, [], true)

@@ -60,7 +60,12 @@ test('host repairs validate reviewed heads, adopt a crashed gateway push once, a
     requester: { kind: 'lead-goal', id: rig.journal.state.budget!.logicalGoalId } })
   await rig.journal.publication({ ...operation, stage: 'pushed' })
   await rig.journal.publication({ ...operation, stage: 'completed' }, { repository: source.repository, number: 7, branch, head: h1, branchOwner: 'lead', state: 'open', at: operation.at, check: null })
+  // This fixture journals publication directly; settle the same real person
+  // gate that the accept-open-pr host path answers before following.
+  await rig.host.teamPlane.intentAction(run.goal, rig.personGates().at(-1)!.id, 'done', undefined, 'accepted')
+  await rig.host.teamPlane.flush()
   await rig.journal.decideCard(decision, null)
+  await rig.waitFor(() => rig.host.flowsPlane.leadRuns()[0]?.state === 'settled', 'accepted Flow settles before external repair')
   const pushOwned = LeadPrFollow.prototype.pushOwned
   t.mock.method(LeadPrFollow.prototype, 'pushOwned', async function (this: LeadPrFollow, source: Parameters<LeadPrFollow['pushOwned']>[0], validate: Parameters<LeadPrFollow['pushOwned']>[1]) {
     if (!validated) {
@@ -78,9 +83,9 @@ test('host repairs validate reviewed heads, adopt a crashed gateway push once, a
     return ownedPush(operation)
   })
   const watch = () => following.watches()[0]!
+  await rig.service.close() // Passive following needs no management child for a host repair.
   await following.deliver(watch(), { observations: [], facts: [{ source: 'pull-request', project: rig.project.path, repository: 'acme/widgets', subject: '7', event: 'failure-1', action: 'checks-failed',
     at: Date.now(), head: h1, fork: false, title: 'Fixture check failed', body: '', url: 'https://github.com/acme/widgets/pull/7', trigger: null, check: { head: h1, state: 'failed', total: 1 } }] } as any)
-  await rig.service.close() // The host repairs without a management child or a new paid request.
   try { await rig.waitFor(() => crashed, 'gateway push followed by journal crash') }
   catch (error) { throw new Error(`${error}; recovery=${JSON.stringify(recoveryErrors)}; acceptance=${JSON.stringify(rig.latestEvidence && evaluateLeadAcceptance(rig.journal.state.contract!, rig.latestEvidence, { now: Date.now(), freshnessMs: 60000, revision: rig.journal.state.seq }))}; budget=${JSON.stringify(leadBudgetProjection(rig.journal.state.budget!, Date.now()))}`) }
   assert.equal(validated, true)

@@ -82,6 +82,8 @@ export interface LeadPrFollowOptions {
   /** Must read the forge afresh. An initial claim additionally requires a worker publication. */
   readonly find: (source: LeadPublicationSource, recovering: boolean) => Promise<readonly LeadPrCandidate[]>
   readonly create: (source: LeadPublicationSource, card: ResultCard, contract: LeadAcceptanceContract) => Promise<LeadPrCandidate>
+  /** Final person-gate answer, inside the decision's journal transaction. Preflight validate stays read-only. */
+  readonly answer?: LeadPrFollowOptions['validate']
   readonly push?: (source: LeadPublicationSource, ownedHead: string | null, reconcile: boolean) => Promise<unknown>
 }
 /** External effects never run on the journal writer queue. A persisted click is their only authority. */
@@ -184,11 +186,12 @@ export class LeadPrFollow {
         if (!matching()) throw new Error('lead-publication-conflict')
         await advance('completed', { ...candidates[0]!, branchOwner: 'lead', observedHead: op.source.head, state: 'open', check: null, review: null, at: this.options.now() })
       }
-      await journal.decideCard(op.decision, null, undefined, () => validate(card, op.decision, contract))
+      await journal.decideCard(op.decision, null, undefined, () => (this.options.answer ?? validate)(card, op.decision, contract))
     } catch (error) {
       // If disk itself failed, preserve the last prepared stage for crash reconciliation.
       if (journal.state.publication?.stage !== 'completed')
         try { await advance('needs-you') } catch { /* The durable prefix still owns recovery. */ }
+      else try { await journal.publicationNeedsYou(op.id) } catch { /* Preserve the successful publication and pending decision on disk failure. */ }
       throw error
     }
   }

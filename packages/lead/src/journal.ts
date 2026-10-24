@@ -318,6 +318,9 @@ export class LeadJournal {
     for (const listener of this.#listeners) { try { listener() } catch { /* Observers cannot undo a durable write. */ } }
   }
   setManagementPhase(phase: 'planning' | 'waiting-for-user', reason: string | null = null): Promise<void> { return this.#queue(async () => {
+    // A child refresh may finish after the person's publication decision.
+    // That old acceptance wait cannot take passive following back over.
+    if (reason === 'lead-result-awaiting-person' && this.#state.phase === 'following') return
     if (this.#state.phase === phase && this.#state.managementReason === reason) return
     await this.#append({ type: 'management', phase, reason })
   }) }
@@ -336,6 +339,16 @@ export class LeadJournal {
   }
   settingsChanged(name?: LeadName, follow?: LeadFollowPreferences): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }) })) }
   publication(operation: LeadPublicationOperation, pr: LeadPullRequest | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'publication', operation, pr })) }
+  /** Host-only exit after an external publication succeeded but its final
+   * person-gate answer refused. The child cannot release this decision fence. */
+  publicationNeedsYou(id: string): Promise<void> { return this.#queue(async () => {
+    const op = this.#state.publication
+    if (!op || op.id !== id || op.stage !== 'completed' || ['accepted', 'declined', 'stopped', 'following'].includes(this.#state.phase)) return
+    const card = this.#state.cards.find(card => card.id === op.decision.cardId)
+    if (!card || card.revision !== op.decision.expectedRevision || card.contractDigest !== op.decision.contractDigest || this.#state.decidedCards.includes(`${card.id}:${card.revision}`)) return
+    await this.#append({ type: 'invalidate-results' })
+    await this.#append({ type: 'management', phase: 'waiting-for-user', reason: 'lead-publication-needs-you' })
+  }) }
   handback(operation: LeadHandback): Promise<void> { return this.#queue(() => this.#append({ type: 'handback', operation })) }
   handbackLimit(): Promise<void> { return this.#queue(async () => { if (!this.#state.handbackLimit) await this.#append({ type: 'handback-limit' }) }) }
   ciPassed(head: string): Promise<void> { return this.#queue(async () => { if (!this.#state.ciPassed.includes(head)) await this.#append({ type: 'ci-passed', head }) }) }
@@ -396,7 +409,16 @@ export class LeadJournal {
       for (const event of events) await this.#append(event)
     }, stopEffects)
   }
-  restoreResult(id: string, revision: number): Promise<void> { return this.#queue(() => this.#append({ type: 'restore-result', id, revision })) }
+  #resultFenced(): boolean {
+    const op = this.#state.publication
+    return this.#state.phase === 'following' || !!(op && op.stage !== 'superseded' && !(op.stage === 'needs-you' && op.effectStarted === false) &&
+      !this.#state.decidedCards.includes(`${op.decision.cardId}:${op.decision.expectedRevision}`) &&
+      this.#state.cards.some(card => card.id === op.decision.cardId && card.revision === op.decision.expectedRevision && card.contractDigest === op.decision.contractDigest))
+  }
+  restoreResult(id: string, revision: number): Promise<void> { return this.#queue(async () => {
+    if (this.#resultFenced()) return
+    await this.#append({ type: 'restore-result', id, revision })
+  }) }
   /** Call only after acquiring exclusive ownership, before sending any requests. */
   recoverUnsettledRequests(): Promise<void> { return this.#queue(async () => {
     for (const request of this.#state.budget?.requests ?? []) if (!request.uncertain)
@@ -404,6 +426,8 @@ export class LeadJournal {
   }) }
   invalidateResults(): Promise<void> { return this.#queue(async () => {
     const op = this.#state.publication
+    // Recheck on the writer queue: the child's snapshot predates this RPC.
+    if (this.#resultFenced()) return
     if (op?.stage === 'needs-you' && op.effectStarted === false) await this.#append({ type: 'publication', operation: { ...op, stage: 'superseded' }, pr: null })
     await this.#append({ type: 'invalidate-results' })
   }) }
@@ -422,6 +446,12 @@ export class LeadJournal {
   }) }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
   offerCard(card: LeadCard, admit?: (card: LeadCard) => void): Promise<LeadCard> { return this.#queue(async () => {
+    // A prepared, effect-free intent may still be superseded. Once publication
+    // starts, only the host's final decision can release its exact result.
+    const op = this.#state.publication
+    const personPush = card.type === 'result' && card.publication === 'push' && card.publicationSource && this.#state.phase === 'following'
+    if (card.type === 'result' && this.#resultFenced() && !personPush && !(this.#state.phase !== 'following' && op?.stage === 'push-prepared' && op.effectStarted === false))
+      throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
     const revisions = new Map(this.#state.cards.map(card => [card.id, card.revision]))
     admit?.(card)
     await this.#append({ type: 'card', card })

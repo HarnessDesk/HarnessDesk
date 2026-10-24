@@ -691,7 +691,7 @@ test('send deadline is 180 seconds above the 30-second transport total and kills
   assert.equal(f.supervisor.live, false)
   assert.equal(f.journal.state.phase, 'waiting-for-user')
 })
-test('card admission refusal is an RPC refusal without killing the child or appending the card', async () => {
+for (const code of ['lead-card-too-large', 'lead-card-stale']) test(`card admission ${code} is an RPC refusal without killing the child or appending the card`, async () => {
   const { contract } = await import('./fixtures/loop.js')
   let reply!: (value: any) => void
   const replied = new Promise<any>(resolve => { reply = resolve })
@@ -701,11 +701,11 @@ test('card admission refusal is an RPC refusal without killing the child or appe
     if (message.type === 'reply') reply(message)
     if (message.type === 'shutdown') child.kill()
   })
-  const f = await fixture({ spawn: () => child, admitCardOffer: () => { throw Object.assign(new Error('lead-card-too-large'), { wireCode: 'lead-card-too-large' }) } })
-  const sent = f.supervisor.send(request).catch(() => {})
+  const f = await fixture({ spawn: () => child, admitCardOffer: () => { throw Object.assign(new Error(code), { wireCode: code }) } })
+  const sent = f.supervisor.send(request).catch((error: unknown) => { reply({ error: String(error) }) })
   try {
     const response = await replied
-    assert.equal(response.ok, false); assert.equal(response.value, 'lead-card-too-large')
+    assert.equal(response.ok, false); assert.equal(response.value, code)
     assert.equal(f.supervisor.live, true); assert.equal(f.journal.state.cards.length, 0)
   } finally { await f.supervisor.stop(); await sent }
 })

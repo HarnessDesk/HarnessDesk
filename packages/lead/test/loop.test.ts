@@ -984,6 +984,25 @@ test('an oversized host result parks with the typed admission reason', async () 
 })
 
 
+test('a stale result offer discards the old refresh without parking the Lead', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const offer = s.journal.offerCard.bind(s.journal)
+  s.journal.offerCard = async (card: any) => {
+    if (card.type === 'result') throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
+    return offer(card)
+  }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.notEqual(loop.state.reason, 'lead-observations-unavailable')
+    assert.notEqual(loop.state.reason, 'lead-card-stale')
+    assert.notEqual(s.journal.state.managementReason, 'lead-card-stale')
+    assert.equal(s.journal.state.cards.some(card => card.type === 'result'), false)
+  } finally { await loop.close() }
+})
+
+
 test('the chosen Lead name enters the system prompt without changing authority', async () => {
   const s = await fixture([message()])
   await (s.journal as any).settingsChanged('lex')

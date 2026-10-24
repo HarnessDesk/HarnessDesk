@@ -169,7 +169,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         if (!entry) throw denied()
         pending.delete(message.id as number); sync(message.state)
         if (message.ok) entry.resolve(message.value)
-        else entry.reject(['lead-card-too-large', 'lead-plan-unseatable', 'lead-plan-not-independent'].includes(message.value as string)
+        else entry.reject(['lead-card-too-large', 'lead-card-stale', 'lead-plan-unseatable', 'lead-plan-not-independent'].includes(message.value as string)
           ? Object.assign(new Error(String(message.value)), { wireCode: message.value }) : denied())
         return
       }

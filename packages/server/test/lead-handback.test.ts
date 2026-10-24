@@ -132,6 +132,9 @@ complete: { accept: [accepted] }
   const writer = rig.seats.values().next().value!
   await rig.team.complete(run.rounds[0]!.cards[0]!, { outcome: 'committed' }, rig.sessionOf(String(writer.id)))
   await rig.flows.flush()
+  const accepting = rig.flows.executionOf(run.id)!.rounds.at(-1)!
+  await rig.team.intentAction(run.goal, accepting.cards[0]!, 'done', undefined, 'accepted')
+  await rig.flows.flush()
   const before = rig.events.filter(event => event.startsWith('open:') || event.startsWith('order:')).length
   prepared = true; released = false
   const op = { key: 'repair-fixture', round: 3, runId: run.id, teamId: run.goal }

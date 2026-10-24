@@ -34,3 +34,15 @@ it.each(['focusin', 'timeout'])('consumes a pointer press at the following %s', 
   act(() => surface.focus()); digit()
   expect(approve).not.toHaveBeenCalled()
 })
+
+it('guards the fourth shortcut against typed-through input, then invokes the explicit PR action once deliberately focused', () => {
+  const box = document.createElement('div'), root = createRoot(box), openPr = vi.fn()
+  document.body.append(box)
+  act(() => root.render(<LeadDecision id="result" title="Accept these changes?" pending={false} link={{ label: 'Open changes', run: vi.fn() }} onApprove={vi.fn()} onDecline={vi.fn()} onOpenPr={openPr} />))
+  clean.push(() => { act(() => root.unmount()); box.remove() })
+  const surface = box.querySelector<HTMLElement>('[data-slot="approval-card"]')!
+  act(() => { surface.focus(); surface.dispatchEvent(new KeyboardEvent('keydown', { key: '4', bubbles: true })) })
+  expect(openPr).not.toHaveBeenCalled()
+  act(() => { surface.dispatchEvent(new Event('pointerdown', { bubbles: true })); surface.dispatchEvent(new KeyboardEvent('keydown', { key: '4', bubbles: true })) })
+  expect(openPr).toHaveBeenCalledOnce()
+})

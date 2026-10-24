@@ -1,4 +1,4 @@
-import { LeadAvatarSpecimen, LeadContractSpecimen } from '../../preview/frames-lead'
+import { LeadAvatarSpecimen, LeadContractSpecimen, LeadPlanFlowSpecimen } from '../../preview/frames-lead'
 import { flowModel } from '../../lib/flow-model'
 import { PagePreview } from '../../preview/page-preview'
 import { InfoCardBody, SubjectActionsMenu } from '..'
@@ -3290,6 +3290,9 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     render: DeltaBoard,
   },
   { id: 'lead-avatar', title: 'Lead avatar', about: 'Dex and Lex at each place they are drawn: sidebar, turn, bar, popover, picker.', render: LeadAvatarSpecimen },
+  {
+    id: 'lead-plan-flow', title: 'Lead plan flow', about: 'The plan in reading order, with responsible roles and approval before work.', render: LeadPlanFlowSpecimen,
+  },
   {
     id: 'lead-contract',
     title: 'Lead contract',

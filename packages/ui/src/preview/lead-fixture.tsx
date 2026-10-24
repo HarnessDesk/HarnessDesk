@@ -15,7 +15,7 @@ export const leadWaiting: Extract<LeadCard, { type: 'waiting' }> = { version: 1,
   assertions: [{ assertionId: 'checks', status: 'passed', revision: 2, contractRevision: 1, evidence: [{ kind: 'check', id: 'keyboard', revision: 'head-demo' }], reason: null }] }
 export const leadResult: Extract<LeadCard, { type: 'result' }> = { version: 1, id: 'result', revision: 3, type: 'result', outcome: 'reviewed', contractDigest: leadContract.digest, summary: 'Ready for your acceptance. Inspect the patch in Changes.', assertions: leadContract.assertions.map(assertion => ({ assertionId: assertion.id, status: 'passed', revision: 3, contractRevision: leadContract.revision, evidence: [{ kind: assertion.kind === 'review' ? 'review' : assertion.kind === 'blocking-findings' ? 'finding' : 'check', id: assertion.id, revision: 'head-demo' }], reason: null })), budget: leadBudget }
 export const leadProjection = (over: Partial<LeadWindowProjection> = {}): LeadWindowProjection => ({ version: 1, revision: 10,
-  settings: { version: 1, name: 'dex', model: 'demo-model', key: { configured: true, protection: 'encrypted' }, policy: { version: 1, revision: 1, mode: 'default', rules: [] }, caps: leadContract.caps },
+  settings: { version: 1, name: 'dex', model: 'demo-model', key: { configured: true, protection: 'encrypted' }, policy: { version: 1, revision: 1, mode: 'default', rules: [] }, caps: leadContract.caps, follow: { checks: true, reviews: true } },
   thread: { version: 1, id: 'lead', revision: 10, state: 'draft', project: leadContract.project, olderMessages: 0, messages: [], cards: [] },
   requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, ...over })
 
@@ -26,7 +26,7 @@ export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', 
 export const leadMemory: LeadMemory = { version: 1, items: [
   { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
   { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
-export const LEAD_SCENES = ['loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
+export const LEAD_SCENES = ['following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -37,6 +37,19 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (thread.cards.some(card => card.type === 'plan')) projection = { ...projection, wayOut: 'decide-plan' }
   if (scene === 'waiting') { thread.cards = [leadWaiting]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { waiting: 3 } }
   if (scene === 'result-person-gate') { thread.cards = [leadResult]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.cardPositions = { result: 3 } }
+  if (['following', 'handback-running', 'branch-released', 'branch-rewritten'].includes(scene)) {
+    const head = 'b'.repeat(40)
+    thread.state = scene === 'handback-running' ? 'running' : scene === 'branch-rewritten' ? 'waiting-for-user' : 'following'
+    thread.contract = leadContract
+    thread.pr = { repository: 'acme/widgets', number: 12, branch: 'repair-focus', head, state: 'open', at: 1,
+      branchOwner: scene.startsWith('branch-') ? 'person' : 'lead', check: { head, state: scene === 'handback-running' ? 'failed' : 'pending', total: 3 }, review: { id: 1, head, state: 'approved' },
+      ...(scene.startsWith('branch-') ? { observedHead: 'c'.repeat(40), branchChange: scene === 'branch-rewritten' ? 'rewrite' : 'fast-forward', releaseReason: 'Another writer updated the branch.' } : {}) }
+    if (scene === 'handback-running') thread.handback = { key: 'repair-2', event: 'checks-failed', kind: 'checks', head, runId: 'run-demo', teamId: 'team-demo', round: 2, at: 1, stage: 'running', publishedHead: null }
+    if (scene.startsWith('branch-')) thread.cards = [{ version: 1, id: 'branch', type: 'branch-ownership', revision: 1, contractDigest: leadContract.digest, repository: 'acme/widgets', number: 12, observedHead: 'c'.repeat(40), summary: scene === 'branch-rewritten' ? 'The branch was rewritten outside this goal. Automatic repairs are paused.' : 'Someone else pushed to this branch. Automatic repairs are paused.' }]
+  }
+  if (scene === 'handback-limit') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: 'resume', waitReason: 'lead-handback-limit' } }
+  if (scene === 'push-card') { thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.cards = [{ ...leadResult, publication: 'push' }] }
+  if (scene === 'pending-plan') thread.origin = { source: 'pull-request', event: 'checks-failed', subject: 'acme/widgets#12', url: 'https://github.com/acme/widgets/pull/12' }
   if (scene === 'required-check') { thread.state = 'running'; thread.contract = leadContract; projection = { ...projection, personActions: [{ kind: 'check', id: 'check-demo', runId: 'run-demo', name: 'verify', command: 'node --test' }] } }
   if (scene === 'worker-approval') { projection = { ...projection, personActions: [{ kind: 'worker-approval', id: 'waiting', runId: 'run-demo', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'no'] }] }; thread.cards = [{ ...leadWaiting, kind: 'worker-approval', personCardId: null, summary: 'The code reviewer wants to read the git log. Answer on the card.' }]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = { ...leadBudget, spend: 'unknown' }; thread.cardPositions = { waiting: 3 } }
   if (scene === 'planning') { thread.state = 'planning'; projection = { ...projection, requestInFlight: true } }

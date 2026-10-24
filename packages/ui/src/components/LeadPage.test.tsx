@@ -307,7 +307,7 @@ it('names the key row once and puts the allowance note on its dollar row', async
 it('uses unconstrained Lead settings groups and trailing Save rows', async () => {
   await mount(); await act(async () => button('Settings').click())
   const groups = [...document.querySelectorAll('[data-slot="rows"]')]
-  expect(groups).toHaveLength(3)
+  expect(groups).toHaveLength(4)
   for (const group of groups) {
     expect(group.parentElement?.getAttribute('data-slot')).toBe('section')
     expect(group.parentElement?.hasAttribute('data-sizing')).toBe(false)
@@ -477,6 +477,22 @@ it('shows checks and reviews on the observed head while the person owns the bran
     check: { head, state: 'passed', total: 1 }, review: { id: 1, head, state: 'approved' }, at: 100 } } })
   expect(box.textContent).toContain('Checks passed')
   expect(box.textContent).toContain('Review approved')
-  expect(box.textContent).toContain('Branch managed by you')
-  expect(box.textContent).toContain('bbbbbbb')
+  expect(box.textContent).toContain('Your branch')
+  expect(box.querySelector('[data-slot="lead-pr-status"] button')?.getAttribute('title')).toBe(head)
+})
+
+it('links the followed PR with check, review and ownership chips and limits working text to the active repair', async () => {
+  const base = leadProjection(), pr = { repository: 'acme/widgets', number: 12, branch: 'repair', head: 'a'.repeat(40), branchOwner: 'person' as const, state: 'open' as const, check: null, review: null, at: 1 }
+  const { box, update } = await mount({ ...base, thread: { ...base.thread, state: 'following', pr, origin: { source: 'pull-request', event: 'checks-failed', subject: 'acme/widgets#12', url: 'https://github.com/acme/widgets/pull/12' } } })
+  const row = box.querySelector('[data-slot="lead-pr-status"]')!
+  expect(row.textContent).toContain('#12'); expect(row.textContent).toContain('Checks not confirmed'); expect(row.textContent).toContain('Review not confirmed')
+  expect(row.querySelector('[data-slot="chip"]')?.textContent).toBe('Your branch')
+  expect(row.querySelector('button,a')).not.toBeNull()
+  expect(box.textContent).toContain('From: checks failed on acme/widgets#12')
+  expect(box.querySelector('[data-slot="lead-run-strip"]')?.textContent).toContain('Following #12')
+  const handback = { key: 'repair', event: 'checks-failed', kind: 'checks' as const, head: pr.head, runId: 'run', teamId: 'team', round: 2, at: 1, stage: 'running' as const, publishedHead: null }
+  await update({ thread: { ...base.thread, state: 'running', pr: { ...pr, branchOwner: 'lead' }, handback } })
+  expect(liveLine(box)?.textContent).toBe('Repairing checks · round 2')
+  await update({ thread: { ...base.thread, state: 'following', pr, handback: { ...handback, stage: 'completed' } } })
+  expect(box.textContent).not.toContain('Repairing checks')
 })

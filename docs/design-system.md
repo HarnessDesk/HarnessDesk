@@ -1957,6 +1957,14 @@ A note that belongs to the person's line above it, at that line's trailing edge.
 
 Names a block for tests and tools without adding a box of its own to the layout it sits in.
 
+### `LeadPlanFlow`
+
+`packages/ui/src/design/patterns/LeadPlanFlow.tsx`
+
+An approved plan's linear flow in reading order. The Timeline owns the
+decorative connectors; role labels describe responsibility without naming
+a runtime. Labels are text, wrap whole, and cannot introduce markup.
+
 ### `LeftColumnTop`
 
 `packages/ui/src/design/patterns/LeftColumn.tsx`

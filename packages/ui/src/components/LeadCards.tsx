@@ -1,6 +1,6 @@
 import { useRef, useState, type MutableRefObject } from 'react'
 import type { LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage } from '@harnessdesk/protocol'
-import { Button, CodeText, Row, LeadContract, Text } from '../design'
+import { Button, CodeText, Row, LeadContract, LeadPlanFlow, Text } from '../design'
 import { folderName } from '../lib/projects'
 import { LeadDecision } from './LeadDecision'
 import { PERMISSION_LABELS } from './lead-permission-labels'
@@ -21,18 +21,15 @@ export const leadDollars = (micros: number) => {
   const text = cents.format(micros / 1000000)
   return micros > 0 && text === '$0.00' ? 'less than $0.01' : text
 }
-const ROLE_WORDS = new Map([['implement', 'write'], ['review', 'review']])
-/** What a step's seats do, in the order they do it: "write, then review". A role the Lead named for itself is said as named. */
-const stepWork = (assignments: readonly { readonly role: string }[]) => assignments.map(assignment => ROLE_WORDS.get(assignment.role) ?? assignment.role.replace(/[-_]+/g, ' '))
-  .filter((word, index, words) => word !== words[index - 1]).join(', then ')
 const policyMode = { plan: 'Plan', default: 'Default', manage: 'Manage' }
 const ruleWords = (rule: { effect: string; method: keyof typeof PERMISSION_LABELS; action: string | null; project: string | null } | undefined) => rule ? `${rule.effect} · ${PERMISSION_LABELS[rule.method]} · ${rule.action ?? 'All actions'} · ${rule.project ?? 'Approved project'}` : 'No rule'
 
 /** Window-owned details and revision-bound decisions. The child never receives a click. */
-export const LeadCards = ({ cards, personActions = [], onPerform, decisions = [], contract, budget, onDecide, onChanges, onApprovals, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, placement = 'both' }: {
+export const LeadCards = ({ cards, personActions = [], onPerform, decisions = [], contract, budget, onDecide, onChanges, onApprovals, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, waitReason, placement = 'both' }: {
   readonly personActions?: readonly LeadAction[]; readonly onPerform?: (input: LeadActionInput) => Promise<unknown>
   readonly decisionLock?: MutableRefObject<boolean>; readonly decisionPending?: string | null
   readonly setDecisionPending?: (id: string | null) => void; readonly expiry?: number | null
+  readonly waitReason?: 'lead-handback-limit'
   readonly focusCard?: string | null
   readonly cards: readonly LeadCard[]; readonly decisions?: readonly LeadDecisionMessage[]
   readonly contract?: LeadAcceptanceContract | null; readonly budget?: LeadBudgetState | null
@@ -64,15 +61,14 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
   }
   const active = cards.find(card => card.id === focusCard && card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed')) ?? [...cards].reverse().find(card => card.type === 'branch-ownership') ?? [...cards].reverse().find(card => card.type === 'plan') ?? cards.find(card => card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed'))
   const plans = new Map([...cards, ...decisions.map(({ card }) => card)].flatMap(card => card.type === 'plan' ? [[card.contractDigest, card.contract] as const] : []))
-  return <>{[...cards.map(card => ({ card, choice: undefined as LeadCardDecision['choice'] | undefined })), ...decisions.map(({ card, choice }) => ({ card, choice }))].map(({ card, choice }) => {
+  return <>{placement !== 'dock' && waitReason === 'lead-handback-limit' && <LeadContract cardType="waiting" cardId="handback-limit" summary="Automatic repairs reached their limit. Inspect the pull request before continuing." />}{[...cards.map(card => ({ card, choice: undefined as LeadCardDecision['choice'] | undefined })), ...decisions.map(({ card, choice }) => ({ card, choice }))].map(({ card, choice }) => {
     const worker = card.type === 'waiting' && card.kind === 'worker-approval'
     const person = card.type === 'waiting' && !worker || card.type === 'result' && card.outcome === 'reviewed'
     const approval = card.type === 'plan' || card.type === 'permission-change' || card.type === 'budget-change'
     const renewal = !choice && card.type === 'plan' && expiry != null && card.contractDigest === contract?.digest && JSON.stringify(card.contract) === JSON.stringify(contract)
     // A card is judged against the plan it was made under: a settled result from an earlier goal keeps its own verdict.
     const scope = card.type === 'plan' ? card.contract : card.contractDigest === contract?.digest ? contract : plans.get(card.contractDigest ?? '')
-    const summary = worker ? card.summary : card.type === 'plan' ? `${renewal ? `My earlier approval expired. Approve again to continue.\n\n` : ''}Here's my plan:\n\n${card.contract.steps.map((step, i) => `${i + 1}. ${step.title} — ${stepWork(step.assignments)}`).join('\n')}\n\nDone when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`
-      : card.type === 'permission-change' ? `Change permission mode: ${policyMode[card.previous.mode]} → ${policyMode[card.proposed.mode]}\n\n${[...new Set([...card.previous.rules.map(rule => rule.id), ...card.proposed.rules.map(rule => rule.id)])].flatMap(id => { const old = card.previous.rules.find(rule => rule.id === id), next = card.proposed.rules.find(rule => rule.id === id); return JSON.stringify(old) === JSON.stringify(next) ? [] : [`- ${ruleWords(old)} → ${ruleWords(next)}`] }).join('\n')}`
+    const summary = worker ? card.summary : card.type === 'plan' ? `${renewal ? 'My earlier approval expired. Approve again to continue.\n\n' : ''}Here's my plan:`      : card.type === 'permission-change' ? `Change permission mode: ${policyMode[card.previous.mode]} → ${policyMode[card.proposed.mode]}\n\n${[...new Set([...card.previous.rules.map(rule => rule.id), ...card.proposed.rules.map(rule => rule.id)])].flatMap(id => { const old = card.previous.rules.find(rule => rule.id === id), next = card.proposed.rules.find(rule => rule.id === id); return JSON.stringify(old) === JSON.stringify(next) ? [] : [`- ${ruleWords(old)} → ${ruleWords(next)}`] }).join('\n')}`
       : card.type === 'budget-change' ? budgetQuestion(card.previous.caps, card.proposed)
       : card.type === 'stopped' ? card.reason === 'unknown-spend' ? 'Worker spend is unknown. Inspect the run before continuing.' : 'The Lead stopped. Inspect its allowance and run.' : card.summary
     const state = choice ? { approve: 'Approved', decline: 'Declined', accept: 'Accepted', 'accept-open-pr': 'Accepted and opened PR', 'reclaim-branch': 'Branch reclaimed' }[choice] : card.type === 'result' && card.outcome !== 'reviewed' ? { accepted: 'Accepted', declined: 'Declined' }[card.outcome] : undefined
@@ -82,6 +78,8 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
     const ref = (element: HTMLElement | null) => { if (element) focus.current.set(card.id, element); else focus.current.delete(card.id) }
     return <div key={`${card.id}:${card.revision}:${choice ?? 'pending'}`}>
       {placement !== 'dock' && <LeadContract cardId={card.id} cardType={card.type} summary={summary} state={state} focusRef={ref}>
+        {card.type === 'plan' && <><LeadPlanFlow steps={card.contract.steps} /><Markdown text={`Done when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`} /></>}
+        {card.type === 'result' && card.publication === 'push' && <Text as="p" role="meta">Push the reviewed changes and open a pull request.</Text>}
         {caps && <><Text as="p" role="meta">Up to {leadDollars(caps.usdMicros)} · {caps.rounds} rounds · {scope ? folderName(scope.project.path) : ''}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}
         {(card.type === 'waiting' && !worker || card.type === 'result') && <>
           <Text as="p" role="meta">{(['check', 'review', 'blocking-findings', 'diff'] as const).flatMap(kind => {
@@ -99,6 +97,7 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
       </LeadContract>}
       {placement !== 'thread' && !state && active === card && !personActions.some(action => action.id === card.id) && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'branch-ownership' ? `${summary}\n\nReclaim ${card.observedHead.slice(0, 12)} to allow further reviewed updates.` : card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'branch-ownership' ? 'Resume automatic repairs on this branch?' : card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}
         approveLabel={card.type === 'branch-ownership' ? 'Reclaim branch' : person ? 'Accept' : 'Approve'} onApprove={person || approval || card.type === 'branch-ownership' ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, card.type === 'branch-ownership' ? 'reclaim-branch' : person ? 'accept' : 'approve') } : undefined}
+        onOpenPr={card.type === 'result' && card.outcome === 'reviewed' ? () => { void decide(card, 'accept-open-pr') } : undefined}
         onDecline={person || approval || card.type === 'branch-ownership' ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, 'decline') } : undefined}
         link={worker ? { label: 'Open approvals', run: () => onApprovals(card.runId) } : person ? { label: 'Open changes', run: onChanges } : undefined} />}
     </div>

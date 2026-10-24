@@ -181,6 +181,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
             type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Fresh checks and review are ready for your decision.', assertions, budget: budget! }) }
           catch (error) {
             lastResultSignature = null
+            if ((error as { wireCode?: unknown })?.wireCode === 'lead-card-stale') return
             if ((error as { wireCode?: unknown })?.wireCode === 'lead-card-too-large') { await waitForUser('lead-card-too-large'); return }
             if ((journal.state.cardRevisions[`result-${contract.revision}`] ?? 0) >= 32)
               await waitForUser('lead-result-revisions-exhausted')

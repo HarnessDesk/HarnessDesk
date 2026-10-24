@@ -2399,11 +2399,14 @@ The tools slot holds only the settings glyph opening Settings › Lead.
 Active goals outside terminal predecessor waits use ComposerTrack name="send":
 Stop occupies the session's composer corner, with Send inboard when a message is typed.
 
-LeadContract is borderless assistant prose. Its plan is a numbered list, acceptance
-checks, allowance/folder meta and the separate-approval fine print. Its result
+LeadContract is borderless assistant prose. Its plan uses LeadPlanFlow: an ordered
+Timeline diagram with one node per step, responsible role words, decorative
+connectors and a final Approve to start node. Acceptance checks, allowance/folder
+meta and the separate-approval fine print follow the diagram. Long labels wrap;
+accessible reading order includes each step once. Its result
 uses compact qualified statuses, reason prose and separately attributed spend.
 No internal ids or revision facts render. Decisions use the canonical docked
-ApprovalDialog and its keyboard policy, pending states, one filled action and
+ApprovalDialog and its keyboard policy, pending states, proceed actions and
 focusable surface. The thread retains a one-word decided state. Window revision
 and digest fences, the page-wide decision lock and explicit focus return remain.
 Automatic plan arrivals never move composer focus; explicit navigation focuses
@@ -2434,7 +2437,7 @@ both themes. A plan card says what a step's seats do in role words ("write, then
 review"), never a runtime or a model, and money is shown in whole cents.
 
 Settings › Lead uses canonical Section, Rows, Row, Input and Button patterns,
-ordered Name, Provider key, Allowances, Permissions. LeadNameChoice composes the
+ordered Name, Provider key, Allowances, Permissions, Triggers. LeadNameChoice composes the
 existing two-choice control, labelled Lead identity under the Name section.
 A neutral Lead placeholder precedes the stored name. Name changes save immediately; authority widening
 shows a waiting sentence and Open to the conversation decision. The uncontrolled
@@ -2447,3 +2450,18 @@ on one meta line. Acceptance previews carry passed evidence for the full contrac
 The renewal banner owns the expiry time; the message asks for renewed approval.
 Settings preview bodies shrink with a short viewport and scroll while each group
 stays whole. Only the active conversation mounts a dock; retained drafts survive.
+
+The result dock offers Open changes, Decline, Accept, and Accept and open PR.
+The fourth choice carries the same revision, digest and page-wide pending lock.
+A push result explains its publication effect; branch-ownership prose explains
+an outside push or rewrite and offers Reclaim branch. A hand-back-limit wait
+uses the same LeadContract prose and a short reason. Untrusted summaries and
+findings pass through Markdown's sanitizer.
+
+A followed PR shows its linked number, qualified check and review state, and an
+ownership chip (Your branch or Automatic repairs). Its strip says Following;
+repair wording appears only while the latest hand-back is running. Event origin
+is a small linked From line on the goal. Settings Triggers has independent
+Checks failed and Review comment switches under Follow my pull requests, on by
+default. Open a goal when lists only project Lead targets using their preview
+summary; a row opens the returned project trigger file. It cannot edit or arm.

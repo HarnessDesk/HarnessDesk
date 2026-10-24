@@ -9,7 +9,7 @@ import { phoneLinkOff } from './phone-link.js'
 import { PhoneWorkspace } from './phone-workspace.js'
 import { PhoneWork } from './phone-work.js'
 import { leadContainsSecret } from './lead/secrets.js'
-import { answerLeadPersonGate, answerLeadResult } from './lead/person-decision.js'
+import { answerLeadPersonGate, answerLeadResult, validateLeadResult } from './lead/person-decision.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
 import { readKeptTranscriptFile } from './kept-transcript.js'
 import { Storage } from './storage.js'
@@ -3503,7 +3503,7 @@ export class Host {
     const stopOwned = async (reason: string) => {
       const stopReason = reason === 'lead-budget-stopped' || reason === 'lead-request-cancelled'
         ? journal.state.budget?.stop?.reason ?? reason : reason
-      if (reason === 'lead-host-shutdown' && journal.state.handbacks.some(op => op.stage === 'prepared' || op.stage === 'running')) return
+      if (reason === 'lead-host-shutdown' && journal.state.handbacks.some(op => op.stage === 'prepared' || op.stage === 'running' || op.stage === 'awaiting-ci')) return
       const results = await Promise.allSettled(journal.state.runs.map(async run => {
         const flow = this.#flows.leadRuns().find(flow => flow.id === run.runId)
         if (!leadStopReachesRun(flow, stopReason)) return
@@ -3566,7 +3566,7 @@ export class Host {
       return this.call(call.method, call.params)
     })
     const validateResult: LeadPrFollowOptions['validate'] =
-      (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract)
+      (card, decision, contract) => validateLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract)
     const publication = leadPublicationPorts({ journal, gateway: this.#gitGateway, project, forge: this.#forge, seats: () => this.#evidence.seats.all(), evidence: decisionEvidence,
         signature: () => { const value = this.#storedPluginSettings('git')?.['signature']; return typeof value === 'string' ? value : undefined },
         publications: async source => {
@@ -3575,7 +3575,7 @@ export class Host {
           return session?.turns.flatMap(turn => turn.items.flatMap(item => item.type === 'publication' ? [item.reference] : [])) ?? []
         },
       })
-    const follow = new LeadPrFollow({ journal, gateway: this.#gitGateway, now: () => Date.now(), validate: validateResult, ...publication })
+    const follow = new LeadPrFollow({ journal, gateway: this.#gitGateway, now: () => Date.now(), validate: validateResult, answer: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract), ...publication })
     const repairResult = async (op: import('@harnessdesk/protocol').LeadHandback) => {
       if (this.#disposed) return null
       await this.#leadBudgets.meter(journal)

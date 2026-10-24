@@ -56,7 +56,7 @@ const prepare = async () => {
     summary: 'Reviewed fixture', assertions: [], budget: { version: 1, revision: 1, caps: contract.caps, leadUsdMicros: 0, workerUsdMicros: 0,
       reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known', stop: null } }) as any
   await journal.offerCard(card)
-  const decision = { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' }
+  const decision = { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' } as const
   return { journal, card, contract, decision, records, storage, failOn(type: string | null) { fail = type } }
 }
 
@@ -718,4 +718,58 @@ test('a new reviewed card can supersede a push-prepared decision whose card is s
   assert.equal(s.journal.state.publication?.stage, 'completed')
   assert.ok(s.records.some(record => record.operation?.id === 'publish-1' && record.operation.stage === 'superseded'))
   assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
+})
+
+test('a delayed result refresh cannot replace following with an acceptance wait or invalidate a publication in flight', async () => {
+  const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source,
+    find: async () => [], push: async () => {
+      await s.journal.invalidateResults()
+      await assert.rejects(s.journal.offerCard({ ...s.card, revision: 2 }), /lead-card-stale/)
+      assert.ok(s.journal.state.cards.some(card => card.id === s.card.id), 'the journal fences stale child invalidation after publication preparation')
+    }, create: async () => ({ repository: source.repository, number: 7, head: source.head, branch: source.branch }) })
+  await owner.accept(s.card, s.decision, s.contract)
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
+  assert.equal(s.journal.state.phase, 'following')
+})
+
+test('publication preflight leaves person gates unanswered until the durable publication completes', async () => {
+  const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+  let answers = 0
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100,
+    validate: async () => { assert.equal(answers, 0) },
+    answer: async () => { assert.equal(s.journal.state.publication?.stage, 'completed'); answers++ },
+    source: async () => source, find: async () => [],
+    push: async () => { assert.equal(answers, 0) }, create: async () => { assert.equal(answers, 0); return { repository: source.repository, number: 7, head: source.head, branch: source.branch } } })
+  await owner.accept(s.card, s.decision, s.contract)
+  assert.equal(answers, 1); assert.equal(s.journal.state.phase, 'following')
+})
+
+test('a completed publication keeps its exact pending result until the final decision is journaled', async () => {
+  const s = await prepare(), source = repository()
+  const operation = { id: 'pending-completion', source, decision: s.decision, at: 100, stage: 'push-prepared' as const, effectStarted: false }
+  await s.journal.publication(operation)
+  await s.journal.publication({ ...operation, stage: 'pushed' })
+  await s.journal.publication({ ...operation, stage: 'completed' }, { repository: source.repository, number: 7, branch: source.branch, head: source.head, branchOwner: 'lead', state: 'open', at: 100, check: null })
+  await s.journal.invalidateResults()
+  await assert.rejects(s.journal.offerCard({ ...s.card, revision: 2 }), /lead-card-stale/)
+  assert.equal(s.journal.state.decidedCards.includes(`${s.card.id}:${s.card.revision}`), false)
+  await s.journal.decideCard(s.decision, null)
+  assert.equal(s.journal.state.phase, 'following')
+  await s.journal.restoreResult(s.card.id, s.card.revision)
+  await assert.rejects(s.journal.offerCard({ ...s.card, revision: 2 }), /lead-card-stale/)
+  assert.ok(s.journal.state.decidedCards.includes(`${s.card.id}:${s.card.revision}`))
+})
+
+test('a final person-gate refusal after publication preserves the PR and releases the result for a fresh decision', async () => {
+  const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, answer: async () => { throw new Error('gate changed after publication') },
+    source: async () => source, find: async () => [], push: async () => {}, create: async () => ({ repository: source.repository, number: 7, head: source.head, branch: source.branch }) })
+  await assert.rejects(owner.accept(s.card, s.decision, s.contract), /gate changed/)
+  assert.equal(s.journal.state.publication?.stage, 'completed')
+  assert.equal(s.journal.state.pr?.number, 7)
+  assert.equal(s.journal.state.managementReason, 'lead-publication-needs-you')
+  assert.ok(s.journal.state.decidedCards.includes(`${s.card.id}:${s.card.revision}`))
+  await s.journal.offerCard({ ...s.card, revision: s.card.revision + 1 })
+  assert.ok(!s.journal.state.decidedCards.includes(`${s.card.id}:${s.card.revision + 1}`))
 })

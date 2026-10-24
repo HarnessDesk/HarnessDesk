@@ -231,3 +231,26 @@ test('child crash finishes a stopped owned run after its earlier cleanup failed'
     await service.close()
   }
 })
+
+test('host shutdown preserves the owned acceptance round while a published repair awaits CI', async t => {
+  const { host } = rig(t, true); await host.start()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'awaiting-ci-shutdown', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
+  const descriptor = Object.getOwnPropertyDescriptor(journal, 'state'), state = journal.state
+  Object.defineProperty(journal, 'state', { configurable: true, get: () => ({ ...state, phase: 'following',
+    handbacks: [{ stage: 'awaiting-ci' }], runs: [{ runId: 'owned-run', teamId: 'owned-team', correlationId: 'owned-start' }] }) })
+  const stopped = t.mock.method(host.flowsPlane, 'stopRun', async () => {})
+  t.mock.method(host.flowsPlane, 'leadRuns', () => [{ id: 'owned-run', state: 'running' }] as any)
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: options => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => { await options.onExit?.('lead-host-shutdown') }, ownershipWithdrawn() {} }) })
+  try {
+    await service.close()
+    assert.equal(stopped.mock.calls.length, 0, 'CI wait and its real person gate survive host restart')
+  } finally {
+    if (descriptor) Object.defineProperty(journal, 'state', descriptor)
+    else Reflect.deleteProperty(journal, 'state')
+    await service.close()
+  }
+})

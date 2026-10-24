@@ -324,9 +324,9 @@ export class LeadSupervisor {
       }
       if (!running.exited) write(running, { type: 'reply', id, ok: true, value: value ?? null, state: journal.state })
     } catch (failure) {
-      // The two refusals a child is meant to act on come back as codes; every other failure breaks the protocol.
+      // Expected admission refusals come back as codes; every other failure breaks the protocol.
       const code = (failure as { wireCode?: unknown })?.wireCode
-      const coded = operation === 'offerCard' && code === 'lead-card-too-large' ? code
+      const coded = operation === 'offerCard' && (code === 'lead-card-too-large' || code === 'lead-card-stale') ? code
         : operation === 'freezePlan' && (code === 'lead-plan-unseatable' || code === 'lead-plan-not-independent') ? code : null
       if (coded) {
         if (!running.exited) write(running, { type: 'reply', id, ok: false, value: coded, state: journal.state })

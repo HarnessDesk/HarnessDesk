@@ -221,3 +221,22 @@ it('offers a reclaim choice bound to the observed branch head', async () => {
   await act(async () => { handlers.at(-1)?.onApprove?.() })
   expect(decide).toHaveBeenCalledWith(expect.objectContaining({ cardId: card.id, choice: 'reclaim-branch', expectedRevision: 1 }))
 })
+
+it('offers four result actions and binds publication to the reviewed revision under the shared pending lock', async () => {
+  let done!: () => void
+  const decide = vi.fn(() => new Promise<void>(resolve => { done = resolve }))
+  const { box } = mount([leadResult], decide)
+  expect([...box.querySelectorAll('[data-lead-decision] button')].map(node => node.textContent?.replace(/\d/g, '').trim())).toEqual(['Open changes', 'Decline', 'Accept', 'Accept and open PR'])
+  await act(async () => button(box, 'Accept and open PR').click())
+  expect(decide).toHaveBeenCalledWith(expect.objectContaining({ choice: 'accept-open-pr', expectedRevision: leadResult.revision, contractDigest: leadResult.contractDigest }))
+  await act(async () => button(box, 'Accept').click())
+  expect(decide).toHaveBeenCalledTimes(1)
+  await act(async () => done())
+})
+
+it('renders the explicit push card through its reviewed-result decision and describes the effect', async () => {
+  const { box, decide } = mount([{ ...leadResult, publication: 'push' }])
+  expect(box.textContent).toContain('Push the reviewed changes and open a pull request.')
+  await act(async () => button(box, 'Accept and open PR').click())
+  expect(decide).toHaveBeenCalledWith(expect.objectContaining({ choice: 'accept-open-pr' }))
+})

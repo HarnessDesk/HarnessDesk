@@ -25,6 +25,7 @@ export const leadPresence = (state: LeadState): LeadPresence => {
   if (needs || thread.state === 'waiting-for-user') return { mood: 'alert', word: `${Math.max(needs, 1)} need${Math.max(needs, 1) === 1 ? 's' : ''} you`, needs: Math.max(needs, 1), goalActive }
   if (thread.state === 'stopped') return { mood: 'sleeping', word: 'Paused', needs: 0, goalActive: false }
   if (thread.state === 'accepted') return { mood: 'done', word: 'Done', needs: 0, goalActive: false }
+  if (thread.state === 'following') return { mood: 'neutral', word: 'Following', needs: 0, goalActive }
   if (goalActive) return { mood: 'working', word: 'Working · 1 goal', needs: 0, goalActive }
   return { mood: 'neutral', word: 'Ready', needs: 0, goalActive: false }
 }
