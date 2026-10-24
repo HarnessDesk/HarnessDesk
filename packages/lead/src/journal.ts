@@ -446,6 +446,9 @@ export class LeadJournal {
     const attempt = run && this.#state.attempts.get(run.correlationId)
     if (!run || attempt?.method !== 'flow/start-goal' || attempt.outcome !== 'succeeded' || attempt.resolutionPending || attempt.contested)
       throw new Error('lead-run-unowned')
+    // Repair preparation meters the old settled Flow before opening its held
+    // round. That earlier snapshot cannot retire the journaled reopening.
+    if (this.#state.handbacks.some(op => op.runId === runId && op.stage === 'prepared')) return
     const rows = attempt.evidence === null ? [] : parseLeadRunEvidence(attempt.evidence)
     const previous = rows.find(row => row.runId === runId)
     if (previous && (previous.teamId !== run.teamId || previous.firstRoundId !== firstRoundId)) throw new Error('lead-run-evidence-conflict')
@@ -454,9 +457,6 @@ export class LeadJournal {
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
   offerCard(card: LeadCard, admit?: (card: LeadCard) => void): Promise<LeadCard> { return this.#queue(async () => {
     // A prepared, effect-free intent may still be superseded. Once publication
-    // Repair preparation meters the old settled Flow before opening its held
-    // round. That earlier snapshot cannot retire the journaled reopening.
-    if (this.#state.handbacks.some(op => op.runId === runId && op.stage === 'prepared')) return
     // starts, only the host's final decision can release its exact result.
     const op = this.#state.publication
     const personPush = card.type === 'result' && card.publication === 'push' && card.publicationSource && this.#state.phase === 'following'
@@ -521,8 +521,8 @@ export class LeadJournal {
         throw error
       }
       await this.#append({ type: 'card-decision', decision, expiresAt }, committed)
-    }, stopEffects)
       if (this.#retryResult?.id === card.id && this.#retryResult.revision === card.revision) this.#retryResult = null
+    }, stopEffects)
   }
   /** Caller must await durable admission before sending a paid request or opening a round. */
   updateBudget(event: LeadBudgetEvent, stopEffects?: () => Promise<void>): Promise<LeadBudgetLedger> {

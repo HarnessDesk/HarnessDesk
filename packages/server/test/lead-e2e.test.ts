@@ -438,6 +438,7 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   if (restart) {
     await rig.interruptAt('host-restart')
     assert.equal(rig.journal.state.handbacks[0]?.stage, 'awaiting-ci', 'restart retains the published head and CI wait')
+    assert.equal(rig.journal.state.budget?.stop, null, 'restored fake runtimes retain known spend before recovery')
   }
   const repaired = rig.journal.state.pr!.head
   assert.notEqual(repaired, initial.head)
@@ -445,7 +446,6 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   assert.equal(rig.journal.state.handbacks.length, 1, 'duplicate polling opens no extra round')
   await offline.passChecks()
   // Supplemental PR reads are budgeted across polls; drive the fake clock
-    assert.equal(rig.journal.state.budget?.stop, null, 'restored fake runtimes retain known spend before recovery')
   // until this exact head's green check has actually been observed.
   for (let poll = 0; poll < 8 && rig.journal.state.pr?.check?.state !== 'passed'; poll++) await offline.poll()
   await rig.waitFor(() => !!rig.pending('result'), 'fresh result after green CI')
