@@ -322,6 +322,14 @@ export class Flows implements TeamFlows {
     await this.#executions?.wakeEvidence(goal)
   }
 
+  prepareLeadRepair(op: { readonly runId: string; readonly teamId: string; readonly key: string; readonly round: number }): Promise<FlowRoundState> {
+    if (!this.#executions) throw new Error('lead-repair-unavailable')
+    return this.#executions.prepareLeadRepair(op)
+  }
+  releaseLeadRepair(op: { readonly runId: string; readonly key: string }): Promise<void> {
+    if (!this.#executions) throw new Error('lead-repair-unavailable')
+    return this.#executions.releaseLeadRepair(op)
+  }
   openRound(run: string, then: FlowThen, cause: { key: string; evidence: readonly string[] }): Promise<FlowRoundState> {
     if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
     return this.#executions.openRound(run, then, cause)

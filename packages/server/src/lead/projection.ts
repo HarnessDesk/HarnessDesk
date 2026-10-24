@@ -6,7 +6,7 @@ export const leadWindowThread = (state: LeadState, project: LeadProject, setting
   settings = parseLeadSettingsProjection(settings)
   const overhead = new TextEncoder().encode(JSON.stringify({ version: 1, revision: state.seq, settings, thread: null })).byteLength + 512
   return windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project,
-    contract: state.contract, pr: state.pr, budget: state.budget ? leadBudgetProjection(state.budget, now) : null,
+    contract: state.contract, pr: state.pr, origin: state.origin, handback: state.handbacks.at(-1) ?? null, budget: state.budget ? leadBudgetProjection(state.budget, now) : null,
     cardPositions: Object.fromEntries(state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`)).map(card => [card.id, state.cardPositions[card.id]!]).concat(workers.map(card => [card.id, state.seq] as [string, number]))),
     decisions: state.decisionMessages.filter(message => !state.cards.some(card => card.id === message.card.id && !state.decidedCards.includes(`${card.id}:${card.revision}`))),
     olderMessages: state.olderMessages, messages: state.messages,

@@ -92,6 +92,15 @@ export class LeadBudgets implements FlowLeadGuard {
     if (this.#journals.get(journal.state.budget!.logicalGoalId) !== journal || this.#pending.has(startId)) throw new Error('lead-budget-owner')
     this.#pending.set(startId, { journal, stepId, params: structuredClone(params), project: structuredClone(project) })
   }
+  async prepareRepair(run: StoredFlowExecution, key: string, round: number): Promise<void> {
+    const journal = this.#journal(run), state = journal.state, op = state.handbacks.at(-1)
+    await this.meter(journal)
+    if (!op || op.key !== key || op.round !== round || op.runId !== run.id || op.teamId !== run.goal || op.stage !== 'prepared' ||
+      state.pr?.state !== 'open' || state.pr.branchOwner === 'person' || state.handbackLimit || state.recoveryBlocked ||
+      !state.consent || state.consent.expiresAt <= this.port.now() || state.consent.renewalCardRevision !== undefined || state.phase !== 'running' ||
+      !await this.port.member(state.contract!.project) || leadBudgetProjection(journal.state.budget!, this.port.now()).spend !== 'known' || journal.state.budget?.stop)
+      throw new Error('lead-repair-not-approved')
+  }
   async validateStart(binding: FlowLeadBinding): Promise<void> {
     const pending = this.#pending.get(binding.startId), journal = this.#journals.get(binding.logicalGoalId)
     if (!journal || pending?.journal !== journal) throw new Error('lead-start-not-approved')
@@ -138,7 +147,8 @@ export class LeadBudgets implements FlowLeadGuard {
       await this.#refresh(run, journal)
       // Read again after membership awaits: a latch may have landed meanwhile.
       const current = journal.state, budget = leadBudgetProjection(current.budget!, this.port.now())
-      if (budget.stop || leadWorkerDispatchBlockedByOpenPr(current) || ['stopped', 'accepted', 'declined'].includes(current.phase) || current.recoveryBlocked) throw new Error('lead-budget-stopped')
+      if (budget.stop || leadWorkerDispatchBlockedByOpenPr(current, run.id) || ['stopped', 'accepted', 'declined'].includes(current.phase) || current.recoveryBlocked) throw new Error('lead-budget-stopped')
+      if (current.pr?.state === 'open' && (!current.consent || current.consent.expiresAt <= this.port.now() || current.phase !== 'running' || current.consent.renewalCardRevision !== undefined)) throw new Error('lead-repair-consent')
       // A brand-new execution has no worker turn to meter. Once work exists,
       // missing or stale attribution stops it rather than inferring zero.
       const worked = this.port.runs().some(one => one.lead?.logicalGoalId === run.lead!.logicalGoalId && one.operations.some(op => op.kind === 'turn' && op.state === 'finished'))

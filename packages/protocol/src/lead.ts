@@ -183,7 +183,7 @@ export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running'
 export const LEAD_MANAGEMENT_REASONS = [
   'lead-predecessor-unavailable', 'lead-predecessor-unverifiable', 'lead-renewal-blocked',
   'lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-child-exited', 'lead-ownership-withdrawn',
-  'lead-result-awaiting-person', 'lead-publication-needs-you', 'lead-pr-head-changed', 'lead-pr-branch-rewritten', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
+  'lead-result-awaiting-person', 'lead-handback-limit', 'lead-handback-pending', 'lead-publication-needs-you', 'lead-pr-head-changed', 'lead-pr-branch-rewritten', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
   'lead-card-too-large', 'lead-send-deadline', 'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
   'lead-run-not-started', 'lead-budget-unknown', 'lead-plan-unseatable', 'lead-plan-not-independent',
 ] as const
@@ -205,6 +205,8 @@ export interface LeadThread {
   readonly cardPositions?: Readonly<Record<string, number>>
   readonly contract?: LeadAcceptanceContract | null
   readonly budget?: LeadBudgetState | null
+  readonly origin?: LeadOrigin | null
+  readonly handback?: LeadHandback | null
   readonly pr?: LeadPullRequest | null
 }
 export type LeadName = 'dex' | 'lex'
@@ -311,6 +313,13 @@ export interface LeadSettingsUpdate {
   readonly caps?: LeadCaps
   readonly follow?: LeadFollowPreferences
   readonly credential?: { readonly provider: 'anthropic'; readonly key: string | null }
+}
+/** Host-journaled automatic input; external prose never grants worker authority. */
+export interface LeadOrigin { readonly source: 'pull-request' | 'issue' | 'schedule'; readonly event: string; readonly subject: string; readonly url: string | null }
+export interface LeadHandback {
+  readonly key: string; readonly event: string; readonly kind: 'checks' | 'reviews'; readonly head: string
+  readonly runId: string; readonly teamId: string; readonly round: number; readonly at: number
+  readonly stage: 'prepared' | 'running' | 'awaiting-ci' | 'completed'; readonly publishedHead: string | null
 }
 export interface LeadThreadSend { readonly idempotencyKey: string; readonly text: string }
 /** Stable first result, retained across retries and journal recovery. */
@@ -568,6 +577,9 @@ const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path 
   if (entries.length > LEAD_LIMITS.cards) fail(path, 'too many card positions')
   return Object.fromEntries(entries.map(([key, value]) => [id(key, path), integer(1)(value, path)]))
 }
+export const parseLeadOrigin: Validator<LeadOrigin> = object({ source: literalUnion('pull-request', 'issue', 'schedule'), event: id, subject: opaque, url: nullable(content) })
+export const parseLeadHandback: Validator<LeadHandback> = object({ key: id, event: id, kind: literalUnion('checks', 'reviews'), head: opaque,
+  runId: id, teamId: id, round: integer(1), at: integer(), stage: literalUnion('prepared', 'running', 'awaiting-ci', 'completed'), publishedHead: nullable(opaque) })
 export const parseLeadFollowPreferences: Validator<LeadFollowPreferences> = object({ checks: isBoolean, reviews: isBoolean })
 const pullRequestParser: Validator<LeadPullRequest> = object({
   review: optional(nullable(object({ id: integer(1), head: opaque, state: literalUnion('commented', 'changes-requested', 'approved') }))),
@@ -587,7 +599,7 @@ const threadParser: Validator<LeadThread> = object({
   // One current snapshot per card. Revisions belong to each card, so different cards may
   // share revision 1; the state machine must compare old/new revisions when replacing a card.
   project: nullable(project), olderMessages: integer(), cardPositions: optional(cardPositions), decisions: optional(list(object({ card: parseLeadCard, choice: literalUnion('approve', 'accept', 'accept-open-pr', 'decline'), position: revision }), 64)),
-  contract: optional(nullable(parseLeadAcceptanceContract)), budget: optional(nullable(parseLeadBudgetState)), pr: optional(nullable(parseLeadPullRequest)),
+  contract: optional(nullable(parseLeadAcceptanceContract)), budget: optional(nullable(parseLeadBudgetState)), pr: optional(nullable(parseLeadPullRequest)), origin: optional(nullable(parseLeadOrigin)), handback: optional(nullable(parseLeadHandback)),
   messages: list(parseLeadMessage, LEAD_LIMITS.messages, 0, message => message.id), cards: list(parseLeadCard, LEAD_LIMITS.cards, 0, card => card.id),
 })
 export const parseLeadThread: Validator<LeadThread> = (value, path = '') => {

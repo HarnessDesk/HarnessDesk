@@ -1,3 +1,4 @@
+import { LeadHandbacks } from './lead/handback.js'
 import { GitGateway } from './git-gateway/index.js'
 import { LeadPrFollow, type LeadPrFollowOptions } from './lead/pr-follow.js'
 import { leadPublicationPorts } from './lead/pr-publication.js'
@@ -140,7 +141,7 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { LeadAssembly, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, canBeginLeadGoal, leadReviewedResultSource, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
 import { LeadPlanner, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
@@ -3482,6 +3483,12 @@ export class Host {
     if (!this.#leadReady) throw new Error('lead-host-starting')
     if (this.#leadService) throw new Error('lead-service-exists')
     const { journal, project } = options
+    let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
+    this.onDispose(() => budgetOwner.close())
+    this.onDispose(journal.onChange(() => {
+      const id = journal.state.budget!.logicalGoalId
+      if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
+    }))
     const stopOwned = async (reason: string) => {
       const stopReason = reason === 'lead-budget-stopped' || reason === 'lead-request-cancelled'
         ? journal.state.budget?.stop?.reason ?? reason : reason
@@ -3526,7 +3533,7 @@ export class Host {
         const { ready, terminal, reason } = leadPredecessorReadiness(state, scope.stepId!, this.#flows.leadRuns(), goal => this.#team.stateFor(goal).intents)
         return { ...scope, predecessor: { runId: owned.runId, ready, ...(terminal ? { terminal, reason } : {}) } }
       },
-      register: () => this.registerLead(journal, project),
+      register: () => ({ admission: budgetOwner.admission, close() {} }),
       childStarted: () => {
         const end = this.#leadBudgets.childStarted(journal)
         childLive = true; trackOwned()
@@ -3548,23 +3555,66 @@ export class Host {
     })
     const validateResult: LeadPrFollowOptions['validate'] =
       (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract)
-    const follow = new LeadPrFollow({ journal, gateway: this.#gitGateway, now: () => Date.now(), validate: validateResult,
-      ...leadPublicationPorts({ journal, gateway: this.#gitGateway, project, forge: this.#forge, seats: () => this.#evidence.seats.all(), evidence: decisionEvidence,
+    const publication = leadPublicationPorts({ journal, gateway: this.#gitGateway, project, forge: this.#forge, seats: () => this.#evidence.seats.all(), evidence: decisionEvidence,
         signature: () => { const value = this.#storedPluginSettings('git')?.['signature']; return typeof value === 'string' ? value : undefined },
         publications: async source => {
           const record = this.registry.get(runtimeId(source.runtime), makeSessionId(source.sessionId))
           const session = record?.session ?? await this.#transcripts.recover(runtimeId(source.runtime), makeSessionId(source.sessionId))
           return session?.turns.flatMap(turn => turn.items.flatMap(item => item.type === 'publication' ? [item.reference] : [])) ?? []
         },
+      })
+    const follow = new LeadPrFollow({ journal, gateway: this.#gitGateway, now: () => Date.now(), validate: validateResult, ...publication })
+    const repairResult = async (op: import('@harnessdesk/protocol').LeadHandback) => {
+      await this.#leadBudgets.meter(journal)
+      const state = journal.state, contract = state.contract, run = this.#flows.leadRuns().find(run => run.id === op.runId)
+      const last = run?.rounds.at(-1)
+      if (!contract || !run || run.goal !== op.teamId || !last || last.n <= op.round || last.role !== 'accept' ||
+        last.state !== 'running' || !last.cards.length || !last.cards.every(id => this.#team.stateFor(op.teamId).intents.some(card => card.id === id && card.state === 'open'))) return null
+      const evidence = await decisionEvidence(op.runId), budget = leadBudgetProjection(journal.state.budget!, Date.now())
+      const result = evaluateLeadAcceptance(contract, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
+      if (result.status !== 'reviewed' || evidence.revision === op.head || budget.spend !== 'known' || budget.reservedUsdMicros) return null
+      const old = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
+      const card = { version: 1 as const, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1, type: 'result' as const,
+        contractDigest: contract.digest, outcome: 'reviewed' as const, summary: 'CI passed. Fresh checks and independent review are ready for your decision.', assertions: result.assertions, budget }
+      return { source: await publication.source(card, contract), card }
+    }
+    const repairs = new LeadHandbacks({ journal, now: () => Date.now(),
+      gate: async op => {
+        const run = this.#flows.leadRuns().find(run => run.id === op.runId)
+        return !run || run.goal !== op.teamId || run.lead?.logicalGoalId !== journal.state.budget?.logicalGoalId ||
+          !await this.#leadBudgets.port.member(project) ? 'lead-project-withdrawn' : null
+      },
+      round: id => (this.#flows.leadRuns().find(run => run.id === id)?.rounds.length ?? 0) + 1,
+      open: async op => (await this.#flows.prepareLeadRepair(op)).n,
+      release: op => this.#flows.releaseLeadRepair(op),
+      ciPassed: (op, head) => this.#evidence.observeLeadCi(project.path, op.teamId, `lead-ci-${head}`, head),
+      reviewed: async op => (await repairResult(op))?.source ?? null,
+      push: (source, op) => follow.pushOwned(source, async () => {
+        const fresh = await repairResult(op)
+        if (!fresh || fresh.source.head !== source.head || journal.state.pr?.branchOwner === 'person') throw new Error('lead-repair-review-changed')
       }),
     })
+    let repairRefresh: Promise<void> | null = null
+    const refreshRepairs = (): Promise<void> => repairRefresh ??= (async () => {
+      await repairs.recover()
+      const op = journal.state.handbacks.at(-1)
+      if (op?.stage !== 'completed' || journal.state.phase !== 'running' || journal.state.handbackLimit || journal.state.pr?.branchOwner === 'person') return
+      const result = await repairResult(op)
+      if (!result || journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))) return
+      await journal.offerCard(result.card)
+      await journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
+    })().finally(() => { repairRefresh = null })
+    const repairTimer = setInterval(() => { void refreshRepairs().catch(() => {}) }, 1000)
+    repairTimer.unref(); this.onDispose(() => clearInterval(repairTimer))
     this.#intake.followPullRequests({ watches: () => follow.watches(), deliver: async (_watch, batch) => {
       for (const observation of batch.observations ?? []) await follow.observe(observation)
       await follow.observeFacts(batch.facts)
+      await repairs.observe(batch.facts)
+      await refreshRepairs()
     } })
     this.onDispose(journal.onChange(() => { void this.#intake.followingChanged().catch(() => {}) }))
     // Recovery uses only journaled person authority and freshly verified worker/forge identity.
-    void follow.reconcile().catch(() => { this.#logger.warn('Lead publication needs attention') })
+    void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
     this.#leadControls = new LeadControls({ journal, service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
       publishResult: (card, decision, contract) => follow.accept(card, decision, contract),

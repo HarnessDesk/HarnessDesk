@@ -1,5 +1,5 @@
 import {
-  parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
+  parseLeadOrigin, parseLeadHandback, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_MANAGEMENT_REASONS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
@@ -70,6 +70,10 @@ export type LeadJournalEvent =
   | { readonly type: 'publication'; readonly operation: LeadPublicationOperation; readonly pr: LeadPullRequest | null }
   | { readonly type: 'pr-observed'; readonly pr: LeadPullRequest }
   | { readonly type: 'owned-push'; readonly operation: LeadOwnedPush }
+  | { readonly type: 'handback'; readonly operation: LeadHandback }
+  | { readonly type: 'handback-limit' }
+  | { readonly type: 'ci-passed'; readonly head: string }
+  | { readonly type: 'origin'; readonly origin: LeadOrigin }
   | { readonly type: 'message'; readonly idempotencyKey: string | null; readonly message: LeadMessage }
   | { readonly type: 'renew-plan'; readonly now: number; readonly cardId?: string }
   | { readonly type: 'restore-result'; readonly id: string; readonly revision: number }
@@ -167,7 +171,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    'new-goal': ['id', 'now'],
+    'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin'], 'new-goal': ['id', 'now'],
     'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
@@ -177,6 +181,10 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   object(source, ['version', 'seq', 'type', ...keys[type]!])
   let event: LeadJournalEvent
   switch (type) {
+    case 'handback': event = { type, operation: parseLeadHandback(source.operation) }; break
+    case 'handback-limit': event = { type }; break
+    case 'ci-passed': event = { type, head: identifier(source.head) }; break
+    case 'origin': event = { type, origin: parseLeadOrigin(source.origin) }; break
     case 'new-goal': event = { type, id: identifier(source.id), now: integer(source.now, 0) }; break
     case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']), ...(Object.hasOwn(source, 'reason') ? { reason: source.reason === null ? null : choice(source.reason, LEAD_MANAGEMENT_REASONS) } : {}) }; break
     case 'message': event = { type, idempotencyKey: nullable(source.idempotencyKey, identifier), message: parseLeadMessage(source.message) }; break
@@ -328,6 +336,10 @@ export class LeadJournal {
   }
   settingsChanged(name?: LeadName, follow?: LeadFollowPreferences): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }) })) }
   publication(operation: LeadPublicationOperation, pr: LeadPullRequest | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'publication', operation, pr })) }
+  handback(operation: LeadHandback): Promise<void> { return this.#queue(() => this.#append({ type: 'handback', operation })) }
+  handbackLimit(): Promise<void> { return this.#queue(async () => { if (!this.#state.handbackLimit) await this.#append({ type: 'handback-limit' }) }) }
+  ciPassed(head: string): Promise<void> { return this.#queue(async () => { if (!this.#state.ciPassed.includes(head)) await this.#append({ type: 'ci-passed', head }) }) }
+  setOrigin(origin: LeadOrigin): Promise<void> { return this.#queue(() => this.#append({ type: 'origin', origin })) }
   ownedPush(operation: LeadOwnedPush): Promise<void> { return this.#queue(() => this.#append({ type: 'owned-push', operation })) }
   observePr(pr: LeadPullRequest): Promise<void> { return this.#queue(() => this.#append({ type: 'pr-observed', pr })) }
   appendMessage(idempotencyKey: string, text: string, committed?: () => void): Promise<LeadSendReceipt> {

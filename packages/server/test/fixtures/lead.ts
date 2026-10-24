@@ -10,6 +10,7 @@ import { agent, goalRig } from './flow-goal-rig.js'
 export const leadRig = async (t: { after(fn: () => Promise<void>): void }) => {
   let budgets!: LeadBudgets
   const rig = await goalRig(t, { executionOptions: { lead: {
+    prepareRepair: (run: any, key: string, round: number) => budgets.prepareRepair(run, key, round),
     bind: (run: any) => budgets.bind(run), round: (run: any, id: string) => budgets.round(run, id), gate: (run: any) => budgets.gate(run),
   } } })
   rig.providers.set('alpha', 'writer-vendor'); rig.providers.set('beta', 'review-vendor')
