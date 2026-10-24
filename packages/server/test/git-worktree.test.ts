@@ -3,7 +3,7 @@ import childProcess from 'node:child_process'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import fsPromises from 'node:fs/promises'
-import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
+import { chmod, link, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -527,13 +527,13 @@ test('a confirmation is void after a file is added inside an ignored directory',
   assert.ok(await gone(made.path))
 })
 
+// Work git reports as changed, tracked or not, is held to its contents. What git
+// ignores is held to its names, types and sizes instead: see "writers" below.
 test('a confirmation is void after listed file contents change', async (t) => {
-  for (const path of ['a.txt', 'loose.txt', 'local.txt', 'drafts/nested/one.txt']) {
+  for (const path of ['a.txt', 'loose.txt']) {
     await t.test(path, async () => {
       const { repo, state } = await seedRepo()
       const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
-      await writeFile(join(made.path, '.gitignore'), 'drafts/\nlocal.txt\n')
-      await mkdir(join(made.path, 'drafts', 'nested'), { recursive: true })
       const file = join(made.path, path)
       await writeFile(file, 'seen\n')
       const held = await inventory(made.path)
@@ -1005,6 +1005,325 @@ test('a replaced directory can be removed while its outside destination is unrea
   }
   assert.equal(await readFile(file, 'utf8'), 'outside notes\n')
 })
+
+// ------------------------------------------------- writers and the deadline
+
+/**
+ * A dev server or a watcher writes into folders git ignores while a person
+ * decides to remove the lane. What is ignored is made again by whatever made
+ * it, so a confirmation holds it to its names, types, sizes and modes. What git
+ * reports as changed, tracked or not, is the person's own work and stays held
+ * to its contents and its times.
+ */
+const withCache = async (name: string) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, name, { kind: 'new', branch: name }, state)
+  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+  const folder = join(made.path, 'cache', 'deep')
+  await mkdir(folder, { recursive: true })
+  const file = join(folder, 'one.bin')
+  await writeFile(file, 'seen\n')
+  return { repo, state, made, folder, file }
+}
+
+/** Waits for something another process does, and says what it waited for when it does not happen. */
+const eventually = async (settled: () => boolean, what: string, within = 10_000): Promise<void> => {
+  const started = performance.now()
+  while (!settled()) {
+    assert.ok(performance.now() - started < within, what)
+    await delay(25)
+  }
+}
+
+test('a writer touching an ignored folder between looking and removing does not void the confirmation', async () => {
+  const { repo, state, made, folder, file } = await withCache('dev-server')
+  const held = await inventory(made.path)
+  assert.deepEqual(held.ignored, ['cache/'])
+
+  // The writer carries on: the same bytes again, the times moved on, a scratch
+  // file made and taken away, and a file replaced by a copy of itself the way a
+  // cache writes it. No name appeared and no size changed.
+  const later = new Date(Date.now() + 60_000)
+  await writeFile(file, 'seen\n')
+  await utimes(file, later, later)
+  await writeFile(join(folder, 'scratch.tmp'), 'x')
+  await rm(join(folder, 'scratch.tmp'))
+  await writeFile(join(folder, 'one.tmp'), 'seen\n')
+  await rename(join(folder, 'one.tmp'), file)
+  await utimes(folder, later, later)
+
+  assert.equal((await inventory(made.path)).stateId, held.stateId)
+  await remove(repo, made.path, true, held.stateId, state)
+  assert.ok(await gone(made.path))
+})
+
+test('a confirmation is void after an ignored file changes mode', async () => {
+  const { repo, state, made, file } = await withCache('holding-mode')
+  const held = await inventory(made.path)
+  await chmod(file, (await stat(file)).mode ^ 0o100)
+
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  assert.ok(!(await gone(made.path)))
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+test('a confirmation is void after an ignored file changes size, or appears, or goes', async (t) => {
+  for (const change of ['grows', 'appears', 'goes']) {
+    await t.test(change, async () => {
+      const { repo, state, made, folder, file } = await withCache('holding')
+      const held = await inventory(made.path)
+      if (change === 'grows') await writeFile(file, 'seen and then some\n')
+      else if (change === 'appears') await writeFile(join(folder, 'two.bin'), 'seen\n')
+      else await rm(file)
+
+      await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+      assert.ok(!(await gone(made.path)))
+      await remove(repo, made.path, true, await confirmed(made.path), state)
+      assert.ok(await gone(made.path))
+    })
+  }
+})
+
+test('an untracked file that is not ignored is still held to its contents and its times', async (t) => {
+  for (const change of ['rewritten', 'touched']) {
+    await t.test(change, async () => {
+      const { repo, state, made } = await withCache('holding')
+      const file = join(made.path, 'loose.txt')
+      await writeFile(file, 'seen\n')
+      const held = await inventory(made.path)
+      const before = await stat(file)
+      if (change === 'rewritten') {
+        await writeFile(file, 'edit\n')
+        await utimes(file, before.atime, before.mtime)
+      } else {
+        await utimes(file, before.atime, new Date(before.mtimeMs + 60_000))
+      }
+
+      await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+      assert.ok(!(await gone(made.path)))
+      assert.equal(await readFile(file, 'utf8'), change === 'rewritten' ? 'edit\n' : 'seen\n')
+    })
+  }
+})
+
+/** What a cache writer does to a folder while it is read: a scratch file made and removed, the folder's times moved. */
+const writerAt = (folder: string) => {
+  let rounds = 0
+  return {
+    rounds: () => rounds,
+    work: async (): Promise<void> => {
+      const scratch = join(folder, `scratch-${rounds++}.tmp`)
+      await writeFile(scratch, 'x')
+      await rm(scratch)
+      const later = new Date(Date.now() + 60_000 * rounds)
+      await utimes(folder, later, later)
+    },
+  }
+}
+
+test('an inventory read while a writer works in an ignored folder does not fail', async (t) => {
+  const { made, folder, file } = await withCache('dev-server')
+  const writer = writerAt(folder)
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === file) await writer.work()
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    assert.deepEqual((await inventory(made.path)).ignored, ['cache/'])
+    assert.ok(writer.rounds() > 0, 'the writer ran while the folder was being read')
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+})
+
+test('an inventory read while a writer works in an untracked folder still refuses', async (t) => {
+  const { made } = await withCache('holding')
+  const folder = join(made.path, 'loose')
+  await mkdir(folder)
+  const file = join(folder, 'one.bin')
+  await writeFile(file, 'seen\n')
+  const writer = writerAt(folder)
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === file) await writer.work()
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    await assert.rejects(inventory(made.path), /changed while reading its inventory/)
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+})
+
+test('an ignored file that goes while the walk is reading it is held to nothing', async (t) => {
+  const { made, folder } = await withCache('dev-server')
+  const scratch = join(folder, 'scratch.tmp')
+  await writeFile(scratch, 'x')
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    // The writer renames or removes its scratch file after git listed it and before it is read.
+    if (String(args[0]) === scratch) await rm(scratch)
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  let during: string
+  try {
+    during = (await inventory(made.path)).stateId
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  // The same digest as a reading made once it is gone, which does not list it at all.
+  assert.equal((await inventory(made.path)).stateId, during)
+})
+
+test('an ignored nested repository that goes while the walk reads it does not fail the inventory', async (t) => {
+  const { made } = await withCache('dev-server')
+  await writeFile(join(made.path, '.gitignore'), 'cache/\nvendor/\n')
+  const nested = join(made.path, 'vendor', 'lib')
+  await mkdir(nested, { recursive: true })
+  await writeFile(join(made.path, 'vendor', 'keep.txt'), 'kept\n')
+  await git(nested, 'init', '-q', '-b', 'main')
+  await writeFile(join(nested, 'a.txt'), 'notes\n')
+  const readdir = fsPromises.readdir
+  t.mock.method(fsPromises, 'readdir', (async (...args: Parameters<typeof readdir>) => {
+    if (String(args[0]) === nested) await rm(nested, { recursive: true })
+    return readdir(...args)
+  }) as typeof readdir)
+  syncBuiltinESMExports()
+  let during: string
+  try {
+    during = (await inventory(made.path)).stateId
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  assert.equal((await inventory(made.path)).stateId, during)
+})
+
+const DEADLINE = /Couldn't list what this worktree holds in time; nothing was removed/
+
+test('a git listing that never ends is stopped at the deadline, its child is killed and nothing is removed', { timeout: 30_000 }, async (t) => {
+  const { repo, state, made, file } = await withCache('holding')
+  await writeFile(join(made.path, 'notes.txt'), 'untracked\n')
+  const held = await inventory(made.path)
+
+  const spawn = childProcess.spawn
+  const endless: ReturnType<typeof spawn>[] = []
+  t.mock.method(childProcess, 'spawn', ((command, args, options) => {
+    if (!args?.includes('--others')) return spawn(command, args!, options!)
+    // Stands in for a git waiting on a mount that stopped answering: silent, and it does not exit.
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], options!)
+    endless.push(child)
+    return child
+  }) as typeof spawn)
+  syncBuiltinESMExports()
+  try {
+    const started = performance.now()
+    await assert.rejects(remove(repo, made.path, true, held.stateId, state, { deadlineMs: 2_000 }), DEADLINE)
+    assert.ok(performance.now() - started < 20_000, 'refused at the deadline, not when the listing came back')
+    assert.equal(endless.length, 1, 'the listing was started')
+    await eventually(() => endless[0]!.exitCode !== null || endless[0]!.signalCode !== null, 'the listing child was killed')
+  } finally {
+    for (const child of endless) child.kill('SIGKILL')
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  // Nothing it did not list was taken.
+  assert.ok(!(await gone(made.path)))
+  assert.equal(await readFile(join(made.path, 'notes.txt'), 'utf8'), 'untracked\n')
+  assert.equal(await readFile(file, 'utf8'), 'seen\n')
+  assert.equal((await list(repo, state)).length, 2)
+})
+
+test('an inventory held up by a call on the disk is refused at the deadline, and the git child still writing is killed', { timeout: 30_000 }, async (t) => {
+  const { repo, state, made } = await withCache('holding')
+  // A listing far longer than a pipe holds, so git is still writing when the reader stops.
+  const crowded = join(made.path, 'cache', 'a'.repeat(200), 'b'.repeat(200))
+  await mkdir(crowded, { recursive: true })
+  const seed = join(crowded, 'seed')
+  await writeFile(seed, '')
+  await Promise.all(Array.from({ length: 600 }, (_, index) => link(seed, join(crowded, `${index}-${'x'.repeat(180)}`))))
+
+  const spawn = childProcess.spawn
+  let listing: ReturnType<typeof spawn> | undefined
+  t.mock.method(childProcess, 'spawn', ((command, args, options) => {
+    const child = spawn(command, args!, options!)
+    if (args?.includes('ls-files') && args.includes('--others')) listing = child
+    return child
+  }) as typeof spawn)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let reached!: () => void
+  const blocked = new Promise<void>((resolve) => { reached = resolve })
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === join(made.path, 'cache')) {
+      reached()
+      await held
+    }
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    const reading = inventory(made.path, { deadlineMs: 3_000 })
+    const outcome = reading.then(() => 'answered', (error: unknown) => error)
+    await blocked
+    assert.ok(listing, 'the listing was started')
+    assert.equal(listing.exitCode, null, 'git is still writing when the reader stops')
+    // The call on the disk is still out, and the inventory is refused all the same.
+    assert.match(String(await outcome), DEADLINE)
+    await eventually(() => listing!.exitCode !== null || listing!.signalCode !== null, 'the listing child was killed')
+    release()
+    await delay(200)
+  } finally {
+    release()
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+for (const stalledStatus of ['--untracked-files=all', '--ignored']) {
+  test(`a ${stalledStatus} status read that ignores SIGTERM is stopped at the deadline and its child is killed`, { timeout: 30_000, skip: process.platform === 'win32' }, async () => {
+    const { made } = await withCache('holding')
+    // A quiet status process keeps running on SIGTERM, as a deadline must allow for.
+    const bin = await tempDir('hd-git-shim-')
+    const pidFile = join(bin, 'stuck.pid')
+    const real = (await run('sh', ['-c', 'command -v git'])).stdout.trim()
+    await writeFile(join(bin, 'git'), [
+      '#!/bin/sh',
+      'for arg in "$@"; do',
+      `  if [ "$arg" = "${stalledStatus}" ]; then trap '' TERM; echo $$ > '${pidFile}'; exec sleep 60; fi`,
+      'done',
+      `exec '${real}' "$@"`,
+      '',
+    ].join('\n'), { mode: 0o755 })
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path ?? ''}`
+    let pid = 0
+    try {
+      await assert.rejects(inventory(made.path, { deadlineMs: 4_000 }), DEADLINE)
+      pid = Number(await readFile(pidFile, 'utf8'))
+      assert.ok(pid > 0, 'the status read was started')
+      await eventually(() => {
+        try { process.kill(pid, 0); return false } catch { return true }
+      }, 'the status read child was killed')
+    } finally {
+      if (path === undefined) delete process.env.PATH
+      else process.env.PATH = path
+      if (pid > 0) try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+    }
+    assert.ok(!(await gone(made.path)))
+  })
+}
 
 // ------------------------------------------------------------------- prune
 

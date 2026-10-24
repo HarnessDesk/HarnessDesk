@@ -7,9 +7,13 @@ import { errnoOf, NOTHING_HERE } from './errno.js'
  * Where a path really leads, asked of the disk without waiting on it here.
  *
  * Every call below goes through `fs/promises`, so a volume that has stopped
- * answering holds one worker of the thread pool and not the host's own thread,
- * which would stop every request and every stream behind it. A signal ends the
- * walk between two calls; it cannot take back one already asked.
+ * answering holds workers of the thread pool and not the host's own thread,
+ * which would stop every request and every stream behind it. It does hold them:
+ * a signal ends the walk between two calls and cannot take back one already
+ * asked, so each call asked of a silent volume keeps its worker until the volume
+ * answers, and the pool is four threads for every volume the host touches. What
+ * keeps a silent volume from taking all of them is that a root with such a call
+ * still out is not walked again (`confinedTarget` in `workspace.ts`).
  */
 
 /** The most links one walk to a destination follows; the kernel allows about as many. */

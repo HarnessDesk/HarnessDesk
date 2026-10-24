@@ -331,6 +331,34 @@ also reads unresolved ids omitted by the listing, three at a time. A failed
 read or an answer without archive authority leaves the row unresolved for the
 next pass.
 
+## Removing a worktree reads what it holds within a deadline, and holds ignored files to names, sizes and modes
+
+"Remove this worktree…" confirms against an inventory of everything the removal
+would delete, and that inventory is read as one bounded piece. The whole
+reading, git and disk together, has twenty seconds, the same as every other
+read the host makes. At the deadline its git children are killed and the
+reading is refused with "Couldn't list what this worktree holds in time;
+nothing was removed", so a removal that could not list a checkout takes none of
+it. The reading it replaces waited for as long as a mount that had stopped
+answering under an ignored folder stayed silent, and left its git child behind.
+
+The digest a confirmation is bound to holds the two kinds of content
+differently. What git reports as changed, tracked or untracked, is somebody's
+own work and stays held to its mode, identity, size and both times. What git
+ignores — dependencies, build output, caches — is held to its path, type,
+size and mode, and the folders it is read through to their mode and identity.
+A dev server or a watcher writes there while a person decides; held to its times,
+every write voided the confirmation and a write during the reading failed it,
+so a lane with a running dev server could not be removed. A name that appears
+or goes, a file that changes size or mode, or a folder swapped for another
+still voids a confirmation. A rewrite that leaves the size alone does not, because what is
+ignored is made again by whatever made it. A file that is gone by the time it
+is read stands for nothing, so a scratch file a writer renames away does not
+split two readings of the same lane.
+
+**The rule:** bound the reading and refuse on a miss; hold a person's work to
+its contents and what a tool makes again to its names, sizes and modes.
+
 ## The sidebar reads the desk's conversation index
 
 The sidebar lists conversations started or continued in HarnessDesk, rather
@@ -896,16 +924,33 @@ ordinary card commit. (#1351)
 Git the host runs on its own in a checkout an agent can write — evidence
 reads, status, cutting a lane, diffs — carries a narrower floor
 (`git-hardening.ts`): no hook, no filesystem monitor, no external diff, the
-default ssh, and no signing. Working-file reads use a private Git directory
-with an immutable configuration snapshot. Included and global settings are
-flattened into that snapshot; include paths and filter definitions are omitted.
-The consuming process cannot acquire another driver from live configuration.
+default ssh, no signing, and no signature check when a history read prints a
+commit (`log.showSignature` would start the repository's `gpg.program` for each
+signed commit a `log` or `show` lists). Working-file reads use a private Git
+directory with an immutable configuration snapshot. Included and global settings are
+flattened into that snapshot; include paths and the repository's filter
+definitions are omitted. Global and system includes are evaluated from the
+repository's folder, so a conditional include for that repository applies;
+only those two scopes contribute filter definitions, with other Git environment
+configuration removed. The filters the person's own configuration defines are
+the one thing added: they are read apart from repository configuration by the
+`--system` and `--global` scopes alone (the system file only where `GIT_CONFIG_NOSYSTEM` would let git read it), and a file that is not
+there is no definition. A repository that keeps its files behind Git LFS then
+reads clean in status and can have a lane cut from it, because the program that
+converts them is the person's own. A repository can neither add a driver to
+that set nor change one in it, so a filter only the repository defines is never
+run. A status read leaves `required` off for those filters, so a program that
+has gone missing shows as a change instead of failing the read. The consuming
+process cannot acquire another driver from live configuration.
 Status disables Git's implicit submodule content reads and reads initialized
 children through the same isolated runner, retaining their content, untracked,
 and commit-change reporting. Parent diffs use short gitlink summaries rather
 than starting child diff commands, and pass `--no-ext-diff --no-textconv`.
 Automatic checkouts inspect the target tree's attributes in a private index
-and refuse files with a filter instead of writing them without conversion.
+and refuse files whose filter the person has not defined, instead of writing
+them without conversion; the filters they have defined convert the files with
+their own program. Removing a lane still runs git with every filter off, so no
+filter program is needed to remove one.
 They register an empty checkout and check its attributes again before writing
 files, because conditional configuration can differ in a linked worktree.
 Verbs a person triggers — bringing a branch home, the git client's commit,
@@ -1628,18 +1673,19 @@ The host's per-file turn fallback has the same platform limit for creating
 and removing files, including rollback. Its refusal names workspace file
 changes. Aggregated patches and individual update hunks still go through Git.
 
-## Local workspace editing requires one filesystem link
+## Local workspace reads and saves require one filesystem link
 
-Local workspace reads and saves both require a regular file with exactly one
-filesystem link. A hard-linked file is returned as unreadable, without an
-editor hash, before an edit can begin. A save checks the opened descriptor
-again before truncating it. The same workspace refusal explains both cases.
+Local workspace reads, previews and saves require a regular file with exactly
+one filesystem link, checked on the opened descriptor. A second name can make
+a file outside the admitted roots look like one inside them, even when its
+canonical path passes the root check. Reads and previews refuse it with a
+message explaining that the file has more than one name on disk.
 
-Several hard-linked pathnames share their contents, so a save would also
-change the other names, including any outside the admitted roots. A separate
-copy with one filesystem link can be edited here. This deliberately refuses
-hard links in package stores and copy trees as well; symbolic paths whose
-canonical target stays inside an admitted root keep their existing behavior.
+A save checks the opened descriptor before truncating it, and its refusal says
+why: changing the contents would change every name sharing them, including any
+outside the admitted roots. A separate copy with one filesystem link can be
+opened and edited here. Symbolic paths whose canonical target stays inside an
+admitted root keep their existing behavior.
 
 ## Path confinement walks a link's target the way the kernel does
 
@@ -1669,14 +1715,26 @@ with synchronous calls on the host's own thread. A single link onto a volume
 that had stopped answering then stopped every wire method and every session's
 stream behind it, for as long as the volume stayed silent.
 
-So the walk uses `fs/promises`, where a silent volume holds one worker of the
-thread pool and nothing else. The spelling is judged first and costs nothing:
-a path outside every root's spelling is refused without the disk being asked.
-Only then are the target and the roots that spell it resolved, together, and
-only for `CONFINE_DEADLINE_MS`. When that is up the request is refused with
-the volume named as the reason — a late answer never admits a path — and the
-walk is told to stop: a call already asked cannot be taken back, but no next
-one is started.
+So the walk uses `fs/promises`, where a silent volume holds workers of the
+thread pool and not the host's own thread. The spelling is judged first and
+costs nothing: a path outside every root's spelling is refused without the disk
+being asked. Only then are the target and the roots that spell it resolved,
+together, and only for `CONFINE_DEADLINE_MS`. When that is up the request is
+refused with the volume named as the reason — a late answer never admits a
+path — and the walk is told to stop: a call already asked cannot be taken back,
+but no next one is started.
+
+That call keeps its worker until the volume answers, and the pool is four
+threads for every file, folder and lookup on any volume. An editor polling a
+silent volume every few seconds would leave another call behind each time, and
+four of them leave nothing for the rest of the host. So a root whose request
+gave up is held: a request that names it is refused at once with the same
+answer (`unreadable`, for `workspace/readFile`), and the disk is not asked,
+until every call left behind has come back, answered or failed. It is held by
+the most specific named root containing the target, so a stall below a nested
+root refuses its paths while paths elsewhere in the outer root remain usable. And a volume cannot be told from a slow one
+before the deadline, so the requests that arrived within a deadline of the first
+were asked all the same.
 
 The roster's own folders (`AgentFileRoots`) are the other disk read a file
 request made. They are listed off the thread, kept for a few seconds, shared by

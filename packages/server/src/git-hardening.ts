@@ -13,15 +13,22 @@ import { promisify } from 'node:util'
  * precedence, above the repository's configuration and anything it includes,
  * and are inherited by any git that git starts in turn. They cover exactly:
  * hooks (`core.hooksPath`), the filesystem monitor (`core.fsmonitor`), the ssh
- * command, commit and tag signing (and so the signing program), and an
- * external diff program (`diff.external`). Submodule diffs use short gitlink
- * summaries rather than starting a child diff with its own configuration.
+ * command, commit and tag signing (and so the signing program), an external
+ * diff program (`diff.external`), and the signature check `log` and `show`
+ * make for each commit they print when `log.showSignature` is set, which
+ * starts `gpg.program` for every commit that carries a signature. Submodule
+ * diffs use short gitlink summaries rather than starting a child diff with its
+ * own configuration.
  *
- * Filter names are configuration-defined, so automatic reads use an isolated
- * configuration (`git-read.ts`) with those definitions omitted. Host diffs also pass
- * `--no-ext-diff --no-textconv`. Automatic checkouts keep that private
- * configuration through materialization, inspect the target's attributes and
- * refuse filtered paths; `commit_work` does the same for its files, and also
+ * Filter drivers name programs as well, so automatic reads use an isolated
+ * configuration (`git-read.ts`) that leaves out every filter the repository
+ * defines. The filters the person's own system and global configuration define
+ * are read apart from the repository and carried into it, so a status sees a
+ * converted file (Git LFS, say) as the person's git does and a lane can be cut
+ * from a tree that uses one. Host diffs also pass `--no-ext-diff --no-textconv`.
+ * Automatic checkouts keep that private configuration through materialization,
+ * inspect the target's attributes and refuse a file whose filter the person
+ * has not defined; `commit_work` refuses any filtered file of its own, and also
  * excludes system and global configuration.
  *
  * Verbs a person triggers themselves — bringing a branch home, the git
@@ -36,6 +43,7 @@ export const HARDENED_GIT_CONFIG: readonly string[] = [
   '-c', 'tag.gpgSign=false',
   '-c', 'diff.external=',
   '-c', 'diff.submodule=short',
+  '-c', 'log.showSignature=false',
 ]
 
 const run = promisify(execFile)

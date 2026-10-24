@@ -59,8 +59,11 @@ export const assertAbsoluteCwd = (params: { readonly cwd?: string } | undefined)
  *
  * Confinement asks where a path really leads, and a volume that has stopped
  * answering — a network mount, a drive that went to sleep — never says. The
- * checks run off the host's thread, so one such path costs its own request and
- * not the host; this is how long that request waits before it says so.
+ * checks run off the host's thread, so the host goes on answering everything
+ * else; this is how long the request that asked waits before it says so. The
+ * call it was waiting for is not given up with it: it keeps a worker of the
+ * thread pool until the volume answers, which is why a root with such a call
+ * still out is not asked about again (`unanswered`, below).
  */
 export const CONFINE_DEADLINE_MS = 10_000
 
@@ -104,7 +107,8 @@ export class PathUnresolvableError extends Error {
  * Answers the spelling, which is what the caller keeps. The spelling is judged
  * first and costs nothing: a path outside every root's spelling is refused
  * before the disk is asked about it. The disk is asked only about the roots
- * that spell it, and not for longer than the deadline.
+ * that spell it, and not for longer than the deadline; a root whose volume
+ * did not answer the last time is not asked at all while that call is out.
  */
 export const confine = async (path: string, roots: readonly string[], options: ConfineOptions = {}): Promise<string> => {
   await confinedTarget(path, roots, options.deadlineMs)
@@ -113,6 +117,48 @@ export const confine = async (path: string, roots: readonly string[], options: C
 
 const outsideEveryWorkspace = (target: string): Error =>
   new Error(`${target} is outside every open workspace. Open its folder first to read from it.`)
+
+/** What a request is told when its volume did not say where a path leads. */
+const volumeSilent = (target: string): PathUnresolvableError =>
+  new PathUnresolvableError(
+    target,
+    Object.assign(new Error(`${target} could not be checked: its volume did not answer in time.`), { code: 'ETIMEDOUT' }),
+  )
+
+/**
+ * The roots a request gave up on, and how many of those requests still have a
+ * call out on the disk.
+ *
+ * A request that reaches its deadline stops waiting and tells its walk to take
+ * no further step, but the call the walk is waiting on cannot be taken back: it
+ * keeps a worker of the thread pool until the volume answers or fails it. The
+ * pool is four threads, shared by every file, folder and lookup the host asks
+ * of any volume, so an editor that polls a silent volume every few seconds
+ * would leave another call behind each time and, with four of them, nothing
+ * else would be answered. A root in this table is therefore not walked again:
+ * a request that names it is refused at once with the answer the deadline
+ * gives, and the root is let go when the last call left behind has come back,
+ * answered or failed.
+ *
+ * What it cannot do is tell a silent volume from a slow one before the
+ * deadline, so the requests that arrived within a deadline of the first were
+ * asked all the same. And it holds a root as a whole: a stall below it refuses
+ * every path in it for as long as the call is out, which is the cost of not
+ * walking into the same volume again to find which path it is.
+ */
+const unanswered = new Map<string, number>()
+
+/** Holds `roots` until every one of `walks` has come back, whichever way it ends. */
+const holdRoots = (roots: readonly string[], walks: readonly Promise<unknown>[]): void => {
+  for (const root of roots) unanswered.set(root, (unanswered.get(root) ?? 0) + 1)
+  void Promise.allSettled(walks).then(() => {
+    for (const root of roots) {
+      const left = (unanswered.get(root) ?? 1) - 1
+      if (left > 0) unanswered.set(root, left)
+      else unanswered.delete(root)
+    }
+  })
+}
 
 const confinedTarget = async (
   path: string,
@@ -123,17 +169,20 @@ const confinedTarget = async (
   const target = resolve(path)
   const named = [...new Set(roots.map((root) => resolve(root)).filter((base) => isWithinPath(base, target)))]
   if (named.length === 0) throw outsideEveryWorkspace(target)
+  // A root with a call still out on its volume is not asked again.
+  if (named.some((root) => unanswered.has(root))) throw volumeSilent(target)
   const stop = new AbortController()
-  const answered = await within(
-    () => Promise.all([target, ...named].map((one) => canonicalTarget(one, stop.signal))),
-    deadlineMs,
-  )
+  let walks: readonly Promise<string>[] = []
+  const answered = await within(() => {
+    walks = [target, ...named].map((one) => canonicalTarget(one, stop.signal))
+    return Promise.all(walks)
+  }, deadlineMs)
   if (answered.settled === 'late') {
     stop.abort()
-    throw new PathUnresolvableError(
-      target,
-      Object.assign(new Error(`${target} could not be checked: its volume did not answer in time.`), { code: 'ETIMEDOUT' }),
-    )
+    // Nested roots name distinct volumes; hold the closest root to this target.
+    const closest = named.reduce((inner, root) => root.length > inner.length ? root : inner)
+    holdRoots([closest], walks)
+    throw volumeSilent(target)
   }
   if (answered.settled === 'error') throw new PathUnresolvableError(target, answered.error)
   const [canonical = target, ...real] = answered.value
@@ -287,6 +336,7 @@ export class LocalFiles implements RuntimeFiles {
     try {
       const info = await handle.stat()
       this.#assertFile(path, info)
+      this.#assertOneName(info)
       await handle.truncate(0)
       await handle.writeFile(data)
     } finally {
@@ -298,10 +348,15 @@ export class LocalFiles implements RuntimeFiles {
     return this.options.roots ? confinedTarget(path, await this.options.roots(mode)) : canonicalTarget(path)
   }
 
+  /** Reads and saves both need a regular file. */
   #assertFile(path: string, info: Stats): void {
     if (!info.isFile()) throw new Error(`${path} is not a file`)
+  }
+
+  /** A save changes every name sharing these contents, including names outside the roots. */
+  #assertOneName(info: Stats): void {
     if (info.nlink !== 1) {
-      throw new Error('Workspace files need exactly one filesystem link to be read or saved. Open a separate copy to edit this file.')
+      throw new Error('Workspace files need exactly one filesystem link to be saved, because a save would change every other name that shares them. Open a separate copy to edit this file.')
     }
   }
 
@@ -341,6 +396,8 @@ export class LocalFiles implements RuntimeFiles {
     try {
       const info = await handle.stat()
       this.#assertFile(path, info)
+      // A second name can make a file outside the roots look like one inside them.
+      if (info.nlink !== 1) throw new Error('This file has more than one name on disk, so HarnessDesk does not open it.')
       const buffer = Buffer.alloc(Math.max(0, maxBytes))
       const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0)
       return buffer.subarray(0, bytesRead)

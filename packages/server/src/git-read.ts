@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { HARDENED_GIT_CONFIG, automaticMutationConfig } from './git-hardening.js'
 import { parsePorcelain, type PorcelainEntry } from './porcelain.js'
 
-const exec = promisify(execFile)
+const execute = promisify(execFile)
 const commandAt = (args: readonly string[]): number => {
   for (let i = 0; i < args.length; i++) {
     if (['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--config-env'].includes(args[i]!)) i++
@@ -19,8 +19,22 @@ interface ReadOptions {
   readonly timeout?: number
   readonly maxBuffer?: number
   readonly signal?: AbortSignal
+  readonly killSignal?: NodeJS.Signals
   readonly env?: NodeJS.ProcessEnv
 }
+/** Apply the requested abort signal even when execFile uses killSignal only for its own timeout. */
+const exec = (file: string, args: readonly string[], options: ReadOptions & { readonly cwd?: string }) => {
+  const pending = execute(file, args, options)
+  const { signal, killSignal } = options
+  if (signal && killSignal) {
+    const stop = (): void => { if (pending.child.exitCode === null) pending.child.kill(killSignal) }
+    signal.addEventListener('abort', stop, { once: true })
+    pending.child.once('close', () => signal.removeEventListener('abort', stop))
+    if (signal.aborted) stop()
+  }
+  return pending
+}
+
 type Output = { readonly stdout: string; readonly stderr: string }
 type Setting = { readonly key: string; readonly value: string | null }
 /** Standard input comes from one place: bytes written once, or the output of another git command. */
@@ -31,10 +45,20 @@ type StreamOptions = StreamSource & {
   /** Variables added to the view's environment for this command only. */
   readonly env?: NodeJS.ProcessEnv
 }
+/**
+ * The filter definitions the person wrote in their own configuration, and the
+ * drivers among them that name a program to run.
+ */
+interface Trusted {
+  /** In the order git would apply them: the system file's, then the global files'. */
+  readonly settings: readonly (Setting & { readonly name: string; readonly variable: string })[]
+  readonly drivers: ReadonlySet<string>
+}
 interface View {
   readonly root: string
   readonly gitDir: string
   readonly settings: readonly Setting[]
+  readonly trusted: Trusted
   /** One command, its output held and bounded by the caller's `maxBuffer`. */
   run(args: readonly string[], input?: string, env?: NodeJS.ProcessEnv): Promise<Output>
   /**
@@ -56,7 +80,7 @@ const STDERR_KEPT = 64 * 1024
  */
 const launch = (
   argv: readonly string[],
-  limits: { readonly env: NodeJS.ProcessEnv; readonly timeout: number; readonly signal?: AbortSignal },
+  limits: { readonly env: NodeJS.ProcessEnv; readonly timeout: number; readonly signal?: AbortSignal; readonly killSignal?: NodeJS.Signals },
   stdin: { readonly mode: 'ignore' | 'pipe'; readonly input?: string | Buffer },
   onData?: (chunk: Buffer) => void,
 ): { readonly child: ChildProcess; readonly closed: Promise<void> } => {
@@ -111,7 +135,24 @@ const valueOf = (settings: readonly Setting[], key: string): string | undefined 
   settings.findLast(setting => setting.key === key)?.value ?? undefined
 const quote = (value: string): string => `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('\n', '\\n').replaceAll('\t', '\\t').replaceAll('\b', '\\b')}"`
 
-/** Flatten includes once. The consumer has no includes, filter definitions or live config path. */
+/** One setting as a config file spells it, or a refusal when its name could not be written back as it was. */
+const entryOf = (key: string, value: string | null): string => {
+  const first = key.indexOf('.')
+  const last = key.lastIndexOf('.')
+  const section = key.slice(0, first).toLowerCase()
+  const variable = key.slice(last + 1)
+  if (!/^[a-z0-9-]+$/.test(section) || !/^[a-z][a-z0-9-]*$/i.test(variable)) {
+    throw new Error('Git configuration could not be copied for this read.')
+  }
+  const subsection = first === last ? '' : ` ${quote(key.slice(first + 1, last))}`
+  return `[${section}${subsection}]\n${variable}${value === null ? '' : ` = ${quote(value)}`}\n`
+}
+
+/**
+ * Flatten includes once. The consumer has no includes, no live config path and
+ * none of the repository's filter definitions: the ones it may use are the
+ * person's own (`userFilters`), added by `withView`.
+ */
 const sanitizedConfig = (settings: readonly Setting[]): string => settings.map(({ key, value }) => {
   const first = key.indexOf('.')
   const last = key.lastIndexOf('.')
@@ -122,30 +163,114 @@ const sanitizedConfig = (settings: readonly Setting[]): string => settings.map((
     return ''
   }
   if (section === 'include' || section === 'includeif' || key.toLowerCase() === 'extensions.worktreeconfig') return ''
-  const variable = key.slice(last + 1)
-  if (!/^[a-z0-9-]+$/.test(section) || !/^[a-z][a-z0-9-]*$/i.test(variable)) {
-    throw new Error('Git configuration could not be copied for this read.')
-  }
-  const subsection = first === last ? '' : ` ${quote(key.slice(first + 1, last))}`
-  return `[${section}${subsection}]\n${variable}${value === null ? '' : ` = ${quote(value)}`}\n`
+  return entryOf(key, value)
 }).join('')
+
+/** The program-naming variables of a filter driver; the others only qualify how it is used. */
+const DRIVER_COMMANDS: ReadonlySet<string> = new Set(['clean', 'smudge', 'process'])
+
+/** How git reads a switch taken from the environment: a word or a number, anything else being off. */
+const switchedOn = (value: string | undefined): boolean =>
+  value !== undefined && (/^(true|yes|on)$/i.test(value) || (/^[+-]?\d+$/.test(value) && Number(value) !== 0))
+
+/** What `git config --global` and `--system` say when the person has no such file, or git cannot look for one. */
+const NO_CONFIG_FILE = /unable to read config file '.*': (No such file or directory|Not a directory|Permission denied)|\$HOME not set/
+
+/**
+ * The filter definitions in the person's own configuration, which are the only
+ * ones an automatic read or checkout may run. They are read apart from the
+ * repository by the `--system` and `--global` scopes alone, with its folder
+ * as the working directory so conditional includes can match it. Nothing in
+ * the repository configuration can add to them or stand in front of them.
+ * The system file is skipped when the environment says git would skip it too,
+ * and a file that is not there is no definition. Any other failure fails the read.
+ */
+const userFilters = async (cwd: string, options: ReadOptions): Promise<Trusted> => {
+  const source = options.env ?? process.env
+  // Only the locations of the person's config files survive from Git variables.
+  const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(source).filter(([key]) =>
+    !key.startsWith('GIT_') || key === 'GIT_CONFIG_GLOBAL' || key === 'GIT_CONFIG_SYSTEM'))
+  env['LC_ALL'] = 'C' // the wording of an absent file below
+  const settings: Trusted['settings'][number][] = []
+  for (const scope of ['--system', '--global']) {
+    // `--system` reads its file whatever GIT_CONFIG_NOSYSTEM says, so the switch is honoured here.
+    if (scope === '--system' && switchedOn(source['GIT_CONFIG_NOSYSTEM'])) continue
+    let listed: string
+    try {
+      listed = (await exec('git', [...HARDENED_GIT_CONFIG, 'config', scope, '--null', '--list', '--includes'], {
+        cwd, env, signal: options.signal, killSignal: options.killSignal,
+        timeout: options.timeout ?? 20_000, maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
+      })).stdout
+    } catch (error) {
+      const { code, stderr } = error as { code?: unknown; stderr?: unknown }
+      if (code === 1 && typeof stderr === 'string' && stderr.trim() === '') continue
+      // A wrapper can report Git's missing-file result as its own exit 1.
+      if ((code === 128 || code === 1) && typeof stderr === 'string' && NO_CONFIG_FILE.test(stderr)) continue
+      throw error
+    }
+    for (const setting of settingsOf(listed)) {
+      const first = setting.key.indexOf('.')
+      const last = setting.key.lastIndexOf('.')
+      if (first < 0 || first === last || setting.key.slice(0, first).toLowerCase() !== 'filter') continue
+      entryOf(setting.key, setting.value) // refuses a name that could not be written back
+      settings.push({ ...setting, name: setting.key.slice(first + 1, last), variable: setting.key.slice(last + 1).toLowerCase() })
+    }
+  }
+  // A driver exists where a program is named, the last word on each variable being the one that counts.
+  const latest = new Map<string, string>()
+  for (const { name, variable, value } of settings) latest.set(`${name}\0${variable}`, value ?? '')
+  const drivers = new Set<string>()
+  for (const [id, value] of latest) {
+    const [name, variable] = id.split('\0') as [string, string]
+    if (DRIVER_COMMANDS.has(variable) && value !== '') drivers.add(name)
+  }
+  return { settings, drivers }
+}
+
+/**
+ * The person's filters as config text. A read that only compares files leaves
+ * `required` out and switches it off: a program that has gone missing then
+ * costs the conversion, which shows as a change, rather than the whole read.
+ * A checkout that writes files keeps the person's setting, so a conversion
+ * that fails stops the checkout instead of leaving files unconverted.
+ */
+const trustedConfig = (trusted: Trusted, materialize: boolean): string => {
+  const names = new Set<string>()
+  const kept = trusted.settings.map(({ key, value, name, variable }) => {
+    names.add(name)
+    return !materialize && variable === 'required' ? '' : entryOf(key, value)
+  }).join('')
+  return materialize ? kept : kept + [...names].map((name) => entryOf(`filter.${name}.required`, 'false')).join('')
+}
 
 /**
  * Share repository data, never its configuration. A private Git directory
  * keeps refs, objects and the index readable without consulting config again.
  * Optional index writes and lazy fetching are disabled for the whole read.
+ *
+ * The one part of the person's own configuration it carries over is their
+ * filter definitions (`userFilters`), which a status or a checkout needs in
+ * order to see a converted file as git does. `trusted` hands over a set
+ * already read, as a submodule's view takes its parent's; `materialize` says
+ * the view writes files, which is the one use that keeps a driver `required`.
  */
-const withView = async <T>(cwd: string, options: ReadOptions, consume: (view: View) => Promise<T>): Promise<T> => {
+const withView = async <T>(
+  cwd: string, options: ReadOptions, consume: (view: View) => Promise<T>,
+  via: { readonly trusted?: Trusted; readonly materialize?: boolean } = {},
+): Promise<T> => {
   const original = (args: readonly string[]) => exec('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
     ...options, timeout: options.timeout ?? 20_000, maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
   })
-  const [root, dir, common, listed] = await Promise.all([
-    ...['--show-toplevel', '--git-dir', '--git-common-dir'].map(async flag =>
-      (await original(['rev-parse', '--path-format=absolute', flag])).stdout.replace(/\n$/, '')),
-    original(['config', '--null', '--list', '--includes']).then(result => result.stdout),
+  const [[root, dir, common, listed], trusted] = await Promise.all([
+    Promise.all([
+      ...['--show-toplevel', '--git-dir', '--git-common-dir'].map(async flag =>
+        (await original(['rev-parse', '--path-format=absolute', flag])).stdout.replace(/\n$/, '')),
+      original(['config', '--null', '--list', '--includes']).then(result => result.stdout),
+    ]),
+    via.trusted ?? userFilters(cwd, options),
   ])
   const settings = settingsOf(listed!)
-  const config = sanitizedConfig(settings)
+  const config = sanitizedConfig(settings) + trustedConfig(trusted, via.materialize === true)
   const home = await mkdtemp(join(tmpdir(), 'hd-git-read-'))
   try {
     await writeFile(join(home, 'config'), config, { mode: 0o600 })
@@ -172,7 +297,7 @@ const withView = async <T>(cwd: string, options: ReadOptions, consume: (view: Vi
       '-C', cwd, `--git-dir=${home}`, `--work-tree=${root}`, ...HARDENED_GIT_CONFIG, '-c', 'core.bare=false', ...args,
     ]
     const timeout = options.timeout ?? 20_000
-    return await consume({ root: root!, gitDir: dir!, settings, run: async (args, input, extra) => {
+    return await consume({ root: root!, gitDir: dir!, settings, trusted, run: async (args, input, extra) => {
       const pending = exec('git', argv(args), {
         ...options, env: extra ? { ...env, ...extra } : env, timeout, maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
       })
@@ -184,7 +309,7 @@ const withView = async <T>(cwd: string, options: ReadOptions, consume: (view: Vi
       // Keep the private view until an aborted process has finished writing.
       try { return await pending } finally { await closed }
     }, stream: async (args, onData, streamOptions = {}) => {
-      const limits = { env: streamOptions.env ? { ...env, ...streamOptions.env } : env, timeout, signal: options.signal }
+      const limits = { env: streamOptions.env ? { ...env, ...streamOptions.env } : env, timeout, signal: options.signal, killSignal: options.killSignal }
       const piped = streamOptions.feed !== undefined || streamOptions.input !== undefined
       const reader = launch(argv(args), limits, { mode: piped ? 'pipe' : 'ignore', input: streamOptions.input }, onData)
       const writer = streamOptions.feed ? launch(argv(streamOptions.feed), limits, { mode: 'ignore' }) : undefined
@@ -208,10 +333,12 @@ const NEEDS_FILTER = 'This checkout needs a git filter (such as LFS). Create it 
 
 /**
  * Walk the target tree's attributes as they are listed, holding none of them.
- * Refuses at the first path that names a driver; returns the paths whose filter
- * reads `unset` or `unspecified`. Git prints those words both for an attribute
- * that is off and for a driver literally called that, and `--all` leaves out
- * the unspecified ones, so only an explicit setting is ever returned.
+ * Refuses at the first path that names a driver the person has not defined —
+ * a name the repository alone defines, or one nobody does — and lets the ones
+ * they have pass, to be converted by their program. Returns the paths whose
+ * filter reads `unset` or `unspecified`. Git prints those words both for an
+ * attribute that is off and for a driver literally called that, and `--all`
+ * leaves out the unspecified ones, so only an explicit setting is ever returned.
  */
 const unsetFilters = async (view: View): Promise<Buffer[]> => {
   const unset: Buffer[] = []
@@ -223,8 +350,12 @@ const unsetFilters = async (view: View): Promise<Buffer[]> => {
     else if (place === 1) filter = field.toString('latin1') === 'filter'
     else if (filter) {
       const value = field.toString('latin1')
-      if (value !== 'unspecified' && value !== 'unset') throw new Error(NEEDS_FILTER)
-      unset.push(Buffer.from(path))
+      if (value === 'unspecified' || value === 'unset') unset.push(Buffer.from(path))
+      else {
+        // Spelled exactly as git looks it up; bytes that are not text name nothing the person wrote.
+        const name = field.toString('utf8')
+        if (!view.trusted.drivers.has(name) || !Buffer.from(name).equals(field)) throw new Error(NEEDS_FILTER)
+      }
     }
     place = (place + 1) % 3
   })
@@ -297,7 +428,7 @@ export const automaticCheckout = async (
         finally { await rm(lock, { force: true }) }
       }
       return { at, config: HARDENED_GIT_CONFIG }
-    })
+    }, { materialize: options.materialize === true })
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
@@ -385,7 +516,7 @@ const statusInView = async (view: View, args: readonly string[], options: ReadOp
         if (ignored === 'dirty') return false
         const status = await statusInView(childView, ['status', '--porcelain=v1', '-z', `--untracked-files=${ignored === 'untracked' || untracked === 'no' ? 'no' : 'normal'}`], options, visited)
         return status.stdout.length > 0
-      })
+      }, { trusted: view.trusted })
       if (!changed) continue
       const at = entries.findIndex(entry => entry.path === path)
       if (at >= 0) {

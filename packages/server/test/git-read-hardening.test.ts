@@ -12,10 +12,11 @@ import { inventory, list } from '../src/git-worktree.js'
 import { assertCleanTree } from '../src/git-ops.js'
 import { diff, status } from '../src/git.js'
 import { revisionOf } from '../src/evidence/revision.js'
-import { changes, create, createDetached } from '../src/worktree.js'
+import { WorktreeDirtyError, changes, create, createDetached, remove } from '../src/worktree.js'
 import { hostContextPort } from '../src/authoring/start.js'
 import { automaticCheckout, readGit } from '../src/git-read.js'
-import { commitDiff } from '../src/git-history.js'
+import { patch as commitPatch } from '../src/git-actions.js'
+import { commit as openCommit, commitDiff, forgetKnown, log as historyLog, refs as historyRefs } from '../src/git-history.js'
 
 const run = promisify(execFile)
 
@@ -752,3 +753,305 @@ for (const stop of ['abort', 'timeout'] as const) {
     })
   })
 }
+
+/**
+ * A commit with a signature header, put on top of the fixture's and made the
+ * branch tip. The bytes between the armor lines are not read until a program
+ * is asked to verify them, so any text will do: what matters is that git has
+ * a signature to hand to one.
+ */
+const signedCommit = async (f: Fixture): Promise<string> => {
+  await writeFile(join(f.root, 'page.txt'), 'signed content\n')
+  await f.git('add', 'page.txt')
+  const lines = [
+    `tree ${await f.git('write-tree')}`,
+    `parent ${f.head}`,
+    'author Jane Doe <dev@example.com> 1700000000 +0000',
+    'committer Jane Doe <dev@example.com> 1700000000 +0000',
+    'gpgsig -----BEGIN PGP SIGNATURE-----',
+    ' ',
+    ' AAAA',
+    ' -----END PGP SIGNATURE-----',
+    '',
+    'Signed change',
+    '',
+  ]
+  const sha = (await feed(f.root, ['hash-object', '-t', 'commit', '-w', '--stdin'], lines.join('\n'))).stdout.trim()
+  await f.git('update-ref', 'refs/heads/main', sha)
+  return sha
+}
+
+type Read = readonly [name: string, read: () => Promise<unknown>]
+
+/** The names of the reads that started the fixture's program, each run with its marker cleared first. */
+const startedBy = async (f: Fixture, reads: readonly Read[]): Promise<string[]> => {
+  const started: string[] = []
+  for (const [name, read] of reads) {
+    await rm(`${f.script}.mark`, { force: true })
+    await read()
+    if (await f.marker() !== '') started.push(name)
+  }
+  return started
+}
+
+test('history reads do not start the signature program a repository names', async (t) => {
+  const f = await fixture(t)
+  const signed = await signedCommit(f)
+  await f.git('update-ref', '--create-reflog', '-m', 'WIP on main', 'refs/stash', signed)
+  await f.git('config', 'log.showSignature', 'true')
+  await f.git('config', 'gpg.program', f.script)
+  // The repository does what it says when git is asked on its own terms.
+  await run('git', ['-C', f.root, 'log', '--max-count=1', '--pretty=format:%H'])
+  assert.equal(await f.marker(), 'called', 'a plain git log starts the repository program')
+  await rm(`${f.script}.mark`)
+
+  const reads: Read[] = [
+    ['the history list', () => historyLog(f.root)],
+    ['one commit by id', () => historyLog(f.root, { query: signed, search: 'sha' })],
+    ['the refs and stashes', () => historyRefs(f.root)],
+    ['an opened commit', () => openCommit(f.root, signed)],
+    ['one file of a commit', async () => { forgetKnown(); return commitDiff(f.root, signed, 'page.txt') }],
+    ['a commit as a mail patch', () => commitPatch(f.root, signed)],
+    ['a one-commit log', () => readGit(f.root, ['log', '--max-count=1', '--pretty=format:%H'])],
+    ['the parents of a commit', () => readGit(f.root, ['show', '-s', '--format=%P', 'HEAD'])],
+    ['a log with its patch', () => readGit(f.root, ['log', '-p', '-1'])],
+  ]
+  assert.deepEqual(await startedBy(f, reads), [], 'no read started the program')
+})
+
+test('history reads that print a patch leave the text conversion a repository names off', async (t) => {
+  const f = await fixture(t)
+  const signed = await signedCommit(f)
+  await writeFile(join(f.root, '.git', 'info', 'attributes'), '*.txt diff=conv\n')
+  await f.git('config', 'diff.conv.textconv', f.script)
+  // The repository does what it says when git is asked on its own terms.
+  await run('git', ['-C', f.root, 'log', '-p', '-1'])
+  assert.equal(await f.marker(), 'called', 'a plain git log -p starts the repository program')
+  await rm(`${f.script}.mark`)
+
+  const reads: Read[] = [
+    ['an opened commit', () => openCommit(f.root, signed)],
+    ['one file of a commit', async () => { forgetKnown(); return commitDiff(f.root, signed, 'page.txt') }],
+    ['a commit as a mail patch', () => commitPatch(f.root, signed)],
+    ['the working-file diff', () => diff(f.root)],
+  ]
+  assert.deepEqual(await startedBy(f, reads), [], 'no read started the program')
+})
+
+/**
+ * The files git reads for the person's own configuration, for the rest of the
+ * test: `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` name them, so the machine's
+ * own files are not consulted. The environment is put back when the test ends.
+ */
+const userConfig = async (
+  t: TestContext, f: Fixture, files: { readonly global?: string; readonly system?: string },
+): Promise<void> => {
+  const names = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM'] as const
+  const saved = names.map((name) => [name, process.env[name]] as const)
+  t.after(() => {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  })
+  const global = join(f.base, 'user.gitconfig')
+  const system = join(f.base, 'system.gitconfig')
+  await writeFile(global, files.global ?? '')
+  await writeFile(system, files.system ?? '')
+  process.env['GIT_CONFIG_GLOBAL'] = global
+  process.env['GIT_CONFIG_SYSTEM'] = system
+  delete process.env['GIT_CONFIG_NOSYSTEM']
+}
+
+const inScope = (scope: 'global' | 'system', text: string): { readonly global?: string; readonly system?: string } =>
+  scope === 'global' ? { global: text } : { system: text }
+
+/**
+ * A filter a person's configuration could hold, as a pair of `sed` programs:
+ * what is committed starts `short:` and what is checked out starts `expanded:`.
+ * A file that went through one cannot be judged without running it.
+ */
+const converter = (name: string, extra = ''): string =>
+  `[filter "${name}"]\n\tclean = sed 's/^expanded:/short:/'\n\tsmudge = sed 's/^short:/expanded:/'\n${extra}`
+
+/** A filter that changes nothing and leaves a mark when git starts it; `f.script` is the program. */
+const marking = async (f: Fixture, extra = ''): Promise<string> => {
+  await writeFile(f.script, '#!/bin/sh\nprintf called > "$0.mark"\ncat\n')
+  const program = JSON.stringify(f.script)
+  return `[filter "p"]\n\tclean = ${program}\n\tsmudge = ${program}\n${extra}`
+}
+
+/** A commit whose tracked `data.dat` goes through the driver `name`, stored short and checked out expanded. */
+const convertedCommit = async (f: Fixture, name = 'p'): Promise<string> => {
+  await writeFile(join(f.root, '.gitattributes'), `*.dat filter=${name}\n`)
+  await writeFile(join(f.root, 'data.dat'), 'expanded:hello\n')
+  await f.git('add', '.')
+  await f.git('commit', '-qm', 'Add a converted file')
+  return f.git('rev-parse', 'HEAD')
+}
+
+/** Newer than the index remembers, so git has to read the file's content to know it is unchanged. */
+const touched = async (path: string): Promise<void> => {
+  const later = new Date(Date.now() + 5_000)
+  await utimes(path, later, later)
+}
+
+for (const scope of ['global', 'system'] as const) {
+  test(`a filter the ${scope} configuration defines converts a touched file when status reads it`, async (t) => {
+    const f = await fixture(t)
+    await userConfig(t, f, inScope(scope, converter('p')))
+    await convertedCommit(f)
+    assert.equal(await f.git('cat-file', 'blob', 'HEAD:data.dat'), 'short:hello', 'the stand-in stored the short form')
+    await touched(join(f.root, 'data.dat'))
+    assert.deepEqual((await status(f.root))?.files, [])
+    assert.equal((await readGit(f.root, ['status', '--porcelain=v1'])).stdout, '')
+    await writeFile(join(f.root, 'data.dat'), 'expanded:changed\n')
+    assert.deepEqual((await status(f.root))?.files.map((file) => file.path), ['data.dat'], 'a real change is still seen')
+  })
+
+  test(`a filter the ${scope} configuration conditionally includes for this repository is honoured`, async (t) => {
+    const f = await fixture(t)
+    const more = join(f.base, 'conditional-filters.gitconfig')
+    await writeFile(more, converter('p'))
+    await userConfig(t, f, inScope(scope,
+      `[includeIf ${JSON.stringify(`gitdir:${f.root}/`)}]\n\tpath = ${JSON.stringify(more)}\n`))
+    const at = await convertedCommit(f)
+    assert.equal(await f.git('cat-file', 'blob', 'HEAD:data.dat'), 'short:hello')
+    await touched(join(f.root, 'data.dat'))
+    assert.deepEqual((await status(f.root))?.files, [])
+    const tree = await createDetached(f.root, { name: 'conditional-user', at, stateDir: join(f.base, 'state') })
+    assert.equal(await readFile(join(tree, 'data.dat'), 'utf8'), 'expanded:hello\n')
+  })
+
+  for (const detached of [false, true]) {
+    test(`a ${detached ? 'detached ' : ''}lane is cut from a tree that names a filter the ${scope} configuration defines`, async (t) => {
+      const f = await fixture(t)
+      await userConfig(t, f, inScope(scope, converter('p')))
+      const at = await convertedCommit(f)
+      const stateDir = join(f.base, 'state')
+      const tree = detached
+        ? await createDetached(f.root, { name: 'converted', at, stateDir })
+        : (await create(f.root, { name: 'converted', stateDir })).path
+      assert.equal(await readFile(join(tree, 'data.dat'), 'utf8'), 'expanded:hello\n', 'converted on the way out')
+      assert.equal((await readGit(tree, ['status', '--porcelain=v1'])).stdout, '')
+      assert.equal((await run('git', ['-C', tree, 'status', '--porcelain'])).stdout, '', 'and git itself agrees')
+    })
+  }
+}
+
+test("a filter in a file the person's configuration includes counts as the person's own", async (t) => {
+  const f = await fixture(t)
+  const more = join(f.base, 'filters.gitconfig')
+  await writeFile(more, converter('p'))
+  await userConfig(t, f, { global: `[include]\n\tpath = ${JSON.stringify(more)}\n` })
+  const at = await convertedCommit(f)
+  const tree = await createDetached(f.root, { name: 'included', at, stateDir: join(f.base, 'state') })
+  assert.equal(await readFile(join(tree, 'data.dat'), 'utf8'), 'expanded:hello\n')
+})
+
+test('a filter only the repository defines never runs, and a tree that names it is still refused', async (t) => {
+  const f = await fixture(t)
+  await userConfig(t, f, { global: converter('p') })
+  await writeFile(f.script, '#!/bin/sh\nprintf called > "$0.mark"\ncat\n')
+  await writeFile(join(f.root, '.gitattributes'), '*.dat filter=q\n')
+  await writeFile(join(f.root, 'data.dat'), 'expanded:hello\n')
+  await f.git('add', '.')
+  await f.git('commit', '-qm', 'Name a filter nobody has defined yet')
+  const at = await f.git('rev-parse', 'HEAD')
+  await f.git('config', 'filter.q.clean', f.script)
+  await f.git('config', 'filter.q.smudge', f.script)
+  await touched(join(f.root, 'data.dat'))
+  const stateDir = join(f.base, 'state')
+  assert.deepEqual((await status(f.root))?.files, [])
+  await assert.rejects(create(f.root, { name: 'needs-q', stateDir }), /filter/i)
+  await assert.rejects(createDetached(f.root, { name: 'needs-q', at, stateDir }), /filter/i)
+  assert.equal(await f.marker(), '', 'the repository program never started')
+  assert.equal(await f.git('branch', '--list', 'harnessdesk/needs-q'), '')
+})
+
+test('a repository cannot replace or add to a filter the person defines', async (t) => {
+  const f = await fixture(t)
+  await userConfig(t, f, { global: converter('p') })
+  await convertedCommit(f)
+  await writeFile(f.script, '#!/bin/sh\nprintf called > "$0.mark"\ncat\n')
+  await f.git('config', 'filter.p.clean', f.script)
+  await f.git('config', 'filter.p.smudge', f.script)
+  await f.git('config', 'filter.p.process', f.script)
+  await f.git('config', 'filter.p.required', 'true')
+  await touched(join(f.root, 'data.dat'))
+  assert.deepEqual((await status(f.root))?.files, [], "the person's program converted it, not the repository's")
+  const tree = (await create(f.root, { name: 'kept', stateDir: join(f.base, 'state') })).path
+  assert.equal(await readFile(join(tree, 'data.dat'), 'utf8'), 'expanded:hello\n')
+  assert.equal(await f.marker(), '', 'the repository program never started')
+})
+
+test("the system configuration is not read when the person's own git would not read it", async (t) => {
+  const f = await fixture(t)
+  await userConfig(t, f, { system: converter('p') })
+  await convertedCommit(f)
+  process.env['GIT_CONFIG_NOSYSTEM'] = '1'
+  await assert.rejects(create(f.root, { name: 'no-system', stateDir: join(f.base, 'state') }), /filter/i)
+  assert.equal(await f.git('branch', '--list', 'harnessdesk/no-system'), '')
+})
+
+test('a person with no global or system configuration file still gets status and lanes', async (t) => {
+  const f = await fixture(t)
+  await userConfig(t, f, {})
+  process.env['GIT_CONFIG_GLOBAL'] = join(f.base, 'absent-global.gitconfig')
+  process.env['GIT_CONFIG_SYSTEM'] = join(f.base, 'absent-system.gitconfig')
+  await writeFile(join(f.root, 'page.txt'), 'changed\n')
+  assert.deepEqual((await status(f.root))?.files.map((file) => file.path), ['page.txt'])
+  const tree = (await create(f.root, { name: 'bare', stateDir: join(f.base, 'state') })).path
+  assert.equal(await readFile(join(tree, 'page.txt'), 'utf8'), 'page\n')
+})
+
+for (const scope of ['global', 'system'] as const) {
+  for (const absent of ['missing file', 'no match']) {
+    test(`an empty ${scope} filter scope through a Git wrapper allows status and lanes: ${absent}`, async (t) => {
+      const f = await fixture(t)
+      await userConfig(t, f, {})
+      process.env[scope === 'global' ? 'GIT_CONFIG_GLOBAL' : 'GIT_CONFIG_SYSTEM'] = join(f.base, `absent-${scope}.gitconfig`)
+      const realGit = (await run('which', ['git'])).stdout.trim()
+      const answer = absent === 'missing file'
+        ? `process.stdout.write(require('node:child_process').execFileSync(${JSON.stringify(realGit)}, args)); return true`
+        : 'process.exit(1)'
+      await withGitShim(f, `
+        if (args.includes('config') && args.includes('--${scope}')) { ${answer} }
+      `, async () => {
+        assert.equal((await readGit(f.root, ['status', '--porcelain=v1'])).stdout, '')
+        await writeFile(join(f.root, 'page.txt'), 'changed\n')
+        assert.deepEqual((await status(f.root))?.files.map((file) => file.path), ['page.txt'])
+        const tree = (await create(f.root, { name: 'empty-scope', stateDir: join(f.base, 'state') })).path
+        assert.equal(await readFile(join(tree, 'page.txt'), 'utf8'), 'page\n')
+        assert.equal(await f.marker(), '', 'no filter program started')
+      })
+    })
+  }
+}
+
+test('removing a lane does not start a filter the person defines', async (t) => {
+  const f = await fixture(t)
+  await userConfig(t, f, { global: await marking(f, '\trequired = true\n') })
+  await convertedCommit(f)
+  const tree = (await create(f.root, { name: 'plain', stateDir: join(f.base, 'state') })).path
+  await rm(`${f.script}.mark`, { force: true }) // cutting the lane ran it
+  await touched(join(tree, 'data.dat'))
+  await readGit(f.root, ['worktree', 'remove', tree])
+  await assert.rejects(stat(tree), { code: 'ENOENT' })
+  assert.equal(await f.marker(), '', 'git removed the lane without starting the program')
+})
+
+test('a filter the person defines that no longer works does not keep a lane from being discarded', async (t) => {
+  const f = await fixture(t)
+  const stateDir = join(f.base, 'state')
+  await userConfig(t, f, { global: converter('p', '\trequired = true\n') })
+  await convertedCommit(f)
+  const tree = (await create(f.root, { name: 'stale', stateDir })).path
+  // The program is gone, but the configuration still says the file cannot be read without it.
+  await writeFile(join(f.base, 'user.gitconfig'), '[filter "p"]\n\tclean = exit 1\n\tsmudge = exit 1\n\trequired = true\n')
+  await touched(join(tree, 'data.dat'))
+  assert.deepEqual((await changes(tree)).files, ['data.dat'], 'it reads as changed, which is the safe answer')
+  await assert.rejects(remove(tree, { stateDir }), WorktreeDirtyError)
+  await remove(tree, { stateDir, force: true })
+  await assert.rejects(stat(tree), { code: 'ENOENT' })
+})
