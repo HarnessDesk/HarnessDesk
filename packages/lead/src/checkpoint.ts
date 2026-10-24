@@ -1,5 +1,5 @@
-import { parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
-import { parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
+import { parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
+import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
 import { initialLeadState, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
 
@@ -25,18 +25,23 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // preserved at the retained suffix boundary. Stable ordering puts all saved
   // cards after that message and before the next journal write.
   const namedSource = threadSource && { ...threadSource, completedBudgets: Object.hasOwn(threadSource, 'completedBudgets') ? threadSource.completedBudgets : [], name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
-  const source = namedSource && !Object.hasOwn(namedSource, 'cardPositions')
-    ? { ...namedSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : namedSource
+  const followSource = namedSource && { ...namedSource, follow: Object.hasOwn(namedSource, 'follow') ? namedSource.follow : { checks: true, reviews: true }, pr: Object.hasOwn(namedSource, 'pr') ? namedSource.pr : null, publication: Object.hasOwn(namedSource, 'publication') ? namedSource.publication : null, ownedPush: Object.hasOwn(namedSource, 'ownedPush') ? namedSource.ownedPush : null }
+  const source = followSource && !Object.hasOwn(followSource, 'cardPositions')
+    ? { ...followSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : followSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
+  parseLeadFollowPreferences(source.follow)
+  if (source.pr !== null) parseLeadPullRequest(source.pr)
+  if (source.publication !== null) parseLeadPublicationOperation(source.publication)
+  if (source.ownedPush !== null) parseLeadOwnedPush(source.ownedPush)
   assert(source.name === 'dex' || source.name === 'lex')
   assert(Array.isArray(source.decisionMessages) && source.decisionMessages.length <= 64)
   for (const message of source.decisionMessages) {
     assert(Object.keys(message).sort().join() === ['card', 'choice', 'position'].sort().join())
     parseLeadCard(message.card)
-    assert(['approve', 'accept', 'decline'].includes(message.choice) && Number.isSafeInteger(message.position) && message.position > 0 && message.position <= source.seq)
+    assert(['approve', 'accept', 'accept-open-pr', 'decline'].includes(message.choice) && Number.isSafeInteger(message.position) && message.position > 0 && message.position <= source.seq)
   }
   assert(Number.isSafeInteger(source.seq) && source.seq > 0 && source.seq === checkpoint.seq)
-  assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'].includes(source.phase))
+  assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'following', 'accepted', 'declined', 'stopped'].includes(source.phase))
   parseLeadJournalRecord({ version: 1, seq: 1, type: 'management', phase: 'waiting-for-user', reason: source.managementReason })
   assert(Array.isArray(source.messages) && source.messages.length <= 256 && Number.isSafeInteger(source.olderMessages) && source.olderMessages >= 0)
   const messages = source.messages.map(message => parseLeadMessage(message))

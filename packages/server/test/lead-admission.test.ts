@@ -149,3 +149,12 @@ test('separate reviewed-result runs keep implementation changes in distinct lane
   assert.equal(rig.lanes.size, 2)
   assert.ok([...rig.lanes.values()].every(lane => lane.cwd !== '/repo'))
 })
+
+test('a previously admitted start cannot dispatch while the logical goal is following a PR', async t => {
+  const s = await leadRig(t), params = await s.params()
+  await s.admit(params)
+  const state = s.journal.state
+  t.mock.getter(s.journal, 'state', () => ({ ...state, phase: 'following' as const }))
+  assert.equal(await s.authority.authorize({ id: 1, method: 'flow/start-goal', params }), 'leadStartNotApproved')
+  assert.equal(s.rig.events.length, 0)
+})

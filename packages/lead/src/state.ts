@@ -1,6 +1,6 @@
-import { clientTierFor, parseLeadCardDecisionFor, type LeadName, type LeadDecisionMessage, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
+import { clientTierFor, parseLeadCardDecisionFor, type LeadName, type LeadFollowPreferences, type LeadPullRequest, type LeadDecisionMessage, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
 import { applyLeadPolicyDecision, compareLeadPolicyAuthority, sameLeadPolicyValues } from './permissions.js'
-import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity } from './journal.js'
+import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity, type LeadPublicationOperation, type LeadOwnedPush } from './journal.js'
 import { reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
 
 export const LEAD_SEND_RECEIPTS = 4096
@@ -17,6 +17,10 @@ export interface LeadAttemptState {
 export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null; readonly contractDigest: string | null }
 export interface LeadState {
   readonly name: LeadName
+  readonly follow: LeadFollowPreferences
+  readonly pr: LeadPullRequest | null
+  readonly publication: LeadPublicationOperation | null
+  readonly ownedPush: LeadOwnedPush | null
   readonly decisionMessages: readonly LeadDecisionMessage[]
   readonly completedBudgets: readonly LeadBudgetLedger[]
   readonly budget: LeadBudgetLedger | null
@@ -27,7 +31,7 @@ export interface LeadState {
   readonly sends: readonly (LeadSendReceipt & { readonly key: string })[]
   readonly seq: number
   readonly managementReason: string | null
-  readonly phase: 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'accepted' | 'declined' | 'stopped'
+  readonly phase: 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'following' | 'accepted' | 'declined' | 'stopped'
   readonly policy: LeadPermissionPolicy | null
   readonly contract: LeadAcceptanceContract | null
   readonly consent: { readonly contractDigest: string; readonly contractRevision: number; readonly policyRevision: number; readonly expiresAt: number; readonly renewalCardRevision?: number } | null
@@ -41,7 +45,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ completedBudgets: [], name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
+export const initialLeadState = (): LeadState => ({ completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
   cards: [], decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-transition') }
 const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.revision}`
@@ -56,7 +60,7 @@ export const leadPlanRuns = (state: LeadState): readonly LeadRunIdentity[] => st
 /** A fresh person request can replace exhausted work, never resume a spent step. */
 export const canReplaceLeadPlan = (state: LeadState): boolean => {
   if (!state.contract || !state.steps.length || state.recoveryBlocked || state.budget?.stop || state.budget?.requests.length ||
-    ['stopped', 'accepted', 'declined'].includes(state.phase) || !state.steps.every(step => step.state === 'started')) return false
+    ['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.pr !== null || !state.steps.every(step => step.state === 'started')) return false
   if ([...state.attempts.values()].some(attempt => attempt.kind === 'mutation' &&
     (attempt.phase !== 'finished' || attempt.resolutionPending || attempt.contested || attempt.outcome === 'uncertain'))) return false
   if (state.cards.some(card => card.contractDigest === state.contract!.digest && !state.decidedCards.includes(cardKey(card)) &&
@@ -81,6 +85,7 @@ export const canBeginLeadGoal = (state: LeadState): boolean =>
     (attempt.outcome !== 'uncertain' && attempt.outcome !== 'interrupted' || attempt.recoveryReported))
 
 export const assertPlanApprovable = (state: LeadState, contract: LeadAcceptanceContract): void => {
+  ensure(state.pr === null && state.phase !== 'following')
   ensure(state.policy?.revision === contract.policyRevision)
   ensure(state.contract === null || contract.revision > state.contract.revision)
   // An admitted attempt may already have spent, even when its response is uncertain.
@@ -128,12 +133,55 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(canBeginLeadGoal(state) && !state.completedBudgets.some(budget => budget.logicalGoalId === event.id) && state.budget!.logicalGoalId !== event.id)
       const budget = reduceLeadBudget(null, { version: 1, type: 'initialize', now: event.now, logicalGoalId: event.id,
         caps: state.budget!.caps, freshnessMs: state.budget!.freshnessMs })
-      state = { ...initialLeadState(), seq: event.seq, name: state.name, policy: state.policy, budget,
+      state = { ...initialLeadState(), seq: event.seq, name: state.name, follow: state.follow, policy: state.policy, budget,
         completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends,
         decisionMessages: state.decisionMessages }
       break
     }
-    case 'settings-changed': if (event.name !== undefined) state = { ...state, name: event.name }; break
+    case 'settings-changed': state = { ...state, ...(event.name === undefined ? {} : { name: event.name }), ...(event.follow === undefined ? {} : { follow: event.follow }) }; break
+    case 'publication': {
+      const op = event.operation, previous = state.publication
+      const card = state.cards.find(card => card.id === op.decision.cardId)
+      ensure(card && card.type === 'result' && card.contractDigest === state.contract?.digest && !state.decidedCards.includes(cardKey(card)))
+      parseLeadCardDecisionFor(op.decision, card)
+      ensure(op.decision.choice === 'accept-open-pr' || card!.type === 'result' && card!.publication === 'push' && op.decision.choice === 'accept')
+      ensure(!['accepted', 'declined', 'stopped'].includes(state.phase) && op.source.branch !== op.source.defaultBranch)
+      if (!previous || previous.id !== op.id) ensure(op.stage === 'push-prepared' && (!previous || previous.stage === 'completed') && event.pr === null)
+      else {
+        ensure(JSON.stringify({ ...previous, stage: op.stage }) === JSON.stringify(op))
+        const allowed = { 'push-prepared': ['push-prepared', 'pushed', 'needs-you'], pushed: ['create-prepared', 'completed', 'needs-you'],
+          'create-prepared': ['completed', 'needs-you'], completed: ['completed'], 'needs-you': ['push-prepared', 'needs-you'] }
+        ensure(allowed[previous.stage].includes(op.stage))
+      }
+      if (op.stage === 'completed') ensure(event.pr !== null)
+      if (event.pr) {
+        ensure(op.stage === 'completed' && event.pr.repository === op.source.repository && event.pr.branch === op.source.branch && event.pr.head === op.source.head)
+        ensure(!state.pr || state.pr.repository === event.pr.repository && state.pr.number === event.pr.number && state.pr.branch === event.pr.branch)
+      }
+      state = { ...state, publication: op, pr: event.pr ?? state.pr,
+        ...(op.stage === 'needs-you' ? { phase: 'waiting-for-user' as const, managementReason: 'lead-publication-needs-you' } : {}) }
+      break
+    }
+    case 'owned-push': {
+      const op = event.operation, previous = state.ownedPush, pr = state.pr, original = state.publication?.source
+      ensure(pr && pr.state === 'open' && op.number === pr.number && op.source.repository === pr.repository && op.source.branch === pr.branch &&
+        op.source.branch !== op.source.defaultBranch && !['accepted', 'declined', 'stopped'].includes(state.phase))
+      ensure(original && ['repository', 'branch', 'cwd', 'remote', 'remoteUrl', 'defaultBranch', 'runId', 'teamId'].every(key =>
+        original[key as keyof typeof original] === op.source[key as keyof typeof op.source]))
+      if (!previous || previous.source.head !== op.source.head) ensure(op.stage === 'prepared' && op.previousHead === pr!.head && (!previous || previous.stage === 'completed'))
+      else {
+        ensure(JSON.stringify({ ...previous, stage: op.stage }) === JSON.stringify(op))
+        ensure(previous.stage === 'prepared' || previous.stage === 'needs-you' && op.stage === 'prepared' || previous.stage === op.stage)
+      }
+      ensure(op.previousHead === pr!.head || op.stage === 'completed' && op.source.head === pr!.head)
+      state = { ...state, ownedPush: op,
+        ...(op.stage === 'completed' ? { pr: { ...pr!, head: op.source.head, check: null, review: null, at: op.at } } : {}),
+        ...(op.stage === 'needs-you' ? { phase: 'waiting-for-user' as const, managementReason: 'lead-publication-needs-you' } : {}) }
+      break
+    }
+    case 'pr-observed':
+      ensure(state.pr && event.pr.repository === state.pr.repository && event.pr.number === state.pr.number && event.pr.branch === state.pr.branch && event.pr.head === state.pr.head && event.pr.at >= state.pr.at && (state.pr.state === 'open' || event.pr.state === state.pr.state))
+      state = { ...state, pr: event.pr, ...(event.pr.state === 'open' ? {} : { phase: event.pr.state === 'merged' ? 'accepted' as const : 'declined' as const }) }; break
     case 'message': {
       ensure(event.message.revision === event.seq && event.message.id === `message-${event.seq}`)
       ensure(event.idempotencyKey === null ? event.message.role === 'assistant' : event.message.role === 'user' &&
@@ -209,6 +257,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         ['narrowing', 'unchanged'].includes(compareLeadPolicyAuthority(state.policy, event.policy)))
       state = { ...state, policy: event.policy }; break
     case 'card': {
+      ensure(event.card.type !== 'plan' || state.phase !== 'following')
       const old = state.cards.find(card => card.id === event.card.id)
       ensure(!old || event.card.revision > old.revision && event.card.type === old.type)
       ensure(old || state.cards.length < 64)
@@ -226,6 +275,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const card = state.cards.find(card => card.id === event.decision.cardId)
       ensure(card && !state.decidedCards.includes(cardKey(card)))
       const decision = parseLeadCardDecisionFor(event.decision, card)
+      if (decision.choice === 'accept-open-pr' || card!.type === 'result' && card!.publication === 'push' && decision.choice === 'accept')
+        ensure(state.pr && state.publication?.stage === 'completed' && JSON.stringify(state.publication.decision) === JSON.stringify(decision))
       ensure(card)
       if (card!.type === 'plan') {
         if (decision.choice === 'approve') {
@@ -253,7 +304,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         state = { ...state, policy: applyLeadPolicyDecision(event.decision, card, state.policy!, state.contract?.digest ?? null) }
       } else {
         ensure(card!.contractDigest === state.contract?.digest)
-        state = { ...state, phase: decision.choice === 'decline' ? 'declined' : card!.type === 'result' ? 'accepted' : 'running' }
+        state = { ...state, phase: decision.choice === 'decline' ? state.pr ? 'waiting-for-user' : 'declined' : card!.type === 'result' ? state.pr ? 'following' : 'accepted' : 'running',
+          ...(decision.choice === 'decline' && state.pr ? { managementReason: 'lead-publication-needs-you' } : {}) }
       }
       const decisionMessages = [...state.decisionMessages.filter(message => message.card.id !== card!.id), { card: card!, choice: decision.choice, position: state.cardPositions[card!.id]! }].slice(-64)
       while (new TextEncoder().encode(JSON.stringify(decisionMessages)).byteLength > 131072) decisionMessages.shift()
@@ -293,6 +345,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'dispatch-start': {
       const attempt = state.attempts.get(event.id)
       ensure(attempt?.phase === 'decided' && (!event.dispatched || attempt.effect === 'allow' && attempt.kind !== 'invalid'))
+      if (event.dispatched && attempt!.kind === 'mutation' && state.phase === 'following') ensure(attempt!.method === 'flow/execution/stop' || attempt!.method === 'team/intent' && attempt!.action === 'abandon')
       if (event.dispatched && attempt!.kind === 'mutation' && hasPendingLeadPlan(state))
         ensure(attempt!.method === 'flow/execution/stop' || attempt!.method === 'team/intent' && attempt!.action === 'abandon')
       if (event.dispatched && attempt!.method === 'flow/start-goal') {

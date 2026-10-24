@@ -516,7 +516,7 @@ const signComment = (body: string, signature: string | null): string => {
 }
 
 /** GitHub's own JSON for a pull request, in the fields the tools read. */
-interface GhPullRequest {
+export interface GhPullRequest {
   number: number
   title: string
   state: 'OPEN' | 'MERGED' | 'CLOSED' | string
@@ -734,6 +734,100 @@ const ghFailure = (args: readonly string[], said: string): string => {
 }
 
 const text = { type: 'string' } as const
+
+export interface PullRequestCreateArgs { readonly title: string; readonly body: string; readonly base?: string; readonly draft?: boolean }
+/** The same branch checks and create operation for the plugin and a person-authorized host action. */
+export interface PullRequestCreatePort {
+  git(args: readonly string[]): Promise<string>
+  runGit(args: readonly string[]): Promise<{ exitCode: number; stdout: string; stderr: string }>
+  gh(args: readonly string[]): Promise<string>
+  publicationAllowed(): Promise<void>
+  description(body: string): Promise<string>
+  viewPullRequest(selector: string): Promise<GhPullRequest>
+}
+export const createPullRequest = async (port: PullRequestCreatePort, args: PullRequestCreateArgs): Promise<GhPullRequest> => {
+  const { git, gh } = port
+  const title = String(args.title ?? '').trim()
+  const body = String(args.body ?? '')
+  if (title === '') throw new Error('A pull request needs a title.')
+  const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (branch === 'HEAD') throw new Error('The workspace is on a detached HEAD; check out a branch first.')
+  // Publication is from this branch on the repository's remote, even
+  // when it inherited an upstream such as origin/main at checkout.
+  const remotes = (await git(['remote'])).split('\n').filter((name) => name !== '')
+  const remote = remotes.includes('origin') ? 'origin' : (remotes[0] ?? 'origin')
+  const upstream = await port.runGit(['rev-parse', '--symbolic-full-name', '@{u}'])
+  // A check that never finished says nothing about the branch (#161, review of #239, round 1).
+  if (upstream.exitCode === -1) throw new Error(`Couldn't tell whether ${branch} has been pushed: ${upstream.stderr.trim()}`)
+  if (upstream.exitCode !== 0 || upstream.stdout.trim() !== `refs/remotes/${remote}/${branch}`) {
+    const remoteRef = `refs/heads/${branch}`
+    const remoteHead = await port.runGit(['ls-remote', '--heads', remote, remoteRef])
+    if (remoteHead.exitCode === -1) {
+      throw new Error(`Couldn't tell whether ${branch} has been pushed to ${remote}: ${remoteHead.stderr.trim()}`)
+    }
+    if (remoteHead.exitCode !== 0) {
+      throw new Error(`Couldn't tell whether ${branch} has been pushed to ${remote}: ${remoteHead.stderr.trim()}`)
+    }
+    const publishedHead = remoteHead.stdout
+      .split('\n')
+      .map((line) => line.trim().split(/\s+/))
+      .find(([, ref]) => ref === remoteRef)?.[0]
+    if (!publishedHead) {
+      throw new Error(
+        `Branch ${branch} has not been pushed. Push it first — \`git push -u ${remote} ${branch}\` — then call pr_create again; this tool never pushes.`,
+      )
+    }
+    const head = await git(['rev-parse', 'HEAD'])
+    if (publishedHead !== head) {
+      // Fetch the advertised object to count commits even when the
+      // remote has moved from another checkout and its tip is unknown
+      // locally. This writes no branch or FETCH_HEAD, never pushes,
+      // and must not run repository-configured hooks or maintenance.
+      const fetched = await port.runGit([
+        ...GIT_READ_HARDENING_ARGS,
+        '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
+        'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', remote, publishedHead,
+      ])
+      if (fetched.exitCode !== 0) {
+        throw new Error(`Couldn't compare ${branch} with ${remote}/${branch}: ${fetched.stderr.trim()}`)
+      }
+      const difference = await git(['rev-list', '--left-right', '--count', `${publishedHead}...HEAD`])
+      const [remoteAhead, localAhead] = difference.split(/\s+/).map(Number)
+      if (!Number.isSafeInteger(remoteAhead) || !Number.isSafeInteger(localAhead)) {
+        throw new Error(`Couldn't compare ${branch} with ${remote}/${branch}: git returned an invalid commit count.`)
+      }
+      if (remoteAhead !== 0 || localAhead !== 0) {
+        throw new Error(
+          `Branch ${branch} is ${localAhead} commit${localAhead === 1 ? '' : 's'} ahead of ${remote}/${branch} and ` +
+            `${remoteAhead} commit${remoteAhead === 1 ? '' : 's'} behind it. ` +
+            `Reconcile them before calling pr_create; this tool never pushes.`,
+        )
+      }
+    }
+  } else {
+    const unpushed = await git(['rev-list', '--count', '@{u}..HEAD'])
+    if (unpushed !== '0') {
+      throw new Error(
+        `${unpushed} commit${unpushed === '1' ? ' is' : 's are'} not pushed yet. Run \`git push\`, then call pr_create again; this tool never pushes.`,
+      )
+    }
+  }
+  const existing = JSON.parse(
+    await gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number,url']),
+  ) as readonly { number: number; url: string }[]
+  if (existing.length > 0 && existing[0]) {
+    throw new Error(
+      `Pull request #${existing[0].number} is already open for ${branch}: ${existing[0].url}. Use pr_update to change it.`,
+    )
+  }
+  await port.publicationAllowed()
+  const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', await port.description(body)]
+  if (typeof args.base === 'string' && args.base.trim() !== '') argv.push('--base', args.base.trim())
+  if (args.draft === true) argv.push('--draft')
+  const created = await gh(argv)
+  const url = created.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? ''
+  return port.viewPullRequest(url || branch)
+}
 
 export const gitPlugin: HarnessPlugin = {
   manifest: {
@@ -1032,87 +1126,12 @@ export const gitPlugin: HarnessPlugin = {
           required: ['title', 'body'],
         },
         execute: async (args: { title: string; body: string; base?: string; draft?: boolean }, scope) => {
-          const title = String(args.title ?? '').trim()
-          const body = String(args.body ?? '')
-          if (title === '') throw new Error('A pull request needs a title.')
-          const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'])
-          if (branch === 'HEAD') throw new Error('The workspace is on a detached HEAD; check out a branch first.')
-          // Publication is from this branch on the repository's remote, even
-          // when it inherited an upstream such as origin/main at checkout.
-          const remotes = (await git(['remote'])).split('\n').filter((name) => name !== '')
-          const remote = remotes.includes('origin') ? 'origin' : (remotes[0] ?? 'origin')
-          const upstream = await ctx.shell.run('git', ['rev-parse', '--symbolic-full-name', '@{u}'])
-          // A check that never finished says nothing about the branch (#161, review of #239, round 1).
-          if (upstream.exitCode === -1) throw new Error(`Couldn't tell whether ${branch} has been pushed: ${upstream.stderr.trim()}`)
-          if (upstream.exitCode !== 0 || upstream.stdout.trim() !== `refs/remotes/${remote}/${branch}`) {
-            const remoteRef = `refs/heads/${branch}`
-            const remoteHead = await ctx.shell.run('git', ['ls-remote', '--heads', remote, remoteRef])
-            if (remoteHead.exitCode === -1) {
-              throw new Error(`Couldn't tell whether ${branch} has been pushed to ${remote}: ${remoteHead.stderr.trim()}`)
-            }
-            if (remoteHead.exitCode !== 0) {
-              throw new Error(`Couldn't tell whether ${branch} has been pushed to ${remote}: ${remoteHead.stderr.trim()}`)
-            }
-            const publishedHead = remoteHead.stdout
-              .split('\n')
-              .map((line) => line.trim().split(/\s+/))
-              .find(([, ref]) => ref === remoteRef)?.[0]
-            if (!publishedHead) {
-              throw new Error(
-                `Branch ${branch} has not been pushed. Push it first — \`git push -u ${remote} ${branch}\` — then call pr_create again; this tool never pushes.`,
-              )
-            }
-            const head = await git(['rev-parse', 'HEAD'])
-            if (publishedHead !== head) {
-              // Fetch the advertised object to count commits even when the
-              // remote has moved from another checkout and its tip is unknown
-              // locally. This writes no branch or FETCH_HEAD, never pushes,
-              // and must not run repository-configured hooks or maintenance.
-              const fetched = await ctx.shell.run('git', [
-                ...GIT_READ_HARDENING_ARGS,
-                '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
-                'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', remote, publishedHead,
-              ])
-              if (fetched.exitCode !== 0) {
-                throw new Error(`Couldn't compare ${branch} with ${remote}/${branch}: ${fetched.stderr.trim()}`)
-              }
-              const difference = await git(['rev-list', '--left-right', '--count', `${publishedHead}...HEAD`])
-              const [remoteAhead, localAhead] = difference.split(/\s+/).map(Number)
-              if (!Number.isSafeInteger(remoteAhead) || !Number.isSafeInteger(localAhead)) {
-                throw new Error(`Couldn't compare ${branch} with ${remote}/${branch}: git returned an invalid commit count.`)
-              }
-              if (remoteAhead !== 0 || localAhead !== 0) {
-                throw new Error(
-                  `Branch ${branch} is ${localAhead} commit${localAhead === 1 ? '' : 's'} ahead of ${remote}/${branch} and ` +
-                    `${remoteAhead} commit${remoteAhead === 1 ? '' : 's'} behind it. ` +
-                    `Reconcile them before calling pr_create; this tool never pushes.`,
-                )
-              }
-            }
-          } else {
-            const unpushed = await git(['rev-list', '--count', '@{u}..HEAD'])
-            if (unpushed !== '0') {
-              throw new Error(
-                `${unpushed} commit${unpushed === '1' ? ' is' : 's are'} not pushed yet. Run \`git push\`, then call pr_create again; this tool never pushes.`,
-              )
-            }
-          }
-          const existing = JSON.parse(
-            await gh(['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number,url']),
-          ) as readonly { number: number; url: string }[]
-          if (existing.length > 0 && existing[0]) {
-            throw new Error(
-              `Pull request #${existing[0].number} is already open for ${branch}: ${existing[0].url}. Use pr_update to change it.`,
-            )
-          }
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
-          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', deskMarked(signDescription(unmarkedPost(body), signed.template, seat))]
-          if (typeof args.base === 'string' && args.base.trim() !== '') argv.push('--base', args.base.trim())
-          if (args.draft === true) argv.push('--draft')
-          const created = await gh(argv)
-          const url = created.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? ''
-          const pr = await viewPullRequest(url || branch)
+          const pr = await createPullRequest({ git, runGit: args => ctx.shell.run('git', args), gh, viewPullRequest,
+            publicationAllowed: () => publicationAllowed(scope),
+            description: async body => deskMarked(signDescription(unmarkedPost(body), signed.template, seat)),
+          }, args)
           const note = await publish(
             referenceOf(pr, {
               kind: 'pullRequest',

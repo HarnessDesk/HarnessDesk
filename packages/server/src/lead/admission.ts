@@ -88,7 +88,7 @@ export class LeadAdmission {
     if (!attempt || attempt.phase !== 'started' || !attempt.dispatched || attempt.method !== 'flow/start-goal' ||
       state.runs.some(run => run.correlationId === attempt.correlationId) || budgets.prepared(attempt.correlationId)) return false
     if (!contract || !consent || !budget || !step || contract.digest !== consent.contractDigest || consent.expiresAt <= now() ||
-      ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) || state.recoveryBlocked ||
+      ['stopped', 'accepted', 'declined', 'following', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) || state.recoveryBlocked ||
       !same(contract.project, project) || params.root !== project.path || params.source !== leadReviewedResultSource ||
       params.sentence !== contract.goal || params.goal || params.continues || step.flow !== 'lead-reviewed-result' || step.sourceRevision !== 'recipe-1' ||
       !same(params.vars ?? {}, step.variables) || (params.attended !== false) !== (step.attendance === 'attended') ||

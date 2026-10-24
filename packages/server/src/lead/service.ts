@@ -231,7 +231,7 @@ export class LeadService {
   }
   async #latch(reason: string): Promise<void> {
     const { journal } = this.options
-    if (['stopped', 'accepted', 'declined'].includes(journal.state.phase)) return
+    if (['stopped', 'accepted', 'declined', 'following'].includes(journal.state.phase)) return
     // A desk closing under a Lead that was already waiting for the person interrupted nothing: the person's wait stands.
     if (reason === 'lead-host-shutdown' && journal.state.phase === 'waiting-for-user') return
     await journal.setManagementPhase('waiting-for-user', reason)

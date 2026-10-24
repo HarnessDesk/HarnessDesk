@@ -1435,3 +1435,46 @@ test('prose after a resume that no plan preceded is a question for the person, n
     assert.deepEqual(said(s), ['What should the repair change?'])
   } finally { await loop.close() }
 })
+
+test('following is passive across refresh and desk activity without restoring a result or calling a provider', async () => {
+  const s = await fixture(), state: any = { ...s.journal.state, phase: 'following', pr: {
+    repository: 'acme/widgets', number: 7, head: 'a'.repeat(40), branch: 'worker', state: 'open', check: null, at: 100 } }
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  await loop.start()
+  for (let i = 0; i < 4; i++) {
+    s.emit({ type: 'notice', team: null, text: 'Desk activity' })
+    await s.drain(); await s.tick(); await loop.refresh(); await loop.idle()
+  }
+  assert.equal(journal.state.phase, 'following')
+  assert.equal(s.fake.requests.length, 0)
+  assert.equal(s.calls.some(call => call.method === 'flow/start-goal'), false)
+  assert.equal(journal.state.cards.some(card => card.type === 'result'), false)
+  await loop.close()
+})
+
+test('a chat push proposal uses the existing output path and rebuilds its approval from fresh reviewed evidence', async () => {
+  let proposed: any
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }),
+    async () => message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', cards: [proposed] }) }])])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const first = exported('createLeadLoop')(s.options)
+  await first.request(input)
+  const card = s.journal.state.cards.find(card => card.type === 'result')!
+  proposed = { ...card, publication: 'push', assertions: [], summary: 'Untrusted proposed summary' }
+  await first.close()
+  const state: any = { ...s.journal.state, phase: 'following', decidedCards: [...s.journal.state.decidedCards, `${card.id}:${card.revision}`],
+    pr: { repository: 'acme/widgets', number: 7, branch: 'worker', head: 'a'.repeat(40), state: 'open', check: null, at: 100 } }
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  try {
+    await loop.request({ ...input, messages: [{ role: 'user', content: [{ type: 'text', text: 'Push the reviewed work' }] }] })
+    const push = journal.state.cards.find(card => card.type === 'result' && card.publication === 'push')
+    assert.ok(push && push.type === 'result')
+    assert.equal(push.summary, 'Push the reviewed branch and open its pull request.')
+    assert.equal(push.assertions.length, contract.assertions.length)
+    assert.ok(push.assertions.every(assertion => assertion.status === 'passed'))
+    assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
+    assert.equal(s.fake.requests.length, 2)
+  } finally { await loop.close() }
+})

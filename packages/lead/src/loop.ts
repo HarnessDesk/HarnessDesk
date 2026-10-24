@@ -113,6 +113,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     return result.value
   }
   const invalidate = async () => {
+    if (journal.state.publication && journal.state.publication.stage !== 'completed') return
     if (lastResultSignature !== null || journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`)))
       await journal.invalidateResults()
     acceptance = []
@@ -157,7 +158,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const reviewed = contract && state.steps.every(step => step.state === 'started') && evaluated.length > 0 &&
         evaluated.every(item => item.result.status === 'reviewed') && budget?.spend === 'known' && budget.reservedUsdMicros === 0
       if (!reviewed) await invalidate()
-      else if (!terminal(journal.state.phase)) {
+      else if (!terminal(journal.state.phase) && journal.state.phase !== 'following' && (!journal.state.publication || journal.state.publication.stage === 'completed')) {
         const assertions: LeadAssertionResult[] = contract.assertions.map(assertion => {
           const facts = evaluated.map(item => item.result.assertions.find(result => result.assertionId === assertion.id)!)
           return { ...facts[0]!, evidence: facts.flatMap(fact => fact.evidence) }
@@ -198,7 +199,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       if (generation === expected && !closed) {
         synchronized = true
         if (['lead-connection-gap', 'lead-observations-unavailable'].includes(reason ?? '')) reason = null
-        if ((continuationPending || dirty) && history && requestTemplate && !blocked() && journal.state.phase !== 'awaiting-plan') schedule(false)
+        if ((continuationPending || dirty) && history && requestTemplate && !blocked() && !['awaiting-plan', 'following'].includes(journal.state.phase)) schedule(false)
       }
     } catch {
       synchronized = false; snapshot = empty(); relays = []; personActions = []
@@ -270,6 +271,22 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // Model-proposed result/waiting cards are summaries only. The loop constructs
     // actionable cards from fresh reads, and never offers a worker approval card.
     await refresh()
+    // A model can request a push card through its existing result proposal output.
+    // Copy only the intent; the actionable card is rebuilt from fresh host evidence.
+    if (result.proposals?.cards.some(card => card.type === 'result' && card.publication === 'push')) {
+      const state = journal.state, contract = state.contract
+      const evaluated = acceptance
+      const budget = state.budget && leadBudgetProjection(state.budget, clock.now())
+      if (contract && state.steps.every(step => step.state === 'started') && evaluated.length && evaluated.every(item => item.result.status === 'reviewed') &&
+        budget?.spend === 'known' && !budget.stop && budget.reservedUsdMicros === 0) {
+        const assertions = contract.assertions.map(assertion => {
+          const rows = evaluated.map(item => item.result.assertions.find(result => result.assertionId === assertion.id)!)
+          return { ...rows[0]!, evidence: rows.flatMap(row => row.evidence) }
+        })
+        await journal.offerCard({ version: 1, id: nextId(), revision: 1, type: 'result', publication: 'push', outcome: 'reviewed',
+          contractDigest: contract.digest, summary: 'Push the reviewed branch and open its pull request.', assertions, budget })
+      }
+    }
     if (result.reason === 'lead-predecessor-unavailable' || result.reason === 'lead-predecessor-unverifiable') { await waitForUser(result.reason); return result }
     const waitForDesk = !!result.deskActivityTools?.length
     // A tool told to wait for desk activity is owed the next change, whatever the gate makes of it.
@@ -296,11 +313,11 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   }
   const schedule = (activity = true) => {
     dirty ||= activity
-    if (cancelBatch || closed) return
+    if (cancelBatch || closed || journal.state.phase === 'following') return
     cancelBatch = clock.schedule(() => {
       cancelBatch = null
       void queue(async () => {
-        if (closed) return
+        if (closed || journal.state.phase === 'following') return
         const activity = dirty, continueTools = continuationPending
         dirty = false; continuationPending = false
         await refresh()

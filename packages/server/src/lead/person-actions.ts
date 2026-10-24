@@ -27,7 +27,7 @@ export class LeadPersonActions {
 
   async #targets(): Promise<Target[]> {
     const state = this.journal.state, contract = state.contract
-    if (!contract || ['accepted', 'declined', 'stopped'].includes(state.phase)) return []
+    if (!contract || ['accepted', 'declined', 'stopped', 'following'].includes(state.phase)) return []
     const targets: Target[] = []
     for (const record of this.host.registry.all()) {
       const seat = this.evidence.seats.all().find(seat => !seat.closed && seat.session.runtime === record.runtime && seat.session.sessionId === record.session.id)

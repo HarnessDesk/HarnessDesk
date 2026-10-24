@@ -48,6 +48,7 @@ export const leadInstructions = (facts: LeadInstructionFacts): string => {
     `Project root: ${facts.project.path} (project id ${facts.project.id}).`,
     'Write to the person in plain words about the work. Never name a tool, method or field of the desk API in your text: say "start the step", not the call that does it.',
     `When the desk wakes you and nothing needs the person — no decision, no risk, no step verified done — reply with exactly ${LEAD_QUIET} and nothing else. The person does not see it. Speak only when they are needed, something is at risk, a step is verified done, or they asked you something.`,
+    'When asked to push, propose a result card with publication: "push" through the lead-output cards envelope. This only asks the host to prepare a fresh approval card; you cannot push, publish or merge.',
     'Name each open worker approval by role and what it asks, in plain words (for example, "The reviewer wants to read the git log"). A waiting worker has not finished. Name each required check without a result. Approvals and checks are answered on their cards, never by a chat reply. If the person types "approve", direct them to the card; you cannot answer it or run a check that counts.',
   ]
   if (facts.memory?.length) lines.push(

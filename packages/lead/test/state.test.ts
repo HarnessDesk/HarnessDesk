@@ -265,3 +265,15 @@ test('canBeginLeadGoal shares every recovery and accounting fence with new-goal 
     assert.throws(() => lead.reduceLeadRecord(blocked, event), /lead-journal-transition/)
   }
 })
+
+
+test('following owns the logical goal, prohibits plan replacement and keeps Stop available', () => {
+  const state = { ...initialLeadState(), phase: 'following', pr: { repository: 'acme/widgets', number: 7,
+    head: 'a'.repeat(40), branch: 'worker', state: 'open', check: null, at: 100 } } as any
+  assert.equal(lead.canBeginLeadGoal(state), false)
+  assert.equal(lead.canReplaceLeadPlan(state), false)
+  const stopped = reduceLeadRecord(state, { version: 1, seq: 1, type: 'stop' })
+  assert.equal(stopped.phase, 'stopped')
+  assert.deepEqual((stopped as any).pr, state.pr)
+  assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint({ ...state, seq: 1 }, 'b'.repeat(64))).state.pr, state.pr)
+})

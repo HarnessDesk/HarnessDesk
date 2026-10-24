@@ -498,3 +498,13 @@ test('an incomplete reading after every run has ended leaves spend unknown witho
   assert.equal(s.journal.state.budget!.stop, null, 'no worker can spend any more, so nothing needs stopping')
   assert.notEqual(leadBudgetProjection(s.journal.state.budget!, 10_000_000).spend, 'known', 'and the Lead still may not spend on a guess')
 })
+
+test('following refuses worker dispatch at the host budget gate without admitting another round', async t => {
+  const s = await leadRig(t)
+  await s.start()
+  const state = s.journal.state, before = state.budget?.rounds.length
+  t.mock.getter(s.journal, 'state', () => ({ ...state, phase: 'following' as const }))
+  const run = s.budgets.port.runs().at(-1)!
+  assert.deepEqual(await s.budgets.gate(run), { ok: false, reason: 'lead-budget-stopped' })
+  assert.equal(s.journal.state.budget?.rounds.length, before)
+})

@@ -75,7 +75,7 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
       : card.type === 'permission-change' ? `Change permission mode: ${policyMode[card.previous.mode]} → ${policyMode[card.proposed.mode]}\n\n${[...new Set([...card.previous.rules.map(rule => rule.id), ...card.proposed.rules.map(rule => rule.id)])].flatMap(id => { const old = card.previous.rules.find(rule => rule.id === id), next = card.proposed.rules.find(rule => rule.id === id); return JSON.stringify(old) === JSON.stringify(next) ? [] : [`- ${ruleWords(old)} → ${ruleWords(next)}`] }).join('\n')}`
       : card.type === 'budget-change' ? budgetQuestion(card.previous.caps, card.proposed)
       : card.type === 'stopped' ? card.reason === 'unknown-spend' ? 'Worker spend is unknown. Inspect the run before continuing.' : 'The Lead stopped. Inspect its allowance and run.' : card.summary
-    const state = choice ? { approve: 'Approved', decline: 'Declined', accept: 'Accepted' }[choice] : card.type === 'result' && card.outcome !== 'reviewed' ? { accepted: 'Accepted', declined: 'Declined' }[card.outcome] : undefined
+    const state = choice ? { approve: 'Approved', decline: 'Declined', accept: 'Accepted', 'accept-open-pr': 'Accepted and opened PR' }[choice] : card.type === 'result' && card.outcome !== 'reviewed' ? { accepted: 'Accepted', declined: 'Declined' }[card.outcome] : undefined
     const spend = 'budget' in card ? card.budget : budget
     const assertions = 'assertions' in card ? card.assertions : []
     const caps = renewal && budget ? budget.caps : card.type === 'plan' ? card.contract.caps : undefined

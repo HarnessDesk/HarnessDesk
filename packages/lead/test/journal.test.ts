@@ -1786,3 +1786,24 @@ test('a management-stopped start keeps its refusal instead of predecessor readin
   assert.equal(result.decision.reason, 'Management is stopped pending recovery or user action')
   assert.equal(result.outcome, 'denied')
 })
+
+test('publication intents bind the live result click and checkpoint migration defaults only absent follow state', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  const card = { version: 1, id: 'result-pr', revision: 1, type: 'result', outcome: 'reviewed', contractDigest: contract.digest,
+    summary: 'Reviewed work', assertions: [], budget: { ...context.budget, reservedUsdMicros: 0 } }
+  await journal.offerCard(card)
+  const operation = { id: 'publish-1', at: 100, stage: 'push-prepared', source: {
+    repository: 'acme/widgets', cwd: '/workspace/demo-worker', branch: 'worker', head: 'a'.repeat(40), remote: 'origin',
+    remoteUrl: 'https://github.com/acme/widgets.git', defaultBranch: 'main', runId: 'run-1', teamId: 'team-1', runtime: 'fixture', sessionId: 'worker-1' },
+    decision: { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' } }
+  await assert.rejects(journal.publication({ ...operation, decision: { ...operation.decision, expectedRevision: 2 } }))
+  await assert.rejects(journal.decideCard(operation.decision))
+  await journal.publication(operation)
+  assert.deepEqual((await open(storage)).state.publication, operation)
+  const checkpoint: any = lead.leadCheckpoint(journal.state, 'b'.repeat(64))
+  assert.deepEqual(lead.parseLeadCheckpoint(JSON.parse(JSON.stringify(checkpoint))).state.publication, operation)
+  delete checkpoint.state.follow; delete checkpoint.state.pr; delete checkpoint.state.publication
+  assert.deepEqual(lead.parseLeadCheckpoint(checkpoint).state.follow, { checks: true, reviews: true })
+  checkpoint.state.follow = null
+  assert.throws(() => lead.parseLeadCheckpoint(checkpoint))
+})

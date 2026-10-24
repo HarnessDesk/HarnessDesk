@@ -22,7 +22,7 @@ const prepareLeadPersonGate = async (options: PersonDecisionOptions, card: Extra
   if (card.kind !== 'person' || !card.personCardId || !/^[1-9][0-9]*$/.test(card.personCardId)) throw leadRefusal('lead-worker-approval')
   const id = Number(card.personCardId), owned = options.journal.state.runs.find(run => run.runId === card.runId)
   if (!owned || !Number.isSafeInteger(id)) throw leadRefusal('lead-gate-changed')
-  const outcome = decision.choice === 'accept' ? 'accepted' : 'declined'
+  const outcome = ['accept', 'accept-open-pr'].includes(decision.choice) ? 'accepted' : 'declined'
   const check = () => {
     const state = options.journal.state, execution = options.flows.executionOf(owned.runId), board = options.team.stateFor(owned.teamId)
     const stored = options.flows.storedRun(owned.runId)

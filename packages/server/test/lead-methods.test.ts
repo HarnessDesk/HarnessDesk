@@ -1694,3 +1694,31 @@ test('a steer reaches the running worker without a restart, and one no worker ta
   assert.equal((await s.controls.readThread()).steers.length, 1)
   s.controls.close()
 })
+
+test('follow preferences persist without credentials or permission widening and reject combined authority writes', async () => {
+  const s = await rig()
+  const follow = { checks: false, reviews: true }
+  const result = await s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, follow })
+  assert.deepEqual(result.settings.follow, follow)
+  assert.deepEqual((await createLeadJournal(s.storage)).state.follow, follow)
+  assert.equal(s.journal.state.cards.length, 0)
+  for (const extra of [{ credential: { provider: 'anthropic', key: null } }, { policy }, { caps: contract.caps }])
+    await assert.rejects(s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, follow, ...extra }), code('lead-settings-combination'))
+  s.controls.close()
+})
+
+test('accept-open-pr and a push result use host publication after stale-card refusal', async () => {
+  const published: any[] = []
+  const s = await rig({ controls: { publishResult: async (...args: any[]) => { published.push(args) } } })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  const result: any = { version: 1, id: 'result-push', revision: 1, type: 'result', publication: 'push', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Push the reviewed work', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) }
+  await s.journal.offerCard(result)
+  const click: any = { version: 1, cardId: result.id, cardType: 'result', expectedRevision: 0, contractDigest: contract.digest, choice: 'accept-open-pr' }
+  await assert.rejects(s.controls.decide(click), code('lead-card-stale'))
+  assert.equal(published.length, 0)
+  await s.controls.decide({ ...click, expectedRevision: 1 })
+  assert.equal(published.length, 1)
+  assert.equal(s.answers.length, 0, 'publication owns the live gate check; no bare effect runs in beforeDecision')
+  s.controls.close()
+})

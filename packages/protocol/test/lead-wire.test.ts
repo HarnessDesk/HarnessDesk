@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { CLIENT_METHODS, knownMethods, parseClientMessage } from '../src/index.js'
 
-const names = ['lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop']
+const names = ['lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/schedule/read', 'lead/schedule/update']
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
-test('exactly seven Lead window controls validate and none is on the client surface', () => {
+test('the closed Lead window controls validate and none is on the client surface', () => {
   assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names].sort())
   for (const name of names) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
   for (const name of ['lead/thread/read', 'lead/settings/read']) assert.doesNotThrow(() => request(name, {}))
@@ -13,6 +13,8 @@ test('exactly seven Lead window controls validate and none is on the client surf
   assert.doesNotThrow(() => request('lead/resume', { expectedRevision: 0 }))
   assert.doesNotThrow(() => request('lead/stop', { expectedRevision: 0 }))
   assert.doesNotThrow(() => request('lead/settings/update', { expectedRevision: 0, credential: { provider: 'anthropic', key: 'sk-test-not-real-0000' } }))
+  assert.doesNotThrow(() => request('lead/card/decide', { version: 1, cardId: 'result', cardType: 'result', expectedRevision: 1, contractDigest: 'a'.repeat(64), choice: 'accept-open-pr' }))
+  assert.doesNotThrow(() => request('lead/settings/update', { expectedRevision: 1, follow: { checks: false, reviews: true } }))
   assert.doesNotThrow(() => request('lead/card/decide', { version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: 'a'.repeat(64), choice: 'approve' }))
 })
 

@@ -22,6 +22,7 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-key-changed': 'The provider key changed. Continue with the current key.',
   'lead-host-shutdown': 'The desk stopped while the Lead was working.',
   'lead-ownership-withdrawn': 'The Lead no longer owns its previous run.',
+  'lead-publication-needs-you': 'The branch or pull request could not be published. Inspect the work and try the approval again, or stop this goal.',
   'lead-result-awaiting-person': 'The result is waiting for your decision.',
   'lead-result-revisions-exhausted': 'The result reached its revision limit.',
   'lead-start-binding-failed': 'The run could not be linked to the approved plan.',

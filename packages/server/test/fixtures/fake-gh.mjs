@@ -17,6 +17,7 @@
  *   FAKE_GH_STATE=/tmp/state.json fake-gh.mjs api --method GET -H 'Accept: ...' user
  */
 
+import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 
 const REPO = 'acme/widgets'
@@ -55,7 +56,7 @@ const pullJson = (state, one) => ({
   created_at: iso(one.created),
   updated_at: iso(one.updated),
   html_url: one.url ?? `https://github.com/${state.repo}/pull/${one.number}`,
-  head: { sha: one.head, repo: one.headRepo === null ? null : { full_name: one.headRepo ?? state.repo } },
+  head: { sha: one.head, ref: one.branch ?? 'worker', repo: one.headRepo === null ? null : { full_name: one.headRepo ?? state.repo } },
   base: { repo: { full_name: one.baseRepo ?? state.repo } },
 })
 
@@ -159,6 +160,25 @@ if (args[0] === 'repo' && args[1] === 'view') {
     process.stdout.write(JSON.stringify(state.view))
     process.exitCode = 0
   }
+} else if (args[0] === 'pr') {
+  const after = (flag) => args[args.indexOf(flag) + 1]
+  const pullView = one => ({ number: one.number, title: one.title ?? `Change ${one.number}`, body: one.body ?? '',
+    state: one.merged ? 'MERGED' : one.state === 'closed' ? 'CLOSED' : 'OPEN', url: `https://github.com/${state.repo}/pull/${one.number}`,
+    headRefName: one.branch ?? 'worker', headRefOid: one.head, author: { login: state.user?.login ?? 'demo' } })
+  if (args[1] === 'list') {
+    process.stdout.write(JSON.stringify(state.pulls.filter(one => one.state === 'open' && (!args.includes('--head') || one.branch === after('--head'))).map(pullView)))
+  } else if (args[1] === 'create') {
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    const number = Math.max(0, ...state.pulls.map(one => one.number)) + 1, now = Date.now()
+    state.pulls.push({ number, head, branch: after('--head'), state: 'open', title: after('--title'), body: after('--body'), created: now, updated: now })
+    writeFileSync(statePath, JSON.stringify(state, null, 2))
+    process.stdout.write(`https://github.com/${state.repo}/pull/${number}\n`)
+  } else if (args[1] === 'view') {
+    const selector = args[2], number = Number(selector.split('/').at(-1))
+    const one = state.pulls.find(one => one.number === number || one.branch === selector)
+    if (!one) { process.stderr.write('PR not found\n'); process.exitCode = 1 }
+    else process.stdout.write(JSON.stringify(pullView(one)))
+  } else { process.stderr.write('Unsupported PR command\n'); process.exitCode = 2 }
 } else if (args[0] === 'issue' && (args[1] === 'view' || args[1] === 'comment')) {
   // The Git plugin's issue tools: read an issue, and post a comment to it as the signed-in account.
   const issue = state.issues.find((one) => one.number === Number(args[2]))

@@ -1,3 +1,5 @@
+import { LeadPrFollow, type LeadPrFollowOptions } from './lead/pr-follow.js'
+import { leadPublicationPorts } from './lead/pr-publication.js'
 import { LeadPersonActions } from './lead/person-actions.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
 import { phoneLinkOff } from './phone-link.js'
@@ -2825,7 +2827,11 @@ export class Host {
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
     this.#startIdleReaper()
     this.#leadReady = this.options.leadEnabled === true
-    if (this.#leadReady) { this.#leadAssembly = this.#assembleLead(); this.onDispose(() => this.#leadAssembly?.close()) }
+    if (this.#leadReady) {
+      this.#leadAssembly = this.#assembleLead()
+      this.onDispose(() => this.#leadAssembly?.close())
+      void this.#leadAssembly.restore().catch(() => { this.#logger.warn('Lead could not restore its saved thread') })
+    }
   }
 
   /**
@@ -3532,8 +3538,33 @@ export class Host {
       return seat && journal.state.runs.find(run => run.teamId === seat.board)
     }
     this.#leadOwnsWorker = (runtime, sessionId, includeClosed) => !!ownedWorker(runtime, sessionId, includeClosed)
+    const decisionEvidence = (runId: string) => options.readEvidence(runId, call => {
+      if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
+      return this.call(call.method, call.params)
+    })
+    const validateResult: LeadPrFollowOptions['validate'] =
+      (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract)
+    const follow = new LeadPrFollow({ journal, now: () => Date.now(), validate: validateResult,
+      ...leadPublicationPorts({ journal, project, forge: this.#forge, seats: () => this.#evidence.seats.all(), evidence: decisionEvidence,
+        signature: () => { const value = this.#storedPluginSettings('git')?.['signature']; return typeof value === 'string' ? value : undefined },
+        ...(this.options.forge?.gh ? { gh: (_cwd: string, args: readonly string[]) => this.options.forge!.gh!(args) } : {}),
+        publications: async source => {
+          const record = this.registry.get(runtimeId(source.runtime), makeSessionId(source.sessionId))
+          const session = record?.session ?? await this.#transcripts.recover(runtimeId(source.runtime), makeSessionId(source.sessionId))
+          return session?.turns.flatMap(turn => turn.items.flatMap(item => item.type === 'publication' ? [item.reference] : [])) ?? []
+        },
+      }),
+    })
+    this.#intake.followPullRequests({ watches: () => follow.watches(), deliver: async (_watch, batch) => {
+      for (const observation of batch.observations ?? []) await follow.observe(observation)
+      await follow.observeFacts(batch.facts)
+    } })
+    this.onDispose(journal.onChange(() => { void this.#intake.followingChanged().catch(() => {}) }))
+    // Recovery uses only journaled person authority and freshly verified worker/forge identity.
+    void follow.reconcile().catch(() => { this.#logger.warn('Lead publication needs attention') })
     this.#leadControls = new LeadControls({ journal, service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
+      publishResult: (card, decision, contract) => follow.accept(card, decision, contract),
       readPersonActions: () => personActions.read(),
       readPresence: () => leadPresence,
       // The goal's latest run owns a board; a seat on it that is mid-turn takes the words without a restart.
@@ -3554,11 +3585,7 @@ export class Host {
           if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
           return this.call(call.method, call.params)
         }) }, card, decision, contract),
-      decideResult: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
-        readEvidence: runId => options.readEvidence(runId, call => {
-          if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
-          return this.call(call.method, call.params)
-        }) }, card, decision, contract),
+      decideResult: validateResult,
       stopRequest: () => this.#leadService!.stopGoal(),
       meterSpend: () => this.#leadBudgets.meter(journal),
       stopEffects: () => stopOwned('lead-budget-stopped'),

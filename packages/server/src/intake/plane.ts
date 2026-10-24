@@ -1,3 +1,5 @@
+import type { HostPullWatch } from './poll.js'
+import type { PollBatch } from './forge.js'
 import { createHash } from 'node:crypto'
 import { open, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -200,6 +202,15 @@ export class IntakePlane {
   #deskPostsUnreadable: string | null = null
   readonly #deskSerial = new Serial()
   /** What each source read learned of its arms, by the read: gone with it. */
+  #following: { watches(): readonly HostPullWatch[]; deliver(watch: HostPullWatch, batch: PollBatch): Promise<void> } | null = null
+
+  followPullRequests(port: { watches(): readonly HostPullWatch[]; deliver(watch: HostPullWatch, batch: PollBatch): Promise<void> }): void {
+    this.#following = port
+    void this.followingChanged().catch(() => {})
+  }
+  async followingChanged(): Promise<void> {
+    if (!this.#closed && this.#dispatchReady && !this.#prefs.paused && this.#problem === null) await this.#monitor.refresh()
+  }
   readonly #batches = new WeakMap<object, Map<string, Promise<ArmBinding | null>>>()
 
   constructor(port: IntakeHostPort) {
@@ -224,6 +235,8 @@ export class IntakePlane {
     })
     this.#monitor = new IntakeMonitor({
       armed: () => this.#consent.armed(),
+      watches: () => this.#following?.watches() ?? [],
+      deliver: (watch, batch) => this.#following?.deliver(watch, batch) ?? Promise.resolve(),
       sources: intakeSources(this.#forge),
       cursors: new SourceCursors(port.home),
       offer: async (arm, fact, batch) => { await this.#offer(arm, fact, batch) },

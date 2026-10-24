@@ -1,11 +1,12 @@
-import { LEAD_LIMITS, windowLeadThread, type LeadAction, type LeadCard, type LeadProgress, type LeadProject, type LeadSettingsProjection } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, parseLeadSettingsProjection, windowLeadThread, type LeadAction, type LeadCard, type LeadProgress, type LeadProject, type LeadSettingsProjection } from '@harnessdesk/protocol'
 import { leadBudgetProjection, leadPlanRuns, type LeadState } from '@harnessdesk/lead'
 
 /** Reserve the entire envelope; messages may be windowed, actionable cards may not. */
 export const leadWindowThread = (state: LeadState, project: LeadProject, settings: LeadSettingsProjection, now = state.budget?.now ?? 0, workers: readonly LeadCard[] = []) => {
+  settings = parseLeadSettingsProjection(settings)
   const overhead = new TextEncoder().encode(JSON.stringify({ version: 1, revision: state.seq, settings, thread: null })).byteLength + 512
   return windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project,
-    contract: state.contract, budget: state.budget ? leadBudgetProjection(state.budget, now) : null,
+    contract: state.contract, pr: state.pr, budget: state.budget ? leadBudgetProjection(state.budget, now) : null,
     cardPositions: Object.fromEntries(state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`)).map(card => [card.id, state.cardPositions[card.id]!]).concat(workers.map(card => [card.id, state.seq] as [string, number]))),
     decisions: state.decisionMessages.filter(message => !state.cards.some(card => card.id === message.card.id && !state.decidedCards.includes(`${card.id}:${card.revision}`))),
     olderMessages: state.olderMessages, messages: state.messages,
@@ -17,7 +18,7 @@ export const admitLeadCard = (state: LeadState, card: LeadCard, project: LeadPro
   if (!state.policy || !state.budget) throw Object.assign(new Error('lead-unavailable'), { wireCode: 'lead-unavailable' })
   try {
     leadWindowThread({ ...state, seq: state.seq + 1, cardPositions: { ...state.cardPositions, [card.id]: state.cardPositions[card.id] ?? state.seq + 1 }, cards: [...state.cards.filter(old => old.id !== card.id), card] }, project, {
-      version: 1, name: state.name, model, policy: state.policy, caps: state.budget.caps, key: { configured: false, protection: 'unavailable' },
+      version: 1, name: state.name, follow: state.follow, model, policy: state.policy, caps: state.budget.caps, key: { configured: false, protection: 'unavailable' },
     })
   } catch { throw Object.assign(new Error('lead-card-too-large'), { wireCode: 'lead-card-too-large' }) }
 }

@@ -28,6 +28,7 @@ interface LeadControlsOptions {
   /** Host revalidates the live Flow, card and evidence on the journal's decision queue. */
   readonly decidePerson: (card: Extract<LeadCard, { type: 'waiting' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly decideResult: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
+  readonly publishResult?: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly stopRequest?: () => Promise<void>
   /** Reads the workers' spend again; a Lead request is refused while that spend is not known. */
   readonly meterSpend?: () => Promise<void>
@@ -101,7 +102,7 @@ export class LeadControls {
     if (!policy || !budget) throw leadRefusal('lead-unavailable')
     const key = await this.options.service.status('anthropic')
     return parseLeadSettingsProjection({ version: 1, name: this.options.journal.state.name, model: this.options.model,
-      key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
+      follow: this.options.journal.state.follow, key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
   async #projection(): Promise<LeadWindowProjection> {
     // Renewal is opportunistic. A refusal must leave reads and key removal usable.
@@ -109,7 +110,7 @@ export class LeadControls {
       admitLeadCard(this.options.journal.state, card, this.options.project, this.options.model)) } catch { /* Keep the last durable projection readable. */ }
     const settings = await this.#settings(), state = this.options.journal.state
     // Settings reads may yield to a journal write. Retry from one coherent revision.
-    if (settings.name !== state.name || settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps)) return this.#projection()
+    if (settings.name !== state.name || settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps) || JSON.stringify(settings.follow) !== JSON.stringify(state.follow)) return this.#projection()
     if (this.#failedRevision === state.seq) throw leadRefusal('lead-projection-failed')
     let thread: ReturnType<typeof leadWindowThread>
     const personActions = await this.options.readPersonActions?.() ?? []
@@ -137,7 +138,7 @@ export class LeadControls {
     return this.#requestInFlight
   }
   #resumable(state: LeadState): boolean {
-    if (['stopped', 'accepted', 'declined'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked || this.#inFlight()) return false
+    if (['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked || this.#inFlight()) return false
     const cards = state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))
     return !cards.some(card => card.type === 'plan' || card.type === 'result' || card.type === 'waiting' && card.kind === 'person') &&
       (!state.consent || state.consent.expiresAt > this.options.now()) &&
@@ -298,15 +299,19 @@ export class LeadControls {
       const budget = journal.state.budget, observed = budget?.observation?.at
       if (card.type !== 'plan' && budget && (observed === undefined || this.options.now() - observed > budget.freshnessMs / 2))
         try { await this.options.meterSpend?.() } catch { /* The decision refuses while spend stays unknown. */ }
-      await commit()
+      if (card.type === 'result' && (decision.choice === 'accept-open-pr' || card.publication === 'push' && decision.choice === 'accept')) {
+        if (!this.options.publishResult || !journal.state.contract) throw leadRefusal('lead-operation-refused')
+        try { await this.options.publishResult(card, decision, journal.state.contract) }
+        catch { throw leadRefusal('lead-operation-refused') }
+      } else await commit()
     }
     return this.#projection()
   }) }
   updateSettings(value: LeadSettingsUpdate): Promise<LeadWindowProjection | LeadNameReceipt> { return this.#queue(async () => {
     const input = parseLeadSettingsUpdate(value), { journal, service } = this.options
     // Credentials stay exclusive; combined authority changes are preflighted together.
-    if (input.name !== undefined && (input.policy !== undefined || input.caps !== undefined)) throw leadRefusal('lead-settings-combination')
-    if (input.credential ? input.name !== undefined || input.policy !== undefined || input.caps !== undefined : input.name === undefined && !input.policy && !input.caps) throw leadRefusal('lead-settings-combination')
+    if (input.name !== undefined && (input.policy !== undefined || input.caps !== undefined || input.follow !== undefined)) throw leadRefusal('lead-settings-combination')
+    if (input.credential ? input.name !== undefined || input.policy !== undefined || input.caps !== undefined || input.follow !== undefined : input.name === undefined && !input.policy && !input.caps && !input.follow) throw leadRefusal('lead-settings-combination')
     if (input.name !== undefined) {
       // This closed choice has no authority or untrusted prose. Acknowledge the
       // write without resolving a key; every later full projection still scans.
@@ -314,6 +319,11 @@ export class LeadControls {
       return parseLeadNameReceipt({ version: 1, revision: journal.state.seq, settings: { name: journal.state.name } })
     }
     this.#expectRevision(input.expectedRevision)
+    if (input.follow && (input.policy || input.caps)) throw leadRefusal('lead-settings-combination')
+    if (input.follow) {
+      await journal.settingsChanged(undefined, input.follow)
+      return this.#projection()
+    }
     if (input.credential) {
       const { provider, key } = input.credential
       if (key === null) await service.deleteKey(provider)

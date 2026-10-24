@@ -125,6 +125,13 @@ export class LeadAssembly {
     return this.#built
   }
 
+  /** A persisted thread restores its host watches at boot, without a provider request or a new goal. */
+  async restore(): Promise<void> {
+    try { await readFile(join(this.options.home, 'lead', PROJECT_FILE), 'utf8') }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error }
+    await this.ensure()
+  }
+
   /** Releases the journal's lease once the host has closed the service; a restart reopens the same thread. */
   async close(): Promise<void> {
     await this.#built?.catch(() => {})

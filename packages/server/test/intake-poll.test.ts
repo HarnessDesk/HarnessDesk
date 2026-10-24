@@ -351,3 +351,28 @@ test('an opt-in arm watches old PRs and failed delivery preserves supplemental w
   assert.deepEqual(r.offers, [['follow', 'checks-failed', '1']])
   await r.monitor.close()
 })
+
+test('host-owned PR watches poll without arms and deliver observations before advancing the cursor', async () => {
+  const forge = new FakeForge(), clocks = new Clocks(ARMED), timers = new FakeTimers()
+  const home = tempDir('hd-lead-watch-'), cursors = new SourceCursors(home)
+  forge.pulls = [{ number: 7, head: sha('a'), state: 'open', created: ARMED - 1, updated: ARMED - 1 }]
+  const watches = [{ project: '/project', repository: 'acme/widgets', number: 7, head: sha('a'), checks: true, reviews: true, since: ARMED }]
+  const observations: any[] = []
+  let refuse = true
+  const monitor = new IntakeMonitor({ armed: async () => [], watches: () => watches,
+    sources: intakeSources(new ForgeSource({ run: forge.runner, now: () => clocks.wall })), cursors,
+    offer: async () => { throw new Error('No project arm exists') },
+    deliver: async (_watch: unknown, batch: any) => { if (refuse) throw new Error('not durable yet'); observations.push(...batch.observations ?? []) },
+    wall: () => clocks.wall, monotonic: () => clocks.mono, timers } as any)
+  await monitor.start()
+  assert.equal(timers.live.size, 1)
+  await monitor.tick(clocks.wall)
+  clocks.advance(MINUTE)
+  await monitor.tick(clocks.wall)
+  assert.equal(observations.length, 0)
+  refuse = false
+  clocks.advance(2 * MINUTE)
+  await monitor.tick(clocks.wall)
+  assert.ok(observations.some(row => row.number === 7))
+  await monitor.close()
+})

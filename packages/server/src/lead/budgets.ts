@@ -100,7 +100,7 @@ export class LeadBudgets implements FlowLeadGuard {
     if (!contract || contract.digest !== binding.contractDigest || !step || admitted?.state !== 'admitted' ||
       !attempt || attempt.correlationId !== binding.startId || attempt.phase !== 'started' || !attempt.dispatched || attempt.method !== 'flow/start-goal' ||
       state.runs.some(run => run.correlationId === binding.startId) ||
-      state.recoveryBlocked || ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
+      state.recoveryBlocked || ['stopped', 'accepted', 'declined', 'following', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
       !await this.port.member(contract.project)) throw new Error('lead-start-not-approved')
     const current = journal.state
     const decision = decideLeadPermission({ method: 'flow/start-goal', params: pending.params, project: pending.project, runId: null, start: step },
@@ -138,7 +138,7 @@ export class LeadBudgets implements FlowLeadGuard {
       await this.#refresh(run, journal)
       // Read again after membership awaits: a latch may have landed meanwhile.
       const current = journal.state, budget = leadBudgetProjection(current.budget!, this.port.now())
-      if (budget.stop || ['stopped', 'accepted', 'declined'].includes(current.phase) || current.recoveryBlocked) throw new Error('lead-budget-stopped')
+      if (budget.stop || ['stopped', 'accepted', 'declined', 'following'].includes(current.phase) || current.recoveryBlocked) throw new Error('lead-budget-stopped')
       // A brand-new execution has no worker turn to meter. Once work exists,
       // missing or stale attribution stops it rather than inferring zero.
       const worked = this.port.runs().some(one => one.lead?.logicalGoalId === run.lead!.logicalGoalId && one.operations.some(op => op.kind === 'turn' && op.state === 'finished'))
@@ -283,7 +283,7 @@ export class LeadBudgets implements FlowLeadGuard {
   #freshen(id: string, journal: LeadJournal): void {
     this.#freshening.get(id)?.(); this.#freshening.delete(id)
     const state = journal.state, budget = state.budget
-    if (!budget || budget.stop || !state.runs.length || ['stopped', 'accepted', 'declined'].includes(state.phase)) return
+    if (!budget || budget.stop || !state.runs.length || ['stopped', 'accepted', 'declined', 'following'].includes(state.phase)) return
     const observed = budget.observation?.at
     const delay = observed === undefined ? budget.freshnessMs / 4 : Math.max(0, observed + budget.freshnessMs * 3 / 4 - this.port.now())
     const schedule = this.port.schedule ?? ((callback: () => void, ms: number) => {
