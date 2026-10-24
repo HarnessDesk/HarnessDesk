@@ -54,7 +54,7 @@ const triggerWhenWords = (definition: TriggerDefinition): string => definition.o
 
 /** The list and both reviews name the target once, with the trigger id and concurrency below. */
 export const triggerRowWords = (definition: TriggerDefinition): { readonly title: string; readonly facts: string } => {
-  const opens = 'flow' in definition.opens ? definition.opens.flow : definition.opens.agent
+  const opens = 'lead' in definition.opens ? 'a plan for approval' : 'flow' in definition.opens ? definition.opens.flow : definition.opens.agent
   const action = opens === 'review-pr' ? `review it (${opens})` : opens === 'triager' ? `triage it (${opens})` : opens === 'sweep' ? `run a sweep (${opens})` : `open ${opens}`
   const times = definition.concurrency === 1 ? 'once at a time' : `at most ${definition.concurrency} at once`
   return { title: `${triggerWhenWords(definition)}, ${action}`, facts: `${definition.id} · ${times}` }

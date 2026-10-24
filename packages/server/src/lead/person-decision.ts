@@ -1,4 +1,4 @@
-import { LEAD_REVIEWED_RESULT, leadReviewedResultSource, evaluateLeadAcceptance, leadPlanRuns, leadBudgetProjection, type LeadAcceptanceEvidence, type LeadJournal } from '@harnessdesk/lead'
+import { LEAD_REVIEWED_RESULT, leadReviewedResultSource, evaluateLeadAcceptance, leadRepairResultReady, leadPlanRuns, leadBudgetProjection, type LeadAcceptanceEvidence, type LeadJournal } from '@harnessdesk/lead'
 import type { LeadAcceptanceContract, LeadAssertionResult, LeadCard, LeadCardDecision, LeadProject } from '@harnessdesk/protocol'
 import { flowRevision } from '../flow-execution.js'
 import type { Flows } from '../flows.js'
@@ -69,12 +69,12 @@ export const answerLeadResult = async (options: PersonDecisionOptions, card: Ext
   const accounting = (value: typeof budget) => value && JSON.stringify({ caps: value.caps, lead: value.leadUsdMicros,
     workers: value.workerUsdMicros, reserved: value.reservedUsdMicros, spend: value.spend, stop: value.stop })
   const runs = leadPlanRuns(state)
-  if (!runs.length || !state.steps.every(step => step.state === 'started') || !budget || accounting(budget) !== accounting(card.budget))
+  if (!leadRepairResultReady(state) || !runs.length || !state.steps.every(step => step.state === 'started') || !budget || accounting(budget) !== accounting(card.budget))
     throw leadRefusal('lead-gate-changed')
   const gates: Awaited<ReturnType<typeof prepareLeadPersonGate>>[] = []
   for (const run of runs) {
     const execution = options.flows.executionOf(run.runId), board = options.team.stateFor(run.teamId)
-    const candidates = board.intents.filter(intent => execution?.rounds.some(round => round.cards.includes(intent.id)) &&
+    const candidates = board.intents.filter(intent => (execution?.rounds.filter(round => round.role === 'accept').at(-1) ?? execution?.rounds.at(-1))?.cards.includes(intent.id) &&
       options.flows.personCard(run.teamId, intent) && ['open', 'claimed', 'done'].includes(intent.state))
     if (candidates.length !== 1) throw leadRefusal('lead-gate-changed')
     gates.push(await prepareLeadPersonGate(options, { version: 1, id: card.id, revision: card.revision, contractDigest: card.contractDigest,

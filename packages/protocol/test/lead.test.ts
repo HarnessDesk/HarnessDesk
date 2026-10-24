@@ -498,3 +498,15 @@ test('follow preferences are closed booleans and older settings default to on', 
     { checks: false, reviews: true })
   assert.throws(() => protocol.parseLeadSettingsUpdate({ expectedRevision: 1, follow: { checks: 'yes', reviews: true } }))
 })
+
+test('automatic origin and repair projection are bounded data and never decision authority', () => {
+  const origin = { source: 'pull-request', event: 'event-1', subject: '7', url: 'https://github.com/acme/widgets/pull/7' }
+  assert.deepEqual(protocol.parseLeadOrigin(origin), origin)
+  assert.throws(() => protocol.parseLeadOrigin({ ...origin, command: 'start' }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadOrigin({ ...origin, subject: 'x'.repeat(5000) }), protocol.ValidationError)
+  const handback = { key: 'repair-1', event: 'event-1', kind: 'checks', head: 'a'.repeat(40), runId: 'run-1', teamId: 'team-1', round: 4, at: 100,
+    stage: 'prepared', publishedHead: null }
+  assert.deepEqual(protocol.parseLeadHandback(handback), handback)
+  assert.throws(() => protocol.parseLeadHandback({ ...handback, round: 0 }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadHandback({ ...handback, approved: true }), protocol.ValidationError)
+})

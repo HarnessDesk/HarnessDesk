@@ -1,4 +1,4 @@
-import { clientTierFor, parseLeadCardDecisionFor, type LeadName, type LeadFollowPreferences, type LeadPullRequest, type LeadDecisionMessage, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
+import { clientTierFor, parseLeadCardDecisionFor, type LeadOrigin, type LeadHandback, type LeadName, type LeadFollowPreferences, type LeadPullRequest, type LeadDecisionMessage, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
 import { applyLeadPolicyDecision, compareLeadPolicyAuthority, sameLeadPolicyValues } from './permissions.js'
 import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity, type LeadPublicationOperation, type LeadOwnedPush } from './journal.js'
 import { reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
@@ -16,6 +16,11 @@ export interface LeadAttemptState {
 }
 export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null; readonly contractDigest: string | null }
 export interface LeadState {
+  readonly origin: LeadOrigin | null
+  readonly originKey: string | null
+  readonly handbacks: readonly LeadHandback[]
+  readonly handbackLimit: boolean
+  readonly ciPassed: readonly string[]
   readonly name: LeadName
   readonly follow: LeadFollowPreferences
   readonly pr: LeadPullRequest | null
@@ -45,7 +50,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
+export const initialLeadState = (): LeadState => ({ origin: null, originKey: null, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
   cards: [], decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-transition') }
 const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.revision}`
@@ -54,8 +59,12 @@ const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.r
 export const hasPendingLeadPlan = (state: LeadState): boolean => state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(cardKey(card)))
 
 /** Ordinary worker dispatch stays fenced for the lifetime of an owned open PR.
- * Run C must use this hook and add host-journaled repair-round authority here. */
-export const leadWorkerDispatchBlockedByOpenPr = (state: LeadState): boolean => state.pr?.state === 'open'
+ * Only the exact host-journaled running repair may dispatch on its owned run. */
+export const leadWorkerDispatchBlockedByOpenPr = (state: LeadState, runId?: string): boolean => state.pr?.state === 'open' &&
+  !(runId && state.pr.branchOwner !== 'person' && !state.handbackLimit && state.handbacks.some(op => op.runId === runId && op.stage === 'running'))
+/** A repair result remains fenced until CI passes on the published head. */
+export const leadRepairResultReady = (state: LeadState): boolean => !state.handbacks.length ||
+  state.handbacks.at(-1)?.stage === 'completed' && !!state.pr && state.pr.branchOwner !== 'person' && state.ciPassed.includes(state.pr.head) && state.pr.check?.state === 'passed' && state.pr.check.head === state.pr.head && state.pr.check.total > 0
 
 /** Earlier runs stay owned for accounting and recovery, but judge only this plan. */
 export const leadPlanRuns = (state: LeadState): readonly LeadRunIdentity[] => state.runs.filter(run =>
@@ -133,6 +142,35 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     state = { ...state, steps: state.steps.map(step => step.attemptId === id ? { ...step, state: 'pending' as const, attemptId: null, contractDigest: null } : step) }
   }
   switch (event.type) {
+    case 'origin':
+      ensure(state.contract === null && state.runs.length === 0 && state.origin === null)
+      state = { ...state, origin: event.origin, originKey: event.key ?? null }; break
+    case 'handback-limit':
+      ensure(state.pr?.state === 'open')
+      state = { ...state, handbackLimit: true, phase: 'waiting-for-user', managementReason: 'lead-handback-limit' }; break
+    case 'handback': {
+      const op = event.operation, previous = state.handbacks.find(item => item.key === op.key)
+      ensure(state.pr?.state === 'open' && state.pr.branchOwner !== 'person' && !state.handbackLimit &&
+        !['accepted', 'declined', 'stopped'].includes(state.phase) && state.runs.some(run => run.runId === op.runId && run.teamId === op.teamId))
+      if (!previous) {
+        ensure(op.stage === 'prepared' && op.head === state.pr!.head && state.handbacks.length < 64 &&
+          state.handbacks.every(item => item.stage === 'completed') && state.follow[op.kind])
+        ensure(op.kind === 'checks' ? !state.handbacks.some(item => item.kind === 'checks' && item.head === op.head) : state.handbacks.filter(item => item.kind === 'reviews').length < 3)
+      } else {
+        if (op.stage === 'running') ensure(state.follow[op.kind])
+        ensure(JSON.stringify({ ...previous, stage: undefined, publishedHead: undefined }) === JSON.stringify({ ...op, stage: undefined, publishedHead: undefined }))
+        const stages = ['prepared', 'running', 'awaiting-ci', 'completed']
+        ensure(stages.indexOf(op.stage) === stages.indexOf(previous.stage) + 1)
+        ensure(previous.publishedHead === null || previous.publishedHead === op.publishedHead)
+      }
+      state = { ...state, handbacks: [...state.handbacks.filter(item => item.key !== op.key), op], phase: op.stage === 'awaiting-ci' ? 'following' : 'running', managementReason: null,
+        decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'result').map(cardKey)])] }
+      break
+    }
+    case 'ci-passed':
+      ensure(state.pr?.state === 'open' && state.pr.branchOwner !== 'person' && state.pr.head === event.head &&
+        state.pr.check?.head === event.head && state.pr.check.state === 'passed' && state.pr.check.total > 0 && !state.ciPassed.includes(event.head))
+      state = { ...state, ciPassed: [...state.ciPassed, event.head] }; break
     case 'new-goal': {
       ensure(canBeginLeadGoal(state) && !state.completedBudgets.some(budget => budget.logicalGoalId === event.id) && state.budget!.logicalGoalId !== event.id)
       const budget = reduceLeadBudget(null, { version: 1, type: 'initialize', now: event.now, logicalGoalId: event.id,
@@ -146,7 +184,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'publication': {
       const op = event.operation, previous = state.publication
       if (op.stage === 'superseded') {
-        ensure(previous?.stage === 'needs-you' && previous.effectStarted === false && event.pr === null &&
+        ensure(previous && ['needs-you', 'push-prepared'].includes(previous.stage) && previous.effectStarted === false && event.pr === null &&
           JSON.stringify({ ...previous, stage: 'superseded' }) === JSON.stringify(op))
         state = { ...state, publication: op }; break
       }
@@ -185,7 +223,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       }
       if (!previous || previous.source.head !== op.source.head) ensure(op.stage === 'prepared' && op.previousHead === pr!.head && (!previous || ['completed', 'superseded'].includes(previous.stage)))
       else {
-        ensure(JSON.stringify({ ...previous, stage: undefined, effectStarted: undefined }) === JSON.stringify({ ...op, stage: undefined, effectStarted: undefined }))
+        ensure(JSON.stringify({ ...previous, stage: undefined, effectStarted: undefined, at: undefined }) === JSON.stringify({ ...op, stage: undefined, effectStarted: undefined, at: undefined }))
+        ensure(op.stage === 'completed' ? op.at >= previous.at : op.at === previous.at)
         ensure(op.effectStarted === previous.effectStarted || op.stage === 'push-started' && op.effectStarted === true)
         const allowed: Record<LeadOwnedPush['stage'], readonly string[]> = { prepared: ['prepared', 'push-started', 'completed', 'needs-you'], 'push-started': ['push-started', 'completed', 'needs-you'],
           'needs-you': ['prepared', 'needs-you'], completed: ['completed'], superseded: [] }
@@ -215,7 +254,9 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         check: event.pr.check?.head === observedHead ? event.pr.check : null,
         ...(event.pr.review === undefined ? {} : { review: event.pr.review?.head === observedHead ? event.pr.review : null }) },
         ...(event.pr.state !== 'open' ? { phase: event.pr.state === 'merged' ? 'accepted' as const : 'declined' as const, managementReason: null } :
-          branchOwner === 'person' && event.pr.branchChange !== 'fast-forward' ? { phase: 'waiting-for-user' as const, managementReason: 'lead-pr-branch-rewritten' } : {}) }
+          branchOwner === 'person' && event.pr.branchChange !== 'fast-forward' &&
+            (pr!.branchOwner !== 'person' || observedHead !== (pr!.observedHead ?? pr!.head)) ?
+            { phase: 'waiting-for-user' as const, managementReason: 'lead-pr-branch-rewritten' } : {}) }
       break
     }
     case 'message': {
@@ -340,7 +381,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
           const { branchChange: _, releaseReason: __, ...retained } = pr!
           state = { ...state, phase: 'following', managementReason: null, ownedPush: null,
             pr: { ...retained, head: card!.observedHead, branchOwner: 'lead' } }
-        }
+        } else state = { ...state, phase: 'following', managementReason: null }
       } else if (card!.type === 'budget-change') {
         ensure(state.budget && card!.contractDigest === (state.contract?.digest ?? null))
         state = { ...state, budget: applyLeadBudgetCard(state.budget!, event.decision, card!) }

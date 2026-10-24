@@ -781,6 +781,7 @@ const triggerSlug: Validator<string> = (value, path = '') => {
 const triggerOpensValidator: Validator<TriggerDefinition['opens']> = (value, path = '') => {
   const record = isObject(value, path)
   const keys = Object.keys(record)
+  if (keys.length === 1 && keys[0] === 'lead' && record['lead'] === true) return { lead: true }
   if (keys.length !== 1 || (keys[0] !== 'flow' && keys[0] !== 'agent')) throw new ValidationError(path, 'expected { flow: id } or { agent: id }')
   const key = keys[0] as 'flow' | 'agent'
   const id = triggerSlug(record[key], `${path}.${key}`)
@@ -834,6 +835,7 @@ const triggerDefinitionValidator: Validator<TriggerDefinition> = goalShape({
 }) as Validator<TriggerDefinition>
 const triggerDefinitionsValidator: Validator<TriggerDefinition[]> = (value, path = '') => {
   const definitions = arrayOf(triggerDefinitionValidator)(value, path)
+  if (definitions.some(one => 'lead' in one.opens && one.again !== null)) throw new ValidationError(path, 'A Lead trigger drafts a plan for approval and cannot name again.')
   if (definitions.length > 64) throw new ValidationError(path, 'expected at most 64 triggers')
   return definitions
 }

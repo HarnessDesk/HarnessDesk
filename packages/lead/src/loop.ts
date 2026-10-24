@@ -8,7 +8,7 @@ import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, Mess
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
 import { evaluateLeadAcceptance, leadPublicationEvidenceRevision, type LeadAcceptanceEvidence, type LeadAcceptanceResult } from './acceptance.js'
 import { leadBudgetProjection } from './budget.js'
-import { leadPlanRuns } from './state.js'
+import { leadRepairResultReady, leadPlanRuns } from './state.js'
 import type { LeadDeskPort } from './ports.js'
 import type { LeadPermissionCall } from './permissions.js'
 
@@ -161,7 +161,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const budget = journal.state.budget && leadBudgetProjection(journal.state.budget!, clock.now())
       const reviewed = contract && state.steps.every(step => step.state === 'started') && evaluated.length > 0 &&
         evaluated.every(item => item.result.status === 'reviewed') && budget?.spend === 'known' && budget.reservedUsdMicros === 0
-      if (!reviewed) await invalidate()
+      if (!reviewed || !leadRepairResultReady(journal.state)) await invalidate()
       else if (journal.state.pr?.branchOwner !== 'person' && !terminal(journal.state.phase) && journal.state.phase !== 'following' && (!journal.state.publication || ['completed', 'superseded'].includes(journal.state.publication.stage) || journal.state.publication.stage === 'needs-you' && journal.state.publication.effectStarted === false)) {
         const assertions: LeadAssertionResult[] = contract.assertions.map(assertion => {
           const facts = evaluated.map(item => item.result.assertions.find(result => result.assertionId === assertion.id)!)

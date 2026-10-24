@@ -159,6 +159,17 @@ credentials. Host git runs with a minimal configuration and a credential helper
 that consults the person's credentials outside the checkout. Durable intents
 precede effects; the append-only `ledger.jsonl` records outcomes and requesters.
 The ledger can attribute a head even when a caller's journal missed its update.
+Recovery adopts a matching remote head only with a successful push recorded for
+the exact repository, branch, SHA and requester. A started caller journal or an
+intent alone cannot prove that Git ran; missing success evidence waits for the
+person. Push-card PR adoption also requires the host's marker on the freshly
+read PR.
+
+The gateway currently clears proxy environment variables and uses its own Git
+configuration. It does not yet fall back to the person's global/system Git
+proxy configuration or desktop proxy settings. A network that requires such a
+proxy can therefore refuse publication and leave it waiting for the person;
+credentials are read separately through the host helper.
 
 PR identity and branch authority are separate. Following applies merged/closed
 observations by repository and number regardless of head. A foreign extension

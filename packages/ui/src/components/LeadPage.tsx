@@ -24,6 +24,8 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-ownership-withdrawn': 'The Lead no longer owns its previous run.',
   'lead-pr-branch-rewritten': 'The branch was rewritten outside this goal. Reclaim the branch to resume automatic repairs.',
   'lead-pr-head-changed': 'The pull request head changed outside this goal. Inspect the pull request before continuing.',
+  'lead-handback-limit': 'Automatic repairs reached their limit. Inspect the work before continuing.',
+  'lead-handback-pending': 'A repair is already running. The next event is waiting.',
   'lead-publication-needs-you': 'The branch or pull request could not be published. Inspect the work and try the approval again, or stop this goal.',
   'lead-result-awaiting-person': 'The result is waiting for your decision.',
   'lead-result-revisions-exhausted': 'The result reached its revision limit.',

@@ -44,8 +44,11 @@ export class GitGateway {
   constructor(private readonly options: GitGatewayOptions) {
     this.#hostConfig = { GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM: process.env.GIT_CONFIG_SYSTEM }
     this.#env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_') &&
-      !['GH_HOST', 'GH_REPO', 'GIT_ASKPASS', 'SSH_ASKPASS', 'ALL_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY', 'all_proxy', 'http_proxy', 'https_proxy'].includes(key)))
-    Object.assign(this.#env, { GH_PROMPT_DISABLED: '1', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(resolve(options.directory), 'config'), GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_CEILING_DIRECTORIES: resolve(options.directory), GIT_ASKPASS: '', SSH_ASKPASS: '' })
+      !['GH_REPO', 'GIT_ASKPASS', 'SSH_ASKPASS', 'ALL_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY', 'all_proxy', 'http_proxy', 'https_proxy'].includes(key)))
+    Object.assign(this.#env, { GH_HOST: 'github.com', GH_PROMPT_DISABLED: '1', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(resolve(options.directory), 'config'), GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_CEILING_DIRECTORIES: resolve(options.directory), GIT_ASKPASS: '', SSH_ASKPASS: '' })
+    // The credential helper uses this executable too. In a packaged desk it
+    // must run the helper script as Node rather than launch another app.
+    if (process.versions.electron) this.#env.ELECTRON_RUN_AS_NODE = '1'
     this.gitRecord = new GitRecord(options.stateDirectory ?? options.directory)
     this.pins = new GitPins(options.stateDirectory ?? options.directory)
     this.#startup = this.#reconcile()
@@ -241,7 +244,12 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
           await this.#git(mirror, ['rev-parse', `${request.sha}^{tree}`]) !== request.tree) throw new Error('git-gateway-reviewed-sha-mismatch')
         await this.#git(mirror, ['fsck', '--strict', '--no-reflogs', request.sha])
         const remote = await this.#head(mirror, request.repository, request.branch)
-        if (remote === request.sha && (request.previousSha === request.sha || options.reconcile)) return { pushed: false }
+        if (remote === request.sha && (request.previousSha === request.sha || options.reconcile)) {
+          // A started journal is not proof that Git pushed: recovery needs the
+          // durable success for this exact host requester.
+          if (this.hasSucceededPush(request)) return { pushed: false }
+          throw new Error(request.previousSha === null ? 'git-gateway-branch-exists-not-owned' : 'git-gateway-owned-head-changed')
+        }
         if (request.previousSha === null && remote !== null) throw new Error('git-gateway-branch-exists-not-owned')
         if (request.previousSha !== null) {
           if (remote !== request.previousSha) throw new Error('git-gateway-owned-head-changed')

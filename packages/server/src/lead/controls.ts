@@ -1,6 +1,6 @@
 import {
   LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
-  parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
+  parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
@@ -16,6 +16,7 @@ export const leadRefusal = (wireCode: LeadControlRefusal): Error & { wireCode: L
 interface LeadControlsOptions {
   readonly journal: LeadJournal
   readonly service: Pick<LeadService, 'status' | 'setKey' | 'deleteKey' | 'send' | 'assertPublic'>
+  readonly automaticProject?: (path: string) => Promise<void>
   readonly project: LeadProject
   readonly model: string
   readonly now: () => number
@@ -171,11 +172,15 @@ export class LeadControls {
     void this.#notify(true)
     return this.#projection()
   }) }
-  send(value: LeadThreadSend) { return this.#queue(async () => {
+  send(value: LeadThreadSend, automaticOrigin?: LeadOrigin, automaticProject?: string) { return this.#queue(async () => {
     const input = parseLeadThreadSend(value), { journal, service } = this.options
     if (leadContainsSecret(input)) throw leadRefusal('lead-secret-refused')
     const previous = journal.state.sends.find(send => send.key === input.idempotencyKey)
     if (previous) return { messageId: previous.messageId, revision: previous.revision }
+    const origin = automaticOrigin ? parseLeadOrigin(automaticOrigin) : null
+    const idle = () => canBeginLeadGoal(journal.state) || journal.state.phase === 'draft' && journal.state.contract === null &&
+      (journal.state.originKey === input.idempotencyKey || journal.state.origin === null && (journal.state.messages.length === 0 || journal.state.completedBudgets.length > 0))
+    if (origin && !idle()) throw leadRefusal('lead-request-in-flight')
     const newGoal = canBeginLeadGoal(journal.state)
     if (journal.state.budget?.stop && journal.state.budget.stop.reason !== 'cancelled' && !newGoal) throw leadRefusal('lead-budget-stopped')
     if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) && !newGoal) throw leadRefusal('lead-thread-closed')
@@ -184,6 +189,7 @@ export class LeadControls {
     try { configured = (await service.status('anthropic')).configured } catch { throw leadRefusal('lead-protection-unavailable') }
     if (!configured) throw leadRefusal('lead-key-missing')
     try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
+    if (origin && !idle()) throw leadRefusal('lead-request-in-flight')
     // Record terminal host observations before the new message, so an earlier
     // request cannot become permission to replace work when it later settles.
     if (!newGoal && journal.state.steps.length && journal.state.steps.every(step => step.state === 'started')) {
@@ -195,6 +201,14 @@ export class LeadControls {
       await this.options.stopRequest?.()
       if (this.#continuation) await this.#continuation
       await journal.beginGoal(this.options.nextId(), this.options.now())
+    }
+    if (origin && automaticProject && automaticProject !== this.options.project.path) {
+      if (!this.options.automaticProject) throw leadRefusal('lead-project-missing')
+      await this.options.automaticProject(automaticProject)
+    }
+    if (origin) {
+      if (journal.state.origin && JSON.stringify(journal.state.origin) !== JSON.stringify(origin)) throw leadRefusal('lead-request-in-flight')
+      if (!journal.state.origin) await journal.setOrigin(origin, input.idempotencyKey)
     }
     const resume = !newGoal && this.#resumable(journal.state)
     if (journal.state.phase === 'waiting-for-user' && (journal.state.recoveryBlocked ||

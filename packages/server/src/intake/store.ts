@@ -178,9 +178,10 @@ export const definitionOf = (value: unknown): TriggerDefinition | null => {
   if (!on['events'].every((one) => (TRIGGER_EVENTS[on['kind'] as keyof typeof TRIGGER_EVENTS] as readonly unknown[]).includes(one)) || new Set(on['events']).size !== on['events'].length) return null
   if (on['kind'] === 'schedule' && !(Number.isSafeInteger(on['everyMinutes']) && (on['everyMinutes'] as number) >= 1 && (on['everyMinutes'] as number) <= 10080)) return null
   const opens = value['opens']
-  if (!isMap(opens) || Object.keys(opens).length !== 1 || !(slug(opens['flow']) || slug(opens['agent']))) return null
+  if (!isMap(opens) || Object.keys(opens).length !== 1 || !(slug(opens['flow']) || slug(opens['agent']) || opens['lead'] === true)) return null
   const again = value['again']
   if (!(again === null || (isMap(again) && slug(again['role']) && again['title'] === AGAIN_TITLE && again['detail'] === null))) return null
+  if (opens['lead'] === true && again !== null) return null
   if (!fieldsOf(value['goal']) || !fieldsOf(value['dedupe'])) return null
   if (!(Number.isSafeInteger(value['concurrency']) && (value['concurrency'] as number) >= 1 && (value['concurrency'] as number) <= 32)) return null
   if (value['forks'] !== 'never' && value['forks'] !== 'allow') return null

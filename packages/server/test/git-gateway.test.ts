@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile, execFileSync, spawn } from 'node:child_process'
-import { mkdtempSync, writeFileSync, existsSync, readFileSync, chmodSync, realpathSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, chmodSync, realpathSync, mkdirSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -259,7 +259,7 @@ test('all forge writes journal intent and outcome and fake gh enforces a head-bo
   const originalRepo = process.env.GH_REPO, originalHost = process.env.GH_HOST
   process.env.GH_REPO = 'acme/decoy'; process.env.GH_HOST = 'example.invalid'
   const gateway = new f.module.GitGateway({ ...f.options, gh: async (cwd: string, args: string[], env: any) => {
-    assert.equal(env.GH_REPO, undefined); assert.equal(env.GH_HOST, undefined)
+    assert.equal(env.GH_REPO, undefined); assert.equal(env.GH_HOST, 'github.com')
     assert.equal(existsSync(join(cwd, '.git')), false)
     const rows = await gateway.gitRecord.list({ repository: f.request.repository, limit: 100 })
     assert.equal(rows[0].outcome, 'intent', 'intent is durable before fake gh executes')
@@ -446,4 +446,72 @@ process.exit(result.status??1);\n`, { mode: 0o755 })
     assert.equal((await reopened.record({ repository: f.request.repository, limit: 1 }))[0].outcome, 'ok')
     assert.equal(await reopened.hasSucceededPush({ ...f.request }), true)
   }
+})
+
+test('packaged credential helper runs as Node during an HTTPS-shaped push', async t => {
+  const f = await fixture(), bin = join(f.root, 'bin'), marker = join(f.root, 'node-helper')
+  mkdirSync(bin)
+  const node = process.execPath, realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+  const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`
+  const electron = join(bin, 'fake-electron'), config = join(f.root, 'person.config')
+  writeFileSync(electron, `#!/bin/sh\n[ "$ELECTRON_RUN_AS_NODE" = 1 ] || exit 77\nprintf node > ${quote(marker)}\nexec ${quote(node)} "$@"\n`, { mode: 0o755 })
+  writeFileSync(config, `[credential]\n\thelper =\n\thelper = "!printf 'username=demo\\npassword=fixture\\n'"\n`)
+  // A local remote-helper peer asks Git for credentials, then transports the
+  // actual objects into a bare fixture. No network or vendor credentials.
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\nexec ${quote(realGit)} --exec-path=${quote(bin)} "$@"\n`, { mode: 0o755 })
+  writeFileSync(join(bin, 'gh'), '#!/bin/sh\nexit 79\n', { mode: 0o755 })
+  writeFileSync(join(bin, 'git-remote-https'), `#!${node}
+const {execFileSync:run}=require('node:child_process');
+const credentials=run('git',['credential','fill'],{input:'protocol=https\\nhost=github.com\\n\\n',encoding:'utf8'});
+if(!credentials.includes('password=fixture'))process.exit(78);
+const lines=require('node:readline').createInterface({input:process.stdin});
+lines.on('line',line=>{
+ if(line==='capabilities')process.stdout.write('push\\n\\n');
+ else if(line.startsWith('list'))process.stdout.write(run('git',['--git-dir',${JSON.stringify(f.remote)},'for-each-ref','--format=%(objectname) %(refname)'],{encoding:'utf8'})+'\\n');
+ else if(line.startsWith('push ')){
+  const spec=line.slice(5);run('git',['-c','protocol.file.allow=always','push',${JSON.stringify(f.remote)},spec],{stdio:['ignore','pipe','pipe']});
+  process.stdout.write('ok '+spec.split(':')[1]+'\\n\\n');
+ }
+});
+`, { mode: 0o755 })
+  const oldPath = process.env.PATH, oldConfig = process.env.GIT_CONFIG_GLOBAL
+  const executable = Object.getOwnPropertyDescriptor(process, 'execPath')!, version = Object.getOwnPropertyDescriptor(process.versions, 'electron')
+  t.after(() => {
+    Object.defineProperty(process, 'execPath', executable)
+    if (version) Object.defineProperty(process.versions, 'electron', version); else delete process.versions.electron
+    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath
+    if (oldConfig === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = oldConfig
+  })
+  Object.defineProperty(process, 'execPath', { value: electron, configurable: true })
+  Object.defineProperty(process.versions, 'electron', { value: 'fixture', configurable: true })
+  process.env.PATH = `${bin}:${oldPath}`; process.env.GIT_CONFIG_GLOBAL = config
+  const gateway = new f.module.GitGateway({ directory: join(f.root, 'packaged-host'), localRemote: () => 'https://github.com/acme/widgets.git' })
+  await gateway.push(f.request)
+  assert.equal(readFileSync(marker, 'utf8'), 'node')
+  assert.equal(git(f.remote, 'rev-parse', 'refs/heads/worker'), f.request.sha)
+})
+
+test('recovery never adopts a matching remote SHA without this requester succeeding', async () => {
+  for (const previous of ['absent', 'same', 'older']) {
+    const f = await fixture()
+    git(f.worker, 'push', f.remote, `${f.request.sha}:refs/heads/worker`)
+    await assert.rejects(f.gateway.push({ ...f.request, previousSha: previous === 'absent' ? null : previous === 'same' ? f.request.sha : 'a'.repeat(40) }, { reconcile: true }), /not-owned|head-changed/)
+  }
+})
+
+test('hasSucceededPush matches only successful pushes by the exact requester', async () => {
+  const f = await fixture(), target = { repository: f.request.repository, branch: f.request.branch, sha: f.request.sha, requester: f.request.requester }
+  const writer = new f.module.GitGateway({ ...f.options, gh: async () => ({ stdout: '[]', stderr: '', exitCode: 0 }) })
+  assert.equal(typeof writer.hasSucceededPush, 'function')
+  assert.equal(writer.hasSucceededPush(target), false)
+  await writer.findPullRequest(f.request)
+  assert.equal(writer.hasSucceededPush(target), false)
+  await writer.push(f.request)
+  const gateway = new f.module.GitGateway(f.options)
+  assert.equal(gateway.hasSucceededPush(target), true)
+  for (const other of [ { repository: 'acme/other' }, { branch: 'other' }, { sha: 'a'.repeat(40) },
+    { requester: { kind: 'session', id: 'goal-1' } }, { requester: { kind: 'lead-goal', id: 'goal-2' } } ])
+    assert.equal(gateway.hasSucceededPush({ ...target, ...other }), false)
+  await assert.rejects(gateway.push({ ...f.request, requester: { kind: 'session', id: 'goal-1' } }, { reconcile: true }), /not-owned/)
+  assert.deepEqual(await gateway.push(f.request, { reconcile: true }), { pushed: false })
 })
