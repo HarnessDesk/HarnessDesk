@@ -909,6 +909,20 @@ for (const scope of ['global', 'system'] as const) {
     assert.deepEqual((await status(f.root))?.files.map((file) => file.path), ['data.dat'], 'a real change is still seen')
   })
 
+  test(`a filter the ${scope} configuration conditionally includes for this repository is honoured`, async (t) => {
+    const f = await fixture(t)
+    const more = join(f.base, 'conditional-filters.gitconfig')
+    await writeFile(more, converter('p'))
+    await userConfig(t, f, inScope(scope,
+      `[includeIf ${JSON.stringify(`gitdir:${f.root}/`)}]\n\tpath = ${JSON.stringify(more)}\n`))
+    const at = await convertedCommit(f)
+    assert.equal(await f.git('cat-file', 'blob', 'HEAD:data.dat'), 'short:hello')
+    await touched(join(f.root, 'data.dat'))
+    assert.deepEqual((await status(f.root))?.files, [])
+    const tree = await createDetached(f.root, { name: 'conditional-user', at, stateDir: join(f.base, 'state') })
+    assert.equal(await readFile(join(tree, 'data.dat'), 'utf8'), 'expanded:hello\n')
+  })
+
   for (const detached of [false, true]) {
     test(`a ${detached ? 'detached ' : ''}lane is cut from a tree that names a filter the ${scope} configuration defines`, async (t) => {
       const f = await fixture(t)

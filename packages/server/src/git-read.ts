@@ -165,15 +165,15 @@ const NO_CONFIG_FILE = /unable to read config file '.*': (No such file or direct
 /**
  * The filter definitions in the person's own configuration, which are the only
  * ones an automatic read or checkout may run. They are read apart from the
- * repository: from a folder that belongs to none, by the `--system` and
- * `--global` scopes alone, so nothing a repository holds can add to them or
- * stand in front of them. The system file is skipped when the environment says
- * git would skip it too, and a file that is not there is no definition. Any
- * other failure fails the read.
+ * repository by the `--system` and `--global` scopes alone, with its folder
+ * as the working directory so conditional includes can match it. Nothing in
+ * the repository configuration can add to them or stand in front of them.
+ * The system file is skipped when the environment says git would skip it too,
+ * and a file that is not there is no definition. Any other failure fails the read.
  */
-const userFilters = async (options: ReadOptions): Promise<Trusted> => {
+const userFilters = async (cwd: string, options: ReadOptions): Promise<Trusted> => {
   const source = options.env ?? process.env
-  // Where the person's files are, never which repository is being read.
+  // Only the locations of the person's config files survive from Git variables.
   const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(source).filter(([key]) =>
     !key.startsWith('GIT_') || key === 'GIT_CONFIG_GLOBAL' || key === 'GIT_CONFIG_SYSTEM'))
   env['LC_ALL'] = 'C' // the wording of an absent file below
@@ -184,7 +184,7 @@ const userFilters = async (options: ReadOptions): Promise<Trusted> => {
     let listed: string
     try {
       listed = (await exec('git', [...HARDENED_GIT_CONFIG, 'config', scope, '--null', '--list', '--includes'], {
-        cwd: tmpdir(), env, signal: options.signal,
+        cwd, env, signal: options.signal,
         timeout: options.timeout ?? 20_000, maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
       })).stdout
     } catch (error) {
@@ -251,7 +251,7 @@ const withView = async <T>(
         (await original(['rev-parse', '--path-format=absolute', flag])).stdout.replace(/\n$/, '')),
       original(['config', '--null', '--list', '--includes']).then(result => result.stdout),
     ]),
-    via.trusted ?? userFilters(options),
+    via.trusted ?? userFilters(cwd, options),
   ])
   const settings = settingsOf(listed!)
   const config = sanitizedConfig(settings) + trustedConfig(trusted, via.materialize === true)

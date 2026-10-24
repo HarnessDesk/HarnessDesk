@@ -929,10 +929,12 @@ commit (`log.showSignature` would start the repository's `gpg.program` for each
 signed commit a `log` or `show` lists). Working-file reads use a private Git
 directory with an immutable configuration snapshot. Included and global settings are
 flattened into that snapshot; include paths and the repository's filter
-definitions are omitted. The filters the person's own configuration defines are
-the one thing added: they are read apart from the repository, from a folder that
-belongs to none, by the `--system` and `--global` scopes alone (the system file
-only where `GIT_CONFIG_NOSYSTEM` would let git read it), and a file that is not
+definitions are omitted. Global and system includes are evaluated from the
+repository's folder, so a conditional include for that repository applies;
+only those two scopes contribute filter definitions, with other Git environment
+configuration removed. The filters the person's own configuration defines are
+the one thing added: they are read apart from repository configuration by the
+`--system` and `--global` scopes alone (the system file only where `GIT_CONFIG_NOSYSTEM` would let git read it), and a file that is not
 there is no definition. A repository that keeps its files behind Git LFS then
 reads clean in status and can have a lane cut from it, because the program that
 converts them is the person's own. A repository can neither add a driver to
