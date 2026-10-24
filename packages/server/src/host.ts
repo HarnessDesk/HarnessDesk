@@ -1,6 +1,7 @@
 import { LeadPersonActions } from './lead/person-actions.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
 import { phoneLinkOff } from './phone-link.js'
+import { PhoneWorkspace } from './phone-workspace.js'
 import { answerLeadPersonGate, answerLeadResult } from './lead/person-decision.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
 import { readKeptTranscriptFile } from './kept-transcript.js'
@@ -791,6 +792,7 @@ export class Host {
   #leadService: LeadService | null = null
   #leadControls: LeadControls | null = null
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
+  #phoneWorkspace: PhoneWorkspace | null = null
   #leadAssembly: LeadAssembly | null = null
   #leadOwnsWorker: ((runtime: string, sessionId: string, includeClosed: boolean) => boolean) | null = null
   #leadListenersAvailable = true
@@ -4761,6 +4763,7 @@ export class Host {
         deny: id => this.#requirePhoneLink().deny(id),
         revoke: device => this.#requirePhoneLink().revoke(device),
       },
+      phoneWorkspace: this.#phoneWorkspaceView(),
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),
@@ -9055,6 +9058,55 @@ export class Host {
   }
 
   /** The LAN phone link starts after the host does; the window learns of every change through `phone/changed`. */
+  /** What a paired phone reads of the desk's work, built on first use from the planes it projects. */
+  #phoneWorkspaceView(): PhoneWorkspace {
+    return this.#phoneWorkspace ??= new PhoneWorkspace({
+      now: () => Date.now(),
+      sessions: {
+        page: (options) => {
+          const page = this.#sessionIndex.phoneList(options)
+          for (const row of page.rows) this.#sessionIndexRepos.read(row.summary.cwd, true)
+          return page
+        },
+        counts: () => this.#sessionIndex.phoneCounts(),
+        touchedSince: (since) => this.#sessionIndex.touchedSince(since),
+        costliestSince: (since, limit) => this.#sessionIndex.costliestSince(since, limit),
+      },
+      live: () => this.registry.all().flatMap((record) => {
+        const id = record.session.id
+        if (!this.#sessionIndex.isOwn(record.runtime, id)) return []
+        const cost = record.session.usage?.cost
+        return [{ runtime: record.runtime, id, running: record.running.size > 0, waiting: record.approvals.size > 0,
+          cost: cost && cost.currency === 'USD' ? cost.amount : null }]
+      }),
+      seatName: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? this.#infoOf(known).presentation.name : null
+      },
+      teams: async () => (await this.#goals.list()).map((view) => {
+        const latest = this.#flows.executionSummaries({ team: view.goal.id, active: false })[0]
+        return {
+          view,
+          execution: latest ? { state: latest.state, role: latest.role } : null,
+          costs: [...view.members, ...(view.pastMembers ?? [])].map((seat) => {
+            const runtime = runtimeId(seat.session.runtime), id = makeSessionId(seat.session.sessionId)
+            const live = this.registry.get(runtime, id)?.session.usage?.cost
+            return live && live.currency === 'USD' ? live.amount : this.#sessionIndex.storedCost(runtime, id)
+          }),
+        }
+      }),
+      reports: () => this.#usageService.reports(),
+      ledger: async (query) => {
+        const ledger = this.#ledgerService
+        // The same first-read rule `usage/ledger` follows: prices load when someone asks for money, and a machine
+        // that never scanned starts its scan rather than answering an empty, wrong-looking report.
+        await ledger.warm()
+        if (ledger.progress.finishedAt === null && !ledger.progress.running) ledger.begin()
+        return ledger.query(query)
+      },
+    })
+  }
+
   attachPhoneLink(control: import('./phone-link.js').PhoneLinkControl): void {
     this.#phoneLink = control
     this.onDispose(control.onChange(() => this.#push({ method: 'phone/changed', params: control.state() })))

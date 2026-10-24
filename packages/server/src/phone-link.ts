@@ -19,14 +19,18 @@ export interface PhoneLinkControl {
 }
 
 /**
- * What a paired phone may ask this desk for, and hear from it. The Lead is the phone's whole job for now:
- * read the thread, write to it, stop and resume it, and decide a card. Settings, sessions and everything else
- * stay behind the window.
+ * What a paired phone may ask this desk for, and hear from it. The Lead is the phone's job: read the thread, write
+ * to it, stop and resume it, and decide a card. Beside it the phone may read three projections of the work (sessions,
+ * Teams, spend) and nothing it could change. Settings, transcripts and everything else stay behind the window.
  */
 export const PHONE_POLICY: PhonePolicy = {
   methods: {
     'lead/thread/read': 'read',
     'lead/settings/read': 'read',
+    // The work itself, read-only and redacted: projections written for the phone, never the desk's own records.
+    'phone/sessions/list': 'read',
+    'phone/teams/list': 'read',
+    'phone/dashboard/read': 'read',
     'lead/thread/send': 'run',
     'lead/stop': 'run',
     'lead/resume': 'run',

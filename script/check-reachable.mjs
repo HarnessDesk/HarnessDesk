@@ -55,6 +55,12 @@ const CALLERS = ['packages/ui/src', 'packages/desktop/electron', 'packages/clien
  * true, and those are worse than no claim at all.
  */
 const UNREACHED = {
+  'phone/sessions/list':
+    'a paired phone is the caller, over the phone link: its allowlist is `PHONE_POLICY`, and the iOS app is outside the directories searched',
+  'phone/teams/list':
+    'likewise — the paired phone reads Teams through this projection, and the window already holds the full records',
+  'phone/dashboard/read':
+    'likewise — the paired phone reads spend and seats through this projection; the window has the usage dashboard itself',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
 }

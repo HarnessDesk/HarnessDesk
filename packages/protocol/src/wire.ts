@@ -1,4 +1,4 @@
-import type { PhoneLinkState, PhonePairing, PhoneTier } from './phone.js'
+import type { PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier } from './phone.js'
 import type { LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
@@ -756,6 +756,12 @@ export interface HostMethods {
   'phone/allow': { params: { readonly id: string; readonly tiers?: readonly PhoneTier[] }; result: PhoneLinkState }
   'phone/deny': { params: { readonly id: string }; result: PhoneLinkState }
   'phone/revoke': { params: { readonly device: string }; result: PhoneLinkState }
+  /** What a paired phone reads of the person's sessions: redacted rows, counts per state, newest first. */
+  'phone/sessions/list': { params: { readonly state?: PhoneSessionState; readonly limit?: number; readonly cursor?: string }; result: PhoneSessionsList }
+  /** What a paired phone reads of the Teams: stage, progress, workers and cost, no paths or transcripts. */
+  'phone/teams/list': { params: { readonly limit?: number }; result: PhoneTeamsList }
+  /** What a paired phone reads of spend and seats for a range. */
+  'phone/dashboard/read': { params: { readonly range?: PhoneRange }; result: PhoneDashboard }
   'lead/thread/read': { params: Record<string, never>; result: LeadWindowProjection }
   'lead/thread/send': { params: LeadThreadSend; result: LeadSendReceipt }
   'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }

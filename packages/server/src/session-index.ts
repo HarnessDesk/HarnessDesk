@@ -40,6 +40,7 @@ interface Row {
   worktree: number | null
   origin_url: string | null
   exists: number | null
+  usage: string | null
 }
 
 export interface SessionWorktreeRecord {
@@ -55,6 +56,14 @@ const removalOriginKey = (runtime: RuntimeId, id: SessionId): string => `removed
 export const SESSION_REMOVE_UNDO_MS = 8_000
 const SELECT = `SELECT s.*, r.repo_root AS cached_root, r.worktree, r.origin_url, r."exists"
   FROM sessions s LEFT JOIN repos r ON r.cwd = s.cwd`
+/** Dollars from the usage the desk stored with a session; null when the agent did not price it or priced it in another currency. */
+const storedDollars = (usage: string | null): number | null => {
+  if (!usage) return null
+  try {
+    const cost = (JSON.parse(usage) as { cost?: { amount?: unknown; currency?: unknown } | null }).cost
+    return cost && cost.currency === 'USD' && typeof cost.amount === 'number' && Number.isFinite(cost.amount) ? cost.amount : null
+  } catch { return null }
+}
 const eligible = (row: Row): boolean => row.origin === 'desk' && row.removed_at === null && row.team_id === null
 const summaryOf = (row: Row): SessionSummary => ({
   runtime: row.runtime, id: row.id, title: row.title, preview: row.preview, cwd: row.cwd,
@@ -189,6 +198,67 @@ export class SessionIndex {
     const last = data.at(-1)
     return { data: data.map(summaryOf), nextCursor: rows.length > pageSize && last
       ? sessionIndexCursorOf({ updatedAt: last.updated_at, runtime: last.runtime, id: last.id }, options.archived) : null }
+  }
+
+  /**
+   * The phone's list: the person's own conversations (never a Team's seats), newest first, each with the dollars the
+   * desk stored for it. Same cursor as `list`; the archived flag is part of it so a cursor never crosses lists.
+   */
+  phoneList(options: { archived: boolean; cursor?: string; pageSize: number }): { rows: { summary: SessionSummary; cost: number | null }[]; nextCursor: string | null } {
+    const flag = options.archived ? 1 : 0
+    const params: (string | number)[] = [flag]
+    let after = ''
+    if (options.cursor) {
+      let cursor: unknown
+      try { cursor = JSON.parse(Buffer.from(options.cursor, 'base64url').toString('utf8')) }
+      catch { throw new Error('Invalid session index cursor') }
+      if (!Array.isArray(cursor) || cursor.length !== 4 || !Number.isFinite(cursor[0]) || typeof cursor[1] !== 'string' ||
+        typeof cursor[2] !== 'string' || cursor[3] !== flag) throw new Error('Invalid session index cursor')
+      after = ' AND (s.updated_at < ? OR (s.updated_at = ? AND (s.runtime > ? OR (s.runtime = ? AND s.id > ?))))'
+      params.push(cursor[0] as number, cursor[0] as number, cursor[1], cursor[1], cursor[2])
+    }
+    const pageSize = Math.min(200, Math.max(1, Math.floor(options.pageSize)))
+    const rows = this.#db.prepare(`${SELECT} WHERE s.origin='desk' AND s.removed_at IS NULL AND s.team_id IS NULL
+      AND s.archived = ?${after} ORDER BY s.updated_at DESC,s.runtime,s.id LIMIT ?`).all(...params, pageSize + 1) as unknown as Row[]
+    const data = rows.slice(0, pageSize)
+    const last = data.at(-1)
+    return {
+      rows: data.map(row => ({ summary: summaryOf(row), cost: storedDollars(row.usage) })),
+      nextCursor: rows.length > pageSize && last ? sessionIndexCursorOf({ updatedAt: last.updated_at, runtime: last.runtime, id: last.id }, options.archived ? 'only' : 'exclude') : null,
+    }
+  }
+
+  /** How many of the person's own conversations are open and how many archived; a Team's seats count in neither. */
+  phoneCounts(): { active: number; archived: number } {
+    const rows = this.#db.prepare(`SELECT archived, COUNT(*) AS n FROM sessions WHERE origin='desk' AND removed_at IS NULL AND team_id IS NULL
+      GROUP BY archived`).all() as unknown as { archived: number | null; n: number }[]
+    return { active: rows.find(row => row.archived === 0)?.n ?? 0, archived: rows.find(row => row.archived === 1)?.n ?? 0 }
+  }
+
+  /** How many of the person's own open conversations were touched since a time. */
+  touchedSince(since: number): number {
+    return (this.#db.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE origin='desk' AND removed_at IS NULL AND team_id IS NULL AND archived=0
+      AND updated_at >= ?`).get(since) as unknown as { n: number }).n
+  }
+
+  /** Whether this is one of the person's own open conversations, as the phone lists them. */
+  isOwn(runtime: RuntimeId, id: SessionId): boolean {
+    return this.#db.prepare(`SELECT 1 AS own FROM sessions WHERE runtime=? AND id=? AND origin='desk' AND removed_at IS NULL AND team_id IS NULL
+      AND archived=0`).get(runtime, id) !== undefined
+  }
+
+  /** Dollars the desk stored for one conversation (a Team's seat included); null when it priced none. */
+  storedCost(runtime: RuntimeId, id: SessionId): number | null {
+    const row = this.#db.prepare('SELECT usage FROM sessions WHERE runtime=? AND id=?').get(runtime, id) as { usage: string | null } | undefined
+    return storedDollars(row?.usage ?? null)
+  }
+
+  /** The costliest of the person's own conversations touched since a time, by the lifetime dollars stored for them. */
+  costliestSince(since: number, limit: number): { summary: SessionSummary; cost: number }[] {
+    const rows = this.#db.prepare(`${SELECT} WHERE s.origin='desk' AND s.removed_at IS NULL AND s.team_id IS NULL AND s.updated_at >= ?
+      AND json_extract(s.usage,'$.cost.currency') = 'USD' AND json_extract(s.usage,'$.cost.amount') > 0
+      ORDER BY json_extract(s.usage,'$.cost.amount') DESC LIMIT ?`).all(since, Math.max(1, Math.floor(limit))) as unknown as Row[]
+    return rows.flatMap(row => { const cost = storedDollars(row.usage); return cost === null ? [] : [{ summary: summaryOf(row), cost }] })
   }
 
   /** One page, one transaction. Desk metadata/body and removal tombstones win. */

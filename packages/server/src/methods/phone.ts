@@ -7,4 +7,7 @@ export const phoneMethods = {
   'phone/allow': (ctx, params) => ctx.phone.allow(params.id, params.tiers),
   'phone/deny': (ctx, params) => ctx.phone.deny(params.id),
   'phone/revoke': (ctx, params) => ctx.phone.revoke(params.device),
+  'phone/sessions/list': (ctx, params) => ctx.phoneWorkspace.sessionsList(params),
+  'phone/teams/list': (ctx, params) => ctx.phoneWorkspace.teamsList(params),
+  'phone/dashboard/read': (ctx, params) => ctx.phoneWorkspace.dashboardRead(params),
 } satisfies MethodsUnder<'phone/'>
