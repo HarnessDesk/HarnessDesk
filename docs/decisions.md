@@ -1340,16 +1340,12 @@ instructions, a bridge's system-prompt append, the MCP server's
 `instructions` — never through the conversation, and the sentence names the
 tools rather than the line.
 
-*Not done here:* an agent that reaches for `gh pr create` itself, ignoring
-the sentence, opens an unsigned pull request that the transcript does not
-record. Watching its commands for the verb would catch it, at the cost of
-tying the feature to one CLI; the honest fix is the same one the vendors
-made, which is to make the desk's way the easy way. A GitHub App the desk
-installs later is a second way to reach the forge (`ForgeIdentity.via`), and
-changes nothing above it.
-
-**The rule:** the party that publishes writes the signature; the desk
-publishes.
+*Not done here originally:* native-command steering and host-owned write
+execution. The reach described above was the plugin's shell; that part is
+superseded by [Every git write goes through one gateway, and the host holds
+the credential](#every-git-write-goes-through-one-gateway-and-the-host-holds-the-credential).
+Seat signatures and transcript publications remain the plugin's presentation
+contract.
 
 ## Agent publications name the writer and the role
 
@@ -4105,3 +4101,54 @@ implementer committed and the review never opened, because the Flow's review
 must be independent and the desk could not show it was. The person had approved
 work that could never reach a result to accept. The refusal crosses the child
 boundary as a code, like an oversized card, so the Lead process stays live.
+
+## Every git write goes through one gateway, and the host holds the credential
+
+The owner's approved git-gateway design reverses the shell-reach part of
+[A pull request is published through the desk](#a-pull-request-is-published-through-the-desk-and-the-desk-signs-it).
+A worker controls its checkout's remotes, URL rewrites, hooks and credential
+configuration. Running a publication command there as the person lets worker
+configuration select where the person's authority goes. One host engine now
+serves Lead and Git plugin writes: it imports reviewed objects into a private
+mirror, pushes to a host pin with a lease, and runs forge writes from host
+state. Credentials are consulted by a host helper outside the worker. The
+plugin retains signature composition and transcript references, through its
+`forge: { publish, write }` capability. Ambient forge reads still use `shell`
+and the person's gh login; moving the gateway credential is not a claim that
+all agent-shell credentials have been isolated.
+
+Steering needs three layers because no runtime guarantees a pre-execution
+look at every native command. PATH stand-ins catch ordinary shell commands;
+login-shell parsing and zsh profile shims preserve that route on the measured
+surface. Native approvals and the Claude bridge's pre-tool callback supply
+another opportunity. Completed concrete commands catch successful bypasses
+afterward. These are tested against fake runtimes, including a real login
+shell and the bridge's SDK callback, not real vendor endpoints. Absolute
+binaries and other shell configurations can still bypass the first layer.
+Generic ACP steering currently isolates a worker per conversation because the
+protocol has no negotiated per-session shell environment; preserving caller
+identity takes precedence over process sharing until that channel exists.
+
+An outside head is never attributed. A commit's author is not its pusher,
+and a command's exit code is not proof that a particular SHA reached a
+particular remote. Only an intact successful gateway entry supports
+attribution. Person-allowed own git triggers observation of the pinned remote
+and remains outside. The outside-recording switch covers those observations
+as well as other fetched outside heads; gateway writes remain recorded.
+
+The owner approved all five decisions in the design note:
+
+- **D1:** Ask each time is the steering default.
+- **D2:** New branches and every rewrite ask; owned fast-forward updates can
+  proceed without another push question. A matching steering approval can
+  also approve the first push, but never silently approve a rewrite.
+- **D3:** The host executes every gateway write and holds its credential
+  path. Plugins receive forge verbs, not an executor.
+- **D4:** The first approved push pins the repository per project; a worker
+  origin cannot replace it.
+- **D5:** A global setting has a per-project override.
+
+The record journals before effects and hash-chains its physical lines. It is
+kept in host state, not in a worker-controlled checkout. Interrupted forge
+writes are not replayed blindly; recovered pushes require the matching remote
+head and a recorded successful outcome before the Lead can adopt them.

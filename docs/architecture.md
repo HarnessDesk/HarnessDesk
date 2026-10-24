@@ -148,35 +148,108 @@ original error. This uses the control behavior present in the supported
 
 ## The host
 
-### Git gateway
+### The git gateway
 
-`packages/server/src/git-gateway` owns the host's publication executor. Lead
-publication uses its `GitGateway`; other session writers will migrate separately.
-It takes an exact reviewed commit and tree into a private bare mirror under
-`git-gateway/` in host state, then pushes to the repository pinned in the approved
-plan. Worker remotes, configuration and hooks never select the destination or
-credentials. Host git runs with a minimal configuration and a credential helper
-that consults the person's credentials outside the checkout. Durable intents
-precede effects; the append-only `ledger.jsonl` records outcomes and requesters.
-The ledger can attribute a head even when a caller's journal missed its update.
-Recovery adopts a matching remote head only with a successful push recorded for
-the exact repository, branch, SHA and requester. A started caller journal or an
-intent alone cannot prove that Git ran; missing success evidence waits for the
-person. Push-card PR adoption also requires the host's marker on the freshly
-read PR.
+`packages/server/src/git-gateway/` is the shared publication engine for the
+Lead and the Git plugin's `ctx.forge` writes. `HostContext.gitGateway` exposes
+it to wire handlers; plugins receive the forge capability, never the engine,
+its executor or a credential. The host derives the requester from the live
+invocation. A tool cannot choose another conversation or repository.
 
-The gateway currently clears proxy environment variables and uses its own Git
-configuration. It does not yet fall back to the person's global/system Git
-proxy configuration or desktop proxy settings. A network that requires such a
-proxy can therefore refuse publication and leave it waiting for the person;
-credentials are read separately through the host helper.
+**Executors.** Pushes copy an exact reviewed commit and tree from the worker's
+object store into a private, host-owned bare mirror under `git-gateway/` in
+host state. The mirror's configuration disables hooks, checks transferred
+objects and permits HTTPS; pushes carry explicit refspecs and leases. Worker
+remotes, URL rewrites, credential helpers, askpass programs and hooks do not
+choose the destination or run with the host's credential. A one-shot helper
+consults the person's Git credential configuration outside every checkout,
+then falls back to `gh auth git-credential`. Forge mutations run `gh` from the
+host state directory with the pinned repository, explicit `--repo` or API
+paths and prompting disabled. PR creation, update, merge, review and comments
+use this executor. A recorded gateway continuation can satisfy the plugin’s
+preliminary publication check even when the checkout’s upstream ref is stale;
+the host still verifies the actual remote head before opening the PR. Merge is bound to the reviewed head and the existing
+required-check gate.
 
-PR identity and branch authority are separate. Following applies merged/closed
-observations by repository and number regardless of head. A foreign extension
-releases branch authority while checks, reviews and lifecycle keep following the
-observed head; a rewrite also waits for the person. Neither permits pushes or
-result re-offers until a head-bound reclaim decision restores authority. These
-fields and decisions replay through the Lead journal and checkpoints.
+The gateway clears proxy environment variables and uses its own Git
+configuration. It does not fall back to global/system Git proxy configuration
+or desktop proxy settings. A network requiring one can refuse publication.
+Forge reads still run through the Git plugin's shell grant and can reach the
+person's write-capable `gh` login; this implementation isolates the gateway's
+credential path, not all ambient credentials available to an agent.
+
+**Pins.** An origin URL is a proposal until the person approves the first push
+for a project. `git-pins.json` in host state stores the canonical project root,
+repository, approving requester and time. Later writes use that pin; changing
+a checkout's origin cannot change it. A mismatching origin refuses a write.
+First branch pushes and rewrites ask; continuations on a branch the same
+conversation created and still owns can proceed without another push card.
+A steering approval substitutes for the first-push question only when its
+repository, branch and SHA match. A rewrite still asks. Agents cannot push a
+default or protected base branch.
+
+**The git record.** `git-record/<owner>__<name>.ndjson` in host state holds
+append-only entries: `id`, `prev`, operation, repository, optional branch/PR
+number/head/previous head/lease, requester, approval, optional redacted
+`steeredFrom`, timestamp and outcome/reason. Requesters are sessions, Lead
+goals, the person or `outside`. Operations are `push`, `pr.create`,
+`pr.update`, `pr.merge`, `pr.comment`, `pr.review`, `issue.comment` and
+`observed`. An intent is flushed before the effect; its outcome is appended
+with the same id before returning. Writes are serialized per repository.
+Each physical line's `prev` hashes the preceding line, including its newline;
+rotated segments retain the chain and a separately flushed anchor remembers
+the tail and line count. Damage is inspectable but cannot authorize a write
+or attribution. This detects damaged history, not a malicious same-user
+rewrite of every state file.
+
+Recovery reads unfinished intents. It compares a pending push with the remote
+head, records a matching result as reconciled, and leaves an unavailable
+remote pending for a later attempt. Forge mutations are never replayed after
+an uncertain crash: they become interrupted failures because the host cannot
+prove that the forge did not already accept them. Lead adoption still needs
+a successful push for the exact repository, branch, SHA and requester through
+`hasSucceededPush`; an intent or a caller's incomplete journal is insufficient.
+
+**Attribution and observation.** `attribute(repository, branch, sha)` credits
+only a successful gateway push in intact history. A fetched head without
+that proof gets an `observed` entry with `requester.kind = outside`; commit
+authors are not evidence of who pushed. A receipt from an own-git command
+only triggers a remote read: its exit code never proves a head was written.
+Both these observations and person-allowed own-git observations honor
+`recordOutside`; gateway writes are always recorded. PR lifecycle keeps
+following checks and reviews after an outside change releases branch
+authority. Only the existing head-bound reclaim decision restores it.
+
+**Steering.** The three layers share the protocol parser: per-conversation
+PATH stand-ins, native approvals or the bridge's pre-tool callback, and
+completed command observation. Login-shell scripts are unwrapped without
+execution. The zsh installer sources the user's normal profile files and
+restores PATH after login profiles. Known reads take a shell fast path;
+unresolved aliases and unsupported mutations refuse rather than pass through.
+An unreachable steering socket refuses a write. Shells carry a separate
+steering-only caller token, rejected by the general tool and MCP maps; real
+binary children do not inherit the desk tool tokens. A disconnected caller
+cancels its held card before invocation. Forge body files are read only after
+admission, as bounded regular files confined to the checkout, with nonblocking
+opens and a 64 KiB cap. Recorded command text omits bodies and URL userinfo.
+
+`gitWrites.steer` defaults to `ask`; `redirect` and `off` correspond to Always
+and Never. `gitWrites.projects[root]` overrides the global choice, with
+`inherit` as the default. An installed stand-in and Claude callback consult
+the host's current mode, so switching to Never releases an open conversation.
+Successful native pushes still observe the pinned remote when outside recording
+is enabled, without a steering question or bypass banner.
+A conversation opened with Never has no installation; enabling steering needs
+a new conversation. Generic ACP has no negotiated per-session process-
+environment channel, so steering currently requires an isolated worker
+process per conversation even for normally shared peers. That lifecycle cost
+remains explicit until such a channel is measured and supported.
+
+The renderer reads `git/record/list` and `git/record/attribute`; roots are
+confined to admitted workspaces. List pages collapse intent/outcome pairs to
+the latest state, include All/Outside/Refused counts and use an id cursor.
+A PR's page includes its branch pushes and outside observations. There is no
+record notification: branch/PR publications and window focus refetch it.
 
 ### Insight reads
 

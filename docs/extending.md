@@ -667,6 +667,28 @@ Three things worth knowing:
   resolvers cannot call write verbs. Gateway approvals have their own wait,
   keep child invocations alive while pending, and report timeout explicitly.
 
+The write API is invocation-scoped:
+
+```ts
+await ctx.forge.push({ branch, sha, expect: 'create' }, scope)
+await ctx.forge.pullRequest.create({ head: branch, base, title, body, draft }, scope)
+await ctx.forge.pullRequest.update({ number, title, body }, scope)
+await ctx.forge.pullRequest.merge({ number, head: reviewedSha, method: 'squash' }, scope)
+await ctx.forge.review({ number, event: 'comment', body }, scope)
+await ctx.forge.comment({ subject: 'issue', number, body }, scope)
+const entries = await ctx.forge.record({ branch, limit: 50 }, scope)
+const requester = await ctx.forge.attribute({ branch, sha }, scope)
+```
+
+The repository is the host's approved project pin, never an argument to these
+verbs. For an unpinned project, `git_push` proposes its origin and asks the
+person to approve and pin it. The tool derives the current checkout HEAD,
+refuses default/protected bases, sets a local upstream only when requested,
+and publishes a branch row after the host reports success. A plugin cannot
+replace that requester with a commit author. An unmatched head is `outside`.
+The built-in Git plugin's shell capability remains for reads and local
+upstream metadata; publishing mutations use `forge.write`.
+
 `ForgeSeat` (and `ForgeSeatInfo` across the child boundary) carries `agent`,
 `version`, `model`, `effort`, `thinking` and `label`, plus nullable `role`,
 `round` and `team`. The host reads the role from the conversation's stored
