@@ -1005,6 +1005,30 @@ test('a person with no global or system configuration file still gets status and
   assert.equal(await readFile(join(tree, 'page.txt'), 'utf8'), 'page\n')
 })
 
+for (const scope of ['global', 'system'] as const) {
+  for (const absent of ['missing file', 'no match']) {
+    test(`an empty ${scope} filter scope through a Git wrapper allows status and lanes: ${absent}`, async (t) => {
+      const f = await fixture(t)
+      await userConfig(t, f, {})
+      process.env[scope === 'global' ? 'GIT_CONFIG_GLOBAL' : 'GIT_CONFIG_SYSTEM'] = join(f.base, `absent-${scope}.gitconfig`)
+      const realGit = (await run('which', ['git'])).stdout.trim()
+      const answer = absent === 'missing file'
+        ? `process.stdout.write(require('node:child_process').execFileSync(${JSON.stringify(realGit)}, args)); return true`
+        : 'process.exit(1)'
+      await withGitShim(f, `
+        if (args.includes('config') && args.includes('--${scope}')) { ${answer} }
+      `, async () => {
+        assert.equal((await readGit(f.root, ['status', '--porcelain=v1'])).stdout, '')
+        await writeFile(join(f.root, 'page.txt'), 'changed\n')
+        assert.deepEqual((await status(f.root))?.files.map((file) => file.path), ['page.txt'])
+        const tree = (await create(f.root, { name: 'empty-scope', stateDir: join(f.base, 'state') })).path
+        assert.equal(await readFile(join(tree, 'page.txt'), 'utf8'), 'page\n')
+        assert.equal(await f.marker(), '', 'no filter program started')
+      })
+    })
+  }
+}
+
 test('removing a lane does not start a filter the person defines', async (t) => {
   const f = await fixture(t)
   await userConfig(t, f, { global: await marking(f, '\trequired = true\n') })

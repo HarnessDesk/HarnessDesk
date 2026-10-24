@@ -982,6 +982,17 @@ if (args.includes('worktree') && args.includes('add')) {
   setInterval(() => {}, 1000)
 } else process.stdout.write(execFileSync(${JSON.stringify(realGit)}, args))
 `, { mode: 0o755 })
+  const configNames = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM'] as const
+  const originalConfig = configNames.map((name) => [name, process.env[name]] as const)
+  await writeFile(join(bin, 'system.gitconfig'), '')
+  process.env['GIT_CONFIG_SYSTEM'] = join(bin, 'system.gitconfig')
+  process.env['GIT_CONFIG_GLOBAL'] = join(bin, 'absent.gitconfig')
+  t.after(() => {
+    for (const [name, value] of originalConfig) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  })
   const originalPath = process.env.PATH
   process.env.PATH = `${bin}:${originalPath}`
   const controller = new AbortController()

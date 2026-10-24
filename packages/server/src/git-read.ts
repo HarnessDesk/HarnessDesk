@@ -203,7 +203,9 @@ const userFilters = async (cwd: string, options: ReadOptions): Promise<Trusted> 
       })).stdout
     } catch (error) {
       const { code, stderr } = error as { code?: unknown; stderr?: unknown }
-      if (code === 128 && typeof stderr === 'string' && NO_CONFIG_FILE.test(stderr)) continue
+      if (code === 1 && typeof stderr === 'string' && stderr.trim() === '') continue
+      // A wrapper can report Git's missing-file result as its own exit 1.
+      if ((code === 128 || code === 1) && typeof stderr === 'string' && NO_CONFIG_FILE.test(stderr)) continue
       throw error
     }
     for (const setting of settingsOf(listed)) {
