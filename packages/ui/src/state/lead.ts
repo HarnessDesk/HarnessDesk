@@ -1,5 +1,5 @@
 import type {
-  HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadPresence, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
@@ -89,6 +89,11 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     async stop() { checkRead(); const before = state, result = await transport.request('lead/stop', { expectedRevision: state.revision }); apply(result, before); return result },
     /** Words for the goal's running worker, taken mid-turn without a restart. */
     async steer(text: string) { checkRead(); const before = state, result = await transport.request('lead/steer', { text }); apply(result, before); return result },
+    /** The timetable and the kept lines are the person's files: read and written whole, never part of the thread. */
+    async readSchedule() { check(); return transport.request('lead/schedule/read', {}) },
+    async updateSchedule(schedule: LeadSchedule) { check(); return transport.request('lead/schedule/update', { schedule }) },
+    async readMemory() { check(); return transport.request('lead/memory/read', {}) },
+    async updateMemory(memory: LeadMemory) { check(); return transport.request('lead/memory/update', { memory }) },
     async resume() { checkRead(); const before = state, result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result, before); return result },
   }
 }

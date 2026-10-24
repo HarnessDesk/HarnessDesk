@@ -1,4 +1,4 @@
-import { NO_CAPABILITIES, runtimeId, type LeadAcceptanceContract, type LeadCard, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
+import { NO_CAPABILITIES, runtimeId, type LeadAcceptanceContract, type LeadCard, type LeadMemory, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
 
 /** Synthetic data only. No desktop, key store, transport connection or provider. */
 export const leadRuntime: RuntimeInfo = { id: runtimeId('fixture'), name: 'Fixture', capabilities: NO_CAPABILITIES, presentation: { name: 'Demo runtime' } }
@@ -19,6 +19,13 @@ export const leadProjection = (over: Partial<LeadWindowProjection> = {}): LeadWi
   thread: { version: 1, id: 'lead', revision: 10, state: 'draft', project: leadContract.project, olderMessages: 0, messages: [], cards: [] },
   requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, ...over })
 
+/** The person's own files, as Settings › Lead shows them: one weekday task, quiet nights, one kept line and one offered. */
+export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', to: '07:00' }, tasks: [
+  { id: 'task-tidy', title: 'Morning tidy', goal: 'Close branches merged last week and list what is left.', every: 'weekdays', at: '09:00', enabled: true, lastRunAt: null },
+  { id: 'task-notes', title: 'Release notes draft', goal: 'Draft the notes for what landed this week.', every: 'fridays', at: '16:00', enabled: false, lastRunAt: null }] }
+export const leadMemory: LeadMemory = { version: 1, items: [
+  { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
+  { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
 export const LEAD_SCENES = ['loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {

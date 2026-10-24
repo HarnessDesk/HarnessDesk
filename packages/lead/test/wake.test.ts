@@ -43,3 +43,10 @@ test('the quiet marker is recognised only on its own', () => {
   assert.equal(lead.isLeadQuiet(`  ${lead.LEAD_QUIET}\n`), true)
   assert.equal(lead.isLeadQuiet(`Still running. ${lead.LEAD_QUIET}`), false)
 })
+
+test('a reply offers at most three lines to keep, each from its own line', () => {
+  assert.deepEqual(lead.leadRememberLines('Plan drafted.\nRemember: the person prefers small pull requests\n  Remember:   run the linter first  \nRemember:'),
+    ['the person prefers small pull requests', 'run the linter first'])
+  assert.deepEqual(lead.leadRememberLines('Nothing to remember: here'), [])
+  assert.equal(lead.leadRememberLines(Array.from({ length: 5 }, (_, i) => `Remember: line ${i}`).join('\n')).length, 3)
+})

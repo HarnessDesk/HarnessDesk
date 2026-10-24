@@ -7,6 +7,7 @@ import { useDestinationActive } from '../panels/destination-page'
 import { leadRefusalText } from './lead-refusals'
 import { formatLeadConsentTime } from './lead-consent-time'
 import { PERMISSION_LABELS } from './lead-permission-labels'
+import { LeadPlanSettingsSection } from './LeadPlanSettings'
 
 const modes = { plan: 0, default: 1, manage: 2 }
 const effects = { deny: 0, ask: 1, allow: 2 }
@@ -104,7 +105,8 @@ export const LeadSettingsSection = () => {
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => { if (active) void store.lead.readSettings().catch(error => setError(leadRefusalText(error))) }, [active, store])
-  return state.settings ? <LeadSettings settings={state.settings} expiry={state.planConsentExpiresAt} cards={state.thread?.cards}
+  return state.settings ? <><LeadSettings settings={state.settings} expiry={state.planConsentExpiresAt} cards={state.thread?.cards}
     error={error} onError={error => setError(leadRefusalText(error))} update={value => { setError(null); return store.lead.updateSettings(value) }}
-    onOpen={focus => store.openDestination({ kind: 'lead', focus })} /> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null
+    onOpen={focus => store.openDestination({ kind: 'lead', focus })} />
+    <LeadPlanSettingsSection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} cards={state.thread?.cards} /></> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null
 }

@@ -17,6 +17,8 @@ export interface LeadInstructionFacts {
   readonly caps: LeadCaps
   /** Absent means the desk offers no seat, and the text says so instead of inviting a guess. */
   readonly seats?: LeadSeatChoices
+  /** What the person kept for the Lead between goals, numbered for a plan to cite. */
+  readonly memory?: readonly string[]
 }
 
 /** One plan the real parser accepts, built from the facts a plan must repeat. Placeholders are in
@@ -48,6 +50,9 @@ export const leadInstructions = (facts: LeadInstructionFacts): string => {
     `When the desk wakes you and nothing needs the person — no decision, no risk, no step verified done — reply with exactly ${LEAD_QUIET} and nothing else. The person does not see it. Speak only when they are needed, something is at risk, a step is verified done, or they asked you something.`,
     'Name each open worker approval by role and what it asks, in plain words (for example, "The reviewer wants to read the git log"). A waiting worker has not finished. Name each required check without a result. Approvals and checks are answered on their cards, never by a chat reply. If the person types "approve", direct them to the card; you cannot answer it or run a check that counts.',
   ]
+  if (facts.memory?.length) lines.push(
+    `The person asked you to keep these between goals:\n${facts.memory.map((line, index) => `[m${index + 1}] ${line}`).join('\n')}\nWhen a plan follows one, put its tag in that step's title, for example "Add the export (m2)".`)
+  lines.push(`When the person tells you something worth keeping for later goals, add one line to your reply that starts with "${LEAD_REMEMBER}" and says it in one sentence. The person decides whether it is kept; never repeat a line already listed.`)
   if (!seats) lines.push('No seats are configured for this desk, so a plan cannot name one. Say so to the person in plain text, and do not propose a plan.')
   else {
     const example = examplePlan(facts, seats.implement[0]!, seats.review[0]!)
@@ -116,6 +121,11 @@ export const leadContinuation = (facts: LeadContinuationFacts): readonly Message
 export const LEAD_QUIET = '[quiet]'
 /** Whether a reply is only the quiet marker, however it is spaced. */
 export const isLeadQuiet = (text: string): boolean => text.trim() === LEAD_QUIET
+/** A reply line that starts with this offers the person a line to keep; it stays in the reply, where they can read it. */
+export const LEAD_REMEMBER = 'Remember:'
+/** The lines a reply offers to keep, at most three, each one sentence long. */
+export const leadRememberLines = (text: string): string[] => text.split('\n').map(line => line.trim())
+  .filter(line => line.startsWith(LEAD_REMEMBER)).map(line => line.slice(LEAD_REMEMBER.length).trim()).filter(line => line.length > 0 && line.length <= 400).slice(0, 3)
 export const leadObservation = (actions: readonly LeadAction[]): string => [
   `Open worker approvals: ${JSON.stringify(actions.flatMap(action => action.kind === 'worker-approval' ? [{ runId: action.runId, role: action.role, request: action.request }] : []))}.`,
   `Required checks without a result: ${JSON.stringify(actions.flatMap(action => action.kind === 'check' ? [{ runId: action.runId, name: action.name }] : []))}.`,

@@ -137,7 +137,8 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { LeadAssembly, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, leadReviewedResultSource, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, canBeginLeadGoal, leadReviewedResultSource, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LeadPlanner, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
@@ -793,6 +794,7 @@ export class Host {
   readonly #lanes: LaneAllocator
   #leadService: LeadService | null = null
   #leadControls: LeadControls | null = null
+  #leadPlannerFiles: LeadPlanner | null = null
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
   #phoneWorkspace: PhoneWorkspace | null = null
   #phoneWork: PhoneWork | null = null
@@ -3498,6 +3500,10 @@ export class Host {
     let leadPresence: LeadPresence | null = null
     this.#leadService = new LeadService({ ...options,
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
+      readMemory: () => this.#leadPlanner().kept(),
+      onRemember: lines => {
+        for (const line of lines) void this.#leadPlanner().suggest(line, `memory-${randomUUID()}`, Date.now()).catch(() => { this.#logger.warn('Lead memory suggestion was not saved') })
+      },
       readEvidence: async (runId, read) => ({ ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) }), broker: this.#credentials,
       resolveTool: async call => {
         const scope = await options.resolveTool(call)
@@ -3558,6 +3564,19 @@ export class Host {
       stopEffects: () => stopOwned('lead-budget-stopped'),
     })
     this.onDispose(() => this.#leadControls?.close())
+    // A scheduled task is a message the person wrote ahead of time: it opens a new goal only when the Lead has
+    // nothing open, so it starts at a plan card like any other goal, and quiet hours hold it.
+    const scheduled = async () => {
+      const controls = this.#leadControls, state = journal.state
+      if (!controls || !(canBeginLeadGoal(state) || state.phase === 'draft' && !state.messages.length)) return
+      const planner = this.#leadPlanner(), due = leadDueTask(await planner.readSchedule(), new Date())
+      if (!due) return
+      await planner.markRan(due.task.id, Date.now())
+      await controls.send({ idempotencyKey: `schedule-${due.task.id}-${due.slot}`, text: `Scheduled: ${due.task.title}\n${due.task.goal}` })
+    }
+    const timer = setInterval(() => { void scheduled().catch(() => { this.#logger.warn('A scheduled Lead task could not start') }) }, 60_000)
+    timer.unref?.()
+    this.onDispose(() => clearInterval(timer))
     return this.#leadService
   }
 
@@ -3587,6 +3606,12 @@ export class Host {
         await service.setEnabled(true)
         await service.recoverInterrupted()
       } })
+  }
+
+  /** The timetable and kept lines live beside the journal and stay readable while no Lead goal is open. */
+  #leadPlanner(): LeadPlanner {
+    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
+    return this.#leadPlannerFiles ??= new LeadPlanner(this.#state.directory)
   }
 
   async #leadWindow(): Promise<LeadControls> {
@@ -4792,6 +4817,10 @@ export class Host {
       leadStop: async (params) => (await this.#leadWindow()).stop(params),
       leadResume: async (params) => (await this.#leadWindow()).resume(params),
       leadSteer: async (params) => (await this.#leadWindow()).steer(params),
+      leadScheduleRead: async () => this.#leadPlanner().readSchedule(),
+      leadScheduleUpdate: async params => this.#leadPlanner().writeSchedule(params.schedule),
+      leadMemoryRead: async () => this.#leadPlanner().readMemory(),
+      leadMemoryUpdate: async params => this.#leadPlanner().writeMemory(params.memory),
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
       authoring: this.#authoring,

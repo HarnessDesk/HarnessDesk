@@ -12,6 +12,8 @@ export interface LeadChildBootstrap {
   readonly prices: Readonly<Record<string, MessagesPrice>>
   /** What a plan's assignments may name. Absent means the desk offers no seat. */
   readonly seats?: LeadSeatChoices
+  /** The lines the person kept for the Lead between goals, in their order; plans cite them as [m1], [m2]. */
+  readonly memory?: readonly string[]
 }
 
 export type LeadChildConfig = Omit<LeadChildBootstrap, 'key' | 'descriptor'>

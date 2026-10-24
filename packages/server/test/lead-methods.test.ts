@@ -1202,7 +1202,7 @@ test('a running goal reports the step it is on and the runs it has started, and 
   assert.equal((await s.controls.readThread()).progress, undefined)
   await s.controls.decide(planClick); await s.controls.idle()
   assert.deepEqual(leadProgress(s.journal.state), { step: 1, steps: 1, runs: 0 })
-  assert.deepEqual((await s.controls.readThread()).progress, { step: 1, steps: 1, runs: 0 })
+  assert.deepEqual((await s.controls.readThread()).progress, { step: 1, steps: 1, runs: 0, since: 100 })
   const three = { ...contract, steps: ['a', 'b', 'c'].map(id => ({ ...contract.steps[0]!, id })) }
   const at = (states: string[], runs: number, phase = 'running') => ({ ...s.journal.state, phase, contract: three,
     steps: states.map((state, index) => ({ id: ['a', 'b', 'c'][index]!, state, attemptId: index < runs ? `c${index}` : null, contractDigest: null })),

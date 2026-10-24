@@ -46,7 +46,7 @@ interface ChildOptions {
 }
 const parseBootstrap = (value: unknown): LeadChildConfig => {
   const source = ipcObject(value)
-  if (Object.keys(source).some(key => !['key', 'descriptor', 'project', 'model', 'prices', 'projectPolicy', 'seats'].includes(key))) throw denied()
+  if (Object.keys(source).some(key => !['key', 'descriptor', 'project', 'model', 'prices', 'projectPolicy', 'seats', 'memory'].includes(key))) throw denied()
   const project = ipcObject(source.project, ['id', 'path']); ipcText(project.id, 256); ipcText(project.path, 4096)
   if (source.model !== undefined) ipcText(source.model, 256)
   const prices = ipcObject(source.prices)
@@ -57,6 +57,10 @@ const parseBootstrap = (value: unknown): LeadChildConfig => {
   }
   if (source.projectPolicy !== undefined && source.projectPolicy !== null) parseLeadPermissionPolicy(source.projectPolicy)
   if (source.seats !== undefined) source.seats = parseLeadSeatChoices(source.seats)
+  if (source.memory !== undefined) {
+    if (!Array.isArray(source.memory) || source.memory.length > 100) throw denied()
+    for (const line of source.memory) ipcText(line, 400)
+  }
   // Legacy in-process fixtures may supply host bootstrap fields. Never retain
   // those fields in the memory-visible child configuration.
   const { key: _key, descriptor: _descriptor, ...config } = source
@@ -135,7 +139,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
             }
           },
         }) }
-        loop = createLeadLoop({ journal, desk, project, ...(config.seats ? { seats: config.seats } : {}),
+        loop = createLeadLoop({ journal, desk, project, ...(config.seats ? { seats: config.seats } : {}), ...(config.memory?.length ? { memory: config.memory } : {}),
           onPresence: ({ wakes, readings }) => { if (!closed) send({ type: 'presence', presence: { ...wakes, readings } }) },
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
           nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header

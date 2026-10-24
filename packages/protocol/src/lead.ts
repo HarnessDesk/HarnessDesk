@@ -234,6 +234,21 @@ export interface LeadPresence {
   readonly checked: number; readonly quiet: number; readonly lastCheckedAt: number | null
   readonly readings: readonly LeadRunReading[]
 }
+/** A goal the Lead opens on its own at a set time. It only ever reaches a plan card: the person still approves. */
+export type LeadTaskRepeat = 'day' | 'weekdays' | 'mondays' | 'fridays'
+export interface LeadScheduledTask {
+  readonly id: string; readonly title: string; readonly goal: string
+  readonly every: LeadTaskRepeat; readonly at: string; readonly enabled: boolean
+  /** When the host last opened it; null before the first time. */
+  readonly lastRunAt: number | null
+}
+/** Hours, in the desk's own clock, when the Lead opens nothing on its own. */
+export interface LeadQuietHours { readonly from: string; readonly to: string }
+export interface LeadSchedule { readonly version: 1; readonly tasks: readonly LeadScheduledTask[]; readonly quiet: LeadQuietHours | null }
+/** One line the Lead keeps between goals. A suggestion is the Lead's; only a kept line reaches its instructions. */
+export interface LeadMemoryItem { readonly id: string; readonly text: string; readonly state: 'kept' | 'suggested'; readonly at: number }
+export interface LeadMemory { readonly version: 1; readonly items: readonly LeadMemoryItem[] }
+export const LEAD_SCHEDULE_LIMITS = { tasks: 20, memory: 100 } as const
 /** A word the person sent to the running worker through the Lead, without restarting it. */
 export interface LeadSteer { readonly id: string; readonly text: string; readonly at: number; readonly state: 'acknowledged' | 'refused' }
 /** Live host-owned requests. These are not model-proposed cards or LeadCardDecision inputs. */
@@ -613,6 +628,15 @@ export const parseLeadPresence: Validator<LeadPresence> = object({
   readings: list(object<LeadRunReading>({ runId: id, kind: literalUnion('advanced', 'stuck', 'plan-only', 'blocked', 'done'), quietMinutes: optional(integer()) }), 64, 0, reading => reading.runId),
 })
 const parseLeadSteer: Validator<LeadSteer> = object({ id, text: text(4000), at: integer(0, Number.MAX_SAFE_INTEGER), state: literalUnion('acknowledged', 'refused') })
+const clockTime: Validator<string> = (value, path = '') => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fail(path, 'expected HH:MM')
+const parseLeadScheduledTask: Validator<LeadScheduledTask> = object({ id, title: text(80), goal: text(2000), every: literalUnion('day', 'weekdays', 'mondays', 'fridays'),
+  at: clockTime, enabled: isBoolean, lastRunAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)) })
+export const parseLeadSchedule: Validator<LeadSchedule> = object({ version, tasks: list(parseLeadScheduledTask, LEAD_SCHEDULE_LIMITS.tasks, 0, task => task.id),
+  quiet: nullable(object<LeadQuietHours>({ from: clockTime, to: clockTime })) })
+const parseLeadMemoryItem: Validator<LeadMemoryItem> = object({ id, text: text(400), state: literalUnion('kept', 'suggested'), at: integer(0, Number.MAX_SAFE_INTEGER) })
+export const parseLeadMemory: Validator<LeadMemory> = object({ version, items: list(parseLeadMemoryItem, LEAD_SCHEDULE_LIMITS.memory, 0, item => item.id) })
+export const parseLeadScheduleUpdate: Validator<{ readonly schedule: LeadSchedule }> = object({ schedule: parseLeadSchedule })
+export const parseLeadMemoryUpdate: Validator<{ readonly memory: LeadMemory }> = object({ memory: parseLeadMemory })
 export const parseLeadSteerInput: Validator<{ readonly text: string }> = object({ text: text(4000) })
 const actionBase = { id, runId: id }
 const parseLeadAction: Validator<LeadAction> = (value, path = '') => {

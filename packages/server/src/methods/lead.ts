@@ -11,4 +11,8 @@ export const leadMethods = {
   'lead/stop': (ctx, params) => ctx.leadStop(params),
   'lead/resume': (ctx, params) => ctx.leadResume(params),
   'lead/steer': (ctx, params) => ctx.leadSteer(params),
+  'lead/schedule/read': ctx => ctx.leadScheduleRead(),
+  'lead/schedule/update': (ctx, params) => ctx.leadScheduleUpdate(params),
+  'lead/memory/read': ctx => ctx.leadMemoryRead(),
+  'lead/memory/update': (ctx, params) => ctx.leadMemoryUpdate(params),
 } satisfies MethodsUnder<'lead/'>

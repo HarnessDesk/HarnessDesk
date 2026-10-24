@@ -156,6 +156,10 @@ export interface HostContext {
   leadStop(params: HostParams<'lead/stop'>): Promise<HostResult<'lead/stop'>>
   leadResume(params: HostParams<'lead/resume'>): Promise<HostResult<'lead/resume'>>
   leadSteer(params: HostParams<'lead/steer'>): Promise<HostResult<'lead/steer'>>
+  leadScheduleRead(): Promise<HostResult<'lead/schedule/read'>>
+  leadScheduleUpdate(params: HostParams<'lead/schedule/update'>): Promise<HostResult<'lead/schedule/update'>>
+  leadMemoryRead(): Promise<HostResult<'lead/memory/read'>>
+  leadMemoryUpdate(params: HostParams<'lead/memory/update'>): Promise<HostResult<'lead/memory/update'>>
   readonly leadStarts?: Pick<import('../lead/budgets.js').LeadBudgets, 'validateStart'>
   readonly flows: Flows
   /** Previews a flow, non-executing, and mints the one token `flow/start-goal` redeems. */

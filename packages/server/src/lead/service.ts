@@ -1,6 +1,6 @@
 import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject, LeadControlRefusal, LeadPresence } from '@harnessdesk/protocol'
 import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
-import { LEAD_MESSAGES_DEFAULTS, parseLeadMessagesBody } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, leadRememberLines, parseLeadMessagesBody } from '@harnessdesk/lead'
 import { LeadSupervisor, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import type { CredentialBroker } from '../credentials.js'
 import type { ClientDoor } from '../client-door.js'
@@ -41,6 +41,10 @@ export interface LeadServiceOptions {
   readonly createSupervisor?: (options: LeadSupervisorOptions) => LeadProcess
   /** The Lead's checks between model turns, as the child reports them. */
   readonly onPresence?: (presence: LeadPresence) => void
+  /** The lines the person kept, read at each start: the Lead is told them, numbered for a plan to cite. */
+  readonly readMemory?: () => Promise<readonly string[]>
+  /** Lines a reply offered to keep; they wait for the person's Keep. */
+  readonly onRemember?: (lines: readonly string[]) => void
 }
 /** The host owns this lifecycle and its only journal writer. This service never
  * stores a plaintext key: resolution is transient and host-only.
@@ -88,18 +92,23 @@ export class LeadService {
           this.#door = await options.openDoor(this.#registration.admission)
           if (!this.#door) throw new Error('lead-client-unavailable')
           const key = await options.broker.resolveLead('anthropic')
+          const memory = options.readMemory ? await options.readMemory().catch(() => []) : []
           checkStartup()
           this.#assertOpen()
           if (generation !== this.#generation) throw new Error('lead-lifecycle-changed')
           return { key, descriptor: this.#door.descriptor,
             project: options.project, prices: options.prices, ...(options.model === undefined ? {} : { model: options.model }), projectPolicy: this.#policy,
-            ...(options.seats ? { seats: options.seats } : {}) }
+            ...(options.seats ? { seats: options.seats } : {}), ...(memory.length ? { memory } : {}) }
         } catch (error) { await this.#release(); throw error }
       },
       ...(options.onPresence ? { onPresence: options.onPresence } : {}),
       admitCardOffer: card => admitLeadCard(options.journal.state, card, options.project, options.model ?? LEAD_MESSAGES_DEFAULTS.model),
       // What the model says is written for the person to read, so it gets the scan every other public text gets.
-      admitReply: text => this.assertPublic(text),
+      admitReply: async text => {
+        await this.assertPublic(text)
+        const lines = leadRememberLines(text)
+        if (lines.length) options.onRemember?.(lines)
+      },
       admitBudgetEvent: event => {
         if (event.type === 'reserve') {
           const model = options.model ?? LEAD_MESSAGES_DEFAULTS.model, price = options.prices[model]

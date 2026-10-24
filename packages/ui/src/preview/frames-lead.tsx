@@ -18,14 +18,14 @@ import { LeadPage } from '../components/LeadPage'
 import { LeadAvatar, LeadNameChoice } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
-import { LEAD_SCENES, leadRuntime, leadSceneProjection, type LeadScene } from './lead-fixture'
+import { LEAD_SCENES, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
 import type { HostMethodName, LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
 export const createLeadFixtureStore = (scene: LeadScene) => {
   const store = frameDestinationStore(previewStore({ leadAvailable: true, runtimes: [leadRuntime], theme: new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light' }))
   const shellRequest = store.transport.request.bind(store.transport)
-  let current = leadSceneProjection(scene)
+  let current = leadSceneProjection(scene), schedule = leadSchedule, memory = leadMemory
   const emit = (next: LeadWindowProjection) => { current = next; store.lead.changed({ method: 'lead/changed', params: current }) }
   store.transport.request = (async (method: HostMethodName, input: unknown) => {
     const params = input as Record<string, any>
@@ -62,6 +62,10 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/thread/send') { const revision = current.revision + 1; emit({ ...current, revision, thread: { ...current.thread, messages: [...current.thread.messages, { version: 1, id: `message-${revision}`, revision, role: 'user', text: params.text }] } }); return { messageId: `message-${revision}`, revision } }
     if (method === 'lead/stop') { const { progress: _running, ...rest } = current; emit({ ...rest, revision: current.revision + 1, requestInFlight: false, wayOut: null, waitReason: null, thread: { ...current.thread, state: 'stopped', cards: [] } }); return current }
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
+    if (method === 'lead/schedule/read') return schedule
+    if (method === 'lead/schedule/update') return schedule = params.schedule
+    if (method === 'lead/memory/read') return memory
+    if (method === 'lead/memory/update') return memory = params.memory
     if (method === 'lead/thread/read' || method === 'lead/settings/read') return scene === 'loading' ? new Promise<never>(() => {}) : current
     return shellRequest(method, input as never)
   }) as typeof store.transport.request
