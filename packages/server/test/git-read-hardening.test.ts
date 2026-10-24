@@ -15,7 +15,8 @@ import { revisionOf } from '../src/evidence/revision.js'
 import { changes, create, createDetached } from '../src/worktree.js'
 import { hostContextPort } from '../src/authoring/start.js'
 import { automaticCheckout, readGit } from '../src/git-read.js'
-import { commitDiff } from '../src/git-history.js'
+import { patch as commitPatch } from '../src/git-actions.js'
+import { commit as openCommit, commitDiff, forgetKnown, log as historyLog, refs as historyRefs } from '../src/git-history.js'
 
 const run = promisify(execFile)
 
@@ -752,3 +753,87 @@ for (const stop of ['abort', 'timeout'] as const) {
     })
   })
 }
+
+/**
+ * A commit with a signature header, put on top of the fixture's and made the
+ * branch tip. The bytes between the armor lines are not read until a program
+ * is asked to verify them, so any text will do: what matters is that git has
+ * a signature to hand to one.
+ */
+const signedCommit = async (f: Fixture): Promise<string> => {
+  await writeFile(join(f.root, 'page.txt'), 'signed content\n')
+  await f.git('add', 'page.txt')
+  const lines = [
+    `tree ${await f.git('write-tree')}`,
+    `parent ${f.head}`,
+    'author Jane Doe <dev@example.com> 1700000000 +0000',
+    'committer Jane Doe <dev@example.com> 1700000000 +0000',
+    'gpgsig -----BEGIN PGP SIGNATURE-----',
+    ' ',
+    ' AAAA',
+    ' -----END PGP SIGNATURE-----',
+    '',
+    'Signed change',
+    '',
+  ]
+  const sha = (await feed(f.root, ['hash-object', '-t', 'commit', '-w', '--stdin'], lines.join('\n'))).stdout.trim()
+  await f.git('update-ref', 'refs/heads/main', sha)
+  return sha
+}
+
+type Read = readonly [name: string, read: () => Promise<unknown>]
+
+/** The names of the reads that started the fixture's program, each run with its marker cleared first. */
+const startedBy = async (f: Fixture, reads: readonly Read[]): Promise<string[]> => {
+  const started: string[] = []
+  for (const [name, read] of reads) {
+    await rm(`${f.script}.mark`, { force: true })
+    await read()
+    if (await f.marker() !== '') started.push(name)
+  }
+  return started
+}
+
+test('history reads do not start the signature program a repository names', async (t) => {
+  const f = await fixture(t)
+  const signed = await signedCommit(f)
+  await f.git('update-ref', '--create-reflog', '-m', 'WIP on main', 'refs/stash', signed)
+  await f.git('config', 'log.showSignature', 'true')
+  await f.git('config', 'gpg.program', f.script)
+  // The repository does what it says when git is asked on its own terms.
+  await run('git', ['-C', f.root, 'log', '--max-count=1', '--pretty=format:%H'])
+  assert.equal(await f.marker(), 'called', 'a plain git log starts the repository program')
+  await rm(`${f.script}.mark`)
+
+  const reads: Read[] = [
+    ['the history list', () => historyLog(f.root)],
+    ['one commit by id', () => historyLog(f.root, { query: signed, search: 'sha' })],
+    ['the refs and stashes', () => historyRefs(f.root)],
+    ['an opened commit', () => openCommit(f.root, signed)],
+    ['one file of a commit', async () => { forgetKnown(); return commitDiff(f.root, signed, 'page.txt') }],
+    ['a commit as a mail patch', () => commitPatch(f.root, signed)],
+    ['a one-commit log', () => readGit(f.root, ['log', '--max-count=1', '--pretty=format:%H'])],
+    ['the parents of a commit', () => readGit(f.root, ['show', '-s', '--format=%P', 'HEAD'])],
+    ['a log with its patch', () => readGit(f.root, ['log', '-p', '-1'])],
+  ]
+  assert.deepEqual(await startedBy(f, reads), [], 'no read started the program')
+})
+
+test('history reads that print a patch leave the text conversion a repository names off', async (t) => {
+  const f = await fixture(t)
+  const signed = await signedCommit(f)
+  await writeFile(join(f.root, '.git', 'info', 'attributes'), '*.txt diff=conv\n')
+  await f.git('config', 'diff.conv.textconv', f.script)
+  // The repository does what it says when git is asked on its own terms.
+  await run('git', ['-C', f.root, 'log', '-p', '-1'])
+  assert.equal(await f.marker(), 'called', 'a plain git log -p starts the repository program')
+  await rm(`${f.script}.mark`)
+
+  const reads: Read[] = [
+    ['an opened commit', () => openCommit(f.root, signed)],
+    ['one file of a commit', async () => { forgetKnown(); return commitDiff(f.root, signed, 'page.txt') }],
+    ['a commit as a mail patch', () => commitPatch(f.root, signed)],
+    ['the working-file diff', () => diff(f.root)],
+  ]
+  assert.deepEqual(await startedBy(f, reads), [], 'no read started the program')
+})

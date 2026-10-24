@@ -13,9 +13,12 @@ import { promisify } from 'node:util'
  * precedence, above the repository's configuration and anything it includes,
  * and are inherited by any git that git starts in turn. They cover exactly:
  * hooks (`core.hooksPath`), the filesystem monitor (`core.fsmonitor`), the ssh
- * command, commit and tag signing (and so the signing program), and an
- * external diff program (`diff.external`). Submodule diffs use short gitlink
- * summaries rather than starting a child diff with its own configuration.
+ * command, commit and tag signing (and so the signing program), an external
+ * diff program (`diff.external`), and the signature check `log` and `show`
+ * make for each commit they print when `log.showSignature` is set, which
+ * starts `gpg.program` for every commit that carries a signature. Submodule
+ * diffs use short gitlink summaries rather than starting a child diff with its
+ * own configuration.
  *
  * Filter names are configuration-defined, so automatic reads use an isolated
  * configuration (`git-read.ts`) with those definitions omitted. Host diffs also pass
@@ -36,6 +39,7 @@ export const HARDENED_GIT_CONFIG: readonly string[] = [
   '-c', 'tag.gpgSign=false',
   '-c', 'diff.external=',
   '-c', 'diff.submodule=short',
+  '-c', 'log.showSignature=false',
 ]
 
 const run = promisify(execFile)

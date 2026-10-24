@@ -896,8 +896,10 @@ ordinary card commit. (#1351)
 Git the host runs on its own in a checkout an agent can write — evidence
 reads, status, cutting a lane, diffs — carries a narrower floor
 (`git-hardening.ts`): no hook, no filesystem monitor, no external diff, the
-default ssh, and no signing. Working-file reads use a private Git directory
-with an immutable configuration snapshot. Included and global settings are
+default ssh, no signing, and no signature check when a history read prints a
+commit (`log.showSignature` would start the repository's `gpg.program` for each
+signed commit a `log` or `show` lists). Working-file reads use a private Git
+directory with an immutable configuration snapshot. Included and global settings are
 flattened into that snapshot; include paths and filter definitions are omitted.
 The consuming process cannot acquire another driver from live configuration.
 Status disables Git's implicit submodule content reads and reads initialized
