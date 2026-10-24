@@ -73,7 +73,7 @@ never runs half-wired.
 | `ctx.browser` | A real browser in the DevTools protocol — see [browser control](browser-control.md) |
 | `ctx.editor` | The file the person is looking at — show it, mark it, edit it |
 | `ctx.team` | The shared board and messages between conversations |
-| `ctx.forge` | The seat a publication is signed as, and the record of it in the conversation |
+| `ctx.forge` | Signing and transcript publication (`forge.publish`); host-executed push, PR, review and comment writes (`forge.write`): “Push branches and open, update and merge pull requests through HarnessDesk, as you, recorded in the project's Git record.” |
 | `ctx.ios` | The iOS Simulator, via `simctl` |
 | `ctx.android` | Android devices and emulators, via `adb` |
 | `ctx.workspace` | The root the call runs in, and its git branch when that is the open project |
@@ -612,10 +612,12 @@ Five things worth knowing:
 
 ### The forge plane
 
-`ctx.forge` is what the desk adds around a git forge a plugin reaches on its
-own. The Git plugin talks to GitHub with the person's `gh` under its `shell`
-grant — that is deliberate, and it is where the credential stays — and asks
-the desk for the two things a shell cannot know:
+`ctx.forge` signs and records publications and executes writes through the
+host's pinned Git gateway. The built-in Git plugin's forge reads still use
+the person's `gh` under its `shell` grant. Those reads can reach the person's
+write-capable gh login: credential isolation is incomplete until reads move
+behind the host in a later round. The built-in plugin's writes are host-only.
+The desk also supplies what a shell cannot know:
 
 ```ts
 // Which agent, on which model, at which effort, made this tool call.
@@ -651,11 +653,19 @@ Three things worth knowing:
   grants host-executed writes: “Push branches and open, update and merge pull
   requests through HarnessDesk, as you, recorded in the project's Git record.”
   The write verbs are `push`, `pullRequest.create`, `pullRequest.update`,
-  `pullRequest.merge`, `review` and `comment`. `record` and `attribute` accept
-  either grant. The host derives the requester from the live invocation and
-  the destination from the project's approved pin; neither is a tool argument.
-  Credentials stay with the host's gateway. `shell` remains the Git plugin's
-  capability for reads and local upstream configuration.
+  `pullRequest.merge`, `review` and `comment`. `repository`, `record` and
+  `attribute` accept either grant. `repository(scope)` returns the approved
+  pin or null; reads
+  preceding a write must refuse without a pin and bind `gh` to that pin. The
+  host derives the requester from the live invocation and the destination
+  from the project's approved pin; neither is a tool argument.
+  Write execution and the gateway's one-shot credential configuration stay
+  with the host; they are stripped from plugin-shell environments. This does
+  not remove the shell's access to the person's own gh login, as described
+  above. `shell` remains the Git plugin's capability for reads and local
+  upstream configuration. Commands record the person as requester; context
+  resolvers cannot call write verbs. Gateway approvals have their own wait,
+  keep child invocations alive while pending, and report timeout explicitly.
 
 `ForgeSeat` (and `ForgeSeatInfo` across the child boundary) carries `agent`,
 `version`, `model`, `effort`, `thinking` and `label`, plus nullable `role`,

@@ -1237,23 +1237,25 @@ export class Host {
         gitGateway: this.#gitGateway,
         checkoutOf: async (scope) => {
           if (!scope.runtime || !scope.sessionId) return null
-          const cwd = this.registry.get(runtimeId(scope.runtime), makeSessionId(scope.sessionId))?.session.cwd
+          await this.#shellWorkspace({ runtime: runtimeId(scope.runtime), sessionId: makeSessionId(scope.sessionId) })
+          const cwd = this.registry.get(runtimeId(scope.runtime), makeSessionId(scope.sessionId))?.shellCheckout?.cwd
           const root = cwd ? await this.#boardRootOf(cwd) : null
           return cwd && root ? { cwd, root } : null
         },
-        admitWrite: async (verb, scope) => {
-          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '' }
-          const result = await this.#ceilingGate.admit({ tool: names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
-            scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!) }, publishes: true })
+        admitWrite: async (verb, scope, args) => {
+          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '' }
+          const result = await this.#ceilingGate.admit({ tool: verb === 'comment' && (args as { subject?: string })?.subject === 'issue' ? 'issue_comment' : names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
+            scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!), ...(scope.turnId ? { turnId: scope.turnId as TurnId } : {}) }, publishes: true })
           if (!result.admitted) throw new Error(result.refusal)
         },
-        askPerson: (scope, question) => this.#askHeld(scope.runtime!, scope.sessionId!, question),
-        mergeStep: (scope) => {
+        askPerson: (scope, question) => this.#askHeld(scope.runtime!, scope.sessionId!, question, this.options.heldWaitMs ?? 10 * 60_000),
+        mergeStep: (scope, target) => {
           if (!scope.runtime || !scope.sessionId || this.#ceilingOf(scope.runtime, scope.sessionId)?.level !== 'merge') return false
-          const seat = this.#flows.seatOf(scope.runtime, scope.sessionId)
-          if (!seat || seat.permission !== 'merge') return false
           const kept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
-          return !!kept?.board && this.#team.stateFor(kept.board).intents.some(card => card.state === 'claimed' && card.claim?.runtime === scope.runtime && card.claim?.sessionId === scope.sessionId)
+          if (!kept?.board) return false
+          return this.#team.stateFor(kept.board).intents.some(card => card.state === 'claimed' &&
+            card.claim?.runtime === scope.runtime && card.claim?.sessionId === scope.sessionId &&
+            this.#flows.isMergeStep(kept.board!, card.id, target))
         },
         agentOf: (runtime) => {
           const info = this.#runtimes.get(runtime)?.info
@@ -6336,6 +6338,7 @@ export class Host {
   }
 
   readonly #ceilingGate = new CeilingGate({
+    refused: (call, reason) => this.#forge.refuseTool(call.tool, call.args, { runtime: String(call.scope.runtime), sessionId: String(call.scope.sessionId) }, reason, call.startedAt),
     rootOf: (runtime, sessionId) => this.#rootOf(runtime, sessionId),
     ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
     causeOf: (runtime, sessionId, turnId) => this.#causeOf(runtime, sessionId, turnId),
@@ -6433,7 +6436,7 @@ export class Host {
     return answer === 'standing' ? 'refused' : answer
   }
 
-  async #askHeld(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'> {
+  async #askHeld(runtime: string, sessionId: string, question: HeldQuestion, gatewayWaitMs?: number): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'> {
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
     if (!record || this.#disposed) return 'unanswered'
     const id = makeApprovalId(`held-${randomBytes(6).toString('hex')}`)
@@ -6457,7 +6460,7 @@ export class Host {
     this.#audit.record(record.runtime, requested, () => record.session.cwd)
     this.registry.apply(record.runtime, requested)
     this.#push({ method: 'event', params: { runtime: record.runtime, event: requested } })
-    const waitMs = this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
+    const waitMs = gatewayWaitMs ?? this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
     const answer = await new Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>((resolve) => {
       const timer = setTimeout(() => resolve('unanswered'), waitMs)
       this.#heldAnswers.set(String(id), (said) => {

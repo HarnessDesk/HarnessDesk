@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +10,9 @@ import { gitPlugin } from '@harnessdesk/plugins'
 import type { ForgeReference } from '@harnessdesk/protocol'
 import { ForgePlane } from '../src/forge.js'
 import { GitGateway } from '../src/git-gateway/index.js'
+import { agent, goalRig } from './fixtures/flow-goal-rig.js'
+import { sourceDigest } from '../src/flow-execution.js'
+import { CeilingGate, GatedRegistry } from '../src/ceilings/gate.js'
 import type { HeldQuestion } from '../src/ceilings/gate.js'
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim()
@@ -25,8 +28,9 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
   const state = { repo: 'acme/widgets', view: { nameWithOwner: 'acme/widgets', url: 'https://github.com/acme/widgets', defaultBranchRef: { name: 'main' } }, user: { login: 'jane-doe' }, publicationHead: git(checkout, 'rev-parse', 'HEAD'), pulls: [], issues: [{ number: 42, title: 'Widgets', comments: [] }], protectedBranches: ['release'] }
   writeFileSync(statePath, JSON.stringify(state))
   copyFileSync(fileURLToPath(new URL('../../test/fixtures/fake-gh.mjs', import.meta.url)), join(bin, 'gh')); chmodSync(join(bin, 'gh'), 0o755)
-  const prior = { PATH: process.env.PATH, FAKE_GH_STATE: process.env.FAKE_GH_STATE, FAKE_GH_TRACE: process.env.FAKE_GH_TRACE, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN }
-  delete process.env.GH_TOKEN; delete process.env.GITHUB_TOKEN
+  const prior = { PATH: process.env.PATH, FAKE_GH_STATE: process.env.FAKE_GH_STATE, FAKE_GH_TRACE: process.env.FAKE_GH_TRACE, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN, GIT_ASKPASS: process.env.GIT_ASKPASS, GIT_CONFIG_COUNT: process.env.GIT_CONFIG_COUNT, GIT_CONFIG_KEY_0: process.env.GIT_CONFIG_KEY_0, GIT_CONFIG_VALUE_0: process.env.GIT_CONFIG_VALUE_0 }
+  process.env.GH_TOKEN = 'ghp_placeholder_host_credential'; delete process.env.GITHUB_TOKEN
+  Object.assign(process.env, { GIT_ASKPASS: '/fixture/host-askpass', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '!false' })
   Object.assign(process.env, { PATH: `${bin}:${process.env.PATH}`, FAKE_GH_STATE: statePath, FAKE_GH_TRACE: tracePath })
   t.after(() => { for (const [key, value] of Object.entries(prior)) { if (value === undefined) delete process.env[key]; else process.env[key] = value } rmSync(root, { recursive: true, force: true }) })
   const gateway = new GitGateway({ directory: host, localRemote: () => remote, gh: async (cwd, args, env) => {
@@ -35,10 +39,10 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
   } })
   const questions: HeldQuestion[] = [], publications: ForgeReference[] = [], admissions: string[] = []
   let onQuestion: (() => void | Promise<void>) | undefined
-  let answer: 'allowed' | 'standing' | 'refused' = 'allowed', mergeStep = false, ceiling: 'read' | 'publish' | 'merge' = 'merge'
+  let answer: 'allowed' | 'standing' | 'refused' | 'unanswered' = 'allowed', mergeStep = false, ceiling: 'read' | 'publish' | 'merge' = 'merge'
   const plane = new ForgePlane({ gitGateway: gateway, checkoutOf: async () => ({ cwd: checkout, root: checkout }),
     admitWrite: async verb => { admissions.push(verb); if (ceiling === 'read' || verb === 'merge' && ceiling !== 'merge') throw new Error('Ceiling refused') },
-    askPerson: async (_scope, question) => { questions.push(question); await onQuestion?.(); return answer }, mergeStep: () => mergeStep && ceiling === 'merge',
+    askPerson: async (_scope, question) => { questions.push(question); await onQuestion?.(); return answer }, mergeStep: (_scope, target) => mergeStep && ceiling === 'merge' && target.number === 1 && target.head === git(checkout, 'rev-parse', 'HEAD'),
     agentOf: () => ({ name: 'Test Agent', version: null }), optionsOf: () => [], toolsOffered: () => true,
     record: (_runtime, _session, item) => { publications.push(item.reference); return true },
   }, { gh: async args => ({ stdout: args[0] === 'api' ? 'jane-doe' : '', stderr: '', exitCode: 0 }) })
@@ -55,7 +59,7 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
     return JSON.stringify(result)
   }
   const rows = () => gateway.record({ repository: 'acme/widgets', limit: 1000 })
-  const trace = () => readFileSync(tracePath, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { argv: string[]; cwd: string; hasCredential: boolean })
+  const trace = () => !existsSync(tracePath) ? [] : readFileSync(tracePath, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { argv: string[]; cwd: string; hasCredential: boolean; envKeys: string[] })
   return { gateway, plane, kernel, root, checkout, remote, host, run, invoke, rows, questions, publications, admissions, trace, statePath,
     onQuestion: (hook: () => void | Promise<void>) => { onQuestion = hook },
     answer: (value: typeof answer) => { answer = value }, mergeStep: (value: boolean) => { mergeStep = value }, ceiling: (value: typeof ceiling) => { ceiling = value } }
@@ -64,6 +68,8 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
 test('kernel pushes pin once, continue without a question, ask for rewrites, and record protected refusals', async t => {
   const f = await fixture(t)
   await f.run('git_push', { set_upstream: true })
+  assert.equal(f.publications[0]?.action, 'opened')
+  assert.equal(f.publications[0]?.url, 'https://github.com/acme/widgets/tree/feature/widgets')
   const first = git(f.checkout, 'rev-parse', 'HEAD')
   assert.equal(git(f.remote, 'rev-parse', 'refs/heads/feature/widgets'), first)
   assert.equal(await f.gateway.pins.pinned(f.checkout), 'acme/widgets')
@@ -117,7 +123,9 @@ test('every plugin forge write runs in the host, records its requester, preserve
   const merge = writes.find(call => call.argv[1] === 'merge')!
   assert.equal(merge.argv[merge.argv.indexOf('--match-head-commit') + 1], head)
   assert.equal(f.publications.at(-1)?.action, 'merged')
-  assert.ok(f.trace().filter(call => call.cwd === f.checkout).every(call => !call.hasCredential), 'the plugin shell receives no host credential')
+  const reads = f.trace().filter(call => call.cwd === f.checkout)
+  assert.ok(reads.length > 0)
+  assert.ok(reads.every(call => !call.hasCredential && !call.envKeys.some(key => /^(GH_TOKEN|GITHUB_TOKEN|GIT_ASKPASS|GIT_CONFIG.*|GIT_CREDENTIAL.*)$/.test(key))), 'the plugin shell receives no host credential configuration')
   assert.ok(writes.every(call => call.hasCredential), 'only the host runner receives its credential')
   f.mergeStep(true)
   await f.run('pr_merge', { number: 1, head })
@@ -131,7 +139,7 @@ test('decoy origin cannot change a pin, refused pinning has no effect, and ceili
   f.answer('refused')
   await assert.rejects(f.run('git_push', {}), /person did not approve/)
   assert.equal(await f.gateway.pins.pinned(f.checkout), null)
-  assert.equal((await f.rows())[0]?.outcome, 'refused')
+  assert.equal((await f.rows()).length, 0, 'an unapproved proposal has no record')
   f.answer('allowed'); await f.run('git_push', {})
   git(f.checkout, 'remote', 'set-url', 'origin', 'https://github.com/acme/decoy.git')
   await assert.rejects(f.run('git_push', {}), /differs from the pinned repository/)
@@ -172,4 +180,205 @@ test('approval cannot outlive its invocation or approve a checkout head that mov
   await assert.rejects(f.run('git_push', {}), /reviewed-sha-mismatch/)
   assert.equal(git(f.remote, 'for-each-ref', '--format=%(refname)'), '')
   assert.equal((await f.rows())[0]?.outcome, 'refused')
+})
+
+
+test('first pin approval uses only local facts and unapproved repositories have no record', async t => {
+  const f = await fixture(t)
+  f.onQuestion(() => {
+    assert.equal(git(f.remote, 'for-each-ref', '--format=%(refname)'), '')
+    assert.equal(readFileSync(f.statePath, 'utf8').includes('publicationHead'), true)
+    assert.equal(f.trace().length, 0, 'no gh request before approval')
+  })
+  f.answer('refused')
+  await assert.rejects(f.run('git_push', {}), /person did not approve/)
+  assert.equal((await f.rows()).length, 0)
+})
+
+test('pinned reads ignore upstream and gh default selection and reject effective-origin rewrites', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  git(f.checkout, 'remote', 'add', 'upstream', 'https://github.com/acme/other.git')
+  await f.run('pr_create', { title: 'Widgets', body: 'Body' })
+  git(f.checkout, 'config', 'remote.upstream.gh-resolved', 'base')
+  await f.run('issue_comment', { number: 42, body: 'Fixed' })
+  const reads = f.trace().filter(call => call.cwd === f.checkout && ['pr', 'issue'].includes(call.argv[0]!))
+  assert.ok(reads.length > 0)
+  assert.ok(reads.every(call => call.argv[call.argv.indexOf('--repo') + 1] === 'acme/widgets'), JSON.stringify(reads))
+  git(f.checkout, 'config', 'url.https://github.com/acme/decoy.insteadOf', 'https://github.com/acme/widgets')
+  await assert.rejects(f.run('pr_comment', { number: 1, body: 'No' }), /origin|pinned/)
+  const refusal = (await f.rows())[0]!
+  assert.equal(refusal.op, 'pr.comment'); assert.equal(refusal.number, 1); assert.equal(refusal.outcome, 'refused')
+})
+
+test('outside observations supply the next push lease and require approval', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', {})
+  git(f.checkout, 'commit', '--allow-empty', '-qm', 'Outside')
+  const outside = git(f.checkout, 'rev-parse', 'HEAD')
+  git(f.checkout, 'push', f.remote, 'HEAD:refs/heads/feature/widgets')
+  await f.gateway.observe('acme/widgets', 'feature/widgets', outside, null)
+  git(f.checkout, 'commit', '--allow-empty', '-qm', 'Next')
+  await f.run('git_push', {})
+  assert.equal(f.questions.length, 2)
+})
+
+test('common GitHub origin spellings are proposals, other hosts are refused', async t => {
+  const f = await fixture(t)
+  for (const origin of ['ssh://git@github.com/acme/widgets.git', 'ssh://github.com/acme/widgets', 'git@github.com-work:acme/widgets.git', 'https://github.com/acme/widgets.git/', 'ssh://github.com/acme/widgets/']) {
+    git(f.checkout, 'remote', 'set-url', 'origin', origin)
+    assert.equal(await f.gateway.proposedRepository(f.checkout), 'acme/widgets', origin)
+  }
+  git(f.checkout, 'remote', 'set-url', 'origin', 'https://github.com.evil/acme/widgets')
+  assert.equal(await f.gateway.proposedRepository(f.checkout), null)
+})
+
+
+test('a merge step for another PR asks and uses merge-specific facts and labels', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  await f.run('pr_create', { title: 'Widgets', body: 'Body' })
+  const state = JSON.parse(readFileSync(f.statePath, 'utf8'))
+  state.pulls[0].checks = [{ name: 'build', id: 1, status: 'completed', conclusion: 'success' }]
+  state.pulls.push({ ...state.pulls[0], number: 9, checks: [{ name: 'build', id: 1, status: 'completed', conclusion: 'success' }] })
+  writeFileSync(f.statePath, JSON.stringify(state))
+  f.mergeStep(true)
+  await f.run('pr_merge', { number: 9, head: git(f.checkout, 'rev-parse', 'HEAD') })
+  assert.equal(f.questions.length, 2)
+  assert.deepEqual(f.questions[1]!.facts?.map(fact => fact.label), ['Repository', 'Branch', 'Head'])
+  assert.equal(f.questions[1]!.facts?.[1]?.value, 'feature/widgets')
+  assert.deepEqual(f.questions[1]!.options?.map(option => option.label), ['Merge', "Don't merge"])
+})
+
+test('timed-out questions explain the outcome and do not pin', async t => {
+  const f = await fixture(t)
+  f.answer('unanswered')
+  await assert.rejects(f.run('git_push', {}), /question timed out/)
+  assert.equal(await f.gateway.pins.pinned(f.checkout), null)
+  assert.equal((await f.rows()).length, 0)
+})
+
+test('person commands are recorded as the person and context writes are refused', async t => {
+  const f = await fixture(t)
+  const scope = { runtime: 'fixture', sessionId: 's1', plugin: 'fixture', signal: new AbortController().signal, actor: 'human' as const }
+  await f.plane.push({ branch: 'feature/widgets', sha: git(f.checkout, 'rev-parse', 'HEAD'), expect: 'create' }, scope)
+  assert.deepEqual((await f.rows())[0]?.requester, { kind: 'person', id: 'person' })
+  await assert.rejects(f.plane.comment({ subject: 'issue', number: 42, body: 'Body' }, { ...scope, actor: 'context' }), /Context resolution/)
+  assert.equal((await f.rows())[0]?.op, 'issue.comment')
+  assert.equal((await f.rows())[0]?.outcome, 'refused')
+})
+
+
+test('outer and inner ceiling admission hold one question for the same turn and invocation', async t => {
+  const kernel = new ExtensionKernel(); t.after(() => kernel.dispose())
+  let questions = 0
+  const turns: (string | undefined)[] = []
+  const gate = new CeilingGate({
+    rootOf: (runtime, sessionId) => ({ runtime, sessionId }), ceilingOf: () => ({ level: 'publish', hold: 'held' }),
+    causeOf: (_runtime, _session, turn) => { turns.push(turn); return { kind: 'message', from: { name: 'Reader', runtime: 'fixture', sessionId: 'reader' }, ceiling: { level: 'read', hold: 'held' } } as never },
+    nameOf: () => 'Writer', say: () => {}, askPerson: async () => { questions++; return 'allowed' },
+  })
+  await kernel.load({ manifest: { id: 'git', name: 'Git' }, plugin: { name: 'git', inject: ['tools'], apply(ctx: any) {
+    ctx.tools.register({ name: 'git_push', description: 'Fixture', inputSchema: { type: 'object' }, execute: async (_args: unknown, scope: any) => {
+      const result = await gate.admit({ tool: 'git_push', needs: 'publish', scope, publishes: true })
+      assert.equal(result.admitted, true)
+      return 'ok'
+    } })
+  } } })
+  await new Promise(resolve => setTimeout(resolve, 60))
+  const registry = new GatedRegistry(kernel, () => gate)
+  const tool = registry.list('tool').find(one => one.name === 'git_push')!
+  const result = await registry.invokeTool(tool.id, {}, { runtime: 'fixture', sessionId: 's1', turnId: 't1' } as never)
+  assert.equal(result.ok, true)
+  assert.equal(questions, 1)
+  assert.deepEqual(turns, ['t1'])
+})
+
+
+test('the flow merge exemption binds the card grant, PR number and reviewed head', async t => {
+  const rig = await goalRig(t)
+  const head = 'a'.repeat(40)
+  rig.heads.set('/repo', { at: head, dirty: false })
+  const entry = agent('merger', ['merged'])
+  const merger = { ...entry, definition: { ...entry.definition!, ceiling: 'merge' as const } }
+  const source = `version: 2
+name: Merge reviewed PR
+roles:
+  gate: { kind: person, outcomes: [ready] }
+  merger: { kind: agent, uses: merger, grant: merge }
+seed: { role: gate, title: Review pull request 5 }
+rules:
+  - { id: merge, on: gate, when: { evidence: [{ pr: open }] }, then: { role: merger, title: Merge pull request 5 } }
+`
+  const run = await rig.flows.startGoal({ root: '/repo', sentence: 'Merge reviewed PR', source, sourcePath: null, compiled: rig.compile(source, [merger]),
+    target: { kind: 'pull-request', label: 'PR 5', base: null, head, pr: 5, dirty: false },
+    requireHeld: true, authorization: { sourceDigest: sourceDigest(source), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' },
+  })
+  assert.equal(run.state, 'running', run.reason ?? '')
+  const round = await rig.flows.openRound(run.id, { role: 'merger', title: 'Merge pull request 5' }, { key: 'reviewed-pr', evidence: ['reviewed-head'] })
+  const card = round.cards[0]!
+  assert.equal(rig.flows.isMergeStep(run.goal, 1, { number: 5, head }), false, 'a person review card is not a merge grant')
+  assert.equal(rig.flows.isMergeStep(run.goal, card, { number: 5, head }), true)
+  assert.equal(rig.flows.isMergeStep(run.goal, card, { number: 9, head }), false)
+  assert.equal(rig.flows.isMergeStep(run.goal, card, { number: 5, head: 'b'.repeat(40) }), false)
+  assert.equal(rig.flows.isMergeStep(run.goal, 99, { number: 5, head }), false)
+})
+
+test('non-push refusals keep operation and number for a known pin', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', {})
+  const scope = { runtime: 'fixture', sessionId: 's1', plugin: 'fixture', signal: new AbortController().signal }
+  f.ceiling('read')
+  await assert.rejects(f.plane.comment({ subject: 'issue', number: 42, body: 'Body' }, scope), /Ceiling/)
+  assert.equal((await f.rows())[0]?.op, 'issue.comment')
+  assert.equal((await f.rows())[0]?.number, 42)
+  f.ceiling('merge')
+  git(f.checkout, 'commit', '--allow-empty', '-qm', 'Unpushed')
+  await assert.rejects(f.plane.pullRequest.create({ head: 'feature/widgets', title: 'Widgets', body: 'Body' }, scope), /Push this branch/)
+  assert.equal((await f.rows())[0]?.op, 'pr.create')
+  const since = Date.now()
+  await f.plane.refuseTool('pr_review', { number: 5 }, scope, 'Blind round', since)
+  assert.equal((await f.rows())[0]?.op, 'pr.review')
+  assert.equal((await f.rows())[0]?.number, 5)
+  assert.equal((await f.rows())[0]?.outcome, 'refused')
+})
+
+test('standing answers survive an expired invocation on an already pinned project', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', {})
+  git(f.checkout, 'branch', '-m', 'second')
+  const controller = new AbortController()
+  f.answer('standing'); f.onQuestion(() => controller.abort())
+  await assert.rejects(f.plane.push({ branch: 'second', sha: git(f.checkout, 'rev-parse', 'HEAD'), expect: 'create' }, {
+    runtime: 'fixture', sessionId: 's1', plugin: 'fixture', signal: controller.signal,
+  }), /live invocation/)
+  f.onQuestion(() => {}); f.answer('refused')
+  await f.run('git_push', {})
+  assert.equal(f.questions.length, 2, 'the next live invocation remembers the standing answer')
+})
+
+
+test('write-deciding forge reads refuse without a pin before running gh', async t => {
+  const f = await fixture(t)
+  for (const [name, args] of [
+    ['pr_create', { title: 'Widgets', body: 'Body' }], ['pr_update', { number: 1, body: 'Body' }],
+    ['pr_review', { number: 1, event: 'approve', body: '' }], ['pr_comment', { number: 1, body: 'Body' }],
+    ['issue_comment', { number: 42, body: 'Body' }], ['pr_merge', { number: 1, head: 'a'.repeat(40) }],
+  ] as const) await assert.rejects(f.run(name, args), /no pinned repository.*git_push/)
+  assert.deepEqual(f.trace(), [])
+  assert.deepEqual(await f.rows(), [])
+})
+
+
+test('a changed origin while a merge approval waits is recorded as refused', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  await f.run('pr_create', { title: 'Widgets', body: 'Body' })
+  const state = JSON.parse(readFileSync(f.statePath, 'utf8'))
+  state.pulls[0].checks = [{ name: 'build', id: 1, status: 'completed', conclusion: 'success' }]
+  writeFileSync(f.statePath, JSON.stringify(state))
+  f.onQuestion(() => { git(f.checkout, 'remote', 'set-url', 'origin', 'https://github.com/acme/decoy.git') })
+  await assert.rejects(f.run('pr_merge', { number: 1, head: git(f.checkout, 'rev-parse', 'HEAD') }), /repository-changed/)
+  const row = (await f.rows())[0]!
+  assert.equal(row.op, 'pr.merge'); assert.equal(row.number, 1); assert.equal(row.outcome, 'refused')
 })

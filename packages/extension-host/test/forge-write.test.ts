@@ -15,6 +15,7 @@ const speak = (method, params) => new Promise(resolve => {
 export const plugin = { name: 'writer', inject: ['tools', 'context', 'forge'], apply(ctx) {
   ctx.tools.register({ name: 'forge_write', description: 'Fixture', inputSchema: { type: 'object' }, execute: async (args, scope) => {
     if (args.raw) return speak('forge/' + args.verb, { args: args.input, scope: { runtime: scope.runtime, sessionId: scope.sessionId, plugin: 'writer#1' } })
+    if (args.verb === 'repository') return JSON.stringify(await ctx.forge.repository(scope))
     if (['create', 'update', 'merge'].includes(args.verb)) return JSON.stringify(await ctx.forge.pullRequest[args.verb](args.input, scope))
     return JSON.stringify(await ctx.forge[args.verb](args.input, scope))
   } })
@@ -26,7 +27,7 @@ const inputs = {
   push: { branch: 'feature/widgets', sha: 'a'.repeat(40), expect: 'create' },
   create: { head: 'feature/widgets', title: 'Widgets', body: 'Body' }, update: { number: 1, body: 'Body' },
   merge: { number: 1, head: 'a'.repeat(40), method: 'squash' }, review: { number: 1, event: 'approve', body: '' },
-  comment: { subject: 'pullRequest', number: 1, body: 'Body' }, record: {}, attribute: { branch: 'feature/widgets', sha: 'a'.repeat(40) },
+  comment: { subject: 'pullRequest', number: 1, body: 'Body' }, repository: {}, record: {}, attribute: { branch: 'feature/widgets', sha: 'a'.repeat(40) },
 }
 
 test('forge writes cross the child only with a write grant, valid shapes, and a host-owned live scope', async t => {
@@ -44,6 +45,7 @@ test('forge writes cross the child only with a write grant, valid shapes, and a 
     const engine: ForgeEngine = {
       seat: async () => null, identity: async () => ({ via: 'gh', login: null, available: true, reason: null }),
       publish: async () => {}, publicationAllowed: async () => ({ ok: true }),
+      repository: async () => 'acme/widgets',
       push: answer, pullRequest: { create: answer, update: answer, merge: answer }, review: answer, comment: answer,
       record: async (_args, scope) => { assert.ok(scope.signal && !scope.signal.aborted); heard.push(scope); return [] }, attribute: async () => 'outside',
     }
@@ -54,7 +56,7 @@ test('forge writes cross the child only with a write grant, valid shapes, and a 
       const scope = { runtime: 'fixture', sessionId: 's1' } as never
       for (const [verb, input] of Object.entries(inputs)) {
         const result = await host.invokeTool(tool.id, { verb, input }, scope)
-        const needsWrite = !['record', 'attribute'].includes(verb)
+        const needsWrite = !['repository', 'record', 'attribute'].includes(verb)
         if (forge === true && needsWrite) { assert.equal(result.ok, false); assert.match(JSON.stringify(result), /forge.write/) }
         else assert.equal(result.ok, true, JSON.stringify(result))
         if (needsWrite) {
@@ -73,4 +75,35 @@ test('forge writes cross the child only with a write grant, valid shapes, and a 
       assert.ok(heard.every(one => one.signal?.aborted), 'the parent closes every invocation lease')
     } finally { await host.dispose(); await rm(root, { recursive: true, force: true }) }
   }
+})
+
+
+test('a host-held forge approval keeps a child invocation alive beyond its injected timeout', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'hd-forge-held-')), store = join(root, 'plugins'), directory = join(store, 'writer')
+  await mkdir(directory, { recursive: true })
+  await writeFile(join(directory, 'harnessdesk.plugin.json'), JSON.stringify({ id: 'writer', name: 'Writer', main: './index.mjs', permissions: { forge: { write: true } } }))
+  await writeFile(join(directory, 'index.mjs'), plugin)
+  const heard: ForgeScope[] = []
+  const answer = async (_args: unknown, scope: ForgeScope) => {
+    heard.push(scope)
+    await new Promise(resolve => setTimeout(resolve, 500))
+    assert.equal(scope.signal?.aborted, false, 'answering after the normal deadline is still live')
+    return { output: 'written', repository: 'acme/widgets' }
+  }
+  const engine: ForgeEngine = {
+    repository: async () => 'acme/widgets', seat: async () => null, identity: async () => ({ via: 'gh', login: null, available: true, reason: null }),
+    publish: async () => {}, publicationAllowed: async () => ({ ok: true }),
+    push: answer, pullRequest: { create: answer, update: answer, merge: answer }, review: answer, comment: answer,
+    record: async () => [], attribute: async () => 'outside',
+  }
+  const host = new SupervisedExtensionHost(new ExtensionKernel(), { invokeTimeoutMs: 200, env: { HARNESSDESK_PLUGINS: store }, forgeEngine: engine })
+  t.after(async () => { await host.dispose(); await rm(root, { recursive: true, force: true }) })
+  await host.loadInstalledPlugins()
+  const tool = host.list('tool').find(one => one.name === 'forge_write')!
+  const result = await host.invokeTool(tool.id, { verb: 'push', input: inputs.push }, { runtime: 'fixture', sessionId: 's1', turnId: 't1' } as never)
+  assert.equal(result.ok, true, JSON.stringify(result))
+  assert.equal(heard.length, 1)
+  assert.equal(heard[0]?.turnId, 't1')
+  assert.equal(heard[0]?.actor, 'agent')
+  assert.equal(heard[0]?.signal?.aborted, true)
 })

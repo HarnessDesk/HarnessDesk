@@ -187,7 +187,10 @@ export class ShellService extends Service {
       stderr: [stderr.trimEnd(), why].filter((part) => part !== '').join('\n'),
       exitCode: -1,
     })
+    // Gateway credential configuration is never inherited by a plugin shell.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(?:GH_TOKEN|GITHUB_TOKEN|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG.*|GIT_CREDENTIAL.*)$/i.test(key)))
     const pending = run(command, [...args], {
+      env,
       ...(cwd ? { cwd } : {}),
       timeout: timeoutMs,
       maxBuffer: MAX_OUTPUT,

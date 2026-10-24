@@ -71,7 +71,7 @@ import type {
 // from the calling conversation's Agent to the person, delivered by the host
 // to the inbox or that conversation's composer under the person's setting.
 // 10 adds the host-executed forge write verbs and Git record reads.
-export const EXTENSION_PROTOCOL_VERSION = 10
+export const EXTENSION_PROTOCOL_VERSION = 11
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -288,6 +288,7 @@ export interface ChildToHostMethods {
   'forge/merge': { params: { readonly scope: TeamCallScope; readonly args: ForgeMerge }; result: ForgeWriteResult }
   'forge/review': { params: { readonly scope: TeamCallScope; readonly args: ForgeReview }; result: ForgeWriteResult }
   'forge/comment': { params: { readonly scope: TeamCallScope; readonly args: ForgeComment }; result: ForgeWriteResult }
+  'forge/repository': { params: { readonly scope: TeamCallScope; readonly args: Record<string, never> }; result: string | null }
   'forge/record': { params: { readonly scope: TeamCallScope; readonly args: ForgeRecordQuery }; result: readonly ForgeGitEntry[] }
   'forge/attribute': { params: { readonly scope: TeamCallScope; readonly args: ForgeAttribute }; result: ForgeRequester | 'outside' }
   'forge/seat': { params: { readonly scope: TeamCallScope }; result: ForgeSeatInfo | null }

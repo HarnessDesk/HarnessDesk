@@ -150,7 +150,7 @@ const state = load()
 // machine already has — is the one actually being spawned.
 if (process.env['FAKE_GH_TRACE']) {
   try {
-    appendFileSync(process.env['FAKE_GH_TRACE'], `${JSON.stringify({ argv: args, cwd: process.cwd(), hasCredential: !!process.env['GH_TOKEN'] })}\n`)
+    appendFileSync(process.env['FAKE_GH_TRACE'], `${JSON.stringify({ argv: args, cwd: process.cwd(), hasCredential: !!process.env['GH_TOKEN'], envKeys: Object.keys(process.env) })}\n`)
   } catch {
     // best effort only
   }

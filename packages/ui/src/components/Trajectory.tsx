@@ -112,7 +112,7 @@ const labelOf = (item: AgentItem): string => {
     case 'publication': {
       const { reference } = item
       const title = reference.title ? ` · ${oneLine(reference.title)}` : ''
-      return `${publicationVerb(reference)} #${reference.number}${title}`
+      return `${publicationVerb(reference)} ${reference.kind === 'branch' ? `${reference.repo} ${reference.ref}` : `#${reference.number}`}${title}`
     }
     case 'userMessage':
       return typedUserText(item.content).trim() || 'Message'

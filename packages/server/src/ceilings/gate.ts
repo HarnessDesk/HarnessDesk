@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import {
   reaches,
   type CapabilityContribution,
@@ -26,6 +27,8 @@ export interface CeilingGatePort {
   nameOf(runtime: string, sessionId: string): string
   say(runtime: string, sessionId: string, text: string): void
   askPerson(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'refused' | 'unanswered'>
+  /** A denied or preflight-refused tool still belongs in its known project record. */
+  refused?(call: GatedCall, reason: string): Promise<void>
   /** Why a conversation may not publish to a forge yet — a blind review round still open — or null. */
   embargoOf?(runtime: string, sessionId: string): string | null
 }
@@ -43,6 +46,8 @@ export interface HeldQuestion {
 }
 
 export interface GatedCall {
+  readonly startedAt?: number
+  readonly args?: unknown
   readonly tool: string
   readonly needs: CeilingLevel
   readonly scope: ScopeQuery
@@ -86,28 +91,39 @@ export const heldWords = (tool: string, needs: CeilingLevel, sender: { readonly 
 }
 
 export class CeilingGate {
+  readonly #admissions = new AsyncLocalStorage<GatedCall>()
   constructor(private readonly port: CeilingGatePort) {}
+  during<T>(call: GatedCall, run: () => Promise<T>): Promise<T> { return this.#admissions.run(call, run) }
+  async recordRefusal(call: GatedCall, reason: string): Promise<void> {
+    if (!call.quiet && call.args !== undefined) await this.port.refused?.(call, reason)
+  }
+  async #refused(call: GatedCall, refusal: string): Promise<Admission> {
+    await this.recordRefusal(call, refusal)
+    return { admitted: false, refusal }
+  }
 
   async admit(call: GatedCall): Promise<Admission> {
     const { runtime, sessionId } = call.scope
     if (runtime === undefined || sessionId === undefined) return { admitted: true }
     const root = this.port.rootOf(String(runtime), String(sessionId))
-    if (root === null) return { admitted: false, refusal: unresolvedDelegationRefusal }
+    if (root === null) return this.#refused(call, unresolvedDelegationRefusal)
     if (call.publishes) {
       // A delegated call is held to its root's embargo too: a blind reviewer cannot publish through a helper.
       const embargo = this.port.embargoOf?.(String(runtime), String(sessionId)) ?? this.port.embargoOf?.(root.runtime, root.sessionId) ?? null
       if (embargo) {
         if (!call.quiet) this.port.say(root.runtime, root.sessionId, embargo)
-        return { admitted: false, refusal: embargo }
+        return this.#refused(call, embargo)
       }
     }
     const ceiling = this.port.ceilingOf(root.runtime, root.sessionId)
     if (ceiling && !reaches(ceiling.level, call.needs)) {
       const refusal = refusalOf(call.tool, call.needs, ceiling.level)
       if (!call.quiet) this.port.say(root.runtime, root.sessionId, refusal)
-      return { admitted: false, refusal }
+      return this.#refused(call, refusal)
     }
     if (!reaches(call.needs, 'publish')) return { admitted: true }
+    const admitted = this.#admissions.getStore()
+    if (admitted?.tool === call.tool && admitted.scope.runtime === runtime && admitted.scope.sessionId === sessionId && admitted.scope.turnId === call.scope.turnId) return { admitted: true }
     const own = root.runtime === String(runtime) && root.sessionId === String(sessionId)
     const turnId = own && call.scope.turnId !== undefined ? String(call.scope.turnId) : undefined
     const cause = this.port.causeOf(root.runtime, root.sessionId, turnId)
@@ -122,7 +138,7 @@ export class CeilingGate {
     }
     const refusal = answer === 'refused' ? words.refused : words.unanswered
     this.port.say(root.runtime, root.sessionId, refusal)
-    return { admitted: false, refusal }
+    return this.#refused(call, refusal)
   }
 }
 
@@ -147,8 +163,14 @@ export class GatedRegistry implements CapabilityRegistry {
       const tool = this.inner.list('tool', scope).find((one) => one.id === id)
       if (tool) {
         const plugin = this.inner.plugins().find((one) => one.instanceId === tool.owner)
-        const admitted = await gate.admit({ tool: tool.name, needs: toolCeiling(tool, plugin), scope, publishes: publishesToForge(tool, plugin) })
+        const call = { startedAt: Date.now(), tool: tool.name, args, needs: toolCeiling(tool, plugin), scope, publishes: publishesToForge(tool, plugin) }
+        const admitted = await gate.admit(call)
         if (!admitted.admitted) return { ok: false, error: admitted.refusal }
+        return gate.during(call, async () => {
+          const result = await this.inner.invokeTool(id, args, scope)
+          if (!result.ok) await gate.recordRefusal(call, result.error)
+          return result
+        })
       }
     }
     return this.inner.invokeTool(id, args, scope)

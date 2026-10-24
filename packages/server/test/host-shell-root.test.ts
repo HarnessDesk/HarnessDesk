@@ -20,6 +20,7 @@ import { managedWorktreePath, Worktrees } from '../src/worktree.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { captureShellProject, shellProjectUnchanged } from '../src/shell-project.js'
 import { LaneStore } from '../src/goals/lanes.js'
+import { GitPins } from '../src/git-gateway/pins.js'
 import { StateStore } from '../src/state.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
@@ -30,7 +31,7 @@ const git = async (cwd: string, ...args: string[]) => (await run('git', ['-C', c
   env: { ...process.env, GIT_AUTHOR_NAME: 'Jane Doe', GIT_AUTHOR_EMAIL: 'dev@example.com', GIT_COMMITTER_NAME: 'Jane Doe', GIT_COMMITTER_EMAIL: 'dev@example.com' },
 })).stdout
 
-async function rig(t: TestContext, runtime?: AgentRuntime, collision = false) {
+async function rig(t: TestContext, runtime?: AgentRuntime, collision = false, heldWaitMs?: number) {
   const base = await realpath(tempDir('hd-shell-authority-'))
   const project = join(base, collision ? 'a/b' : 'project')
   const other = join(base, collision ? 'a\\b' : 'other')
@@ -43,7 +44,7 @@ async function rig(t: TestContext, runtime?: AgentRuntime, collision = false) {
   }
   await writeFile(join(other, 'file.txt'), 'private-other-repository\n')
   const kernel = new ExtensionKernel()
-  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), extensions: kernel, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
+  const host = new Host({ heldWaitMs, logger: silent, state: new StateStore(join(stateDir, 'state.json')), extensions: kernel, builtinAgents: join(base, 'agents'), libraryHome: join(base, 'library') })
   const agent = runtime ?? new FakeRuntime()
   host.register(agent)
   let disposed = false
@@ -819,4 +820,32 @@ test('browser admission reuses path checks and immediately invalidates on lane w
   assert.ok(paths.mock.callCount() > checked)
   await lanes.save({ ...lanes.list()[0]!, state: 'released' })
   assert.equal(host.browserProfileAllowed(profile), false, 'revocation invalidates a warm cache immediately')
+})
+
+
+test('forge reads the same admitted fallback checkout as plugin shell', async t => {
+  const d = await rig(t)
+  const scope = d.conversation(d.other)
+  const shell = await d.kernel.invokeTool(d.tool.id, {}, scope)
+  assert.equal(shell.ok, true)
+  const admitted = d.host.registry.get(scope.runtime, scope.sessionId)!.shellCheckout!
+  assert.equal(admitted.cwd, d.project)
+  assert.equal(d.host.registry.get(scope.runtime, scope.sessionId)!.session.cwd, d.other)
+  const pins = new GitPins(d.stateDir)
+  await pins.pin(d.project, 'acme/widgets', { kind: 'person', id: 'person' })
+  assert.equal(await d.host.forgePlane.repository({ ...scope, plugin: 'fixture', signal: new AbortController().signal }), 'acme/widgets')
+})
+
+
+test('forge approval reports an injected held-question timeout without remote reads', async t => {
+  const d = await rig(t, undefined, false, 5)
+  await git(d.project, 'branch', '-m', 'feature/timeout')
+  await git(d.project, 'remote', 'add', 'origin', 'https://github.com/acme/widgets.git')
+  const scope = d.conversation(d.project)
+  const sha = (await git(d.project, 'rev-parse', 'HEAD')).trim()
+  await assert.rejects(d.host.forgePlane.push({ branch: 'feature/timeout', sha, expect: 'create' }, {
+    ...scope, plugin: 'fixture', signal: new AbortController().signal,
+  }), /Push question timed out/)
+  assert.equal(d.host.registry.get(scope.runtime, scope.sessionId)!.approvals.size, 0)
+  assert.equal(await new GitPins(d.stateDir).pinned(d.project), null)
 })

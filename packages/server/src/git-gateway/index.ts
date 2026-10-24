@@ -124,7 +124,7 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
     if (/remote rejected|hook declined|pre-receive hook declined/i.test(output)) return { outcome: 'refused', reason: output.trim() }
     if (reason === 'git-gateway-owned-head-changed' || /\[rejected\][^\r\n]*\(stale info\)/i.test(value.stdout ?? '') ||
       op === 'pr.merge' && /match.head|head.*changed/i.test(output)) return { outcome: 'rejected', reason }
-    if (/git-gateway-(reviewed-sha-mismatch|tree-invalid|branch-exists-not-owned|not-fast-forward|default-branch|protected-branch|target-invalid)/.test(reason))
+    if (/git-gateway-(reviewed-sha-mismatch|tree-invalid|branch-exists-not-owned|not-fast-forward|default-branch|protected-branch|target-invalid|repository-changed)/.test(reason))
       return { outcome: 'refused', reason }
     return { outcome: 'failed', reason }
   }
@@ -230,10 +230,20 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       { env: { ...this.#env, GIT_CONFIG_GLOBAL: '/dev/null' }, timeout: 10_000 }).catch(error => {
         if ((error as { code?: number }).code === 1) return { stdout: '' }; throw error
       })
-    const url = result.stdout.trim()
-    const match = /^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(url)
+    return this.#repositoryOfUrl(result.stdout.trim())
+  }
+  #repositoryOfUrl(url: string): string | null {
+    const match = /^(?:https:\/\/github\.com\/|ssh:\/\/(?:git@)?github\.com(?:-[a-zA-Z0-9.-]+)?\/|git@github\.com(?:-[a-zA-Z0-9.-]+)?:)([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(url)
     return match?.[1] ? canonicalRepository(match[1]) : null
   }
+  /** Effective origin includes checkout insteadOf rewrites, unlike the raw proposal. */
+  async originMatches(cwd: string, repository: string): Promise<boolean> {
+    if (await this.proposedRepository(cwd) !== repository) return false
+    const result = await execute('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, 'remote', 'get-url', 'origin'],
+      { env: { ...this.#env, ...this.#hostConfig, GIT_CONFIG_NOSYSTEM: undefined }, timeout: 10_000 })
+    return this.#repositoryOfUrl(result.stdout.trim()) === repository
+  }
+
   /** Read-only preflight, using the same mirror and protected-branch guards as execution. */
   assessPush(request: GitPush): Promise<{ readonly head: string | null; readonly fastForward: boolean }> {
     return this.#queue(request.repository, async () => {
@@ -379,6 +389,13 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       return this.#gh(target.repository, target.number === undefined ?
         ['pr', 'list', '--head', target.branch, '--state', 'open', '--json', 'number,url,headRefName,headRefOid,body,isCrossRepository,headRepositoryOwner'] :
         ['pr', 'view', String(target.number), '--json', 'number,title,state,url,body,headRefName,headRefOid,isCrossRepository,headRepositoryOwner,author,additions,deletions,changedFiles'])
+    })
+  }
+  pullRequestHeadRef(repository: string, number: number): Promise<string> {
+    return this.#queue(repository, async () => {
+      const pr = JSON.parse(await this.#gh(repository, ['pr', 'view', String(number), '--json', 'headRefName'])) as { headRefName?: string }
+      if (!pr.headRefName) throw new Error('The pull request head branch could not be read.')
+      return pr.headRefName
     })
   }
   #forgeWrite(op: GitRecordEntry['op'], target: GitWrite, args: readonly string[]): Promise<string> {

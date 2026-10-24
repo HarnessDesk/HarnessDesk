@@ -34,9 +34,9 @@ import { seatOf } from './seat.js'
 export interface ForgePort {
   readonly gitGateway?: GitGateway
   checkoutOf?(scope: ForgeScope): Promise<{ readonly cwd: string; readonly root: string } | null>
-  admitWrite?(verb: ForgeVerb, scope: ForgeScope): Promise<void>
+  admitWrite?(verb: ForgeVerb, scope: ForgeScope, args?: unknown): Promise<void>
   askPerson?(scope: ForgeScope, question: HeldQuestion): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>
-  mergeStep?(scope: ForgeScope): boolean
+  mergeStep?(scope: ForgeScope, target: { readonly number: number; readonly head: string }): boolean
   /** The agent behind a runtime — its presentation name and version — or null when the host has no such runtime. */
   agentOf(runtime: string): { readonly name: string; readonly version: string | null } | null
   /** The controls of a conversation with their current values, or null when the host holds no such conversation. */
@@ -129,33 +129,67 @@ export class ForgePlane implements ForgeEngine {
   async #context(scope: ForgeScope, verb: ForgeVerb, args: unknown) {
     this.#live(scope)
     validateForgeArgs(verb, args)
-    if (!['record', 'attribute'].includes(verb)) {
-      if (!this.port.admitWrite) throw new Error('The host has no forge write ceiling gate.')
-      await this.port.admitWrite(verb, scope)
-      const allowed = await this.publicationAllowed(scope)
-      if (!allowed.ok) throw new Error(allowed.reason)
-    }
     const gateway = this.port.gitGateway
     const checkout = await this.port.checkoutOf?.(scope)
     const seat = await this.seat(scope)
     if (!gateway || !checkout || !seat) throw new Error('No project and seat could be confirmed for this invocation.')
-    const requester: GitRequester = { kind: 'session', id: `${scope.runtime}/${scope.sessionId}`,
+    const requester: GitRequester = scope.actor === 'human' ? { kind: 'person', id: 'person' } : {
+      kind: 'session', id: `${scope.runtime}/${scope.sessionId}`,
       seat: { label: seat.label, role: seat.role, round: seat.round, team: seat.team },
       conversation: { runtime: scope.runtime!, sessionId: scope.sessionId! } }
     const repository = await gateway.pins.pinned(checkout.root)
+    if (!['record', 'attribute', 'repository'].includes(verb)) {
+      try {
+        if (scope.actor === 'context') throw new Error('Context resolution cannot write to the forge.')
+        if (!this.port.admitWrite) throw new Error('The host has no forge write ceiling gate.')
+        await this.port.admitWrite(verb, scope, args)
+        const allowed = await this.publicationAllowed(scope)
+        if (!allowed.ok) throw new Error(allowed.reason)
+      } catch (error) {
+        if (repository) await gateway.refuse(this.#op(verb, args), { repository, requester, ...this.#address(args) }, String(error))
+        throw error
+      }
+    }
     return { gateway, checkout, requester, repository }
+  }
+  #op(verb: ForgeVerb, args: unknown): import('./git-gateway/index.js').GitRecordEntry['op'] {
+    if (verb === 'comment') return (args as ForgeComment)?.subject === 'issue' ? 'issue.comment' : 'pr.comment'
+    const op = { push: 'push', create: 'pr.create', update: 'pr.update', merge: 'pr.merge', review: 'pr.review' } as const
+    if (verb === 'record' || verb === 'attribute' || verb === 'repository') throw new Error('A forge read has no write operation.')
+    return op[verb]
+  }
+  #address(args: unknown): { number?: number } {
+    const number = (args as { number?: unknown } | null)?.number
+    return Number.isSafeInteger(number) && Number(number) > 0 ? { number: Number(number) } : {}
+  }
+  /** Refusals before plugin execution still belong in a known project's record. */
+  async refuseTool(tool: string, args: unknown, scope: ForgeScope, reason: string, since = Date.now()): Promise<void> {
+    const verb = ({ git_push: 'push', pr_create: 'create', pr_update: 'update', pr_merge: 'merge', pr_review: 'review', pr_comment: 'comment', issue_comment: 'comment' } as Partial<Record<string, ForgeVerb>>)[tool]
+    if (!verb || !this.port.gitGateway) return
+    const checkout = await this.port.checkoutOf?.(scope)
+    const repository = checkout && await this.port.gitGateway.pins.pinned(checkout.root)
+    if (!repository) return
+    const requester: GitRequester = scope.actor === 'human' ? { kind: 'person', id: 'person' } : { kind: 'session', id: `${scope.runtime}/${scope.sessionId}` }
+    const op = tool === 'issue_comment' ? 'issue.comment' : this.#op(verb, args)
+    const address = this.#address(args)
+    const rows = await this.port.gitGateway.record({ repository, ...address, limit: 100 })
+    if (rows.some(row => row.op === op && row.at >= since && row.outcome !== 'intent' && row.requester.kind === requester.kind && row.requester.id === requester.id)) return
+    await this.port.gitGateway.refuse(op, { repository, requester, ...address }, reason)
   }
   async #destination(scope: ForgeScope, verb: ForgeVerb, args: unknown) {
     const ctx = await this.#context(scope, verb, args)
     if (!ctx.repository) throw new Error('This project has no pinned repository. Call git_push and approve its repository first.')
-    const proposed = await ctx.gateway.proposedRepository(ctx.checkout.cwd)
-    if (proposed !== ctx.repository) throw new Error(`The checkout origin ${proposed ?? '(unrecognised)'} differs from the pinned repository ${ctx.repository}; nothing was written.`)
+    if (!await ctx.gateway.originMatches(ctx.checkout.cwd, ctx.repository)) {
+      const reason = `The checkout origin differs from the pinned repository ${ctx.repository}; nothing was written.`
+      await ctx.gateway.refuse(this.#op(verb, args), { repository: ctx.repository, requester: ctx.requester, ...this.#address(args) }, reason)
+      throw new Error(reason)
+    }
     return { ...ctx, repository: ctx.repository }
   }
   #beforeWrite(scope: ForgeScope, gateway: GitGateway, root: string, cwd: string, repository: string) {
     return async () => {
       this.#live(scope)
-      if (await gateway.pins.pinned(root) !== repository || await gateway.proposedRepository(cwd) !== repository) throw new Error('The pinned repository or checkout origin changed; nothing was written.')
+      if (await gateway.pins.pinned(root) !== repository || !await gateway.originMatches(cwd, repository)) throw new Error('git-gateway-repository-changed: The pinned repository or checkout origin changed; nothing was written.')
       this.#live(scope)
     }
   }
@@ -169,18 +203,19 @@ export class ForgePlane implements ForgeEngine {
     const target = { repository, branch: args.branch, sha: args.sha, previousSha, requester }
     let executing = false
     try {
-      if (ctx.repository && proposed !== ctx.repository) throw new Error(`The checkout origin ${proposed ?? '(unrecognised)'} differs from the pinned repository ${ctx.repository}; nothing was written.`)
+      if (ctx.repository && !await gateway.originMatches(checkout.cwd, ctx.repository)) throw new Error(`The checkout origin ${proposed ?? '(unrecognised)'} differs from the pinned repository ${ctx.repository}; nothing was written.`)
       const inspected = await gateway.inspectCheckout(checkout.cwd)
       if (inspected.branch !== args.branch || inspected.sha !== args.sha) throw new Error('git-gateway-reviewed-sha-mismatch')
       const push = { ...target, objectStore: inspected.objectStore, tree: inspected.tree }
-      const assessment = await gateway.assessPush(push)
+      // An unpinned origin is only a proposal until the person approves it.
+      let assessment = ctx.repository ? await gateway.assessPush(push) : null
       const standingKey = `${requester.id}\0${checkout.root}\0${args.branch}`
       const history = await gateway.record({ repository, branch: args.branch, limit: 1000 })
       const ownCreation = history.some(row => row.op === 'push' && row.outcome === 'ok' && row.previousSha === null && row.requester.kind === 'session' && row.requester.id === requester.id)
       const owned = previousSha === null ? false : await gateway.attribute(repository, args.branch, previousSha)
       const continuation = owned !== 'outside' && owned !== false && owned.kind === 'session' && owned.id === requester.id && ownCreation
       let approval: GitApproval = { by: 'standing', at: Date.now() }
-      const rewrite = assessment.head !== null && !assessment.fastForward
+      let rewrite = assessment !== null && assessment.head !== null && !assessment.fastForward
       if (!ctx.repository || rewrite || !(continuation || this.#standing.has(standingKey))) {
         const answer = await this.port.askPerson?.(scope, {
           summary: `Push ${args.branch} to ${repository}`,
@@ -188,23 +223,36 @@ export class ForgePlane implements ForgeEngine {
           facts: [{ label: 'Repository', value: repository }, { label: 'Branch', value: args.branch }, { label: 'Head', value: args.sha }],
           options: [{ id: 'allow', label: 'Push', intent: 'approve' }, { id: 'standing', label: 'Push this branch without asking', intent: 'approveAlways' }, { id: 'refuse', label: "Don't push", intent: 'deny' }],
         })
-        if (answer !== 'allowed' && answer !== 'standing') throw new Error('Push refused: the person did not approve it.')
-        this.#live(scope)
+        if (answer !== 'allowed' && answer !== 'standing') throw new Error(answer === 'unanswered' ? 'Push question timed out; nothing was written.' : 'Push refused: the person did not approve it.')
         if (answer === 'standing') this.#standing.add(standingKey)
+        this.#live(scope)
         approval = { by: 'person', at: Date.now() }
         if (!ctx.repository) await gateway.pins.pin(checkout.root, repository, requester)
       }
       this.#live(scope)
+      if (!assessment) {
+        if (!await gateway.originMatches(checkout.cwd, repository)) throw new Error('The checkout origin differs from the pinned repository; nothing was written.')
+        assessment = await gateway.assessPush(push)
+        rewrite = assessment.head !== null && !assessment.fastForward
+        if (rewrite) {
+          const answer = await this.port.askPerson?.(scope, { summary: `Push ${args.branch} to ${repository}`,
+            reason: 'This rewrites the branch. Push the reviewed head from HarnessDesk’s own copy, as you, and keep a record.',
+            facts: [{ label: 'Repository', value: repository }, { label: 'Branch', value: args.branch }, { label: 'Head', value: args.sha }],
+            options: [{ id: 'allow', label: 'Push', intent: 'approve' }, { id: 'refuse', label: "Don't push", intent: 'deny' }] })
+          if (answer !== 'allowed') throw new Error(answer === 'unanswered' ? 'Push question timed out; nothing was written.' : 'Push refused: the person did not approve the rewrite.')
+          this.#live(scope)
+        }
+      }
       executing = true
       await gateway.push({ ...push, approval, ...(rewrite ? { allowRewrite: true } : {}) }, { beforePush: async () => {
         this.#live(scope)
         const current = await gateway.inspectCheckout(checkout.cwd)
         if (current.branch !== args.branch || current.sha !== args.sha || current.tree !== inspected.tree) throw new Error('git-gateway-reviewed-sha-mismatch')
-        if (await gateway.pins.pinned(checkout.root) !== repository || await gateway.proposedRepository(checkout.cwd) !== proposed) throw new Error('git-gateway-repository-changed')
+        if (await gateway.pins.pinned(checkout.root) !== repository || !await gateway.originMatches(checkout.cwd, repository)) throw new Error('git-gateway-repository-changed')
       } })
       return { output: `Pushed ${args.branch} to ${repository} at ${args.sha}.`, repository }
     } catch (error) {
-      if (!executing) await gateway.refuse('push', target, error instanceof Error ? error.message : String(error))
+      if (!executing && await gateway.pins.pinned(checkout.root) === repository) await gateway.refuse('push', target, error instanceof Error ? error.message : String(error))
       throw error
     }
   }
@@ -212,7 +260,11 @@ export class ForgePlane implements ForgeEngine {
     create: async (args: ForgeCreate, scope: ForgeScope): Promise<ForgeWriteResult> => {
       const { gateway, checkout, requester, repository } = await this.#destination(scope, 'create', args)
       const current = await gateway.inspectCheckout(checkout.cwd)
-      if (current.branch !== args.head || await gateway.remoteHead(repository, args.head) !== current.sha) throw new Error('Push this branch with git_push before opening its pull request.')
+      if (current.branch !== args.head || await gateway.remoteHead(repository, args.head) !== current.sha) {
+        const reason = 'Push this branch with git_push before opening its pull request.'
+        await gateway.refuse('pr.create', { repository, requester, branch: args.head }, reason)
+        throw new Error(reason)
+      }
       this.#live(scope)
       return { output: await gateway.createPullRequest({ ...args, branch: args.head, repository, requester, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
     },
@@ -224,12 +276,13 @@ export class ForgePlane implements ForgeEngine {
     merge: async (args: ForgeMerge, scope: ForgeScope): Promise<ForgeWriteResult> => {
       const { gateway, checkout, requester, repository } = await this.#destination(scope, 'merge', args)
       let approval: GitApproval = { by: 'ceiling', at: Date.now() }
-      if (!this.port.mergeStep?.(scope)) {
+      if (!this.port.mergeStep?.(scope, { number: args.number, head: args.head })) {
         const answer = await this.port.askPerson?.(scope, { summary: `Merge pull request #${args.number} in ${repository}`,
-          reason: `Merge the reviewed head ${args.head}.`, facts: [{ label: 'Repository', value: repository }, { label: 'Head', value: args.head }] })
+          reason: `Merge the reviewed head ${args.head}.`, facts: [{ label: 'Repository', value: repository }, { label: 'Branch', value: await gateway.pullRequestHeadRef(repository, args.number) }, { label: 'Head', value: args.head }],
+          options: [{ id: 'allow', label: 'Merge', intent: 'approve' }, { id: 'refuse', label: "Don't merge", intent: 'deny' }] })
         if (answer !== 'allowed') {
           await gateway.refuse('pr.merge', { repository, requester, number: args.number, sha: args.head }, 'Merge refused: the person did not approve it.')
-          throw new Error('Merge refused: the person did not approve it.')
+          throw new Error(answer === 'unanswered' ? 'Merge question timed out; nothing was written.' : 'Merge refused: the person did not approve it.')
         }
         approval = { by: 'person', at: Date.now() }
       }
@@ -246,6 +299,9 @@ export class ForgePlane implements ForgeEngine {
     const { gateway, checkout, requester, repository } = await this.#destination(scope, 'comment', args)
     this.#live(scope)
     return { output: await gateway.comment({ ...args, repository, requester, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
+  }
+  async repository(scope: ForgeScope): Promise<string | null> {
+    return (await this.#context(scope, 'repository', {})).repository
   }
   async record(args: ForgeRecordQuery, scope: ForgeScope) {
     const { gateway, repository } = await this.#context(scope, 'record', args)

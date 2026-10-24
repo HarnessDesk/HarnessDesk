@@ -41,6 +41,8 @@ export interface ForgeIdentity {
 }
 
 export interface ForgeScope {
+  readonly actor?: 'agent' | 'human' | 'context'
+  readonly turnId?: string
   readonly runtime?: string
   readonly sessionId?: string
   /** Host-owned invocation lifetime, never a tool argument. */
@@ -64,7 +66,7 @@ export function validateForgeArgs(verb: ForgeVerb, input: unknown): void {
     x.split('/').every(part => !part.startsWith('.') && !part.endsWith('.lock'))
   const allowed: Record<ForgeVerb, string[]> = { push: ['branch', 'sha', 'expect'], create: ['head', 'base', 'title', 'body', 'draft'],
     update: ['number', 'title', 'body', 'base'], merge: ['number', 'head', 'method', 'body'], review: ['number', 'event', 'body'],
-    comment: ['subject', 'number', 'body'], record: ['branch', 'number', 'limit'], attribute: ['branch', 'sha'] }
+    comment: ['subject', 'number', 'body'], record: ['branch', 'number', 'limit'], attribute: ['branch', 'sha'], repository: [] }
   if (Object.keys(v).some(key => !allowed[verb].includes(key))) return fail()
   if (['update', 'merge', 'review', 'comment'].includes(verb) && (!Number.isSafeInteger(v.number) || Number(v.number) < 1)) return fail()
   if (v.number !== undefined && (!Number.isSafeInteger(v.number) || Number(v.number) < 1)) return fail()
@@ -85,6 +87,7 @@ export function validateForgeArgs(verb: ForgeVerb, input: unknown): void {
 }
 
 export interface ForgeEngine {
+  repository(scope: ForgeScope): Promise<string | null>
   push(args: ForgePush, scope: ForgeScope): Promise<ForgeWriteResult>
   readonly pullRequest: {
     create(args: ForgeCreate, scope: ForgeScope): Promise<ForgeWriteResult>
@@ -132,7 +135,7 @@ const engine = (): ForgeEngine => {
 const asForgeScope = (scope: ScopeQuery | undefined, plugin: string): ForgeScope => {
   const trusted = invocationScope(plugin, scope)
   const identity = currentBrowserIdentity()
-  const answer = { ...trusted.scope, plugin, ...(identity ? { invocation: identity.invocation } : {}) }
+  const answer = { ...trusted.scope, actor: trusted.actor, plugin, ...(identity ? { invocation: identity.invocation } : {}) }
   Object.defineProperty(answer, 'signal', { value: trusted.signal, enumerable: false })
   return answer
 }
@@ -155,10 +158,14 @@ export class ForgeService extends Service {
   }
 
   private callScope(verb: ForgeVerb, args: unknown, scope?: ScopeQuery): ForgeScope {
-    const plugin = this.gate(verb !== 'record' && verb !== 'attribute')
+    const plugin = this.gate(!['record', 'attribute', 'repository'].includes(verb))
     const trusted = asForgeScope(scope, plugin)
     validateForgeArgs(verb, args)
+    if (!['record', 'attribute', 'repository'].includes(verb) && trusted.actor === 'context') throw new Error('Context resolution cannot write to the forge.')
     return trusted
+  }
+  async repository(scope?: ScopeQuery): Promise<string | null> {
+    return engine().repository(this.callScope('repository', {}, scope))
   }
   async push(args: ForgePush, scope?: ScopeQuery): Promise<ForgeWriteResult> {
     args = structuredClone(args)

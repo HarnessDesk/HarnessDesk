@@ -175,6 +175,7 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
   const embargo = { current: null as string | null }
   const hostWrite = async (args: string[]) => ({ repository: 'acme/widgets', output: execFileSync('gh', args, { cwd: existsSync(join(home, 'expected-cwd')) ? readFileSync(join(home, 'expected-cwd'), 'utf8') : repo, encoding: 'utf8' }).trim() })
   const engine: ForgeEngine = {
+    repository: async () => 'acme/widgets',
     push: async () => { throw new Error('Use the gateway integration fixture for pushes') },
     pullRequest: {
       create: args => hostWrite(['pr', 'create', '--head', args.head, '--title', args.title, '--body', args.body, ...(args.base ? ['--base', args.base] : []), ...(args.draft ? ['--draft'] : [])]),
@@ -1563,6 +1564,7 @@ test('all direct desk publication paths honor embargo', async (t) => {
   // A desk that cannot answer refuses as well: a post on a guess is what the embargo exists to prevent.
   forge.embargo.current = null
   setForgeEngine({
+    repository: async () => 'acme/widgets',
     push: async () => { throw new Error('No gateway in this fixture') },
       pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
       review: async () => { throw new Error('No gateway in this fixture') },

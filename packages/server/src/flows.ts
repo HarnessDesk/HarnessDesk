@@ -571,6 +571,10 @@ export class Flows implements TeamFlows {
     await this.#writes
   }
 
+  isMergeStep(room: string, card: number, target: { readonly number: number; readonly head: string }): boolean {
+    return this.#executions?.isMergeStep(room, card, target) ?? false
+  }
+
   bindingOf(room: string, intent: number): { readonly session: { readonly runtime: string; readonly sessionId: string } | null } | null {
     return this.#executions?.bindingOf(room, intent) ?? null
   }
