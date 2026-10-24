@@ -799,8 +799,11 @@ export interface FlowExecutionsOptions {
      * `transient` marks a refusal that lifts on its own — a pause, the daily
      * cap: the run is held, never stalled or stopped, and its release
      * continues it. Any other refusal stalls the run for a person.
+     * `pending` is a `transient` one that only reports an earlier hold's
+     * unfinished cleanup: the run is still gated, but it is not held again,
+     * since that would replace the hold's own reason with this one.
      */
-    gate?(run: FlowExecution): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: boolean }>
+    gate?(run: FlowExecution): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: boolean; readonly pending?: boolean }>
   }
 }
 
@@ -2970,12 +2973,14 @@ export class FlowExecutions {
     if (run.intake.dispatchHeld) return false
     const verdict = await this.#gateOf(id)
     if (verdict.ok) return true
+    // Gated, but by a hold that is already being cleaned up under its own reason: holding again would replace it with this sentence.
+    if (verdict.pending) return false
     if (verdict.transient) await this.#hold(id, verdict.reason)
     else await this.#stall(id, verdict.reason)
     return false
   }
 
-  async #gateOf(id: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: boolean }> {
+  async #gateOf(id: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: boolean; readonly pending?: boolean }> {
     const run = this.#get(id)
     const gate = this.#triggered?.gate
     return gate ? gate(this.#projectExecution(run)) : { ok: true }
@@ -3039,8 +3044,15 @@ export class FlowExecutions {
    * handed its card again once the hold lifts, never while it stands.
    */
   async #noteHeld(id: string, operation: FlowOperation): Promise<void> {
+    /* Held, or about to be: a hold whose cleanup the budget watch has not
+       finished is not on the run yet, and the Seat whose turn ended meanwhile
+       is handed its card when the hold is released all the same. */
+    if (!this.#get(id).intake?.heldFor) {
+      const gate = await this.#gateOf(id)
+      if (gate.ok || !gate.pending) return
+    }
     const run = this.#get(id)
-    if (!run.intake?.heldFor || run.intake.rearm?.includes(operation.key)) return
+    if (!run.intake || run.intake.rearm?.includes(operation.key)) return
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
     if (!card || done(card)) return
     await this.#put({ ...run, intake: { ...run.intake, rearm: [...(run.intake.rearm ?? []), operation.key] } })
@@ -3365,6 +3377,7 @@ export class FlowExecutions {
       if (current.intake.dispatchHeld) return false
       const verdict = await this.#gateOf(id)
       if (verdict.ok) return true
+      if (verdict.pending) return false
       if (verdict.transient) {
         await this.#hold(id, verdict.reason)
         return false
@@ -3732,6 +3745,7 @@ export class FlowExecutions {
       if (run.intake.dispatchHeld) return false
       const verdict = await this.#gateOf(id)
       if (!verdict.ok) {
+        if (verdict.pending) return false
         if (verdict.transient) await this.#hold(id, verdict.reason)
         else await stall(verdict.reason)
         return false

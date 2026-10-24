@@ -11,6 +11,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **OpenCode stops reading “Signed out.” after you sign back in.** After signing out from Settings, signing in again outside HarnessDesk now shows the account in Settings without having to open a session first.
 
+- **A paused or capped run keeps saying why while its cleanup finishes.** When a budget cap or a pause stops a run, the run shows that reason until the interrupted work has been cleaned up, instead of switching to a generic “waits while its interrupted work is cleaned up” message, and it is not held a second time in the meantime.
+
 ## 0.6.0 — 2026-10-21
 
 A Team opens on its recorded Work, Settings reads calmer and behaves the same

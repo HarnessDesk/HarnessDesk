@@ -185,8 +185,11 @@ export interface GoalRig {
    * arm would freeze it; `changed` makes the re-read closure differ.
    */
   startTriggered(source: string, agents: readonly AgentEntry[], options?: { readonly again?: string; readonly changed?: boolean; readonly key?: string; readonly budget?: TriggerDefinition['budget'] }): Promise<FlowExecution>
-  /** The dispatch gate a trigger's run passes; null lets it go. A `transient` refusal (a pause, the cap) holds rather than stops. */
-  triggerGate: ((run: FlowExecution) => string | { readonly reason: string; readonly transient: true } | null) | null
+  /**
+   * The dispatch gate a trigger's run passes; null lets it go. A `transient` refusal (a pause, the cap) holds rather than stops;
+   * a `pending` one only reports that an earlier hold's cleanup is unfinished, and holds nothing again.
+   */
+  triggerGate: ((run: FlowExecution) => string | { readonly reason: string; readonly transient: true; readonly pending?: true } | null) | null
   /** Each trigger Goal's persisted origin, as the Goal store would answer it. */
   readonly origins: Map<string, GoalOrigin>
   /** A fresh engine over the same folder, board and Goal plane: a restart. */
@@ -519,7 +522,9 @@ export const goalRig = async (
         gate: async (run) => {
           const verdict = rig.triggerGate?.(run) ?? null
           if (verdict === null) return { ok: true as const }
-          return typeof verdict === 'string' ? { ok: false as const, reason: verdict } : { ok: false as const, reason: verdict.reason, transient: true as const }
+          return typeof verdict === 'string'
+            ? { ok: false as const, reason: verdict }
+            : { ok: false as const, reason: verdict.reason, transient: true as const, ...(verdict.pending ? { pending: true as const } : {}) }
         },
       },
     })

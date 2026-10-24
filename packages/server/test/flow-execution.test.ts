@@ -872,6 +872,107 @@ rules: []
   assert.equal(orders(rig.events).length, 2)
 })
 
+/*
+ * The budget watch finishes a hold whose interruption failed under the reason
+ * it was started for. Until it has, the gate answers a `pending` verdict: the
+ * run is still gated, but nothing here may hold it again — that would put the
+ * verdict's own sentence where the pause or the cap was, and start the hold
+ * over.
+ */
+const REVIEW_ONE = `
+version: 2
+name: Review a change
+roles:
+  reviewer: { kind: agent, uses: reviewer }
+seed: { role: reviewer, title: Review it }
+rules: []
+`
+const PAUSED_REASON = 'Every trigger is paused. Resume triggers to continue.'
+const PENDING_VERDICT = { reason: 'This Goal waits while its interrupted work is cleaned up.', transient: true, pending: true } as const
+const holdOf = (run: { readonly intake?: { readonly dispatchHeld: boolean; readonly heldFor?: string | null; readonly holdGeneration?: number } | undefined }) =>
+  [run.intake?.dispatchHeld, run.intake?.heldFor ?? null, run.intake?.holdGeneration ?? 0]
+
+test('a Seat whose turn ends while a hold’s cleanup is pending is neither held again nor handed its card, and is handed it once the hold is released', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1'])
+  const before = holdOf(rig.flows.executionsFor(run.goal)[0]!)
+  assert.deepEqual(before, [false, null, 0])
+
+  rig.triggerGate = () => PENDING_VERDICT
+  const session = rig.sessionOf('seat-1')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  await rig.flows.flush()
+  const waiting = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(waiting.state, 'running')
+  assert.equal(waiting.reason, null)
+  assert.deepEqual(holdOf(waiting), before, 'no hold of its own: the reason and the generation are the ones it had')
+  assert.equal(orders(rig.events).length, 1, 'still gated: nothing is handed over')
+
+  // The watch completes the hold under the reason it was started for; the release then hands the card back, once.
+  await rig.flows.holdTriggered(run.id, PAUSED_REASON)
+  assert.deepEqual(holdOf(rig.flows.executionsFor(run.goal)[0]!), [true, PAUSED_REASON, 1])
+  rig.triggerGate = null
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-1'], 'the Seat whose turn ended meanwhile is not forgotten')
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.equal(orders(rig.events).length, 2)
+})
+
+test('a round that meets a hold’s pending cleanup while seating opens nothing more and holds nothing again', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  rig.beforeClaim = (n) => { if (n === 1) rig.triggerGate = () => PENDING_VERDICT }
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(opens(rig.events), ['open:seat-1'], 'no Seat opens past the gate')
+  assert.deepEqual(orders(rig.events), [], 'no card is handed over')
+  const waiting = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(waiting.state, 'running')
+  assert.deepEqual(holdOf(waiting), [false, null, 0], 'no hold of its own')
+
+  rig.beforeClaim = null
+  await rig.flows.holdTriggered(run.id, PAUSED_REASON)
+  rig.triggerGate = null
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-2'], 'its release carries the round on')
+})
+
+test('a check that meets a hold’s pending cleanup does not run and holds nothing again, and runs once the hold is released', async (t) => {
+  const rig = await goalRig(t)
+  const CHECK = `
+version: 2
+name: Check a change
+roles:
+  gate: { kind: check, run: "pnpm test", timeout: 600, exits: { "0": pass }, otherwise: fail }
+seed: { role: gate, title: Verify }
+rules: []
+`
+  const run = await rig.startTriggered(CHECK, [])
+  // The round's own gate passes; the one asked before the check spawns meets the unfinished cleanup.
+  let asked = 0
+  rig.triggerGate = () => ++asked === 1 ? null : PENDING_VERDICT
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.equal(asked, 2, 'the check’s own gate was asked')
+  assert.equal(rig.events.some((one) => one.startsWith('check:')), false, 'still gated: nothing ran')
+  const waiting = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(waiting.state, 'running')
+  assert.equal(waiting.reason, null)
+  assert.deepEqual(holdOf(waiting), [false, null, 0], 'no hold of its own')
+
+  await rig.flows.holdTriggered(run.id, PAUSED_REASON)
+  rig.triggerGate = null
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.equal(rig.events.filter((one) => one === 'check:pnpm test').length, 1, 'its release runs it once')
+})
+
 test('a stop that lands while a round is still seating hands no card over and leaves no turn running', async (t) => {
   const rig = await goalRig(t)
   const STOP = 'Timed out: this Goal reached its time budget.'
