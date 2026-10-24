@@ -71,7 +71,6 @@ const SCAN_LIMIT = 2000
 const WORK_ITEMS = 80
 const USAGE_TTL = 60_000
 /** What the phone is told for a count the desk does not keep: its decoder has no way to read "unknown". */
-const COUNT_UNKNOWN = 0
 
 const clamp = (value: number | undefined, fallback: number, max: number): number =>
   value === undefined || !Number.isFinite(value) ? fallback : Math.min(max, Math.max(1, Math.floor(value)))
@@ -335,8 +334,7 @@ export class PhoneWorkspace {
       })
       return {
         finished: this.#finishedSince(daysAgo(midnight, span - 1), live, teams),
-        // The phone decodes both as required counts and the desk keeps neither per range.
-        needed: COUNT_UNKNOWN, ruleBreaks: COUNT_UNKNOWN,
+        // The desk keeps neither how often it needed the person nor rule breaks per range, so both are left out.
         spent: micros(spent),
         ...(previous !== null && previous > 0 ? { change: Math.round((spent - previous) / previous * 1000) / 1000 } : {}),
         slices,

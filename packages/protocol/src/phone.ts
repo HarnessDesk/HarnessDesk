@@ -240,11 +240,11 @@ export interface PhoneWorkAllowance {
 export interface PhoneWorkPeriod {
   readonly finished: number
   /**
-   * How often the desk needed the person, and how many rules were broken. The phone decodes both as required whole
-   * numbers and the desk keeps neither per range, so these are 0 until the phone can read "unknown".
+   * How often the desk needed the person, and how many rules were broken. Left out when the desk has no source for
+   * them: the phone shows a missing count as unknown, and a 0 would read as a fact.
    */
-  readonly needed: number
-  readonly ruleBreaks: number
+  readonly needed?: number
+  readonly ruleBreaks?: number
   readonly spent: PhoneMoney
   /** A fraction against the period before: -0.12 is 12% less. Left out when there is nothing to compare. */
   readonly change?: number
