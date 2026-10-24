@@ -1,20 +1,29 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { GitGateway } from '../src/git-gateway/index.js'
+import { leadPublicationPorts as publicationPorts } from '../src/lead/pr-publication.js'
 import { createLeadJournal, leadCheckpoint, parseLeadCheckpoint } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract, parseLeadCard } from '@harnessdesk/protocol'
 
+let lastSource: any
+const gateways = new Map<string, GitGateway>()
+const gatewayFor = (source: any, gh?: any): GitGateway => {
+  if (!gh && gateways.has(source.cwd)) return gateways.get(source.cwd)!
+  const gateway = new GitGateway({ directory: mkdtempSync(join(tmpdir(), 'hd-lead-gateway-')), localRemote: () => source.remoteUrl, ...(gh ? { gh } : {}) })
+  if (!gh) gateways.set(source.cwd, gateway)
+  return gateway
+}
+const leadPublicationPorts = (options: any) => publicationPorts({ ...options, gateway: gatewayFor(lastSource, options.gh) })
 const moduleOf = async (): Promise<any> => {
-  const path = new URL('../src/lead/pr-follow.js', import.meta.url).href
-  const value = await import(path).catch(() => ({}))
-  assert.equal(typeof value.LeadPrFollow, 'function', 'host-owned publication owner must exist')
+  const value = await import('../src/lead/pr-follow.js')
   return { ...value,
-    LeadPrFollow: class extends value.LeadPrFollow { constructor(options: any) { super({ ...options, allowLocalFile: true }) } },
-    pushToOwnedBranch: (source: any, owned: any, reconcile = false) => value.pushToOwnedBranch(source, owned, reconcile, undefined, true),
-    pushOwnedLeadBranch: (options: any) => value.pushOwnedLeadBranch({ ...options, allowLocalFile: true }),
+    LeadPrFollow: class extends value.LeadPrFollow { constructor(options: any) { super({ ...options, gateway: options.gateway ?? gatewayFor(lastSource) }) } },
+    pushToOwnedBranch: (source: any, owned: any, reconcile = false) => value.pushToOwnedBranch(source, owned, reconcile, async () => {}, gatewayFor(source), { kind: 'lead-goal', id: 'goal-1' }),
+    pushOwnedLeadBranch: (options: any) => value.pushOwnedLeadBranch({ ...options, gateway: gatewayFor(options.source) }),
   }
 }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -25,7 +34,7 @@ const repository = () => {
   git(cwd, 'config', 'user.name', 'Jane Doe'); git(cwd, 'config', 'user.email', 'dev@example.com')
   git(cwd, 'commit', '--allow-empty', '-m', 'Initial fixture')
   git(cwd, 'remote', 'add', 'origin', remoteUrl)
-  return { cwd, remote: 'origin', remoteUrl, defaultBranch: 'main', repository: 'acme/widgets', branch: 'worker', head: git(cwd, 'rev-parse', 'HEAD'),
+  return lastSource = { cwd, remote: 'origin', remoteUrl, defaultBranch: 'main', repository: 'acme/widgets', branch: 'worker', head: git(cwd, 'rev-parse', 'HEAD'),
     runId: 'run-1', teamId: 'team-1', runtime: 'fixture', sessionId: 'worker-1' }
 }
 const prepare = async () => {
@@ -188,17 +197,17 @@ test('merged and unmerged closure differ, preferences replay, and both switches 
 })
 
 
-test('host and git plugin share signed PR creation through the fake gh fixture', async () => {
-  const { LeadPrFollow } = await moduleOf(), { leadPublicationPorts } = await import('../src/lead/pr-publication.js')
+test('host gateway creates a signed PR through fake gh outside the worker checkout', async () => {
+  const { LeadPrFollow } = await moduleOf()
   const s = await prepare(), source = repository(), statePath = join(source.cwd, 'fake-forge.json')
-  writeFileSync(statePath, JSON.stringify({ repo: source.repository, pulls: [], issues: [], user: { id: 7, login: 'demo' } }))
+  writeFileSync(statePath, JSON.stringify({ repo: source.repository, publicationHead: source.head, pulls: [], issues: [], user: { id: 7, login: 'demo' } }))
   const references: any[] = []
   const ports = leadPublicationPorts({ allowLocalFile: true, journal: s.journal, project: s.contract.project, seats: () => [],
     evidence: async () => { throw new Error('not used') }, publications: async () => [], signature: () => undefined,
     forge: { async publicationAllowed() { return { ok: true } }, async identity() { return { via: 'gh', login: 'demo', available: true, reason: null } },
       async seat() { return { agent: 'Fixture', version: '1', model: 'Demo', effort: null, thinking: false, label: 'Fixture Demo', role: 'implement', round: null, team: 'Fixture' } },
-      async publish(reference) { references.push(reference) } },
-    gh: async (cwd, args) => ({ stdout: execFileSync(process.execPath, [new URL('./fixtures/fake-gh.mjs', import.meta.url).pathname, ...args],
+      async publish(reference: any) { references.push(reference) } },
+    gh: async (cwd: string, args: readonly string[]) => ({ stdout: execFileSync(process.execPath, [new URL('./fixtures/fake-gh.mjs', import.meta.url).pathname, ...args],
       { cwd, encoding: 'utf8', env: { ...process.env, FAKE_GH_STATE: statePath } }), stderr: '', exitCode: 0 }),
   })
   const owner = new LeadPrFollow({ ...ports, journal: s.journal, now: () => 100, source: async () => source, validate: async () => {} })
@@ -239,7 +248,6 @@ test('disk refusal before publication preparation prevents every forge effect', 
 })
 
 test('publication source is derived from the reviewed worker and the approved repository, never another checkout', async t => {
-  const { leadPublicationPorts } = await import('../src/lead/pr-publication.js')
   const s = await prepare(), source = repository(), project = { id: 'project-demo', path: source.cwd }
   git(source.cwd, 'config', 'remote.origin.pushurl', 'https://github.com/acme/widgets.git')
   let worker = source
@@ -260,7 +268,7 @@ test('publication source is derived from the reviewed worker and the approved re
   await assert.rejects(ports.source({ ...s.card, publication: 'push', publicationSource: { runId: 'run-1', reviewedHead: 'b'.repeat(40), evidenceRevision: source.head } }, contract), /lead-card-stale/)
   await assert.rejects(ports.source({ ...s.card, publication: 'push', publicationSource: { runId: 'run-1', reviewedHead: source.head, evidenceRevision: 'old-evidence' } }, contract), /lead-card-stale/)
   git(source.cwd, 'config', 'remote.origin.pushurl', 'https://github.com/acme/other.git')
-  await assert.rejects(ports.source(s.card, contract), /repository-changed/)
+  assert.equal((await ports.source(s.card, contract)).repository, 'acme/widgets')
   worker = repository()
   await assert.rejects(ports.source(s.card, contract), /repository-changed/)
 })
@@ -308,7 +316,7 @@ for (const [observed, phase] of [['merged', 'accepted'], ['closed', 'declined'],
     assert.equal(s.journal.state.phase, phase)
     assert.equal(s.journal.state.pr?.head, source.head)
     assert.equal((s.journal.state.pr as any).observedHead, 'b'.repeat(40))
-    if (observed === 'open') assert.equal(s.journal.state.managementReason, 'lead-pr-head-changed')
+    if (observed === 'open') assert.equal(s.journal.state.managementReason, 'lead-pr-branch-rewritten')
     assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
     assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(s.journal.state, 'b'.repeat(64))).state, s.journal.state)
   })
@@ -360,30 +368,17 @@ test('repository URL rewrites never redirect the host push to a decoy', async ()
   assert.equal(git(decoy, 'for-each-ref', '--format=%(refname)'), '')
 })
 
-test('worker credential helpers and askpass programs cannot run in host network git', async t => {
-  const { hardenedNetworkGit } = await import('../src/git-hardening.js') as any
-  const source = repository(), marker = join(source.cwd, 'credential-marker'), askpass = join(source.cwd, 'askpass')
-  const oldSystem = process.env.GIT_CONFIG_SYSTEM, oldGlobal = process.env.GIT_CONFIG_GLOBAL
-  process.env.GIT_CONFIG_SYSTEM = join(source.cwd, 'absent-system-config'); process.env.GIT_CONFIG_GLOBAL = join(source.cwd, 'absent-global-config')
-  t.after(() => { if (oldSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM; else process.env.GIT_CONFIG_SYSTEM = oldSystem
-    if (oldGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = oldGlobal })
-  writeFileSync(askpass, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 })
-  git(source.cwd, 'config', 'credential.helper', `!touch '${marker}'`)
-  git(source.cwd, 'config', 'core.askPass', askpass)
-  // credential fill exercises the same config sandbox without any network access.
-  await assert.rejects(hardenedNetworkGit(source.cwd, ['credential', 'fill'], { input: 'protocol=https\nhost=example.invalid\n\n' }))
-  assert.equal(existsSync(marker), false)
-})
+
 
 test('fork pull requests with the same branch name do not block same-repository publication', async () => {
-  const { leadPublicationPorts } = await import('../src/lead/pr-publication.js'), s = await prepare(), source = repository()
+  const s = await prepare(), source = repository()
   const ports = leadPublicationPorts({ allowLocalFile: true, journal: s.journal, project: s.contract.project, seats: () => [], evidence: async () => { throw new Error('unused') },
     publications: async () => [{ kind: 'pullRequest', action: 'opened', repo: source.repository, number: 7 } as any], signature: () => undefined,
     forge: { async publicationAllowed() { return { ok: true } }, async seat() { return null }, async identity() { return {} as any }, async publish() {} },
-    gh: async (_cwd, args) => ({ stderr: '', exitCode: 0, stdout: JSON.stringify(args[0] === 'pr' ? [
+    gh: async (_cwd: string, args: readonly string[]) => ({ stderr: '', exitCode: 0, stdout: JSON.stringify(args[1] === 'list' ? [
       { number: 8, url: 'https://github.com/acme/widgets/pull/8', headRefName: 'worker', headRefOid: source.head, isCrossRepository: true, headRepositoryOwner: { login: 'fork' } },
       { number: 7, url: 'https://github.com/acme/widgets/pull/7', headRefName: 'worker', headRefOid: source.head, isCrossRepository: false, headRepositoryOwner: { login: 'acme' } },
-    ] : { number: 7, state: 'open', head: { sha: source.head, ref: source.branch, repo: { full_name: source.repository } }, base: { repo: { full_name: source.repository } } }) }),
+    ] : { number: 7, state: 'OPEN', url: 'https://github.com/acme/widgets/pull/7', headRefOid: source.head, headRefName: source.branch, isCrossRepository: false, headRepositoryOwner: { login: 'acme' } }) }),
   })
   assert.deepEqual(await ports.find(source, false), [{ repository: source.repository, number: 7, head: source.head, branch: source.branch }])
 })
@@ -416,27 +411,7 @@ test('a refused owned push can be superseded by a newer reviewed head before eff
   assert.ok(s.records.some(record => record.type === 'owned-push' && record.operation.stage === 'superseded'))
 })
 
-test('network git keeps only system and global credential helpers and ignores repository HTTP and protocols', async t => {
-  const { hardenedNetworkGit } = await import('../src/git-hardening.js')
-  const source = repository(), system = join(source.cwd, 'system-config'), global = join(source.cwd, 'global-config'), marker = join(source.cwd, 'worker-helper')
-  writeFileSync(system, '[credential]\n\thelper = "!f() { echo username=fixture; }; f"\n')
-  writeFileSync(global, '[credential]\n\thelper = "!f() { echo password=synthetic; }; f"\n')
-  const oldSystem = process.env.GIT_CONFIG_SYSTEM, oldGlobal = process.env.GIT_CONFIG_GLOBAL
-  process.env.GIT_CONFIG_SYSTEM = system; process.env.GIT_CONFIG_GLOBAL = global
-  t.after(() => { if (oldSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM; else process.env.GIT_CONFIG_SYSTEM = oldSystem
-    if (oldGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = oldGlobal })
-  git(source.cwd, 'config', 'credential.helper', `!touch '${marker}'`)
-  git(source.cwd, 'config', 'http.proxy', 'http://example.invalid:1')
-  git(source.cwd, 'config', 'http.https://github.com/.extraheader', 'Fixture: denied')
-  git(source.cwd, 'config', 'protocol.ext.allow', 'always')
-  const filled = await hardenedNetworkGit(source.cwd, ['credential', 'fill'], { input: 'protocol=https\nhost=example.invalid\n\n' })
-  assert.match(filled, /username=fixture/); assert.match(filled, /password=synthetic/)
-  assert.equal(existsSync(marker), false)
-  const config = await hardenedNetworkGit(source.cwd, ['config', '--list'])
-  assert.doesNotMatch(config, /example.invalid:1|Fixture: denied|protocol.ext.allow=always/)
-  await assert.rejects(hardenedNetworkGit(source.cwd, ['ls-remote', `ext::touch ${marker}`]), /transport.*ext.*not allowed/)
-  assert.equal(existsSync(marker), false)
-})
+
 
 test('an owned branch at a new tip is adopted only by a push-started recovery', async () => {
   const { pushToOwnedBranch } = await moduleOf(), source = repository()
@@ -446,4 +421,116 @@ test('an owned branch at a new tip is adopted only by a push-started recovery', 
   git(source.cwd, 'push', 'origin', 'HEAD:refs/heads/worker')
   await assert.rejects(pushToOwnedBranch(repair, source.head, false), /lead-push-owned-head-changed/)
   assert.deepEqual(await pushToOwnedBranch(repair, source.head, true), { pushed: false })
+})
+
+
+test('foreign fast-forward releases branch, follows new checks and reviews, and merge ends goal', async () => {
+  const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+  const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source, find: async () => [pr], create: async () => pr })
+  await owner.accept(s.card, s.decision, s.contract)
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'Person fixup')
+  const observed = git(source.cwd, 'rev-parse', 'HEAD'); git(source.cwd, 'push', 'origin', 'HEAD:refs/heads/worker')
+  await owner.observe({ ...pr, head: observed, state: 'open', check: { head: observed, state: 'passed', total: 1 }, at: 101 })
+  assert.equal(s.journal.state.pr?.branchOwner, 'person'); assert.equal(s.journal.state.phase, 'following')
+  assert.equal(s.journal.state.pr?.check?.head, observed); assert.equal(owner.watches()[0]?.head, observed)
+  await owner.observeFacts([{ action: 'review-commented', repository: source.repository, subject: '7', head: observed, review: { id: 1, head: observed, state: 'approved' }, at: 102 } as any])
+  assert.equal(s.journal.state.pr?.review?.head, observed)
+  await assert.rejects(owner.pushOwned({ ...source, head: observed }, async () => {}), /branch-released/)
+  assert.deepEqual((await createLeadJournal(s.storage)).state.pr, s.journal.state.pr)
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(s.journal.state, 'b'.repeat(64))).state.pr, s.journal.state.pr)
+  await owner.observe({ ...pr, head: observed, state: 'merged', check: null, at: 103 })
+  assert.equal(s.journal.state.phase, 'accepted')
+})
+test('ledger head from this goal is adopted and other requesters are named on release', async () => {
+  for (const own of [true, false]) {
+    const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+    const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+    const gateway = gatewayFor(source)
+    const owner = new LeadPrFollow({ gateway, journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source, find: async () => [pr], create: async () => pr })
+    await owner.accept(s.card, s.decision, s.contract)
+    git(source.cwd, 'commit', '--allow-empty', '-m', 'Attributed next head')
+    const observed = git(source.cwd, 'rev-parse', 'HEAD')
+    await gateway.push({ repository: source.repository, branch: source.branch, sha: observed, tree: git(source.cwd, 'rev-parse', 'HEAD^{tree}'),
+      objectStore: join(source.cwd, '.git'), previousSha: null, requester: { kind: own ? 'lead-goal' : 'session', id: own ? 'goal-1' : 'session-2' } })
+    await owner.observe({ ...pr, head: observed, state: 'open', check: null, at: 101 })
+    assert.equal(s.journal.state.pr?.branchOwner, own ? 'lead' : 'person')
+    assert.equal(s.journal.state.pr?.head, own ? observed : source.head)
+    if (!own) assert.match(s.journal.state.pr?.releaseReason ?? '', /session.*session-2/)
+  }
+})
+test('rewrite parks Needs-you and a head-bound reclaim resumes owned pushes', async () => {
+  const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+  const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source, find: async () => [pr], create: async () => pr })
+  await owner.accept(s.card, s.decision, s.contract)
+  const rewritten = git(source.cwd, 'commit-tree', git(source.cwd, 'rev-parse', 'HEAD^{tree}'), '-m', 'Rewrite')
+  git(source.cwd, 'update-ref', 'refs/heads/worker', rewritten); git(source.cwd, 'push', '--force', 'origin', 'HEAD:refs/heads/worker')
+  await owner.observe({ ...pr, head: rewritten, state: 'open', check: null, at: 101 })
+  assert.equal(s.journal.state.pr?.branchOwner, 'person'); assert.equal(s.journal.state.phase, 'waiting-for-user')
+  assert.equal(s.journal.state.managementReason, 'lead-pr-branch-rewritten')
+  const card = s.journal.state.cards.find(card => card.type === 'branch-ownership')!
+  assert.ok(card)
+  const decision = { version: 1, cardType: card.type, cardId: card.id, expectedRevision: card.revision, contractDigest: s.contract.digest, choice: 'reclaim-branch' }
+  await owner.reclaim(card, decision)
+  assert.equal(s.journal.state.pr?.branchOwner, 'lead'); assert.equal(s.journal.state.pr?.head, rewritten)
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'Reviewed repair after reclaim')
+  const head = git(source.cwd, 'rev-parse', 'HEAD'); await owner.pushOwned({ ...source, head }, async () => {})
+  assert.equal(git(source.remoteUrl, 'rev-parse', 'refs/heads/worker'), head)
+})
+
+test('reclaim rejects an old card after the remote moves even before the next observation', async () => {
+  const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+  const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source, find: async () => [pr], create: async () => pr })
+  await owner.accept(s.card, s.decision, s.contract)
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'Person extension')
+  const first = git(source.cwd, 'rev-parse', 'HEAD'); git(source.cwd, 'push', 'origin', 'HEAD:refs/heads/worker')
+  await owner.observe({ ...pr, head: first, state: 'open', check: null, at: 101 })
+  const card = s.journal.state.cards.find(card => card.type === 'branch-ownership')!
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'Another extension'); git(source.cwd, 'push', 'origin', 'HEAD:refs/heads/worker')
+  await assert.rejects(owner.reclaim(card, { version: 1, cardType: card.type, cardId: card.id, expectedRevision: card.revision, contractDigest: s.contract.digest, choice: 'reclaim-branch' }), /stale/)
+  assert.equal(s.journal.state.pr?.branchOwner, 'person')
+})
+test('a completed gateway push is adopted after the goal journal missed the head update', async () => {
+  const { LeadPrFollow, pushToOwnedBranch } = await moduleOf(), s = await prepare(), source = repository()
+  await pushToOwnedBranch(source, null)
+  const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source, find: async () => [pr], create: async () => pr })
+  await owner.accept(s.card, s.decision, s.contract)
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'Reviewed next head')
+  const next = git(source.cwd, 'rev-parse', 'HEAD'); await pushToOwnedBranch({ ...source, head: next }, source.head)
+  await owner.observe({ ...pr, head: next, state: 'open', check: null, at: 101 })
+  assert.equal(s.journal.state.pr?.branchOwner, 'lead'); assert.equal(s.journal.state.pr?.head, next)
+  assert.equal(s.journal.state.phase, 'following')
+})
+
+test('ledger adoption completes a crash-interrupted owned operation before the next repair', async () => {
+  const { LeadPrFollow, pushToOwnedBranch } = await moduleOf(), s = await prepare(), source = repository()
+  await pushToOwnedBranch(source, null)
+  const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source, find: async () => [pr], create: async () => pr })
+  await owner.accept(s.card, s.decision, s.contract)
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'Reviewed crash fixture')
+  const repair = { ...source, head: git(source.cwd, 'rev-parse', 'HEAD') }
+  await s.journal.ownedPush({ source: repair, number: 7, previousHead: source.head, at: 100, stage: 'prepared', effectStarted: false })
+  await s.journal.ownedPush({ ...s.journal.state.ownedPush!, stage: 'push-started', effectStarted: true })
+  await pushToOwnedBranch(repair, source.head)
+  await owner.observe({ ...pr, head: repair.head, state: 'open', check: null, at: 101 })
+  assert.equal(s.journal.state.ownedPush?.stage, 'completed')
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'Reviewed following repair')
+  const next = git(source.cwd, 'rev-parse', 'HEAD'); await owner.pushOwned({ ...source, head: next }, async () => {})
+  assert.equal(s.journal.state.pr?.head, next)
+})
+
+test('legacy transport metadata cannot block a reviewed repair to the pinned gateway repository', async () => {
+  const { LeadPrFollow, pushToOwnedBranch } = await moduleOf(), s = await prepare(), source = repository()
+  await pushToOwnedBranch(source, null)
+  const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source, find: async () => [pr], create: async () => pr })
+  await owner.accept(s.card, s.decision, s.contract)
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'Reviewed transport migration')
+  const head = git(source.cwd, 'rev-parse', 'HEAD')
+  await owner.pushOwned({ ...source, head, remoteUrl: 'https://github.com/acme/widgets.git' }, async () => {})
+  assert.equal(git(source.remoteUrl, 'rev-parse', 'refs/heads/worker'), head)
 })

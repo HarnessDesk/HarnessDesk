@@ -175,9 +175,9 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     }
     case 'owned-push': {
       const op = event.operation, previous = state.ownedPush, pr = state.pr, original = state.publication?.source
-      ensure(pr && pr.state === 'open' && op.number === pr.number && op.source.repository === pr.repository && op.source.branch === pr.branch &&
+      ensure(pr && pr.branchOwner !== 'person' && pr.state === 'open' && op.number === pr.number && op.source.repository === pr.repository && op.source.branch === pr.branch &&
         op.source.branch !== op.source.defaultBranch && !['accepted', 'declined', 'stopped'].includes(state.phase))
-      ensure(original && ['repository', 'branch', 'cwd', 'remote', 'remoteUrl', 'defaultBranch', 'runId', 'teamId'].every(key =>
+      ensure(original && ['repository', 'branch', 'cwd', 'defaultBranch', 'runId', 'teamId'].every(key =>
         original[key as keyof typeof original] === op.source[key as keyof typeof op.source]))
       if (op.stage === 'superseded') {
         ensure(previous?.stage === 'needs-you' && previous.effectStarted === false && JSON.stringify({ ...previous, stage: 'superseded' }) === JSON.stringify(op))
@@ -193,21 +193,29 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       }
       ensure(op.previousHead === pr!.head || op.stage === 'completed' && op.source.head === pr!.head)
       state = { ...state, ownedPush: op,
-        ...(op.stage === 'completed' ? { pr: { ...pr!, head: op.source.head, check: null, review: null, at: op.at } } : {}),
+        ...(op.stage === 'completed' ? { pr: { ...pr!, head: op.source.head, observedHead: op.source.head, check: null, review: null, at: op.at } } : {}),
         ...(op.stage === 'needs-you' ? { phase: 'waiting-for-user' as const, managementReason: 'lead-publication-needs-you' } : {}) }
       break
     }
     case 'pr-observed': {
       const pr = state.pr, observedHead = event.pr.observedHead ?? event.pr.head
-      ensure(pr && event.pr.repository === pr.repository && event.pr.number === pr.number && event.pr.branch === pr.branch &&
+      ensure(pr && event.pr.repository === pr.repository && event.pr.number === pr.number &&
         event.pr.at >= pr.at && (pr.state === 'open' || event.pr.state === pr.state))
-      // Observations can end ownership or report drift, but only a journaled
-      // owned push advances the commit the host has permission to update.
-      state = { ...state, pr: { ...event.pr, head: pr!.head, observedHead,
-        check: event.pr.check?.head === pr!.head ? event.pr.check : null,
-        ...(event.pr.review === undefined ? {} : { review: event.pr.review?.head === pr!.head ? event.pr.review : null }) },
-        ...(event.pr.state !== 'open' ? { phase: event.pr.state === 'merged' ? 'accepted' as const : 'declined' as const } :
-          observedHead !== pr!.head ? { phase: 'waiting-for-user' as const, managementReason: 'lead-pr-head-changed' } : {}) }
+      const branchOwner = event.pr.branchOwner ?? (observedHead !== pr!.head ? 'person' : pr!.branchOwner ?? 'lead')
+      // Releasing ownership is irreversible through observations. Only a
+      // head-bound person decision can reclaim it; PR lifecycle is independent.
+      ensure(pr!.branchOwner !== 'person' || branchOwner === 'person')
+      const head = branchOwner === 'lead' ? event.pr.head : pr!.head
+      const obsolete = new Set(state.cards.filter(card => card.type === 'branch-ownership' &&
+        (event.pr.state !== 'open' || branchOwner !== 'person' || card.observedHead !== observedHead)).map(card => card.id))
+      if (obsolete.size) state = { ...state, cards: state.cards.filter(card => !obsolete.has(card.id)),
+        cardPositions: Object.fromEntries(Object.entries(state.cardPositions).filter(([id]) => !obsolete.has(id))),
+        cardRevisions: Object.fromEntries(Object.entries(state.cardRevisions).filter(([id]) => !obsolete.has(id))) }
+      state = { ...state, pr: { ...event.pr, branch: pr!.branch, head, branchOwner, observedHead,
+        check: event.pr.check?.head === observedHead ? event.pr.check : null,
+        ...(event.pr.review === undefined ? {} : { review: event.pr.review?.head === observedHead ? event.pr.review : null }) },
+        ...(event.pr.state !== 'open' ? { phase: event.pr.state === 'merged' ? 'accepted' as const : 'declined' as const, managementReason: null } :
+          branchOwner === 'person' && event.pr.branchChange !== 'fast-forward' ? { phase: 'waiting-for-user' as const, managementReason: 'lead-pr-branch-rewritten' } : {}) }
       break
     }
     case 'message': {
@@ -324,6 +332,15 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
               other.contract.revision <= contract.revision).map(cardKey)])] }
           if (state.budget && !renewal) state = { ...state, budget: applyLeadBudgetCaps(state.budget, contract.caps) }
         } else state = { ...state, phase: state.contract === null ? 'declined' : managementPhase(state) }
+      } else if (card!.type === 'branch-ownership') {
+        const pr = state.pr
+        ensure(pr && pr.state === 'open' && pr.branchOwner === 'person' && card!.contractDigest === state.contract?.digest &&
+          card!.repository === pr.repository && card!.number === pr.number && card!.observedHead === pr.observedHead && !['accepted', 'declined', 'stopped'].includes(state.phase))
+        if (decision.choice === 'reclaim-branch') {
+          const { branchChange: _, releaseReason: __, ...retained } = pr!
+          state = { ...state, phase: 'following', managementReason: null, ownedPush: null,
+            pr: { ...retained, head: card!.observedHead, branchOwner: 'lead' } }
+        }
       } else if (card!.type === 'budget-change') {
         ensure(state.budget && card!.contractDigest === (state.contract?.digest ?? null))
         state = { ...state, budget: applyLeadBudgetCard(state.budget!, event.decision, card!) }

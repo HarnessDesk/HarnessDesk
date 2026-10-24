@@ -29,6 +29,7 @@ interface LeadControlsOptions {
   readonly decidePerson: (card: Extract<LeadCard, { type: 'waiting' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly decideResult: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly publishResult?: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
+  readonly reclaimBranch?: (card: Extract<LeadCard, { type: 'branch-ownership' }>, decision: LeadCardDecision) => Promise<void>
   readonly stopRequest?: () => Promise<void>
   /** Reads the workers' spend again; a Lead request is refused while that spend is not known. */
   readonly meterSpend?: () => Promise<void>
@@ -299,7 +300,10 @@ export class LeadControls {
       const budget = journal.state.budget, observed = budget?.observation?.at
       if (card.type !== 'plan' && budget && (observed === undefined || this.options.now() - observed > budget.freshnessMs / 2))
         try { await this.options.meterSpend?.() } catch { /* The decision refuses while spend stays unknown. */ }
-      if (card.type === 'result' && (decision.choice === 'accept-open-pr' || card.publication === 'push' && decision.choice === 'accept')) {
+      if (card.type === 'branch-ownership' && decision.choice === 'reclaim-branch') {
+        if (!this.options.reclaimBranch) throw leadRefusal('lead-operation-refused')
+        try { await this.options.reclaimBranch(card, decision) } catch { throw leadRefusal('lead-card-stale') }
+      } else if (card.type === 'result' && (decision.choice === 'accept-open-pr' || card.publication === 'push' && decision.choice === 'accept')) {
         if (!this.options.publishResult || !journal.state.contract) throw leadRefusal('lead-operation-refused')
         try { await this.options.publishResult(card, decision, journal.state.contract) }
         catch (error) { throw leadRefusal(error instanceof Error && error.message === 'lead-card-stale' ? 'lead-card-stale' : 'lead-operation-refused') }

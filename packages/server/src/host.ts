@@ -1,3 +1,4 @@
+import { GitGateway } from './git-gateway/index.js'
 import { LeadPrFollow, type LeadPrFollowOptions } from './lead/pr-follow.js'
 import { leadPublicationPorts } from './lead/pr-publication.js'
 import { LeadPersonActions } from './lead/person-actions.js'
@@ -846,6 +847,7 @@ export class Host {
    * extension host only needs something that answers the three verbs, and
    * gets it through `forgePlane`.
    */
+  readonly #gitGateway: GitGateway
   readonly #forge: ForgePlane
   /**
    * The flow engine. Holds the runs, opens the round a finished round earns,
@@ -1225,6 +1227,8 @@ export class Host {
         frozen: join(this.#state.directory, 'attachments', 'frozen'),
       },
     )
+    this.#gitGateway = new GitGateway({ directory: join(this.#state.directory, 'git-gateway'),
+      ...(this.options.forge?.gh ? { gh: (_cwd, args) => this.options.forge!.gh!(args) } : {}) })
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -3544,10 +3548,9 @@ export class Host {
     })
     const validateResult: LeadPrFollowOptions['validate'] =
       (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract)
-    const follow = new LeadPrFollow({ journal, now: () => Date.now(), validate: validateResult,
-      ...leadPublicationPorts({ journal, project, forge: this.#forge, seats: () => this.#evidence.seats.all(), evidence: decisionEvidence,
+    const follow = new LeadPrFollow({ journal, gateway: this.#gitGateway, now: () => Date.now(), validate: validateResult,
+      ...leadPublicationPorts({ journal, gateway: this.#gitGateway, project, forge: this.#forge, seats: () => this.#evidence.seats.all(), evidence: decisionEvidence,
         signature: () => { const value = this.#storedPluginSettings('git')?.['signature']; return typeof value === 'string' ? value : undefined },
-        ...(this.options.forge?.gh ? { gh: (_cwd: string, args: readonly string[]) => this.options.forge!.gh!(args) } : {}),
         publications: async source => {
           const record = this.registry.get(runtimeId(source.runtime), makeSessionId(source.sessionId))
           const session = record?.session ?? await this.#transcripts.recover(runtimeId(source.runtime), makeSessionId(source.sessionId))
@@ -3565,6 +3568,7 @@ export class Host {
     this.#leadControls = new LeadControls({ journal, service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
       publishResult: (card, decision, contract) => follow.accept(card, decision, contract),
+      reclaimBranch: (card, decision) => follow.reclaim(card, decision),
       readPersonActions: () => personActions.read(),
       readPresence: () => leadPresence,
       // The goal's latest run owns a board; a seat on it that is mid-turn takes the words without a restart.

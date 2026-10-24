@@ -62,7 +62,7 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
     catch (error) { onError?.(error) }
     finally { busy.current = false; setPending(null); if (succeeded && onSettled) onSettled(); else focus.current.get(card.id)?.focus() }
   }
-  const active = cards.find(card => card.id === focusCard && card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed')) ?? [...cards].reverse().find(card => card.type === 'plan') ?? cards.find(card => card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed'))
+  const active = cards.find(card => card.id === focusCard && card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed')) ?? [...cards].reverse().find(card => card.type === 'branch-ownership') ?? [...cards].reverse().find(card => card.type === 'plan') ?? cards.find(card => card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed'))
   const plans = new Map([...cards, ...decisions.map(({ card }) => card)].flatMap(card => card.type === 'plan' ? [[card.contractDigest, card.contract] as const] : []))
   return <>{[...cards.map(card => ({ card, choice: undefined as LeadCardDecision['choice'] | undefined })), ...decisions.map(({ card, choice }) => ({ card, choice }))].map(({ card, choice }) => {
     const worker = card.type === 'waiting' && card.kind === 'worker-approval'
@@ -75,7 +75,7 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
       : card.type === 'permission-change' ? `Change permission mode: ${policyMode[card.previous.mode]} → ${policyMode[card.proposed.mode]}\n\n${[...new Set([...card.previous.rules.map(rule => rule.id), ...card.proposed.rules.map(rule => rule.id)])].flatMap(id => { const old = card.previous.rules.find(rule => rule.id === id), next = card.proposed.rules.find(rule => rule.id === id); return JSON.stringify(old) === JSON.stringify(next) ? [] : [`- ${ruleWords(old)} → ${ruleWords(next)}`] }).join('\n')}`
       : card.type === 'budget-change' ? budgetQuestion(card.previous.caps, card.proposed)
       : card.type === 'stopped' ? card.reason === 'unknown-spend' ? 'Worker spend is unknown. Inspect the run before continuing.' : 'The Lead stopped. Inspect its allowance and run.' : card.summary
-    const state = choice ? { approve: 'Approved', decline: 'Declined', accept: 'Accepted', 'accept-open-pr': 'Accepted and opened PR' }[choice] : card.type === 'result' && card.outcome !== 'reviewed' ? { accepted: 'Accepted', declined: 'Declined' }[card.outcome] : undefined
+    const state = choice ? { approve: 'Approved', decline: 'Declined', accept: 'Accepted', 'accept-open-pr': 'Accepted and opened PR', 'reclaim-branch': 'Branch reclaimed' }[choice] : card.type === 'result' && card.outcome !== 'reviewed' ? { accepted: 'Accepted', declined: 'Declined' }[card.outcome] : undefined
     const spend = 'budget' in card ? card.budget : budget
     const assertions = 'assertions' in card ? card.assertions : []
     const caps = renewal && budget ? budget.caps : card.type === 'plan' ? card.contract.caps : undefined
@@ -97,9 +97,9 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
           {spend && <Text as="p" role="meta">I spent {leadDollars(spend.leadUsdMicros)}{spend.spend === 'known' && <> · workers reported {leadDollars(spend.workerUsdMicros)}</>}.</Text>}
         </>}
       </LeadContract>}
-      {placement !== 'thread' && !state && active === card && !personActions.some(action => action.id === card.id) && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}
-        approveLabel={person ? 'Accept' : 'Approve'} onApprove={person || approval ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, person ? 'accept' : 'approve') } : undefined}
-        onDecline={person || approval ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, 'decline') } : undefined}
+      {placement !== 'thread' && !state && active === card && !personActions.some(action => action.id === card.id) && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'branch-ownership' ? `${summary}\n\nReclaim ${card.observedHead.slice(0, 12)} to allow further reviewed updates.` : card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'branch-ownership' ? 'Resume automatic repairs on this branch?' : card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}
+        approveLabel={card.type === 'branch-ownership' ? 'Reclaim branch' : person ? 'Accept' : 'Approve'} onApprove={person || approval || card.type === 'branch-ownership' ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, card.type === 'branch-ownership' ? 'reclaim-branch' : person ? 'accept' : 'approve') } : undefined}
+        onDecline={person || approval || card.type === 'branch-ownership' ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, 'decline') } : undefined}
         link={worker ? { label: 'Open approvals', run: () => onApprovals(card.runId) } : person ? { label: 'Open changes', run: onChanges } : undefined} />}
     </div>
   })}{placement !== 'thread' && personActions.map(action => <Row key={action.id} kind="record" layout="record"

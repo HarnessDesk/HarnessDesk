@@ -7,7 +7,7 @@ import { useApprovalKeys } from './use-approval-keys'
 export const LeadDecision = ({ id, type, title, pending, onApprove, onDecline, approveLabel = 'Approve', link, focusRef, detail }: {
   readonly detail?: string
   readonly id: string; readonly type?: string; readonly title: string; readonly pending: boolean
-  readonly onApprove?: () => void; readonly onDecline?: () => void; readonly approveLabel?: 'Approve' | 'Accept'
+  readonly onApprove?: () => void; readonly onDecline?: () => void; readonly approveLabel?: 'Approve' | 'Accept' | 'Reclaim branch'
   readonly link?: { readonly label: string; readonly run: () => void }
   readonly focusRef?: (node: HTMLElement | null) => void
 }) => {

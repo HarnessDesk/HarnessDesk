@@ -1495,3 +1495,21 @@ test('an open PR stays passive after a request failure and Resume', async () => 
     assert.equal(s.calls.some(call => call.method === 'flow/start-goal'), false)
   } finally { await loop.close() }
 })
+
+test('a released branch never re-offers a result on green refresh while Needs-you', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const first = exported('createLeadLoop')(s.options); await first.request(input); await first.close()
+  const result = s.journal.state.cards.find(card => card.type === 'result')!
+  const state: any = { ...s.journal.state, phase: 'waiting-for-user', managementReason: 'lead-pr-branch-rewritten',
+    decidedCards: [...s.journal.state.decidedCards, `${result.id}:${result.revision}`],
+    pr: { repository: 'acme/widgets', number: 7, branch: 'worker', head: 'a'.repeat(40), observedHead: 'b'.repeat(40), branchOwner: 'person', state: 'open', check: null, at: 100 } }
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  try {
+    await loop.refresh()
+    assert.equal(journal.state.cards.find(card => card.type === 'result')?.revision, result.revision)
+    assert.ok(journal.state.decidedCards.includes(`${result.id}:${result.revision}`))
+    assert.equal(journal.state.managementReason, 'lead-pr-branch-rewritten')
+  } finally { await loop.close() }
+})

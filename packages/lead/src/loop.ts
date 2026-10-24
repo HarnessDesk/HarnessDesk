@@ -162,7 +162,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const reviewed = contract && state.steps.every(step => step.state === 'started') && evaluated.length > 0 &&
         evaluated.every(item => item.result.status === 'reviewed') && budget?.spend === 'known' && budget.reservedUsdMicros === 0
       if (!reviewed) await invalidate()
-      else if (!terminal(journal.state.phase) && journal.state.phase !== 'following' && (!journal.state.publication || ['completed', 'superseded'].includes(journal.state.publication.stage) || journal.state.publication.stage === 'needs-you' && journal.state.publication.effectStarted === false)) {
+      else if (journal.state.pr?.branchOwner !== 'person' && !terminal(journal.state.phase) && journal.state.phase !== 'following' && (!journal.state.publication || ['completed', 'superseded'].includes(journal.state.publication.stage) || journal.state.publication.stage === 'needs-you' && journal.state.publication.effectStarted === false)) {
         const assertions: LeadAssertionResult[] = contract.assertions.map(assertion => {
           const facts = evaluated.map(item => item.result.assertions.find(result => result.assertionId === assertion.id)!)
           return { ...facts[0]!, evidence: facts.flatMap(fact => fact.evidence) }
@@ -277,7 +277,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     await refresh()
     // A model can request a push card through its existing result proposal output.
     // Copy only the intent; the actionable card is rebuilt from fresh host evidence.
-    if (result.proposals?.cards.some(card => card.type === 'result' && card.publication === 'push')) {
+    if (journal.state.pr?.branchOwner !== 'person' && result.proposals?.cards.some(card => card.type === 'result' && card.publication === 'push')) {
       const state = journal.state, contract = state.contract
       const evaluated = acceptance
       const budget = state.budget && leadBudgetProjection(state.budget, clock.now())

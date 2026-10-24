@@ -22,6 +22,7 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-key-changed': 'The provider key changed. Continue with the current key.',
   'lead-host-shutdown': 'The desk stopped while the Lead was working.',
   'lead-ownership-withdrawn': 'The Lead no longer owns its previous run.',
+  'lead-pr-branch-rewritten': 'The branch was rewritten outside this goal. Reclaim the branch to resume automatic repairs.',
   'lead-pr-head-changed': 'The pull request head changed outside this goal. Inspect the pull request before continuing.',
   'lead-publication-needs-you': 'The branch or pull request could not be published. Inspect the work and try the approval again, or stop this goal.',
   'lead-result-awaiting-person': 'The result is waiting for your decision.',
@@ -156,7 +157,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const requestPending = sending || state.requestInFlight
   // What the Lead is doing this second, as one quiet line at the end of the thread. A window that cannot trust its
   // projection says nothing; a plan on the table or a wait for the person is not work, and a stopped card speaks for itself.
-  const phase = state.thread?.state, progress = state.progress
+  const phase = state.thread?.state, progress = state.progress, pr = state.thread?.pr
   const live = state.error ? null
     : phase === 'running' && progress ? <TurnWorkLive data-slot="lead-live-line" data-kind="running">{`Step ${progress.step} of ${progress.steps}${contract?.steps[progress.step - 1] ? ` · ${contract.steps[progress.step - 1]!.title}` : ''} · ${runsWords(progress.runs)}`}</TurnWorkLive>
     : (phase === 'draft' || phase === 'planning') && state.requestInFlight ? <TurnWorkLive data-slot="lead-live-line" data-kind="planning">Planning…</TurnWorkLive>
@@ -207,7 +208,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   }
   return <ConversationShell ref={shell}>
     <ConversationThread ref={thread} role="region" aria-label={`${label} thread`} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 24 }}>
-      {entries.length || live ? <Page width="reading" gutter="none">
+      {entries.length || live || pr ? <Page width="reading" gutter="none">
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
         {entries.map(entry => entry.kind === 'message'
           ? <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
@@ -216,6 +217,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
             note={<Chip tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
           : <LeadCards key={`card:${entry.card.id}`} {...cardProps} cards={[entry.card]} placement="thread" />)}
+        {pr && <Text as="p" role="meta" data-slot="lead-pr-status" title={pr.observedHead ?? pr.head}>
+          {`Pull request #${pr.number} · ${(pr.observedHead ?? pr.head).slice(0, 7)} · ${pr.state === 'merged' ? 'Merged' : pr.state === 'closed' ? 'Closed' : `Checks ${pr.check?.state ?? 'not confirmed'} · Review ${pr.review?.state ?? 'not confirmed'}`}${pr.branchOwner === 'person' ? ' · Branch managed by you' : ''}`}
+        </Text>}
         {live}
       </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
     </ConversationThread>

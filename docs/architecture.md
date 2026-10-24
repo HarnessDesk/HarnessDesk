@@ -148,6 +148,25 @@ original error. This uses the control behavior present in the supported
 
 ## The host
 
+### Git gateway
+
+`packages/server/src/git-gateway` owns the host's publication executor. Lead
+publication uses its `GitGateway`; other session writers will migrate separately.
+It takes an exact reviewed commit and tree into a private bare mirror under
+`git-gateway/` in host state, then pushes to the repository pinned in the approved
+plan. Worker remotes, configuration and hooks never select the destination or
+credentials. Host git runs with a minimal configuration and a credential helper
+that consults the person's credentials outside the checkout. Durable intents
+precede effects; the append-only `ledger.jsonl` records outcomes and requesters.
+The ledger can attribute a head even when a caller's journal missed its update.
+
+PR identity and branch authority are separate. Following applies merged/closed
+observations by repository and number regardless of head. A foreign extension
+releases branch authority while checks, reviews and lifecycle keep following the
+observed head; a rewrite also waits for the person. Neither permits pushes or
+result re-offers until a head-bound reclaim decision restores authority. These
+fields and decisions replay through the Lead journal and checkpoints.
+
 ### Insight reads
 
 Insight is a host-owned, pull-only plane over the ledger's agent-owned source

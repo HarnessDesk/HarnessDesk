@@ -165,11 +165,11 @@ if (args[0] === 'repo' && args[1] === 'view') {
   const after = (flag) => args[args.indexOf(flag) + 1]
   const pullView = one => ({ number: one.number, title: one.title ?? `Change ${one.number}`, body: one.body ?? '',
     state: one.merged ? 'MERGED' : one.state === 'closed' ? 'CLOSED' : 'OPEN', url: `https://github.com/${state.repo}/pull/${one.number}`,
-    headRefName: one.branch ?? 'worker', headRefOid: one.head, author: { login: state.user?.login ?? 'demo' } })
+    headRefName: one.branch ?? 'worker', headRefOid: one.head, isCrossRepository: false, headRepositoryOwner: { login: state.repo.split('/')[0] }, author: { login: state.user?.login ?? 'demo' } })
   if (args[1] === 'list') {
     process.stdout.write(JSON.stringify(state.pulls.filter(one => one.state === 'open' && (!args.includes('--head') || one.branch === after('--head'))).map(pullView)))
   } else if (args[1] === 'create') {
-    const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    const head = state.publicationHead ?? execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
     const number = Math.max(0, ...state.pulls.map(one => one.number)) + 1, now = Date.now()
     state.pulls.push({ number, head, branch: after('--head'), state: 'open', title: after('--title'), body: after('--body'), created: now, updated: now })
     writeFileSync(statePath, JSON.stringify(state, null, 2))

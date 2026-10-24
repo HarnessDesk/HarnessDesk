@@ -140,6 +140,7 @@ interface LeadCardBase {
 }
 export type LeadCard = (LeadCardBase & { readonly contractDigest: string } & (
   | { readonly type: 'plan'; readonly contract: LeadAcceptanceContract }
+  | { readonly type: 'branch-ownership'; readonly repository: string; readonly number: number; readonly observedHead: string; readonly summary: string }
   | { readonly type: 'waiting'; readonly kind: 'person' | 'worker-approval'; readonly runId: string;
       readonly personCardId: string | null; readonly summary: string; readonly assertions: readonly LeadAssertionResult[] }
   | { readonly type: 'result'; readonly publication?: 'push'; readonly publicationSource?: { readonly runId: string; readonly reviewedHead: string; readonly evidenceRevision: string }; readonly outcome: 'reviewed' | 'accepted' | 'declined'; readonly summary: string;
@@ -159,7 +160,7 @@ export type LeadCard = (LeadCardBase & { readonly contractDigest: string } & (
 /** Private recipe choices: person/result acceptance maps accept/decline to accepted/declined. */
 export const LEAD_CARD_CHOICES = {
   plan: ['approve', 'decline'], 'permission-change': ['approve', 'decline'], 'budget-change': ['approve', 'decline'],
-  waiting: ['accept', 'decline'], result: ['accept', 'accept-open-pr', 'decline'], stopped: [],
+  'branch-ownership': ['reclaim-branch', 'decline'], waiting: ['accept', 'decline'], result: ['accept', 'accept-open-pr', 'decline'], stopped: [],
 } as const
 /** Authenticated window input only. Never a child command or a worker approval answer. */
 export interface LeadCardDecision {
@@ -168,7 +169,7 @@ export interface LeadCardDecision {
   readonly cardType: Exclude<LeadCard['type'], 'stopped'>
   readonly expectedRevision: LeadRevision
   readonly contractDigest: string | null
-  readonly choice: 'approve' | 'decline' | 'accept' | 'accept-open-pr'
+  readonly choice: 'approve' | 'decline' | 'accept' | 'accept-open-pr' | 'reclaim-branch'
 }
 export interface LeadMessage {
   readonly version: 1
@@ -182,7 +183,7 @@ export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running'
 export const LEAD_MANAGEMENT_REASONS = [
   'lead-predecessor-unavailable', 'lead-predecessor-unverifiable', 'lead-renewal-blocked',
   'lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-child-exited', 'lead-ownership-withdrawn',
-  'lead-result-awaiting-person', 'lead-publication-needs-you', 'lead-pr-head-changed', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
+  'lead-result-awaiting-person', 'lead-publication-needs-you', 'lead-pr-head-changed', 'lead-pr-branch-rewritten', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
   'lead-card-too-large', 'lead-send-deadline', 'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
   'lead-run-not-started', 'lead-budget-unknown', 'lead-plan-unseatable', 'lead-plan-not-independent',
 ] as const
@@ -211,6 +212,9 @@ export interface LeadDecisionMessage { readonly card: LeadCard; readonly choice:
 export interface LeadFollowPreferences { readonly checks: boolean; readonly reviews: boolean }
 export interface LeadPullRequest {
   readonly repository: string; readonly number: number; readonly branch: string; readonly head: string
+  readonly branchOwner?: 'lead' | 'person'
+  readonly branchChange?: 'fast-forward' | 'rewrite'
+  readonly releaseReason?: string
   readonly observedHead?: string
   readonly review?: import('./intake.js').TriggerReview | null
   readonly state: 'open' | 'merged' | 'closed'; readonly check: import('./intake.js').TriggerCheck | null; readonly at: number
@@ -510,6 +514,7 @@ export const parseLeadBudgetEvent: Validator<LeadBudgetEvent> = (value, path = '
 const cardBase = { version, id, revision, contractDigest: digest }
 type CardOf<T extends LeadCard['type']> = Extract<LeadCard, { type: T }>
 const card = tag<LeadCard>({
+  'branch-ownership': object<CardOf<'branch-ownership'>>({ ...cardBase, type: literalUnion('branch-ownership'), repository: opaque, number: integer(1), observedHead: opaque, summary: content }),
   plan: object<CardOf<'plan'>>({ ...cardBase, type: literalUnion('plan'), contract: parseLeadAcceptanceContract }),
   'permission-change': object<CardOf<'permission-change'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('permission-change'), previous: parseLeadPermissionPolicy, proposed: parseLeadPermissionPolicy }),
   'budget-change': object<CardOf<'budget-change'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('budget-change'), logicalGoalId: id,
@@ -538,8 +543,8 @@ export const parseLeadCard: Validator<LeadCard> = (value, path = '') => {
   return parsed
 }
 const decision: Validator<LeadCardDecision> = object({
-  version, cardId: id, cardType: literalUnion('plan', 'permission-change', 'budget-change', 'waiting', 'result'),
-  expectedRevision: revision, contractDigest: nullable(digest), choice: literalUnion('approve', 'decline', 'accept', 'accept-open-pr'),
+  version, cardId: id, cardType: literalUnion('plan', 'permission-change', 'budget-change', 'waiting', 'result', 'branch-ownership'),
+  expectedRevision: revision, contractDigest: nullable(digest), choice: literalUnion('approve', 'decline', 'accept', 'accept-open-pr', 'reclaim-branch'),
 })
 export const parseLeadCardDecision: Validator<LeadCardDecision> = (value, path = '') => {
   const parsed = decision(value, path)
@@ -566,6 +571,7 @@ const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path 
 export const parseLeadFollowPreferences: Validator<LeadFollowPreferences> = object({ checks: isBoolean, reviews: isBoolean })
 const pullRequestParser: Validator<LeadPullRequest> = object({
   review: optional(nullable(object({ id: integer(1), head: opaque, state: literalUnion('commented', 'changes-requested', 'approved') }))),
+  branchOwner: optional(literalUnion('lead', 'person')), branchChange: optional(literalUnion('fast-forward', 'rewrite')), releaseReason: optional(content),
   observedHead: optional(opaque),
   repository: (value, path = '') => typeof value === 'string' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value) ? value : fail(path, 'expected repository'),
   number: integer(1), branch: opaque, head: (value, path = '') => typeof value === 'string' && /^[a-f0-9]{40,64}$/.test(value) ? value : fail(path, 'expected commit'),
@@ -573,9 +579,8 @@ const pullRequestParser: Validator<LeadPullRequest> = object({
 })
 export const parseLeadPullRequest: Validator<LeadPullRequest> = (value, path = '') => {
   const parsed = pullRequestParser(value, path)
-  if (parsed.check && parsed.check.head !== parsed.head || parsed.review && parsed.review.head !== parsed.head) return fail(path, 'PR status is for another head')
-  const { review, observedHead, ...rest } = parsed
-  return { ...rest, ...(review === undefined ? {} : { review }), ...(observedHead === undefined ? {} : { observedHead }) }
+  if (parsed.check && parsed.check.head !== (parsed.observedHead ?? parsed.head) || parsed.review && parsed.review.head !== (parsed.observedHead ?? parsed.head)) return fail(path, 'PR status is for another head')
+  return Object.fromEntries(Object.entries(parsed).filter(([, item]) => item !== undefined)) as unknown as LeadPullRequest
 }
 const threadParser: Validator<LeadThread> = object({
   version, id, revision, state: literalUnion('draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'following', 'accepted', 'declined', 'stopped'),

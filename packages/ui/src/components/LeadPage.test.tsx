@@ -469,3 +469,14 @@ it('explains a foreign PR head while the goal needs the person', async () => {
     thread: { ...base.thread, state: 'waiting-for-user', cards: [] } })
   expect(box.textContent).toContain('The pull request head changed outside this goal. Inspect the pull request before continuing.')
 })
+
+it('shows checks and reviews on the observed head while the person owns the branch', async () => {
+  const base = leadProjection(), head = 'b'.repeat(40)
+  const { box } = await mount({ ...base, thread: { ...base.thread!, state: 'following', pr: { repository: 'acme/widgets', number: 7,
+    branch: 'worker', head: 'a'.repeat(40), observedHead: head, branchOwner: 'person', state: 'open',
+    check: { head, state: 'passed', total: 1 }, review: { id: 1, head, state: 'approved' }, at: 100 } } })
+  expect(box.textContent).toContain('Checks passed')
+  expect(box.textContent).toContain('Review approved')
+  expect(box.textContent).toContain('Branch managed by you')
+  expect(box.textContent).toContain('bbbbbbb')
+})
