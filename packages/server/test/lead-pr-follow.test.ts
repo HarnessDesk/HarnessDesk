@@ -100,11 +100,11 @@ test('approval journals before each external effect, owns the PR, and follows th
 })
 
 test('crash after create adopts the verified PR without pushing or creating twice', async () => {
-  const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+  const { LeadPrFollow, pushToOwnedBranch } = await moduleOf(), s = await prepare(), source = repository()
   let pushes = 0, creates = 0, exists = false
   const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
   const ports = { now: () => 100, validate: async () => {}, source: async () => source,
-    find: async () => exists ? [pr] : [], push: async () => { pushes++ }, create: async () => { creates++; exists = true; s.failOn('publication'); return pr } }
+    find: async () => exists ? [pr] : [], push: async () => { await pushToOwnedBranch(source, null); pushes++ }, create: async () => { creates++; exists = true; s.failOn('publication'); return pr } }
   const owner = new LeadPrFollow({ ...ports, journal: s.journal })
   await assert.rejects(owner.accept(s.card, s.decision, s.contract))
   s.failOn(null)
@@ -413,12 +413,12 @@ test('a refused owned push can be superseded by a newer reviewed head before eff
 
 
 
-test('an owned branch at a new tip is adopted only by a push-started recovery', async () => {
+test('an owned branch at a new tip needs a successful host push before recovery can adopt it', async () => {
   const { pushToOwnedBranch } = await moduleOf(), source = repository()
   await pushToOwnedBranch(source, null)
   git(source.cwd, 'commit', '--allow-empty', '-m', 'Reviewed next fixture')
   const repair = { ...source, head: git(source.cwd, 'rev-parse', 'HEAD') }
-  git(source.cwd, 'push', 'origin', 'HEAD:refs/heads/worker')
+  await pushToOwnedBranch(repair, source.head)
   await assert.rejects(pushToOwnedBranch(repair, source.head, false), /lead-push-owned-head-changed/)
   assert.deepEqual(await pushToOwnedBranch(repair, source.head, true), { pushed: false })
 })
@@ -533,4 +533,189 @@ test('legacy transport metadata cannot block a reviewed repair to the pinned gat
   const head = git(source.cwd, 'rev-parse', 'HEAD')
   await owner.pushOwned({ ...source, head, remoteUrl: 'https://github.com/acme/widgets.git' }, async () => {})
   assert.equal(git(source.remoteUrl, 'rev-parse', 'refs/heads/worker'), head)
+})
+
+test('push-started recovery refuses a branch or PR pushed only by the worker', async () => {
+  for (const hasPr of [false, true]) {
+    const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+    await s.journal.publication({ id: 'publish-1', source, decision: s.decision as any, at: 100, stage: 'push-prepared', effectStarted: false })
+    await s.journal.publication({ ...s.journal.state.publication!, stage: 'push-started', effectStarted: true })
+    git(source.cwd, 'push', 'origin', 'HEAD:refs/heads/worker')
+    const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+    const journal = await createLeadJournal(s.storage)
+    const owner = new LeadPrFollow({ journal, now: () => 100, validate: async () => {}, source: async () => source,
+      find: async () => hasPr ? [pr] : [], create: async () => pr })
+    await assert.rejects(owner.reconcile(), /not-owned|push-unproven/)
+    assert.equal(journal.state.pr, null)
+    assert.equal(journal.state.phase, 'waiting-for-user')
+    assert.equal(journal.state.publication?.stage, 'needs-you')
+  }
+})
+
+test('owned push-started recovery refuses the same repair head pushed by the worker', async () => {
+  const { LeadPrFollow, pushToOwnedBranch } = await moduleOf(), s = await prepare(), source = repository()
+  await pushToOwnedBranch(source, null)
+  const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source, find: async () => [pr], create: async () => pr })
+  await owner.accept(s.card, s.decision, s.contract)
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'Worker repair')
+  const repair = { ...source, head: git(source.cwd, 'rev-parse', 'HEAD') }
+  await s.journal.ownedPush({ source: repair, number: 7, previousHead: source.head, at: 100, stage: 'prepared', effectStarted: false })
+  await s.journal.ownedPush({ ...s.journal.state.ownedPush!, stage: 'push-started', effectStarted: true })
+  git(source.cwd, 'push', 'origin', 'HEAD:refs/heads/worker')
+  await assert.rejects(owner.pushOwned(repair, async () => {}), /owned-head-changed/)
+  assert.equal(s.journal.state.pr?.head, source.head)
+  assert.equal(s.journal.state.ownedPush?.stage, 'needs-you')
+})
+
+test('push-card discovery requires a fresh host marker even when the worker published the PR', async () => {
+  const s = await prepare(), source = repository()
+  const card = { ...s.card, revision: 2, publication: 'push' }; await s.journal.offerCard(card)
+  await s.journal.publication({ id: 'publish-1', source, decision: { ...s.decision, expectedRevision: 2 } as any, at: 100, stage: 'push-prepared' })
+  let marker = '', listedMarker = ''
+  const row = () => ({ number: 7, url: 'https://github.com/acme/widgets/pull/7', headRefName: source.branch, headRefOid: source.head,
+    isCrossRepository: false, headRepositoryOwner: { login: 'acme' } })
+  const ports = leadPublicationPorts({ journal: s.journal, project: s.contract.project, seats: () => [], evidence: async () => { throw new Error('unused') },
+    publications: async () => [{ kind: 'pullRequest', action: 'opened', repo: source.repository, number: 7 }], signature: () => undefined,
+    forge: { async publicationAllowed() { return { ok: true } }, async seat() { return null }, async identity() { return {} }, async publish() {} },
+    gh: async (_cwd: string, args: readonly string[]) => ({ stderr: '', exitCode: 0, stdout: JSON.stringify(args[1] === 'list' ? [{ ...row(), body: listedMarker }] : { ...row(), state: 'OPEN', body: marker }) }) })
+  await assert.rejects(ports.find(source, false), /unrelated-pr/)
+  listedMarker = '<!-- harnessdesk:lead:goal-1:publish-1 -->'
+  await assert.rejects(ports.find(source, true), /unrelated-pr/)
+  marker = listedMarker
+  assert.equal((await ports.find(source, true)).length, 1)
+})
+
+const ownedFixture = async () => {
+  const { LeadPrFollow, pushToOwnedBranch } = await moduleOf(), s = await prepare(), source = repository()
+  await pushToOwnedBranch(source, null)
+  const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+  let time = 100
+  const gateway = gatewayFor(source)
+  const owner = new LeadPrFollow({ gateway, journal: s.journal, now: () => time, validate: async () => {}, source: async () => source,
+    find: async () => [pr], create: async () => pr })
+  await owner.accept(s.card, s.decision, s.contract)
+  return { ...s, source, pr, owner, gateway, tick(at: number) { time = at } }
+}
+
+test('owned push records completion time and ignores a pre-completion observation', async () => {
+  const s = await ownedFixture()
+  git(s.source.cwd, 'commit', '--allow-empty', '-m', 'Reviewed repair')
+  const head = git(s.source.cwd, 'rev-parse', 'HEAD')
+  let validations = 0
+  await s.owner.pushOwned({ ...s.source, head }, async () => { if (++validations === 2) s.tick(200) })
+  assert.equal(s.journal.state.pr?.at, 200)
+  await s.owner.observe({ ...s.pr, state: 'open', check: null, at: 150 })
+  assert.equal(s.journal.state.pr?.head, head)
+  assert.equal(s.journal.state.pr?.observedHead, head)
+  assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
+})
+
+test('ledger recovery keeps the completion time when the triggering poll is older', async () => {
+  const s = await ownedFixture(), { pushToOwnedBranch } = await moduleOf()
+  git(s.source.cwd, 'commit', '--allow-empty', '-m', 'Reviewed crash repair')
+  const repair = { ...s.source, head: git(s.source.cwd, 'rev-parse', 'HEAD') }
+  await s.journal.ownedPush({ source: repair, number: 7, previousHead: s.source.head, at: 100, stage: 'prepared', effectStarted: false })
+  await s.journal.ownedPush({ ...s.journal.state.ownedPush!, stage: 'push-started', effectStarted: true })
+  await pushToOwnedBranch(repair, s.source.head)
+  s.tick(300)
+  await s.owner.observe({ ...s.pr, head: repair.head, state: 'open', check: null, at: 101 })
+  assert.equal(s.journal.state.ownedPush?.stage, 'completed')
+  assert.equal(s.journal.state.pr?.at, 300)
+  assert.equal(s.journal.state.pr?.head, repair.head)
+  assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
+})
+
+test('a late attributed ancestor observation is ignored while a real rewind releases authority', async () => {
+  const s = await ownedFixture()
+  git(s.source.cwd, 'commit', '--allow-empty', '-m', 'Reviewed successor')
+  const head = git(s.source.cwd, 'rev-parse', 'HEAD')
+  await s.owner.pushOwned({ ...s.source, head }, async () => {})
+  const before = s.journal.state
+  await s.owner.observe({ ...s.pr, state: 'open', check: null, at: 201 })
+  assert.deepEqual(s.journal.state, before, 'a completed old poll cannot move the owned head back')
+  git(s.source.cwd, 'push', '--force', 'origin', `${s.source.head}:refs/heads/worker`)
+  await s.owner.observe({ ...s.pr, state: 'open', check: null, at: 202 })
+  assert.equal(s.journal.state.pr?.head, head)
+  assert.equal(s.journal.state.pr?.observedHead, s.source.head)
+  assert.equal(s.journal.state.pr?.branchOwner, 'person')
+  assert.equal(s.journal.state.pr?.branchChange, 'rewrite')
+  assert.equal(s.journal.state.phase, 'waiting-for-user')
+})
+
+test('declining branch ownership resumes following without reclaiming the branch', async () => {
+  const s = await ownedFixture()
+  const rewrite = git(s.source.cwd, 'commit-tree', git(s.source.cwd, 'rev-parse', 'HEAD^{tree}'), '-m', 'Person rewrite')
+  git(s.source.cwd, 'push', '--force', 'origin', `${rewrite}:refs/heads/worker`)
+  await s.owner.observe({ ...s.pr, head: rewrite, state: 'open', check: null, at: 101 })
+  const card = s.journal.state.cards.find(card => card.type === 'branch-ownership')!
+  await s.journal.decideCard({ version: 1, cardType: card.type, cardId: card.id, expectedRevision: card.revision, contractDigest: s.contract.digest, choice: 'decline' }, null)
+  assert.equal(s.journal.state.phase, 'following')
+  assert.equal(s.journal.state.managementReason, null)
+  assert.equal(s.journal.state.pr?.branchOwner, 'person')
+  await s.owner.observe({ ...s.pr, head: rewrite, state: 'open', check: null, at: 102 })
+  assert.equal(s.journal.state.phase, 'following', 'the same poll must not undo the decline')
+  assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
+})
+
+test('a force push after release compares ancestry to the last observed head', async () => {
+  const s = await ownedFixture()
+  git(s.source.cwd, 'commit', '--allow-empty', '-m', 'Person extension')
+  const extension = git(s.source.cwd, 'rev-parse', 'HEAD'); git(s.source.cwd, 'push', 'origin', 'HEAD:refs/heads/worker')
+  await s.owner.observe({ ...s.pr, head: extension, state: 'open', check: null, at: 101 })
+  assert.equal(s.journal.state.phase, 'following')
+  git(s.source.cwd, 'push', '--force', 'origin', `${s.source.head}:refs/heads/worker`)
+  await s.owner.observe({ ...s.pr, state: 'open', check: null, at: 102 })
+  assert.equal(s.journal.state.pr?.branchChange, 'rewrite')
+  assert.equal(s.journal.state.phase, 'waiting-for-user')
+})
+
+test('reclaim reads the remote outside the journal queue and rechecks state after the read', async () => {
+  for (const changes of [false, true]) {
+    const s = await ownedFixture()
+    git(s.source.cwd, 'commit', '--allow-empty', '-m', 'Person extension')
+    const head = git(s.source.cwd, 'rev-parse', 'HEAD'); git(s.source.cwd, 'push', 'origin', 'HEAD:refs/heads/worker')
+    await s.owner.observe({ ...s.pr, head, state: 'open', check: null, at: 101 })
+    const card = s.journal.state.cards.find(card => card.type === 'branch-ownership')!
+    const remoteHead = s.gateway.remoteHead.bind(s.gateway)
+    s.gateway.remoteHead = async (...args) => {
+      // A remote read may wait on another host action that needs the writer.
+      // Taking this read under decideCard deadlocks that action.
+      await Promise.race([changes ? s.journal.stop() : s.journal.settingsChanged(undefined, { checks: false, reviews: true }),
+        new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error('remote read held the journal queue')), 250); timer.unref() })])
+      return remoteHead(...args)
+    }
+    const action = s.owner.reclaim(card, { version: 1, cardType: card.type, cardId: card.id, expectedRevision: card.revision, contractDigest: s.contract.digest, choice: 'reclaim-branch' })
+    if (changes) { await assert.rejects(action, /stale|lead-journal-transition/); assert.equal(s.journal.state.pr?.branchOwner, 'person') }
+    else { await action; assert.equal(s.journal.state.pr?.branchOwner, 'lead') }
+  }
+})
+
+test('a new click first reconciles the pending push-prepared decision', async () => {
+  const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+  const card = { ...s.card, revision: 2, publication: 'push' }; await s.journal.offerCard(card)
+  const oldDecision = { ...s.decision, expectedRevision: 2 }
+  await s.journal.publication({ id: 'publish-1', source, decision: oldDecision as any, at: 100, stage: 'push-prepared', effectStarted: false })
+  let pushes = 0
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source,
+    find: async () => [], push: async () => { pushes++ }, create: async () => ({ repository: source.repository, number: 7, head: source.head, branch: source.branch }) })
+  await assert.rejects(owner.accept(card, { ...oldDecision, choice: 'accept' }, s.contract), /stale/)
+  assert.equal(pushes, 1)
+  assert.equal(s.journal.state.publication?.stage, 'completed')
+  assert.deepEqual(s.journal.state.publication?.decision, oldDecision)
+  assert.equal(s.journal.state.phase, 'following')
+})
+
+test('a new reviewed card can supersede a push-prepared decision whose card is stale', async () => {
+  const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()
+  await s.journal.publication({ id: 'publish-1', source, decision: s.decision as any, at: 100, stage: 'push-prepared', effectStarted: false })
+  const card = { ...s.card, revision: 2 }; await s.journal.offerCard(card)
+  let pushes = 0
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 100, validate: async () => {}, source: async () => source,
+    find: async () => [], push: async () => { pushes++ }, create: async () => ({ repository: source.repository, number: 7, head: source.head, branch: source.branch }) })
+  await owner.accept(card, { ...s.decision, expectedRevision: 2 }, s.contract)
+  assert.equal(pushes, 1)
+  assert.equal(s.journal.state.publication?.stage, 'completed')
+  assert.ok(s.records.some(record => record.operation?.id === 'publish-1' && record.operation.stage === 'superseded'))
+  assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
 })

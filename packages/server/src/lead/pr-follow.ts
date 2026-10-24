@@ -63,7 +63,7 @@ export const pushOwnedLeadBranch = async (options: {
     await pushToOwnedBranch(source, operation.previousHead, !!replay && (previous?.effectStarted === true || previous?.stage === 'push-started'), async () => {
       operation = { ...operation, stage: 'push-started', effectStarted: true }; await journal.ownedPush(operation)
     }, options.gateway, { kind: 'lead-goal', id: journal.state.budget!.logicalGoalId })
-    operation = { ...operation, stage: 'completed' }
+    operation = { ...operation, stage: 'completed', at: Math.max(operation.at, journal.state.pr!.at, options.now()) }
     await journal.ownedPush(operation)
   } catch (error) {
     try { await journal.ownedPush({ ...operation, stage: 'needs-you' }) } catch { /* Retain the prepared prefix on disk failure. */ }
@@ -100,6 +100,14 @@ export class LeadPrFollow {
     return { card, contract: state.contract! }
   }
   accept(card: ResultCard, decision: LeadCardDecision, contract: LeadAcceptanceContract): Promise<void> { return this.#queue(async () => {
+    const pending = this.options.journal.state.publication
+    if (pending?.stage === 'push-prepared' && !isDeepStrictEqual(pending.decision, decision)) {
+      const oldCard = this.options.journal.state.cards.find(card => card.id === pending.decision.cardId)
+      if (pending.effectStarted === false && (!oldCard || oldCard.revision !== pending.decision.expectedRevision || oldCard.contractDigest !== pending.decision.contractDigest))
+        // The old approval cannot be replayed, and no external effect began.
+        await this.options.journal.publication({ ...pending, stage: 'superseded' })
+      else await this.#run(pending.effectStarted === true)
+    }
     const current = this.#card(decision)
     if (!isDeepStrictEqual(current.card, card) || !isDeepStrictEqual(current.contract, contract)) throw new Error('lead-card-stale')
     await this.options.validate(card, decision, contract)
@@ -144,11 +152,15 @@ export class LeadPrFollow {
       const owned = journal.state.pr
       if (owned?.branchOwner === 'person') throw new Error('lead-push-branch-released')
       if (owned && (owned.repository !== op.source.repository || owned.branch !== op.source.branch || owned.state !== 'open')) throw new Error('lead-publication-owner-changed')
+      const pushedByGoal = () => this.options.gateway.hasSucceededPush({ repository: op.source.repository, branch: op.source.branch,
+        sha: op.source.head, requester: { kind: 'lead-goal', id: journal.state.budget!.logicalGoalId } })
+      if (recovering && !['push-prepared', 'push-started'].includes(op.stage) && !pushedByGoal()) throw new Error('lead-publication-push-unproven')
       let candidates = await find(op.source, recovering)
       const matching = () => candidates.length === 1 && candidates[0]!.repository === op.source.repository &&
         candidates[0]!.branch === op.source.branch && candidates[0]!.head === op.source.head && (!owned || candidates[0]!.number === owned.number)
       if (owned && candidates.length === 1 && candidates[0]!.repository === owned.repository && candidates[0]!.number === owned.number && candidates[0]!.branch === owned.branch && candidates[0]!.head === owned.head && owned.head !== op.source.head) candidates = []
       if (candidates.length && !matching()) throw new Error('lead-publication-conflict')
+      if (candidates.length && (recovering || card.publication === 'push') && !pushedByGoal()) throw new Error('lead-publication-push-unproven')
       if (op.stage === 'push-prepared' || op.stage === 'push-started') {
         if (!candidates.length) {
           await guard()
@@ -200,10 +212,14 @@ export class LeadPrFollow {
     return this.#queue(async () => {
       const { journal, gateway } = this.options
       if (decision.choice !== 'reclaim-branch') throw new Error('lead-publication-choice')
+      const current = journal.state.pr
+      if (!current || current.repository !== card.repository || current.number !== card.number || current.observedHead !== card.observedHead) throw new Error('lead-card-stale')
+      const remoteHead = await gateway.remoteHead(current.repository, current.branch)
       await journal.decideCard(decision, null, undefined, async () => {
         const pr = journal.state.pr
         if (!pr || pr.state !== 'open' || pr.branchOwner !== 'person' || pr.repository !== card.repository || pr.number !== card.number ||
-          pr.observedHead !== card.observedHead || await gateway.remoteHead(pr.repository, pr.branch) !== card.observedHead) throw new Error('lead-card-stale')
+          pr.branch !== current.branch || pr.observedHead !== card.observedHead || remoteHead !== card.observedHead ||
+          ['accepted', 'declined', 'stopped'].includes(journal.state.phase) || journal.state.recoveryBlocked || journal.state.budget?.stop) throw new Error('lead-card-stale')
       })
     })
   }
@@ -211,19 +227,26 @@ export class LeadPrFollow {
     const { journal, gateway } = this.options, state = journal.state, pr = state.pr
     if (!pr || !this.watches().length || observation.repository !== pr.repository || observation.number !== pr.number || observation.at < pr.at) return
     let head = pr.head, branchOwner = pr.branchOwner ?? 'lead', releaseReason = pr.releaseReason, branchChange = pr.branchChange
-    if (observation.state === 'open' && observation.head !== pr.head && branchOwner !== 'person') {
+    if (observation.state === 'open' && observation.head !== (pr.observedHead ?? pr.head)) {
       const author = await gateway.attribute(pr.repository, pr.branch, observation.head)
-      if (author !== 'unknown' && author.kind === 'lead-goal' && author.id === state.budget?.logicalGoalId) {
+      const attributed = author !== 'unknown' && author.kind === 'lead-goal' && author.id === state.budget?.logicalGoalId
+      // A late poll can still carry a head from an earlier successful push.
+      // Distinguish it from an actual rewind at the pinned remote before
+      // adopting anything or releasing authority.
+      const oldHead = attributed && observation.head !== pr.head &&
+        await gateway.isAncestor(pr.repository, observation.head, pr.head).catch(() => false)
+      if (oldHead && await gateway.remoteHead(pr.repository, pr.branch) !== observation.head) return
+      const fastForward = !oldHead && await gateway.isAncestor(pr.repository, pr.observedHead ?? pr.head, observation.head).catch(() => false)
+      if (branchOwner !== 'person' && attributed && fastForward) {
         head = observation.head
         const pending = journal.state.ownedPush
         if (pending && pending.source.head === head && pending.number === pr.number && !['completed', 'superseded'].includes(pending.stage)) {
           if (pending.stage === 'needs-you') await journal.ownedPush({ ...pending, stage: 'prepared' })
-          await journal.ownedPush({ ...journal.state.ownedPush!, stage: 'completed' })
+          await journal.ownedPush({ ...journal.state.ownedPush!, stage: 'completed', at: Math.max(pending.at, pr.at, this.options.now()) })
         }
       } else {
         branchOwner = 'person'
         // An unavailable ancestry proof must never grant push authority.
-        const fastForward = await gateway.isAncestor(pr.repository, pr.head, observation.head).catch(() => false)
         branchChange = fastForward ? 'fast-forward' : 'rewrite'
         releaseReason = `Branch ${fastForward ? 'extended' : 'rewritten'} by ${author === 'unknown' ? 'an unknown writer' : `${author.kind} ${author.id}`}. Automatic updates are paused.`
       }
@@ -231,7 +254,7 @@ export class LeadPrFollow {
     const next: LeadPullRequest = { ...pr, head, branchOwner, observedHead: observation.head,
       ...(releaseReason ? { releaseReason, branchChange } : {}), state: observation.state,
       check: observation.check?.head === observation.head ? observation.check : null,
-      review: pr.review?.head === observation.head ? pr.review : null, at: observation.at }
+      review: pr.review?.head === observation.head ? pr.review : null, at: Math.max(observation.at, journal.state.pr!.at) }
     if (JSON.stringify(next) !== JSON.stringify(pr)) await journal.observePr(next)
     if (next.state === 'open' && next.branchOwner === 'person' && journal.state.contract) {
       // One immutable choice per observed head. A later observation invalidates

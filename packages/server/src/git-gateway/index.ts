@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, realpath, writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
@@ -36,6 +37,9 @@ export class GitGateway {
     this.#env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_') &&
       !['GH_REPO', 'GIT_ASKPASS', 'SSH_ASKPASS', 'ALL_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY', 'all_proxy', 'http_proxy', 'https_proxy'].includes(key)))
     Object.assign(this.#env, { GH_HOST: 'github.com', GH_PROMPT_DISABLED: '1', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(resolve(options.directory), 'config'), GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_CEILING_DIRECTORIES: resolve(options.directory), GIT_ASKPASS: '', SSH_ASKPASS: '' })
+    // The credential helper uses this executable too. In a packaged desk it
+    // must run the helper script as Node rather than launch another app.
+    if (process.versions.electron) this.#env.ELECTRON_RUN_AS_NODE = '1'
   }
   #queue<T>(work: () => Promise<T>): Promise<T> {
     const result = this.#tail.then(work); this.#tail = result.catch(() => {}); return result
@@ -133,7 +137,10 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
         await this.#git(mirror, ['rev-parse', `${request.sha}^{tree}`]) !== request.tree) throw new Error('git-gateway-reviewed-sha-mismatch')
       await this.#git(mirror, ['fsck', '--strict', '--no-reflogs', request.sha])
       const remote = await this.#head(mirror, request.repository, request.branch)
-      if (remote === request.sha && (request.previousSha === request.sha || options.reconcile)) return { pushed: false }
+      if (remote === request.sha && (request.previousSha === request.sha || options.reconcile)) {
+        if (this.hasSucceededPush(request)) return { pushed: false }
+        throw new Error(request.previousSha === null ? 'git-gateway-branch-exists-not-owned' : 'git-gateway-owned-head-changed')
+      }
       if (request.previousSha === null && remote !== null) throw new Error('git-gateway-branch-exists-not-owned')
       if (request.previousSha !== null) {
         if (remote !== request.previousSha) throw new Error('git-gateway-owned-head-changed')
@@ -173,6 +180,18 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       if (row.op === 'push' && row.outcome === 'succeeded' && row.repository === repository && row.branch === branch && row.sha === sha) return row.requester
     }
     return 'unknown'
+  }
+  /** A journal's started effect is not proof that Git ever pushed. Recovery
+   * requires the durable success for this exact host requester. */
+  hasSucceededPush(target: { repository: string; branch: string; sha: string; requester: GitRequester }): boolean {
+    let contents: string
+    try { contents = readFileSync(join(this.options.directory, 'ledger.jsonl'), 'utf8') }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error }
+    return contents.trim().split('\n').filter(Boolean).some(line => {
+      const row = JSON.parse(line) as GitLedgerRecord
+      return row.op === 'push' && row.outcome === 'succeeded' && row.repository === target.repository && row.branch === target.branch &&
+        row.sha === target.sha && row.requester.kind === target.requester.kind && row.requester.id === target.requester.id
+    })
   }
   async #gh(repository: string, args: readonly string[]): Promise<string> {
     await this.#init()

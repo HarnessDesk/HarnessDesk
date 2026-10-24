@@ -29,14 +29,15 @@ export const leadPublicationPorts = (port: PublicationPorts): Pick<LeadPrFollowO
     if (!repository || !pr.headRefName || !/^[a-f0-9]{40,64}$/.test(pr.headRefOid ?? '')) throw new Error('lead-publication-pr-unverifiable')
     return { repository, number: pr.number, branch: pr.headRefName, head: pr.headRefOid! }
   }
-  const verifiedCandidate = async (source: LeadPublicationSource, row: Parameters<typeof candidate>[0]) => {
+  const verifiedCandidate = async (source: LeadPublicationSource, row: Parameters<typeof candidate>[0], marker?: string) => {
     const pr = candidate(row)
     const live = JSON.parse(await port.gateway.findPullRequest({ ...target(source), number: pr.number })) as {
-      number: number; url: string; state: string; headRefName: string; headRefOid: string; isCrossRepository?: boolean; headRepositoryOwner?: { login: string }
+      number: number; url: string; state: string; headRefName: string; headRefOid: string; body?: string; isCrossRepository?: boolean; headRepositoryOwner?: { login: string }
     }
     if (live.number !== pr.number || live.state.toLowerCase() !== 'open' || repositoryOf(live.url, live.number) !== source.repository ||
       live.isCrossRepository !== false || live.headRepositoryOwner?.login.toLowerCase() !== source.repository.split('/')[0]!.toLowerCase() ||
       live.headRefName !== source.branch || live.headRefOid !== pr.head) throw new Error('lead-publication-pr-changed')
+    if (marker && !live.body?.includes(marker)) throw new Error('lead-publication-unrelated-pr')
     return pr
   }
   return {
@@ -79,13 +80,16 @@ export const leadPublicationPorts = (port: PublicationPorts): Pick<LeadPrFollowO
       const rows = listed.filter(row => row.isCrossRepository !== true && (!row.headRepositoryOwner || row.headRepositoryOwner.login.toLowerCase() === source.repository.split('/')[0]!.toLowerCase()))
       if (rows.length > 1) throw new Error('lead-publication-pr-unverifiable')
       const publications = await port.publications(source), owned = port.journal.state.pr
+      const pushCard = port.journal.state.cards.find(card => card.id === port.journal.state.publication?.decision.cardId)
+      const hostOnly = pushCard?.type === 'result' && pushCard.publication === 'push'
       const verified: LeadPrCandidate[] = []
       for (const row of rows) {
-        const pr = await verifiedCandidate(source, row)
-        if (!(owned && pr.repository === owned.repository && pr.number === owned.number) &&
-          !publications.some(ref => ref.kind === 'pullRequest' && ref.action === 'opened' && ref.repo === pr.repository && ref.number === pr.number) &&
-          !(recovering && row.body?.includes(`<!-- harnessdesk:lead:${port.journal.state.budget?.logicalGoalId}:${port.journal.state.publication?.id} -->`)))
-          throw new Error('lead-publication-unrelated-pr')
+        const pr = candidate(row)
+        const known = owned && pr.repository === owned.repository && pr.number === owned.number ||
+          publications.some(ref => ref.kind === 'pullRequest' && ref.action === 'opened' && ref.repo === pr.repository && ref.number === pr.number)
+        if (!known && !recovering) throw new Error('lead-publication-unrelated-pr')
+        await verifiedCandidate(source, row, hostOnly || !known ?
+          `<!-- harnessdesk:lead:${port.journal.state.budget?.logicalGoalId}:${port.journal.state.publication?.id} -->` : undefined)
         verified.push(pr)
       }
       return verified

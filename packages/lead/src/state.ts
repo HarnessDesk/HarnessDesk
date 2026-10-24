@@ -184,7 +184,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'publication': {
       const op = event.operation, previous = state.publication
       if (op.stage === 'superseded') {
-        ensure(previous?.stage === 'needs-you' && previous.effectStarted === false && event.pr === null &&
+        ensure(previous && ['needs-you', 'push-prepared'].includes(previous.stage) && previous.effectStarted === false && event.pr === null &&
           JSON.stringify({ ...previous, stage: 'superseded' }) === JSON.stringify(op))
         state = { ...state, publication: op }; break
       }
@@ -223,7 +223,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       }
       if (!previous || previous.source.head !== op.source.head) ensure(op.stage === 'prepared' && op.previousHead === pr!.head && (!previous || ['completed', 'superseded'].includes(previous.stage)))
       else {
-        ensure(JSON.stringify({ ...previous, stage: undefined, effectStarted: undefined }) === JSON.stringify({ ...op, stage: undefined, effectStarted: undefined }))
+        ensure(JSON.stringify({ ...previous, stage: undefined, effectStarted: undefined, at: undefined }) === JSON.stringify({ ...op, stage: undefined, effectStarted: undefined, at: undefined }))
+        ensure(op.stage === 'completed' ? op.at >= previous.at : op.at === previous.at)
         ensure(op.effectStarted === previous.effectStarted || op.stage === 'push-started' && op.effectStarted === true)
         const allowed: Record<LeadOwnedPush['stage'], readonly string[]> = { prepared: ['prepared', 'push-started', 'completed', 'needs-you'], 'push-started': ['push-started', 'completed', 'needs-you'],
           'needs-you': ['prepared', 'needs-you'], completed: ['completed'], superseded: [] }
@@ -253,7 +254,9 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         check: event.pr.check?.head === observedHead ? event.pr.check : null,
         ...(event.pr.review === undefined ? {} : { review: event.pr.review?.head === observedHead ? event.pr.review : null }) },
         ...(event.pr.state !== 'open' ? { phase: event.pr.state === 'merged' ? 'accepted' as const : 'declined' as const, managementReason: null } :
-          branchOwner === 'person' && event.pr.branchChange !== 'fast-forward' ? { phase: 'waiting-for-user' as const, managementReason: 'lead-pr-branch-rewritten' } : {}) }
+          branchOwner === 'person' && event.pr.branchChange !== 'fast-forward' &&
+            (pr!.branchOwner !== 'person' || observedHead !== (pr!.observedHead ?? pr!.head)) ?
+            { phase: 'waiting-for-user' as const, managementReason: 'lead-pr-branch-rewritten' } : {}) }
       break
     }
     case 'message': {
@@ -378,7 +381,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
           const { branchChange: _, releaseReason: __, ...retained } = pr!
           state = { ...state, phase: 'following', managementReason: null, ownedPush: null,
             pr: { ...retained, head: card!.observedHead, branchOwner: 'lead' } }
-        }
+        } else state = { ...state, phase: 'following', managementReason: null }
       } else if (card!.type === 'budget-change') {
         ensure(state.budget && card!.contractDigest === (state.contract?.digest ?? null))
         state = { ...state, budget: applyLeadBudgetCard(state.budget!, event.decision, card!) }
