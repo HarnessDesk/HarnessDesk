@@ -1,3 +1,4 @@
+import type { LeadPresence as LeadChecks, LeadRunReading } from '@harnessdesk/protocol'
 import type { LeadState } from '../state/lead'
 import type { LeadMood } from './lead-faces'
 
@@ -27,3 +28,15 @@ export const leadPresence = (state: LeadState): LeadPresence => {
   if (goalActive) return { mood: 'working', word: 'Working · 1 goal', needs: 0, goalActive }
   return { mood: 'neutral', word: 'Ready', needs: 0, goalActive: false }
 }
+
+/** "Checked 3 times · nothing new · stayed quiet": what the Lead did between turns without spending a request. */
+export const leadWakeLine = (checks: LeadChecks | null): string | null => {
+  if (!checks?.checked) return null
+  const times = `Checked ${checks.checked} time${checks.checked === 1 ? '' : 's'}`
+  return checks.quiet === checks.checked ? `${times} · nothing new · stayed quiet` : `${times} · ${checks.checked - checks.quiet} worth a look`
+}
+
+const READING: Record<LeadRunReading['kind'], string> = { advanced: 'moving', stuck: 'stuck', 'plan-only': 'planned, nothing done', blocked: 'blocked', done: 'done' }
+/** One phrase per run the Lead owns: "Run 1 moving", "Run 2 stuck · quiet 24 min". */
+export const leadReadingWords = (checks: LeadChecks | null): readonly string[] => (checks?.readings ?? []).map((reading, index) =>
+  `Run ${index + 1} ${READING[reading.kind]}${reading.kind === 'stuck' && reading.quietMinutes !== undefined ? ` · quiet ${reading.quietMinutes} min` : ''}`)

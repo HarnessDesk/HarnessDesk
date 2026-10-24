@@ -1,9 +1,0 @@
-/* The Lead screen's own layout: a turn's face column, the status head, the run strip. */
-.turn { display: flex; align-items: flex-start; gap: var(--hd-space-2); }
-.turnFace { flex: none; width: calc(var(--hd-space-5) + var(--hd-space-0-5)); padding-block-start: var(--hd-space-0-5); }
-.turnBody { flex: 1; min-width: 0; }
-.statusHead { display: flex; align-items: center; gap: var(--hd-space-3); padding: var(--hd-space-2); }
-.statusName { display: flex; flex-direction: column; min-width: 0; }
-.stripHost { display: contents; }
-.limits { display: flex; flex-direction: column; gap: var(--hd-space-2); padding: var(--hd-space-2); }
-.limitsRow { display: flex; align-items: center; gap: var(--hd-space-2); }

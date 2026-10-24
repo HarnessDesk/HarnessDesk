@@ -10,4 +10,5 @@ export const leadMethods = {
   'lead/settings/update': (ctx, params) => ctx.leadSettingsUpdate(params),
   'lead/stop': (ctx, params) => ctx.leadStop(params),
   'lead/resume': (ctx, params) => ctx.leadResume(params),
+  'lead/steer': (ctx, params) => ctx.leadSteer(params),
 } satisfies MethodsUnder<'lead/'>

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { LeadName } from '@harnessdesk/protocol'
 import { leadFaceSrc, type LeadMood } from '../../lib/lead-faces'
 import { Button } from '../ui/button'
@@ -27,8 +28,22 @@ const CHOICES: readonly { readonly value: LeadName; readonly label: string }[] =
 export const LeadNameChoice = ({ value, pending, onChange }: { readonly value: LeadName; readonly pending: boolean; readonly onChange: (name: LeadName) => void }) =>
   <RadioGroup variant="choice" render={<span />} className={styles.choices} aria-label="Lead identity" value={value} onValueChange={next => { if (!pending && next !== value) onChange(next as LeadName) }}>
     {CHOICES.map(choice => <RadioGroupItem key={choice.value} variant="choice" value={choice.value} nativeButton disabled={pending} aria-label={choice.label}
-      render={<Button type="button" variant="outline" size="inline" className={styles.choice} data-on={value === choice.value ? '' : undefined} />}>
+      render={<Button type="button" variant="choice" size="inline" className={styles.choice} data-on={value === choice.value ? '' : undefined} />}>
       <LeadAvatar name={choice.value} size="picker" mood={value === choice.value ? 'working' : 'neutral'} />
       <Text role="subject">{choice.label}</Text>
     </RadioGroupItem>)}
   </RadioGroup>
+
+/** A Lead line: a face column every line keeps, so the text aligns, and the face itself only on a turn's first line. */
+export const LeadTurn = ({ face, children }: { readonly face: ReactNode; readonly children: ReactNode }) =>
+  <div className={styles.turn}><span className={styles.turnFace} data-slot="lead-turn-face">{face}</span><div className={styles.turnBody}>{children}</div></div>
+
+/** Who the Lead is and where it stands, at the head of its status popover. */
+export const LeadIdentity = ({ avatar, name, word }: { readonly avatar: ReactNode; readonly name: ReactNode; readonly word: ReactNode }) =>
+  <div data-slot="lead-status-head" className={styles.identity}>{avatar}<div className={styles.identityName}><Text role="subject">{name}</Text><Text role="muted">{word}</Text></div></div>
+
+/** A note that belongs to the person's line above it, at that line's trailing edge. */
+export const LeadLineNote = ({ children }: { readonly children: ReactNode }) => <div className={styles.lineNote}>{children}</div>
+
+/** Names a block for tests and tools without adding a box of its own to the layout it sits in. */
+export const LeadSlot = ({ slot, children }: { readonly slot: string; readonly children: ReactNode }) => <div data-slot={slot} className={styles.slot}>{children}</div>

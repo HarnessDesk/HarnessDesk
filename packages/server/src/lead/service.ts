@@ -1,4 +1,4 @@
-import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject, LeadControlRefusal } from '@harnessdesk/protocol'
+import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject, LeadControlRefusal, LeadPresence } from '@harnessdesk/protocol'
 import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
 import { LEAD_MESSAGES_DEFAULTS, parseLeadMessagesBody } from '@harnessdesk/lead'
 import { LeadSupervisor, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
@@ -39,6 +39,8 @@ export interface LeadServiceOptions {
   readonly openDoor: (admission: LeadAdmission) => Promise<ClientDoor | null>
   readonly stopOwned: (reason: string) => Promise<void>
   readonly createSupervisor?: (options: LeadSupervisorOptions) => LeadProcess
+  /** The Lead's checks between model turns, as the child reports them. */
+  readonly onPresence?: (presence: LeadPresence) => void
 }
 /** The host owns this lifecycle and its only journal writer. This service never
  * stores a plaintext key: resolution is transient and host-only.
@@ -94,6 +96,7 @@ export class LeadService {
             ...(options.seats ? { seats: options.seats } : {}) }
         } catch (error) { await this.#release(); throw error }
       },
+      ...(options.onPresence ? { onPresence: options.onPresence } : {}),
       admitCardOffer: card => admitLeadCard(options.journal.state, card, options.project, options.model ?? LEAD_MESSAGES_DEFAULTS.model),
       // What the model says is written for the person to read, so it gets the scan every other public text gets.
       admitReply: text => this.assertPublic(text),

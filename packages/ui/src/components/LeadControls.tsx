@@ -1,13 +1,12 @@
 import { useState, useSyncExternalStore } from 'react'
 import type { LeadName } from '@harnessdesk/protocol'
-import { ConfirmDialog, LeadAvatar, MenuItem, MenuNote, MenuSeparator, Text } from '../design'
-import { leadPresence } from '../lib/lead-presence'
+import { ConfirmDialog, LeadAvatar, LeadIdentity, MenuItem, MenuNote, MenuSeparator, Text } from '../design'
+import { leadPresence, leadReadingWords, leadWakeLine } from '../lib/lead-presence'
 import { useStore } from '../state/context'
 import { leadDollars } from './LeadCards'
 import { leadRefusalText } from './lead-refusals'
 import { RetryIcon, SettingsIcon, StopIcon, SwapIcon } from './Icons'
 import { useLeadName } from './use-lead-name'
-import styles from './Lead.module.css'
 
 export const leadLabel = (name: LeadName | null) => name === 'lex' ? 'Lex' : name === 'dex' ? 'Dex' : 'Lead'
 
@@ -49,15 +48,13 @@ export const LeadStatusPanel = ({ close, controls }: { readonly close: () => voi
   const budget = state.thread?.budget, progress = state.progress
   const spent = budget ? budget.leadUsdMicros + budget.workerUsdMicros : 0
   return <>
-    <div data-slot="lead-status-head" className={styles.statusHead}>
-      <LeadAvatar name={name} size="popover" mood={presence.mood} />
-      <div className={styles.statusName}><Text role="subject">{label}</Text><Text role="muted">{presence.word}</Text></div>
-    </div>
+    <LeadIdentity avatar={<LeadAvatar name={name} size="popover" mood={presence.mood} />} name={label} word={presence.word} />
     <MenuNote>{[
       progress ? `Step ${progress.step} of ${progress.steps}` : presence.goalActive ? 'Planning' : 'No goal running',
       presence.needs ? `${presence.needs} need${presence.needs === 1 ? 's' : ''} you` : null,
       budget ? `${leadDollars(spent)} of ${leadDollars(budget.caps.usdMicros)} spent` : null,
     ].filter(Boolean).join(' · ')}</MenuNote>
+    {presence.goalActive && state.presence && <MenuNote>{[...leadReadingWords(state.presence), leadWakeLine(state.presence)].filter(Boolean).join(' · ')}</MenuNote>}
     {error && <MenuNote tone="warning">{error}</MenuNote>}
     <MenuSeparator />
     {items(close)}

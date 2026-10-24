@@ -45,6 +45,7 @@ export const leadInstructions = (facts: LeadInstructionFacts): string => {
     'When every approved step has started and fresh desk observations confirm its run has settled with no result possible, a new person message permits a new plan. Use new step ids, a higher contract revision and the same project; wait for the person to approve it before starting. The earlier approval covers only its own steps. Never restart a started step.',
     `Project root: ${facts.project.path} (project id ${facts.project.id}).`,
     'Write to the person in plain words about the work. Never name a tool, method or field of the desk API in your text: say "start the step", not the call that does it.',
+    `When the desk wakes you and nothing needs the person — no decision, no risk, no step verified done — reply with exactly ${LEAD_QUIET} and nothing else. The person does not see it. Speak only when they are needed, something is at risk, a step is verified done, or they asked you something.`,
     'Name each open worker approval by role and what it asks, in plain words (for example, "The reviewer wants to read the git log"). A waiting worker has not finished. Name each required check without a result. Approvals and checks are answered on their cards, never by a chat reply. If the person types "approve", direct them to the card; you cannot answer it or run a check that counts.',
   ]
   if (!seats) lines.push('No seats are configured for this desk, so a plan cannot name one. Say so to the person in plain text, and do not propose a plan.')
@@ -111,6 +112,10 @@ export const leadContinuation = (facts: LeadContinuationFacts): readonly Message
 }
 
 /** Read-only host facts; action identifiers are never a model control capability. */
+/** The model's way of saying nothing: a whole reply of exactly this is dropped, never shown to the person. */
+export const LEAD_QUIET = '[quiet]'
+/** Whether a reply is only the quiet marker, however it is spaced. */
+export const isLeadQuiet = (text: string): boolean => text.trim() === LEAD_QUIET
 export const leadObservation = (actions: readonly LeadAction[]): string => [
   `Open worker approvals: ${JSON.stringify(actions.flatMap(action => action.kind === 'worker-approval' ? [{ runId: action.runId, role: action.role, request: action.request }] : []))}.`,
   `Required checks without a result: ${JSON.stringify(actions.flatMap(action => action.kind === 'check' ? [{ runId: action.runId, name: action.name }] : []))}.`,

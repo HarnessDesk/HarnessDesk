@@ -3,7 +3,7 @@ import { connect, type Socket } from 'node:net'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, parseLeadCard, parseLeadMessage,
-  type LeadBudgetEvent, type LeadCard, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy } from '@harnessdesk/protocol'
+  type LeadBudgetEvent, type LeadCard, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy, type LeadPresence, parseLeadPresence } from '@harnessdesk/protocol'
 import type { DeskPointer } from '@harnessdesk/client/node'
 import { parseLeadRunIdentity, type LeadJournal, type LeadDispatchResult } from './journal.js'
 import type { LeadPermissionCall } from './permissions.js'
@@ -33,6 +33,8 @@ export interface LeadSupervisorOptions {
   readonly onStarted?: () => Promise<void> | void
   readonly onExit?: (reason: string) => Promise<void> | void
   readonly onWaitEnded?: (runId: string, reason: 'ownership-withdrawn') => void
+  /** The child's checks between model turns, for the person's window; a malformed one is a broken protocol. */
+  readonly onPresence?: (presence: LeadPresence) => void
   readonly startupMs?: number
   readonly shutdownMs?: number
   /** Test injection retains the exact production argv/environment construction. */
@@ -223,6 +225,7 @@ export class LeadSupervisor {
       if (!['completed', 'max-tokens', 'refused', 'cancelled', 'uncertain', 'rate-limited', 'failed', 'invalid-response'].includes(result.status as string)) throw error('protocol')
       running.pending.delete(message.id as number); pending.resolve(result); return
     }
+    if (message.type === 'presence') { const presence = parseLeadPresence(message.presence); this.options.onPresence?.(presence); return }
     if (message.type === 'desk-lost') { running.reason = 'desk-lost'; this.#kill(running); return }
     if (message.type === 'wait-ended') {
       this.options.onWaitEnded?.(message.runId as string, 'ownership-withdrawn'); return

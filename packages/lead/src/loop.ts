@@ -1,7 +1,8 @@
 import type { LeadJournalPort } from './child-ipc.js'
 import { clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
-import { leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
+import { isLeadQuiet, leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
+import { classifyLeadRuns, createLeadWakeGate, type LeadRunReading, type LeadWakeCounts } from './wake.js'
 import { createLeadMessages } from './messages.js'
 import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn } from './messages-types.js'
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
@@ -34,6 +35,10 @@ export interface LeadLoopOptions {
   readonly freshnessMs?: number
   /** What a plan's assignments may name. Absent means the desk offers no seat, and the model is told so. */
   readonly seats?: LeadSeatChoices
+  /** How long a running run may go without moving before it is called stuck and the model is woken for it. */
+  readonly stuckMs?: number
+  /** Told whenever the wake counts or run readings change, so the host can show them without asking. */
+  readonly onPresence?: (presence: { readonly wakes: LeadWakeCounts; readonly readings: readonly LeadRunReading[] }) => void
 }
 export interface LeadLoopState {
   readonly phase: LeadThreadState
@@ -42,6 +47,10 @@ export interface LeadLoopState {
   readonly snapshot: ClientSnapshot | null
   readonly relays: readonly ReturnType<typeof leadWorkerApprovalRelay>[]
   readonly acceptance: readonly { readonly runId: string; readonly result: LeadAcceptanceResult }[]
+  /** How often the desk was checked without waking the model, since it last spoke. */
+  readonly wakes: LeadWakeCounts
+  /** One reading per owned run: advanced, stuck, plan only, blocked or done. */
+  readonly readings: readonly LeadRunReading[]
 }
 const terminal = (phase: LeadThreadState) => ['accepted', 'declined', 'stopped'].includes(phase)
 const resultSignature = (contract: string, assertions: readonly LeadAssertionResult[], budget: LeadBudgetState) => JSON.stringify({
@@ -65,6 +74,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let history: readonly MessagesTurn[] | null = null, requestTemplate: LeadMessagesRequest | null = null
   let lastResultSignature: string | null = null
   let noProgressTurns = 0, waitingForResume = false
+  const gate = createLeadWakeGate(options.stuckMs)
+  let deskOwed = false
+  const owned = () => ({ runs: journal.state.runs.map(run => run.runId), teams: journal.state.teams })
   const tools = createLeadTools({ journal, desk, project, now: () => clock.now(), nextId, synchronized: () => synchronized && !closed,
     resolveTool: options.resolveTool })
   const messages = createLeadMessages({ ...options.messages, journal, now: () => clock.now(), nextId,
@@ -221,6 +233,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     requestTemplate = input
     // What the model said belongs to the person, in the order it was said: before the card or the wait that
     // follows it. A text the desk will not keep stays in the result, so the host scans it and refuses it by name.
+    // A reply that is only the quiet marker is the model choosing to say nothing; the person never sees it.
+    if (result.text && isLeadQuiet(result.text)) { const { text: _quiet, ...silent } = result; result = silent }
     if (result.text && !terminal(journal.state.phase)) {
       // The same sentence again, with nothing from the person between, is one standing line, not a new
       // message: every desk wake otherwise adds "Waiting for ..." to the thread once more.
@@ -257,6 +271,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     await refresh()
     if (result.reason === 'lead-predecessor-unavailable' || result.reason === 'lead-predecessor-unverifiable') { await waitForUser(result.reason); return result }
     const waitForDesk = !!result.deskActivityTools?.length
+    // A tool told to wait for desk activity is owed the next change, whatever the gate makes of it.
+    deskOwed = waitForDesk
     const countedTools = result.toolResults?.filter(tool => !result.deskActivityTools?.includes(tool.tool_use_id)) ?? []
     if (countedTools.length) {
       const permanentRefusal = countedTools.some(tool => tool.is_error && !result.transientTools?.includes(tool.tool_use_id))
@@ -297,8 +313,16 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           return
         }
         if ((!activity && !continueTools) || journal.state.phase === 'awaiting-plan' || !history || !requestTemplate) return
-        const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: `Desk activity changed. Inspect fresh desk observations before acting.\n${leadObservation(personActions)}` }] }
+        // The wake gate: a change that moves nothing the model acts on is a check, not a turn.
+        const look = activity ? gate.look(snapshot, owned(), personActions, clock.now()) : null
+        report()
+        if (look && !look.wake && !continueTools && !deskOwed) return
+        deskOwed = false
+        if (look) gate.shown(look.fingerprint)
+        const readings = classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs)
+        const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: `Desk activity changed. Inspect fresh desk observations before acting.\nRun readings: ${JSON.stringify(readings)}.\n${leadObservation(personActions)}` }] }
         await step({ ...requestTemplate!, messages: [...history!, ...(activity ? [observation] : [])] })
+        report()
       }).catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
     })
   }
@@ -333,6 +357,14 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       }
     } catch { synchronized = false; generation++; reason = 'lead-connection-ended'; await invalidate() }
   }
+  let reported = ''
+  const report = () => {
+    const presence = { wakes: gate.counts, readings: classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs) }
+    const key = JSON.stringify(presence)
+    if (key === reported) return
+    reported = key
+    try { options.onPresence?.(presence) } catch { /* Presence is a courtesy; it never stops the loop. */ }
+  }
   let started = false
   const start = async () => {
     if (started || closed) return
@@ -347,7 +379,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     } catch { synchronized = false; await waitForUser('lead-subscription-failed') }
   }
   return {
-    get state(): LeadLoopState { return structuredClone({ phase: journal.state.phase, reason: journal.state.budget?.stop ? 'lead-budget-stopped' : journal.state.phase === 'waiting-for-user' ? journal.state.managementReason ?? reason : reason, synchronized, snapshot, relays, acceptance }) },
+    get state(): LeadLoopState { return structuredClone({ phase: journal.state.phase, reason: journal.state.budget?.stop ? 'lead-budget-stopped' : journal.state.phase === 'waiting-for-user' ? journal.state.managementReason ?? reason : reason, synchronized, snapshot, relays, acceptance,
+      wakes: gate.counts, readings: classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs) }) },
+    /** A clock tick with no desk event: lets a quiet run be called stuck. */
+    poke: () => { if (!closed && started && history && journal.state.phase === 'running') schedule(true) },
     start: () => queue(start),
     request: (input: LeadMessagesRequest, signal?: AbortSignal) => queue(async () => { await start(); return step(input, signal) }),
     refresh: () => queue(async () => { await start(); await refresh() }),

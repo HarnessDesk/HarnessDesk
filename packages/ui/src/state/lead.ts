@@ -1,5 +1,5 @@
 import type {
-  HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadProgress, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadPresence, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
@@ -18,11 +18,15 @@ export interface LeadState {
   readonly progress: LeadProgress | null
   /** The Team of the running goal's latest run, or null. */
   readonly team: string | null
+  /** The Lead's checks between turns while a goal runs; null when the host reports none. */
+  readonly presence: LeadPresence | null
+  /** The person's steers to the running worker in this goal. */
+  readonly steers: readonly LeadSteer[] | null
   readonly error: 'lead-projection-failed' | null
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
-  const initial = (): LeadState => ({ personActions: [], revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, error: null })
+  const initial = (): LeadState => ({ personActions: [], revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, presence: null, steers: null, error: null })
   let state = initial()
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
@@ -42,7 +46,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
       : structuredClone({ personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
-        requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, error: null })
+        requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }
   return {
@@ -83,6 +87,8 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       return result
     },
     async stop() { checkRead(); const before = state, result = await transport.request('lead/stop', { expectedRevision: state.revision }); apply(result, before); return result },
+    /** Words for the goal's running worker, taken mid-turn without a restart. */
+    async steer(text: string) { checkRead(); const before = state, result = await transport.request('lead/steer', { text }); apply(result, before); return result },
     async resume() { checkRead(); const before = state, result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result, before); return result },
   }
 }

@@ -136,6 +136,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           },
         }) }
         loop = createLeadLoop({ journal, desk, project, ...(config.seats ? { seats: config.seats } : {}),
+          onPresence: ({ wakes, readings }) => { if (!closed) send({ type: 'presence', presence: { ...wakes, readings } }) },
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
           nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
             countInput: async body => new TextEncoder().encode(body).length + 1024,
@@ -147,6 +148,8 @@ export const runLeadChild = (options: ChildOptions = {}) => {
             }) },
           resolveTool, freezePlan: async contract => await rpc('freezePlan', [contract]) as typeof contract,
           readEvidence: async runId => await rpc('readEvidence', [runId]) as LeadAcceptanceEvidence })
+        // A run that goes quiet sends no event; a minute's tick lets the gate call it stuck. It costs no request unless it is.
+        setInterval(() => { if (!closed) loop?.poke() }, 60_000).unref()
         send({ type: 'ready' }); void loop.start().catch(fail); return
       }
       case 'state': {

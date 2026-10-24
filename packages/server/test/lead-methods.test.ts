@@ -1674,3 +1674,22 @@ test('result decisions re-read every declared check before completing a person g
   await g.answerLeadResult(g.options, g.card, g.click, g.c)
   assert.equal(g.answers(), 1)
 })
+
+test('a steer reaches the running worker without a restart, and one no worker takes is refused by name', async () => {
+  const idle = await rig({ controls: { steerWorker: async () => true } })
+  await assert.rejects(idle.controls.steer({ text: 'Keep the public API unchanged.' }), code('lead-steer-unavailable'))
+  idle.controls.close()
+  const taken: string[] = []; let take = true
+  const s = await rig({ controls: { steerWorker: async (text: string) => { if (take) taken.push(text); return take } } })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000000)
+  assert.equal(s.journal.state.phase, 'running')
+  const before = s.journal.state.seq
+  const projection = await s.controls.steer({ text: 'Keep the public API unchanged.' })
+  assert.deepEqual(taken, ['Keep the public API unchanged.'])
+  assert.deepEqual(projection.steers.map((item: any) => [item.text, item.state]), [['Keep the public API unchanged.', 'acknowledged']])
+  assert.equal(s.journal.state.seq, before, 'a steer writes nothing to the journal and restarts nothing')
+  take = false
+  await assert.rejects(s.controls.steer({ text: 'And add a test.' }), code('lead-steer-unavailable'))
+  assert.equal((await s.controls.readThread()).steers.length, 1)
+  s.controls.close()
+})

@@ -788,6 +788,8 @@ export interface HostMethods {
   'lead/settings/update': { params: LeadSettingsUpdate; result: LeadWindowProjection | LeadNameReceipt }
   'lead/stop': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
   'lead/resume': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
+  /** Say something to the goal's running worker mid-turn, without restarting it. */
+  'lead/steer': { params: { readonly text: string }; result: LeadWindowProjection }
   'client/hello': {
     params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }
     result: {

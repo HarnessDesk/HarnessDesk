@@ -155,6 +155,7 @@ export interface HostContext {
   leadSettingsUpdate(params: HostParams<'lead/settings/update'>): Promise<HostResult<'lead/settings/update'>>
   leadStop(params: HostParams<'lead/stop'>): Promise<HostResult<'lead/stop'>>
   leadResume(params: HostParams<'lead/resume'>): Promise<HostResult<'lead/resume'>>
+  leadSteer(params: HostParams<'lead/steer'>): Promise<HostResult<'lead/steer'>>
   readonly leadStarts?: Pick<import('../lead/budgets.js').LeadBudgets, 'validateStart'>
   readonly flows: Flows
   /** Previews a flow, non-executing, and mints the one token `flow/start-goal` redeems. */

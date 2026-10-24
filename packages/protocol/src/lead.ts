@@ -226,6 +226,16 @@ export interface LeadProgress {
   /** When this host first saw the goal running, for the elapsed time beside Stop; absent when it never saw it start. */
   readonly since?: number
 }
+/** How one run the Lead owns stands, as the Lead's own host reads it between model turns. */
+export type LeadRunClass = 'advanced' | 'stuck' | 'plan-only' | 'blocked' | 'done'
+export interface LeadRunReading { readonly runId: string; readonly kind: LeadRunClass; readonly quietMinutes?: number }
+/** What the Lead did between turns: how many desk changes it looked at, how many of those it let pass, and how each run reads. */
+export interface LeadPresence {
+  readonly checked: number; readonly quiet: number; readonly lastCheckedAt: number | null
+  readonly readings: readonly LeadRunReading[]
+}
+/** A word the person sent to the running worker through the Lead, without restarting it. */
+export interface LeadSteer { readonly id: string; readonly text: string; readonly at: number; readonly state: 'acknowledged' | 'refused' }
 /** Live host-owned requests. These are not model-proposed cards or LeadCardDecision inputs. */
 export type LeadAction =
   | { readonly kind: 'worker-approval'; readonly id: string; readonly runId: string; readonly role: string; readonly request: string; readonly choices: readonly ('yes-once' | 'no')[] }
@@ -242,6 +252,10 @@ export interface LeadWindowProjection extends LeadHostProjection {
   readonly progress?: LeadProgress
   /** The Team of the goal's latest run, while the goal is running: the board where its evidence and the person's own acts live. */
   readonly team?: string
+  /** The Lead's checks between turns, while a goal is running; it informs and grants nothing. */
+  readonly presence?: LeadPresence
+  /** The person's steers to the running worker in this goal, oldest first. */
+  readonly steers?: readonly LeadSteer[]
 }
 export interface LeadProjectionFailure { readonly version: 1; readonly revision: LeadRevision; readonly error: 'lead-projection-failed' }
 export type LeadChanged = LeadWindowProjection | LeadProjectionFailure
@@ -255,7 +269,7 @@ export const LEAD_CONTROL_REFUSALS = ['lead-unavailable', 'lead-operation-refuse
   'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
-  'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing'] as const
+  'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -594,6 +608,12 @@ const parseLeadProgress: Validator<LeadProgress> = (value, path = '') => {
   const parsed = object<LeadProgress>({ step: integer(1, LEAD_LIMITS.steps), steps: integer(1, LEAD_LIMITS.steps), runs: integer(), since: optional(integer(0, Number.MAX_SAFE_INTEGER)) })(value, path)
   return parsed.step <= parsed.steps ? parsed : fail(path, 'step beyond the plan')
 }
+export const parseLeadPresence: Validator<LeadPresence> = object({
+  checked: integer(), quiet: integer(), lastCheckedAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)),
+  readings: list(object<LeadRunReading>({ runId: id, kind: literalUnion('advanced', 'stuck', 'plan-only', 'blocked', 'done'), quietMinutes: optional(integer()) }), 64, 0, reading => reading.runId),
+})
+const parseLeadSteer: Validator<LeadSteer> = object({ id, text: text(4000), at: integer(0, Number.MAX_SAFE_INTEGER), state: literalUnion('acknowledged', 'refused') })
+export const parseLeadSteerInput: Validator<{ readonly text: string }> = object({ text: text(4000) })
 const actionBase = { id, runId: id }
 const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
   const kind = (value as { kind?: unknown })?.kind
@@ -605,7 +625,8 @@ const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
   waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
-  personActions: optional(list(parseLeadAction, 1024, 0, action => action.id)),
+  personActions: optional(list(parseLeadAction, 1024, 0, action => action.id)), presence: optional(parseLeadPresence),
+  steers: optional(list(parseLeadSteer, 64, 0, steer => steer.id)),
 }))
 
 export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, contractDigest: digest, choice: literalUnion('yes-once', 'no', 'run') })

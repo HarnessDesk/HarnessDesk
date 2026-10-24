@@ -1,8 +1,8 @@
 import {
   LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
-  parseLeadThreadSend, parseLeadResume, parseLeadActionInput, type LeadAction, type LeadActionInput,
+  parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
-  type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification,
+  type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
 import { canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
@@ -32,12 +32,18 @@ interface LeadControlsOptions {
   /** Reads the workers' spend again; a Lead request is refused while that spend is not known. */
   readonly meterSpend?: () => Promise<void>
   readonly stopEffects?: () => Promise<void>
+  /** The Lead's latest checks between turns; shown only while a goal runs. */
+  readonly readPresence?: () => LeadPresence | null
+  /** Hands the text to the goal's worker that is in a turn; false when none took it. */
+  readonly steerWorker?: (text: string) => Promise<boolean>
 }
 /** One host owner, no transport or rendering. Child ports never contain these operations. */
 export class LeadControls {
   #tail: Promise<unknown> = Promise.resolve()
   #notifications: Promise<void> = Promise.resolve()
   #failedRevision: number | null = null
+  // Steers live with the goal they were sent in; a new goal starts an empty list.
+  #steers: { readonly goal: string | null; readonly list: LeadSteer[] } = { goal: null, list: [] }
   #runningSince: { readonly goal: string | null; readonly at: number } | null = null
   #continuation: Promise<void> | null = null
   #continueAgain = false
@@ -119,8 +125,11 @@ export class LeadControls {
     if (!running) this.#runningSince = null
     else if (this.#runningSince?.goal !== goal) this.#runningSince = { goal, at: this.options.now() }
     const progress = running && this.#runningSince ? { ...running, since: this.#runningSince.at } : running
+    const presence = running ? this.options.readPresence?.() ?? null : null
+    if (this.#steers.goal !== goal) this.#steers = { goal, list: [] }
+    const steers = this.#steers.list.slice(-64)
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, ...(progress && { progress }), ...(team && { team }) })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }
@@ -338,6 +347,18 @@ export class LeadControls {
     await this.options.stopRequest?.()
     // Cancellation settles the old detached continuation before another goal is admitted.
     if (this.#continuation) await this.#continuation
+    return this.#projection()
+  }) }
+  steer(value: { readonly text: string }): Promise<LeadWindowProjection> { return this.#queue(async () => {
+    const input = parseLeadSteerInput(value), { journal } = this.options
+    if (leadContainsSecret(input)) throw leadRefusal('lead-secret-refused')
+    if (journal.state.phase !== 'running' || !this.options.steerWorker) throw leadRefusal('lead-steer-unavailable')
+    const taken = await this.options.steerWorker(input.text).catch(() => false)
+    if (!taken) throw leadRefusal('lead-steer-unavailable')
+    const goal = journal.state.budget?.logicalGoalId ?? null
+    if (this.#steers.goal !== goal) this.#steers = { goal, list: [] }
+    this.#steers.list.push({ id: this.options.nextId(), text: input.text, at: this.options.now(), state: 'acknowledged' })
+    void this.#notify(true)
     return this.#projection()
   }) }
   resume(input: { readonly expectedRevision: number }): Promise<LeadWindowProjection> { return this.#queue(async () => {

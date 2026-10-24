@@ -121,6 +121,8 @@ Five hues that identify a thing rather than judge it — which account, which ag
 
 | token | value |
 | --- | --- |
+| `--hd-lead-dex-ground` | `rgb(227, 235, 251)` |
+| `--hd-lead-lex-ground` | `rgb(36, 49, 79)` |
 | `--hd-tint-blue-fill` | `rgba(91, 126, 237, 0.14)` |
 | `--hd-tint-blue-ink` | `rgb(69, 99, 198)` |
 | `--hd-tint-blue-edge` | `rgba(91, 126, 237, 0.55)` |
@@ -1921,13 +1923,39 @@ Works outside a group too; only grouped readings contribute to its card.
 
 `packages/ui/src/design/patterns/LeadAvatar.tsx`
 
-The Lead's single artwork slot; until artwork arrives it holds the chosen initial.
+The Lead's face on its character's disc. Below 28px an expression does not
+read, so the small places draw the neutral face and the presence word beside
+it says the state; the popover and the picker draw the mood. Never animated.
 
 ### `LeadNameChoice`
 
 `packages/ui/src/design/patterns/LeadAvatar.tsx`
 
-A name is an immediate preference; this control never grants authority.
+Who runs the desk: two picture cards. A name is an immediate preference; this control never grants authority.
+
+### `LeadTurn`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+A Lead line: a face column every line keeps, so the text aligns, and the face itself only on a turn's first line.
+
+### `LeadIdentity`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+Who the Lead is and where it stands, at the head of its status popover.
+
+### `LeadLineNote`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+A note that belongs to the person's line above it, at that line's trailing edge.
+
+### `LeadSlot`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+Names a block for tests and tools without adding a box of its own to the layout it sits in.
 
 ### `LeftColumnTop`
 

@@ -19,6 +19,8 @@ export type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesRequest, Lead
   MessagesTransport, MessagesHttpRequest, MessagesHttpResponse, MessagesPrice, MessagesUsage, MessagesToolScope,
   MessagesTurn, MessagesText, MessagesThinking, MessagesRedactedThinking, MessagesToolUse, MessagesToolResult } from './messages-types.js'
 export { createLeadLoop } from './loop.js'
+export { classifyLeadRuns, createLeadWakeGate, leadDeskFingerprint, LEAD_STUCK_MS, type LeadRunClass, type LeadRunReading, type LeadWakeCounts } from './wake.js'
+export { LEAD_QUIET, isLeadQuiet } from './instructions.js'
 export type { LeadLoop, LeadLoopOptions, LeadLoopState, LeadLoopClock } from './loop.js'
 export { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay } from './tools.js'
 export type { LeadTools, LeadToolsOptions, LeadResolvedTool } from './tools.js'

@@ -295,4 +295,4 @@ export { SelectionAction } from './patterns/SelectionAction'
 export { LeadContract } from './patterns/lead-contract'
 
 export { ConversationShell, ConversationThread, ConversationDock, ConversationComposerFrame, TranscriptAssistantMessage } from './patterns/ConversationShell'
-export { LeadAvatar, LeadNameChoice } from './patterns/LeadAvatar'
+export { LeadAvatar, LeadIdentity, LeadLineNote, LeadNameChoice, LeadSlot, LeadTurn } from './patterns/LeadAvatar'

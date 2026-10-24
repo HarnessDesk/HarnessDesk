@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { LEAD_LIMITS, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
-import { Banner, Button, ConfirmDialog, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, Input, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
+import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, LeadSlot, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, Input, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
+import { leadWakeLine } from '../lib/lead-presence'
+import { LeadAway } from './LeadAway'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { LeadMessage } from './LeadMessage'
 import { LeadCards, leadDollars } from './LeadCards'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
-import { AtIcon, FolderIcon, PlusIcon, SendIcon, SettingsIcon } from './Icons'
+import { AtIcon, FolderIcon, PlusIcon, RouteIcon, SendIcon, SettingsIcon } from './Icons'
 import { LeadStatusPanel, useLeadControls } from './LeadControls'
-import styles from './Lead.module.css'
 import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
 
@@ -69,16 +70,16 @@ const LeadLimits = ({ disabled }: { readonly disabled: boolean }) => {
   return <ComposerTrack name="mode">
     <Popover title="Limits for this goal" drop="up" align="left" disabled={disabled} label={`Up to ${leadDollars(caps.usdMicros)} · ${roundsWords(caps.rounds)}`}
       onOpenChange={open => { if (open) { setDollars(String(caps.usdMicros / 1000000)); setRounds(String(caps.rounds)); setError(null) } }}>
-      {close => <div className={styles.limits} data-slot="lead-limits">
-        <div className={styles.limitsRow}><Text role="muted">Up to $</Text><Input aria-label="Dollar limit" type="number" min={0} step="0.01" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} /></div>
-        <div className={styles.limitsRow}><Input aria-label="Round limit" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} /><Text role="muted">rounds</Text></div>
+      {close => <LeadSlot slot="lead-limits"><FormStack>
+        <InlineParts><Text role="muted">Up to $</Text><Input aria-label="Dollar limit" type="number" min={0} step="0.01" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} /></InlineParts>
+        <InlineParts><Input aria-label="Round limit" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} /><Text role="muted">rounds</Text></InlineParts>
         <Text role="muted">{raises ? 'Raising asks for your approval in the conversation.' : 'Tightening applies at once.'}</Text>
         {error && <Text role="muted">{error}</Text>}
         <Button disabled={pending || !valid || micros === caps.usdMicros && roundCount === caps.rounds} aria-busy={pending} onClick={async () => {
           setPending(true); setError(null)
           try { await store.lead.updateSettings({ caps: { usdMicros: micros, rounds: roundCount } }); close() } catch (failure) { setError(leadRefusalText(failure)) } finally { setPending(false) }
         }}>{raises ? 'Ask to raise' : 'Apply'}</Button>
-      </div>}
+      </FormStack></LeadSlot>}
     </Popover>
   </ComposerTrack>
 }
@@ -137,6 +138,13 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     if (inFlight.current || state.requestInFlight || !goal.trim()) return
     inFlight.current = true; setSending(true); setError(null)
     try { await store.lead.send(goal.trim(), crypto.randomUUID()); setGoal('') }
+    catch (error) { refusal(error) }
+    finally { inFlight.current = false; setSending(false); input.current?.focus() }
+  }
+  const steer = async () => {
+    if (inFlight.current || !goal.trim()) return
+    inFlight.current = true; setSending(true); setError(null)
+    try { await store.lead.steer(goal.trim()); setGoal('') }
     catch (error) { refusal(error) }
     finally { inFlight.current = false; setSending(false); input.current?.focus() }
   }
@@ -202,12 +210,15 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
             face={faces.has(entry.message.id)} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
           : <LeadCards key={`card:${entry.card.id}`} {...cardProps} cards={[entry.card]} placement="thread" />)}
+        {(state.steers ?? []).map((item, index) => <LeadMessage key={`steer:${item.id}`} role="user" text={item.text}
+          note={<Chip tone={item.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${index + 1} · ${item.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />)}
         {live}
       </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
     </ConversationThread>
     {active && <ConversationDock ref={dock}>
       <ConversationComposerFrame before={<ComposerNoticeStack>
-          {goalActive && <div data-slot="lead-run-strip" className={styles.stripHost}><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}</Banner></div>}
+          <LeadAway active={active} state={state} label={label} />
+          {goalActive && <LeadSlot slot="lead-run-strip"><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}{phase === 'running' && leadWakeLine(state.presence) ? <Text as="span" role="muted">{` · ${leadWakeLine(state.presence)}`}</Text> : null}</Banner></LeadSlot>}
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
           {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replace('{label}', label)}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
@@ -225,6 +236,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
                   <Popover title="Add" fullWidth drop="up" align="left" icons="all" label={<PlusIcon size={14} />}>
                     {close => <Menu close={close}>
                       <MenuItem icon={<AtIcon size={16} />} label="Mention a session or goal" shortcut="@" onSelect={() => { setGoal(goal.length > 0 && !goal.endsWith(' ') ? `${goal} @` : `${goal}@`); input.current?.focus() }} />
+                      <MenuItem icon={<RouteIcon size={16} />} label="Steer the running worker" title="Sends your text to the worker mid-turn, without restarting it."
+                        disabled={phase !== 'running' ? 'Only while a goal is running.' : !goal.trim() ? 'Type what to tell it first.' : requestPending}
+                        onSelect={() => { close(); void steer() }} />
                       <MenuItem icon={<FolderIcon size={16} />} label={state.thread?.project ? `Project: ${state.thread.project.path.split('/').filter(Boolean).at(-1) ?? state.thread.project.path}` : 'Project'} title={state.thread?.project?.path} disabled="This desk works in one project." onSelect={() => {}} />
                     </Menu>}
                   </Popover>

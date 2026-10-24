@@ -36,7 +36,9 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (scene === 'running' || scene === 'running-message' || scene === 'stopped') {
     const running = scene !== 'stopped'
     thread.state = running ? 'running' : 'stopped'; thread.contract = leadContract
-    projection = { ...projection, requestInFlight: running, ...(running && { progress: { step: 1, steps: leadContract.steps.length, runs: 1 } }) }
+    projection = { ...projection, requestInFlight: running, ...(running && { progress: { step: 1, steps: leadContract.steps.length, runs: 1, since: Date.now() - 12 * 60_000 },
+      presence: { checked: 3, quiet: 3, lastCheckedAt: Date.now(), readings: [{ runId: 'run-1', kind: 'advanced' }] },
+      ...(scene === 'running-message' && { steers: [{ id: 'steer-1', text: 'Keep the public API unchanged.', at: Date.now() - 60_000, state: 'acknowledged' as const }] }) }) }
     thread.messages = [...thread.messages, { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The approved Flow is running. I will read its checks and review before asking you to accept.' }]
   }
   if (scene === 'missing-plan') projection = { ...projection, wayOut: 'decide-plan' }

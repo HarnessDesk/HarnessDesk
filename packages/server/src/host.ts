@@ -15,7 +15,7 @@ import { retainRuntimeNotice } from './runtime-notices.js'
 import { AccountReads } from './account-reads.js'
 import { resumeSeatSession } from './session-resume.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
-import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
+import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity, type LeadPresence } from '@harnessdesk/protocol'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
@@ -3495,7 +3495,9 @@ export class Host {
     const detach = journal.onChange(trackOwned)
     this.onDispose(detach)
     const personActions = new LeadPersonActions(journal, this, this.#evidence, async value => { await this.#leadService!.assertPublic(value) })
+    let leadPresence: LeadPresence | null = null
     this.#leadService = new LeadService({ ...options,
+      onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
       readEvidence: async (runId, read) => ({ ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) }), broker: this.#credentials,
       resolveTool: async call => {
         const scope = await options.resolveTool(call)
@@ -3527,6 +3529,19 @@ export class Host {
     this.#leadControls = new LeadControls({ journal, service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
       readPersonActions: () => personActions.read(),
+      readPresence: () => leadPresence,
+      // The goal's latest run owns a board; a seat on it that is mid-turn takes the words without a restart.
+      steerWorker: async text => {
+        const board = journal.state.runs.at(-1)?.teamId
+        if (!board) return false
+        for (const seat of this.#evidence.seats.all().filter(seat => seat.board === board && !seat.closed)) {
+          try {
+            await this.call('turn/steer', { runtime: seat.session.runtime as RuntimeId, sessionId: makeSessionId(seat.session.sessionId), input: [{ type: 'text', text: `From the person, through the Lead: ${text}` }] })
+            return true
+          } catch { /* Not in a turn, or gone: try the next seat. */ }
+        }
+        return false
+      },
       performAction: input => personActions.perform(input),
       decidePerson: (card, decision, contract) => answerLeadPersonGate({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
         readEvidence: runId => options.readEvidence(runId, call => {
@@ -4776,6 +4791,7 @@ export class Host {
       leadSettingsUpdate: async (params) => (await this.#leadWindow()).updateSettings(params),
       leadStop: async (params) => (await this.#leadWindow()).stop(params),
       leadResume: async (params) => (await this.#leadWindow()).resume(params),
+      leadSteer: async (params) => (await this.#leadWindow()).steer(params),
       leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
       authoring: this.#authoring,
