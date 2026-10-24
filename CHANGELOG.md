@@ -19,6 +19,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Hard-linked files open.** A file that shares its contents under more than one name, as package managers and `cp -l` make them, now opens in the editor and in previews. Saving one still asks for a separate copy, so the other names are never changed by accident.
 
+- **Removing a lane with a running dev server works.** Files a dev server or build tool keeps writing in ignored folders, such as `node_modules/.cache`, no longer stop a lane from being removed, and a lane whose folder stops answering is refused after twenty seconds instead of hanging.
+
 ## 0.6.0 — 2026-10-21
 
 A Team opens on its recorded Work, Settings reads calmer and behaves the same

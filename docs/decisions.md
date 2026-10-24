@@ -331,6 +331,34 @@ also reads unresolved ids omitted by the listing, three at a time. A failed
 read or an answer without archive authority leaves the row unresolved for the
 next pass.
 
+## Removing a worktree reads what it holds within a deadline, and holds ignored files to names and sizes
+
+"Remove this worktree…" confirms against an inventory of everything the removal
+would delete, and that inventory is read as one bounded piece. The whole
+reading, git and disk together, has twenty seconds, the same as every other
+read the host makes. At the deadline its git children are killed and the
+reading is refused with "Couldn't list what this worktree holds in time;
+nothing was removed", so a removal that could not list a checkout takes none of
+it. The reading it replaces waited for as long as a mount that had stopped
+answering under an ignored folder stayed silent, and left its git child behind.
+
+The digest a confirmation is bound to holds the two kinds of content
+differently. What git reports as changed, tracked or untracked, is somebody's
+own work and stays held to its mode, identity, size and both times. What git
+ignores — dependencies, build output, caches — is held to its path, type and
+size, and the folders it is read through to their mode and identity. A dev
+server or a watcher writes there while a person decides; held to its times,
+every write voided the confirmation and a write during the reading failed it,
+so a lane with a running dev server could not be removed. A name that appears
+or goes, a file that changes size, or a folder swapped for another still voids
+a confirmation. A rewrite that leaves the size alone does not, because what is
+ignored is made again by whatever made it. A file that is gone by the time it
+is read stands for nothing, so a scratch file a writer renames away does not
+split two readings of the same lane.
+
+**The rule:** bound the reading and refuse on a miss; hold a person's work to
+its contents and what a tool makes again to its names and sizes.
+
 ## The sidebar reads the desk's conversation index
 
 The sidebar lists conversations started or continued in HarnessDesk, rather
