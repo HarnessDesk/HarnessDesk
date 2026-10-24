@@ -346,17 +346,12 @@ export class LocalFiles implements RuntimeFiles {
     return this.options.roots ? confinedTarget(path, await this.options.roots(mode)) : canonicalTarget(path)
   }
 
-  /** What a read and a save both need: a regular file, whatever else is linked to it. */
+  /** Reads and saves both need a regular file. */
   #assertFile(path: string, info: Stats): void {
     if (!info.isFile()) throw new Error(`${path} is not a file`)
   }
 
-  /**
-   * What only a save needs. It truncates the file in place, so every name that
-   * shares the contents changes with it, including names outside the admitted
-   * roots. A read changes nothing and shows only what whoever made the link
-   * could already read, which is why it is not held to this.
-   */
+  /** A save changes every name sharing these contents, including names outside the roots. */
   #assertOneName(info: Stats): void {
     if (info.nlink !== 1) {
       throw new Error('Workspace files need exactly one filesystem link to be saved, because a save would change every other name that shares them. Open a separate copy to edit this file.')
@@ -399,6 +394,8 @@ export class LocalFiles implements RuntimeFiles {
     try {
       const info = await handle.stat()
       this.#assertFile(path, info)
+      // A second name can make a file outside the roots look like one inside them.
+      if (info.nlink !== 1) throw new Error('This file has more than one name on disk, so HarnessDesk does not open it.')
       const buffer = Buffer.alloc(Math.max(0, maxBytes))
       const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0)
       return buffer.subarray(0, bytesRead)

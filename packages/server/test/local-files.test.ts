@@ -12,7 +12,7 @@ import { workspaceMethods } from '../src/methods/workspace.js'
 import type { HostContext } from '../src/methods/context.js'
 import { Client, start, stop } from './fixtures/harness.js'
 
-test('workspace reads open a hard-linked file, and saves to it are refused before anything is written', async (t) => {
+test('workspace reads and saves refuse a hard-linked file before anything is read or written', async (t) => {
   const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const root = join(dir, 'project')
@@ -23,21 +23,20 @@ test('workspace reads open a hard-linked file, and saves to it are refused befor
   await link(path, other)
   const files = new LocalFiles()
   const ctx = { workspaces: { fileRoots: () => [root] }, runtimes: { files: () => files } } as unknown as HostContext
-  // Reading shows nothing that whoever made the link could not already read, so the file opens as any other.
-  assert.deepEqual(await workspaceMethods['workspace/readFile'](ctx, { path }), {
-    kind: 'text', content: 'original', truncated: false, hash: sha256(Buffer.from('original')),
-  })
-  assert.equal(Buffer.from(await files.read(path, 64)).toString('utf8'), 'original')
+  const result = await workspaceMethods['workspace/readFile'](ctx, { path })
+  assert.equal(result.kind, 'unreadable')
+  if (result.kind === 'unreadable') assert.match(result.message, /more than one name on disk/)
+  await assert.rejects(files.read(path, 64), /more than one name on disk/)
   // A save would change every name that shares the contents, including ones outside the root.
   await assert.rejects(workspaceMethods['file/save'](ctx, {
     path, content: 'replacement', expectedHash: sha256(Buffer.from('original')),
-  }), /one filesystem link/)
+  }), /more than one name on disk|one filesystem link/)
   await assert.rejects(files.write(path, Buffer.from('replacement')), /one filesystem link/)
   assert.equal(await readFile(path, 'utf8'), 'original')
   assert.equal(await readFile(other, 'utf8'), 'original')
 })
 
-test('a hard-linked file is served to a preview', async (t) => {
+test('a hard-linked file is refused by a preview', async (t) => {
   const harness = await start()
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
@@ -47,8 +46,7 @@ test('a hard-linked file is served to a preview', async (t) => {
   await writeFile(page, '<p>preview</p>')
   await link(page, join(harness.stateDir, 'page-copy.html'))
   const { ticket } = (await client.call('preview/ticket', { path: page })) as { ticket: string }
-  const served = await harness.host.redeemPreviewTicket(ticket)
-  assert.equal(Buffer.from(served!.bytes).toString('utf8'), '<p>preview</p>')
+  await assert.rejects(harness.host.redeemPreviewTicket(ticket), /more than one name on disk/)
 })
 
 test('unsupported local content opens explain the workspace platform requirement', async (t) => {

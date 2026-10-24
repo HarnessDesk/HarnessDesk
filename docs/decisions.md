@@ -1671,22 +1671,19 @@ The host's per-file turn fallback has the same platform limit for creating
 and removing files, including rollback. Its refusal names workspace file
 changes. Aggregated patches and individual update hunks still go through Git.
 
-## Local workspace saves require one filesystem link
+## Local workspace reads and saves require one filesystem link
 
-Local workspace saves require a regular file with exactly one filesystem link.
-Reads and previews need only a regular file that is still confined, so a
-hard-linked file opens like any other. A save checks the opened descriptor
-again before truncating it, and the refusal says why.
+Local workspace reads, previews and saves require a regular file with exactly
+one filesystem link, checked on the opened descriptor. A second name can make
+a file outside the admitted roots look like one inside them, even when its
+canonical path passes the root check. Reads and previews refuse it with a
+message explaining that the file has more than one name on disk.
 
-Several hard-linked pathnames share their contents, so a save would also
-change the other names, including any outside the admitted roots. A separate
-copy with one filesystem link can be edited here. A read changes nothing and
-shows only what whoever made the link could already read, so holding it to the
-same rule only kept out the files that tools make with hard links on purpose:
-package stores, `cp -l` copies and `rsync --link-dest` trees. The wire carries
-no link count, so the editor opens such a file as any other and the refusal
-arrives when the person saves. Symbolic paths whose canonical target stays
-inside an admitted root keep their existing behavior.
+A save checks the opened descriptor before truncating it, and its refusal says
+why: changing the contents would change every name sharing them, including any
+outside the admitted roots. A separate copy with one filesystem link can be
+opened and edited here. Symbolic paths whose canonical target stays inside an
+admitted root keep their existing behavior.
 
 ## Path confinement walks a link's target the way the kernel does
 

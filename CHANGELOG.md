@@ -17,7 +17,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **A stalled network folder no longer slows the rest of the app.** When a project's drive stops answering, its files report that the drive isn't answering right away, and the app's other file access carries on.
 
-- **Hard-linked files open.** A file that shares its contents under more than one name, as package managers and `cp -l` make them, now opens in the editor and in previews. Saving one still asks for a separate copy, so the other names are never changed by accident.
+- **Files with more than one name on disk explain why they cannot open.** Reads and previews refuse these files, and saving one still asks for a separate copy so the other names are kept as they are.
 
 - **Removing a lane with a running dev server works.** Files a dev server or build tool keeps writing in ignored folders, such as `node_modules/.cache`, no longer stop a lane from being removed, and a lane whose folder stops answering is refused after twenty seconds instead of hanging.
 
