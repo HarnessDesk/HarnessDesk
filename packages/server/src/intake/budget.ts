@@ -47,8 +47,12 @@ export const PAUSED_STOP = 'Every trigger is paused. Resume triggers to continue
 /** The daily cap lowered below what is committed holds work the same way; raising it continues it. */
 export const CAP_HOLD = 'Today’s trigger spend cap is lower than what is already committed, so this Goal waits. Raising the cap continues it.'
 
-/** What the dispatch gate answers: a refusal that lifts on its own (`transient`) holds work; any other stops it. */
-export type BudgetVerdict = { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: true }
+/**
+ * What the dispatch gate answers: a refusal that lifts on its own (`transient`) holds work; any other stops it.
+ * A `pending` one only reports that an earlier hold's cleanup has not finished: it is no gate of its own,
+ * and the watch finishes that hold under the reason it was started for rather than holding again.
+ */
+export type BudgetVerdict = { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: true; readonly pending?: true }
 
 /** The fail-closed decision: the first bound that stops the next dispatch, or null. Unknown spend stops too. */
 export function budgetRefusal(input: BudgetCheck): string | null {
@@ -185,7 +189,7 @@ export class TriggerBudgets {
     if (refused) return { ok: false, reason: spend.spentMicros === null && refused.startsWith('Spend is unknown') && spend.why ? `${refused} ${spend.why}` : refused }
     if (committedToday(snapshot, utcDay(now)) > this.#port.capMicros()) return { ok: false, reason: CAP_HOLD, transient: true }
     const pendingHold = this.#holdReason(budget, run)
-    if (pendingHold) return { ok: false, reason: 'This Goal waits while its interrupted work is cleaned up.', transient: true }
+    if (pendingHold) return { ok: false, reason: 'This Goal waits while its interrupted work is cleaned up.', transient: true, pending: true }
     return { ok: true }
   }
 
@@ -426,6 +430,12 @@ export class TriggerBudgets {
   }
 }
 
+/** A failed sweep as one line: the sweep gathers what went wrong into an `AggregateError`, whose own message names none of it. */
+function failureOf(error: unknown): string {
+  const one = (value: unknown): string => value instanceof Error ? value.message : String(value)
+  return error instanceof AggregateError ? `${one(error)} (${error.errors.map(one).join('; ')})` : one(error)
+}
+
 export interface BudgetWatchPort {
   /** Interrupts every active turn and check on the Goal, keeping what each already produced. */
   interrupt(goal: string): Promise<void>
@@ -444,6 +454,8 @@ export interface BudgetWatchPort {
   hold(goal: string, reason: string): Promise<number>
   /** Cleanup completed: its owner can retire a timer that only existed to retry it. */
   swept?(): void | Promise<void>
+  /** Where a sweep the timer ran, and that failed, is said: the next one retries it, so nobody else would know. */
+  log?(message: string, details?: Readonly<Record<string, unknown>>): void
   readonly timers?: { every(fn: () => void, ms: number): unknown; clear(handle: unknown): void }
 }
 
@@ -463,6 +475,8 @@ export class BudgetWatch {
   readonly #port: BudgetWatchPort
   #timer: unknown = null
   #ticking: Promise<void> | null = null
+  /** The failure the timer's last sweep logged, so a cleanup that keeps failing is said once, not every second. */
+  #failure: string | null = null
 
   constructor(budgets: TriggerBudgets, runs: (goal: string) => FlowExecution | null, port: BudgetWatchPort) {
     this.#budgets = budgets
@@ -472,7 +486,20 @@ export class BudgetWatch {
 
   start(): void {
     if (this.#timer !== null || !this.#port.timers) return
-    this.#timer = this.#port.timers.every(() => { void this.tick().catch(() => {}) }, 1000)
+    this.#timer = this.#port.timers.every(() => { void this.#beat() }, 1000)
+  }
+
+  /** The timer's sweep. A failed one is retried by the next, so it only needs saying when it is a different failure. */
+  async #beat(): Promise<void> {
+    try {
+      await this.tick()
+      this.#failure = null
+    } catch (error) {
+      const failure = failureOf(error)
+      if (failure === this.#failure) return
+      this.#failure = failure
+      this.#port.log?.('budget cleanup will be retried', { error: failure })
+    }
   }
 
   close(): void {
@@ -499,6 +526,8 @@ export class BudgetWatch {
         if (!run || run.state !== 'running') continue
         const verdict = this.#budgets.check(run)
         if (verdict.ok) continue
+        // Only the wait on an earlier hold's unfinished cleanup: that hold is already in `holds` under its own reason, and finishes there.
+        if (verdict.pending) continue
         if (verdict.transient) {
           if (await this.#budgets.hold(goal, verdict.reason, run.intake?.heldFor === verdict.reason)) holds.set(goal, verdict.reason)
           continue

@@ -2039,10 +2039,14 @@ export class AcpRuntime implements AgentRuntime {
           }]
         : []
     })
+    // The desk's own sign-out gives way to the agent's record at rest too:
+    // the saved answer below still says "Signed out." and is no longer true,
+    // so a read that lifted it answers from the record instead.
+    const lifted = this.#liftSignOut(keyAccounts.length > 0)
     // Key presence and precedence are local reads, even while the agent is
     // idle. Refresh them before returning observations from an older cache;
     // only the agent-owned identities still need their saved answer.
-    if (this.#health.state !== 'ready' && saved) {
+    if (this.#health.state !== 'ready' && saved && !lifted) {
       const { unchecked: _was, ...rest } = saved
       const accounts = [...saved.accounts.filter(account => account.kind !== 'apiKey' && account.kind !== 'externalKey'), ...keyAccounts]
       const observed = this.#observedAccount(keyAccounts.length > 0)
@@ -2273,9 +2277,10 @@ export class AcpRuntime implements AgentRuntime {
     // credential file may still name the account just signed out. Restore
     // all of it if the command itself fails, since the provider may still be
     // signed in.
-    const signedOut: SignInObservation = { state: 'required', message: 'Signed out.' }
+    const signedOut: SignInObservation = { state: 'required', message: 'Signed out.', signedOut: true }
     this.#signIn = signedOut
     const signedOutGeneration = ++this.#refusalGeneration
+    this.#signingOut++
     try {
       if (overAcp) {
         await this.#connection.request(ACP_LOGOUT, {})
@@ -2293,6 +2298,8 @@ export class AcpRuntime implements AgentRuntime {
         this.#statusObservation = beforeObservation
       }
       throw error
+    } finally {
+      this.#signingOut--
     }
   }
 
@@ -2832,6 +2839,8 @@ export class AcpRuntime implements AgentRuntime {
   }
   /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
   #signIn: SignInObservation = { state: 'unknown' }
+  /** Sign-outs whose command is still running: until it ends, the agent's record still names who is being signed out. */
+  #signingOut = 0
   /** Every refusal counts, even when its unchanged message needs no notification. */
   #refusalGeneration = 0
   #statusObservation = -1
@@ -3024,6 +3033,23 @@ export class AcpRuntime implements AgentRuntime {
     // open should hear that the answer changed.
     if (before.state === 'unknown') for (const listener of this.#infoListeners) listener()
     this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
+  }
+
+  /**
+   * The desk's own sign-out gives way to the agent's record. Where the record
+   * is the status (`identityIsStatus`), the sign-in the agent offers outside
+   * the desk shows nowhere but there, and nothing else would say so until a
+   * session opened. Only once the sign-out command has ended — until then
+   * the record still names the account going out — and never a refusal,
+   * which is the agent's own and outranks the record. Answers whether it
+   * lifted one.
+   */
+  #liftSignOut(hasKey: boolean): boolean {
+    const seen = this.#signIn
+    if (seen.state !== 'required' || !seen.signedOut || this.#signingOut > 0) return false
+    if (!this.#config.identityIsStatus || hasKey || !this.#identity()) return false
+    this.#noteSignIn({ state: 'observed' })
+    return true
   }
 
   /** Keep an interactive CLI's observation in step with its account events. */
@@ -3912,7 +3938,13 @@ const describeAcp = (error: unknown): string => {
 type SignInObservation =
   | { readonly state: 'unknown' }
   | { readonly state: 'observed' }
-  | { readonly state: 'required'; readonly message: string }
+  /**
+   * `signedOut` marks the desk's own sign-out, which is nothing the agent
+   * said: a person can sign in again where the desk cannot see, so what the
+   * agent's own record names afterwards may undo it. A refusal is the
+   * agent's answer and carries no such mark.
+   */
+  | { readonly state: 'required'; readonly message: string; readonly signedOut?: true }
 
 /**
  * ACP's own refusal for a session that needs a sign-in first is `-32000
