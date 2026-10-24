@@ -3620,7 +3620,7 @@ export class Host {
       const result = await repairResult(op)
       if (journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))) return
       if (!result) {
-        if (op.stage !== 'completed') await journal.setManagementPhase('waiting-for-user', 'lead-repair-unverified')
+        if (op.stage !== 'completed' || op.publishedHead !== journal.state.pr?.head) await journal.setManagementPhase('waiting-for-user', 'lead-repair-unverified')
         return
       }
       await journal.offerCard(result.card)

@@ -77,6 +77,30 @@ test('a failed person save protects its exact result until fresh retry validatio
   assert.equal(journal.state.cards.find((value: any) => value.id === card.id)!.revision, 2)
 })
 
+test('publication attention releases a failed second person save for a fresh result', async () => {
+  const journal = await prepare(memory())
+  const card = { version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget!, 100) }
+  await journal.offerCard(card)
+  const decision = { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' }
+  const source = { repository: 'acme/widgets', cwd: '/workspace/demo', branch: 'worker', head: 'b'.repeat(40), remote: 'origin', remoteUrl: '/tmp/remote.git', defaultBranch: 'main', runId: 'run', teamId: 'team', runtime: 'fixture', sessionId: 'worker' }
+  const op = { id: 'publication', source, decision, at: 100, stage: 'push-prepared', effectStarted: false }
+  await journal.publication(op)
+  await journal.publication({ ...op, stage: 'pushed' })
+  await journal.publication({ ...op, stage: 'completed' }, { repository: source.repository, number: 7, branch: source.branch, head: source.head, branchOwner: 'lead', state: 'open', at: 100, check: null })
+  await assert.rejects(journal.decideCard(decision, null, undefined, async () => {
+    throw Object.assign(new Error('second gate save refused'), { wireCode: 'lead-gate-save-failed' })
+  }))
+  await journal.publicationNeedsYou(op.id)
+  assert.equal(journal.state.managementReason, 'lead-publication-needs-you')
+  assert.equal(journal.state.decidedCards.includes('result:1'), true)
+  await journal.offerCard({ ...card, revision: 2 })
+  let saved = false
+  await journal.decideCard({ ...decision, expectedRevision: 2, choice: 'accept' }, null, undefined, async () => { saved = true })
+  assert.equal(saved, true)
+  assert.equal(journal.state.phase, 'following')
+})
+
 test('crash after successful start before recording response never starts a second Flow', async () => {
   const storage = memory(), journal = await prepare(storage)
   let starts = 0

@@ -411,3 +411,23 @@ for (const kind of ['checks', 'reviews'] as const) test(`abandoned ${kind} repai
   assert.equal(s.journal.state.handbackLimit, true)
   assert.equal(s.journal.state.handbacks.length, count)
 })
+
+test('green CI after reclaim keeps an accepted completed repair following', async t => {
+  const s = await setup(t), repaired = 'b'.repeat(40), reclaimed = 'c'.repeat(40)
+  await s.owner.observe([s.fact]); s.reviewed({ ...s.source, head: repaired }); await s.owner.recover()
+  await s.journal.observePr({ ...s.journal.state.pr!, head: repaired, check: { head: repaired, state: 'passed', total: 1 } })
+  await s.owner.recover()
+  const result: any = { version: 1, id: 'accepted-repair', revision: 1, type: 'result', contractDigest: s.contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed repair', assertions: [], budget: (s.journal.state.cards.find(card => card.type === 'result') as any).budget }
+  await s.journal.offerCard(result)
+  await s.journal.decideCard({ version: 1, cardId: result.id, cardType: 'result', expectedRevision: 1, contractDigest: s.contract.digest, choice: 'accept' })
+  await s.journal.observePr({ ...s.journal.state.pr!, branchOwner: 'person', observedHead: reclaimed, branchChange: 'fast-forward', check: null })
+  const card: any = { version: 1, id: 'reclaim', revision: 1, type: 'branch-ownership', contractDigest: s.contract.digest,
+    repository: 'acme/widgets', number: 7, observedHead: reclaimed, summary: 'Reclaim the branch.' }
+  await s.journal.offerCard(card)
+  await s.journal.decideCard({ version: 1, cardId: card.id, cardType: card.type, expectedRevision: 1, contractDigest: s.contract.digest, choice: 'reclaim-branch' })
+  await s.journal.observePr({ ...s.journal.state.pr!, check: { head: reclaimed, state: 'passed', total: 1 } })
+  await s.owner.recover()
+  assert.equal(s.journal.state.handbacks.at(-1)!.stage, 'completed')
+  assert.equal(s.journal.state.phase, 'following')
+})

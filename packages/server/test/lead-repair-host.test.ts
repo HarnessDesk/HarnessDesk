@@ -13,7 +13,7 @@ import { tempDir } from './scratch.js'
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 
-test('host repairs validate reviewed heads, adopt a crashed gateway push once, and fence publication and E4 on release', { timeout: 180_000 }, async t => {
+for (const accepted of [false, true]) test(`host repairs validate and recover publication before ${accepted ? 'accepted repair reclaim' : 'live branch release'}`, { timeout: 180_000 }, async t => {
   const dir = tempDir('hd-lead-repair-host-'), remote = join(dir, 'remote.git')
   git(dir, 'init', '--bare', remote)
   let reviewAvailable = true, branch = '', crash = true, crashed = false, validated = false, adopted = 0
@@ -40,10 +40,13 @@ test('host repairs validate reviewed heads, adopt a crashed gateway push once, a
   t.mock.method(IntakePlane.prototype, 'followPullRequests', (port: Parameters<IntakePlane['followPullRequests']>[0]) => { following = port })
   const rig = await createLeadRig({ publication: true, waitMs: 60_000, forgeGh, reviewAvailable: () => reviewAvailable })
   t.after(() => rig.dispose())
+  t.diagnostic('host fixture ready')
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  t.diagnostic('plan ready')
   await rig.decide(rig.pending('plan')!, 'approve')
   await rig.waitFor(() => !!rig.pending('result'), 'initial reviewed result')
   await rig.waitFor(() => { const last = rig.host.flowsPlane.leadRuns()[0]?.rounds.at(-1); return last?.role === 'accept' && last.state === 'running' }, 'initial person acceptance round')
+  t.diagnostic('initial acceptance ready')
   const run = rig.host.flowsPlane.leadRuns()[0]!, owned = rig.journal.state.runs[0]!
   const session = rig.host.registry.all().find(record => record.runtime === 'rig-writer')!.session
   const cwd = session.cwd
@@ -98,13 +101,35 @@ test('host repairs validate reviewed heads, adopt a crashed gateway push once, a
   const pushes = async () => (await readFile(join(dir, 'gateway', 'ledger.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line)).filter(row => row.op === 'push' && row.outcome === 'succeeded')
   assert.equal((await pushes()).length, 2, 'one initial push and exactly one repair push')
   assert.equal(rig.pending('result'), undefined, 'E4 waits for CI')
+  if (!accepted) {
   await following.deliver(watch(), { facts: [], observations: [{ repository: 'acme/widgets', number: 7, head: h2, state: 'open', check: { head: h2, state: 'failed', total: 1 }, at: Date.now() }] } as any)
   assert.equal(rig.journal.state.phase, 'waiting-for-user', 'a failed repaired head without a new event has a durable exit')
   assert.equal(rig.journal.state.managementReason, 'lead-repair-failed')
   assert.equal(rig.pending('result'), undefined)
+  }
   await following.deliver(watch(), { facts: [], observations: [{ repository: 'acme/widgets', number: 7, head: h2, state: 'open', check: { head: h2, state: 'passed', total: 1 }, at: Date.now() }] } as any)
-  assert.equal(rig.journal.state.handbacks[0]!.stage, 'failed', 'terminal history stays immutable when current-head CI recovers')
+  assert.equal(rig.journal.state.handbacks[0]!.stage, accepted ? 'completed' : 'failed', 'terminal history stays immutable when current-head CI recovers')
   assert.ok(rig.pending('result'), 'E4 re-offers only after owned-head CI passes')
+  if (accepted) {
+    const acceptedCard = rig.pending('result')!
+    await rig.host.teamPlane.intentAction(run.goal, rig.personGates().at(-1)!.id, 'done', undefined, 'accepted')
+    await rig.host.teamPlane.flush()
+    await rig.journal.decideCard({ version: 1, cardId: acceptedCard.id, cardType: 'result', expectedRevision: acceptedCard.revision, contractDigest: acceptedCard.contractDigest, choice: 'accept' })
+    assert.equal(rig.journal.state.phase, 'following')
+    const foreign = git(cwd, 'commit-tree', git(cwd, 'rev-parse', `${h2}^{tree}`), '-p', h2, '-m', 'Person extension')
+    git(cwd, 'push', remote, `${foreign}:refs/heads/${branch}`)
+    await following.deliver(watch(), { facts: [], observations: [{ repository: 'acme/widgets', number: 7, head: foreign, state: 'open', check: null, at: Date.now() }] } as any)
+    const reclaim = rig.pending('branch-ownership')!
+    await rig.journal.decideCard({ version: 1, cardId: reclaim.id, cardType: 'branch-ownership', expectedRevision: reclaim.revision, contractDigest: reclaim.contractDigest, choice: 'reclaim-branch' })
+    await following.deliver(watch(), { facts: [], observations: [{ repository: 'acme/widgets', number: 7, head: foreign, state: 'open', check: { head: foreign, state: 'passed', total: 1 }, at: Date.now() }] } as any)
+    assert.equal(rig.journal.state.handbacks.at(-1)!.stage, 'completed')
+    assert.equal(rig.journal.state.phase, 'waiting-for-user')
+    assert.equal(rig.journal.state.managementReason, 'lead-repair-unverified')
+    assert.equal(rig.pending('result'), undefined)
+    await new Promise(resolve => setTimeout(resolve, 1200))
+    assert.equal(rig.journal.state.managementReason, 'lead-repair-unverified', 'the next host timer preserves the actionable wait')
+    return
+  }
   // Hold the next worker in its turn while the person extends and releases the branch.
   const repairGate = join(rig.home, 'worker-gates', 'followRepair')
   await unlink(repairGate)

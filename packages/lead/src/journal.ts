@@ -317,6 +317,7 @@ export class LeadJournal {
     try { await this.storage.append(record) }
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
     this.#state = next
+    if (record.type === 'invalidate-results') this.#retryResult = null
     // The window marks paid work pending at this durable boundary, before projections observe it.
     committed?.()
     for (const listener of this.#listeners) { try { listener() } catch { /* Observers cannot undo a durable write. */ } }
@@ -417,7 +418,7 @@ export class LeadJournal {
     const op = this.#state.publication
     const retry = this.#retryResult
     return !!(retry && retry.goal === (this.#state.budget?.logicalGoalId ?? null) && retry.digest === this.#state.contract?.digest &&
-      !['accepted', 'declined', 'stopped'].includes(this.#state.phase) && this.#state.cards.some(card => card.id === retry.id && card.revision === retry.revision)) ||
+      !['accepted', 'declined', 'stopped'].includes(this.#state.phase) && !this.#state.decidedCards.includes(`${retry.id}:${retry.revision}`) && this.#state.cards.some(card => card.id === retry.id && card.revision === retry.revision)) ||
       this.#state.phase === 'following' || !!(op && op.stage !== 'superseded' && !(op.stage === 'needs-you' && op.effectStarted === false) &&
       !this.#state.decidedCards.includes(`${op.decision.cardId}:${op.decision.expectedRevision}`) &&
       this.#state.cards.some(card => card.id === op.decision.cardId && card.revision === op.decision.expectedRevision && card.contractDigest === op.decision.contractDigest))

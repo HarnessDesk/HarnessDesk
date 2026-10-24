@@ -196,6 +196,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         state.pr.check?.head === event.head && state.pr.check.state === 'passed' && state.pr.check.total > 0 && !state.ciPassed.includes(event.head))
       state = { ...state, ciPassed: [...state.ciPassed, event.head],
         ...(state.handbacks.at(-1) && leadHandbackTerminal(state.handbacks.at(-1)!) && !hasPendingLeadPlan(state) &&
+          !(state.phase === 'following' && state.handbacks.at(-1)!.stage === 'completed') &&
           (state.phase !== 'waiting-for-user' || state.managementReason?.startsWith('lead-repair-')) ? { phase: 'running', managementReason: null } : {}) }; break
     case 'new-goal': {
       ensure(canBeginLeadGoal(state) && !state.completedBudgets.some(budget => budget.logicalGoalId === event.id) && state.budget!.logicalGoalId !== event.id)
