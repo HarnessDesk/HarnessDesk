@@ -33,6 +33,7 @@
 import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import readline from 'node:readline'
+import { spawn as spawnShell } from 'node:child_process'
 
 const argv = process.argv.slice(2)
 const flag = (name) => {
@@ -615,6 +616,14 @@ rl.on('line', (line) => {
     send(message)
     log('echoed user')
     const text = textOf(message.message).trim()
+    if (text.startsWith('git-steer-run ')) {
+      const request = JSON.parse(text.slice('git-steer-run '.length)), quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
+      const child = spawnShell('/bin/zsh', ['-lc', [request.binary, ...request.args].map(quote).join(' ')], { cwd: process.cwd(), env: process.env })
+      let output = ''
+      child.stdout.on('data', data => { output += data }); child.stderr.on('data', data => { output += data })
+      child.on('close', () => reply(output))
+      return
+    }
     if (text.startsWith('permission ')) {
       void permissionTurn(JSON.parse(text.slice('permission '.length)))
       return

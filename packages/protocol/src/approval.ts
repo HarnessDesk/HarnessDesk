@@ -60,6 +60,7 @@ export interface FileChangeApproval extends ApprovalBase {
 export interface PermissionApproval extends ApprovalBase {
   readonly type: 'permission'
   readonly summary: string
+  readonly cwd?: string
   /** Host-supplied facts for a held gateway write. */
   readonly facts?: readonly { readonly label: string; readonly value: string }[]
   /** Structured provenance added by the desk's Claude bridge for its board server. */
@@ -129,6 +130,7 @@ export interface ApprovalOption {
    * or beyond the session. Typed by the adapter from the agent's own option ids, so a card reads data and never
    * parses an agent's English.
    */
+  readonly once?: boolean
   readonly grant?: 'session-tool' | 'session-server' | 'permanent'
 }
 

@@ -27,7 +27,7 @@ export interface ToolGatewayBackend {
    * Seat with approved external MCP servers is listed only for its own
    * caller, never for every bridge this socket ever answers.
    */
-  steerGit?(caller: string | undefined, params: Record<string, unknown>): Promise<unknown>
+  steerGit?(caller: string | undefined, params: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>
   listTools(caller?: string): readonly (CapabilityContribution & { kind: 'tool' })[]
   /**
    * `caller` is the correlation token from the invoking bridge's
@@ -211,7 +211,9 @@ export class ToolGateway {
         case 'git/steer': {
           const params = request.params ?? {}
           if (!this.backend.steerGit) throw new Error('Git steering is unavailable.')
-          reply({ result: await this.backend.steerGit(typeof params['caller'] === 'string' ? params['caller'] : undefined, params) })
+          const controller = new AbortController(), abort = () => controller.abort()
+          socket.once('close', abort)
+          try { reply({ result: await this.backend.steerGit(typeof params['caller'] === 'string' ? params['caller'] : undefined, params, controller.signal) }) } finally { socket.removeListener('close', abort) }
           return
         }
         case 'mcp/list': {

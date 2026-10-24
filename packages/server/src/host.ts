@@ -1,3 +1,5 @@
+import { gitSteerContext } from './git-gateway/steer-context.js'
+import { redactGitCommand } from '@harnessdesk/protocol'
 import { GitSteering, type SteerScope } from './git-gateway/steering.js'
 import { parseGitCommand } from '@harnessdesk/protocol'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
@@ -477,6 +479,8 @@ export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throu
 export type QuestionTimers = Pick<QuestionPort, 'setTimer' | 'clearTimer'>
 
 export interface HostOptions {
+  /** Inject the same gateway for isolated local-remote rigs. */
+  readonly gitGateway?: GitGateway
   /** Explicit startup capability; the host never reads an environment flag. */
   readonly leadEnabled?: boolean
   /** Replaces the fixed provider destination for the Lead's model requests; tests script it, the app never sets it. */
@@ -1233,7 +1237,7 @@ export class Host {
         frozen: join(this.#state.directory, 'attachments', 'frozen'),
       },
     )
-    this.#gitGateway = new GitGateway({ directory: join(this.#state.directory, 'git-gateway'), stateDirectory: this.#state.directory, recordOutside: () => this.gitSteering.recordOutside,
+    this.#gitGateway = options.gitGateway ?? new GitGateway({ directory: join(this.#state.directory, 'git-gateway'), stateDirectory: this.#state.directory, recordOutside: () => this.gitSteering.recordOutside,
       ...(this.options.forge?.gh ? { gh: (_cwd, args) => this.options.forge!.gh!(args) } : {}) })
     this.#forge = new ForgePlane(
       {
@@ -1301,7 +1305,7 @@ export class Host {
       preferences: () => this.#state.state.preferences,
       projectOf: async cwd => await this.#boardRootOf(cwd) ?? cwd,
       scope: (runtime, sessionId) => this.#gitSteerScope(runtime, sessionId),
-      ask: (scope, question) => this.#askHeld(scope.runtime, scope.sessionId, question, this.options.heldWaitMs ?? 10 * 60_000),
+      ask: (scope, question, signal) => this.#askHeld(scope.runtime, scope.sessionId, question, this.options.heldWaitMs ?? 10 * 60_000, signal),
       admit: async (scope, tool) => {
         const result = await this.#ceilingGate.admit({ tool, needs: tool === 'pr_merge' ? 'merge' : 'publish', publishes: true,
           scope: { runtime: runtimeId(scope.runtime), sessionId: makeSessionId(scope.sessionId), ...(scope.turn ? { turnId: scope.turn as TurnId } : {}) } })
@@ -1310,10 +1314,11 @@ export class Host {
         if (!allowed.ok) throw new Error(allowed.reason)
       },
       invoke: async (scope, name, args) => {
-        const tools = new GatedRegistry(this.#requireExtensions(), () => this.ceilingGate)
-        const tool = tools.list('tool', {}).find(entry => entry.name === name)
+        const tools = this.#requireExtensions()
+        const plugin = tools.plugins().find(entry => entry.identity.id === 'git' && entry.identity.source.kind === 'builtin')
+        const tool = tools.list('tool', {}).find(entry => entry.name === name && entry.owner === plugin?.instanceId && entry.namespace === String(plugin.instanceId))
         if (!tool) return { ok: false, error: `No tool named ${name} is registered.` }
-        return tools.invokeTool(tool.id, args, { runtime: runtimeId(scope.runtime), sessionId: makeSessionId(scope.sessionId), workspaceRoot: scope.cwd })
+        return tools.invokeTool(tool.id, args, { runtime: runtimeId(scope.runtime), sessionId: makeSessionId(scope.sessionId), workspaceRoot: scope.cwd, ...(scope.turn ? { turnId: scope.turn as TurnId } : {}) })
       },
       say: (scope, text, banner) => {
         this.#say(scope.runtime, scope.sessionId, text)
@@ -6462,9 +6467,10 @@ export class Host {
     return answer === 'standing' ? 'refused' : answer
   }
 
-  async #askHeld(runtime: string, sessionId: string, question: HeldQuestion, gatewayWaitMs?: number): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'> {
+  async #askHeld(runtime: string, sessionId: string, question: HeldQuestion, gatewayWaitMs?: number, signal?: AbortSignal): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'> {
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
     if (!record || this.#disposed) return 'unanswered'
+    if (signal?.aborted) return 'unanswered'
     const id = makeApprovalId(`held-${randomBytes(6).toString('hex')}`)
     const turnId = [...record.running].at(-1)
     const approval: Approval = {
@@ -6489,7 +6495,10 @@ export class Host {
     const waitMs = gatewayWaitMs ?? this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
     const answer = await new Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>((resolve) => {
       const timer = setTimeout(() => resolve('unanswered'), waitMs)
+      const abort = () => { clearTimeout(timer); resolve('unanswered') }
+      signal?.addEventListener('abort', abort, { once: true })
       this.#heldAnswers.set(String(id), (said) => {
+        signal?.removeEventListener('abort', abort)
         clearTimeout(timer)
         resolve(said)
       })
@@ -6502,7 +6511,7 @@ export class Host {
       approvalId: id,
       resolution: answer === 'unanswered'
         ? { outcome: 'timedOut' }
-        : { outcome: 'decided', decision: { type: 'option', optionId: answer === 'allowed' ? HELD_ALLOW : answer === 'standing' ? 'standing' : HELD_REFUSE } },
+        : { outcome: 'decided', decision: { type: 'option', optionId: answer === 'allowed' ? HELD_ALLOW : answer === 'standing' ? (approval.options.some(option => option.id === 'own') ? 'own' : 'standing') : HELD_REFUSE } },
     })
     return answer
   }
@@ -6589,7 +6598,7 @@ export class Host {
     const answer = this.#heldAnswers.get(approvalId)
     if (!answer) return false
     if (decision.type === 'option' && !this.#heldOptions.get(approvalId)?.includes(decision.optionId)) return false
-    answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : decision.type === 'option' && decision.optionId === 'standing' ? 'standing' : 'refused')
+    answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : decision.type === 'option' && (decision.optionId === 'standing' || decision.optionId === 'own') ? 'standing' : 'refused')
     return true
   }
 
@@ -8285,7 +8294,7 @@ export class Host {
       const turn = event.type === 'item/completed' ? event.turnId : event.turn.id
       for (const item of items) if (item.type === 'command' && item.exitCode === 0 && parseGitCommand(item.command)) {
         void this.#gitSteerScope(String(runtime), String(event.sessionId)).then(scope => {
-          if (scope) return this.gitSteering.completed({ ...scope, turn: String(turn) }, item.command, 0)
+          if (scope) return this.gitSteering.completed({ ...scope, turn: String(turn) }, item.command, 0, item.cwd)
         }).catch(error => this.#logger.warn('Outside git write could not be observed', { error: String(error) }))
       }
     }
@@ -8575,15 +8584,17 @@ export class Host {
       const write = parseGitCommand(command)
       const record = this.registry.get(runtime, approval.sessionId)
       const root = record?.shellCheckout?.project ?? record?.session.cwd
-      const deny = approval.options.find(option => option.intent === 'deny')
-      if (write && root && deny && record?.live && this.gitSteering.steerFor(root) !== 'off') {
+      const deny = approval.options.find(option => option.intent === 'deny' && option.once) ?? approval.options.find(option => option.intent === 'deny' && option.once !== false)
+      if (write && write.kind !== 'unmappable' && root && deny && record?.live && this.gitSteering.steerFor(root) !== 'off') {
         const live = record.live
         let declined = false
         void Promise.resolve().then(async () => {
+          const scope = await this.#gitSteerScope(String(runtime), String(approval.sessionId))
+          const cwd = approval.cwd ?? record.session.cwd
+          if (!scope || !cwd || !await this.gitSteering.inside(scope.cwd, cwd)) throw new Error('Native git command is outside the conversation checkout.')
           await live.respondToApproval(approval.id, { type: 'option', optionId: deny.id })
           declined = true
-          this.#say(String(runtime), String(approval.sessionId), `Steered ${command} to HarnessDesk — ask the agent to use git_push`)
-          const scope = await this.#gitSteerScope(String(runtime), String(approval.sessionId))
+          this.#say(String(runtime), String(approval.sessionId), `Steered ${redactGitCommand(command)} to HarnessDesk — ask the agent to use git_push`)
           if (scope) await this.gitSteering.steer(scope, command, write, false)
         }).catch(error => {
           this.#logger.warn('Git approval steering failed', { error: String(error) })

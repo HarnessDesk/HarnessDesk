@@ -123,11 +123,13 @@ export class ForgePlane implements ForgeEngine {
 
   readonly #standing = new Set<string>()
   #live(scope: ForgeScope): void {
+    gitSteerContext.getStore()?.signal?.throwIfAborted()
     if (!scope.runtime || !scope.sessionId || !scope.plugin || scope.signal?.aborted || !scope.signal) {
       throw new Error('This forge call does not belong to a live invocation.')
     }
   }
   async #context(scope: ForgeScope, verb: ForgeVerb, args: unknown) {
+    gitSteerContext.getStore()?.signal?.throwIfAborted()
     this.#live(scope)
     validateForgeArgs(verb, args)
     const gateway = this.port.gitGateway
@@ -143,7 +145,7 @@ export class ForgePlane implements ForgeEngine {
       try {
         if (scope.actor === 'context') throw new Error('Context resolution cannot write to the forge.')
         if (!this.port.admitWrite) throw new Error('The host has no forge write ceiling gate.')
-        await this.port.admitWrite(verb, scope, args)
+        if (!gitSteerContext.getStore()?.admitted) await this.port.admitWrite(verb, scope, args)
         const allowed = await this.publicationAllowed(scope)
         if (!allowed.ok) throw new Error(allowed.reason)
       } catch (error) {
@@ -220,7 +222,7 @@ export class ForgePlane implements ForgeEngine {
       let approval: GitApproval = { by: 'standing', at: Date.now() }
       let rewrite = assessment !== null && assessment.head !== null && !assessment.fastForward
       if (!ctx.repository || rewrite || !(continuation || this.#standing.has(standingKey))) {
-        const answer = await this.port.askPerson?.(scope, {
+        const answer = gitSteerContext.getStore()?.approved && !rewrite ? 'allowed' : await this.port.askPerson?.(scope, {
           summary: `Push ${args.branch} to ${repository}`,
           reason: `${!ctx.repository ? 'Approve and pin this repository for the project. ' : ''}${rewrite ? 'This rewrites the branch. ' : ''}Push from HarnessDesk’s own copy, as you, and keep a record. The checkout’s git settings are not used.`,
           facts: [{ label: 'Repository', value: repository }, { label: 'Branch', value: args.branch }, { label: 'Head', value: args.sha }],
@@ -246,6 +248,7 @@ export class ForgePlane implements ForgeEngine {
           this.#live(scope)
         }
       }
+      gitSteerContext.getStore()?.signal?.throwIfAborted()
       executing = true
       await gateway.push({ ...push, steeredFrom: gitSteerContext.getStore()?.command, approval, ...(rewrite ? { allowRewrite: true } : {}) }, { beforePush: async () => {
         this.#live(scope)

@@ -13,7 +13,7 @@ test('start, resume without cwd, and fork each bind a fresh steering token and p
   const path = process.env['PATH']!
   const runtime = new CodexRuntime({ binaryPath: fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url)), clientName: 'test',
     env: testProcessEnv({ FAKE_CODEX_LANE_ENV_LOG: log, PATH: path }),
-    gitEnvironment: async (cwd, caller, basePath) => { roots.push(cwd); paths.push(basePath); return { PATH: path, HD_TOOLS_CALLER: caller, HD_GIT_STEER: 'ask' } },
+    gitEnvironment: async (cwd, caller, basePath) => { roots.push(cwd); paths.push(basePath); return { PATH: path, HD_GIT_CALLER: caller, HD_GIT_STEER: 'ask' } },
     onGitSession: (caller, session) => { claims.push({ caller, session }) } })
   t.after(async () => { await runtime.dispose(); await rm(home, { recursive: true, force: true }) })
   await runtime.start()
@@ -24,5 +24,5 @@ test('start, resume without cwd, and fork each bind a fresh steering token and p
   assert.equal(claims.length, 3); assert.equal(new Set(claims.map(claim => claim.caller)).size, 3)
   assert.deepEqual(claims.map(claim => claim.session), [String(original.id), String(original.id), String(forked.id)])
   assert.deepEqual(roots, [home, home, home]); assert.deepEqual(paths, [path, path, path])
-  assert.deepEqual(rows.map(row => row.environment['HD_TOOLS_CALLER']), claims.map(claim => claim.caller))
+  assert.deepEqual(rows.map(row => row.environment['HD_GIT_CALLER']), claims.map(claim => claim.caller))
 })

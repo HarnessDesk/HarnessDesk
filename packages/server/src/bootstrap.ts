@@ -318,7 +318,7 @@ export const createDefaultHost = (
       codexHome: home,
       env: developerEnv,
       gitEnvironment: (cwd, caller, path) => host.gitSteering.environment(cwd, caller, path).then(env => env ? { ...env, HD_TOOLS_SOCKET: toolSocketPath(stateDir) } : undefined),
-      onGitSession: (caller, session) => claimCaller(String(id))(caller, session),
+      onGitSession: (caller, session) => claimSteeringCaller(String(id))(caller, session),
       logger: logger.child(id),
       capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
@@ -410,6 +410,8 @@ export const createDefaultHost = (
   // cap the oldest mapping goes, and a call with a forgotten token is simply
   // unscoped, which is exactly what it was before the token existed.
   const callers = new Map<string, BridgeCaller>()
+  const steeringCallers = new Map<string, BridgeCaller>()
+  const claimSteeringCaller = (runtime: string) => (token: string, id: string) => { steeringCallers.set(token, bridgeCallerFor(host, runtime, id)); bounded(steeringCallers) }
   const bounded = <V>(map: Map<string, V>): void => {
     if (map.size > 2000) {
       const oldest = map.keys().next().value
@@ -438,10 +440,10 @@ export const createDefaultHost = (
   const mcpBackend = attachmentGateway(() => host, (token) => callers.get(token))
   const socketPath = toolSocketPath(stateDir)
   const gateway = new ToolGateway(socketPath, {
-    steerGit: async (caller, params) => {
-      const scope = caller ? callers.get(caller) : undefined
+    steerGit: async (caller, params, signal) => {
+      const scope = caller ? steeringCallers.get(caller) : undefined
       if (!scope) return { action: 'done', ok: false, output: 'HarnessDesk: this git write has no conversation caller.' }
-      return host.gitSteering.handle(scope.runtime, scope.sessionId, params)
+      return host.gitSteering.handle(scope.runtime, scope.sessionId, params, signal)
     },
     listTools: () => extensions.list('tool', {}),
     // Read at each bridge's handshake rather than fixed at start: whether
@@ -558,7 +560,7 @@ export const createDefaultHost = (
       ...(executable ? { executable } : {}),
       env: agentEnvironment(socketPath, agent.env, agent.id, developerEnv),
       gitEnvironment: (cwd, caller, path) => host.gitSteering.environment(cwd, caller, path),
-      onGitSession: (caller, session) => claimCaller(agent.id)(caller, session),
+      onGitSession: (caller, session) => claimSteeringCaller(agent.id)(caller, session),
       ...(toolServer
         ? { toolServer: { ...toolServer, onOpen: claimOpen(agent.id), onSession: claimCaller(agent.id) } }
         : {}),
@@ -637,7 +639,7 @@ export const createDefaultHost = (
       codexHome: options.codexHome ?? null,
       env: developerEnv,
       gitEnvironment: (cwd, caller, path) => host.gitSteering.environment(cwd, caller, path).then(env => env ? { ...env, HD_TOOLS_SOCKET: toolSocketPath(stateDir) } : undefined),
-      onGitSession: (caller, session) => claimCaller(String(CODEX_RUNTIME_ID))(caller, session),
+      onGitSession: (caller, session) => claimSteeringCaller(String(CODEX_RUNTIME_ID))(caller, session),
       logger: logger.child('codex'),
       capabilities: gated,
       instructions: () => host.forgePlane.instructions(),

@@ -218,10 +218,10 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
     const ref = `refs/heads/${branch}`, out = await this.#git(mirror, ['ls-remote', '--heads', this.#url(repository), ref], !!this.options.localRemote)
     return out.split('\n').map(line => line.split(/\s+/)).find(([, name]) => name === ref)?.[0] ?? null
   }
-  remoteHead(repository: string, branch: string): Promise<string | null> {
+  remoteHead(repository: string, branch: string, note?: Pick<GitRecordEntry, 'reason' | 'steeredFrom' | 'approval'>): Promise<string | null> {
     return this.#queue(repository, async () => {
       const sha = await this.#head(await this.#mirror(repository), repository, branch)
-      if (sha && this.options.recordOutside?.() !== false) await this.gitRecord.observe(repository, branch, sha, null)
+      if (sha && this.options.recordOutside?.() !== false) await this.gitRecord.observe(repository, branch, sha, null, note)
       return sha
     })
   }

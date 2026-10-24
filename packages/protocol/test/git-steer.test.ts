@@ -19,7 +19,17 @@ test('forge argv preserves body text and maps supported options', () => {
 test('shell inspection catches absolute binaries, quoting and compound writes', () => {
   assert.equal(parseGitCommand('/usr/bin/git push -u origin x')?.kind, 'push')
   assert.equal(parseGitCommand('gh pr create --title "two words" --body \'hello\'')?.kind, 'forge')
-  for (const command of ['cd repo && git push', 'git status; /usr/bin/git push', 'git push | cat', 'env X=1 git push', 'git push $(branch)']) assert.equal(parseGitCommand(command)?.kind, 'unmappable')
+  for (const command of ['git status; /usr/bin/git push', 'git push | cat', 'env X=1 git push', 'git push $(branch)']) assert.equal(parseGitCommand(command)?.kind, 'unmappable')
   assert.equal(parseGitCommand('echo "git push"'), null)
   assert.deepEqual(parseGitCommand("gh pr create --title Title --body ''"), { kind: 'forge', tool: 'pr_create', args: { title: 'Title', body: '' } })
+})
+
+test('R3 login shells unwrap recursively and read commands never become writes', () => {
+  for (const command of ["/bin/zsh -lc 'git push origin x'", 'bash -lc "git push -u origin x"', "bash -c 'git push'", 'cd /repo && git push origin x']) assert.equal(parseGitCommand(command)?.kind, 'push', command)
+  for (const command of ['echo git push', 'man git push', '/usr/bin/git push --help', 'git push --dry-run', 'git push -n', 'git -C dir log push']) assert.equal(parseGitCommand(command), null, command)
+})
+test('R3 aliases, alternate transports and forge mutations fail closed', () => {
+  for (const args of [['p', 'origin', 'x'], ['-c', 'alias.p=push', 'p'], ['subtree', 'push', '--prefix=a', 'origin', 'x'], ['send-pack', 'origin', 'x'], ['http-push'], ['lfs', 'push']]) assert.equal(parseGitWrite('git', args)?.kind, 'unmappable', args.join(' '))
+  for (const args of [['api', '-X', 'POST', 'repos/acme/widgets/pulls/1/merge'], ['api', 'repos/acme/widgets', '-f', 'a=b'], ['pr', 'close', '5'], ['pr', 'ready', '5'], ['issue', 'create'], ['pc'], ['alias', 'set', 'pc', 'pr create'], ['release', 'create'], ['repo', 'delete']]) assert.equal(parseGitWrite('gh', args)?.kind, 'unmappable', args.join(' '))
+  assert.equal(parseGitWrite('gh', ['api', '-X', 'GET', 'repos/acme/widgets']), null)
 })

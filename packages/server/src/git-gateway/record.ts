@@ -271,7 +271,7 @@ export class GitRecord {
         row.requester.kind === query.requester.kind && 'id' in row.requester && row.requester.id === query.requester.id)
     } catch { return false }
   }
-  observe(repository: string, branch: string, sha: string, previousSha: string | null): Promise<void> {
+  observe(repository: string, branch: string, sha: string, previousSha: string | null, note?: Pick<GitRecordEntry, 'reason' | 'steeredFrom' | 'approval'>): Promise<void> {
     repository = canonicalRepository(repository)
     const name = repository
     return this.#queue(name, () => this.#locked(name, async () => {
@@ -282,7 +282,7 @@ export class GitRecord {
       const latest = new Map(read.branches.get(branch)?.map(row => [row.id, row]))
       if ([...latest.values()].some(row => row.sha === sha &&
         (row.op === 'push' && ['ok', 'intent'].includes(row.outcome) || row.op === 'observed'))) return
-      await this.#append({ id: randomUUID(), op: 'observed', repository: name, branch, sha, previousSha, requester: { kind: 'outside' }, approval: null, at: Date.now(), outcome: 'ok' })
+      await this.#append({ id: randomUUID(), op: 'observed', repository: name, branch, sha, previousSha, requester: { kind: 'outside' }, approval: null, ...note, at: Date.now(), outcome: 'ok' })
     }))
   }
   async #repositories(): Promise<string[]> {

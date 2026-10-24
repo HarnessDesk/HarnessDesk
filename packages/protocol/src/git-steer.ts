@@ -14,9 +14,23 @@ export function gitWritePreferences(value: unknown): GitWritePreferences {
 export function parseGitWrite(binary: string, argv: readonly string[]): GitWrite | null {
   const name = binary.split(/[\\/]/).at(-1)
   if (name === 'git') {
-    const push = argv.indexOf('push')
-    if (push < 0 || argv[0] && !argv[0].startsWith('-') && argv[0] !== 'push') return null
-    if (push !== 0) return refuse('Git global options cannot be translated safely.')
+    let index = 0
+    while (argv[index]?.startsWith('-')) {
+      const option = argv[index++]!
+      if (option === '-c' || option.startsWith('--config-env')) return refuse('Git configuration overrides cannot be translated safely.')
+      if (['-C', '--git-dir', '--work-tree', '--namespace'].includes(option)) index++
+      else if (!['--no-pager', '--paginate', '--bare', '--literal-pathspecs', '--no-optional-locks'].includes(option) && !/^--(?:git-dir|work-tree|namespace)=/.test(option)) return null
+    }
+    const verb = argv[index]
+    if (!verb) return null
+    if (verb !== 'push') {
+      // Unknown verbs include configured aliases. Never execute an unresolved
+      // alias with the person's credential. Local/read verbs remain native.
+      if (['status', 'diff', 'log', 'show', 'rev-parse', 'rev-list', 'branch', 'checkout', 'switch', 'restore', 'add', 'commit', 'config', 'fetch', 'pull', 'merge', 'rebase', 'reset', 'stash', 'tag', 'remote', 'ls-remote', 'ls-files', 'ls-tree', 'cat-file', 'for-each-ref', 'symbolic-ref', 'describe', 'blame', 'grep', 'help', 'version', 'init', 'clone', 'worktree', 'update-ref', 'check-ref-format', 'fsck', 'reflog', 'clean', 'cherry-pick', 'revert', 'bisect', 'archive', 'gc', 'maintenance', 'notes', 'format-patch', 'apply', 'am', 'shortlog', 'count-objects', 'check-ignore'].includes(verb)) return null
+      return refuse('An alternate transport or unresolved Git alias cannot be translated safely.')
+    }
+    if (argv.slice(index + 1).some(arg => ['--dry-run', '-n', '--help', '-h'].includes(arg))) return null
+    if (index !== 0) return refuse('Git global options cannot be translated safely.')
     const positional: string[] = []; let upstream = false, force = false
     for (const arg of argv.slice(1)) {
       if (arg === '-u' || arg === '--set-upstream') upstream = true
@@ -34,9 +48,14 @@ export function parseGitWrite(binary: string, argv: readonly string[]): GitWrite
     return { kind: 'push', ...(remote ? { remote } : {}), ...(source ? { source } : {}), ...(branch ? { branch } : {}), upstream, force }
   }
   if (name !== 'gh') return null
+  if (argv.includes('--help') || argv.includes('-h')) return null
+  if (argv[0] === 'api') return argv.some(arg => arg.startsWith('-f') || arg.startsWith('-F') || /^(?:--field|--raw-field|--input)(?:=|$)/.test(arg)) || argv.some((arg, i) => (arg === '-X' || arg === '--method') && argv[i + 1]?.toUpperCase() !== 'GET' || /^(?:-X|--method=)(?!GET$).+/.test(arg)) ? refuse('Forge API writes cannot be translated safely.') : null
+  if (!['pr', 'issue', 'release', 'repo', 'search', 'auth', 'version', 'help', 'status', 'browse', 'run', 'workflow', 'extension', 'label', 'project', 'cache', 'codespace', 'gist', 'gpg-key', 'ssh-key', 'ruleset'].includes(argv[0] ?? '')) return refuse('An unresolved forge alias cannot be translated safely.')
   const groupIndex = argv.findIndex(arg => arg === 'pr' || arg === 'issue')
   const group = argv[groupIndex], verb = argv[groupIndex + 1]
-  if (!(group === 'pr' && ['create', 'edit', 'merge', 'comment', 'review'].includes(verb ?? '') || group === 'issue' && verb === 'comment')) return null
+  if (!(group === 'pr' && ['create', 'edit', 'merge', 'comment', 'review'].includes(verb ?? '') || group === 'issue' && verb === 'comment')) {
+    return ['view', 'list', 'status', 'diff', 'checks'].includes(argv[1] ?? '') || ['version', 'help', 'status', 'search', 'browse'].includes(argv[0] ?? '') ? null : refuse('This forge mutation cannot be translated safely.')
+  }
   const tool = group === 'issue' ? 'issue_comment' : `pr_${verb === 'edit' ? 'update' : verb}`
   const refuseForge = (reason: string) => refuse(reason, tool)
   if (groupIndex !== 0) return refuseForge('Forge global options cannot be translated safely.')
@@ -61,8 +80,12 @@ export function parseGitWrite(binary: string, argv: readonly string[]): GitWrite
   }
   return { kind: 'forge', tool, args, ...(bodyFile ? { bodyFile } : {}), ...(fill ? { fill } : {}) }
 }
-/** Conservative shell tokenization: compound commands are detected but never executed by the host. */
-export function parseGitCommand(command: string): GitWrite | null {
+/** Parse argv without evaluating substitutions. Shell wrappers are recursively
+ * unwrapped; a simple leading cd is allowed only for recognition (never exec). */
+export function parseGitCommand(command: string, depth = 0): GitWrite | null {
+  if (depth > 8) return refuse('Too many shell wrappers.')
+  const cd = /^\s*cd\s+(?:'[^']*'|"[^"$`]*"|[^\s;&|]+)\s*&&\s*([\s\S]+)$/.exec(command)
+  if (cd) return parseGitCommand(cd[1]!, depth + 1)
   const tokens: string[] = []; let word = '', quote = '', escaped = false, complex = false, started = false
   const flush = () => { if (started) tokens.push(word); word = ''; started = false }
   for (const char of command) {
@@ -75,9 +98,21 @@ export function parseGitCommand(command: string): GitWrite | null {
     word += char; started = true
   }
   flush()
+  if (/^(?:.*\/)?(?:ba|z|k|da|fi)?sh$/.test(tokens[0] ?? '') && /^-[a-zA-Z]*c$/.test(tokens[1] ?? '')) {
+    if (tokens.length === 3 && !complex && !quote && !escaped) return parseGitCommand(tokens[2]!, depth + 1)
+    return /\b(?:git|gh)\b.*\b(?:push|send-pack|create|edit|merge|comment|review)\b/.test(command) ? refuse('The shell script cannot be translated safely.') : null
+  }
+  // Prose mentioning git is not an invocation. Environment prefixes and
+  // compound invocations are refused, rather than silently passed through.
+  if (['echo', 'printf', 'man'].includes(tokens[0] ?? '')) return null
   for (let i = 0; i < tokens.length; i++) {
     const parsed = parseGitWrite(tokens[i]!, tokens.slice(i + 1))
     if (parsed) return complex || quote || escaped || i !== 0 ? refuse('Compound shell commands cannot be translated safely.', parsed.kind === 'push' ? undefined : parsed.tool) : parsed
   }
   return null
 }
+
+/** Durable text must never retain URL userinfo or a pasted body. */
+export const redactGitCommand = (command: string): string => command
+  .replace(/(https?:\/\/)[^\s/'"]+@/g, '$1[redacted]@')
+  .replace(/((?:--body|-b)(?:=|\s+))(?:'[^']*'|"[^"\n]*"|\S+)/g, '$1[body omitted]')

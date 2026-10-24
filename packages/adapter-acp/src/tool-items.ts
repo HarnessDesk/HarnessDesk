@@ -159,7 +159,7 @@ export const projectToolItem = (
       const outputText = typeof raw === 'string' ? raw : printed || blocks || text
       const exitCode = output?.exitCode ?? output?.exit_code
       item = {
-        ...base, type: 'command', command, cwd, origin: 'agent', actions: [{ type: 'unknown', command }],
+        ...base, type: 'command', command, cwd: typeof objectOf(call.args)?.cwd === 'string' ? objectOf(call.args)!.cwd as string : cwd, origin: 'agent', actions: [{ type: 'unknown', command }],
         ...(outputText ? { output: outputText } : {}),
         ...(typeof exitCode === 'number' ? { exitCode } : {}),
       }

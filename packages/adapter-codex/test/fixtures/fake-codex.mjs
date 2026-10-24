@@ -868,7 +868,7 @@ const turnOpening = () => {
 }
 
 const playTurn = (openingAlreadySent = false) => {
-  const nativeCommand = process.env.FAKE_CODEX_GIT_APPROVAL ? 'git push origin x' : 'ls -la'
+  const nativeCommand = process.env.FAKE_CODEX_GIT_APPROVAL ? "/bin/zsh -lc 'git push origin x'" : 'ls -la'
   if (!openingAlreadySent) {
     for (const message of turnOpening()) send(message)
   }
@@ -2534,11 +2534,12 @@ rl.on('line', (line) => {
       if (said.startsWith('git-steer-run ')) {
         const threadId = THREAD, turnId = `${TURN}-git-${++gitSteerTurn}`, request = JSON.parse(said.slice('git-steer-run '.length))
         send({ ...response, result: { turn: { ...response.result.turn, id: turnId } } })
-        const command = [request.binary, ...request.args].join(' '), cwd = cwdByThread.get(threadId)
+        const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
+        const script = [request.binary, ...request.args].map(quote).join(' '), command = '/bin/zsh -lc ' + quote(script), cwd = cwdByThread.get(threadId)
         const item = { type: 'commandExecution', id: 'git-write', command, cwd, processId: null, source: 'agent', status: 'inProgress', commandActions: [{ type: 'unknown', command }], aggregatedOutput: null, exitCode: null, durationMs: null }
         notify('turn/started', { threadId, turn: { id: turnId, items: [], status: 'inProgress', error: null } })
         notify('item/started', { threadId, turnId, item })
-        const child = spawn(request.binary, request.args, { cwd, env: { ...process.env, ...gitSteerEnvironments.get(threadId) } })
+        const child = spawn('/bin/zsh', ['-lc', script], { cwd, env: { ...process.env, ...gitSteerEnvironments.get(threadId) } })
         let output = ''
         child.stdout.on('data', data => { output += data })
         child.stderr.on('data', data => { output += data })

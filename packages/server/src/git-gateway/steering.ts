@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { accessSync, constants, mkdirSync, writeFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
-import { delimiter, join, resolve } from 'node:path'
+import { accessSync, constants, mkdirSync, writeFileSync, readFileSync, realpathSync } from 'node:fs'
+import { open, realpath } from 'node:fs/promises'
+import { delimiter, join, resolve, relative, isAbsolute, dirname } from 'node:path'
 import { promisify } from 'node:util'
-import { gitWritePreferences, parseGitWrite, parseGitCommand, type GitSteerMode, type GitWrite, type ToolResult } from '@harnessdesk/protocol'
+import { gitWritePreferences, parseGitWrite, parseGitCommand, redactGitCommand, type GitSteerMode, type GitWrite, type ToolResult } from '@harnessdesk/protocol'
 import type { HeldQuestion } from '../ceilings/gate.js'
 import type { GitGateway, GitRecordEntry } from './index.js'
 import { gitSteerContext } from './steer-context.js'
@@ -16,7 +16,7 @@ export interface SteeringPort {
   preferences(): Record<string, unknown>
   projectOf(cwd: string): Promise<string>
   scope(runtime: string, sessionId: string): Promise<SteerScope | null>
-  ask(scope: SteerScope, question: HeldQuestion): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>
+  ask(scope: SteerScope, question: HeldQuestion, signal?: AbortSignal): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>
   admit(scope: SteerScope, tool: string, args: unknown): Promise<void>
   invoke(scope: SteerScope, tool: string, args: unknown): Promise<ToolResult>
   say(scope: SteerScope, text: string, banner?: boolean): void
@@ -26,7 +26,7 @@ export const gitCommandText = (binary: string, argv: readonly string[]) => [bina
 const find = (name: string, path: string): string => {
   for (const part of path.split(delimiter)) {
     const candidate = resolve(part, name)
-    try { accessSync(candidate, constants.X_OK); return candidate } catch { /* next */ }
+    try { accessSync(candidate, constants.X_OK); const actual = realpathSync(candidate); if (dirname(actual).endsWith('/git-steer-bin') || readFileSync(actual).subarray(0, 256).toString().includes('HARNESSDESK_GIT_STAND_IN')) continue; return actual } catch { /* next */ }
   }
   return ''
 }
@@ -59,11 +59,15 @@ export class GitSteering {
         // must run as Node. No PATH lookup for the host interpreter.
         const script = join(this.directory, `${binary}.mjs`)
         writeFileSync(script, `import { runGitStandIn } from ${JSON.stringify(entry)}; await runGitStandIn(${JSON.stringify(binary)}, process.argv.slice(2));\n`, { mode: 0o600 })
-        writeFileSync(join(this.directory, binary), `#!/bin/sh\n${process.versions.electron ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}exec ${quoted(process.execPath)} ${quoted(script)} "$@"\n`, { mode: 0o700 })
+        const reads = binary === 'git' ? '--version|status|diff|log|show|rev-parse|rev-list|ls-files|ls-tree|cat-file|for-each-ref|symbolic-ref|describe|blame|grep|help|version|check-ref-format|check-ignore' : 'version|help'
+        const realVar = binary === 'git' ? 'HD_GIT_REAL_GIT' : 'HD_GIT_REAL_GH'
+        writeFileSync(join(this.directory, binary), `#!/bin/sh\n# HARNESSDESK_GIT_STAND_IN\ncase "$1" in ${reads})\n  real="$${realVar}"\n  case "$real" in */git-steer-bin/*|"") echo 'HarnessDesk: refusing recursive or unavailable git stand-in.' >&2; exit 1;; esac\n  if LC_ALL=C /usr/bin/head -c 256 \"$real\" | /usr/bin/grep -q HARNESSDESK_GIT_STAND_IN; then echo 'HarnessDesk: refusing recursive git stand-in.' >&2; exit 1; fi\n  unset HD_TOOLS_SOCKET HD_TOOLS_CALLER HD_GIT_CALLER\n  exec "$real" "$@";;\nesac\n${process.versions.electron ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}exec ${quoted(process.execPath)} ${quoted(script)} "$@"\n`, { mode: 0o700 })
       }
+      // Restore PATH after login profiles without replacing the user's files.
+      for (const file of ['.zshenv', '.zprofile', '.zshrc', '.zlogin']) writeFileSync(join(this.directory, file), `hd_profile="\${HD_GIT_USER_ZDOTDIR:-$HOME}/${file}"\nif [ "$hd_profile" != ${quoted(join(this.directory, file))} ] && [ -f "$hd_profile" ]; then . "$hd_profile"; fi\nexport PATH=${quoted(this.directory)}:$PATH\n`, { mode: 0o600 })
       this.#installed = true
     }
-    return { PATH: `${this.directory}${delimiter}${path}`, HD_GIT_REAL_GIT: this.#git, HD_GIT_REAL_GH: this.#gh, HD_GIT_STEER: mode, HD_TOOLS_CALLER: caller }
+    return { PATH: `${this.directory}${delimiter}${path}`, HD_GIT_REAL_GIT: this.#git, HD_GIT_REAL_GH: this.#gh, HD_GIT_STEER: mode, HD_GIT_CALLER: caller, ZDOTDIR: this.directory, HD_GIT_USER_ZDOTDIR: process.env['ZDOTDIR'] ?? '' }
   }
   #key(scope: SteerScope): string { return `${scope.runtime}\0${scope.sessionId}\0${scope.turn}` }
   #mark(scope: SteerScope, command: string): void {
@@ -78,12 +82,24 @@ export class GitSteering {
     if (write.kind === 'push') {
       const current = await this.#gitRead(scope, ['branch', '--show-current'])
       const branch = write.branch ?? current
-      const sha = await this.#gitRead(scope, ['rev-parse', '--verify', `${write.source ?? 'HEAD'}^{commit}`])
+      const sha = await this.#gitRead(scope, ['rev-parse', '--verify', '--end-of-options', `${write.source ?? 'HEAD'}^{commit}`])
       if (!branch || !current || sha !== await this.#gitRead(scope, ['rev-parse', 'HEAD'])) throw new Error('Only the current checkout HEAD can be sent through git_push.')
       return { tool: 'git_push', args: { branch, set_upstream: write.upstream }, branch, sourceBranch: current, sha }
     }
     const args: Record<string, unknown> = { ...write.args }
-    if (write.bodyFile) args['body'] = await readFile(resolve(scope.cwd, write.bodyFile), 'utf8')
+    if (write.bodyFile) {
+      if (isAbsolute(write.bodyFile)) throw new Error('Body files must be regular files inside the checkout, at most 64 KiB.')
+      const path = await realpath(resolve(scope.cwd, write.bodyFile))
+      if (!await this.inside(scope.cwd, path)) throw new Error('Body file is outside the conversation checkout.')
+      const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
+      try {
+        const stat = await file.stat()
+        if (!stat.isFile() || stat.size > 65536) throw new Error('Body files must be regular files inside the checkout, at most 64 KiB.')
+        const buffer = Buffer.alloc(65537), { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
+        if (bytesRead > 65536) throw new Error('Body file exceeds 64 KiB.')
+        args['body'] = buffer.subarray(0, bytesRead).toString('utf8')
+      } finally { await file.close() }
+    }
     if (write.fill) {
       let base = typeof args['base'] === 'string' ? args['base'] : undefined
       if (!base) {
@@ -91,11 +107,12 @@ export class GitSteering {
         if (repository) base = (await this.gateway.repository(repository)).defaultBranchRef?.name
         if (!base) { try { base = await this.#gitRead(scope, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']) } catch { base = 'main' } }
       }
+      if (!/^(?![-/])(?!.*(?:\.\.|[~^:?*\[\]\\\s]))[A-Za-z0-9_./-]+$/.test(base)) throw new Error('Invalid pull request base branch.')
       let comparison = base
       if (!base.startsWith('origin/')) { try { await this.#gitRead(scope, ['rev-parse', '--verify', `refs/remotes/origin/${base}`]); comparison = `origin/${base}` } catch { /* A local base still supplies the commit range. */ } }
       // Ordered commits: first subject followed by commit bodies. Fail rather
       // than open an editor or guess when no base can be established.
-      const commits = await this.#gitRead(scope, ['log', '--reverse', '--format=%s%x00%b%x00', `${comparison}..HEAD`, '--'])
+      const commits = await this.#gitRead(scope, ['log', '--reverse', '--format=%s%x00%b%x00', '--end-of-options', `${comparison}..HEAD`, '--'])
       const parts = commits.split('\0')
       args['title'] ??= parts[0]?.trim(); args['body'] ??= parts.filter((_v, i) => i % 2 === 1).map(v => v.trim()).filter(Boolean).join('\n\n')
     }
@@ -104,15 +121,19 @@ export class GitSteering {
     if (write.tool === 'pr_review') args['event'] ??= 'comment'
     return { tool: write.tool, args }
   }
-  async handle(runtime: string, sessionId: string, params: Record<string, unknown>): Promise<SteerReply> {
+  async handle(runtime: string, sessionId: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<SteerReply> {
     const scope = await this.port.scope(runtime, sessionId)
     if (!scope) return { action: 'done', ok: false, output: 'HarnessDesk: this caller has no live conversation.' }
+    if (params['modeOnly'] === true) return { action: this.steerFor(scope.root) === 'off' ? 'own' : 'done' }
     if (typeof params['ticket'] === 'string') return this.#finishOwn(scope, params['ticket'], params['exitCode'])
     if (params['binary'] !== 'git' && params['binary'] !== 'gh' || !Array.isArray(params['argv']) || !params['argv'].every(value => typeof value === 'string')) return { action: 'done', ok: false, output: 'HarnessDesk: invalid steering request.' }
-    if (typeof params['cwd'] === 'string' && resolve(params['cwd']) !== resolve(scope.cwd)) return { action: 'done', ok: false, output: 'HarnessDesk: this command is outside the conversation checkout; use the git_push tool.' }
+    if (typeof params['cwd'] === 'string' && !await this.inside(scope.cwd, params['cwd'])) return { action: 'done', ok: false, output: 'HarnessDesk: this command is outside the conversation checkout; use the git_push tool.' }
     const command = gitCommandText(params['binary'], params['argv']), write = parseGitWrite(params['binary'], params['argv'])
     if (!write) return { action: 'done', ok: false, output: 'HarnessDesk: this is not a supported git write.' }
-    return this.steer(scope, command, write)
+    return this.steer(scope, command, write, true, signal)
+  }
+  async inside(root: string, cwd: string): Promise<boolean> {
+    try { const path = relative(await realpath(root), await realpath(cwd)); return path === '' || !path.startsWith('../') && path !== '..' && !isAbsolute(path) } catch { return false }
   }
   async #refuse(scope: SteerScope, command: string, write: GitWrite | null, reason: string): Promise<void> {
     const repository = await this.gateway.pins.pinned(scope.root)
@@ -121,20 +142,25 @@ export class GitSteering {
     await this.gateway.refuse(op, { repository, requester: { kind: 'session', id: `${scope.runtime}/${scope.sessionId}`, conversation: { runtime: scope.runtime, sessionId: scope.sessionId } },
       steeredFrom: command, ...(write.kind === 'push' && write.branch ? { branch: write.branch } : {}), ...(write.kind === 'forge' && typeof write.args['number'] === 'number' ? { number: write.args['number'] } : {}) }, reason)
   }
-  async steer(scope: SteerScope, command: string, write = parseGitCommand(command), allowOwn = true): Promise<SteerReply> {
+  async steer(scope: SteerScope, command: string, write = parseGitCommand(command), allowOwn = true, signal?: AbortSignal): Promise<SteerReply> {
     const mode = this.steerFor(scope.root)
     this.#mark(scope, command)
+    command = redactGitCommand(command)
+    if (mode === 'off') return { action: 'own' }
     let invoked = false
     try {
+      signal?.throwIfAborted()
+      if (write) await this.port.admit(scope, write.kind === 'push' ? 'git_push' : write.tool ?? 'git_push', write.kind === 'forge' ? write.args : {})
       const translated = write && await this.#translate(scope, write)
       if (!translated) throw new Error('This command cannot be translated. Use git_push or the pr_* tools.')
-      await this.port.admit(scope, translated.tool, translated.args)
       if (mode === 'ask') {
         const repository = await this.gateway.pins.pinned(scope.root) ?? await this.gateway.proposedRepository(scope.cwd)
         const becomes = translated.branch ? `Push ${translated.branch} to ${repository ?? 'the project repository'} · ${translated.sha?.slice(0, 7)}` : translated.tool
+        const push = translated.tool === 'git_push'
         const answer = await this.port.ask(scope, { summary: `${scope.name} wants to run ${translated.tool === 'git_push' ? 'git push' : 'a forge write'} itself`,
-          reason: `\`\`\`\n${command}\n\`\`\`\nBecomes ${becomes}. Through HarnessDesk the write is recorded and runs without this checkout’s git settings.`, facts: [{ label: 'Command', value: command }, { label: 'Becomes', value: becomes }],
-          options: [{ id: 'allow', label: 'Push through HarnessDesk', intent: 'approve' }, ...(allowOwn ? [{ id: 'standing', label: 'Let it use its own git', intent: 'approveAlways' as const }] : []), { id: 'refuse', label: "Don't push", intent: 'deny' }] })
+          reason: `\`\`\`\n${command}\n\`\`\`\nBecomes ${becomes}. Through HarnessDesk the write is recorded and runs without this checkout’s git settings.`, facts: [{ label: 'Repository', value: repository ?? 'Not pinned' }, ...(translated.branch ? [{ label: 'Branch', value: translated.branch }, { label: 'Head', value: translated.sha! }] : []), { label: 'Command', value: command }, { label: 'Becomes', value: becomes }],
+          options: [{ id: 'allow', label: push ? 'Push through HarnessDesk' : 'Write through HarnessDesk', intent: 'approve' }, ...(allowOwn ? [{ id: 'own', label: 'Let it use its own git', intent: 'approve' as const }] : []), { id: 'refuse', label: push ? "Don't push" : "Don't write", intent: 'deny' }] }, signal)
+        signal?.throwIfAborted()
         if (answer === 'standing' && allowOwn) {
           const ticket = randomUUID(), repository = await this.gateway.pins.pinned(scope.root) ?? await this.gateway.proposedRepository(scope.cwd)
           if (!repository) throw new Error('The project repository could not be identified for the outside record. Use git_push to approve the repository first.')
@@ -145,17 +171,17 @@ export class GitSteering {
         }
         if (answer !== 'allowed') { await this.#refuse(scope, command, write, 'The person declined.'); this.port.say(scope, `Not pushed · ${command} · the person declined`); return { action: 'done', ok: false, output: 'HarnessDesk: not pushed — the person declined.' } }
       }
-      if (mode === 'off') throw new Error('Steering is off for this project; retry the command with its own git.')
+      signal?.throwIfAborted()
       this.port.say(scope, mode === 'redirect' ? `Sent through HarnessDesk · ${command} · your choice for this project` : `Sent through HarnessDesk · ${command} · you approved`)
       if (translated.sha && await this.#gitRead(scope, ['rev-parse', 'HEAD']) !== translated.sha) throw new Error('The checkout head changed while the steering question waited; retry the push.')
       invoked = true
-      const result = await gitSteerContext.run({ command, ...(translated.branch && translated.sourceBranch && translated.sha ? { push: { branch: translated.branch, sourceBranch: translated.sourceBranch, sha: translated.sha } } : {}) }, () => this.port.invoke(scope, translated.tool, translated.args))
+      const result = await gitSteerContext.run({ command, admitted: true, signal, approved: mode === 'ask', ...(translated.branch && translated.sourceBranch && translated.sha ? { push: { branch: translated.branch, sourceBranch: translated.sourceBranch, sha: translated.sha } } : {}) }, () => this.port.invoke(scope, translated.tool, translated.args))
       if (!result.ok) throw new Error(result.error)
       const output = result.content.filter(part => part.type === 'text').map(part => part.text).join('\n')
       const repository = await this.gateway.pins.pinned(scope.root)
       return { action: 'done', ok: true, output: `${output}\nHarnessDesk: ${translated.branch ? `pushed ${translated.branch} to ${repository} (${translated.sha?.slice(0, 7)})` : 'forge write completed'}, recorded.` }
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
+      const reason = redactGitCommand(error instanceof Error ? error.message : String(error))
       if (!invoked) await this.#refuse(scope, command, write, reason)
       this.port.say(scope, `Git write refused · ${command} · ${reason}`)
       return { action: 'done', ok: false, output: `HarnessDesk: not pushed — ${reason}` }
@@ -165,19 +191,25 @@ export class GitSteering {
     const pending = this.#tickets.get(ticket)
     if (!Number.isInteger(exitCode) || !pending || pending.scope.runtime !== scope.runtime || pending.scope.sessionId !== scope.sessionId) return { action: 'done', ok: false, output: 'HarnessDesk: invalid own-git receipt.' }
     this.#tickets.delete(ticket)
-    if (pending.repository) await this.gateway.gitRecord.append({ id: randomUUID(), op: pending.op, repository: pending.repository, ...(pending.number ? { number: pending.number } : {}), ...(pending.branch ? { branch: pending.branch } : {}), ...(pending.sha ? { sha: pending.sha } : {}), requester: { kind: 'outside' }, approval: { by: 'person', at: Date.now() }, steeredFrom: pending.command, at: Date.now(), outcome: exitCode === 0 ? 'ok' : 'failed', reason: 'own-git-allowed' })
+    // A receipt is only a hint to re-read the pinned remote, never proof of
+    // what the caller wrote. Outside recording includes person-allowed git.
+    if (this.recordOutside && pending.repository && pending.branch) {
+      const sha = await this.gateway.remoteHead(pending.repository, pending.branch, { reason: 'own-git-allowed', steeredFrom: pending.command, approval: { by: 'person', at: Date.now() } })
+      void sha
+    }
     return { action: 'done', ok: exitCode === 0, output: 'HarnessDesk: own git result recorded as Outside (own-git-allowed).' }
   }
-  async completed(scope: SteerScope, command: string, exitCode: number | null | undefined): Promise<void> {
-    if (exitCode !== 0 || this.steerFor(scope.root) === 'off' || !parseGitCommand(command)) return
+  async completed(scope: SteerScope, command: string, exitCode: number | null | undefined, cwd = scope.cwd): Promise<void> {
+    if (exitCode !== 0 || this.steerFor(scope.root) === 'off') return
+    const parsed = parseGitCommand(command)
+    if (!parsed || parsed.kind === 'unmappable') return
     const seen = this.#seen.get(this.#key(scope))
     if (seen?.has(command)) return
     // Match normalized argv too: the command item may use different quoting.
-    const parsed = parseGitCommand(command)
     if (!command.trim().startsWith('/') && seen && [...seen].some(one => JSON.stringify(parseGitCommand(one)) === JSON.stringify(parsed))) return
     this.#mark(scope, command)
-    this.port.say(scope, `A push went around HarnessDesk · ${command}`, true)
-    if (!this.recordOutside || parsed?.kind !== 'push') return
+    this.port.say(scope, `${parsed.kind === 'push' ? 'A push' : 'A forge write'} went around HarnessDesk · ${redactGitCommand(command)}`, true)
+    if (!this.recordOutside || parsed.kind !== 'push' || !await this.inside(scope.cwd, cwd)) return
     const branch = parsed.branch ?? await this.#gitRead(scope, ['branch', '--show-current'])
     const repository = await this.gateway.pins.pinned(scope.root)
     if (repository && branch) { const sha = await this.gateway.remoteHead(repository, branch); if (sha) await this.gateway.observe(repository, branch, sha, null) }

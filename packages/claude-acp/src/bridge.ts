@@ -1,3 +1,4 @@
+import { connect } from 'node:net'
 import { closeSync, fstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -359,7 +360,7 @@ export const withOptions = (meta: Meta, values: Record<string, string>, abort: A
   const steering = (options['env'] as NodeJS.ProcessEnv | undefined)?.['HD_GIT_STEER'] ?? process.env['HD_GIT_STEER']
   if (steering === 'ask' || steering === 'redirect') {
     const hooks = (options['hooks'] ?? {}) as Record<string, unknown>
-    options['hooks'] = { ...hooks, PreToolUse: [...((hooks['PreToolUse'] as unknown[] | undefined) ?? []), { hooks: [gitSteeringHook] }] }
+    options['hooks'] = { ...hooks, PreToolUse: [...((hooks['PreToolUse'] as unknown[] | undefined) ?? []), { hooks: [(input: Parameters<typeof gitSteeringHook>[0]) => gitSteeringHook(input, options['env'] as NodeJS.ProcessEnv | undefined)] }] }
   }
   const next: Record<string, unknown> = { ...(meta ?? {}), claudeCode: { ...claudeCode, options, emitRawSDKMessages: true } }
   if (values['ceiling'] === 'read') {
@@ -423,9 +424,20 @@ export const readCeilingDecision = (
   return { permissionDecision: 'deny', permissionDecisionReason: 'The read ceiling blocks this tool.' }
 }
 
-export const gitSteeringHook = async (input: { readonly tool_name: string; readonly tool_input: unknown }) => {
+export const gitSteeringHook = async (input: { readonly tool_name: string; readonly tool_input: unknown }, environment: NodeJS.ProcessEnv = process.env) => {
   const command = input.tool_name === 'Bash' && input.tool_input && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>)['command'] : undefined
   if (typeof command !== 'string' || !parseGitCommand(command)) return {}
+  if (environment['HD_TOOLS_SOCKET'] && environment['HD_GIT_CALLER']) {
+    const off = await new Promise<boolean>(resolve => {
+      const socket = connect(environment['HD_TOOLS_SOCKET']!), finish = (value: boolean) => { socket.destroy(); resolve(value) }
+      let buffer = ''
+      socket.setTimeout(2000, () => finish(false))
+      socket.on('error', () => finish(false))
+      socket.on('connect', () => socket.write(JSON.stringify({ id: 1, method: 'git/steer', params: { caller: environment['HD_GIT_CALLER'], modeOnly: true } }) + '\n'))
+      socket.on('data', chunk => { buffer += chunk.toString(); if (!buffer.includes('\n')) return; try { finish(JSON.parse(buffer).result?.action === 'own') } catch { finish(false) } })
+    })
+    if (off) return {}
+  }
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Git writes from this conversation go through HarnessDesk. Use git_push for pushes, or pr_create, pr_update, pr_merge, pr_comment, pr_review and issue_comment for forge writes.' } }
 }
 

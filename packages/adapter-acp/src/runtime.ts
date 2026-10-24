@@ -2884,7 +2884,8 @@ export class AcpRuntime implements AgentRuntime {
     attachments?: SessionAttachments,
   ): Promise<T> {
     const caller = randomUUID()
-    const steering = typeof params['cwd'] === 'string' ? await this.#config.gitEnvironment?.(params['cwd'], caller, (this.#launch && !('blocked' in this.#launch) ? this.#launch.env?.['PATH'] : undefined) ?? this.#config.env?.['PATH']) : undefined
+    const steeringCaller = randomUUID()
+    const steering = typeof params['cwd'] === 'string' ? await this.#config.gitEnvironment?.(params['cwd'], steeringCaller, (this.#launch && !('blocked' in this.#launch) ? this.#launch.env?.['PATH'] : undefined) ?? this.#config.env?.['PATH']) : undefined
     let connection = this.#connection
     if (steering || !this.#initialized?.agentCapabilities?.sessionCapabilities?.close && !this.#config.sharedSessionProcess) {
       if (this.#disposed) throw shutDown(this.#config.name)
@@ -2916,7 +2917,7 @@ export class AcpRuntime implements AgentRuntime {
     // token, and whoever built the runtime now learns which session it names.
     const claim = (result: T, acceptedTools = true): T => {
       const sessionId = (result as { sessionId?: unknown }).sessionId ?? params['sessionId']
-      if (steering && typeof sessionId === 'string') this.#config.onGitSession?.(caller, sessionId)
+      if (steering && typeof sessionId === 'string') this.#config.onGitSession?.(steeringCaller, sessionId)
       if (typeof sessionId === 'string') this.#sessionConnections.set(makeSessionId(sessionId), connection)
       opened = true
       if ((steering || acceptedTools && servers.length > 0) && typeof sessionId === 'string') {
@@ -5221,6 +5222,7 @@ class AcpSession implements AgentSession {
                 const described = asked.options.find((one) => one.label === option.name)
                 return {
                   id: option.optionId,
+          once: option.kind === 'reject_once' || option.kind === 'allow_once',
                   label: option.name,
                   ...(described?.description ? { description: described.description } : {}),
                 }
@@ -5249,6 +5251,7 @@ class AcpSession implements AgentSession {
       // user asked me to write outside the workspace" and the dialog showed
       // `write`. A decision needs the sentence, not the verb.
       ...(permissionReason(request.toolCall) ? { reason: permissionReason(request.toolCall) } : {}),
+      cwd: typeof (request.toolCall.rawInput as { cwd?: unknown } | undefined)?.cwd === 'string' ? (request.toolCall.rawInput as { cwd: string }).cwd : this.#cwd,
       options: request.options.map((option) => {
         const geminiGrant = this.#host.info.capabilities.perToolMcpApproval && option.kind === 'allow_always'
           ? ({
@@ -5259,6 +5262,7 @@ class AcpSession implements AgentSession {
           : undefined
         return {
           id: option.optionId,
+          once: option.kind === 'reject_once' || option.kind === 'allow_once',
           label: option.name,
           ...(geminiGrant ? { description: geminiGrant.description, grant: geminiGrant.grant } : {}),
           intent:
