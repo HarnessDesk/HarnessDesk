@@ -1686,6 +1686,26 @@ class PreviewStore {
     return preview
   }
 
+  signInToHarnessDesk = async (): Promise<void> => {
+    this.patch({ harnessDeskAccount: { status: 'pending', desk: { name: 'Jane’s MacBook Pro', reachable: false }, phones: [],
+      pending: { userCode: 'ABCD-EFGH', verifyUrl: 'https://app.harnessdesk.app/link#code=ABCD-EFGH', expiresAt: Math.floor(Date.now() / 1000) + 600 } } })
+  }
+  openHarnessDeskSignIn = async (): Promise<void> => {}
+  cancelHarnessDeskSignIn = async (): Promise<void> => { this.patch({ harnessDeskAccount: { status: 'signedOut', desk: { name: 'Jane’s MacBook Pro', reachable: false }, phones: [] } }) }
+  signOutOfHarnessDesk = this.cancelHarnessDeskSignIn
+  renameHarnessDesk = async (name: string): Promise<void> => {
+    const status = this.#snapshot.harnessDeskAccount
+    if (status) this.patch({ harnessDeskAccount: { ...status, desk: { ...status.desk, name } } })
+  }
+  setHarnessDeskReachable = async (reachable: boolean): Promise<void> => {
+    const status = this.#snapshot.harnessDeskAccount
+    if (status) this.patch({ harnessDeskAccount: { ...status, desk: { ...status.desk, reachable } } })
+  }
+  unlinkHarnessDeskPhone = async (deviceId: string): Promise<void> => {
+    const status = this.#snapshot.harnessDeskAccount
+    if (status) this.patch({ harnessDeskAccount: { ...status, phones: status.phones.filter(phone => phone.deviceId !== deviceId) } })
+  }
+
   // --- the dials -----------------------------------------------------------
   setTheme = (theme: AppSnapshot['theme']): void => this.patch({ theme })
   setSpendChartMode = (spendChartMode: AppSnapshot['spendChartMode']): void => this.patch({ spendChartMode })
@@ -2193,6 +2213,14 @@ class PreviewStore {
   #previewTicket = 0
   transport = {
     request: async (method: string, params?: unknown): Promise<unknown> => {
+      if (method.startsWith('account/')) {
+        if (method === 'account/signIn') await this.signInToHarnessDesk()
+        if (method === 'account/cancel' || method === 'account/signOut') await this.cancelHarnessDeskSignIn()
+        if (method === 'account/renameDesk') await this.renameHarnessDesk((params as { name: string }).name)
+        if (method === 'account/setReachable') await this.setHarnessDeskReachable((params as { reachable: boolean }).reachable)
+        if (method === 'account/unlinkPhone') await this.unlinkHarnessDeskPhone((params as { deviceId: string }).deviceId)
+        return this.#snapshot.harnessDeskAccount
+      }
       if (method === 'session/index') {
         const query = params as { runtimes?: string[]; archived?: string }
         if (query.archived !== 'only') return { data: [], nextCursor: null }

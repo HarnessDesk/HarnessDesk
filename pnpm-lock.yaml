@@ -250,9 +250,15 @@ importers:
       '@harnessdesk/codex':
         specifier: workspace:*
         version: link:../codex
+      '@harnessdesk/contract':
+        specifier: workspace:*
+        version: link:../contract
       '@harnessdesk/cordis-host':
         specifier: workspace:*
         version: link:../cordis-host
+      '@harnessdesk/crypto':
+        specifier: workspace:*
+        version: link:../crypto
       '@harnessdesk/extension-host':
         specifier: workspace:*
         version: link:../extension-host

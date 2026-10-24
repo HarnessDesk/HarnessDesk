@@ -1,3 +1,4 @@
+import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
 import { readKeptTranscriptFile } from './kept-transcript.js'
 import { Storage } from './storage.js'
@@ -474,6 +475,10 @@ export interface HostOptions {
    * plain bytes behind file permissions, and the UI says so.
    */
   readonly credentialCipher?: CredentialCipher
+  /** Opens the host-validated account approval page in the system browser. */
+  readonly accountOpenExternal?: (url: string) => Promise<void>
+  /** HTTPS cloud origin; defaults to HARNESSDESK_CLOUD_URL or the production app. */
+  readonly accountCloudUrl?: string
   /** Optional: HarnessDesk runs fine with no extension kernel at all. */
   readonly extensions?: ExtensionHost
   readonly state?: StateStore
@@ -775,6 +780,7 @@ export class Host {
   readonly #worktrees: Worktrees
   readonly #laneStore: LaneStore
   readonly #lanes: LaneAllocator
+  readonly #harnessDeskAccount: HarnessDeskAccount
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
@@ -1043,6 +1049,11 @@ export class Host {
         const cwd = lane.cwd ? canonicalPath(lane.cwd) : null
         return cwd !== null && this.registry.all().some((record) => isBusy(record.session) && samePath(canonicalPath(record.session.cwd), cwd))
       }),
+    })
+    this.#harnessDeskAccount = new HarnessDeskAccount({
+      state: this.#state, cipher: options.credentialCipher, cloudUrl: options.accountCloudUrl,
+      openExternal: options.accountOpenExternal,
+      changed: (status) => this.#push({ method: 'account/changed', params: { status } }),
     })
     this.#credentials = new CredentialBroker(
       join(this.#state.directory, 'credentials.json'),
@@ -3308,6 +3319,7 @@ export class Host {
     // No Seat reaches a server past this point: every live grant is revoked,
     // every exchange in flight is aborted, and the gateway's socket is closed.
     // (Synchronous: nothing here may yield before every runtime is told, below.)
+    this.#harnessDeskAccount.close()
     this.#attachments.revokeAll()
     this.#attachmentAbort.abort()
     this.#catalogs.stop()
@@ -4479,6 +4491,7 @@ export class Host {
       state: this.#state,
       logger: this.#logger,
       credentials: this.#credentials,
+      harnessDeskAccount: this.#harnessDeskAccount,
       audit: this.#audit,
       transcripts: this.#transcripts,
       archive: this.#archive,

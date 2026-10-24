@@ -14,7 +14,7 @@ import { downloadOutcome, remember, uniqueName } from './downloads.mjs'
 import { respondToCrash } from './crash-policy.mjs'
 import { attachQuitSignals } from './quit-signals.mjs'
 import { attachAppUpdates, attachAppUpdateBridge } from './app-updates.mjs'
-import { loadMainWindow } from './main-window.mjs'
+import { attachAppProtocol, loadMainWindow } from './main-window.mjs'
 import { MENU_LABEL, createCommandLineTool, targetOf } from './cli-install.mjs'
 import { decide, relevant } from './notifications.mjs'
 import { createIntakeNotifier } from './intake-notifications.mjs'
@@ -112,17 +112,7 @@ let extensions = null
 let updateMenuItem = null
 const appUpdateBridge = attachAppUpdateBridge({ ipcMain, currentWindow: () => mainWindow, currentMenu: () => updateMenuItem })
 
-if (!app.requestSingleInstanceLock()) {
-  // A second launch should focus the window that already exists, not race it
-  // for the same host port and state file.
-  app.quit()
-}
-
-app.on('second-instance', () => {
-  if (!mainWindow) return
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.focus()
-})
+const primaryInstance = attachAppProtocol({ app, currentWindow: () => mainWindow })
 
 const pickDirectory = async () => {
   const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
@@ -653,6 +643,9 @@ const start = async () => {
     stateDir,
     version: app.getVersion(),
     browserEngine,
+    // The host pins the service origin and sign-in path before calling this.
+    // Cloud sign-in always leaves the embedded pane for the system browser.
+    accountOpenExternal: url => shell.openExternal(url),
     // At-rest protection for stored credentials comes from the OS —
     // safeStorage keys live in the macOS Keychain. This is the only file in
     // the repository allowed to touch a keystore API; CI enforces that.
@@ -914,7 +907,7 @@ ipcMain.on('harnessdesk:tray-summary', (_event, summary) => {
   tray.setContextMenu(buildTrayMenu())
 })
 
-app.whenReady().then(start).catch((error) => {
+if (primaryInstance) app.whenReady().then(start).catch((error) => {
   dialog.showErrorBox('HarnessDesk could not start', String(error?.stack ?? error))
   app.quit()
 })

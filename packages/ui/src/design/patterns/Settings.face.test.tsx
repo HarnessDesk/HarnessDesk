@@ -77,3 +77,17 @@ it('keeps transparent marks and sticker artwork whole', () => {
     expect(face.querySelector('img')?.parentElement).toBe(face)
   }
 })
+
+it('draws a host-provided raster account picture and falls back if it fails', () => {
+  const tile = render(<Face pictureDataUrl="data:image/png;base64,AAAA" size={24} />)
+  const picture = tile.querySelector('img')!
+  expect(picture.getAttribute('referrerpolicy')).toBe('no-referrer')
+  act(() => picture.dispatchEvent(new Event('error')))
+  expect(tile.querySelector('img')).toBeNull()
+  expect(tile.querySelector('.brand-harnessdesk')).not.toBeNull()
+})
+it('refuses remote and non-raster account pictures', () => {
+  for (const pictureDataUrl of ['https://example.com/jane.png', 'data:image/svg+xml;base64,AAAA', 'data:text/html;base64,AAAA']) {
+    expect(render(<Face pictureDataUrl={pictureDataUrl} />).querySelector('img')).toBeNull()
+  }
+})

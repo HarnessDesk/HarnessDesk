@@ -10,6 +10,7 @@
   gap: var(--hd-space-2-5);
   width: min(400px, calc(100vw - var(--hd-space-8)));
 }
+.hostInset { padding: var(--hd-space-2); }
 .frame {
   container: hd-banner / inline-size;
   width: min(var(--hd-column), 100%);
@@ -131,6 +132,33 @@
     grid-column: 2 / -1;
     grid-row: 2;
   }
+}
+/* Narrow notices can keep their title with the icon without giving up the
+   icon column's width on every line of the body and actions. */
+.banner[data-layout='stack'] {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--hd-space-2);
+}
+.banner[data-layout='stack'] .text {
+  display: contents;
+}
+.banner[data-layout='stack'] .title {
+  grid-column: 2;
+  grid-row: 1;
+}
+.banner[data-layout='stack'] .body {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+.banner[data-layout='stack'] .actions {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  justify-content: flex-start;
+  gap: var(--hd-space-1-5);
+}
+.banner[data-layout='stack'] .dismiss {
+  grid-column: 3;
+  grid-row: 1;
 }
 @keyframes enter {
   from { opacity: 0; transform: translateY(calc(-1 * var(--hd-space-1))); }

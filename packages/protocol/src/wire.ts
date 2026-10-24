@@ -747,7 +747,31 @@ export interface AgentRegisterRequest {
  * both generic over this map, so a mismatch is a compile error rather than a
  * runtime 'unknown method'.
  */
+/** The app account is independent of every agent account. Secrets never cross this wire. */
+export interface HarnessDeskPhone {
+  readonly deviceId: string
+  readonly name: string
+  readonly lastSeenAt: number | null
+}
+export interface HarnessDeskAccountStatus {
+  readonly status: 'signedOut' | 'pending' | 'signedIn'
+  readonly account?: { readonly name: string | null; readonly email: string | null; readonly pictureUrl: string | null; readonly pictureDataUrl?: string }
+  readonly desk: { readonly name: string; readonly reachable: boolean }
+  readonly pending?: { readonly userCode: string; readonly verifyUrl: string; readonly expiresAt: number }
+  readonly phones: readonly HarnessDeskPhone[]
+  readonly error?: string
+}
+
 export interface HostMethods {
+  'account/status': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/signIn': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/openSignIn': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/cancel': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/signOut': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/unlinkPhone': { params: { readonly deviceId: string }; result: HarnessDeskAccountStatus }
+  'account/renameDesk': { params: { readonly name: string }; result: HarnessDeskAccountStatus }
+  'account/setReachable': { params: { readonly reachable: boolean }; result: HarnessDeskAccountStatus }
+
   'client/hello': {
     params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }
     result: {
@@ -2816,6 +2840,7 @@ export interface SeatActivity {
 }
 
 export type WireNotification =
+  | { readonly method: 'account/changed'; readonly params: { readonly status: HarnessDeskAccountStatus } }
   | { method: 'storage/usageChanged'; params: StorageUsage }
   | { readonly method: 'seat/activity'; readonly params: SeatActivity }
   | { method: 'goal/changed'; params: { view: GoalView } }

@@ -85,6 +85,7 @@ import {
 } from '../design'
 import { Dialog, ConfirmDialog, EmptyState } from '../design'
 import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
+import { HarnessDeskAccountSection } from './HarnessDeskAccount'
 import { ProfileSection, GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
 import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
@@ -1500,7 +1501,7 @@ const WorktreeRows = () => {
  * and read by `LibrarySection` on its own first render.
  */
 const SETTINGS_LABELS = {
-  profile: 'Profile', general: 'General', appearance: 'Appearance', notifications: 'Notifications', shortcuts: 'Keyboard shortcuts',
+  profile: 'Account', general: 'General', appearance: 'Appearance', notifications: 'Notifications', shortcuts: 'Keyboard shortcuts',
   workspaces: 'Workspaces', archive: 'Archive', history: 'History', storage: 'Storage', runtimes: 'Runtimes', models: 'Models',
   skills: 'Skills', hooks: 'Hooks', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser',
 } as const
@@ -1537,7 +1538,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
       : undefined} />
     {route.kind === 'section' && section !== 'runtimes' && section !== 'skills' && <DestinationBar place={SETTINGS_LABELS[section]}
       more={() => null} />}
-    {section === 'profile' && <ProfileSection />}
+    {section === 'profile' && <><HarnessDeskAccountSection /><SectionHead level="label" name="Local profile" /><ProfileSection /></>}
     {section === 'general' && <GeneralSection rows={<GeneralSectionRows />} />}
     {section === 'appearance' && <AppearanceSection />}
     {section === 'notifications' && <NotificationsSection />}

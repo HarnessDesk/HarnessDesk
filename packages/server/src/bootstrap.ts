@@ -204,6 +204,8 @@ export interface BootstrapOptions {
   readonly logLevel?: 'debug' | 'info' | 'warn' | 'error'
   /** How stored credentials are protected at rest; the desktop shell passes safeStorage. */
   readonly credentialCipher?: HostOptions['credentialCipher']
+  readonly accountOpenExternal?: HostOptions['accountOpenExternal']
+  readonly accountCloudUrl?: HostOptions['accountCloudUrl']
   readonly stateDir?: string
   readonly codexBinaryPath?: string | null
   readonly codexHome?: string | null
@@ -588,6 +590,8 @@ export const createDefaultHost = (
       ? { catalogRefreshMs: Math.max(0, Number(process.env['HARNESSDESK_CATALOG_REFRESH_MINUTES']) || 0) * 60_000 }
       : {}),
     ...(options.credentialCipher ? { credentialCipher: options.credentialCipher } : {}),
+    ...(options.accountOpenExternal ? { accountOpenExternal: options.accountOpenExternal } : {}),
+    ...(options.accountCloudUrl ? { accountCloudUrl: options.accountCloudUrl } : {}),
     ...(options.pickDirectory ? { pickDirectory: options.pickDirectory } : {}),
     ...(options.revealPath ? { revealPath: options.revealPath } : {}),
     ...(options.trashPath ? { trashPath: options.trashPath } : {}),

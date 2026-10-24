@@ -988,6 +988,23 @@ const planBudgetInputValidator = shape({
 })
 
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
+  'account/status': shape({}),
+  'account/signIn': shape({}),
+  'account/openSignIn': shape({}),
+  'account/cancel': shape({}),
+  'account/signOut': shape({}),
+  'account/unlinkPhone': shape({ deviceId: (value, path = '') => {
+    const id = isString(value, path)
+    if (!/^[A-Za-z0-9_-]{21}[AQgw]$/.test(id)) throw new ValidationError(path, 'expected a device id')
+    return id
+  } }),
+  'account/renameDesk': shape({ name: (value, path = '') => {
+    const name = isString(value, path).trim()
+    if (!name || name.length > 80) throw new ValidationError(path, 'expected a name of 1 to 80 characters')
+    return name
+  } }),
+  'account/setReachable': shape({ reachable: isBoolean }),
+
   'provenance/commits': shape({ root: provenanceRoot, shas: provenanceShas }),
   'provenance/status': shape({ root: provenanceOptionalRoot }),
   'provenance/capture': shape({ root: provenanceRoot, enabled: isBoolean }),

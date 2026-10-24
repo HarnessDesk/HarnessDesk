@@ -11,11 +11,13 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { SidebarNotices, useAccountQuotaWarning, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
-import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, FolderOpenIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
+import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, FolderOpenIcon, PlusIcon, SearchIcon, SettingsIcon, SignInIcon, SignOutIcon, TeamIcon, UsageIcon, UserIcon } from './Icons'
 import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
 import {
   AccountMark,
+  Face,
+  Banner,
   MenuFacts,
   Submenu,
   ConfirmDialog,
@@ -49,6 +51,7 @@ import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
+import { HarnessDeskSignInPending, HarnessDeskSignOut, useHarnessDeskAccountAction } from './HarnessDeskAccount'
 import { Clipped, EmptyState } from '../design'
 import type { Section } from './Settings'
 import { bindingLane, describeReport, describeLane, formatAge, formatMoney, isBlocked, workingAccount } from '../lib/usage'
@@ -401,6 +404,10 @@ export const AccountFooter = ({
   const [signOutError, setSignOutError] = useState<string | null>(null)
   useDismissOverlays(confirmingSignOut, () => { setSignOutError(null); setConfirmingSignOut(false) })
   const accountRef = useRef<HTMLDivElement>(null)
+  const [deskSignOut, setDeskSignOut] = useState(false)
+  const deskAction = useHarnessDeskAccountAction()
+  const deskAccount = snapshot.harnessDeskAccount
+  const deskSignedIn = deskAccount?.status === 'signedIn'
 
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
     const status = snapshot.accountsByRuntime[info.id] ?? null
@@ -481,7 +488,7 @@ export const AccountFooter = ({
   const agentName = brandOf(runtime.presentation.name)
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
   // You: the profile's name, which is HarnessDesk until you choose one.
-  const yourName = profileName(snapshot.profile)
+  const yourName = deskSignedIn ? deskAccount.account?.name || deskAccount.account?.email || 'HarnessDesk' : profileName(snapshot.profile)
   // The chairs you can sit in. An agent that is waiting for a sign-in is not
   // one — choosing it would start nothing — so it waits behind "Add an
   // account…", whose chooser is where signing in happens. The default stays
@@ -548,7 +555,7 @@ export const AccountFooter = ({
 
   const accountTrigger = (
     <>
-      <ProfileFace size={24} />
+      {deskSignedIn ? <Face pictureDataUrl={deskAccount.account?.pictureDataUrl} size={24} /> : <ProfileFace size={24} />}
       <Text role="subject" className={styles.accountName}>
         <Clipped truncate className={styles.accountLabel}>{yourName}</Clipped>
       </Text>
@@ -557,7 +564,10 @@ export const AccountFooter = ({
   )
 
   return (
-    <LeftColumnSeat notifications={notifications} settingsOpen={settingsOpen} onSettings={onGear} menu={<div ref={accountRef}>
+    <>
+    {deskAction.error && <Banner tone="danger" title="Could not sign in">{deskAction.error}</Banner>}
+    {deskAccount?.error && deskAccount.status !== 'pending' && <Banner tone="danger">{deskAccount.error}</Banner>}
+    <LeftColumnSeat above={deskAccount?.status === 'pending' ? <HarnessDeskSignInPending /> : undefined} notifications={notifications} settingsOpen={settingsOpen} onSettings={onGear} menu={<div ref={accountRef}>
       <Popover
         title={[here ? `New sessions run as ${nextAs}` : 'Accounts and settings', quotaWarning].filter(Boolean).join(' · ')}
         /* Opens upward from the footer. Its width belongs to the menu so a
@@ -579,11 +589,14 @@ export const AccountFooter = ({
               accountRef.current?.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')?.focus()
             }}
           >
-          {/* You — the seat a HarnessDesk account will take. There is no
-              such account yet, and a sign-in button for one would be a lie,
-              so this is what is true today: your profile, kept on this Mac.
-              Pressing it opens the page where it is set. */}
-          <MenuItem icon={<ProfileFace size={16} />} label={yourName} title="Your name and picture. Nothing syncs between machines." onSelect={() => onOpenSettings('profile')} />
+          {deskSignedIn ? <Submenu icon={<Face pictureDataUrl={deskAccount.account?.pictureDataUrl} size={16} />} label={yourName} hint={deskAccount.account?.email ?? undefined} icons="all">
+            <MenuLabel>HarnessDesk account</MenuLabel>
+            <MenuItem icon={<UserIcon size={16} />} label="Linked phones" value={String(deskAccount.phones.length)} onSelect={() => onOpenSettings('profile')} />
+            <MenuItem icon={<SettingsIcon size={16} />} label="Account settings" onSelect={() => onOpenSettings('profile')} />
+            <MenuSeparator />
+            <MenuItem icon={<SignOutIcon size={16} />} label="Sign out of HarnessDesk…" danger onSelect={() => setDeskSignOut(true)} />
+          </Submenu> : <MenuItem icon={<SignInIcon size={16} />} label="Sign in to HarnessDesk…" hint="Open this desk from your phone"
+            disabled={deskAction.busy || deskAccount?.status === 'pending'} onSelect={() => { void deskAction.run(() => store.signInToHarnessDesk()) }} />}
 
           <MenuSeparator />
           <Submenu
@@ -640,6 +653,8 @@ export const AccountFooter = ({
         <>You'll need to sign in again before the next turn.{signOutError && <ActionError>{signOutError}</ActionError>}</>
       </ConfirmDialog>}
     </div>} />
+    {deskSignOut && <HarnessDeskSignOut onClose={() => setDeskSignOut(false)} />}
+    </>
   )
 }
 

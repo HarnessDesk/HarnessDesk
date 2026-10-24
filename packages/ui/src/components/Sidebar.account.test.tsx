@@ -105,6 +105,10 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
   const onOpenSettings = vi.fn()
   const onOpenUsage = vi.fn()
   const onSignIn = vi.fn()
+  const signInToHarnessDesk = vi.fn(async () => {})
+  const openHarnessDeskSignIn = vi.fn(async () => {})
+  const cancelHarnessDeskSignIn = vi.fn(async () => {})
+  const signOutOfHarnessDesk = vi.fn(async () => {})
   const claudeAccount = signedIn('olivia@acme.dev')
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -122,7 +126,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     selectRuntime,
-    signOutAgent,
+    signOutAgent, signInToHarnessDesk, openHarnessDeskSignIn, cancelHarnessDeskSignIn, signOutOfHarnessDesk,
   } as unknown as AppStore
   act(() => {
     root.render(
@@ -131,7 +135,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
       </StoreProvider>,
     )
   })
-  return { selectRuntime, signOutAgent, onOpenSettings, onOpenUsage, onSignIn }
+  return { selectRuntime, signOutAgent, onOpenSettings, onOpenUsage, onSignIn, signInToHarnessDesk, openHarnessDeskSignIn, cancelHarnessDeskSignIn, signOutOfHarnessDesk }
 }
 
 const row = (): HTMLButtonElement => {
@@ -327,7 +331,7 @@ it('keeps scoped sign-in in the account picker without listing every signed-out 
   const { onSignIn } = mount({ runtimes: [one, two], activeRuntime: one.id,
     accountsByRuntime: { [one.id]: signedOut, [two.id]: signedOut } })
   click(row())
-  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Sign in to')
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Sign in to Agent')
   click(document.querySelector('[role="menuitem"][data-current]')!)
   const signIn = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Sign in to Agent One')!
   expect(signIn).toBeDefined()
@@ -542,17 +546,51 @@ it('draws the house mark until a face is chosen', () => {
   expect(seat.querySelector('.brand-harnessdesk')).not.toBeNull()
 })
 
-it('opens your profile from the top of the menu', () => {
-  const { onOpenSettings } = mount({ profile: { name: 'Jane' } })
+it('starts HarnessDesk sign-in from the top row without changing agent sign-in', async () => {
+  const { signInToHarnessDesk, onSignIn } = mount()
   click(row())
-  const you = document.querySelector('[role="menu"] [role="menuitem"]')
-  if (!you) throw new Error('no menu')
-  expect(you.textContent).toContain('Jane')
-  // Every profile is kept on this Mac, so a chip saying so marked nothing.
-  expect(you.textContent).not.toContain('Local')
-  click(you)
-  expect(onOpenSettings).toHaveBeenCalledWith('profile')
-  expect(document.querySelector('[role="menu"]')).toBeNull()
+  const you = document.querySelector('[role="menu"] [role="menuitem"]')!
+  expect(you.textContent).toContain('Sign in to HarnessDesk…')
+  expect(you.textContent).toContain('Open this desk from your phone')
+  await act(async () => click(you))
+  expect(signInToHarnessDesk).toHaveBeenCalledOnce()
+  expect(onSignIn).not.toHaveBeenCalled()
+})
+
+it('keeps the matching code and browser retry above the seat while sign-in is pending', async () => {
+  const { openHarnessDeskSignIn, cancelHarnessDeskSignIn } = mount({ harnessDeskAccount: {
+    status: 'pending', desk: { name: 'Demo desk', reachable: false }, phones: [],
+    pending: { userCode: 'ABCD-EFGH', verifyUrl: 'https://app.harnessdesk.app/link#code=ABCD-EFGH', expiresAt: Math.floor(Date.now() / 1000) + 60 },
+  } })
+  expect(container.textContent).toContain('Finish in your browser')
+  expect(container.textContent).toContain('app.harnessdesk.app')
+  expect(container.textContent).toContain('ABCD-EFGH')
+  const button = (name: string) => [...container.querySelectorAll('button')].find(one => one.textContent === name)!
+  await act(async () => button('Open the page again').click())
+  expect(openHarnessDeskSignIn).toHaveBeenCalledOnce()
+  await act(async () => button('Cancel').click())
+  expect(cancelHarnessDeskSignIn).toHaveBeenCalledOnce()
+})
+
+it('uses the HarnessDesk identity and confirms its own sign-out separately', async () => {
+  const { signOutOfHarnessDesk, signOutAgent, onOpenSettings } = mount({ harnessDeskAccount: {
+    status: 'signedIn', desk: { name: 'Demo desk', reachable: true }, phones: [{ deviceId: 'AAAAAAAAAAAAAAAAAAAAAA', name: 'iPhone', lastSeenAt: null }],
+    account: { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: 'https://example.com/picture.png', pictureDataUrl: 'data:image/png;base64,AAAA' },
+  } })
+  expect(row().textContent).toContain('Jane Doe')
+  expect(row().querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,AAAA')
+  click(row())
+  click(document.querySelector('[role="menu"] [role="menuitem"]')!)
+  expect(document.body.textContent).toContain('Linked phones')
+  const item = [...document.querySelectorAll('[role="menuitem"]')].find(one => one.textContent?.includes('Sign out of HarnessDesk…'))!
+  click(item)
+  const dialog = document.querySelector('[role="alertdialog"]')!
+  expect(dialog.textContent).toContain('Sign out of HarnessDesk?')
+  expect(dialog.textContent).toContain('agent accounts stay signed in')
+  await act(async () => [...dialog.querySelectorAll('button')].find(one => one.textContent === 'Sign out')!.click())
+  expect(signOutOfHarnessDesk).toHaveBeenCalledOnce()
+  expect(signOutAgent).not.toHaveBeenCalled()
+  expect(onOpenSettings).not.toHaveBeenCalled()
 })
 
 /** jsdom lays nothing out, so a width is whatever the test says it is. */
@@ -583,7 +621,7 @@ it('says your whole name on hover only where the row cuts it', () => {
   expect(row().getAttribute('title')).toMatch(/^New sessions run as /)
 
   click(row())
-  expect(document.querySelector('[role="menu"] [data-menu-label]')?.textContent).toBe(name)
+  expect(document.querySelector('[role="menu"] [data-menu-label]')?.textContent).toBe('Sign in to HarnessDesk…')
 })
 
 it('gives every seat one line, and keeps the identity for the tooltip', () => {

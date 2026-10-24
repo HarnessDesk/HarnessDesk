@@ -25,7 +25,7 @@ transcripts rather than inferred from current configuration.
 
 ---
 
-## Local — the default, and today the only one
+## Local — the default
 
 Nothing leaves. Agent credentials, API keys, vendor sessions, source, terminal
 output, diffs, transcripts, browser state, the audit log, what the desk
@@ -106,20 +106,38 @@ before you send, and why the audit log records which one ran.
 
 ---
 
-## Everything else — not built
+## HarnessDesk account — only after you choose Sign in
 
-There is no HarnessDesk server. Nothing syncs, there is no account, and there
-is nowhere for a second copy of your work to be.
+The host sends its public key and desk name to the configured HarnessDesk
+service (`app.harnessdesk.app` by default). The browser shows that name and a
+short code matching the desktop. Linking requires an explicit approval on
+that page. The host polls the result, proves its key to obtain a desk session,
+and reads account name, email, picture URL and linked-phone metadata. The
+host fetches the picture over HTTPS without browser cookies or a referrer,
+accepting only a bounded raster image at a public address. It passes image
+data to the renderer; the renderer keeps its local-only image policy. No prompt, file, transcript,
+agent credential or project path is sent through this lane.
 
-The remaining vision lanes include work that outlives a closed laptop and a
-hosted shared audit trail. Local work started by pull-request triggers already
-exists; its polling boundary is described above. **Each remaining lane appears
-in this document, with the four answers above, before it can be switched on.**
-The first of them is also a change of kind rather than degree, and revises
-VISION.md in public before it ships.
+The browser's account session stays in the browser. The host's private desk
+key, session and cached account details are encrypted using the desktop's
+existing OS keystore cipher. Ordinary preferences retain the desk name and
+phone-access choice. The app cannot sign in when encrypted storage is
+unavailable. The account's sealed file is excluded from app backups.
 
-Until then, a section here would be a description of something that does not
-exist, which is the one thing a document like this must never contain.
+**Retention:** the cloud keeps the account's desk registration and phone-link
+revocation records; signing out revokes this desk and its links rather than
+deleting the cloud account. Settings › Account can unlink a phone or sign out
+of HarnessDesk. Sign-out clears the local token and cached account identity
+and stops account polling; the encrypted desk key remains for a later sign-in.
+Agent accounts and all local work stay available. The phone-access switch
+only saves a preference in this build; no desktop relay connection is opened.
+
+## Remaining hosted work — not built
+
+Work that outlives a closed laptop and a hosted shared audit trail remain
+future lanes. **Each lane appears here with its boundary, retention and
+switch-off behavior before it can be enabled.** Signing in to an account does
+not enable those lanes.
 
 ## Local provenance
 

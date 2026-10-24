@@ -26,7 +26,9 @@
     "@harnessdesk/plugins": "workspace:*",
     "@harnessdesk/protocol": "workspace:*",
     "@harnessdesk/responses-gateway": "workspace:*",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "@harnessdesk/contract": "workspace:*",
+    "@harnessdesk/crypto": "workspace:*"
   },
   "devDependencies": {
     "@types/ws": "^8.18.2",

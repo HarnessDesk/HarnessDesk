@@ -473,13 +473,21 @@ Branch from here and Copy, then Archive and Remove from HarnessDesk. Delete ever
 separator; its disabled reason stays on the tooltip.
 
 **The footer holds the docks, notices and seat: you, and the runtime you will pick up next.** The seat row
-is your identity — your profile's face and name, which are the house mark and
-"HarnessDesk" until you choose otherwise — followed by a disclosure. Its quiet
+is your identity — the signed-in HarnessDesk account name and picture, or the
+local profile face and name until you sign in — followed by a disclosure. Its quiet
 48px row sits under a full-width hairline, with Inbox and Settings at the right.
 The default runtime's account, readiness and usage live in the menu. The trigger's
 tooltip still names who new sessions run as and any applicable quota warning.
-The menu stays at five actions: your profile, the current account, Usage,
-Settings and signing out (when signed in). The account opens a separate picker;
+The menu starts with **Sign in to HarnessDesk…**, with the reason **Open this
+desk from your phone**. Signing in opens the system browser at
+app.harnessdesk.app; a **Finish in your browser** banner above the seat shows
+the matching short code, **Open the page again** and **Cancel**. The notice
+uses the seat’s inset and stacks its header above full-width copy and actions. A signed-in
+account instead opens a **HarnessDesk account** submenu with **Linked phones**
+and its count, **Account settings**, and **Sign out of HarnessDesk…**. The
+confirmation explains that agent accounts stay signed in.
+The current agent account, Usage, Settings and agent sign-out retain their
+own actions. The agent account opens a separate picker;
 **Run new sessions as** lists each available account on one line, grouped by
 runtime where there are several. Current marks identify the selected runtime,
 so its sibling accounts share the mark: credential selection belongs to that
@@ -523,10 +531,21 @@ between an inline title and its detail. Every other page carries the same title
 and detail in the account trigger's tooltip. Dismissing or silencing the notice
 also removes that warning from the tooltip for the same occurrence or kind.
 
-**Your profile is a name and a face, and nothing else, because nothing else is
-shown.** Settings opens on it — your face and name head the rail, above every
-group, the way a Mac's own settings open on their owner — and the page is its
-own preview: the head follows the name as you type it. The faces are the app's
+**Settings › Account** shows the HarnessDesk identity and a separate sign-out
+action; **This desk** contains its name, Rename and **Reachable from your
+phone**. Reachability currently saves a preference and says phone connections
+are unavailable in this build. **Linked phones** lists each phone and its last
+seen time; Unlink confirms before removing access. Sign in on a phone with the
+same account to add another. **Without an account** retains **Pair a phone with
+a code**, disabled with **Not available in this build** while code pairing is
+not implemented. Account status comes from the host, independently of runtime
+accounts; credentials stay out of the renderer. Account pictures are bounded
+raster data supplied by the host; the renderer never loads the account’s
+remote picture URL, and the app’s image content policy stays unchanged.
+
+The **Local profile** beneath the account settings remains a name and a face
+kept on this Mac. Its page is its own preview: the head follows the name as
+you type it. The faces are the app's
 own icon in six colourways, from `assets/brand/faces`, and then the house
 mark's family, twenty-three whales from `assets/avatars`; the whale drawn in
 black is left out because a dark surface swallows it, and the default is the
@@ -536,8 +555,8 @@ everywhere you appear, so its footprint never changes when the face does.
 Clearing the name puts "HarnessDesk" back, picking the first face puts the
 mark back, and **Reset to default** puts back both. It stays on this Mac.
 What an avatar stores is its id — a short
-string every copy of the app draws the same — which is what an account will
-sync. The same face marks your own messages in a room, where the header still
+string every copy of the app draws the same. The same face marks your own
+messages in a room, where the header still
 says "You".
 
 **Switching is a preference, not a navigation.** Picking a different runtime
@@ -1039,8 +1058,8 @@ from the runtime next time. Live and full conversation bodies remain.
 
 Grouped navigation, one short page each: a rail of pages, a 20px title with a
 one-line blurb, small grey section labels over cards of rows, one control at
-the right of each row. The rail starts with you — your face and name, above
-every group — and that row opens your profile.
+the right of each row. **Account** in Preferences opens the account and local
+profile page; the seat at the foot of the rail keeps your current identity.
 
 Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. That row is one bar tall and starts at the body's top, so the title stands on the sidebar wordmark's line. Their chooser or verb sits on the right of the same row, centred on that line, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title.
 
@@ -1053,7 +1072,7 @@ Account slots stay with their runtime; the count is runtimes, not accounts.
 
 | Group | Pages |
 | --- | --- |
-| **General** | General · Appearance · Notifications · Keyboard shortcuts |
+| **General** | Account · General · Appearance · Notifications · Keyboard shortcuts |
 | **Conversations** | Workspaces · History · Archive |
 | **Runtimes** | Runtimes · Models · Hooks · Extensions |
 | **Capabilities** | Customize (Skills · MCP · Plugins) |
@@ -1066,8 +1085,7 @@ Extensions are the active runtime's own; their hover text names that runtime.
 The nav always offers Hooks and Extensions with the same labels and order,
 including before the runtime catalogue arrives. Capabilities govern the page's
 contents, never the presence or name of its navigation row.
-There is no Account page, because there is no account — the profile is
-yours, not an account's; presets are edited
+The Account page retains the older internal `profile` route. Presets are edited
 where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.

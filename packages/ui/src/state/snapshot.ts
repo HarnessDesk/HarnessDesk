@@ -1,6 +1,7 @@
 import { DEFAULT_DIFF_PREFS, type DiffPrefs } from '../editor'
 import type { BrowserTileMount } from '../lib/browser-tiles'
 import type {
+  HarnessDeskAccountStatus,
   HistoryImportState,
   AccountStatus,
   CapabilityContribution,
@@ -333,6 +334,7 @@ export interface AppSnapshot {
    * mark. Read it through `profileName` and `ProfileFace`, never the fields,
    * so a signed-in account can supply it later in one place. `lib/profile.ts`.
    */
+  readonly harnessDeskAccount: HarnessDeskAccountStatus | null
   readonly profile: Profile
   /**
    * Sign-ins in flight, by runtime. Keyed rather than singular because the
@@ -875,6 +877,7 @@ const EMPTY: AppSnapshot = {
   chatsFolderProblem: null,
   accountsByRuntime: {},
   accountPrefs: {},
+  harnessDeskAccount: null,
   profile: {},
   logins: {},
   limits: null,

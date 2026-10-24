@@ -1,4 +1,5 @@
 import './update-bridge'
+import { HarnessDeskAccountPreview } from './harnessdesk-account-fixture'
 import { Issue1675Frames } from './issue-1675-fixture'
 import { ConversationDefaultsPreview } from './defaults-fixture'
 import { LibraryUpdateFrames } from './frames-library-updates'
@@ -1284,7 +1285,7 @@ createRoot(container).render(
     <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
+        {new URLSearchParams(window.location.search).has('desk-account') ? <HarnessDeskAccountPreview /> : new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
           : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('flows-page')

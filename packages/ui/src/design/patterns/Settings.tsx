@@ -1251,19 +1251,30 @@ export const RowChoice = ({
  * a face a later build added, a picture it keeps — draws the house mark. It is
  * not dropped: keeping what it cannot draw is the profile's job
  * (`lib/profile.ts`), so a later build finds it where it left it.
+ *
+ * A signed-in account may supply `pictureDataUrl` independently of the local
+ * avatar. Only host-provided PNG, JPEG or WebP data is displayed; remote
+ * URLs are refused. Pictures fall back to the house mark when they cannot
+ * load, without changing the local profile.
  */
 export const Face = ({
   avatar,
+  pictureDataUrl,
   size,
   className,
 }: {
-  readonly avatar: unknown
+  readonly avatar?: unknown
+  /** An account raster supplied by the host, never a remote URL. */
+  readonly pictureDataUrl?: string | null
   /** The tile's edge in px; absent, the tile fills its box. */
   readonly size?: number
   readonly className?: string
 }) => {
-  const src = avatarSrc(avatar)
-  const picture = src ? <img className={styles.avatarPicture} src={src} alt="" draggable={false} /> : null
+  const accountPicture = pictureDataUrl && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(pictureDataUrl) ? pictureDataUrl : null
+  const source = accountPicture ?? avatarSrc(avatar)
+  const [failedPicture, setFailedPicture] = useState<string | null>(null)
+  const src = source === failedPicture ? null : source
+  const picture = src ? <img className={styles.avatarPicture} src={src} alt="" draggable={false} referrerPolicy="no-referrer" onError={() => setFailedPicture(src)} /> : null
   return (
     <span
       className={className ? `${styles.avatar} ${className}` : styles.avatar}
@@ -1274,7 +1285,7 @@ export const Face = ({
       aria-hidden="true"
     >
       {picture ? (
-        hasAvatarPlate(avatar)
+        !accountPicture && hasAvatarPlate(avatar)
           ? <span className={styles.avatarPicturePlate} data-slot="face-picture-plate" data-crop="">{picture}</span>
           : picture
       ) : (

@@ -22,12 +22,15 @@ const DEFAULT_ICON: Record<BannerTone, ReactNode> = {
 
 const NoticeContext = createContext({ compact: false, floating: false })
 
-/** Placement owners set the size once for all notices in their slot. */
-export const NoticeHost = ({ size = 'standard', floating = false, children }: {
+/** Placement owners set the size once for all notices in their slot.
+ * `inset` keeps a notice off a rail or panel edge by the shared compact inset. */
+export const NoticeHost = ({ size = 'standard', floating = false, inset = false, children }: {
   size?: 'standard' | 'compact'
   floating?: boolean
+  /** Keep a notice off its placement host's edges using the compact inset. */
+  inset?: boolean
   children: ReactNode
-}) => <NoticeContext.Provider value={{ compact: size === 'compact', floating }}>{children}</NoticeContext.Provider>
+}) => <NoticeContext.Provider value={{ compact: size === 'compact', floating }}>{inset ? <div className={styles.hostInset}>{children}</div> : children}</NoticeContext.Provider>
 
 // Legacy JSX actions still obey the same count and one-primary policy.
 const actionNodes = (actions: ReactNode): ReactNode[] => {
@@ -39,6 +42,9 @@ const actionNodes = (actions: ReactNode): ReactNode[] => {
   return nodes
 }
 
+/** A notice card with the shared icon, body and action policy.
+ * `layout="stack"` keeps icon and title together, with full-width copy and
+ * naturally wrapping actions beneath them; ordinary notices stay inline. */
 export const Banner = (props: BannerProps) => <NoticeShell {...props} />
 
 export type BannerProps = {
@@ -52,6 +58,8 @@ export type BannerProps = {
   /** Ignored compatibility alias: the placement host owns size. */
   compact?: boolean
   measure?: 'column' | 'container'
+  /** Stack a compact header, full-width body and naturally wrapping actions. */
+  layout?: 'inline' | 'stack'
   role?: 'status' | 'alert'
   children?: ReactNode
 }
@@ -66,6 +74,7 @@ export const NoticeShell = ({
   onDismiss,
   onMute,
   measure = 'column',
+  layout = 'inline',
   role,
   children,
 }: BannerProps & { kind?: 'card' | 'status' | 'row' }) => {
@@ -116,6 +125,7 @@ export const NoticeShell = ({
     <div
       data-slot={kind === 'card' ? 'alert' : `notice-${kind}`}
       data-notice-kind={kind}
+      {...(layout === 'stack' ? { 'data-layout': 'stack' } : {})}
       className={styles.banner}
       data-tone={tone}
       {...(wrapped ? { 'data-wrapped': '' } : {})}
@@ -190,7 +200,7 @@ export const NoticeShell = ({
 export const BannerAction = ({
   variant = 'primary',
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' }) => (
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary'; size?: 'default' | 'sm' }) => (
   <Button type="button" variant={variant === 'primary' ? 'default' : 'secondary'} {...rest} />
 )
 

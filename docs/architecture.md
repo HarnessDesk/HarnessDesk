@@ -166,6 +166,21 @@ sample.
 
 `packages/server` owns everything that must not live in a browser:
 
+- **HarnessDesk account** (`harnessdesk-account.ts`) — a separate host service
+  owns the desk's Ed25519 identity, browser approval polling, renewable desk
+  session and account metadata. The renderer uses `account/*` and
+  `account/changed`, never the cloud contract or a credential. The desktop
+  supplies its existing keystore cipher and `shell.openExternal`; this account
+  refuses the standalone host's plaintext fallback. `account.sealed` contains
+  only encrypted key, session and cached account data and stays out of backups.
+  Account pictures are bounded host-fetched raster data from public HTTPS
+  addresses; the renderer retains its self/data/blob image policy. Desk name
+  and the phone-access preference live in ordinary preferences.
+  `HARNESSDESK_CLOUD_URL` selects an HTTPS origin (default
+  `https://app.harnessdesk.app`; HTTP loopback is allowed for local rigs).
+  Polling and metadata refresh stop with the host. Cancel fences queued and
+  in-flight approval work. The `harnessdesk://` protocol only focuses the app;
+  it never authenticates a desk. Phone relay transport is not implemented here.
 - **Account reads** — host calls through a registered runtime share one
   in-flight read per account generation, including its lifecycle waits. Callers
   receive an error after ten seconds. A deadline cannot cancel the adapter, so retries
