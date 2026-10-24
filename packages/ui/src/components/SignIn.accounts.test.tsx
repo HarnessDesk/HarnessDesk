@@ -128,6 +128,37 @@ it('still says an agent needs no account when it has answered and offers none', 
   expect(container.textContent).not.toContain('Starting Codex')
 })
 
+it('renders an empty adapter identity record as signed out in both rail and card (#1776)', async () => {
+  // What the adapter answers for an agent whose identity home is empty and
+  // which declares no ACP methods: nobody, and one way in that is outside the
+  // desk. The renderer must not mistake it for an accountless agent. This is a
+  // literal on purpose, since the UI never imports another package's build; the
+  // adapter's own test (`an empty identity status offers external sign-in…`)
+  // pins this exact shape, so the two cannot drift apart unseen.
+  const emptyHome = runtime({ id: 'agent', name: 'Agent', presentation: { name: 'Agent' } })
+  const signedOut: AccountStatus = {
+    accounts: [],
+    signInMethods: [{
+      id: 'external', label: 'Sign in outside HarnessDesk', flow: 'external',
+      description: "Sign in using the agent's own application or command line.",
+    }],
+  }
+  await mount({
+    runtimes: [emptyHome], activeRuntime: emptyHome.id,
+    healthByRuntime: { [emptyHome.id]: { state: 'ready' } },
+    accountsByRuntime: { [emptyHome.id]: signedOut },
+  }, 'agent')
+
+  const rail = container.querySelector('nav[aria-label="Runtimes"]')
+  expect(rail?.querySelector('[aria-label="Connected"]')).toBeNull()
+  expect(rail?.querySelector('[aria-label="Not connected"]')?.textContent).toContain('Agent')
+  expect(detail().querySelector('[data-slot="sign-in-head"]')?.textContent).toContain('Not connected.')
+  expect(detail().textContent).toContain('Sign in outside HarnessDesk')
+  expect(container.textContent).not.toContain('Runs without one')
+  expect(container.textContent).not.toContain('needs no account here')
+  expect(container.textContent).not.toContain('Signed in elsewhere')
+})
+
 /* #1759. An ACP agent says whether it is signed in only when a session
    opens, so before one it answers with nobody and no verdict. The pane read
    that as "needs no account here" — with nothing to press — about an agent
@@ -710,4 +741,29 @@ describe('naming another account', () => {
     expect(request).toHaveBeenCalledWith('runtime/account/add', { runtime: 'codex' })
     expect(document.body.querySelector('[aria-label="Name this account"]')).toBeNull()
   })
+})
+
+
+it.each([
+  { accounts: [], signInMethods: [] },
+  { accounts: [], signInMethods: [], unchecked: true },
+  { accounts: [{ kind: 'agent', label: 'dev@example.com' }], signInMethods: [] },
+  { accounts: [], signInMethods: [{ id: 'login', label: 'Sign in', flow: 'browser' }] },
+])('an unavailable agent takes precedence over its account answer (#1764): %j', async (answer) => {
+  await mount({
+    runtimes: [AGENT],
+    accountsByRuntime: { agent: answer },
+    healthByRuntime: { agent: {
+      state: 'unavailable', reason: 'notInstalled',
+      message: 'The agent executable was not found.', remediation: 'Install the agent CLI.',
+    } },
+  } as never, 'agent')
+  const card = detail()
+  expect(card.textContent).toContain('Agent did not start')
+  expect(card.textContent).toContain('The agent executable was not found.')
+  expect(card.textContent).toContain('Install the agent CLI.')
+  expect(card.textContent).not.toContain('needs no account here')
+  const rail = container.querySelector('nav')
+  expect(rail?.querySelector('[aria-label="Connected"]')).toBeNull()
+  expect(rail?.querySelector('[aria-label="Not connected"]')?.textContent).toContain('Did not start')
 })

@@ -9,13 +9,23 @@ useFrameContractEvidence()
 
 for (const theme of ['light', 'dark'] as const) {
   for (const width of [2200, 1440, 1100, 720]) {
-    for (const section of ['general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'history', 'storage', 'archive', 'runtimes', 'models', 'skills', 'extensions', 'permissions', 'browser']) {
+    for (const section of ['general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'history', 'storage', 'archive', 'runtimes', 'models', 'hooks', 'extensions', 'permissions', 'browser']) {
       test(`E2 Settings ${section} is reading at ${width} in ${theme}`, async ({ page }) => {
         await measureDestination(page, `frame-wall=settings&frame-section=${section}`, 'reading', theme, width, { more: 'absent' })
         await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
         await expect(page.locator('[data-left-column]:visible')).toHaveCount(width < 1000 ? 0 : 1)
       })
     }
+  }
+  for (const width of [2200, 1440, 1100, 720]) {
+    test(`E2 Settings skills redirects to the wide Customize page at ${width} in ${theme}`, async ({ page }) => {
+      await measureDestination(page, 'frame-wall=settings&frame-section=skills', 'wide', theme, width)
+      await expect(page.locator('[data-page-destination="library"]:visible h1')).toHaveText('Customize')
+      await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(0)
+      await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toHaveCount(0)
+      await expect(page.getByRole('searchbox', { name: 'Search skills', exact: true })).toBeVisible()
+      await expect(page.locator('[data-page-destination="library"]:visible [data-slot="page"]')).toHaveAttribute('data-width', 'wide')
+    })
   }
   test(`E2 keyboard history keeps work retained and the project terminal visible in Settings in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=navigation&frame-terminal=1', theme)

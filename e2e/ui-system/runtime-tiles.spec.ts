@@ -69,10 +69,20 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.getByText('Third-party entries from the ACP registry. HarnessDesk has not reviewed them.', { exact: true })).toHaveCount(1)
     await open(page, 'library', theme)
     const card = page.getByRole('button', { name: 'Shared review', exact: true })
-    const strip = card.getByRole('img', { name: 'Loaded by 3 of 3 runtimes', exact: true })
-    const faces = strip.locator('[data-mark-active="true"]')
+    await expect(card.getByText('3 runtimes', { exact: true })).toHaveAttribute('title', 'Alpha, Beta, Gamma')
+    await expect(card).toHaveAccessibleDescription(/3 runtimes Loaded by Alpha, Beta, Gamma/)
+    await expect(card.getByRole('img')).toHaveCount(0)
+    // The catalogue names its readers; the detail retains the measured states
+    // and runtime marks for comparing those readers.
+    await card.click()
+    const loaded = page.locator('[data-slot="skill-page"] [data-slot="tool-section"][aria-label="Loaded by"]')
+    const rows = loaded.locator('[data-slot="row"]')
+    await expect(rows).toHaveCount(3)
+    for (const [index, name] of ['Alpha', 'Beta', 'Gamma'].entries()) {
+      await expect(rows.nth(index)).toHaveAttribute('title', `${name} — Loads it`)
+    }
+    const faces = rows.locator('[data-slot="row-face"]')
     await expect(faces).toHaveCount(3)
-    for (const [index, name] of ['Alpha', 'Beta', 'Gamma'].entries()) await expect(faces.nth(index)).toHaveAttribute('title', `${name}: Reaches`)
     // Each mark carries its brand's one-colour twin: the `[data-ink='mono']`
     // child is what paints it in the app's ink rather than the brand's own
     // palette. A mark drawn only in its colours has none and must fail here.
@@ -83,7 +93,7 @@ for (const theme of ['light', 'dark'] as const) {
     }))
     expect(twins.some(twin => twin.mono)).toBe(true)
     for (const twin of twins) expect(twin.mono).toBe(twin.colour)
-    const boxes = await faces.evaluateAll(nodes => nodes.map(node => { const { left, right } = node.getBoundingClientRect(); return { left, right } }))
-    for (let index = 1; index < boxes.length; index++) expect(boxes[index]!.left - boxes[index - 1]!.right).toBeGreaterThan(0)
+    const boxes = await faces.evaluateAll(nodes => nodes.map(node => { const { top, bottom } = node.getBoundingClientRect(); return { top, bottom } }))
+    for (let index = 1; index < boxes.length; index++) expect(boxes[index]!.top - boxes[index - 1]!.bottom).toBeGreaterThan(0)
   })
 }

@@ -15,7 +15,7 @@ it.each([
   ['notifications', 'Notifications'], ['shortcuts', 'Keyboard shortcuts'],
   ['workspaces', 'Workspaces'], ['archive', 'Archive'], ['history', 'History'],
   ['storage', 'Storage'], ['runtimes', 'Runtimes'], ['models', 'Models'],
-  ['skills', 'Skills'], ['extensions', 'Extensions'], ['permissions', 'Permissions'], ['browser', 'Browser'],
+  ['hooks', 'Hooks'], ['extensions', 'Extensions'], ['permissions', 'Permissions'], ['browser', 'Browser'],
 ] as const)('%s names the page visibly above its content, with no title in the bar', async (section: SettingsSection, label) => {
   const box = document.createElement('div')
   document.body.append(box)

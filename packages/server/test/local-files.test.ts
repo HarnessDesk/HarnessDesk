@@ -1,11 +1,283 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { chmod, link, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { errnoOf } from '../src/errno.js'
-import { isBinaryFile, isMissingWorkspaceFileError, LocalFiles } from '../src/workspace.js'
+import { confine, isBinaryFile, isMissingWorkspaceFileError, LocalFiles, sha256 } from '../src/workspace.js'
+import { workspaceMethods } from '../src/methods/workspace.js'
+import type { HostContext } from '../src/methods/context.js'
+import { Client, start, stop } from './fixtures/harness.js'
+
+test('workspace reads and saves refuse a hard-linked file before anything is read or written', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const root = join(dir, 'project')
+  await mkdir(root)
+  const path = join(root, 'file.txt')
+  const other = join(dir, 'other.txt')
+  await writeFile(path, 'original')
+  await link(path, other)
+  const files = new LocalFiles()
+  const ctx = { workspaces: { fileRoots: () => [root] }, runtimes: { files: () => files } } as unknown as HostContext
+  const result = await workspaceMethods['workspace/readFile'](ctx, { path })
+  assert.equal(result.kind, 'unreadable')
+  if (result.kind === 'unreadable') assert.match(result.message, /more than one name on disk/)
+  await assert.rejects(files.read(path, 64), /more than one name on disk/)
+  // A save would change every name that shares the contents, including ones outside the root.
+  await assert.rejects(workspaceMethods['file/save'](ctx, {
+    path, content: 'replacement', expectedHash: sha256(Buffer.from('original')),
+  }), /more than one name on disk|one filesystem link/)
+  await assert.rejects(files.write(path, Buffer.from('replacement')), /one filesystem link/)
+  assert.equal(await readFile(path, 'utf8'), 'original')
+  assert.equal(await readFile(other, 'utf8'), 'original')
+})
+
+test('a hard-linked file is refused by a preview', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: harness.stateDir })
+  const page = join(harness.stateDir, 'page.html')
+  await writeFile(page, '<p>preview</p>')
+  await link(page, join(harness.stateDir, 'page-copy.html'))
+  const { ticket } = (await client.call('preview/ticket', { path: page })) as { ticket: string }
+  await assert.rejects(harness.host.redeemPreviewTicket(ticket), /more than one name on disk/)
+})
+
+test('unsupported local content opens explain the workspace platform requirement', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'file.txt')
+  await writeFile(path, 'original')
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { value: 'win32' })
+  try {
+    const files = new LocalFiles()
+    const ctx = { workspaces: { fileRoots: () => [dir] }, runtimes: { files: () => files } } as unknown as HostContext
+    const result = await workspaceMethods['workspace/readFile'](ctx, { path })
+    assert.equal(result.kind, 'unreadable')
+    if (result.kind === 'unreadable') assert.match(result.message, /Workspace file reads and saves.*macOS and Linux/)
+    await assert.rejects(files.write(path, Buffer.from('replacement')), /Workspace file reads and saves.*macOS and Linux/)
+  } finally {
+    Object.defineProperty(process, 'platform', descriptor)
+  }
+  assert.equal(await readFile(path, 'utf8'), 'original')
+})
+
+test('Linux local content opens explain the readable-ancestor requirement', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'file.txt')
+  await writeFile(path, 'original')
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as { open: typeof open }
+  const original = fsp.open
+  Object.defineProperty(process, 'platform', { value: 'linux' })
+  fsp.open = async (target, flags, mode) => {
+    if ((Number(flags) & constants.O_DIRECTORY) !== 0) throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    return original(target, flags, mode)
+  }
+  syncBuiltinESMExports()
+  try {
+    const files = new LocalFiles()
+    await assert.rejects(files.read(path, 64), /workspace files.*readable ancestor folders/)
+    await assert.rejects(files.write(path, Buffer.from('replacement')), /workspace files.*readable ancestor folders/)
+  } finally {
+    fsp.open = original
+    syncBuiltinESMExports()
+    Object.defineProperty(process, 'platform', descriptor)
+  }
+  assert.equal(await readFile(path, 'utf8'), 'original')
+})
+
+test('workspace reads report an unreadable path when an ancestor is now a file', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'folder'), 'now a file')
+  const files = new LocalFiles()
+  const ctx = { workspaces: { fileRoots: () => [dir] }, runtimes: { files: () => files } } as unknown as HostContext
+  const result = await workspaceMethods['workspace/readFile'](ctx, { path: join(dir, 'folder', 'file.txt') })
+  assert.equal(result.kind, 'unreadable')
+})
+
+test('workspace saves resolve a dangling relative link from its real parent', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const root = join(dir, 'project')
+  await mkdir(join(root, 'p', 'q'), { recursive: true })
+  await mkdir(join(root, 't'))
+  await symlink('../../t', join(root, 'p', 'q', 's'))
+  await symlink('../../outside.txt', join(root, 't', 'new'))
+  const path = join(root, 'p', 'q', 's', 'new')
+  for (const provider of ['local', 'runtime'] as const) {
+    await t.test(provider, async () => {
+      const files = new LocalFiles()
+      if (provider === 'runtime') files.write = async (target, data) => writeFile(target, data)
+      const ctx = { workspaces: { fileRoots: () => [root] }, runtimes: { files: () => files } } as unknown as HostContext
+      await assert.rejects(workspaceMethods['file/save'](ctx, { path, content: 'new contents', expectedHash: '' }), /outside every open workspace/)
+      await assert.rejects(readFile(join(dir, 'outside.txt')), { code: 'ENOENT' })
+      await assert.rejects(readFile(join(root, 'p', 'outside.txt')), { code: 'ENOENT' })
+    })
+  }
+})
+
+/**
+ * `..` after a link goes up from the folder the link led to, not from the
+ * folder the text before it names. A cloned repository can carry both links:
+ * `sub` leads out of the project, and `new` reads as `sub/../x` — a sibling
+ * of `sub` as text, a file in the folder above `sub`'s target for the kernel.
+ * A runtime's own writer follows the link, so the check has to name the file
+ * the writer will create.
+ */
+test('workspace saves through a dangling link follow ".." from the folder a link reached', async (t) => {
+  for (const provider of ['local', 'runtime'] as const) {
+    await t.test(provider, async (t) => {
+      const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+      t.after(() => rm(dir, { recursive: true, force: true }))
+      const root = join(dir, 'project')
+      await mkdir(root)
+      await mkdir(join(dir, 'elsewhere', 'dir'), { recursive: true })
+      await symlink(join(dir, 'elsewhere', 'dir'), join(root, 'sub'))
+      await symlink('sub/../x', join(root, 'new'))
+      const files = new LocalFiles()
+      if (provider === 'runtime') files.write = async (target, data) => writeFile(target, data)
+      const ctx = { workspaces: { fileRoots: () => [root] }, runtimes: { files: () => files } } as unknown as HostContext
+      const path = join(root, 'new')
+      await assert.rejects(workspaceMethods['workspace/readFile'](ctx, { path }), /outside every open workspace/)
+      await assert.rejects(workspaceMethods['file/save'](ctx, { path, content: 'new contents', expectedHash: '' }), /outside every open workspace/)
+      await assert.rejects(readFile(join(dir, 'elsewhere', 'x')), { code: 'ENOENT' })
+      await assert.rejects(readFile(join(root, 'x')), { code: 'ENOENT' })
+    })
+  }
+})
+
+test('workspace saves through a dangling link keep to the file it names when that file is inside the project', async (t) => {
+  for (const provider of ['local', 'runtime'] as const) {
+    await t.test(provider, async (t) => {
+      const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+      t.after(() => rm(dir, { recursive: true, force: true }))
+      const root = join(dir, 'project')
+      await mkdir(join(root, 'real', 'deep'), { recursive: true })
+      await mkdir(join(root, 'docs'))
+      await mkdir(join(root, 'build'))
+      await symlink(join(root, 'real', 'deep'), join(root, 'sub'))
+      // As text this is project/x. The file it names is project/real/x.
+      await symlink('sub/../x', join(root, 'new'))
+      // The plain case: a documentation link to a build output that is not built yet.
+      await symlink('../build/out.md', join(root, 'docs', 'latest.md'))
+      const files = new LocalFiles()
+      if (provider === 'runtime') files.write = async (target, data) => writeFile(target, data)
+      const ctx = { workspaces: { fileRoots: () => [root] }, runtimes: { files: () => files } } as unknown as HostContext
+      for (const [link, named] of [
+        [join(root, 'new'), join(root, 'real', 'x')],
+        [join(root, 'docs', 'latest.md'), join(root, 'build', 'out.md')],
+      ] as const) {
+        const saved = await workspaceMethods['file/save'](ctx, { path: link, content: 'new contents', expectedHash: '' })
+        assert.equal(saved.saved, true, link)
+        assert.equal(await readFile(named, 'utf8'), 'new contents', link)
+      }
+      await assert.rejects(readFile(join(root, 'x')), { code: 'ENOENT' })
+    })
+  }
+})
+
+test('workspace reads and saves refuse file and directory links outside the opened root', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const project = join(dir, 'project')
+  const outside = join(dir, 'outside')
+  await mkdir(project)
+  await mkdir(outside)
+  await writeFile(join(outside, 'file.txt'), 'outside')
+  await symlink(outside, join(project, 'linked'))
+  await symlink(join(outside, 'file.txt'), join(project, 'linked-file'))
+  await symlink(join(outside, 'absent.txt'), join(project, 'dangling'))
+  const files = new LocalFiles()
+  const ctx = { workspaces: { fileRoots: () => [project] }, runtimes: { files: () => files } } as unknown as HostContext
+  for (const name of ['linked/file.txt', 'linked-file', 'dangling', 'linked/missing/deeper.txt']) {
+    const path = join(project, name)
+    await assert.rejects(workspaceMethods['workspace/readFile'](ctx, { path }))
+    await assert.rejects(workspaceMethods['file/save'](ctx, { path, content: 'replacement', expectedHash: sha256(Buffer.from('outside')) }))
+  }
+  assert.equal(await readFile(join(outside, 'file.txt'), 'utf8'), 'outside')
+  await assert.rejects(readFile(join(outside, 'absent.txt')), { code: 'ENOENT' })
+})
+
+test('an opened linked root and links within it retain ordinary read and save behavior', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const project = join(dir, 'project')
+  const alias = join(dir, 'alias')
+  await mkdir(project)
+  await symlink(project, alias)
+  await writeFile(join(project, 'file.txt'), 'inside')
+  await symlink('file.txt', join(project, 'linked-file'))
+  const files = new LocalFiles()
+  const ctx = { workspaces: { fileRoots: () => [alias] }, runtimes: { files: () => files } } as unknown as HostContext
+  const path = join(alias, 'linked-file')
+  const read = await workspaceMethods['workspace/readFile'](ctx, { path })
+  assert.equal(read.kind, 'text')
+  const saved = await workspaceMethods['file/save'](ctx, { path, content: 'changed', expectedHash: sha256(Buffer.from('inside')) })
+  assert.equal(saved.saved, true)
+  assert.equal(await readFile(join(project, 'file.txt'), 'utf8'), 'changed')
+  assert.equal(await confine(join(alias, 'missing', 'deeper.txt'), [alias]), join(alias, 'missing', 'deeper.txt'))
+})
+
+test('LocalFiles refuses a parent link introduced just before opening content', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const outside = join(dir, 'outside')
+  await mkdir(outside)
+  await writeFile(join(outside, 'file.txt'), 'outside')
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as { open: typeof open }
+  const original = fsp.open
+  t.after(() => { fsp.open = original; syncBuiltinESMExports() })
+  for (const operation of ['read', 'write'] as const) {
+    const parent = join(dir, operation)
+    await mkdir(parent)
+    await writeFile(join(parent, 'file.txt'), 'inside')
+    let swapped = false
+    fsp.open = async (path, flags, mode) => {
+      const requested = String(path)
+      const beforeParent = process.platform === 'linux' && requested.endsWith(`/${operation}`)
+        && (Number(flags) & constants.O_DIRECTORY) !== 0
+      if (!swapped && (requested === join(parent, 'file.txt') || beforeParent)) {
+        swapped = true
+        await rename(parent, `${parent}-kept`)
+        await symlink(outside, parent)
+      }
+      return original(path, flags, mode)
+    }
+    syncBuiltinESMExports()
+    const files = new LocalFiles()
+    await assert.rejects(operation === 'read' ? files.read(join(parent, 'file.txt'), 64) : files.write(join(parent, 'file.txt'), Buffer.from('replacement')))
+    assert.equal(swapped, true)
+    assert.equal(await readFile(join(outside, 'file.txt'), 'utf8'), 'outside')
+  }
+})
+
+test('LocalFiles rechecks roots when a previously admitted parent now leads outside', async (t) => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-local-files-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const project = join(dir, 'project')
+  const outside = join(dir, 'outside')
+  await mkdir(project)
+  await mkdir(outside)
+  await mkdir(join(project, 'nested'))
+  await writeFile(join(outside, 'file.txt'), 'outside')
+  const admitted = await confine(join(project, 'nested', 'file.txt'), [project])
+  await rename(join(project, 'nested'), join(project, 'kept'))
+  await symlink(outside, join(project, 'nested'))
+  const files = new LocalFiles({ roots: () => [project] })
+  await assert.rejects(files.read(admitted, 64), /outside every open workspace/)
+  await assert.rejects(files.write(admitted, Buffer.from('replacement')), /outside every open workspace/)
+  assert.equal(await readFile(join(outside, 'file.txt'), 'utf8'), 'outside')
+})
 
 test('UTF-8 source stays text while invalid UTF-8 and NUL bytes are binary', () => {
   assert.equal(isBinaryFile(Buffer.from('const привет = "ok";\n')), false)

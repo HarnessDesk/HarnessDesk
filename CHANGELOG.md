@@ -5,6 +5,43 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## 0.6.1 — 2026-10-23
+
+Customize brings Skills, MCP and Plugins into one place, agent sign-in reads what each agent actually reports, and Git, file and lane operations stay inside the folders they belong to. Lane removal and stalled network folders no longer hang.
+
+- **Customize brings Skills, MCP and Plugins together.** One sidebar entry replaces Library and Plugins. Skills use readable two-column cards with a short reach count; runtime scope, search, a compact list and an explicit runtime comparison keep deeper management close without filling every card with icons. Settings sends skill management to Customize and keeps Hooks on its own page.
+
+- **OpenCode stops reading “Signed out.” after you sign back in.** After signing out from Settings, signing in again outside HarnessDesk now shows the account in Settings without having to open a session first.
+
+- **A paused or capped run keeps saying why while its cleanup finishes.** When a budget cap or a pause stops a run, the run shows that reason until the interrupted work has been cleaned up, instead of switching to a generic “waits while its interrupted work is cleaned up” message, and it is not held a second time in the meantime.
+
+- **Git LFS repositories keep working.** A repository whose files go through a filter you have set up in your own Git configuration, such as Git LFS, shows only real changes in status again, and a new lane can be cut from it.
+
+- **A stalled network folder no longer slows the rest of the app.** When a project's drive stops answering, its files report that the drive isn't answering right away, and the app's other file access carries on.
+
+- **Files with more than one name on disk explain why they cannot open.** Reads and previews refuse these files, and saving one still asks for a separate copy so the other names are kept as they are.
+
+- **Removing a lane with a running dev server works.** Files a dev server or build tool keeps writing in ignored folders, such as `node_modules/.cache`, no longer stop a lane from being removed unless a name, type, size or mode changes, and a lane whose folder stops answering is refused after twenty seconds instead of hanging.
+
+
+- **Agent sign-in reads what the agent actually reports.** A missing API key is shown as a sign-in refusal with the agent's own sign-in methods, a refusal stays visible while the CLI is asked again, each row reads its identity from its own home, OpenCode shows the account its own credentials name, an unavailable agent says so before its account check finishes, and a starting agent reads "Starting".
+
+- **Undo and rollback stay inside the repository.** A file change a turn recorded is applied only inside the repository it came from, and restored files keep their byte order mark. Workspace reads and saves stay inside the folders you opened, notes no longer wait on a named pipe, and linked Agent sources accept only files.
+
+- **Git reads the app makes on its own run only Git.** Status, history and checkout reads turn off programs, hooks and filters a repository configures, keep sparse checkouts, and show ordinary changes in a repository with an incomplete `.gitmodules`.
+
+- **Removing a lane confirms exactly what will go.** The confirmation changes when anything inside the lane changes, including files added under ignored folders, and removal is refused when its contents cannot be read. Card commits no longer pick up renamed work that was already there when the card was claimed.
+
+- **A paused or stopped run finishes stopping before it resumes.** Cleanup after a budget stop stays pending and is retried until it succeeds, including after a restart, and a paused Flow waits for it before dispatching again.
+
+- **Approval answers reach only the conversation that asked.** An answer that arrives after its conversation has closed, or one that names another conversation, no longer releases anything.
+
+- **Teams, Settings and the Git views get ten small fixes.** Seat marks on Team cards no longer overlap, recovery banners fill the New Team dialog, the Graph column header is no longer clipped, wrapped Teams no longer add project rows, Settings no longer names a data folder that may be wrong, and the draft location shows its hand-off folder.
+
+- **A Team's evidence stays readable after its checkout is removed,** and a second copy of the app that cannot start no longer stops the first one's tool gateway.
+
+- **The Agent card keeps its row gap in the built app,** the same as in development.
+
 ## 0.6.0 — 2026-10-21
 
 A Team opens on its recorded Work, Settings reads calmer and behaves the same

@@ -80,7 +80,11 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant' | 'controls
   const runtime: AgentRuntime = kind === 'codex'
     ? new CodexRuntime({ binaryPath: fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtures/fake-codex.mjs', import.meta.url)), codexHome: join(base, 'codex-home'), clientName: 'harnessdesk-test' })
     : new AcpRuntime({ id: 'claude-code', name: 'Claude', command: process.execPath, args: [fileURLToPath(new URL(kind === 'variant' ? '../../../adapter-acp/dist/test/fixtures/variant-acp-agent.mjs' : kind === 'controls' ? '../../../adapter-acp/dist/test/fixtures/option-controls-acp.mjs' : './fixtures/seat-options-acp.mjs', import.meta.url))], env,
-      ...(kind === 'controls' ? { secrets: [{ env: 'EXAMPLE_API_KEY', label: 'Example API key' }] } : {}),
+      // The scripted agent opens sessions with no key. A secret nobody stored is
+      // signed out once it is the agent's only way in (#1763), so this one is
+      // marked as having another way in: it is here for `reloadSecrets`, not
+      // to make the agent need a key.
+      ...(kind === 'controls' ? { secrets: [{ env: 'EXAMPLE_API_KEY', label: 'Example API key', optional: true }] } : {}),
       toolServer: { name: 'harnessdesk', command: process.execPath, args: ['--version'], env: {} } })
   const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: join(base, 'builtins'), catalogRefreshMs: 0 })
   host.register(runtime)

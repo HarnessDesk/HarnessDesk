@@ -200,6 +200,14 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
           object(target) && text(target['cwd']) && (target['at'] === null || text(target['at'])))) bad('has a check plan it cannot describe')
     }
   }
+  if (raw['checkCompletions'] !== undefined) {
+    if (!object(raw['checkCompletions'])) bad('has unreadable check completions')
+    for (const [key, result] of Object.entries(raw['checkCompletions'] as Record<string, unknown>)) {
+      const operation = (raw['operations'] as { key: string; kind: string; state: string; card: number | null }[]).find((one) => one.key === key)
+      if (!operation || operation.kind !== 'check' || operation.state !== 'finished' || operation.card === null ||
+        !object(result) || !text(result['outcome']) || typeof result['tail'] !== 'string' || result['tail'].length > 400) bad('has a check completion it cannot describe')
+    }
+  }
   if (raw['seatPlans'] !== undefined) {
     if (!object(raw['seatPlans'])) bad('has unreadable seat plans')
     for (const [round, plan] of Object.entries(raw['seatPlans'] as Record<string, unknown>)) {
@@ -261,6 +269,7 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
     const again = object(intake) ? intake['again'] : undefined
     if (!object(intake) || !text(intake['key']) || !/^[0-9a-f]{64}$/.test(String(intake['key'])) || !text(intake['trigger']) ||
       !text(intake['closureDigest']) || typeof intake['dispatchHeld'] !== 'boolean' ||
+      !(intake['holdGeneration'] === undefined || (integer(intake['holdGeneration']) && intake['holdGeneration'] >= 0)) ||
       !(again === null || (object(again) && text(again['role']) && text(again['title'])))) bad('has trigger bookkeeping it cannot describe')
   }
   const compiled = raw['compiled']

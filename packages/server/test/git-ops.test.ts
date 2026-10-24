@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { mkdir, mkdtemp, open, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
@@ -13,6 +15,7 @@ import { TranscriptStore } from '../src/transcripts.js'
 import { sessionMethods } from '../src/methods/sessions.js'
 import type { HostContext } from '../src/methods/context.js'
 import { DirtyTreeError, RevertError, applyTurn, checkout, listBranches, reapplyTurn, revertTurn, turnCommit } from '../src/git-ops.js'
+import { ConfinedTree } from '../src/confined-tree.js'
 
 /**
  * Reverting a turn and switching branches against a real repository. The
@@ -40,6 +43,179 @@ const fileChange = (dir: string, changes: FileChange[]): AgentItem =>
   ({ id: `fc-${changes.length}`, type: 'fileChange', changes, status: 'completed', origin: 'agent' }) as unknown as AgentItem
 
 const turnOf = (items: AgentItem[], diff?: string): Turn => ({ id: turnId('t1'), items, status: 'completed', diff: diff ?? null })
+
+test('unsupported per-file turn changes explain the workspace platform requirement', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const openTree = ConfinedTree.open.bind(ConfinedTree)
+  t.mock.method(ConfinedTree, 'open', (root: string) => openTree(root, { platform: 'win32' }))
+  const turn = turnOf([fileChange(dir, [{ path: 'restored.txt', kind: { type: 'delete' }, diff: 'recorded\n' }])])
+  await assert.rejects(revertTurn(dir, turn), /Workspace file changes.*macOS and Linux/)
+  await assert.rejects(stat(join(dir, 'restored.txt')), { code: 'ENOENT' })
+})
+
+test('turn operations accept a repository opened with a different letter case', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const alias = join(dirname(dir), basename(dir).toUpperCase())
+  const exists = await stat(alias).then(() => true, (error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  })
+  if (!exists) return t.skip('this volume distinguishes path letter case')
+  const content = 'recorded\n'
+  await writeFile(join(dir, 'case.txt'), content)
+  const turn = turnOf([fileChange(dir, [{ path: join(alias, 'case.txt'), kind: { type: 'add' }, diff: content }])])
+  assert.deepEqual(await revertTurn(alias, turn), ['case.txt'])
+  assert.deepEqual(await reapplyTurn(alias, turn), ['case.txt'])
+  assert.equal(await readFile(join(dir, 'case.txt'), 'utf8'), content)
+  await git(dir, 'add', 'case.txt')
+  await git(dir, 'commit', '-qm', 'Record file contents')
+  assert.equal(await turnCommit(alias, turn), (await git(dir, 'rev-parse', 'HEAD')).trim())
+})
+
+test('turn removal skips a missing path beneath a former directory and applies the rest', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await writeFile(join(dir, 'folder'), 'now a file')
+  for (const direction of ['undo', 'redo'] as const) {
+    await t.test(direction, async () => {
+      await writeFile(join(dir, 'new.txt'), 'recorded\n')
+      const kind = { type: direction === 'undo' ? 'add' : 'delete' } as const
+      const turn = turnOf([fileChange(dir, [
+        { path: 'folder/file.txt', kind, diff: 'recorded\n' },
+        { path: 'new.txt', kind, diff: 'recorded\n' },
+      ])])
+      assert.deepEqual((await applyTurn(dir, turn, direction)).files, ['new.txt'])
+      await assert.rejects(stat(join(dir, 'new.txt')), { code: 'ENOENT' })
+      assert.equal(await readFile(join(dir, 'folder'), 'utf8'), 'now a file')
+    })
+  }
+})
+
+test('turn paths resolve a dangling relative link from its real parent', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  await mkdir(join(dir, 'p', 'q'), { recursive: true })
+  await mkdir(join(dir, 't'))
+  await symlink('../../t', join(dir, 'p', 'q', 's'))
+  const outsideName = `${basename(dir)}-outside.txt`
+  await symlink(`../../${outsideName}`, join(dir, 't', 'new'))
+  const turn = turnOf([fileChange(dir, [{ path: 'p/q/s/new', kind: { type: 'delete' }, diff: 'recorded\n' }])])
+  await assert.rejects(revertTurn(dir, turn), RevertError)
+  await assert.rejects(stat(join(dir, 'p', outsideName)), { code: 'ENOENT' })
+})
+
+test('turn changes outside the repository refuse the whole pass before any step', async (t) => {
+  const dir = await repo()
+  const outside = await mkdtemp(join(tmpdir(), 'hd-turn-outside-'))
+  t.after(() => Promise.all([dir, outside].map((path) => rm(path, { recursive: true, force: true }))))
+  await symlink(outside, join(dir, 'linked'))
+  await symlink(join(outside, 'file.txt'), join(dir, 'linked-file'))
+  for (const path of [join(outside, 'file.txt'), join('..', outside.split('/').at(-1)!, 'file.txt'), 'linked/file.txt', 'linked-file', 'linked/missing/deeper/file.txt']) {
+    for (const direction of ['undo', 'redo'] as const) {
+      await writeFile(join(outside, 'file.txt'), 'outside\n')
+      await writeFile(join(dir, 'local.txt'), 'inside\n')
+      const kind = { type: direction === 'undo' ? 'add' : 'delete' } as const
+      const local: FileChange = { path: 'local.txt', kind, diff: 'inside\n' }
+      const other: FileChange = { path, kind, diff: 'outside\n' }
+      const changes = direction === 'undo' ? [other, local] : [local, other]
+      await assert.rejects(applyTurn(dir, turnOf([fileChange(dir, changes)]), direction), RevertError)
+      assert.equal(await readFile(join(outside, 'file.txt'), 'utf8'), 'outside\n')
+      assert.equal(await readFile(join(dir, 'local.txt'), 'utf8'), 'inside\n')
+    }
+  }
+})
+
+test('turn creation refuses a dangling link and preserves its destination', async (t) => {
+  const dir = await repo()
+  const outside = await mkdtemp(join(tmpdir(), 'hd-turn-outside-'))
+  t.after(() => Promise.all([dir, outside].map((path) => rm(path, { recursive: true, force: true }))))
+  await mkdir(join(dir, 'nested'))
+  await symlink(join(outside, 'missing.txt'), join(dir, 'nested', 'file.txt'))
+  const turn = turnOf([fileChange(dir, [{ path: 'nested/file.txt', kind: { type: 'delete' }, diff: 'recorded\n' }])])
+  await assert.rejects(revertTurn(dir, turn), RevertError)
+  await assert.rejects(stat(join(outside, 'missing.txt')), { code: 'ENOENT' })
+})
+
+test('turn creation leaves a file that appears just before the exclusive open untouched', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(await realpath(dir), 'gone.txt')
+  await rm(path)
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as { open: typeof open }
+  const original = fsp.open
+  let appeared = false
+  fsp.open = async (file, flags, mode) => {
+    if (!appeared && String(file) === path && (Number(flags) & constants.O_CREAT) !== 0) {
+      appeared = true
+      await writeFile(path, 'newer contents\n')
+    }
+    return original(file, flags, mode)
+  }
+  syncBuiltinESMExports()
+  t.after(() => { fsp.open = original; syncBuiltinESMExports() })
+  const turn = turnOf([fileChange(dir, [{ path: 'gone.txt', kind: { type: 'delete' }, diff: 'bye\n' }])])
+  await assert.rejects(revertTurn(dir, turn), RevertError)
+  assert.equal(appeared, true)
+  assert.equal(await readFile(path, 'utf8'), 'newer contents\n')
+})
+
+test('turn paths are checked before applying an aggregated diff', async (t) => {
+  const dir = await repo()
+  const outside = await mkdtemp(join(tmpdir(), 'hd-turn-outside-'))
+  t.after(() => Promise.all([dir, outside].map((path) => rm(path, { recursive: true, force: true }))))
+  await writeFile(join(dir, 'a.txt'), 'one\nchanged\nthree\n')
+  const diff = await git(dir, 'diff')
+  const turn = turnOf([fileChange(dir, [{ path: join(outside, 'file.txt'), kind: { type: 'update' }, diff: '' }])], diff)
+  await assert.rejects(revertTurn(dir, turn), RevertError)
+  assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\nchanged\nthree\n')
+})
+
+test('a turn outside the repository remains unproven by commit lookup', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const turn = turnOf([fileChange(dir, [{ path: join(dir, '..', 'outside.txt'), kind: { type: 'add' }, diff: 'recorded\n' }])])
+  assert.equal(await turnCommit(dir, turn), null)
+})
+
+test('undo and redo preserve a recorded UTF-8 BOM in file contents', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const path = join(dir, 'bom.txt')
+  const content = '\uFEFFtext\n'
+  await writeFile(path, content)
+  const turn = turnOf([fileChange(dir, [{ path: 'bom.txt', kind: { type: 'add' }, diff: content }])])
+
+  assert.deepEqual(await revertTurn(dir, turn), ['bom.txt'])
+  await assert.rejects(stat(path), { code: 'ENOENT' })
+  assert.deepEqual(await reapplyTurn(dir, turn), ['bom.txt'])
+  assert.deepEqual(await readFile(path), Buffer.from(content))
+  assert.deepEqual(await revertTurn(dir, turn), ['bom.txt'])
+  await assert.rejects(stat(path), { code: 'ENOENT' })
+})
+
+test('a refused undo removes the BOM file it restored before the refusal', async (t) => {
+  const dir = await repo()
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const restored = join(dir, 'bom.txt')
+  await writeFile(join(dir, 'new.txt'), 'changed since the turn\n')
+  const turn = turnOf([fileChange(dir, [
+    { path: 'new.txt', kind: { type: 'add' }, diff: 'recorded\n' },
+    { path: 'bom.txt', kind: { type: 'delete' }, diff: '\uFEFFtext\n' },
+  ])])
+  let refusal: RevertError | undefined
+  await assert.rejects(revertTurn(dir, turn), (error: unknown) => {
+    assert.ok(error instanceof RevertError)
+    refusal = error
+    return true
+  })
+
+  await assert.rejects(stat(restored), { code: 'ENOENT' })
+  assert.deepEqual(refusal!.reverted, [])
+  assert.equal(refusal!.wireData, undefined)
+  assert.equal(await readFile(join(dir, 'new.txt'), 'utf8'), 'changed since the turn\n')
+})
 
 test('reverts an update, an add and a delete from the reported changes', async () => {
   const dir = await repo()

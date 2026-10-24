@@ -44,7 +44,7 @@ export const CLIP_SCENES = {
     'Select a skill to read its definition and see the runtimes that load it.', [
       move(800, css('button[aria-expanded]:has-text("code-review")')), click(1600, css('button[aria-expanded]:has-text("code-review")')),
       move(2700, role('button', 'Read the definition')), click(3500, role('button', 'Read the definition')),
-      { at: 4300, kind: 'read' }, move(5700, role('button', 'Back to Library')), click(6500, role('button', 'Back to Library')),
+      { at: 4300, kind: 'read' }, move(5700, role('button', 'Back to Customize')), click(6500, role('button', 'Back to Customize')),
     ]),
   permissions: scene('plugin-permissions',
     'Project docs shows its Tools and Access; the plugin is turned off and back on.', [
@@ -136,17 +136,23 @@ const settle = async page => {
 }
 const stagePage = (page, value) => page.evaluate(value => window.dispatchEvent(new CustomEvent('site-clip-stage', { detail: value })), value)
 
-const prepare = async (page, name) => {
-  if (name === 'library') await page.getByRole('radio', { name: 'Matrix', exact: true }).click()
+export const prepare = async (page, name) => {
+  if (name === 'library') {
+    await page.getByRole('button', { name: 'View', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Runtime comparison', exact: true }).click()
+  }
   if (name === 'permissions') await page.getByRole('button', { name: /Project docs Find reference/ }).click()
   if (name === 'browser') await page.frameLocator('iframe').getByRole('heading', { name: 'A calmer checkout.' }).waitFor()
   await settle(page)
 }
-const restore = async (page, name) => {
+export const restore = async (page, name) => {
   if (name === 'teams' && await page.getByRole('button', { name: 'Back to Teams', exact: true }).count()) await page.getByRole('button', { name: 'Back to Teams', exact: true }).click()
   if (name === 'run' || name === 'race') await stagePage(page, 0)
   if (name === 'library') {
-    if (await page.getByRole('button', { name: 'Back to Library', exact: true }).count()) await page.getByRole('button', { name: 'Back to Library', exact: true }).click()
+    if (await page.getByRole('button', { name: 'Back to Customize', exact: true }).count()) {
+      await page.getByRole('button', { name: 'Back to Customize', exact: true }).click()
+      await settle(page)
+    }
     const skill = page.locator('button[aria-expanded]:has-text("code-review")').first()
     if (await skill.getAttribute('aria-expanded') === 'true') await skill.evaluate(node => node.click())
   }

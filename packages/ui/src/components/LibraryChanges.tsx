@@ -47,9 +47,9 @@ export const LibraryChanges = ({ onBack, now = Date.now() }: { readonly onBack: 
   ]
   const columns = snapshot.runtimes.map(runtime => ({ id: runtime.id, label: runtime.presentation.name, info: runtime }))
   return <>
-    <DestinationBar place="Library" />
-    <PageOptions title="Changes made here"><Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to Library</Button></Toolbar></PageOptions>
-    <PageExplanation>Every change made from the Library in the last 90 days. Restore shows what it would put back and what it would replace before it does either.</PageExplanation>
+    <DestinationBar place="Customize" />
+    <PageOptions title="Changes made here"><Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to Customize</Button></Toolbar></PageOptions>
+    <PageExplanation>Every change made from Customize in the last 90 days. Restore shows what it would put back and what it would replace before it does either.</PageExplanation>
     <Toolbar data-slot="library-changes-controls">
       <ToggleGroup type="single" size="sm" variant="chips" aria-label="Changes" value={filter} onValueChange={value => { if (value) setFilter(value as Filter) }}>
         {([{ value: 'all', label: 'All' }, { value: 'restore', label: 'Can restore' }, { value: 'failed', label: 'Failed' }] as const).map(chip => <ToggleGroupItem key={chip.value} value={chip.value} aria-label={chip.label}>

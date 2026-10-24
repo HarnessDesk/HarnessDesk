@@ -3,7 +3,7 @@ import { resolveSection } from '../components/Settings'
 import type { PageDestination } from '../state/destinations'
 export const destinationForSettings = (name: string | null | undefined, focus: string | null = null): PageDestination => {
   const section = resolveSection(name)
-  if (section === 'library') return {kind:'library',section:'skill'}
+  if (section === 'library' || section === 'skills') return {kind:'library',section:'skill'}
   if (section === 'plugins') return {kind:'plugins',section:'installed',id:null}
   if (section === 'workspaces' && focus === 'triggers') return {kind:'flows',root:null,id:null,origin:null}
   if (section === 'workspaces' && focus && focus !== 'triggers') return {kind:'settings',route:{kind:'project',root:focus}}

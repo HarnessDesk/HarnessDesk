@@ -77,6 +77,54 @@ test('commit_work commits only what changed since the claim, and leaves what was
   })
 })
 
+test('commit_work leaves staged renames of pre-card edits out of ordinary commits', async (t) => {
+  for (const source of ['a.txt', 'a -> café.txt', 'a "quote"\ttab.txt']) {
+    await t.test(JSON.stringify(source), async (t) => {
+      const root = await repo(t)
+      if (source !== 'a.txt') await git(root, 'mv', 'a.txt', source)
+      await writeFile(join(root, source), 'one\ntwo\nthree\nfour\nfive\n')
+      await git(root, 'add', source)
+      await git(root, 'commit', '-q', '-m', 'prepare the named file')
+      await writeFile(join(root, source), 'one\ntwo\nthree\nfour\nedited\n')
+      const before = await snapshot(root)
+      await git(root, 'mv', source, 'renamed.txt')
+      await git(root, 'add', 'renamed.txt')
+      assert.ok((await git(root, 'status', '--porcelain=v1', '-z')).includes(`R  renamed.txt\0${source}\0`))
+      const staged = await git(root, 'diff', '--cached')
+      await writeFile(join(root, 'notes.md'), 'card notes\n')
+
+      const done = await commitCardWork(root, before, 'Write the notes')
+      assert.ok('commit' in done, JSON.stringify(done))
+      assert.deepEqual(done.paths, ['notes.md'])
+      assert.equal(await git(root, 'show', `HEAD:${source}`), 'one\ntwo\nthree\nfour\nfive\n')
+      assert.equal(await git(root, 'diff', '--cached'), staged)
+    })
+  }
+})
+
+test('commit_work leaves staged children of pre-card directories out of ordinary commits', async (t) => {
+  for (const directory of ['drafts', 'drafts with spaces', 'drafts -> café']) {
+    await t.test(directory, async (t) => {
+      const root = await repo(t)
+      await mkdir(join(root, directory, 'nested'), { recursive: true })
+      const path = `${directory}/nested/private.txt`
+      await writeFile(join(root, path), 'person’s draft\n')
+      const before = await snapshot(root)
+      assert.equal(before.length, 1, 'the claim names the directory, not its children')
+      await git(root, 'add', path)
+      const staged = await git(root, 'diff', '--cached')
+      const sibling = `${directory}-public.txt`
+      await writeFile(join(root, sibling), 'card notes\n')
+
+      const done = await commitCardWork(root, before, 'Write the notes')
+      assert.ok('commit' in done, JSON.stringify(done))
+      assert.deepEqual(done.paths, [sibling])
+      assert.equal(await git(root, 'diff', '--cached'), staged)
+      assert.equal(await git(root, 'ls-tree', '-r', '--name-only', 'HEAD', '--', directory), '')
+    })
+  }
+})
+
 const coauthor = 'Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>'
 
 /** Two divergent parents whose shared file will conflict when merged. */
@@ -613,13 +661,8 @@ test('Git older than 2.32 is refused before staging rather than placing credit b
   assert.equal(await git(root, 'diff', '--cached', '--name-only'), '', 'the refusal happens before staging')
 })
 
-/*
- * What the host's own reads are held to, stated exactly: no hook, filesystem
- * monitor or external diff runs, but a filter the configuration defines still
- * does when a status re-reads a file whose stat information changed. That is
- * a limit of the floor (git-hardening.ts), shown here rather than claimed away.
- */
-test('the host’s own git reads run no hook or filesystem monitor, but a configured filter still runs on a stat-dirty file', async (t) => {
+/* A status reread keeps repository programs off even when file metadata changes. */
+test('the host’s own git reads leave configured programs off on a stat-dirty file', async (t) => {
   const root = await repo(t)
   await writeFile(join(root, 'page.md'), 'page\n')
   const { said } = await poison(root, '*.md filter=evil\n')
@@ -630,7 +673,7 @@ test('the host’s own git reads run no hook or filesystem monitor, but a config
   await revisionOf(root)
   await repositoryOf(root)
   await diffOf(root)
-  assert.equal(await said(), 'filter', 'only the filter ran: no hook, no filesystem monitor, no external diff')
+  assert.equal(await said(), '', 'no configured program ran')
 })
 
 test('commit_work refuses work that goes through a git filter, such as LFS, and commits nothing', async (t) => {

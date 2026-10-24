@@ -39,7 +39,10 @@ beforeEach(() => vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAni
 afterEach(() => vi.useRealTimers())
 const settle = () => act(async () => { vi.advanceTimersToNextFrame() })
 const selectLibraryMatrix = async (host: ParentNode): Promise<void> => {
-  const matrix = host.querySelector<HTMLButtonElement>('[role="radio"][aria-label="Matrix"]')
+  const view = host.querySelector<HTMLButtonElement>('[data-slot="library-skills-controls"] button[title="View"]')
+  expect(view).toBeTruthy()
+  await act(async () => view!.click())
+  const matrix = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(item => item.textContent === 'Runtime comparison')
   expect(matrix).toBeTruthy()
   await act(async () => matrix!.click())
 }

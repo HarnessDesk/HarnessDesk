@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -12,6 +12,35 @@ import { runCommand } from '../src/evidence/run.js'
 import { runCheck } from '../src/flows.js'
 import { evidenceDesk, makeRepo, until } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
+
+for (const movement of ['away', 'away and back', 'unobserved before', 'unobserved after'] as const) {
+  test(`a Flow check is not counted when HEAD continuity is ${movement}`, async () => {
+    const repo = await makeRepo()
+    const head = await repo.git('rev-parse', 'HEAD')
+    const tree = await repo.git('rev-parse', 'HEAD^{tree}')
+    const other = await repo.git('commit-tree', tree, '-p', head, '-m', 'second revision')
+    const dir = tempDir('hd-flow-continuity-')
+    const plane = new EvidencePlane({ dir, seenFile: join(dir, 'seen.json') }, {
+      board: () => ({ id: 'goal-1', root: repo.dir, intents: [] } as unknown as TeamState),
+      cwdOf: () => null, push: () => {}, log: () => {},
+    })
+    if (movement === 'unobserved before') await rm(join(repo.dir, '.git', 'logs', 'HEAD'))
+    const move = (at: string) => `git -c user.name='Jane Doe' -c user.email=dev@example.com update-ref HEAD ${at}`
+    const command = movement === 'away' ? move(other)
+      : movement === 'away and back' ? `${move(other)} && test "$(git rev-parse HEAD)" = ${other} && ${move(head)}`
+        : movement === 'unobserved after' ? 'rm .git/logs/HEAD' : 'true'
+    const outcome = await plane.runFlowCheck(command, { cwd: repo.dir, timeoutSec: 5 }, {
+      goal: 'goal-1', card: 3, name: 'gate', round: 1,
+    })
+    assert.equal(outcome.result.exit, 0)
+    assert.ok(outcome.evidence)
+    const [line] = (await plane.store.read(await canonical(repo.dir), 'evidence')).lines
+    assert.ok(line?.type === 'evidence' && line.record.fact.kind === 'check')
+    assert.equal(line.record.fact.at, head)
+    assert.equal(line.record.fact.counted, false)
+    assert.match(line.record.fact.tail, /Not counted: HEAD/)
+  })
+}
 
 for (const advisory of [true, false]) {
   test(`a Flow check tells its command whether it is advisory (${advisory})`, async (t) => {

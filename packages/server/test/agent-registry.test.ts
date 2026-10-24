@@ -609,7 +609,7 @@ test('store write does not follow preexisting pid temp symlink and overwrite out
   assert.equal(stat.isSymbolicLink(), false, 'agents.json must not be a symlink')
 })
 
-test('duplicate runtime IDs are deduplicated in store configs and replaced cleanly in host without ghost listeners (#446)', async (t) => {
+test('duplicate runtime IDs are deduplicated in store configs and replaced after unregister without keeping old listeners', async (t) => {
   const dir = await tempDir()
   const agentsPath = join(dir, 'agents.json')
   await writeFile(
@@ -641,6 +641,7 @@ test('duplicate runtime IDs are deduplicated in store configs and replaced clean
   host.addBroadcaster((n) => pushed.push(n))
 
   host.register(one)
+  await host.unregister(one.info.id)
   host.register(two)
 
   const hello = await host.call('host/hello', { clientVersion: 'test' })

@@ -6,6 +6,7 @@ import { devNull } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { setImmediate } from 'node:timers/promises'
 
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 import type { FilePatch, Patch } from './model.js'
 
 export interface RepoHandle {
@@ -549,8 +550,7 @@ export const gitReader = (handle: RepoHandle, options: ReaderOptions = {}): GitR
   const start = options.run ?? runChild
   const run = (args: readonly string[], signal: AbortSignal, input?: Buffer) => start('git', [
     '--no-pager', '--no-replace-objects', '--literal-pathspecs', '-C', handle.viewDir,
-    '-c', `core.hooksPath=${devNull}`, '-c', 'core.fsmonitor=false',
-    '-c', 'diff.external=', '-c', 'core.quotePath=true', ...args,
+    ...HARDENED_GIT_CONFIG, '-c', 'core.quotePath=true', ...args,
   ], { signal, input, env })
   /*
    * An object id names its content for good, so what Git said about one is kept:

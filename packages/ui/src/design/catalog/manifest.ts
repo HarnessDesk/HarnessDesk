@@ -180,6 +180,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  CustomizeTabs: ['chips'],
   CommandPalette: ['default'],
   SignInRail: ['default'],
   DashboardBands: ['light', 'dark'],
@@ -312,6 +313,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  CustomizeTabs: ['selected', 'unselected'],
   CommandPalette: ['default'],
   SignInRail: ['default'],
   DashboardBands: ['default', 'empty', 'unknown', 'long-title'],
@@ -456,6 +458,7 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
   Object.keys(VARIANTS).map((name) => [name, DEFAULT_SIZE]),
 )
 Object.assign(SIZES, {
+  CustomizeTabs: ['sm'],
   FlowCards: ['compact', 'large'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
@@ -476,6 +479,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  CustomizeTabs: 'packages/ui/src/panels/customize-navigation.tsx',
   SignInRail: 'packages/ui/src/components/SignIn.tsx',
   DashboardBands: 'packages/ui/src/components/Usage.tsx',
   LibraryMatrix: 'packages/ui/src/components/Library.tsx',
@@ -704,6 +708,7 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
 }
 
 const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
+  CustomizeTabs: ['CustomizeTabs'],
   'ActionError': ['ActionError'],
   'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
   'AgentCatalogue': ['AgentCatalogue', 'AgentCatalogueCard', 'AgentCatalogueSources'],
@@ -956,6 +961,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['SignInRail', 'sign-in-rail', 'Sign-in navigation on the shared sidebar ground'],
   ['TeamsBoard', 'teams-page', 'Attention columns, Team cards and folded receipts, composed from the shared card and text primitives'],
   ['AgentCatalogue', 'agent-catalogue', 'Reusable role cards with their purpose, observed seat, ceiling and folded source precedence'],
+  ['CustomizeTabs', 'control', 'One Skills, MCP and Plugins navigation vocabulary for Customize'],
   ['BoardCard', 'board-card', 'Compact opening card with identity, attention detail and optional middle and footer slots'],
   ['PageRecords', 'page-records', 'Responsive grouped records with aligned facts and isolated row actions'],
   ['PageControls', 'page-controls', 'Labelled page fields, complete explanations and shortcut keys'],

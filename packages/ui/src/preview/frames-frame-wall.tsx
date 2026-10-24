@@ -237,8 +237,10 @@ export const FrameWall = () => {
     if (destination === 'library') installSkillPageFixture(next, query.get('frame-skill-state'))
     if (destination === 'library' && (query.get('frame-kind') === 'changes' || query.has('frame-write-toast'))) installLibraryChangesFixture(next, query.get('frame-changes-empty') === '1')
     if (destination === 'library' && query.get('frame-empty') === '1') {
+      Object.assign(next.getSnapshot(), { skills: [] })
       const request = next.transport.request.bind(next.transport)
       next.transport.request = async (method, params) => {
+        if (method === 'runtime/skills') return [] as never
         const result = await request(method, params)
         return method === 'library/read' ? { ...result as import('@harnessdesk/protocol').Library, entries: [] } : result
       }

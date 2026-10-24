@@ -494,7 +494,6 @@ export const RailSurface = () => (
       <div className={`${styles.beside} h-full`}>
         <Sidebar
           onOpenSettings={() => {}}
-          onOpenPlugins={() => {}}
           onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
@@ -541,7 +540,6 @@ export const SeatRowsSurface = () => (
       <div className={`${styles.beside} h-full`}>
         <Sidebar
           onOpenSettings={() => {}}
-          onOpenPlugins={() => {}}
           onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
@@ -574,7 +572,6 @@ export const ProjectsSurface = () => (
       <div className={`${styles.beside} h-full`}>
         <Sidebar
           onOpenSettings={() => {}}
-          onOpenPlugins={() => {}}
           onOpenTeams={() => {}} onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
@@ -870,7 +867,7 @@ export const ToolsSurface = () => (
               kind: 'browser',
               tabs: [
                 { id: 't1', url: 'http://localhost:5273/design.html', title: 'Design system' },
-                { id: 't2', url: 'https://example.com', title: 'Example' },
+                { id: 't2', url: 'http://localhost:5273/preview.html', title: 'Screen preview' },
               ],
               active: 't1',
               driven: 't1',
@@ -948,7 +945,6 @@ export const PanelsSurface = () => (
         sidebar={
           <Sidebar
             onOpenSettings={() => {}}
-            onOpenPlugins={() => {}}
           onOpenTeams={() => {}} onOpenAgents={() => {}}
             onOpenUsage={() => {}}
             onBrowseFolders={() => {}}

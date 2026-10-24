@@ -962,13 +962,14 @@ it.each(['starting', 'failed', 'ready'] as const)('a %s draft explains runtime r
     expect(send.title).toBe('')
   } else {
     expect(send.disabled).toBe(true)
-    expect(tools.querySelector(`[data-slot="chip"][data-state="${state === 'failed' ? 'broken' : 'unknown'}"]`)?.textContent)
-      .toBe(state === 'failed' ? 'Unavailable' : 'Not answered yet')
+    expect(tools.querySelector(`[data-slot="chip"][data-state="${state === 'failed' ? 'broken' : 'starting'}"]`)?.textContent)
+      .toBe(state === 'failed' ? 'Unavailable' : 'Starting')
     expect(send.title).toBe(state === 'failed'
       ? 'The agent failed its version check. Choose a working installation in Settings.'
       : 'Waiting for the runtime to start')
     if (state === 'failed') {
       const link = [...tools.querySelectorAll('button')].find(button => button.textContent === 'Unavailable')!
+      expect(link.getAttribute('aria-label')).toBe('Open runtime Settings')
       act(() => link.click())
       expect(settings).toHaveBeenCalledWith('runtimes', 'codex')
     }

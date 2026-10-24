@@ -184,8 +184,10 @@ for (const theme of WALL_THEMES) {
     test(`D6 ${destination} keeps its Sessions door in ${theme}`, async ({ page }) => {
       await openFrame(page, `frame-wall=${destination}`, theme)
       const column = page.locator('[data-slot="fixed-shell"]:visible [data-left-column]:visible')
-      const label = destination === 'library' ? 'Library' : 'Plugins'
-      await expect(column.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-current', 'page')
+      await expect(column.getByRole('button', { name: 'Customize', exact: true })).toHaveAttribute('aria-current', 'page')
+      await expect(page.locator(`[data-page-destination="${destination}"]:visible`)).toHaveCount(1)
+      await expect(page.getByRole('radiogroup', { name: 'Customize sections', exact: true })
+        .getByRole('radio', { name: destination === 'library' ? 'Skills' : 'Plugins', exact: true })).toHaveAttribute('aria-checked', 'true')
       await expect(column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }))
         .toHaveAttribute('aria-pressed', 'false')
       await expect(column.locator('[data-left-settings]:visible')).toHaveCount(0)

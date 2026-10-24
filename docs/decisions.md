@@ -7,6 +7,15 @@ the rule is the last line of its section.
 
 ---
 
+## Customize is the shared capability destination — 2026-10-21
+
+Skills, MCP and Plugins share one Customize entrance and a common section navigation. Existing Library and Plugins destination identities remain valid for saved history, command links and capability detail pages. Settings' skill-management requests open Customize, scoped to the active runtime; Hooks retains a separate Settings page. Runtime-owned commands not covered by the scanned inventory remain browsable in Customize, under the active runtime’s name, with their enable switches and composer action. A different runtime scope never borrows the active runtime’s commands. Legacy command detail routes remain readable; the obsolete Settings list route replaces itself in navigation rather than leaving a redirect in Back history.
+
+Skills default to two-column catalogue cards. The title and a bounded description lead; scope and a named runtime count replace the unbounded strip of runtime marks. Cards, List and Runtime comparison are choices in View. All and nonempty or selected Needs attention stay visible; uncommon reach and declaration filters live under Filter. Runtime selection and search use a dedicated view subscription, leaving the global app snapshot untouched, and all install, update, remove and restore operations retain their existing reviewed plans.
+
+**Rule:** one skill-management destination; runtime diagnostics are a deliberate view, never a repeating wall of marks on every card. Typography and spacing come from the shared page, card and row patterns.
+
+
 ## A skill opens as a page, not a sheet — 2026-10-17
 
 A skill has enough definition and evidence to read as a destination: the definition is a card on the left, while loaded runtimes, recorded source and copies, files and cost stay in cards on the right. Back returns to the Library and history retains the route. Findings sit above the columns, and More keeps the less frequent copy actions; writes still open reviewed plans. This keeps the skill consistent with other details and gives long definitions the page’s scroll owner rather than two constrained dialog lanes. MCP retains its existing dialog. **Rule:** a detail is a page with a way back; dialogs are for confirming.
@@ -321,6 +330,34 @@ refusals stay; the saved receipt counts them. A completed native reconciliation
 also reads unresolved ids omitted by the listing, three at a time. A failed
 read or an answer without archive authority leaves the row unresolved for the
 next pass.
+
+## Removing a worktree reads what it holds within a deadline, and holds ignored files to names, sizes and modes
+
+"Remove this worktree…" confirms against an inventory of everything the removal
+would delete, and that inventory is read as one bounded piece. The whole
+reading, git and disk together, has twenty seconds, the same as every other
+read the host makes. At the deadline its git children are killed and the
+reading is refused with "Couldn't list what this worktree holds in time;
+nothing was removed", so a removal that could not list a checkout takes none of
+it. The reading it replaces waited for as long as a mount that had stopped
+answering under an ignored folder stayed silent, and left its git child behind.
+
+The digest a confirmation is bound to holds the two kinds of content
+differently. What git reports as changed, tracked or untracked, is somebody's
+own work and stays held to its mode, identity, size and both times. What git
+ignores — dependencies, build output, caches — is held to its path, type,
+size and mode, and the folders it is read through to their mode and identity.
+A dev server or a watcher writes there while a person decides; held to its times,
+every write voided the confirmation and a write during the reading failed it,
+so a lane with a running dev server could not be removed. A name that appears
+or goes, a file that changes size or mode, or a folder swapped for another
+still voids a confirmation. A rewrite that leaves the size alone does not, because what is
+ignored is made again by whatever made it. A file that is gone by the time it
+is read stands for nothing, so a scratch file a writer renames away does not
+split two readings of the same lane.
+
+**The rule:** bound the reading and refuse on a miss; hold a person's work to
+its contents and what a tool makes again to its names, sizes and modes.
 
 ## The sidebar reads the desk's conversation index
 
@@ -887,9 +924,35 @@ ordinary card commit. (#1351)
 Git the host runs on its own in a checkout an agent can write — evidence
 reads, status, cutting a lane, diffs — carries a narrower floor
 (`git-hardening.ts`): no hook, no filesystem monitor, no external diff, the
-default ssh, and no signing. It does not switch filters or textconv off: a
-filter the repository configures still runs when a host status re-reads a
-stat-dirty file, and host diffs pass `--no-ext-diff --no-textconv` themselves.
+default ssh, no signing, and no signature check when a history read prints a
+commit (`log.showSignature` would start the repository's `gpg.program` for each
+signed commit a `log` or `show` lists). Working-file reads use a private Git
+directory with an immutable configuration snapshot. Included and global settings are
+flattened into that snapshot; include paths and the repository's filter
+definitions are omitted. Global and system includes are evaluated from the
+repository's folder, so a conditional include for that repository applies;
+only those two scopes contribute filter definitions, with other Git environment
+configuration removed. The filters the person's own configuration defines are
+the one thing added: they are read apart from repository configuration by the
+`--system` and `--global` scopes alone (the system file only where `GIT_CONFIG_NOSYSTEM` would let git read it), and a file that is not
+there is no definition. A repository that keeps its files behind Git LFS then
+reads clean in status and can have a lane cut from it, because the program that
+converts them is the person's own. A repository can neither add a driver to
+that set nor change one in it, so a filter only the repository defines is never
+run. A status read leaves `required` off for those filters, so a program that
+has gone missing shows as a change instead of failing the read. The consuming
+process cannot acquire another driver from live configuration.
+Status disables Git's implicit submodule content reads and reads initialized
+children through the same isolated runner, retaining their content, untracked,
+and commit-change reporting. Parent diffs use short gitlink summaries rather
+than starting child diff commands, and pass `--no-ext-diff --no-textconv`.
+Automatic checkouts inspect the target tree's attributes in a private index
+and refuse files whose filter the person has not defined, instead of writing
+them without conversion; the filters they have defined convert the files with
+their own program. Removing a lane still runs git with every filter off, so no
+filter program is needed to remove one.
+They register an empty checkout and check its attributes again before writing
+files, because conditional configuration can differ in a linked worktree.
 Verbs a person triggers — bringing a branch home, the git client's commit,
 checkout and worktree verbs — run with the person's hooks, as their own git
 would; a hook path a repository sets (husky's is a tracked folder) is one an
@@ -1589,6 +1652,115 @@ returned or an error escapes. Linux without procfs, and other platforms,
 refuse these opens rather than falling back to path-only checks. Directory
 creation, publication and cleanup still use paths and identity checks; this
 does not turn the whole operation into a descriptor-relative transaction.
+
+## Local workspace content uses no-follow opens on macOS and Linux
+
+The host's `LocalFiles` reader and writer use the same content-open traversal
+as Agent sources: macOS refuses links in any component, and Linux opens each
+component through a held directory descriptor. Local workspace reads, saves
+and editor writes deliberately require macOS or Linux until another platform
+has an equivalent traversal. A canonical-root check still precedes each open.
+Runtime-provided file services keep their own platform support behind that
+same canonical-root check.
+
+Linux's directory opens use `O_RDONLY | O_DIRECTORY`, so every ancestor must
+be readable as well as searchable. A search-only ancestor is deliberately
+refused even when an ordinary path open could reach the file. The workspace
+refusal names this requirement; a platform refusal names workspace reads and
+saves and the supported systems.
+
+The host's per-file turn fallback has the same platform limit for creating
+and removing files, including rollback. Its refusal names workspace file
+changes. Aggregated patches and individual update hunks still go through Git.
+
+## Local workspace reads and saves require one filesystem link
+
+Local workspace reads, previews and saves require a regular file with exactly
+one filesystem link, checked on the opened descriptor. A second name can make
+a file outside the admitted roots look like one inside them, even when its
+canonical path passes the root check. Reads and previews refuse it with a
+message explaining that the file has more than one name on disk.
+
+A save checks the opened descriptor before truncating it, and its refusal says
+why: changing the contents would change every name sharing them, including any
+outside the admitted roots. A separate copy with one filesystem link can be
+opened and edited here. Symbolic paths whose canonical target stays inside an
+admitted root keep their existing behavior.
+
+## Path confinement walks a link's target the way the kernel does
+
+A path is admitted when its spelling and its canonical target are both inside
+an admitted root. The canonical target of a name that is not there yet is its
+deepest existing ancestor with the missing names appended, and a link that
+leads nowhere yet still names a destination: that destination is part of the
+answer. It is found by walking the link's target one name at a time, from the
+link's real parent (from the root of the filesystem for an absolute target).
+A `..` takes the parent of the real folder reached so far, a name that exists
+becomes its real path, and a link met on the way is followed in turn.
+
+Reading the target as text is wrong exactly when a `..` follows a link:
+`sub/../x` is a sibling of `sub` as text, but for the kernel it is a file
+beside the folder `sub` leads to, which can be outside the project that holds
+both links and is where a runtime's own writer creates the file. A `..` after
+a name that does not exist has no folder to go up from, so the walk refuses it
+rather than guessing.
+
+## Confinement asks the disk off the host's thread, under a deadline
+
+Every file request is confined: the renderer reads, stats, saves and lists by
+path, and polls `workspace/stat` every few seconds for each open editor tab.
+Confinement looks at the disk — where the path really leads, and which of the
+roster's folders are linked into this machine's Agents root — and it did so
+with synchronous calls on the host's own thread. A single link onto a volume
+that had stopped answering then stopped every wire method and every session's
+stream behind it, for as long as the volume stayed silent.
+
+So the walk uses `fs/promises`, where a silent volume holds workers of the
+thread pool and not the host's own thread. The spelling is judged first and
+costs nothing: a path outside every root's spelling is refused without the disk
+being asked. Only then are the target and the roots that spell it resolved,
+together, and only for `CONFINE_DEADLINE_MS`. When that is up the request is
+refused with the volume named as the reason — a late answer never admits a
+path — and the walk is told to stop: a call already asked cannot be taken back,
+but no next one is started.
+
+That call keeps its worker until the volume answers, and the pool is four
+threads for every file, folder and lookup on any volume. An editor polling a
+silent volume every few seconds would leave another call behind each time, and
+four of them leave nothing for the rest of the host. So a root whose request
+gave up is held: a request that names it is refused at once with the same
+answer (`unreadable`, for `workspace/readFile`), and the disk is not asked,
+until every call left behind has come back, answered or failed. It is held by
+the most specific named root containing the target, so a stall below a nested
+root refuses its paths while paths elsewhere in the outer root remain usable. And a volume cannot be told from a slow one
+before the deadline, so the requests that arrived within a deadline of the first
+were asked all the same.
+
+The roster's own folders (`AgentFileRoots`) are the other disk read a file
+request made. They are listed off the thread, kept for a few seconds, shared by
+requests that arrive together, and dropped the moment the host says
+`agent/changed` for this machine's roots. A request waits for a listing no
+longer than two seconds in all, and a listing already late is not waited for
+again; it is answered with the last listing, or with the root alone. A folder
+not yet seen is not admitted, which is the safe way for a slow disk to be
+wrong. What it costs: an Agent folder linked in by hand is readable by path
+once the roster watch has noticed (a moment), or when the listing is five
+seconds old, where it used to be at once.
+
+## A path the disk will not resolve is a file's state, not a refusal
+
+Looking at the disk can fail without deciding anything: a link that loops, a
+folder nobody may search, a volume that did not answer in time. None of those
+is "outside every open workspace", and none should read as it. They are raised
+as `PathUnresolvableError`, which keeps the errno the disk gave and its reason.
+
+`workspace/readFile` answers a file in its own terms — gone, or there but not
+readable — and did so before confinement looked at the disk, so it answers this
+error the same way: `missing` for a name the kernel would call absent (a `..`
+below a name that is not there), `unreadable` with the reason for the rest.
+Every other method passes the error on as the plain error it is. A path that is
+simply outside every workspace stays a refusal, and a name that is merely not
+there yet is still admitted.
 
 ## An evidence guard judges revisions, found by card and revision, never by round
 
@@ -3970,3 +4142,29 @@ permission enforcement, authoring recovery or the host's seating decisions.
 Superpowers specs and plans are local working notes. Both corresponding
 folders are ignored and untracked at the owner's request; product contracts
 and verification evidence remain in the ordinary documentation tree.
+
+## The client is open; the hosted service is closed — 2026-10-21
+
+**Status:** only the wire exists so far: `packages/contract` and
+`packages/crypto`, with their tests. The desktop does not connect to the
+service yet, so what follows about sign-in, pairing and the seam is the intent
+the wire is shaped for, not something built.
+
+The desktop is MIT, and so will be everything in it that talks to a service:
+sign-in as a public client (PKCE through the system browser, a
+`harnessdesk://` redirect, the token in the keychain), the desk's Ed25519
+identity and QR pairing, and the encryption of relay and push messages. The
+protocol is open too — `packages/contract` and `packages/crypto`, with the test
+vectors the phone must reproduce. What stays closed is the hosted service (accounts, relay
+and push gateway) and the iOS app. [open-and-hosted.md](open-and-hosted.md)
+says what the service can see and where secrets live.
+
+This costs the service any reliance on the client: anyone can build another
+client against the open protocol, so every limit, check and expiry is enforced
+on the server, and no secret ships in the app. It buys a client whose
+handling of keys and tokens anyone can read, and a service that can be audited
+from its wire. A closed helper process beside the desktop was considered and
+not built; the desktop's cloud code will stay behind one seam so that remains
+possible, and the renderer never imports the wire (`pnpm layering`).
+
+**Rule:** the client holds no service secret and the service trusts nothing the client says.

@@ -1,6 +1,6 @@
 /** The README's race: two Seats build the same brief Side by side, each in its own Browser, and the judge picks one. */
 import { useEffect, useMemo, type ReactNode } from 'react'
-import type { Session, SessionKey } from '@harnessdesk/protocol'
+import { sessionBrowserProfile, type Session, type SessionKey } from '@harnessdesk/protocol'
 import { MountProvider } from '../panels/mount'
 import { KeyboardHereContext, StoreProvider } from '../state/context'
 import { browserView } from '../state/layout'
@@ -11,12 +11,19 @@ import { comparisonVerdictStore } from './comparison-verdict-fixture'
 import { PREVIEW_ROOM } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
 import { README_RACE_RUNTIMES } from './readme-names'
-import { SIDE_BY_SIDE_KEYS } from './side-by-side-fixture'
+import { SIDE_BY_SIDE_KEYS, SIDE_BY_SIDE_MEMBERS } from './side-by-side-fixture'
 import { Sidebar } from '../components/Sidebar'
 import { TeamFramePreview } from './TeamFramePreview'
 
 /** Each Seat's lane serves its attempt on the lane's first port. */
 export const README_RACE_URLS = { 'lane-alpha': 'http://localhost:30000/', 'lane-beta': 'http://localhost:30020/' } as const
+const LANES = Object.keys(README_RACE_URLS) as (keyof typeof README_RACE_URLS)[]
+/** The fixture names its Browsers for their Seat's session, so the race reads that profile back to the lane it shows. */
+const LANE_BY_PROFILE = Object.fromEntries(
+  SIDE_BY_SIDE_MEMBERS.slice(0, 2).map((member, index) => [sessionBrowserProfile(member.runtime, member.id), LANES[index]!]),
+) as Readonly<Record<string, keyof typeof README_RACE_URLS>>
+const laneFor = (profile: string): keyof typeof README_RACE_URLS | undefined =>
+  Object.hasOwn(LANE_BY_PROFILE, profile) ? LANE_BY_PROFILE[profile] : undefined
 const BRIEF = 'Build a side-scrolling runner game that plays itself, in one file.'
 const ANSWERS = [
   'Moonberry Express is in index.html: a courier hare runs pastel parallax gardens under a drifting sky-whale, collecting glowing berries on a seeded autopilot.',
@@ -63,8 +70,9 @@ export const raceStore = (theme: 'light' | 'dark'): Patchable & { stage: (stage:
   const before = comparisonVerdictStore('before').getSnapshot()
   const snapshot = picked.getSnapshot()
   const workbench = mountedViews(snapshot.workbench).reduce((current, { mounted }) => {
-    const profile = mounted.view.kind === 'browser' ? mounted.view.profile : undefined
-    return profile && profile in README_RACE_URLS ? replaceView(current, mounted.id, browserView(README_RACE_URLS[profile as keyof typeof README_RACE_URLS], profile)) : current
+    const profile = mounted.view.kind === 'browser' ? mounted.view.profile : null
+    const lane = profile ? laneFor(profile) : undefined
+    return lane ? replaceView(current, mounted.id, browserView(README_RACE_URLS[lane], profile)) : current
   }, snapshot.workbench)
   /* The Board's cards keep their recorded attempt titles; name them for this brief. */
   const named = (snap: AppSnapshot): Pick<AppSnapshot, 'teams' | 'goals'> => {
@@ -103,7 +111,7 @@ export const RaceFrame = ({ store }: { store: AppStore }) => {
   return <StoreProvider store={store}>
     <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
       <KeyboardHereContext.Provider value={false}>
-        <Themed><TeamFramePreview room={PREVIEW_ROOM} view={view} railOpen={false} sidebar={<Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /></Themed>
+        <Themed><TeamFramePreview room={PREVIEW_ROOM} view={view} railOpen={false} sidebar={<Sidebar onOpenSettings={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /></Themed>
       </KeyboardHereContext.Provider>
     </MountProvider>
   </StoreProvider>

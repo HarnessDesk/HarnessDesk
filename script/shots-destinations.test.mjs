@@ -7,19 +7,30 @@ const from = shoot.indexOf("  for (const section of ['profile'")
 const to = shoot.indexOf("  SCENES['composer-menu']", from)
 assert.ok(from >= 0 && to > from)
 
-for (const [section, destination] of [['library', 'library'], ['plugins', 'plugins'], ['appearance', 'settings']]) {
+for (const [section, destination] of [['skills', 'library'], ['library', 'library'], ['plugins', 'plugins'], ['hooks', 'settings'], ['appearance', 'settings']]) {
   test(`native ${section} scene asserts the visible ${destination} destination`, async () => {
     let asked
     const store = { askSettings: name => { asked = name } }
-    const document = { querySelector: selector => selector === `[data-page-destination="${destination}"]:not([hidden])`
-      ? { getBoundingClientRect: () => ({ width: 800, height: 700 }) } : null }
+    let visible = true, dashboard = false, width = 800, height = 700
+    const page = { getBoundingClientRect: () => ({ width, height }) }
+    const document = { querySelector: selector => {
+      if (selector === '[data-page-destination="dashboard"]:not([hidden])') return dashboard ? page : null
+      if (selector === `[data-page-destination="${destination}"]:not([hidden])`) return visible ? page : null
+      return null
+    } }
     const scenes = {}
     const cdp = { eval: async expression => new Function('fixtureStore', 'document', `return ${expression}`)(store, document) }
     new Function('SCENES', 'cdp', 'STORE', 'q', 'sleep', shoot.slice(from, to))(scenes, cdp, 'fixtureStore', JSON.stringify, async () => {})
     await scenes[`settings-${section}`].run()
     assert.equal(asked, section)
-    document.querySelector = () => null
-    await assert.rejects(scenes[`settings-${section}`].run(), /visible/)
+    visible = false
+    await assert.rejects(scenes[`settings-${section}`].run(), /visible/, 'a retained hidden page is not the destination')
+    visible = true; dashboard = true
+    await assert.rejects(scenes[`settings-${section}`].run(), /visible/, 'a dashboard still in front invalidates the scene')
+    dashboard = false; width = 0
+    await assert.rejects(scenes[`settings-${section}`].run(), /visible/, 'an unmeasured page is not visible')
+    width = 800; height = 0
+    await assert.rejects(scenes[`settings-${section}`].run(), /visible/, 'a collapsed page is not visible')
   })
 }
 

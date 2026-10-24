@@ -1,0 +1,428 @@
+import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test, type TestContext } from 'node:test'
+
+import { builtinAgentRoot } from '../src/host.js'
+import { canonicalTarget } from '../src/path-confinement.js'
+import { PathUnresolvableError, confine } from '../src/workspace.js'
+import { Client, start, stop } from './fixtures/harness.js'
+import { FAKE_RUNTIME_ID } from './fixtures/fake-runtime.js'
+
+/**
+ * A file request is answered without the host's own thread waiting on a disk.
+ *
+ * Confinement looks at the disk — where a link really leads, which of the
+ * roster's folders are linked in — and does it for every read, stat, save and
+ * listing the renderer asks for, a few seconds apart for every open editor
+ * tab. A synchronous call there stops every wire method and every session's
+ * stream behind it for as long as the volume takes to answer, and a network
+ * mount that has stopped answering never does.
+ *
+ * So the checks are asynchronous, and a volume that never answers costs the
+ * request that asked about it — refused at a deadline, its walk stopped — and
+ * not the host. The call that walk was waiting on cannot be taken back and keeps
+ * a worker of the thread pool until the volume answers, so a root with such a
+ * call out is refused at once and not walked again until the call has come back.
+ */
+
+type Sync = (...args: unknown[]) => unknown
+
+/** The synchronous reads confinement used to make, counted when they name something under `prefixes`. */
+const watchSyncReads = (prefixes: readonly string[]): { readonly calls: string[]; restore(): void } => {
+  const fs = createRequire(import.meta.url)('node:fs') as Record<string, Sync> & { realpathSync: Sync & { native: Sync } }
+  const calls: string[] = []
+  const counted = (name: string, original: Sync): Sync => (...args) => {
+    const first = String(args[0])
+    if (prefixes.some((prefix) => first.startsWith(prefix))) calls.push(`${name} ${first}`)
+    return original(...args)
+  }
+  const originals = {
+    readdirSync: fs['readdirSync']!,
+    statSync: fs['statSync']!,
+    lstatSync: fs['lstatSync']!,
+    readlinkSync: fs['readlinkSync']!,
+    realpathSync: fs.realpathSync,
+  }
+  fs['readdirSync'] = counted('readdirSync', originals.readdirSync)
+  fs['statSync'] = counted('statSync', originals.statSync)
+  fs['lstatSync'] = counted('lstatSync', originals.lstatSync)
+  fs['readlinkSync'] = counted('readlinkSync', originals.readlinkSync)
+  fs.realpathSync = Object.assign(counted('realpathSync', originals.realpathSync), {
+    native: counted('realpathSync.native', originals.realpathSync.native),
+  })
+  syncBuiltinESMExports()
+  return {
+    calls,
+    restore: () => {
+      Object.assign(fs, originals)
+      syncBuiltinESMExports()
+    },
+  }
+}
+
+test('file requests make no synchronous filesystem call on the host thread', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: harness.stateDir })
+
+  // The roster as a person has it: a folder, and one linked in from elsewhere.
+  const agents = join(harness.stateDir, 'agents')
+  await mkdir(join(agents, 'reviewer'), { recursive: true })
+  await writeFile(join(agents, 'reviewer', 'AGENT.md'), 'reviewer')
+  await mkdir(join(harness.stateDir, 'elsewhere', 'scout'), { recursive: true })
+  await writeFile(join(harness.stateDir, 'elsewhere', 'scout', 'AGENT.md'), 'scout')
+  await symlink(join(harness.stateDir, 'elsewhere', 'scout'), join(agents, 'scout'))
+  const notes = join(harness.stateDir, 'notes.md')
+  await writeFile(notes, 'first draft\n')
+
+  const watch = watchSyncReads([harness.stateDir, await realpath(harness.stateDir), builtinAgentRoot()])
+  t.after(() => watch.restore())
+  const requests: Array<() => Promise<unknown>> = [
+    () => client.call('workspace/readFile', { path: notes }),
+    () => client.call('workspace/readFile', { path: join(agents, 'scout', 'AGENT.md') }),
+    () => client.call('workspace/stat', { path: notes }),
+    () => client.call('workspace/browse', { mode: 'entries', root: harness.stateDir, path: harness.stateDir }),
+    () => client.call('preview/ticket', { path: notes }),
+    () => client.call('file/save', { path: notes, content: 'second draft\n', expectedHash: '' }),
+  ]
+  const outcomes: string[] = []
+  for (const request of requests) {
+    await request().then(
+      () => outcomes.push('answered'),
+      (error: unknown) => outcomes.push(error instanceof Error ? error.message : String(error)),
+    )
+  }
+  watch.restore()
+
+  assert.deepEqual(watch.calls, [], 'a synchronous call blocks every other request until the disk answers')
+  // Not a refusal among them: the save answers with the file as it is, which is still an answer.
+  assert.deepEqual(outcomes, requests.map(() => 'answered'))
+})
+
+type Call = (...args: unknown[]) => Promise<unknown>
+
+const ASYNC_READS = ['realpath', 'lstat', 'readlink'] as const
+
+/**
+ * The asynchronous reads confinement makes, counted when they name something
+ * under `prefix`, and held — never answered until `release()` — when `isHeld`
+ * says so: which is what a volume that has stopped answering looks like from
+ * here. `release(path)` lets only the calls held for that path come back.
+ */
+const holdDisk = (
+  prefix: string,
+  isHeld: (read: string, path: string) => boolean,
+): { readonly calls: string[]; release(only?: string): void; restore(): void } => {
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as Record<string, Call>
+  const calls: string[] = []
+  const held: Array<{ readonly path: string; answer(): void }> = []
+  const originals = Object.fromEntries(ASYNC_READS.map((read) => [read, fsp[read]!])) as Record<(typeof ASYNC_READS)[number], Call>
+  for (const read of ASYNC_READS) {
+    fsp[read] = (...args) => {
+      const path = String(args[0])
+      if (!path.startsWith(prefix)) return originals[read](...args)
+      calls.push(`${read} ${path}`)
+      if (!isHeld(read, path)) return originals[read](...args)
+      return new Promise((resolve, reject) => {
+        held.push({ path, answer: () => { originals[read](...args).then(resolve, reject) } })
+      })
+    }
+  }
+  syncBuiltinESMExports()
+  return {
+    calls,
+    release: (only) => {
+      for (const call of held.filter((one) => only === undefined || one.path === only)) {
+        held.splice(held.indexOf(call), 1)
+        call.answer()
+      }
+    },
+    restore: () => {
+      Object.assign(fsp, originals)
+      syncBuiltinESMExports()
+    },
+  }
+}
+
+const scratch = async (t: TestContext): Promise<string> => {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'hd-file-requests-')))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  return dir
+}
+
+test('a path whose volume does not answer is refused at the deadline, and nothing more is asked of it', { timeout: 20_000 }, async (t) => {
+  const dir = await scratch(t)
+  const root = join(dir, 'project')
+  await mkdir(root)
+  const target = join(root, 'a', 'b', 'c', 'new.txt')
+  // The disk never answers about the file itself; it answers about everything else.
+  const disk = holdDisk(dir, (read, path) => read === 'realpath' && path === target)
+  t.after(() => disk.restore())
+  const started = performance.now()
+  await assert.rejects(
+    confine(target, [root], { deadlineMs: 30 }),
+    (error: unknown) =>
+      error instanceof PathUnresolvableError &&
+      error.code === 'ETIMEDOUT' &&
+      /could not be checked: its volume did not answer in time/.test(error.message),
+  )
+  assert.ok(performance.now() - started < 10_000, 'the refusal came with the deadline and not with the disk')
+  // The disk answers late. The walk it was in the middle of has been told to stop, so it climbs no further.
+  disk.release()
+  await new Promise((done) => setTimeout(done, 150))
+  assert.deepEqual(
+    disk.calls.filter((call) => call.startsWith('realpath ')),
+    [`realpath ${target}`, `realpath ${root}`],
+    'a late answer must not start another step of a walk that was given up on',
+  )
+})
+
+test('a walk that is told to stop takes no further step', async (t) => {
+  const dir = await scratch(t)
+  const target = join(dir, 'a', 'b', 'c', 'new.txt')
+  const disk = holdDisk(dir, (read, path) => read === 'realpath' && path === target)
+  t.after(() => disk.restore())
+  const stop = new AbortController()
+  const walk = canonicalTarget(target, stop.signal)
+  stop.abort()
+  disk.release()
+  await assert.rejects(walk, (error: unknown) => (error as Error).name === 'AbortError')
+  assert.deepEqual(disk.calls.filter((call) => call.startsWith('realpath ')), [`realpath ${target}`])
+})
+
+test('a path outside every root is refused without asking the disk about it', async (t) => {
+  const dir = await scratch(t)
+  const root = join(dir, 'project')
+  await mkdir(root)
+  // Anything asked of this disk would wait for the deadline, which the refusal must not.
+  const disk = holdDisk(dir, () => true)
+  t.after(() => disk.restore())
+  await assert.rejects(
+    confine(join(dir, 'elsewhere', 'file.txt'), [root], { deadlineMs: 200 }),
+    /is outside every open workspace/,
+  )
+  assert.deepEqual(disk.calls, [])
+})
+
+/** The answer a request gets when its volume did not say where a path leads before the deadline. */
+const volumeDidNotAnswer = (error: unknown): boolean =>
+  error instanceof PathUnresolvableError &&
+  error.code === 'ETIMEDOUT' &&
+  /could not be checked: its volume did not answer in time/.test(error.message)
+
+/**
+ * Asks again until `settled` accepts the answer. A root that was held is let
+ * go a few turns of the event loop after the call that held it is released, and
+ * until then the answer is the same refusal.
+ */
+const eventually = async <T>(ask: () => Promise<T>, settled: (answer: T) => boolean): Promise<T> => {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const answer = await ask()
+    if (settled(answer)) return answer
+    await new Promise((resume) => setTimeout(resume, 10))
+  }
+  throw new Error('the root was still held after its call came back')
+}
+
+test('a root with a call still out on a silent volume is refused at once and not walked again, until that call comes back', { timeout: 30_000 }, async (t) => {
+  const dir = await scratch(t)
+  const root = join(dir, 'project')
+  await mkdir(join(root, 'src'), { recursive: true })
+  const file = join(root, 'src', 'a.txt')
+  await writeFile(file, 'a')
+  const other = join(dir, 'other')
+  await mkdir(other)
+  // The disk never answers about this one path; it answers about everything else.
+  const stalled = join(root, 'mount', 'file.txt')
+  const disk = holdDisk(dir, (read, path) => read === 'realpath' && path === stalled)
+  t.after(() => {
+    disk.release()
+    disk.restore()
+  })
+
+  // The first request waits for its deadline, and is told the volume did not answer.
+  const first = await confine(stalled, [root], { deadlineMs: 30 }).then(() => 'answered', (error: unknown) => error)
+  assert.ok(volumeDidNotAnswer(first), 'the first request is refused at its deadline')
+  const asked = disk.calls.length
+
+  // A second request under the same root gets the same answer without waiting for a deadline,
+  // and without a call to the disk: the one it would add holds a worker of the thread pool too.
+  const started = performance.now()
+  const second = await confine(file, [root], { deadlineMs: 5_000 }).then(() => 'answered', (error: unknown) => error)
+  assert.ok(volumeDidNotAnswer(second), 'a root with a call still out is refused as the deadline refuses it')
+  assert.ok(performance.now() - started < 1_000, 'the refusal came without waiting for a deadline')
+  assert.deepEqual(disk.calls.slice(asked), [], 'a root with a call still out must not be walked again')
+
+  // Another root has no call out, and is asked as usual.
+  assert.equal(await confine(join(other, 'file.txt'), [other], { deadlineMs: 5_000 }), join(other, 'file.txt'))
+
+  // The call comes back, and the root is usable again: the next request walks it as it always did.
+  const back = disk.calls.length
+  disk.release()
+  const third = await eventually(
+    () => confine(file, [root], { deadlineMs: 5_000 }).catch((error: unknown) => error),
+    (outcome) => !volumeDidNotAnswer(outcome),
+  )
+  assert.equal(third, file)
+  assert.ok(
+    disk.calls.slice(back).includes(`realpath ${file}`),
+    'once the call is back the root is walked again',
+  )
+})
+
+test('a stalled nested root holds its own files while a read elsewhere in the outer root still answers', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const outer = harness.stateDir
+  const inner = join(outer, 'mount')
+  await mkdir(inner)
+  await client.call('workspace/open', { path: outer })
+  await client.call('workspace/open', { path: inner })
+  const notes = join(outer, 'notes.md')
+  await writeFile(notes, 'outer draft\n')
+  const stalled = join(inner, 'file.txt')
+  const disk = holdDisk(outer, (read, path) => read === 'realpath' && path === stalled)
+  try {
+    const first = await confine(stalled, [outer, inner], { deadlineMs: 30 }).catch((error: unknown) => error)
+    assert.ok(volumeDidNotAnswer(first))
+    const asked = disk.calls.length
+    const held = await client.call('workspace/readFile', { path: join(inner, 'other.txt') }) as { kind?: string }
+    assert.equal(held.kind, 'unreadable')
+    assert.deepEqual(disk.calls.slice(asked), [], 'the inner root is not walked again')
+    const read = await client.call('workspace/readFile', { path: notes }) as { kind?: string; content?: string }
+    assert.equal(read.kind, 'text')
+    assert.equal(read.content, 'outer draft\n')
+  } finally {
+    disk.release()
+    disk.restore()
+  }
+})
+
+test('a root stays held until every call left behind on it has come back', { timeout: 30_000 }, async (t) => {
+  const dir = await scratch(t)
+  const root = join(dir, 'project')
+  await mkdir(join(root, 'src'), { recursive: true })
+  const file = join(root, 'src', 'a.txt')
+  await writeFile(file, 'a')
+  // Two paths on volumes that do not answer, asked together: neither request has been refused when the other is asked.
+  const mounts = [join(root, 'mount-a', 'file.txt'), join(root, 'mount-b', 'file.txt')]
+  const disk = holdDisk(dir, (read, path) => read === 'realpath' && mounts.includes(path))
+  t.after(() => {
+    disk.release()
+    disk.restore()
+  })
+  const refused = await Promise.all(
+    mounts.map((mount) => confine(mount, [root], { deadlineMs: 30 }).then(() => 'answered', (error: unknown) => error)),
+  )
+  assert.ok(refused.every(volumeDidNotAnswer), 'both requests are refused at their deadline')
+
+  // One of the two calls comes back and its walk ends. The other is still out, so the root is still not walked.
+  disk.release(mounts[0])
+  await new Promise((resume) => setTimeout(resume, 100))
+  const asked = disk.calls.length
+  const during = await confine(file, [root], { deadlineMs: 5_000 }).then(() => 'answered', (error: unknown) => error)
+  assert.ok(volumeDidNotAnswer(during), 'a root with one call still out is refused')
+  assert.deepEqual(disk.calls.slice(asked), [], 'and is not walked')
+
+  // The last call comes back, and the root is let go.
+  disk.release(mounts[1])
+  const after = await eventually(
+    () => confine(file, [root], { deadlineMs: 5_000 }).catch((error: unknown) => error),
+    (outcome) => !volumeDidNotAnswer(outcome),
+  )
+  assert.equal(after, file)
+})
+
+test('workspace/readFile answers a root with a call still out as unreadable at once, and reads again when it is back', { timeout: 30_000 }, async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: harness.stateDir })
+  const notes = join(harness.stateDir, 'notes.md')
+  await writeFile(notes, 'first draft\n')
+  const stalled = join(harness.stateDir, 'stalled-mount', 'file.txt')
+  const disk = holdDisk(harness.stateDir, (read, path) => read === 'realpath' && path === stalled)
+  try {
+    // One request finds the volume silent; its deadline is short here, as the host's own is not.
+    const first = await confine(stalled, [harness.stateDir], { deadlineMs: 30 }).then(() => 'answered', (error: unknown) => error)
+    assert.ok(volumeDidNotAnswer(first))
+
+    const started = performance.now()
+    const held = (await client.call('workspace/readFile', { path: notes })) as { kind?: string; message?: string }
+    assert.equal(held.kind, 'unreadable')
+    assert.match(held.message ?? '', /its volume did not answer in time/)
+    assert.ok(performance.now() - started < 5_000, 'the answer did not wait for a deadline')
+    assert.ok(!disk.calls.includes(`realpath ${notes}`), 'the file was not walked while the call was out')
+
+    disk.release()
+    const back = await eventually(
+      () => client.call('workspace/readFile', { path: notes }) as Promise<{ kind?: string }>,
+      (answer) => answer.kind !== 'unreadable',
+    )
+    assert.equal(back.kind, 'text')
+  } finally {
+    // Whatever happened above, the disk answers before the host stops.
+    disk.release()
+    disk.restore()
+  }
+})
+
+test('a path on a volume that stops answering holds its own request and no other', { timeout: 30_000 }, async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: harness.stateDir })
+  const notes = join(harness.stateDir, 'notes.md')
+  await writeFile(notes, 'first draft\n')
+  const stalled = join(harness.stateDir, 'stalled-mount', 'file.txt')
+  const disk = holdDisk(harness.stateDir, (read, path) => read === 'realpath' && path === stalled)
+  try {
+    let answered = false
+    const waiting = client.call('workspace/stat', { path: stalled }).then(
+      () => { answered = true },
+      () => { answered = true },
+    )
+    // Every other request is answered while that one waits for its disk.
+    await client.call('workspace/stat', { path: notes })
+    const read = (await client.call('workspace/readFile', { path: notes })) as { kind?: string }
+    assert.equal(read.kind, 'text')
+    assert.equal(answered, false, 'the stalled request is still waiting for its volume')
+    disk.release()
+    await waiting
+  } finally {
+    // Whatever happened above, the disk answers and its deadline timer is cleared before the host stops.
+    disk.release()
+    disk.restore()
+  }
+})
+
+test('a roster change reaches the file checks at once, and a folder linked in is then readable', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const agents = join(harness.stateDir, 'agents')
+  await mkdir(join(agents, 'reviewer'), { recursive: true })
+  await writeFile(join(agents, 'reviewer', 'AGENT.md'), 'reviewer')
+  // The first request reads the roster's folders, and they are kept.
+  await client.call('workspace/readFile', { path: join(agents, 'reviewer', 'AGENT.md') })
+
+  // A folder is linked in afterwards, and the desk says the roster changed.
+  await mkdir(join(harness.stateDir, 'elsewhere', 'scout'), { recursive: true })
+  await writeFile(join(harness.stateDir, 'elsewhere', 'scout', 'AGENT.md'), 'scout')
+  await symlink(join(harness.stateDir, 'elsewhere', 'scout'), join(agents, 'scout'))
+  await client.call('agent/seating/set', { id: 'reviewer', seats: [{ runtime: FAKE_RUNTIME_ID, model: 'big' }] })
+
+  const read = (await client.call('workspace/readFile', { path: join(agents, 'scout', 'AGENT.md') })) as { kind: string; content?: string }
+  assert.equal(read.kind, 'text')
+  assert.equal(read.content, 'scout')
+})

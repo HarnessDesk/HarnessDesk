@@ -7,10 +7,10 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 const scenes = [
   ['settings-account-usage', 'frame-wall=settings&frame-detail=account', 'Runtimes'],
   ['teams', 'frame-wall=teams', 'Teams'],
-  ['library', 'frame-wall=library', 'Library'],
+  ['library', 'frame-wall=library', 'Customize'],
   ['agents', 'frame-wall=agents', 'Agents'],
   ['dashboard', 'frame-wall=dashboard', 'Dashboard'],
-  ['plugins', 'frame-wall=plugins', 'Plugins'],
+  ['plugins', 'frame-wall=plugins', 'Customize'],
   ['session', 'frame-wall=conversation', null],
 ] as const
 const record = async (page: Page, name: string) => {

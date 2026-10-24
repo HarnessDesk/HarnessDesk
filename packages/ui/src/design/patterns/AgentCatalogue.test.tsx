@@ -21,6 +21,16 @@ it('gives purpose prose widow-resistant wrapping without changing the card grid 
   expect(rule).toMatch(/overflow-wrap:\s*anywhere\s*;/)
 })
 
+it('states the card gap once, in the utility the Card merges, so no stylesheet order can undo it', () => {
+  act(() => root.render(<AgentCatalogueCard name="Code reviewer" description="Reads a change." face={<span>CR</span>} onOpen={() => {}} />))
+  const classes = host.querySelector('[data-slot="agent-card"]')!.className.split(/\s+/)
+  // The compact Card brings `gap-2`. Left to a module rule, the gap was 16px under the dev server and 8px in a
+  // built page: both rules are one class deep, so whichever sheet is written later wins. Merged, it is 16px in both.
+  expect(classes).toContain('gap-4')
+  expect(classes).not.toContain('gap-2')
+  expect(sheet.match(/\.card\s*\{([^}]+)\}/)?.[1]).not.toMatch(/(?:^|[;\s])gap\s*:/)
+})
+
 it('keeps a role purpose readable in full instead of cutting the sentence to two lines', () => {
   const description = 'Builds the change it is given on its own branch, proves it with the project’s checks, and hands it over.'
   act(() => root.render(<AgentCatalogueCard name="Implementer" description={description} face={<span>IM</span>} onOpen={() => {}} />))

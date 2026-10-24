@@ -1,7 +1,6 @@
-import { execFile } from 'node:child_process'
-
 import type { FindingSeries, FindingView, RepairPacket } from '@harnessdesk/protocol'
 
+import { readGit } from '../git-read.js'
 import { isSha } from '../evidence/records.js'
 import { isResolved } from './model.js'
 
@@ -33,24 +32,18 @@ const HISTORY_CHANGED = 'History changed: the reviewed revision is not an ancest
 const GIT_TIMEOUT_MS = 20_000
 
 /** One git command, by argument vector, in the subject's checkout: its output, or null for any refusal. */
-const git = (cwd: string, args: readonly string[], limit = DELTA_LIMIT): Promise<{ readonly code: number; readonly out: string } | null> =>
-  new Promise((resolve) => {
-    execFile('git', ['-C', cwd, '--no-replace-objects', '-c', 'core.quotePath=true', ...args], {
-      timeout: GIT_TIMEOUT_MS,
-      // One byte past the limit is how an oversize delta is told from one exactly at it.
-      maxBuffer: limit + 1,
-      encoding: 'utf8',
+const git = async (cwd: string, args: readonly string[], limit = DELTA_LIMIT): Promise<{ readonly code: number; readonly out: string } | null> => {
+  try {
+    const { stdout } = await readGit(cwd, ['--no-replace-objects', '-c', 'core.quotePath=true', ...args], {
+      timeout: GIT_TIMEOUT_MS, maxBuffer: limit + 1,
       env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_EXTERNAL_DIFF: '', GIT_PAGER: 'cat' },
-    }, (error, stdout) => {
-      if (error) {
-        const code = (error as { code?: unknown }).code
-        // A non-zero exit is an answer for `merge-base --is-ancestor`; a kill, a timeout or an overflow is not.
-        resolve(typeof code === 'number' && !(error as { killed?: boolean }).killed ? { code, out: String(stdout) } : null)
-        return
-      }
-      resolve({ code: 0, out: String(stdout) })
     })
-  })
+    return { code: 0, out: stdout }
+  } catch (error) {
+    const failure = error as { code?: unknown; killed?: boolean; stdout?: string }
+    return typeof failure.code === 'number' && !failure.killed ? { code: failure.code, out: failure.stdout ?? '' } : null
+  }
+}
 
 /**
  * The package for a later review of `series` at `to`. The owner supplies an

@@ -8,7 +8,6 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: var(--hd-space-4);
   width: 100%;
   min-width: 0;
   text-align: left;

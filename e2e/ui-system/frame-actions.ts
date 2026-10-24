@@ -46,6 +46,11 @@ export const selectFrameTab = async (page: Page, value: string): Promise<void> =
     await selectTeamDestination(page.locator('body'), value)
     return
   }
+  if (value === 'skill' || value === 'mcp') {
+    const tabs = page.getByRole('radiogroup', { name: 'Customize sections', exact: true })
+    await tabs.getByRole('radio', { name: value === 'skill' ? 'Skills' : 'MCP', exact: true }).click()
+    return
+  }
   const choice = pageChoiceFor(value)
   const trigger = page.locator('[data-slot="page-options"]:visible').getByTitle(choice.title, { exact: true })
   await trigger.click()

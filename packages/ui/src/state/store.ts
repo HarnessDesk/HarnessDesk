@@ -606,6 +606,7 @@ export class AppStore {
    * The Library's view choices per section, for as long as this window is
    * open. See `state/library-views` — never a preference, never persisted.
    */
+  readonly #libraryViewListeners = new Set<() => void>()
   #libraryViews: Record<LibraryViewSection, LibraryViewState> = { skill: emptyLibraryView(), mcp: emptyLibraryView() }
   readonly #sessionRemovalRevisions = new Map<SessionKey, number>()
   #listeners = new Set<() => void>()
@@ -1438,13 +1439,21 @@ export class AppStore {
 
   /**
    * The Library's remembered view choices for one section: its filter,
-   * search, chip and list/matrix choice. Read when a section mounts and
+   * search, chip and layout choice. Read by retained sections and
    * written as the person changes it, so leaving for Changes and coming
    * back keeps the view they left.
    */
   libraryView(section: LibraryViewSection): LibraryViewState { return this.#libraryViews[section] }
-  /** Deliberately silent: the section reads this on mount and on section change, so no listener wake is owed. */
-  setLibraryView(section: LibraryViewSection, view: LibraryViewState): void { this.#libraryViews[section] = view }
+  subscribeLibraryViews = (listener: () => void): (() => void) => {
+    this.#libraryViewListeners.add(listener)
+    return () => { this.#libraryViewListeners.delete(listener) }
+  }
+  /** View edits notify their readers without rebuilding the global app snapshot. */
+  setLibraryView(section: LibraryViewSection, view: LibraryViewState): void {
+    if (this.#libraryViews[section] === view) return
+    this.#libraryViews[section] = view
+    for (const listener of this.#libraryViewListeners) listener()
+  }
 
   /** One click on a workspace group's +: that folder, a fresh draft. */
   async startSessionIn(path: string): Promise<void> {
@@ -3288,7 +3297,7 @@ export class AppStore {
     return this.transport.request('runtime/hooks', {
       runtime,
       ...(this.#snapshot.workspace?.path ? { cwd: this.#snapshot.workspace.path } : {}),
-    }).then((hooks) => [...hooks]).catch(() => [])
+    }).then((hooks) => [...hooks])
   }
 
   /**

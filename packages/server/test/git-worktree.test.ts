@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
+import childProcess from 'node:child_process'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import fs from 'node:fs'
+import fsPromises from 'node:fs/promises'
+import { chmod, link, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, test } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
 import { add, inventory, inventoryOf, list, move, prune, remove, setLock } from '../src/git-worktree.js'
@@ -505,6 +510,407 @@ test('a confirmation is void once the folder has changed under it', async () => 
   assert.ok(await gone(made.path))
 })
 
+test('a confirmation is void after a file is added inside an ignored directory', async () => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await writeFile(join(made.path, '.gitignore'), 'drafts/\n')
+  await mkdir(join(made.path, 'drafts', 'nested'), { recursive: true })
+  await writeFile(join(made.path, 'drafts', 'one.txt'), 'seen\n')
+  const held = await inventory(made.path)
+  assert.deepEqual(held.ignored, ['drafts/'])
+
+  const added = join(made.path, 'drafts', 'nested', 'two.txt')
+  await writeFile(added, 'new notes\n')
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  assert.equal(await readFile(added, 'utf8'), 'new notes\n')
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+// Work git reports as changed, tracked or not, is held to its contents. What git
+// ignores is held to its names, types and sizes instead: see "writers" below.
+test('a confirmation is void after listed file contents change', async (t) => {
+  for (const path of ['a.txt', 'loose.txt']) {
+    await t.test(path, async () => {
+      const { repo, state } = await seedRepo()
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      const file = join(made.path, path)
+      await writeFile(file, 'seen\n')
+      const held = await inventory(made.path)
+      const before = await stat(file)
+      await writeFile(file, 'edit\n')
+      await utimes(file, before.atime, before.mtime)
+
+      await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+      assert.equal(await readFile(file, 'utf8'), 'edit\n')
+      await remove(repo, made.path, true, await confirmed(made.path), state)
+      assert.ok(await gone(made.path))
+    })
+  }
+})
+
+test('inventory can confirm unreadable working and ignored files from their metadata', async (t) => {
+  for (const path of ['a.txt', 'cache/one.bin']) {
+    await t.test(path, async () => {
+      const { repo, state } = await seedRepo()
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+      await mkdir(join(made.path, 'cache'))
+      const file = join(made.path, path)
+      await writeFile(file, 'local notes\n')
+      await chmod(file, 0o000)
+      try {
+        await remove(repo, made.path, true, await confirmed(made.path), state)
+        assert.ok(await gone(made.path))
+      } finally {
+        await chmod(file, 0o644).catch(() => {})
+      }
+    })
+  }
+})
+
+test('inventory does not open checked files after a path replacement', async (t) => {
+  for (const path of ['a.txt', 'cache/one.bin']) {
+    await t.test(path, async (t) => {
+      const { repo, state } = await seedRepo()
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+      await mkdir(join(made.path, 'cache'))
+      const file = join(made.path, path)
+      await writeFile(file, 'local notes\n')
+      const outside = join(await tempDir('hd-inventory-outside-'), 'one.bin')
+      await writeFile(outside, 'outside notes\n')
+      const original = fs.createReadStream
+      let opened = 0
+      t.mock.method(fs, 'createReadStream', (...args: Parameters<typeof fs.createReadStream>) => {
+        if (args[0] === file) {
+          opened++
+          fs.unlinkSync(file)
+          fs.symlinkSync(outside, file)
+        }
+        return original(...args)
+      })
+      syncBuiltinESMExports()
+      try {
+        await inventory(made.path)
+        assert.equal(opened, 0, 'inventory only needs file metadata')
+      } finally {
+        t.mock.restoreAll()
+        syncBuiltinESMExports()
+      }
+      assert.equal(await readFile(outside, 'utf8'), 'outside notes\n')
+    })
+  }
+})
+
+test('a confirmation covers file contents beyond the inventory display cap', async () => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  for (let index = 0; index < 45; index += 1) {
+    await writeFile(join(made.path, `f${index.toString().padStart(2, '0')}.txt`), 'seen\n')
+  }
+  const held = await inventory(made.path)
+  assert.equal(held.changes.length, 40)
+  assert.equal(held.changeCount, 45)
+  await writeFile(join(made.path, 'f44.txt'), 'edit\n')
+
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  assert.equal(await readFile(join(made.path, 'f44.txt'), 'utf8'), 'edit\n')
+})
+
+test('inventory survives a reader held back beyond the Git listing deadline', { timeout: 30_000 }, async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+  const directory = `cache/${'a'.repeat(200)}/${'b'.repeat(200)}`
+  await mkdir(join(made.path, directory), { recursive: true })
+  const seed = join(made.path, directory, 'seed')
+  await writeFile(seed, '')
+  for (let start = 0; start < 4096; start += 64) {
+    await Promise.all(Array.from({ length: 64 }, (_, offset) =>
+      link(seed, join(made.path, directory, `${start + offset}-${'x'.repeat(180)}`))))
+  }
+
+  const spawn = childProcess.spawn
+  let listing: ReturnType<typeof spawn> | undefined
+  t.mock.method(childProcess, 'spawn', ((command, args, options) => {
+    // Compress the production deadline so this regression takes milliseconds,
+    // while keeping real Git, pipes, backpressure and the child kill timer.
+    const ignored = args?.includes('--ignored')
+    const child = spawn(command, args!, ignored && options?.timeout
+      ? { ...options, timeout: 250 } : options!)
+    if (ignored) listing = child
+    return child
+  }) as typeof spawn)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let reached!: () => void
+  const blocked = new Promise<void>((resolve) => { reached = resolve })
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === join(made.path, 'cache')) {
+      reached()
+      await held
+    }
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    const reading = inventory(made.path)
+    await blocked
+    assert.ok(listing)
+    assert.equal(listing.exitCode, null, 'Git is still writing when the reader stops')
+    await delay(500)
+    release()
+    assert.deepEqual((await reading).ignored, ['cache/'])
+  } finally {
+    release()
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+test('inventory checks shared parents once before and after each metadata batch', async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+  await mkdir(join(made.path, 'cache', 'deep'), { recursive: true })
+  await Promise.all(Array.from({ length: 64 }, (_, index) =>
+    writeFile(join(made.path, 'cache', 'deep', `${index}.bin`), 'notes\n')))
+  const lstat = fsPromises.lstat
+  const reads = new Map<string, number>()
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    const path = String(args[0])
+    reads.set(path, (reads.get(path) ?? 0) + 1)
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    await inventory(made.path)
+    assert.equal(reads.get(join(made.path, 'cache')), 2)
+    assert.equal(reads.get(join(made.path, 'cache', 'deep')), 2)
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+})
+
+test('inventory refuses a parent changed during a metadata batch', async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+  const directory = join(made.path, 'cache')
+  await mkdir(directory)
+  const file = join(directory, 'one.bin')
+  await writeFile(file, 'notes\n')
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === file) await chmod(directory, (await stat(directory)).mode ^ 0o040)
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    await assert.rejects(inventory(made.path), /changed while reading its inventory/)
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+})
+
+test('forced removal refuses when inventory metadata cannot be read', async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const file = join(made.path, 'a.txt')
+  await writeFile(file, 'notes\n')
+  const held = await confirmed(made.path)
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === file) throw Object.assign(new Error('inventory metadata refused'), { code: 'EACCES' })
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    await assert.rejects(remove(repo, made.path, true, held, state), /inventory metadata refused/)
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  assert.equal(await readFile(file, 'utf8'), 'notes\n')
+})
+
+test('inventory walks nested repository folders in parallel', async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const nested = join(made.path, 'nested')
+  await mkdir(nested)
+  await git(nested, 'init', '-q', '-b', 'main')
+  for (let index = 0; index < 8; index++) {
+    const directory = join(nested, `folder${index}`)
+    await mkdir(directory)
+    await writeFile(join(directory, 'one.txt'), 'notes\n')
+  }
+  const lstat = fsPromises.lstat
+  let active = 0
+  let peak = 0
+  let reverse = false
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (!String(args[0]).endsWith('/one.txt')) return lstat(...args)
+    active++
+    peak = Math.max(peak, active)
+    try {
+      const index = Number(String(args[0]).match(/folder(\d+)/)?.[1] ?? 0)
+      await delay(reverse ? 8 - index : index + 1)
+      return await lstat(...args)
+    } finally {
+      active--
+    }
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    const held = await inventory(made.path)
+    reverse = true
+    assert.equal(held.stateId, await confirmed(made.path), 'completion order cannot change the digest')
+    assert.ok(peak > 1, `nested folders were checked ${peak} at a time`)
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+})
+
+test('inventory handles large ignored listings and clean indexes', { timeout: 120_000 }, async (t) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+  const directory = `cache/${'a'.repeat(200)}/${'b'.repeat(200)}/${'c'.repeat(200)}`
+  await mkdir(join(made.path, directory), { recursive: true })
+  const seed = join(made.path, 'cache', 'seed.bin')
+  await writeFile(seed, '')
+  const count = 22_000
+  let bytes = 0
+  for (let start = 0; start < count; start += 64) {
+    await Promise.all(Array.from({ length: Math.min(64, count - start) }, async (_, offset) => {
+      const file = `${directory}/f${String(start + offset).padStart(5, '0')}-${'x'.repeat(170)}`
+      bytes += Buffer.byteLength(file) + 1
+      await link(seed, join(made.path, file))
+    }))
+  }
+  assert.ok(bytes > 16 * 1024 * 1024, 'the ignored listing exceeds the buffered output limit')
+
+  await t.test('ignored listing', async () => {
+    const held = await inventory(made.path)
+    assert.deepEqual(held.ignored, ['cache/'])
+    const added = join(made.path, directory, 'later.bin')
+    await writeFile(added, 'later notes\n')
+    await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+    assert.equal(await readFile(added, 'utf8'), 'later notes\n')
+  })
+  await git(made.path, 'add', '-f', '.')
+  await git(made.path, 'commit', '-qm', 'keep the local files')
+  await t.test('clean index', async () => {
+    const held = await inventory(made.path)
+    assert.equal(held.changeCount, 0)
+    assert.equal(held.ignoredCount, 0)
+    await remove(repo, made.path, false, undefined, state)
+    assert.ok(await gone(made.path))
+  })
+})
+
+test('a confirmation is void after the index changes with the same working contents', async (t) => {
+  for (const change of ['contents', 'mode']) {
+    await t.test(change, async () => {
+      const { repo, state } = await seedRepo()
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      const file = join(made.path, 'a.txt')
+      await git(made.path, 'config', 'core.filemode', 'true')
+      await writeFile(file, 'staged notes\n')
+      await git(made.path, 'add', 'a.txt')
+      await writeFile(file, 'working notes\n')
+      const status = await git(made.path, 'status', '--porcelain=v1', '-z')
+      assert.equal(status, 'MM a.txt\0')
+      const held = await inventory(made.path)
+      const before = await git(made.path, 'ls-files', '--stage', '-z')
+
+      if (change === 'contents') {
+        await writeFile(file, 'different staged notes\n')
+        await git(made.path, 'add', 'a.txt')
+        await writeFile(file, 'working notes\n')
+      } else {
+        await git(made.path, 'update-index', '--chmod=+x', 'a.txt')
+      }
+      const staged = await git(made.path, 'ls-files', '--stage', '-z')
+      assert.notEqual(staged, before)
+      assert.equal(await git(made.path, 'status', '--porcelain=v1', '-z'), status)
+      assert.equal(await readFile(file, 'utf8'), 'working notes\n')
+
+      await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+      assert.equal(await git(made.path, 'ls-files', '--stage', '-z'), staged)
+      assert.equal(await readFile(file, 'utf8'), 'working notes\n')
+      await remove(repo, made.path, true, await confirmed(made.path), state)
+      assert.ok(await gone(made.path))
+    })
+  }
+})
+
+test('a confirmation includes every unmerged index stage', async () => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const base = (await git(made.path, 'rev-parse', 'HEAD:a.txt')).trim()
+  const blobs: string[] = []
+  for (const content of ['left\n', 'right\n', 'later\n']) {
+    await writeFile(join(made.path, 'a.txt'), content)
+    blobs.push((await git(made.path, 'hash-object', '-w', 'a.txt')).trim())
+  }
+  await writeFile(join(made.path, 'a.txt'), 'working notes\n')
+  const update = async (input: string): Promise<void> => {
+    const child = run('git', ['-C', made.path, 'update-index', '--index-info'], { env })
+    child.child.stdin?.end(input)
+    await child
+  }
+  await update(`0 ${'0'.repeat(base.length)}\ta.txt\n100644 ${base} 1\ta.txt\n100644 ${blobs[0]} 2\ta.txt\n100644 ${blobs[1]} 3\ta.txt\n`)
+  const status = await git(made.path, 'status', '--porcelain=v1', '-z')
+  assert.equal(status, 'UU a.txt\0')
+  const held = await inventory(made.path)
+  await update(`100644 ${blobs[2]} 3\ta.txt\n`)
+  assert.equal(await git(made.path, 'status', '--porcelain=v1', '-z'), status)
+
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  assert.equal(await readFile(join(made.path, 'a.txt'), 'utf8'), 'working notes\n')
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+test('a confirmation covers descendants of an untracked nested repository', async (t) => {
+  for (const change of ['edit', 'add']) {
+    await t.test(change, async () => {
+      const { repo, state } = await seedRepo()
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      const nested = join(made.path, 'nested')
+      await mkdir(join(nested, 'src'), { recursive: true })
+      await git(nested, 'init', '-q', '-b', 'main')
+      await writeFile(join(nested, 'src', 'a.ts'), 'seen\n')
+      await git(nested, 'add', '.')
+      await git(nested, 'commit', '-qm', 'keep the nested file')
+      const outside = join(await tempDir('hd-inventory-outside-'), 'one.bin')
+      await writeFile(outside, 'outside notes\n')
+      await symlink(dirname(outside), join(nested, 'src', 'linked'), 'dir')
+      const held = await inventory(made.path)
+      assert.deepEqual(held.changes, [{ path: 'nested/', status: '??' }])
+      await writeFile(outside, 'different outside notes\n')
+      assert.equal(await confirmed(made.path), held.stateId)
+      const file = join(nested, 'src', change === 'edit' ? 'a.ts' : 'later.ts')
+      await writeFile(file, 'edit\n')
+
+      await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+      assert.equal(await readFile(file, 'utf8'), 'edit\n')
+      await remove(repo, made.path, true, await confirmed(made.path), state)
+      assert.ok(await gone(made.path))
+      assert.equal(await readFile(outside, 'utf8'), 'different outside notes\n')
+    })
+  }
+})
+
 test('the inventory names what is there and counts what it could not show', async () => {
   const { repo, state } = await seedRepo()
   const made = await add(repo, 'lots', { kind: 'new', branch: 'lots' }, state)
@@ -519,6 +925,405 @@ test('the inventory names what is there and counts what it could not show', asyn
   assert.deepEqual(held.ignored, ['junk/'])
   assert.ok(held.changes.some((change) => change.path === '.gitignore'))
 })
+
+test('a confirmed inventory can remove a checkout with a tracked directory replaced by a file', async () => {
+  const { repo, state } = await seedRepo()
+  await mkdir(join(repo, 'drafts'))
+  await writeFile(join(repo, 'drafts', 'one.txt'), 'original\n')
+  await git(repo, 'add', '.')
+  await git(repo, 'commit', '-qm', 'add the draft')
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  await rm(join(made.path, 'drafts'), { recursive: true })
+  await writeFile(join(made.path, 'drafts'), 'replacement\n')
+
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+test('a confirmation tracks a dangling symbolic link without reading its destination', async () => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const link = join(made.path, 'draft.txt')
+  await symlink('missing-one.txt', link)
+  const held = await inventory(made.path)
+  assert.equal(held.stateId, await confirmed(made.path))
+  await rm(link)
+  await symlink('missing-two.txt', link)
+
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+test('a replaced directory keeps outside contents out of the inventory', async (t) => {
+  for (const replaced of ['drafts', 'drafts/nested']) {
+    await t.test(replaced, async () => {
+      const { repo, state } = await seedRepo()
+      await mkdir(join(repo, 'drafts', 'nested'), { recursive: true })
+      await writeFile(join(repo, 'drafts', 'nested', 'one.txt'), 'original\n')
+      await git(repo, 'add', '.')
+      await git(repo, 'commit', '-qm', 'add the draft')
+      const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+      const outside = await tempDir('hd-inventory-outside-')
+      const directory = replaced === 'drafts' ? join(outside, 'nested') : outside
+      await mkdir(directory, { recursive: true })
+      const file = join(directory, 'one.txt')
+      await writeFile(file, 'outside notes\n')
+      await rm(join(made.path, replaced), { recursive: true })
+      await symlink(outside, join(made.path, replaced), 'dir')
+      const held = await inventory(made.path)
+      assert.ok(held.changes.some((entry) => entry.path === replaced))
+
+      await writeFile(file, 'different outside notes\n')
+      assert.equal(await confirmed(made.path), held.stateId)
+      await remove(repo, made.path, true, held.stateId, state)
+      assert.ok(await gone(made.path))
+      assert.equal(await readFile(file, 'utf8'), 'different outside notes\n')
+    })
+  }
+})
+
+test('a replaced directory can be removed while its outside destination is unreadable', async () => {
+  const { repo, state } = await seedRepo()
+  await mkdir(join(repo, 'drafts'))
+  await writeFile(join(repo, 'drafts', 'one.txt'), 'original\n')
+  await git(repo, 'add', '.')
+  await git(repo, 'commit', '-qm', 'add the draft')
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const outside = await tempDir('hd-inventory-outside-')
+  const file = join(outside, 'one.txt')
+  await writeFile(file, 'outside notes\n')
+  await rm(join(made.path, 'drafts'), { recursive: true })
+  await symlink(outside, join(made.path, 'drafts'), 'dir')
+  await chmod(file, 0o000)
+  try {
+    await remove(repo, made.path, true, await confirmed(made.path), state)
+    assert.ok(await gone(made.path))
+    assert.equal((await stat(file)).mode & 0o777, 0)
+  } finally {
+    await chmod(file, 0o644)
+  }
+  assert.equal(await readFile(file, 'utf8'), 'outside notes\n')
+})
+
+// ------------------------------------------------- writers and the deadline
+
+/**
+ * A dev server or a watcher writes into folders git ignores while a person
+ * decides to remove the lane. What is ignored is made again by whatever made
+ * it, so a confirmation holds it to its names, types, sizes and modes. What git
+ * reports as changed, tracked or not, is the person's own work and stays held
+ * to its contents and its times.
+ */
+const withCache = async (name: string) => {
+  const { repo, state } = await seedRepo()
+  const made = await add(repo, name, { kind: 'new', branch: name }, state)
+  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+  const folder = join(made.path, 'cache', 'deep')
+  await mkdir(folder, { recursive: true })
+  const file = join(folder, 'one.bin')
+  await writeFile(file, 'seen\n')
+  return { repo, state, made, folder, file }
+}
+
+/** Waits for something another process does, and says what it waited for when it does not happen. */
+const eventually = async (settled: () => boolean, what: string, within = 10_000): Promise<void> => {
+  const started = performance.now()
+  while (!settled()) {
+    assert.ok(performance.now() - started < within, what)
+    await delay(25)
+  }
+}
+
+test('a writer touching an ignored folder between looking and removing does not void the confirmation', async () => {
+  const { repo, state, made, folder, file } = await withCache('dev-server')
+  const held = await inventory(made.path)
+  assert.deepEqual(held.ignored, ['cache/'])
+
+  // The writer carries on: the same bytes again, the times moved on, a scratch
+  // file made and taken away, and a file replaced by a copy of itself the way a
+  // cache writes it. No name appeared and no size changed.
+  const later = new Date(Date.now() + 60_000)
+  await writeFile(file, 'seen\n')
+  await utimes(file, later, later)
+  await writeFile(join(folder, 'scratch.tmp'), 'x')
+  await rm(join(folder, 'scratch.tmp'))
+  await writeFile(join(folder, 'one.tmp'), 'seen\n')
+  await rename(join(folder, 'one.tmp'), file)
+  await utimes(folder, later, later)
+
+  assert.equal((await inventory(made.path)).stateId, held.stateId)
+  await remove(repo, made.path, true, held.stateId, state)
+  assert.ok(await gone(made.path))
+})
+
+test('a confirmation is void after an ignored file changes mode', async () => {
+  const { repo, state, made, file } = await withCache('holding-mode')
+  const held = await inventory(made.path)
+  await chmod(file, (await stat(file)).mode ^ 0o100)
+
+  await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+  assert.ok(!(await gone(made.path)))
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+test('a confirmation is void after an ignored file changes size, or appears, or goes', async (t) => {
+  for (const change of ['grows', 'appears', 'goes']) {
+    await t.test(change, async () => {
+      const { repo, state, made, folder, file } = await withCache('holding')
+      const held = await inventory(made.path)
+      if (change === 'grows') await writeFile(file, 'seen and then some\n')
+      else if (change === 'appears') await writeFile(join(folder, 'two.bin'), 'seen\n')
+      else await rm(file)
+
+      await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+      assert.ok(!(await gone(made.path)))
+      await remove(repo, made.path, true, await confirmed(made.path), state)
+      assert.ok(await gone(made.path))
+    })
+  }
+})
+
+test('an untracked file that is not ignored is still held to its contents and its times', async (t) => {
+  for (const change of ['rewritten', 'touched']) {
+    await t.test(change, async () => {
+      const { repo, state, made } = await withCache('holding')
+      const file = join(made.path, 'loose.txt')
+      await writeFile(file, 'seen\n')
+      const held = await inventory(made.path)
+      const before = await stat(file)
+      if (change === 'rewritten') {
+        await writeFile(file, 'edit\n')
+        await utimes(file, before.atime, before.mtime)
+      } else {
+        await utimes(file, before.atime, new Date(before.mtimeMs + 60_000))
+      }
+
+      await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
+      assert.ok(!(await gone(made.path)))
+      assert.equal(await readFile(file, 'utf8'), change === 'rewritten' ? 'edit\n' : 'seen\n')
+    })
+  }
+})
+
+/** What a cache writer does to a folder while it is read: a scratch file made and removed, the folder's times moved. */
+const writerAt = (folder: string) => {
+  let rounds = 0
+  return {
+    rounds: () => rounds,
+    work: async (): Promise<void> => {
+      const scratch = join(folder, `scratch-${rounds++}.tmp`)
+      await writeFile(scratch, 'x')
+      await rm(scratch)
+      const later = new Date(Date.now() + 60_000 * rounds)
+      await utimes(folder, later, later)
+    },
+  }
+}
+
+test('an inventory read while a writer works in an ignored folder does not fail', async (t) => {
+  const { made, folder, file } = await withCache('dev-server')
+  const writer = writerAt(folder)
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === file) await writer.work()
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    assert.deepEqual((await inventory(made.path)).ignored, ['cache/'])
+    assert.ok(writer.rounds() > 0, 'the writer ran while the folder was being read')
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+})
+
+test('an inventory read while a writer works in an untracked folder still refuses', async (t) => {
+  const { made } = await withCache('holding')
+  const folder = join(made.path, 'loose')
+  await mkdir(folder)
+  const file = join(folder, 'one.bin')
+  await writeFile(file, 'seen\n')
+  const writer = writerAt(folder)
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === file) await writer.work()
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    await assert.rejects(inventory(made.path), /changed while reading its inventory/)
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+})
+
+test('an ignored file that goes while the walk is reading it is held to nothing', async (t) => {
+  const { made, folder } = await withCache('dev-server')
+  const scratch = join(folder, 'scratch.tmp')
+  await writeFile(scratch, 'x')
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    // The writer renames or removes its scratch file after git listed it and before it is read.
+    if (String(args[0]) === scratch) await rm(scratch)
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  let during: string
+  try {
+    during = (await inventory(made.path)).stateId
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  // The same digest as a reading made once it is gone, which does not list it at all.
+  assert.equal((await inventory(made.path)).stateId, during)
+})
+
+test('an ignored nested repository that goes while the walk reads it does not fail the inventory', async (t) => {
+  const { made } = await withCache('dev-server')
+  await writeFile(join(made.path, '.gitignore'), 'cache/\nvendor/\n')
+  const nested = join(made.path, 'vendor', 'lib')
+  await mkdir(nested, { recursive: true })
+  await writeFile(join(made.path, 'vendor', 'keep.txt'), 'kept\n')
+  await git(nested, 'init', '-q', '-b', 'main')
+  await writeFile(join(nested, 'a.txt'), 'notes\n')
+  const readdir = fsPromises.readdir
+  t.mock.method(fsPromises, 'readdir', (async (...args: Parameters<typeof readdir>) => {
+    if (String(args[0]) === nested) await rm(nested, { recursive: true })
+    return readdir(...args)
+  }) as typeof readdir)
+  syncBuiltinESMExports()
+  let during: string
+  try {
+    during = (await inventory(made.path)).stateId
+  } finally {
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  assert.equal((await inventory(made.path)).stateId, during)
+})
+
+const DEADLINE = /Couldn't list what this worktree holds in time; nothing was removed/
+
+test('a git listing that never ends is stopped at the deadline, its child is killed and nothing is removed', { timeout: 30_000 }, async (t) => {
+  const { repo, state, made, file } = await withCache('holding')
+  await writeFile(join(made.path, 'notes.txt'), 'untracked\n')
+  const held = await inventory(made.path)
+
+  const spawn = childProcess.spawn
+  const endless: ReturnType<typeof spawn>[] = []
+  t.mock.method(childProcess, 'spawn', ((command, args, options) => {
+    if (!args?.includes('--others')) return spawn(command, args!, options!)
+    // Stands in for a git waiting on a mount that stopped answering: silent, and it does not exit.
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)'], options!)
+    endless.push(child)
+    return child
+  }) as typeof spawn)
+  syncBuiltinESMExports()
+  try {
+    const started = performance.now()
+    await assert.rejects(remove(repo, made.path, true, held.stateId, state, { deadlineMs: 2_000 }), DEADLINE)
+    assert.ok(performance.now() - started < 20_000, 'refused at the deadline, not when the listing came back')
+    assert.equal(endless.length, 1, 'the listing was started')
+    await eventually(() => endless[0]!.exitCode !== null || endless[0]!.signalCode !== null, 'the listing child was killed')
+  } finally {
+    for (const child of endless) child.kill('SIGKILL')
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  // Nothing it did not list was taken.
+  assert.ok(!(await gone(made.path)))
+  assert.equal(await readFile(join(made.path, 'notes.txt'), 'utf8'), 'untracked\n')
+  assert.equal(await readFile(file, 'utf8'), 'seen\n')
+  assert.equal((await list(repo, state)).length, 2)
+})
+
+test('an inventory held up by a call on the disk is refused at the deadline, and the git child still writing is killed', { timeout: 30_000 }, async (t) => {
+  const { repo, state, made } = await withCache('holding')
+  // A listing far longer than a pipe holds, so git is still writing when the reader stops.
+  const crowded = join(made.path, 'cache', 'a'.repeat(200), 'b'.repeat(200))
+  await mkdir(crowded, { recursive: true })
+  const seed = join(crowded, 'seed')
+  await writeFile(seed, '')
+  await Promise.all(Array.from({ length: 600 }, (_, index) => link(seed, join(crowded, `${index}-${'x'.repeat(180)}`))))
+
+  const spawn = childProcess.spawn
+  let listing: ReturnType<typeof spawn> | undefined
+  t.mock.method(childProcess, 'spawn', ((command, args, options) => {
+    const child = spawn(command, args!, options!)
+    if (args?.includes('ls-files') && args.includes('--others')) listing = child
+    return child
+  }) as typeof spawn)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let reached!: () => void
+  const blocked = new Promise<void>((resolve) => { reached = resolve })
+  const lstat = fsPromises.lstat
+  t.mock.method(fsPromises, 'lstat', (async (...args: Parameters<typeof lstat>) => {
+    if (String(args[0]) === join(made.path, 'cache')) {
+      reached()
+      await held
+    }
+    return lstat(...args)
+  }) as typeof lstat)
+  syncBuiltinESMExports()
+  try {
+    const reading = inventory(made.path, { deadlineMs: 3_000 })
+    const outcome = reading.then(() => 'answered', (error: unknown) => error)
+    await blocked
+    assert.ok(listing, 'the listing was started')
+    assert.equal(listing.exitCode, null, 'git is still writing when the reader stops')
+    // The call on the disk is still out, and the inventory is refused all the same.
+    assert.match(String(await outcome), DEADLINE)
+    await eventually(() => listing!.exitCode !== null || listing!.signalCode !== null, 'the listing child was killed')
+    release()
+    await delay(200)
+  } finally {
+    release()
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  await remove(repo, made.path, true, await confirmed(made.path), state)
+  assert.ok(await gone(made.path))
+})
+
+for (const stalledStatus of ['--untracked-files=all', '--ignored']) {
+  test(`a ${stalledStatus} status read that ignores SIGTERM is stopped at the deadline and its child is killed`, { timeout: 30_000, skip: process.platform === 'win32' }, async () => {
+    const { made } = await withCache('holding')
+    // A quiet status process keeps running on SIGTERM, as a deadline must allow for.
+    const bin = await tempDir('hd-git-shim-')
+    const pidFile = join(bin, 'stuck.pid')
+    const real = (await run('sh', ['-c', 'command -v git'])).stdout.trim()
+    await writeFile(join(bin, 'git'), [
+      '#!/bin/sh',
+      'for arg in "$@"; do',
+      `  if [ "$arg" = "${stalledStatus}" ]; then trap '' TERM; echo $$ > '${pidFile}'; exec sleep 60; fi`,
+      'done',
+      `exec '${real}' "$@"`,
+      '',
+    ].join('\n'), { mode: 0o755 })
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path ?? ''}`
+    let pid = 0
+    try {
+      await assert.rejects(inventory(made.path, { deadlineMs: 4_000 }), DEADLINE)
+      pid = Number(await readFile(pidFile, 'utf8'))
+      assert.ok(pid > 0, 'the status read was started')
+      await eventually(() => {
+        try { process.kill(pid, 0); return false } catch { return true }
+      }, 'the status read child was killed')
+    } finally {
+      if (path === undefined) delete process.env.PATH
+      else process.env.PATH = path
+      if (pid > 0) try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+    }
+    assert.ok(!(await gone(made.path)))
+  })
+}
 
 // ------------------------------------------------------------------- prune
 

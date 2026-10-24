@@ -19,7 +19,7 @@ for (const theme of ['light', 'dark'] as const) {
     }
     await detail.getByRole('radio', { name: 'Source', exact: true }).click()
     await expect(detail.getByRole('region', { name: 'Definition' }).locator('pre')).toContainText('name: code-review')
-    await detail.getByRole('button', { name: 'Back to Library', exact: true }).click()
+    await detail.getByRole('button', { name: 'Back to Customize', exact: true }).click()
     await expect(page.locator('[data-slot="skill-cards"]')).toBeVisible()
     await page.getByRole('button', { name: 'Back', exact: true }).first().click()
     await expect(detail).toBeVisible()
@@ -32,7 +32,7 @@ for (const theme of ['light', 'dark'] as const) {
     const empty = page.locator('[data-page-destination="library"] [data-slot="empty-state"]')
     await expect(empty.getByRole('heading', { name: 'Skill not found', exact: true })).toBeVisible()
     await expect(empty.locator('p')).toHaveCount(0)
-    await empty.getByRole('button', { name: 'Back to Library', exact: true }).click()
+    await empty.getByRole('button', { name: 'Back to Customize', exact: true }).click()
     await expect(page.locator('[data-slot="skill-cards"]')).toBeVisible()
   })
 }

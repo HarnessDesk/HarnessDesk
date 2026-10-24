@@ -1,7 +1,7 @@
 import type { FlowOrigin, RuntimeId, StartContext } from '@harnessdesk/protocol'
 import { readView, type PaneView } from './layout'
 
-export const SETTINGS_SECTIONS = ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage', 'runtimes', 'models', 'skills', 'extensions', 'permissions', 'browser'] as const
+export const SETTINGS_SECTIONS = ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage', 'runtimes', 'models', 'skills', 'hooks', 'extensions', 'permissions', 'browser'] as const
 export type SettingsSection = typeof SETTINGS_SECTIONS[number]
 export type WorkView = Extract<PaneView, { kind: 'conversation' | 'room' }>
 export interface FlowPageStart {

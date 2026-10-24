@@ -42,7 +42,7 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
       { id: 'runtimes', label: 'Runtimes', icon: <ServerIcon size={16} />, keywords: ['runtimes', 'installed', 'cli', 'accounts', 'sign in', 'sign out', 'add runtime', 'registry', 'nickname', 'ring', 'usage', 'plan', 'new sessions', 'defaults', 'update', 'remove'],
         ...(accountCount > 0 ? { count: accountCount } : {}), ...(isBlocking(worst) ? { state: worst } : {}) },
       { id: 'models', label: 'Models', icon: <RouteIcon size={16} />, keywords: ['endpoint', 'api', 'provider', 'proxy', 'gateway', 'route', 'presets', 'hide', 'composer', 'effort', 'thinking'] },
-      { id: 'skills', label: 'Skills', icon: <SparkIcon size={16} />, title: scoped(runtime.presentation.skillsLabel ?? 'Skills'), keywords: ['skills', 'commands', 'slash', 'hooks'] },
+      { id: 'hooks', label: 'Hooks', icon: <SparkIcon size={16} />, title: scoped('Hooks'), keywords: ['hooks', 'events', 'lifecycle'] },
       { id: 'extensions' as const, label: 'Extensions', icon: <ExtensionIcon size={16} />, title: scoped('Extensions'), keywords: ['mcp', 'servers', 'apps', 'connect', 'marketplace', 'install'] },
     ] },
     { label: 'Access', entries: [

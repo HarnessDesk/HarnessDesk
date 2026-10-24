@@ -39,7 +39,8 @@ import { IntakeStore, type IntakeFiring, type IntakeOperation } from './store.js
  *
  * - **Nothing without an arm.** Loading reads three files and finishes what
  *   the journal began; it starts no timer and reads no forge. Watching begins
- *   only when a verified arm exists and the machine is not paused.
+ *   only when a verified arm exists and the machine is not paused. Recorded
+ *   interruptions awaiting cleanup keep their own retry timer independently.
  * - **Startup order.** `load` runs once the Goals, the runs and the evidence
  *   are back, with dispatch held: every journaled firing is finished to its
  *   held round. `ready` runs once the runtimes are up: held firings are
@@ -245,9 +246,15 @@ export class IntakePlane {
         port.flows.interruptChecks?.(goal)
         const run = this.#runOf(goal)
         if (run) await port.flows.holdTriggered(run.id, reason)
+        const generation = this.#runOf(goal)?.intake?.holdGeneration ?? 0
         await port.interrupt(goal)
         this.#schedule()
+        return generation
       },
+      swept: () => this.#syncTimers().catch((error: unknown) => {
+        this.#port.log('budget timers could not be updated', { error: String(error) })
+      }),
+      log: (message, details) => this.#port.log(message, details),
       timers: this.#timers,
     })
     this.#admission = new Admission(this.#store, {
@@ -343,22 +350,25 @@ export class IntakePlane {
   }
 
   async #startWatching(): Promise<void> {
-    if (this.#closed || this.#prefs.paused || this.#problem !== null) return
-    await this.#monitor.start()
+    if (!this.#closed && !this.#prefs.paused && this.#problem === null) await this.#monitor.start()
     await this.#syncTimers()
   }
 
   /**
    * The budget sweep and the meter run only while there is something to
-   * watch — an arm on this machine, or a trigger Goal whose budget is live —
-   * and never while paused or closed: a desk with no triggers runs nothing.
+   * watch — an arm on this machine, or a trigger Goal whose budget is live.
+   * Pending stops and hold interruptions keep the cleanup sweep while disarmed or paused.
+   * Closing stops every timer.
    */
   async #syncTimers(): Promise<void> {
     const armed = this.#closed ? 0 : (await this.#consent.armed().catch(() => [])).length
-    // A close or a pause that landed during the read above leaves no timer behind.
-    const want = !this.#closed && !this.#prefs.paused && this.#problem === null && (armed > 0 || this.#budgets.live().length > 0)
-    if (want) {
-      this.#watch.start()
+    const enabled = !this.#closed && this.#problem === null
+    const budgets = this.#budgets.watchState()
+    const wantWork = enabled && !this.#prefs.paused && (armed > 0 || budgets.live.length > 0)
+    const wantCleanup = enabled && (budgets.stops.length > 0 || budgets.holds.length > 0)
+    if (wantWork || wantCleanup) this.#watch.start()
+    else this.#watch.close()
+    if (wantWork) {
       if (this.#meterTimer === null) {
         this.#meterTimer = this.#timers.every(() => {
           void this.meter().catch(() => {})
@@ -366,7 +376,6 @@ export class IntakePlane {
         }, METER_MS)
       }
     } else {
-      this.#watch.close()
       if (this.#meterTimer !== null) {
         this.#timers.clear(this.#meterTimer)
         this.#meterTimer = null
@@ -381,6 +390,7 @@ export class IntakePlane {
       this.#meterTimer = null
     }
     await this.#monitor.pause()
+    await this.#syncTimers()
   }
 
   /**
@@ -558,7 +568,10 @@ export class IntakePlane {
     if (!run?.intake) return
     const next = operation.mode === 'again' ? 'round' : 'person'
     await this.#port.flows.supersedeTriggered(operation.run, AGAIN_MISSING, next)
-    await this.#port.interrupt(operation.goal)
+    // New-head interruption is best effort; only budget cleanup requires a durable retry.
+    await this.#port.interrupt(operation.goal).catch((error: unknown) => {
+      this.#port.log('superseded Goal turns could not be interrupted', { goal: operation.goal, error: String(error) })
+    })
   }
 
   /**
@@ -898,20 +911,29 @@ export class IntakePlane {
       this.#prefs = next
       return was
     })
+    // Preferences are already durable. Cleanup retries on its timer and must not
+    // hide the saved state or hold back recovery and postings on other Goals.
+    const sweep = () => this.#watch.tick().catch((error: unknown) => {
+      this.#port.log('budget cleanup will be retried after trigger preferences changed', { error: String(error) })
+    })
     if (paused && !before.paused) {
       await this.#stopWatching()
       // Every live run is held now, its turns and checks interrupted — never left dispatching while paused, never stopped for good.
-      await this.#watch.tick()
+      await sweep()
     } else if (!paused && before.paused) {
       // What the pause held continues, and what waited to be released is let go; then watching resumes.
-      if (this.#problem === null && this.#dispatchReady) {
-        await this.#admission.recover().catch(() => {})
-        await this.#republish()
+      try {
+        if (this.#problem === null && this.#dispatchReady) {
+          await sweep()
+          await this.#admission.recover().catch(() => {})
+          await this.#republish()
+        }
+      } finally {
+        await this.#startWatching()
       }
-      await this.#startWatching()
     } else if (!paused && dailyUsd !== before.dailyUsd) {
       // Lowered: work past it holds. Raised: what it held continues.
-      await this.#watch.tick()
+      await sweep()
       if (this.#problem === null && this.#dispatchReady) {
         await this.#admission.recover().catch(() => {})
         await this.#republish()

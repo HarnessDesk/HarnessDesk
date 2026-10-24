@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`Library state details stay on runtime marks and findings stay within cards in ${theme}`, async ({ page }) => {
+  test(`Customize summarizes runtimes and keeps findings within cards in ${theme}`, async ({ page }) => {
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
     const sheet = page.locator('[data-frame-id="settings-sheet"] [data-page-destination]:visible')
-    await expect(sheet.locator('[data-runtime-state="stale"][title="Gamma: Not loaded yet"]')).toBeVisible()
-    await expect(sheet.locator('[data-runtime-state="off"][title="Alpha: Switched off"]')).toBeVisible()
+    await expect(sheet.locator('[data-runtime-state]')).toHaveCount(0)
+    await expect(sheet.getByText(/^\d+ runtimes?$/).first()).toBeVisible()
     await expect(sheet.getByText('Not read yet by Gamma', { exact: true })).toHaveCount(0)
     await expect(sheet.getByText('Off in Alpha', { exact: true })).toHaveCount(0)
     for (const width of [1440, 1024]) {
@@ -33,13 +33,11 @@ for (const theme of ['light', 'dark'] as const) {
     const cards = library.locator('[data-slot="skill-card"]')
     await expect(cards).toHaveCount(6)
     const first = cards.first()
-    await expect(first.locator('[data-runtime-state]')).toHaveCount(3)
+    await expect(first.locator('[data-runtime-state]')).toHaveCount(0)
     const copy = await first.evaluate(card => {
       const name = card.querySelector('[data-role="member"]')!, description = card.querySelector('[data-skill-description]')!
-      const mark = card.querySelector('[data-runtime-state]')!
-      return { mark: mark.getBoundingClientRect().width, separateLines: description.getBoundingClientRect().top >= name.getBoundingClientRect().bottom }
+      return { separateLines: description.getBoundingClientRect().top >= name.getBoundingClientRect().bottom }
     })
-    expect(copy.mark).toBe(20)
     expect(copy.separateLines).toBe(true)
     await expect(library.locator('[data-slot="row-mark"]')).toHaveCount(0)
 
@@ -56,14 +54,9 @@ for (const theme of ['light', 'dark'] as const) {
     expect(pluginGeometry[2]?.title).toBe('Plugin 2')
     expect(pluginGeometry[10]?.title).toBe('Plugin 10')
 
-    await dial.selectOption('skills')
-    await expect(sheet.locator('[data-slot="row-mark"]')).toHaveCount(2) // hooks, no repeated skill faces
-    const description = sheet.locator('[data-slot="row-desc"]').nth(1)
-    expect(await description.locator('span').evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('2')
-    await expect(sheet.getByText('Hooks · 2', { exact: true })).toBeVisible()
+    await dial.selectOption('hooks')
+    await expect(sheet.locator('[data-slot="row-mark"]')).toHaveCount(2)
     await expect(sheet.getByText('Trusted', { exact: true })).toBeVisible()
-    await sheet.getByRole('button', { name: /Playwright/ }).click()
-    await expect(sheet.getByText('Always on', { exact: true })).toBeVisible()
 
     await dial.selectOption('models')
     await expect(sheet.getByText('Always thinks', { exact: true })).toBeVisible()
@@ -125,7 +118,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`Library cards keep descriptions and every runtime mark within narrow panes in ${theme}`, async ({ page }) => {
+  test(`Customize cards keep descriptions and runtime summaries within narrow panes in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
@@ -137,8 +130,8 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(cards).toHaveCount(9)
       const loaded = cards.filter({ hasText: 'Shared review' })
       await expect(loaded).toHaveAccessibleName('Shared review')
-      await expect(loaded.locator('[aria-label="Loaded by 4 of 4 runtimes"]')).toBeVisible()
-      await expect(loaded.locator('[data-runtime-state]')).toHaveCount(4)
+      await expect(loaded.getByText('4 runtimes', { exact: true })).toBeVisible()
+      await expect(loaded.locator('[data-runtime-state]')).toHaveCount(0)
       const readings = await cards.evaluateAll(nodes => nodes.map(node => {
         const box = node.getBoundingClientRect()
         const name = node.querySelector('[data-role="member"]')!
@@ -150,7 +143,7 @@ for (const theme of ['light', 'dark'] as const) {
         canvas.font = `${font.fontWeight} ${font.fontSize} ${font.fontFamily}`
         const ellipsis = name.scrollWidth > name.clientWidth ? canvas.measureText('…').width : 0
         return { name: name.getBoundingClientRect().width, prefix: prefix.getBoundingClientRect().right, nameRight: name.getBoundingClientRect().right - ellipsis, height: rect.height, line: parseFloat(css.lineHeight), clamp: css.webkitLineClamp,
-          marks: [...node.querySelectorAll('[data-runtime-state]')].map(mark => ({ left: mark.getBoundingClientRect().left, right: mark.getBoundingClientRect().right })), left: box.left, right: box.right }
+          marks: [...node.querySelectorAll('[data-role="meta"][title]')].map(mark => ({ left: mark.getBoundingClientRect().left, right: mark.getBoundingClientRect().right })), left: box.left, right: box.right }
       }))
       for (const reading of readings) {
         expect(reading.name).toBeGreaterThan(40)
@@ -166,29 +159,20 @@ for (const theme of ['light', 'dark'] as const) {
       const detail = page.locator('[data-slot="skill-page"]').getByText('Use before any creative work — creating features, building components, adding functionality. Explores intent and requirements before implementation.', { exact: true })
       await expect(detail).toBeVisible()
       expect(await detail.evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('none')
-      await page.locator('[data-slot="skill-page"]').getByRole('button', { name: 'Back to Library', exact: true }).click()
+      await page.locator('[data-slot="skill-page"]').getByRole('button', { name: 'Back to Customize', exact: true }).click()
     }
   })
 
-  test(`mixed skills keep fallback marks small and long descriptions bounded in ${theme}`, async ({ page }) => {
+  test(`legacy Settings skills opens the unified Customize catalogue in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 720, height: 900 })
     await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
-    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('skills')
     const sheet = page.locator('[data-frame-id="settings-sheet"] [data-page-destination]:visible')
-    await expect(sheet.locator('[data-slot="row-mark"]')).toHaveCount(6) // four skills, two hooks
-    for (const name of ['Brainstorming', 'Deploy Notes']) {
-      const row = sheet.getByRole('button', { name: new RegExp(name) })
-      expect(await row.locator('[data-slot="row-mark"] svg').evaluate(node => node.getBoundingClientRect().width)).toBe(15)
-    }
-    const row = sheet.getByRole('button', { name: /Brainstorming/ })
-    const paragraph = row.locator('[data-slot="row-desc"] span')
-    expect(await paragraph.evaluate(node => node.getBoundingClientRect().height)).toBeLessThanOrEqual(60)
-    await row.click()
-    const full = sheet.getByText('Explore requirements, constraints and the design before implementation. '.repeat(12).trim(), { exact: true })
-    await expect(full).toBeVisible()
-    expect(await full.evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(60)
+    await expect(sheet.getByRole('heading', { name: 'Customize', exact: true })).toBeVisible()
+    await expect(sheet.getByRole('radiogroup', { name: 'Customize sections', exact: true })).toBeVisible()
+    await expect(sheet.locator('[data-slot="skill-card"]').first()).toBeVisible()
   })
+
 }
 
 for (const theme of ['light', 'dark'] as const) {
@@ -243,9 +227,9 @@ for (const theme of ['light', 'dark'] as const) {
         expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1)
       }
       expect(await head.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
-      await pageBody.getByRole('radio', { name: 'All', exact: true }).click()
+      await pageBody.getByRole('radio', { name: /^All/ }).click()
       await expect(sheet.locator('[data-slot="library-attention"]')).toHaveCount(0)
-      await pageBody.getByRole('radio', { name: 'Needs you', exact: true }).click()
+      await pageBody.getByRole('radio', { name: /^Needs attention/ }).click()
       await expect(sheet.locator('[data-slot="library-attention"] [data-part="banner-icon"]').first()).toBeVisible()
     }
   })

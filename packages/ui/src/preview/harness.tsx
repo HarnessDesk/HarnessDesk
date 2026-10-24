@@ -2341,14 +2341,14 @@ export const previewStore = (seed: Partial<AppSnapshot> = {}): AppStore & Pick<P
     }
     if (typeof property === 'symbol') return Reflect.get(target, property, receiver)
     /* A subscription must answer synchronously with its unsubscribe.
-       `onTerminal` is the store's one `on…` verb and returns `() => void`; the
+       `onTerminal` and the store's `subscribe…` verbs return `() => void`; the
        async floor below handed back a Promise instead, so the terminal pane
        called `offLive()` on it during cleanup and threw — which is how the
        tools surface mounted a browser and an editor and a crash where the
        terminal should be. Keyed on the store's own naming, so the next
        subscription added to the store is answered correctly without anyone
        having to remember this file. */
-    if (/^on[A-Z]/.test(property)) {
+    if (/^(on[A-Z]|subscribe[A-Z])/.test(property)) {
       return (...args: unknown[]) => {
         console.warn(`[preview] store.${property} is not implemented here`, ...args)
         return () => {}

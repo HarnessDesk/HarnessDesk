@@ -416,3 +416,21 @@ test('the remote copy of the base branch is found by the branch’s own upstream
   await run('git', ['-C', dir, 'remote', 'set-head', 'origin', '-d'])
   assert.equal(await upstreamTipOf(dir), await upstream.git('rev-parse', 'HEAD'))
 })
+
+
+test('a missing Team checkout uses its root project without changing ordinary project reads (#1572)', async () => {
+  const repo = await makeRepo()
+  const other = await makeRepo()
+  const cwd = join(tempDir('hd-project-fallback-'), 'checkout')
+  await repo.git('worktree', 'add', '-q', '-b', 'team', cwd)
+  const root = await realpath(repo.dir)
+  assert.equal(await projectOf(cwd, other.dir), root, 'a live checkout still supplies its own project')
+  await rm(cwd, { recursive: true })
+  assert.deepEqual(await Promise.all([
+    projectOf(cwd, repo.dir), projectOf(cwd), projectOf(cwd, other.dir),
+  ]), [root, cwd, await realpath(other.dir)], 'concurrent reads with different fallbacks stay separate')
+  const plain = tempDir('hd-project-plain-')
+  assert.equal(await projectOf(plain, repo.dir), await realpath(plain), 'an existing non-repository keeps its own identity')
+  const gone = join(plain, 'gone')
+  assert.equal(await projectOf(cwd, gone), gone, 'a missing root retains its lexical identity')
+})

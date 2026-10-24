@@ -1308,6 +1308,9 @@ it('opens the refused project and refreshes the preview without losing the task 
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(task, 'Fix the cart')
     task.dispatchEvent(new Event('input', { bubbles: true }))
   })
+  const recovery = button('Open storefront').closest('[data-measure]')!
+  expect(recovery.getAttribute('data-measure')).toBe('container')
+  expect(recovery.querySelector('[data-floating]')).toBeNull()
   await act(async () => button('Open storefront').click())
   expect(store.getSnapshot().workspace?.path).toBe('/work/storefront')
   expect(document.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Fix the cart')

@@ -13,7 +13,7 @@ beforeEach(() => { host = document.createElement('div'); document.body.append(ho
 afterEach(() => { act(() => root.unmount()); host.remove(); window.harnessdesk = original; vi.restoreAllMocks() })
 const mount = (strict = false) => {
   const store = previewStore()
-  act(() => root.render(<StoreProvider store={store}>{strict ? <StrictMode><Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} /></StrictMode> : <Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />}</StoreProvider>))
+  act(() => root.render(<StoreProvider store={store}>{strict ? <StrictMode><Sidebar onOpenSettings={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} /></StrictMode> : <Sidebar onOpenSettings={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />}</StoreProvider>))
   return store
 }
 const label = (name: string) => [...host.querySelectorAll('button')].find(one => one.textContent === name)

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -17,8 +17,8 @@ import { CodexRuntime } from '../src/index.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
 
-const start = async (t: { after(fn: () => Promise<void>): void }): Promise<CodexRuntime> => {
-  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test' })
+const start = async (t: { after(fn: () => Promise<void>): void }, env: Record<string, string> = {}): Promise<CodexRuntime> => {
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env })
   t.after(() => runtime.dispose())
   await runtime.start()
   return runtime
@@ -74,6 +74,22 @@ test('hooks come back with trust and managed state, managed ones flagged', async
       ['managed-1', 'postToolUse', 'managed', true],
     ],
   )
+})
+
+test('a failed hook read rejects and a later read can recover', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-codex-hook-read-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const failing = join(dir, 'fail-hooks')
+  await writeFile(failing, '')
+  const runtime = await start(t, { FAKE_CODEX_FAIL_HOOKS: failing })
+
+  await assert.rejects(runtime.listHooks!('/w'), /Hooks could not be read\./)
+  await rm(failing)
+  const hooks = await runtime.listHooks!('/w')
+  assert.deepEqual(hooks.map(hook => [hook.id, hook.trust, hook.managed]), [
+    ['guard-1', 'trusted', false],
+    ['managed-1', 'managed', true],
+  ])
 })
 
 test('seating an Agent — create and resume, with attachments asked for — never calls the global skills/config/write', async (t) => {

@@ -26,10 +26,10 @@ test('Lists R9 empty Teams centres the complete empty state in the page body', a
   expect(Math.abs(geometry.regionCenter - geometry.contentCenter)).toBeLessThanOrEqual(1)
 })
 
-test('Lists R9 Library warning fills the card grid measure under Needs you', async ({ page }) => {
+test('Lists R9 Library warning fills the card grid measure under Needs attention', async ({ page }) => {
   await openFrame(page, 'frame-wall=library', 'light', 1440)
   const library = page.locator('[data-page-destination="library"]:visible')
-  await page.getByRole('radio', { name: 'Needs you', exact: true }).click()
+  await page.getByRole('radio', { name: /^Needs attention \d+$/ }).click()
   const warning = library.locator('[data-slot="alert"]')
   const list = library.locator('[data-slot="skill-cards"]')
   await expect(warning).toBeVisible()
@@ -85,7 +85,7 @@ test('Lists R9 Agents show each seat mark and the shortened source path', async 
 
 test('Lists R9 Library filter and skill detail use group-level facts', async ({ page }) => {
   await openFrame(page, 'frame-wall=library', 'light', 1440)
-  await page.locator('[data-slot="popover-trigger"][title="Filter the library"]').click()
+  await page.locator('[data-slot="popover-trigger"][title="Filter skills"]').click()
   await expect(page.getByRole('menuitemradio', { name: 'Any agent', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
 

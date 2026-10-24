@@ -51,8 +51,10 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
   await page.goto(`/preview.html?${query}&theme=${theme}`)
   await page.evaluate(() => document.fonts.ready)
   await applyPageFrameActions(page, actions)
-  const params = new URLSearchParams(query)
-  const settings = params.get('frame-wall') === 'settings' && params.get('frame-section') !== 'library'
+  const destination = page.locator('[data-page-destination]:visible')
+  await expect(destination).toHaveCount(1)
+  // Legacy URLs may resolve to another page; measure the destination the person reached.
+  const settings = await destination.getAttribute('data-page-destination') === 'settings'
   const bar = page.locator('[data-slot="top-bar"]:visible')
   if (settings) await expectSettingsChrome(page, width)
   else {
@@ -149,6 +151,11 @@ export const expectDestinationTab = async (page: Page, value: string): Promise<v
         await expect(findings).toHaveAttribute('aria-pressed', String(value === 'findings'))
       }
     }
+    return
+  }
+  if (value === 'skill' || value === 'mcp') {
+    await expect(page.getByRole('radiogroup', { name: 'Customize sections', exact: true })
+      .getByRole('radio', { name: value === 'skill' ? 'Skills' : 'MCP', exact: true })).toHaveAttribute('aria-checked', 'true')
     return
   }
   const choice = pageChoiceFor(value)

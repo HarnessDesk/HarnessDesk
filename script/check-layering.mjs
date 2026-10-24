@@ -68,6 +68,77 @@ const importBoundary = (pkg, source, fileName) => {
   })
 }
 
+/** What the cloud wire's two packages may import: their own source, and zod for contract. */
+const cloudWireImports = (source, fileName) => {
+  const file = resolve(root, fileName)
+  const pkg = relative(join(root, 'packages'), file).split(sep)[0]
+  const src = join(root, 'packages', pkg, 'src')
+  return importSpecifiers(source, fileName).filter((specifier) => {
+    if (specifier === null) return true
+    if (specifier.startsWith('.')) {
+      if (/[?#%]/.test(specifier)) return true
+      const within = relative(src, resolve(dirname(file), specifier))
+      return within === '..' || within.startsWith(`..${sep}`)
+    }
+    return !(specifier === 'zod' && pkg === 'contract')
+  }).concat(nodeGlobals(source, fileName))
+}
+
+/**
+ * Node's globals need no import, and the base tsconfig gives every package
+ * Node's types, so the compiler would accept them in the cloud wire too. The
+ * relay Worker and the phone have none of them.
+ */
+const NODE_GLOBALS = new Set(['Buffer', 'process', 'global', '__dirname', '__filename', 'setImmediate', 'clearImmediate', 'require', 'module', 'exports'])
+
+const GLOBAL_OBJECTS = new Set(['globalThis', 'self', 'window'])
+
+const nodeGlobals = (source, fileName) => {
+  const code = withoutComments(source, fileName, { strict: true })
+  const file = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true)
+  const found = []
+  const visit = (node) => {
+    if (ts.isIdentifier(node) && NODE_GLOBALS.has(node.text)) {
+      const parent = node.parent
+      const isMemberName = (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+        ((ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent) || ts.isPropertyDeclaration(parent) ||
+          ts.isMethodDeclaration(parent) || ts.isMethodSignature(parent)) && parent.name === node)
+      // require('x') is already reported by its specifier.
+      const isRequireCall = node.text === 'require' && ts.isCallExpression(parent) && parent.expression === node
+      if (!isMemberName && !isRequireCall) found.push(node.text)
+    }
+    // globalThis.Buffer, self.process and globalThis['Buffer'] reach the same globals by another road.
+    const viaGlobalObject = (object) => {
+      // (globalThis as any).Buffer, (globalThis).process and globalThis!.process are the same reach.
+      let o = object
+      while (ts.isParenthesizedExpression(o) || ts.isAsExpression(o) || ts.isNonNullExpression(o) || ts.isTypeAssertionExpression(o) ||
+             ts.isSatisfiesExpression(o)) o = o.expression
+      return ts.isIdentifier(o) && GLOBAL_OBJECTS.has(o.text)
+    }
+    if (ts.isPropertyAccessExpression(node) && viaGlobalObject(node.expression) && NODE_GLOBALS.has(node.name.text)) found.push(node.name.text)
+    if (ts.isElementAccessExpression(node) && viaGlobalObject(node.expression) && ts.isStringLiteralLike(node.argumentExpression) &&
+        NODE_GLOBALS.has(node.argumentExpression.text)) found.push(node.argumentExpression.text)
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return found
+}
+
+/** What reaches the cloud wire from the renderer or the protocol, by name or by path. */
+const cloudWireReach = (source, fileName) => {
+  const file = resolve(root, fileName)
+  return importSpecifiers(source, fileName).filter((specifier) => {
+    if (specifier === null) return false
+    if (/^@harnessdesk\/(?:contract|crypto)(?:\/|$)/.test(specifier)) return true
+    if (!specifier.startsWith('.')) return false
+    const target = resolve(dirname(file), specifier)
+    return ['contract', 'crypto'].some((pkg) => {
+      const within = relative(join(root, 'packages', pkg), target)
+      return within !== '..' && !within.startsWith(`..${sep}`)
+    })
+  })
+}
+
 /**
  * Two planes, two rules. Codex must not leak above its adapter, and the
  * extension kernel must not leak above its host — and the protocol, which both
@@ -107,6 +178,26 @@ export const RULES = [
     packages: ['agent-inventory'],
     forbidden: /@harnessdesk\/(?!protocol)|electron|@deepseek-ai\/cordis/,
     remedy: 'agent-inventory imports node builtins and @harnessdesk/protocol, nothing else.',
+  },
+  {
+    // The cloud wire runs in three places: this desk, the hosted relay Worker
+    // and the phone, which reimplements it from the test vectors. Any import
+    // that is not its own file is a place one of the three cannot follow: a
+    // Node builtin (with or without the node: prefix), a package, a workspace
+    // neighbour, or a Node global such as Buffer or process. Contract may use
+    // zod for its schemas; crypto uses nothing.
+    label: 'cloud wire stands alone',
+    packages: ['contract', 'crypto'],
+    offenders: (source, fileName) => cloudWireImports(source, fileName),
+    remedy: 'contract imports its own files and zod; crypto imports its own files only. Both otherwise use Web platform APIs, never Node globals such as Buffer or process.',
+  },
+  {
+    // Keys are held by the host and the main process. The window reads state
+    // over the wire; it never signs, seals or opens anything itself.
+    label: 'cloud wire above the renderer',
+    packages: ['ui', 'protocol'],
+    offenders: (source, fileName) => cloudWireReach(source, fileName),
+    remedy: 'The renderer and the protocol never import the cloud wire; the host holds the keys.',
   },
   {
     label: 'Codex above adapter-codex',

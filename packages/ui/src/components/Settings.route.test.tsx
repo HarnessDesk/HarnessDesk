@@ -116,6 +116,7 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
     setQuestionWait: vi.fn(async () => true),
     // The Library page's own Agent filter roster read.
     loadAgents: vi.fn(async () => {}),
+    loadHooks: vi.fn(async () => []),
   } as unknown as AppStore
 }
 
@@ -407,12 +408,13 @@ it('a profile name never becomes a preference search result', async () => {
   expect(document.body.querySelector<HTMLInputElement>('input[aria-label="Your name"]')?.value).toBe(name)
 })
 
-// The former window rail is now the shared left column; the page keeps its label.
-it('keeps a stable nav label while the skills page uses the runtime name', async () => {
-  const label = 'Skills and commands with a long agent supplied name'
-  const info = runtime({ skills: true })
-  await mount([{ ...info, presentation: { ...info.presentation, skillsLabel: label } }])
-  const row = container.querySelector<HTMLButtonElement>(`[aria-label="Settings navigation"] button[aria-label="Skills"]`)!
+// Runtime-owned Hooks keeps a stable route and names its owner on hover.
+it('keeps a stable Hooks nav label while its hover text names the runtime', async () => {
+  const label = 'A runtime with a long agent supplied name'
+  const info = runtime({ hooks: true })
+  await mount([{ ...info, presentation: { ...info.presentation, name: label } }])
+  expect(container.querySelector('[aria-label="Settings navigation"] button[aria-label="Skills"]')).toBeNull()
+  const row = container.querySelector<HTMLButtonElement>(`[aria-label="Settings navigation"] button[aria-label="Hooks"]`)!
   expect(row).not.toBeNull()
   expect(row.title).toContain(label)
   const text = row.querySelector<HTMLElement>('[data-slot="sidebar-menu-label"]')!
@@ -422,5 +424,5 @@ it('keeps a stable nav label while the skills page uses the runtime name', async
   expect(rows.length).toBeGreaterThan(10)
   expect(new Set(rows.map(one => one.className)).size).toBe(1)
   await act(async () => row.click())
-  expect(page()).toBe(label)
+  expect(page()).toBe('Hooks')
 })

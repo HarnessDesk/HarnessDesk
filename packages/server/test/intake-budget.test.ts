@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import { DEFAULT_TRIGGER_BUDGET, type TriggerDefinition } from '@harnessdesk/protocol'
 
-import { budgetRefusal, committedToday, PAUSED_STOP, utcDay } from '../src/intake/budget.js'
+import { BudgetWatch, budgetRefusal, CAP_HOLD, committedToday, PAUSED_STOP, utcDay } from '../src/intake/budget.js'
 import { usdMicros } from '../src/intake/definition.js'
 import { definition, desk, onDisk, prFact, PROJECT, sha } from './fixtures/intake-restart.js'
 import { tempDir } from './scratch.js'
@@ -25,6 +25,272 @@ class Clock {
 }
 
 const opens = (events: readonly string[]) => events.filter((one) => one.startsWith('open:'))
+
+test('cleanup discovery tolerates an unreadable intake journal', async () => {
+  const d = await desk(tempDir('hd-intake-unreadable-cleanup-'))
+  d.store.read = () => { throw new Error('The intake journal cannot be read.') }
+  assert.deepEqual(d.budgets.pendingStops(), [])
+  assert.deepEqual(d.budgets.pendingHolds(), [])
+})
+
+for (const settled of [false, true]) test(`legacy budget stops never repeat Goal-wide cleanup after restart (settled: ${settled})`, async () => {
+  const home = tempDir('hd-intake-legacy-stop-')
+  const d = await desk(home)
+  const goal = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  await d.settle()
+  await d.budgets.stop(goal, 'timed out', 'Timed out: this Goal reached its time budget.')
+  await d.flows.stopRun(d.flows.executionsFor(goal)[0]!.id, 'Timed out')
+  await d.admission.transact((snapshot) => {
+    const { stopCompleted: _completed, ...legacy } = snapshot.budgets[goal]!
+    return { next: { ...snapshot, budgets: { ...snapshot.budgets, [goal]: { ...legacy, settled } } }, value: undefined }
+  })
+  const restored = await desk(home)
+  const cleanup: string[] = []
+  const watch = new BudgetWatch(restored.budgets, (id) => restored.flows.executionsFor(id)[0] ?? null, {
+    stopRun: async (id) => { cleanup.push(`stop:${id}`) },
+    interrupt: async (id) => { cleanup.push(`interrupt:${id}`) },
+    hold: async () => 0,
+  })
+  await watch.tick()
+  assert.deepEqual(cleanup, [], 'an old stop must never interrupt later person-started work on this Goal')
+  assert.deepEqual(restored.budgets.pendingStops(), [])
+})
+
+for (const gate of ['pause', 'cap'] as const) test(`lifting a ${gate} before its interruption finished completes that hold under its own reason`, async () => {
+  let paused = false
+  let cap = usdMicros(20)
+  let fail = true
+  const d = await desk(tempDir('hd-intake-hold-reason-'), { paused: () => paused, capMicros: () => cap })
+  const goal = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  await d.settle()
+  const run = () => d.flows.executionsFor(goal)[0]!
+  const held: string[] = []
+  const watch = new BudgetWatch(d.budgets, () => run(), {
+    stopRun: async () => { assert.fail('a transient hold must never stop the run') },
+    interrupt: async () => {},
+    hold: async (_goal, reason) => {
+      held.push(reason)
+      await d.flows.holdTriggered(run().id, reason)
+      if (fail) throw new Error('interrupt failed')
+      return run().intake!.holdGeneration ?? 0
+    },
+  })
+  const original = gate === 'pause' ? PAUSED_STOP : CAP_HOLD
+  if (gate === 'pause') paused = true
+  else cap = 0
+  await assert.rejects(watch.tick(), /cleanup failed/i)
+  const generation = run().intake?.holdGeneration
+  assert.equal(run().intake?.heldFor, original)
+  assert.deepEqual(d.store.read().budgets[goal]!.hold, { reason: original, completed: false }, 'the interruption did not finish')
+  assert.deepEqual(held, [original])
+
+  // The gate lifts before the cleanup finished: dispatch still waits on it, and the check says why.
+  paused = false
+  cap = usdMicros(20)
+  const waiting = 'This Goal waits while its interrupted work is cleaned up.'
+  assert.deepEqual(d.budgets.check(run()), { ok: false, transient: true, pending: true, reason: waiting })
+
+  // A sweep that finds that wait retries the pending interruption; it never starts a hold of its own for the wait's sentence.
+  await assert.rejects(watch.tick(), /cleanup failed/i)
+  assert.deepEqual(held, [original, original], 'one retry, under the reason the hold was started for')
+  assert.equal(run().intake?.heldFor, original, 'the saved run keeps the reason the person was told')
+  assert.equal(run().intake?.holdGeneration, generation, 'the hold did not start over')
+  assert.deepEqual(d.store.read().budgets[goal]!.hold, { reason: original, completed: false })
+
+  fail = false
+  await watch.tick()
+  assert.deepEqual(held, [original, original, original])
+  assert.equal(run().intake?.heldFor, original)
+  assert.equal(run().intake?.holdGeneration, generation)
+  assert.deepEqual(d.store.read().budgets[goal]!.hold, { reason: original, completed: true, generation }, 'the hold completed under its own reason')
+  assert.deepEqual(d.budgets.check(run()), { ok: true }, 'completed cleanup allows dispatch again')
+  await watch.tick()
+  assert.equal(held.length, 3, 'completed cleanup is not repeated')
+})
+
+test('a timer sweep that fails is logged once, and again when it fails differently or in a new episode', async () => {
+  let paused = false
+  let fail = 'interrupt failed'
+  let stopFails = false
+  const d = await desk(tempDir('hd-intake-timer-log-'), { paused: () => paused })
+  const goal = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  await d.settle()
+  const run = () => d.flows.executionsFor(goal)[0]!
+  let beat: () => void = () => assert.fail('the timer never started')
+  const logs: { message: string; details?: Readonly<Record<string, unknown>> }[] = []
+  const watch = new BudgetWatch(d.budgets, () => run(), {
+    stopRun: async () => { if (stopFails) throw new Error('interrupt failed') },
+    interrupt: async () => {},
+    hold: async (_goal, reason) => {
+      await d.flows.holdTriggered(run().id, reason)
+      if (fail) throw new Error(fail)
+      return run().intake!.holdGeneration ?? 0
+    },
+    timers: { every: (fn) => { beat = fn; return 1 }, clear: () => {} },
+    log: (message, details) => { logs.push({ message, details }) },
+  })
+  // The beat's own sweep is joined, not doubled: once it has settled, so has what the timer made of it.
+  const settled = async () => {
+    await watch.tick().catch(() => {})
+    await new Promise<void>((done) => setImmediate(done))
+  }
+  watch.start()
+  paused = true
+  beat()
+  await settled()
+  assert.equal(logs.length, 1, 'a failed timer sweep is no longer swallowed')
+  assert.match(logs[0]!.message, /budget cleanup/i)
+  assert.match(String(logs[0]!.details?.['error']), /cleanup failed.*interrupt failed/i)
+  beat()
+  await settled()
+  assert.equal(logs.length, 1, 'the same failure, retried every second, is not logged every second')
+  fail = 'run save failed'
+  beat()
+  await settled()
+  assert.equal(logs.length, 2, 'a different failure is')
+  assert.match(String(logs[1]!.details?.['error']), /run save failed/)
+  fail = ''
+  beat()
+  await settled()
+  assert.equal(logs.length, 2, 'a clean sweep logs nothing')
+  stopFails = true
+  await d.budgets.stop(goal, 'timed out', 'Timed out')
+  beat()
+  await settled()
+  assert.equal(logs.length, 3, 'the first failure’s text, after a clean sweep, is a new episode and is logged again')
+  watch.close()
+})
+
+for (const fails of ['stop', 'interrupt'] as const) test(`budget cleanup retries after ${fails} fails, including after restart`, async () => {
+  const home = tempDir('hd-intake-stop-retry-')
+  const clock = new Clock(DAY)
+  let d = await desk(home, { now: clock.now })
+  const opened = await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))
+  await d.settle()
+  const goal = opened.goal!
+  clock.at += 5 * HOUR
+  const calls: string[] = []
+  let fail = true
+  const watcher = () => new BudgetWatch(d.budgets, (id) => d.flows.executionsFor(id)[0] ?? null, {
+    hold: async () => 0,
+    stopRun: async (id, reason) => {
+      calls.push('stop')
+      if (fail && fails === 'stop') throw new Error('run save failed')
+      await d.flows.stopRun(d.flows.executionsFor(id)[0]!.id, reason)
+    },
+    interrupt: async () => {
+      calls.push('interrupt')
+      if (fail && fails === 'interrupt') throw new Error('interrupt failed')
+    },
+  })
+  await assert.rejects(watcher().tick(), /failed/)
+  assert.deepEqual(calls, ['stop', 'interrupt'], 'both cleanup steps are attempted')
+  const firstStop = d.budgets.state(goal)!.stop
+  assert.ok(firstStop)
+  // A new desk reads the pending cleanup even if the run already stopped.
+  d = await desk(home, { now: clock.now })
+  fail = false
+  await watcher().tick()
+  assert.deepEqual(calls, ['stop', 'interrupt', 'stop', 'interrupt'])
+  assert.deepEqual(d.budgets.state(goal)!.stop, firstStop)
+  await watcher().tick()
+  assert.equal(calls.length, 4, 'completed cleanup is not repeated')
+})
+
+for (const fails of ['hold', 'stop save'] as const) test(`another Goal's ${fails} failure does not prevent pending cleanup`, async () => {
+  const home = tempDir('hd-intake-cleanup-progress-')
+  const clock = new Clock(DAY)
+  let paused = false
+  const d = await desk(home, { now: clock.now, paused: () => paused, definition: definition({ concurrency: 5 }) })
+  const pending = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  const other = (await d.admission.offer(d.arm, prFact(2, sha('b'), 'opened'))).goal!
+  await d.settle()
+  await d.budgets.stop(pending, 'timed out', 'Timed out: this Goal reached its time budget.')
+  if (fails === 'hold') paused = true
+  else {
+    clock.at += 5 * HOUR
+    const stop = d.budgets.stop.bind(d.budgets)
+    d.budgets.stop = async (goal, ...args) => {
+      if (goal === other) throw new Error('stop save failed')
+      return stop(goal, ...args)
+    }
+  }
+  const calls: string[] = []
+  let failCleanup = true
+  const watch = new BudgetWatch(d.budgets, (goal) => d.flows.executionsFor(goal)[0] ?? null, {
+    hold: async () => { throw new Error('hold failed') },
+    stopRun: async (goal) => {
+      assert.equal(goal, pending)
+      calls.push('stop')
+      if (failCleanup) throw new Error('run stop failed')
+    },
+    interrupt: async (goal) => {
+      assert.equal(goal, pending)
+      calls.push('interrupt')
+      if (failCleanup) throw new Error('interrupt failed')
+    },
+  })
+  for (let sweep = 1; sweep <= 3; sweep++) {
+    await assert.rejects(watch.tick(), /failed/i)
+    assert.deepEqual(calls, Array.from({ length: sweep }, () => ['stop', 'interrupt']).flat())
+    assert.equal(d.store.read().budgets[pending]!.stopCompleted, false)
+  }
+  failCleanup = false
+  await assert.rejects(watch.tick(), /failed/i)
+  assert.equal(calls.length, 8, 'cleanup finishes despite the other Goal still failing')
+  assert.equal(d.store.read().budgets[pending]!.stopCompleted, true)
+  await assert.rejects(watch.tick(), /failed/i)
+  assert.equal(calls.length, 8, 'completed cleanup is not repeated')
+})
+
+test('a sweep discovers pending cleanup with one journal snapshot', async () => {
+  const d = await desk(tempDir('hd-intake-sweep-reads-'))
+  const goal = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  await d.settle()
+  await d.budgets.stop(goal, 'timed out', 'Timed out')
+  const read = d.store.read.bind(d.store)
+  let reads = 0
+  d.store.read = () => { reads++; return read() }
+  const watch = new BudgetWatch(d.budgets, () => null, {
+    stopRun: async () => { throw new Error('stop failed') },
+    interrupt: async () => { throw new Error('interrupt failed') },
+    hold: async () => 0,
+  })
+  await assert.rejects(watch.tick(), /cleanup failed/i)
+  assert.equal(reads, 1, 'stops, holds and live budgets share one discovery read')
+})
+
+for (const kind of ['stop', 'hold'] as const) test(`timer synchronization only follows completed ${kind} cleanup`, async () => {
+  let paused = false
+  let fail = true
+  let swept = 0
+  const d = await desk(tempDir('hd-intake-sweep-sync-'), { paused: () => paused })
+  const goal = (await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))).goal!
+  await d.settle()
+  const run = () => d.flows.executionsFor(goal)[0]!
+  const watch = new BudgetWatch(d.budgets, () => run(), {
+    stopRun: async (_goal, reason) => { await d.flows.stopRun(run().id, reason) },
+    interrupt: async () => { if (fail) throw new Error('interrupt failed') },
+    hold: async (_goal, reason) => {
+      await d.flows.holdTriggered(run().id, reason)
+      if (fail) throw new Error('interrupt failed')
+      return run().intake!.holdGeneration ?? 0
+    },
+    swept: () => { swept++ },
+  })
+  await watch.tick()
+  await watch.tick()
+  assert.equal(swept, 0, 'ordinary budget ticks do not resynchronize timers')
+  if (kind === 'stop') await d.budgets.stop(goal, 'timed out', 'Timed out')
+  else paused = true
+  await assert.rejects(watch.tick(), /cleanup failed/i)
+  assert.equal(swept, 0, 'unchanged pending cleanup does not resynchronize timers')
+  fail = false
+  await watch.tick()
+  assert.equal(swept, 1, 'completing cleanup lets the owner retire a cleanup-only timer')
+  await watch.tick()
+  assert.equal(swept, 1, 'completed cleanup does not resynchronize timers again')
+})
 
 test('force-push shares money time and round allowance', async () => {
   const home = tempDir('hd-intake-budget-')

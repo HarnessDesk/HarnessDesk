@@ -40,11 +40,13 @@ them into one protocol would give up both properties.
 
 ## The packages
 
-Twenty packages make up the repository:
+Twenty-two packages make up the repository:
 
 | Package | Role | Allowed imports |
 | --- | --- | --- |
 | `packages/protocol` | Domain vocabulary, wire methods, validators | Zero dependencies |
+| `packages/contract` | Schemas for the cloud wire: ids, tokens, pairing offers, relay frames, the account API. See [open-and-hosted.md](open-and-hosted.md) | `zod` |
+| `packages/crypto` | The cloud wire's cryptography: keys, handshake and framing, signed tokens, push sealing, test vectors | Zero dependencies (WebCrypto) |
 | `packages/desktop` | Electron shell, Keychain broker, packaging, the command-line launcher | `server`, `claude-acp`, `cursor-acp`, `cli`, `mcp-tools` |
 | `packages/client` | Transport-independent client calls and events; local I/O in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
 | `packages/cli` | The `harnessdesk` command line over the client library; the app bundles it and installs a launcher for it, and `docs/cli.md` is its reference, generated from its command table | `client`, `protocol` |
@@ -657,6 +659,16 @@ second runtimes and kernels adapters rather than rewrites:
    strings; components read `RuntimeInfo.presentation`. Components also never
    test backend IDs (`runtime.id === 'codex'`); features gate on
    `runtime.capabilities` ([the capability decision](decisions.md#capabilities-are-negotiated-not-normalised)).
+
+10. **The cloud wire stands alone.** `packages/contract` and `packages/crypto`
+    import their own files and nothing else, except that contract may import
+    `zod`. No Node builtin (with or without `node:`), no package, no workspace
+    neighbour: the same wire runs in this desk, in the hosted relay and on the
+    phone, and any other import is a place one of them cannot follow.
+11. **The cloud wire stays out of the renderer.** `packages/ui` and
+    `packages/protocol` never import `@harnessdesk/contract` or
+    `@harnessdesk/crypto`; the host holds the keys, and the window reads state
+    over the wire ([what is open, and what is hosted](open-and-hosted.md)).
 
 See [AGENTS.md](../AGENTS.md) for the maintainer rules and
 [extending.md](extending.md) for how to add a runtime adapter or plugin.

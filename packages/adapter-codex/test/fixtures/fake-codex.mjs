@@ -1996,6 +1996,10 @@ rl.on('line', (line) => {
       return
 
     case 'hooks/list':
+      if (process.env.FAKE_CODEX_FAIL_HOOKS && existsSync(process.env.FAKE_CODEX_FAIL_HOOKS)) {
+        send({ id, error: { code: -32603, message: 'Hooks could not be read.' } })
+        return
+      }
       send({
         id,
         result: {

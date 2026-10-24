@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import { promisify } from 'node:util'
 
 import WebSocket from 'ws'
 
@@ -57,6 +59,34 @@ const connect = (server: RunningServer, headers: Record<string, string | string[
     socket.once('open', () => socket.close())
     socket.once('close', () => resolve())
   })
+
+for (const upgrade of [false, true]) {
+  test(`an invalid ${upgrade ? 'upgrade' : 'HTTP'} URL closes the connection and leaves the server available`, async () => {
+    // A separate process makes an uncaught request error a bounded test failure.
+    const source = `
+      import assert from 'node:assert/strict'
+      import { request } from 'node:http'
+      import { Logger, serve } from ${JSON.stringify(new URL('../src/index.js', import.meta.url).href)}
+      const server = await serve({ host: {}, logger: new Logger('test', { console: false }), port: 0 })
+      try {
+        await assert.rejects(new Promise((resolve, reject) => {
+          const req = request({
+            hostname: '127.0.0.1', port: server.port, path: '//[',
+            headers: ${upgrade ? "{ Connection: 'Upgrade', Upgrade: 'websocket' }" : '{}'},
+          }, (res) => { res.resume(); resolve(res.statusCode) })
+          req.on('error', reject)
+          req.end()
+        }), { code: 'ECONNRESET' })
+        const response = await fetch(server.url + '/healthz')
+        assert.equal(response.status, 200)
+        assert.deepEqual(await response.json(), { ok: true })
+      } finally {
+        await server.close()
+      }
+    `
+    await promisify(execFile)(process.execPath, ['--unhandled-rejections=strict', '--input-type=module', '--eval', source], { timeout: 10_000 })
+  })
+}
 
 test('HTTP checks Host before serving any route, even with the launch token', async (t) => {
   const { server } = await start(t)

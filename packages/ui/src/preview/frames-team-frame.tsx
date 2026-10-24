@@ -58,7 +58,7 @@ export const TeamFrame = () => {
  }, [])
  return <StoreProvider store={store}><ApplyPreviewTheme><ShellProvider actions={{chooseProject:()=>{},signIn:()=>{},openUsage:()=>{},openRuntimes:()=>{},openAgents:()=>{},reviewImports:()=>{}}}>
   <div ref={box} data-frame-id="team-frame" className={`h-screen bg-background${controls ? ' max-w-180' : ''}`}>
-   <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={()=>{}} onOpenPlugins={()=>{}} onOpenAgents={()=>{}} onOpenTeams={()=>{}} onOpenUsage={()=>{}} onBrowseFolders={()=>{}} onSignIn={()=>{}} onSearch={()=>{}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
+   <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={()=>{}} onOpenAgents={()=>{}} onOpenTeams={()=>{}} onOpenUsage={()=>{}} onBrowseFolders={()=>{}} onSignIn={()=>{}} onSearch={()=>{}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
   </div>
  </ShellProvider></ApplyPreviewTheme></StoreProvider>
 }

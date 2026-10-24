@@ -329,11 +329,46 @@ test('a change only to documents or to the browser suite opens no unit test', ()
   }
 })
 
-test('a very large change runs every test', () => {
-  const tree = walk(join(root, 'packages/ui/src')).map(file => relative(root, file)).filter(file => /\.tsx?$/.test(file) && !/setup-tests/.test(file))
-  assert.ok(tree.length > 400)
-  assert.equal(plan(tree.slice(0, 300)).mode, 'related')
-  assert.equal(plan(tree.slice(0, 301)).mode, 'all')
+test('a very large change runs every test', () => fixture(({ dir, put }) => {
+  // Files nothing imports, so what they reach stays under the cap: on the real tree 300 source files reach most tests.
+  const leaves = Array.from({ length: 301 }, (_, index) => `packages/ui/src/leaf-${index}.ts`)
+  for (const leaf of leaves) put(leaf, 'export {}\n')
+  const changed = count => unitPlan(dir, { event: 'pull_request', paths: leaves.slice(0, count) })
+  assert.equal(changed(300).mode, 'related')
+  assert.equal(changed(301).mode, 'all')
+  assert.match(changed(301).summary, /301 files changed/)
+}))
+
+// A suite of nine test files, `reaching` of which import the changed module; a third of nine is three.
+const reachFixture = (reaching, check, { readers = 0 } = {}) => fixture(({ dir, put }) => {
+  put('packages/ui/src/shared.ts', 'export const shared = 1\n')
+  for (let index = 0; index < reaching; index++) put(`packages/ui/src/uses-${index}.test.ts`, "import { shared } from './shared'\nshared\n")
+  for (let index = 0; index < readers; index++) put(`packages/ui/src/reads-${index}.test.ts`, "import { readFileSync } from 'node:fs'\nreadFileSync('x')\n")
+  // `fixture` already holds plain.test.ts.
+  for (let index = reaching + readers; index < 8; index++) put(`packages/ui/src/other-${index}.test.ts`, 'export {}\n')
+  check(unitPlan(dir, { event: 'pull_request', paths: ['packages/ui/src/shared.ts'] }))
+})
+
+test('a related selection that reaches no more than a third of the test files stays one serial run', () => {
+  reachFixture(3, run => {
+    assert.equal(run.mode, 'related')
+    assert.ok(run.files.includes('src/shared.ts'))
+  })
+  reachFixture(0, run => assert.equal(run.mode, 'related'))
+})
+
+test('a related selection that reaches more than a third of the test files is sharded like the full suite', () => reachFixture(4, run => {
+  assert.equal(run.mode, 'all')
+  assert.deepEqual(run.files, [])
+  assert.match(run.summary, /4 of 9 test files depend on the change/)
+}))
+
+test('the tests that read the tree count towards the cap, because every related run holds them', () => {
+  reachFixture(0, run => assert.equal(run.mode, 'related'), { readers: 3 })
+  reachFixture(0, run => {
+    assert.equal(run.mode, 'all')
+    assert.match(run.summary, /4 of 9 test files depend on the change/)
+  }, { readers: 4 })
 })
 
 test('the command line reads a list of paths separated by NUL and prints the plan', () => {
@@ -353,12 +388,22 @@ test('the command line reads a list of paths separated by NUL and prints the pla
 })
 
 test('a file imported with a query reaches its importers, which Vitest does not follow', () => {
-  // `Approvals.css.test.ts` reads `ApprovalDialog.module.css?raw`, and `BrandIcons.tsx` reads `mark.svg?raw`.
-  const sheet = plan(['packages/ui/src/design/patterns/ApprovalDialog.module.css'])
-  assert.equal(sheet.mode, 'related')
-  assert.ok(sheet.files.includes('src/components/Approvals.css.test.ts'), sheet.files.join(' '))
-  const mark = plan(['packages/ui/src/assets/brand/mark.svg'])
-  assert.ok(mark.files.includes('src/components/BrandIcons.tsx'), 'the module is asked about, and Vitest finds the tests that depend on it')
+  // `Approvals.css.test.ts` reads a stylesheet with `?raw`, and `BrandIcons.tsx` reads `mark.svg?raw`; each
+  // reaches too much of the real tree to stay one related run, so the same two shapes are planned in a small one.
+  fixture(({ dir, put }) => {
+    for (const name of ['a', 'b', 'c', 'd']) put(`packages/ui/src/${name}.test.ts`, 'export {}\n')
+    put('packages/ui/src/sheet.css', 'a { color: red }\n')
+    put('packages/ui/src/sheet.test.ts', "import raw from './sheet.css?raw'\nraw\n")
+    put('packages/ui/src/mark.svg', '<svg/>')
+    put('packages/ui/src/icons.ts', "import mark from './mark.svg?raw'\nexport default mark\n")
+    put('packages/ui/src/icons.test.ts', "import icons from './icons'\nicons\n")
+    const sheet = unitPlan(dir, { event: 'pull_request', paths: ['packages/ui/src/sheet.css'] })
+    assert.equal(sheet.mode, 'related')
+    assert.ok(sheet.files.includes('src/sheet.test.ts'), sheet.files.join(' '))
+    const mark = unitPlan(dir, { event: 'pull_request', paths: ['packages/ui/src/mark.svg'] })
+    assert.equal(mark.mode, 'related')
+    assert.ok(mark.files.includes('src/icons.ts'), 'the module is asked about, and Vitest finds the tests that depend on it')
+  })
   // The review's own example: a colour taken out of the editor's stylesheet is checked by a test that reads it with `?raw`.
   const editor = plan(['packages/ui/src/styles/editor.css'])
   assert.ok(editor.files.some(file => /editor-tokens\.test\.ts$/.test(file)), editor.files.join(' '))
@@ -378,6 +423,8 @@ test('a test that reads the tree through a helper is a reader, and so is one tha
     put('packages/ui/src/plain.ts', 'export const x = () => 1\n')
     put('packages/ui/src/setup-tests.ts', "import './test-support/pointer'\n")
     put('packages/ui/src/test-support/pointer.ts', 'export {}\n')
+    // Tests that depend on nothing, so that the two this change runs stay under a third of the suite.
+    for (const name of ['a', 'b', 'c', 'd']) put(`packages/ui/src/other-${name}.test.ts`, 'export {}\n')
     assert.deepEqual(treeReaders(dir), ['src/sheet.test.ts'])
     assert.deepEqual([...setupFiles(dir)].sort(), ['packages/ui/src/setup-tests.ts', 'packages/ui/src/test-support/pointer.ts'])
     // Vitest does not follow the setup's imports: an edit to one of them is an edit to every test.

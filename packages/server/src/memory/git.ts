@@ -4,6 +4,8 @@ import { lstat, open, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
+import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
+
 const exec = promisify(execFile)
 
 /**
@@ -33,7 +35,7 @@ export async function readMemoryBlob(root: string, at: string, path: string): Pr
   memoryPath(path)
   if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(at)) throw new Error('Choose a full commit revision.')
   const git = async (args: string[], maxBuffer: number): Promise<Buffer> => {
-    const out = await exec('git', ['--no-replace-objects', '-C', root, ...args], {
+    const out = await exec('git', [...HARDENED_GIT_CONFIG, '--no-replace-objects', '-C', root, ...args], {
       encoding: 'buffer',
       maxBuffer,
       timeout: 5000,
@@ -173,7 +175,7 @@ export async function listMemoryFiles(root: string, at: string): Promise<readonl
   if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(at)) throw new Error('Choose a full commit revision.')
   const out = await exec(
     'git',
-    ['--no-replace-objects', '-C', root, 'ls-tree', '-z', at, '--', ':(literal).harnessdesk/memory/'],
+    [...HARDENED_GIT_CONFIG, '--no-replace-objects', '-C', root, 'ls-tree', '-z', at, '--', ':(literal).harnessdesk/memory/'],
     {
       encoding: 'buffer',
       maxBuffer: 256 * 1024 + 4096,

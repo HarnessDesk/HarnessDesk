@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
+import { constants, type Stats } from 'node:fs'
 import { isUtf8 } from 'node:buffer'
-import { lstat, open, readdir, stat, watch as fsWatch, writeFile } from 'node:fs/promises'
+import { lstat, readdir, stat, watch as fsWatch } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
@@ -13,6 +14,9 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
+import { openAgentFile } from './agent-file-open.js'
+import { canonicalTarget, isWithinPath } from './path-confinement.js'
+import { within } from './seat-reads.js'
 
 /**
  * Workspace file services.
@@ -51,26 +55,139 @@ export const assertAbsoluteCwd = (params: { readonly cwd?: string } | undefined)
 }
 
 /**
+ * How long a path may take to be checked against the disk before it is refused.
+ *
+ * Confinement asks where a path really leads, and a volume that has stopped
+ * answering — a network mount, a drive that went to sleep — never says. The
+ * checks run off the host's thread, so the host goes on answering everything
+ * else; this is how long the request that asked waits before it says so. The
+ * call it was waiting for is not given up with it: it keeps a worker of the
+ * thread pool until the volume answers, which is why a root with such a call
+ * still out is not asked about again (`unanswered`, below).
+ */
+export const CONFINE_DEADLINE_MS = 10_000
+
+export interface ConfineOptions {
+  /** How long the disk may take to answer; `CONFINE_DEADLINE_MS` when left out. */
+  readonly deadlineMs?: number
+}
+
+/**
+ * A path that could not be checked against the open workspaces, because the
+ * disk would not say where it leads: a link that loops, a folder nobody may
+ * search, a volume that did not answer in time.
+ *
+ * It is not a refusal. Nothing decided that the path is outside every
+ * workspace, and a person asking for a file that cannot be read is owed the
+ * reason in the file's own terms. So it is a kind of its own: `workspace/readFile`
+ * answers it as the file's state, and anything else that confines a path
+ * passes it on as the plain error it is. `code` is the errno the disk gave, so
+ * the checks that read a failed `stat` read this the same way.
+ */
+export class PathUnresolvableError extends Error {
+  readonly code: string
+
+  constructor(
+    readonly path: string,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error && cause.message !== '' ? cause.message : `${path} could not be checked.`, { cause })
+    this.name = 'PathUnresolvableError'
+    this.code = errnoOf(cause)
+  }
+}
+
+/**
  * Refuses a path that is not under one of the roots the user has opened.
  *
- * Lexical, on the resolved path: `..` segments are collapsed first, so
- * `root/../etc/passwd` is refused. A symlink inside a root that points
- * outside it is not caught here, because a runtime's reader resolves links on
- * its own side; that is a known limit, not an oversight.
+ * Both the spelling and the canonical target must be inside an admitted
+ * root. Missing names are resolved through their deepest existing ancestor.
+ * A root itself may be linked when the person opened it explicitly.
+ *
+ * Answers the spelling, which is what the caller keeps. The spelling is judged
+ * first and costs nothing: a path outside every root's spelling is refused
+ * before the disk is asked about it. The disk is asked only about the roots
+ * that spell it, and not for longer than the deadline; a root whose volume
+ * did not answer the last time is not asked at all while that call is out.
  */
-export const confine = (path: string, roots: readonly string[]): string => {
+export const confine = async (path: string, roots: readonly string[], options: ConfineOptions = {}): Promise<string> => {
+  await confinedTarget(path, roots, options.deadlineMs)
+  return resolve(path)
+}
+
+const outsideEveryWorkspace = (target: string): Error =>
+  new Error(`${target} is outside every open workspace. Open its folder first to read from it.`)
+
+/** What a request is told when its volume did not say where a path leads. */
+const volumeSilent = (target: string): PathUnresolvableError =>
+  new PathUnresolvableError(
+    target,
+    Object.assign(new Error(`${target} could not be checked: its volume did not answer in time.`), { code: 'ETIMEDOUT' }),
+  )
+
+/**
+ * The roots a request gave up on, and how many of those requests still have a
+ * call out on the disk.
+ *
+ * A request that reaches its deadline stops waiting and tells its walk to take
+ * no further step, but the call the walk is waiting on cannot be taken back: it
+ * keeps a worker of the thread pool until the volume answers or fails it. The
+ * pool is four threads, shared by every file, folder and lookup the host asks
+ * of any volume, so an editor that polls a silent volume every few seconds
+ * would leave another call behind each time and, with four of them, nothing
+ * else would be answered. A root in this table is therefore not walked again:
+ * a request that names it is refused at once with the answer the deadline
+ * gives, and the root is let go when the last call left behind has come back,
+ * answered or failed.
+ *
+ * What it cannot do is tell a silent volume from a slow one before the
+ * deadline, so the requests that arrived within a deadline of the first were
+ * asked all the same. And it holds a root as a whole: a stall below it refuses
+ * every path in it for as long as the call is out, which is the cost of not
+ * walking into the same volume again to find which path it is.
+ */
+const unanswered = new Map<string, number>()
+
+/** Holds `roots` until every one of `walks` has come back, whichever way it ends. */
+const holdRoots = (roots: readonly string[], walks: readonly Promise<unknown>[]): void => {
+  for (const root of roots) unanswered.set(root, (unanswered.get(root) ?? 0) + 1)
+  void Promise.allSettled(walks).then(() => {
+    for (const root of roots) {
+      const left = (unanswered.get(root) ?? 1) - 1
+      if (left > 0) unanswered.set(root, left)
+      else unanswered.delete(root)
+    }
+  })
+}
+
+const confinedTarget = async (
+  path: string,
+  roots: readonly string[],
+  deadlineMs = CONFINE_DEADLINE_MS,
+): Promise<string> => {
   assertAbsolute(path)
   const target = resolve(path)
-  const inside = roots.some((root) => {
-    const base = resolve(root)
-    return target === base || target.startsWith(base.endsWith(sep) ? base : base + sep)
-  })
-  if (!inside) {
-    throw new Error(
-      `${target} is outside every open workspace. Open its folder first to read from it.`,
-    )
+  const named = [...new Set(roots.map((root) => resolve(root)).filter((base) => isWithinPath(base, target)))]
+  if (named.length === 0) throw outsideEveryWorkspace(target)
+  // A root with a call still out on its volume is not asked again.
+  if (named.some((root) => unanswered.has(root))) throw volumeSilent(target)
+  const stop = new AbortController()
+  let walks: readonly Promise<string>[] = []
+  const answered = await within(() => {
+    walks = [target, ...named].map((one) => canonicalTarget(one, stop.signal))
+    return Promise.all(walks)
+  }, deadlineMs)
+  if (answered.settled === 'late') {
+    stop.abort()
+    // Nested roots name distinct volumes; hold the closest root to this target.
+    const closest = named.reduce((inner, root) => root.length > inner.length ? root : inner)
+    holdRoots([closest], walks)
+    throw volumeSilent(target)
   }
-  return target
+  if (answered.settled === 'error') throw new PathUnresolvableError(target, answered.error)
+  const [canonical = target, ...real] = answered.value
+  if (!real.some((base) => isWithinPath(base, canonical))) throw outsideEveryWorkspace(target)
+  return canonical
 }
 
 const IGNORED_DIRECTORIES = new Set([
@@ -197,6 +314,8 @@ export const searchFiles = async (
 export const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
 
 export interface LocalFilesOptions {
+  /** Recheck the admitted roots immediately before opening local content. */
+  readonly roots?: (mode: 'read' | 'write') => readonly string[] | Promise<readonly string[]>
   /** Where a folder a search had to pass over is named. */
   readonly log?: (message: string, details?: Record<string, unknown>) => void
 }
@@ -207,12 +326,53 @@ export class LocalFiles implements RuntimeFiles {
   /** Folders a search has already named: a search runs per keystroke, the line once. */
   readonly #unreadable = new Set<string>()
 
-  constructor(options: LocalFilesOptions = {}) {
+  constructor(private readonly options: LocalFilesOptions = {}) {
     this.#log = options.log ?? (() => {})
   }
 
   async write(path: string, data: Uint8Array): Promise<void> {
-    await writeFile(path, data)
+    const target = await this.#target(path, 'write')
+    const handle = await this.#open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_NONBLOCK)
+    try {
+      const info = await handle.stat()
+      this.#assertFile(path, info)
+      this.#assertOneName(info)
+      await handle.truncate(0)
+      await handle.writeFile(data)
+    } finally {
+      await handle.close()
+    }
+  }
+
+  async #target(path: string, mode: 'read' | 'write'): Promise<string> {
+    return this.options.roots ? confinedTarget(path, await this.options.roots(mode)) : canonicalTarget(path)
+  }
+
+  /** Reads and saves both need a regular file. */
+  #assertFile(path: string, info: Stats): void {
+    if (!info.isFile()) throw new Error(`${path} is not a file`)
+  }
+
+  /** A save changes every name sharing these contents, including names outside the roots. */
+  #assertOneName(info: Stats): void {
+    if (info.nlink !== 1) {
+      throw new Error('Workspace files need exactly one filesystem link to be saved, because a save would change every other name that shares them. Open a separate copy to edit this file.')
+    }
+  }
+
+  async #open(path: string, flags: number) {
+    try {
+      return await openAgentFile(path, flags)
+    } catch (error) {
+      const code = errnoOf(error)
+      if (code === 'ENOTSUP') {
+        throw Object.assign(new Error('Workspace file reads and saves are supported on macOS and Linux.', { cause: error }), { code })
+      }
+      if (process.platform === 'linux' && code === 'EACCES') {
+        throw Object.assign(new Error('Linux workspace files need readable ancestor folders and permission to open the file.', { cause: error }), { code })
+      }
+      throw error
+    }
   }
 
   async search(roots: readonly string[], query: string, limit: number): Promise<readonly FileMatch[]> {
@@ -232,10 +392,12 @@ export class LocalFiles implements RuntimeFiles {
   }
 
   async read(path: string, maxBytes: number): Promise<Uint8Array> {
-    const info = await stat(path)
-    if (!info.isFile()) throw new Error(`${path} is not a file`)
-    const handle = await open(path, 'r')
+    const handle = await this.#open(await this.#target(path, 'read'), constants.O_RDONLY | constants.O_NONBLOCK)
     try {
+      const info = await handle.stat()
+      this.#assertFile(path, info)
+      // A second name can make a file outside the roots look like one inside them.
+      if (info.nlink !== 1) throw new Error('This file has more than one name on disk, so HarnessDesk does not open it.')
       const buffer = Buffer.alloc(Math.max(0, maxBytes))
       const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0)
       return buffer.subarray(0, bytesRead)
@@ -374,7 +536,7 @@ export const describeWorkspace = async (
 
 /** Editor navigation opts in to files, inside an already admitted conversation root.
  * Runtime entries are names only: reject path-shaped names and unknown kinds.
- * Confinement inherits the runtime reader's documented lexical link policy.
+ * Confinement checks the canonical target against the admitted root.
  */
 export const browseWorkspaceEntries = async (
   files: RuntimeFiles,
@@ -385,7 +547,7 @@ export const browseWorkspaceEntries = async (
   parent: string | null
   entries: { name: string; path: string; kind: 'file' | 'directory' }[]
 }> => {
-  const target = confine(path, [root])
+  const target = await confine(path, [root])
   const entries = (await files.list(target))
     .filter((entry): entry is FileEntry & { kind: 'file' | 'directory' } =>
       (entry.kind === 'file' || entry.kind === 'directory') && entry.name !== '.git' &&

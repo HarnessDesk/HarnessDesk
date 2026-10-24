@@ -1,18 +1,18 @@
+import { RuntimeSkillPage } from './RuntimeSkills'
+import { openCustomizeSkills } from '../state/library-views'
 import SettingsChatsFolder from './SettingsChatsFolder'
 import { projectWorkspaces } from '../lib/chats'
 import SettingsNewConversations from './SettingsNewConversations'
 import { Toolbar } from '../design'
 import type { SettingsRoute, SettingsSection } from '../state/destinations'
 import { DestinationBar, useDestinationPage, useDestinationActive } from '../panels/destination-page'
-import { handOverToComposer } from '../lib/compose'
-import { Page, PageExplanation, PreservedText, PageControls, PageOptions } from '../design'
+import { Page, PageExplanation, PageControls, PageOptions } from '../design'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type {
   ConfigOption,
   RuntimeId,
-  SkillInfo,
   Worktree,
 } from '@harnessdesk/protocol'
 
@@ -32,7 +32,7 @@ import {
   PresetIcon,
   RouteIcon,
   ShieldIcon,
-  SparkIcon,
+
 } from './Icons'
 
 import { brandForRuntime } from '../lib/brands'
@@ -66,7 +66,7 @@ import {
   Field,
   FormStack,
   Input,
-  IconTile,
+
   FileButton,
   Note,
   SettingsRowMenu,
@@ -79,7 +79,7 @@ import {
   Section,
   SectionHead,
   NativeSelect,
-  Monogram,
+
   Switch,
   Text,
 } from '../design'
@@ -115,6 +115,7 @@ export type Section =
   | 'runtimes'
   | 'models'
   | 'skills'
+  | 'hooks'
   | 'extensions'
   | 'library'
   | 'plugins'
@@ -139,7 +140,7 @@ const MOVED: Readonly<Record<string, Section>> = {
 }
 const SECTIONS: readonly Section[] = [
   'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage',
-  'runtimes', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser',
+  'runtimes', 'models', 'skills', 'hooks', 'extensions', 'library', 'plugins', 'permissions', 'browser',
 ]
 export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes'): Section =>
   name && (SECTIONS as readonly string[]).includes(name)
@@ -1014,18 +1015,28 @@ const HooksList = () => {
   const store = useStore()
   const runtime = useRuntime()
   const snapshot = useSnapshot()
-  const [hooks, setHooks] = useState<import('@harnessdesk/protocol').HookInfo[] | null>(null)
+  const cwd = snapshot.workspace?.path
+  const [read, setRead] = useState<{ runtime: RuntimeId; cwd: string | undefined; hooks: readonly import('@harnessdesk/protocol').HookInfo[] | null } | null>(null)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!destinationActive) return
 
     if (!runtime.capabilities.hooks) return
     let live = true
-    void store.loadHooks().then(value => { if (live) setHooks(value) })
+    setRead(null)
+    void store.loadHooks().then(
+      hooks => { if (live) setRead({ runtime: runtime.id, cwd, hooks }) },
+      () => { if (live) setRead({ runtime: runtime.id, cwd, hooks: null }) },
+    )
     return () => { live = false }
-  }, [destinationActive, store, runtime.capabilities.hooks, snapshot.workspace?.path])
+  }, [destinationActive, store, runtime.id, runtime.capabilities.hooks, cwd, attempt])
 
-  if (!runtime.capabilities.hooks || !hooks || hooks.length === 0) return null
+  if (!runtime.capabilities.hooks) return <EmptyState title="Hooks are not available" description={`${runtime.presentation.name} does not report hooks.`} />
+  const hooks = read?.runtime === runtime.id && read.cwd === cwd ? read.hooks : undefined
+  if (hooks === undefined) return <EmptyState variant="inline" title="Reading hooks…" />
+  if (hooks === null) return <EmptyState title="Hooks could not be read"><Button variant="outline" size="sm" onClick={() => setAttempt(value => value + 1)}>Try again</Button></EmptyState>
+  if (hooks.length === 0) return <EmptyState title="No hooks configured" />
   return (
     <>
       <SectionHead level="label" name={withCount('Hooks', hooks.length)} />
@@ -1050,212 +1061,21 @@ const HooksList = () => {
   )
 }
 
-/** A wire name as a sentence: `add-admin-task` → "Add Admin Task". */
-const skillTitle = (skill: SkillInfo): string => {
-  if (skill.displayName) return skill.displayName
-  // Only an all-lowercase wire name is rewritten; a name someone cased on
-  // purpose ("MixedCase", "v2 checks") is theirs to keep.
-  if (!/^[a-z0-9]+([-_][a-z0-9]+)*$/.test(skill.name)) return skill.name
-  return skill.name
-    .split(/[-_]+/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ')
-}
-
-/** The scope words runtimes use, as people words. Anything else shows as-is. */
-const SKILL_SCOPE_LABEL: Readonly<Record<string, string>> = {
-  user: 'Personal',
-  repo: 'Project',
-  system: 'Built in',
-  admin: 'Managed',
-}
-
-const skillScopeLabel = (scope: string | undefined): string | null => {
-  if (!scope) return null
-  // Old snapshots carried the scanned folder here; a path is not a scope.
-  if (scope.includes('/')) return null
-  return SKILL_SCOPE_LABEL[scope] ?? scope
-}
-
-/**
- * The skill's own icon, its accent-coloured initial, or the generic spark.
- *
- * `iconUrl` is a `data:` URI inlined from the installed skill; the adapter
- * drops remote ones, so nothing here reaches the network.
- */
-const SkillMark = ({ skill, tile, glyphSize }: { skill: SkillInfo; tile: 'default' | 'sm'; glyphSize: number }) => {
-  const [broken, setBroken] = useState(false)
-  // Logos use the caller's tile step; the row supplies the fallback's ground.
-  if (skill.iconUrl && !broken) {
-    return (
-      <IconTile size={tile}>
-        <img src={skill.iconUrl} alt="" onError={() => setBroken(true)} />
-      </IconTile>
-    )
-  }
-  if (skill.brandColor) {
-    return (
-      <IconTile size={tile} color={skill.brandColor}>
-        <Monogram>{skillTitle(skill).charAt(0).toUpperCase()}</Monogram>
-      </IconTile>
-    )
-  }
-  return <SparkIcon size={glyphSize} />
-}
-
-const SkillToggle = ({ skill }: { skill: SkillInfo }) => {
-  const store = useStore()
-  return skill.toggleable === false ? (
-    // Nothing to switch: the agent declares what it offers and keeps the
-    // on/off to itself, so the row is a list entry.
-    <RowValue>Always on</RowValue>
-  ) : (
-    <span onClick={(event) => event.stopPropagation()}>
-      <Switch
-        aria-label={skill.name}
-        checked={skill.enabled}
-        onCheckedChange={(next) =>
-          void store.setSkillEnabled({ name: skill.name, path: skill.path }, next)
-        }
-      />
-    </span>
-  )
-}
-
-/** One skill, in full, with its availability beside the heading. */
-const SkillPage = ({
-  skill,
-  listLabel,
-  onBack,
-  onUse,
-}: {
-  skill: SkillInfo
-  listLabel: string
-  onBack: () => void
-  onUse: () => void
-}) => {
-  const runtime = useRuntime()
-  const scope = skillScopeLabel(skill.scope)
-  return (
-    <>
-      <DestinationBar place={skillTitle(skill)} />
-      <Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to {listLabel}</Button><SkillMark skill={skill} tile="sm" glyphSize={16}/></Toolbar>
-      <PageExplanation>{`${runtime.presentation.name}${scope?` · ${scope}`:''}`}</PageExplanation>
-      {skill.shortDescription && <PageExplanation>{skill.shortDescription}</PageExplanation>}
-      <Rows><Row title={skillTitle(skill)} control={<><SkillToggle skill={skill}/><Button variant="outline" size="sm" onClick={() => { onUse(); void handOverToComposer({text:`@${skill.name} `}) }}>Use in composer</Button></>}/></Rows>
-
-      {skill.description && skill.description !== skill.shortDescription && (
-        <>
-          <SectionHead level="label" name="What it does" />
-          <PreservedText value={skill.description}/>
-        </>
-      )}
-
-      <SectionHead level="label" name="About" />
-      <Rows>
-        <Row title="Identifier" control={<Text role="meta"><CodeText>{skill.name}</CodeText></Text>} />
-        {skill.path && (
-          <Row
-            title="Where it lives"
-            control={<RowValue>{skill.path}</RowValue>}
-          />
-        )}
-      </Rows>
-
-    </>
-  )
-}
-
-export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;readonly onSkill:(name:string|null)=>void;readonly onUse:()=>void}) => {
+/** Legacy skill routes retain command details; management has one destination. */
+export const SkillsSection = ({name,onUse}: {readonly name:string|null;readonly onUse:()=>void}) => {
   const snapshot = useSnapshot()
+  const store = useStore()
   const runtime = useRuntime()
-  const [query, setQuery] = useState('')
-  const openName=name,setOpenName=onSkill
-  const label = runtime.presentation.skillsLabel ?? 'Skills'
-  const hasFaces = snapshot.skills.some(skill => skill.iconUrl || skill.brandColor)
-
-  const skills = useMemo(
-    () =>
-      snapshot.skills.filter((skill) =>
-        `${skill.name} ${skillTitle(skill)} ${skill.shortDescription ?? ''} ${skill.description}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-      ),
-    [snapshot.skills, query],
-  )
-  // An agent that only declares what it has gets the sentence that is true
-  // of it: nothing here can be switched, and `@` does not summon one.
-  const declared =
-    snapshot.skills.length > 0 && snapshot.skills.every((skill) => skill.toggleable === false)
-
-  const open = openName ? (snapshot.skills.find((skill) => skill.name === openName) ?? null) : null
-  if (open) {
-    return (
-      <SkillPage
-        skill={open}
-        listLabel={label}
-        onBack={() => setOpenName(null)}
-        onUse={onUse}
-      />
-    )
+  const skill = name ? snapshot.skills.find(one => one.name === name) : null
+  const { active } = useDestinationPage()
+  const openSkills = () => {
+    const previous = snapshot.workbench.navigation.back.at(-1)
+    if (previous?.kind === 'library' && previous.section === 'skill') void store.navigateBack()
+    else store.replaceDestination({ kind: 'library', section: 'skill' })
   }
-
-  return (
-    <>
-      <DestinationBar place={label} />
-<PageExplanation>{
-          declared
-            ? `What ${runtime.presentation.name} can be asked to run: its skills and its own commands.`
-            : `Instruction bundles ${runtime.presentation.name} found for this project. Mention one with @, or let the runtime choose.`
-        }</PageExplanation>
-
-      {snapshot.skills.length === 0 ? (
-        <Rows>
-          <EmptyState variant="row"
-            title="No skills found"
-            description={`${runtime.presentation.name} looks for them in the project${
-              runtime.presentation.configLocation
-                ? ` and in ${runtime.presentation.configLocation}`
-                : ''
-            }.`}
-          />
-        </Rows>
-      ) : (
-        <>
-          <PageControls search={{label:`Search ${label.toLowerCase()}`,placeholder:`Search ${label.toLowerCase()}`,value:query,change:setQuery}}/>
-          <Rows>
-            {skills.length === 0 && <EmptyState variant="row" title="Nothing matches" />}
-            {skills.map((skill) => {
-              const scope = skillScopeLabel(skill.scope)
-              return (
-                <RowButton
-                  key={skill.name}
-                  kind="record"
-                  onClick={() => setOpenName(skill.name)}
-                  mark={hasFaces ? <SkillMark skill={skill} tile="default" glyphSize={15} /> : undefined}
-                  title={skillTitle(skill)}
-                  desc={<Text role="prose" lines={2}>{skill.shortDescription ?? skill.description}</Text>}
-                  control={
-                    <>
-                      <RowValue>{scope}</RowValue>
-                      {skill.toggleable === false
-                        ? null
-                        : <SkillToggle skill={skill} />}
-                    </>
-                  }
-                />
-              )
-            })}
-          </Rows>
-        </>
-      )}
-
-      {/* Outside the branch above on purpose. Hooks have nothing to do with
-          whether any skills were found, and nesting them there hid every hook
-          an agent had whenever it happened to have no skills. */}
-      <HooksList />
-    </>
-  )
+  useEffect(() => { if (active && name === null) openCustomizeSkills(store, runtime.id, 'replace') }, [active, name, store, runtime.id])
+  if (skill) return <RuntimeSkillPage skill={skill} listLabel="Customize" onBack={openSkills} onUse={onUse} />
+  return name === null ? null : <EmptyState title="Command not found"><Button variant="ghost" size="sm" onClick={openSkills}>Back to Customize</Button></EmptyState>
 }
 
 /**
@@ -1682,7 +1502,7 @@ const WorktreeRows = () => {
 const SETTINGS_LABELS = {
   profile: 'Profile', general: 'General', appearance: 'Appearance', notifications: 'Notifications', shortcuts: 'Keyboard shortcuts',
   workspaces: 'Workspaces', archive: 'Archive', history: 'History', storage: 'Storage', runtimes: 'Runtimes', models: 'Models',
-  skills: 'Skills', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser',
+  skills: 'Skills', hooks: 'Hooks', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser',
 } as const
 export const Settings = ({ route, onRoute, onSignIn }: {
   readonly route: SettingsRoute; readonly onRoute: (route: SettingsRoute) => void; readonly onSignIn: (runtime: RuntimeId) => void
@@ -1731,9 +1551,10 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} view={runtimeView} onView={setRuntimeView} showAddRuntimeAction={false}
       onBrowseHistory={id => sectionRoute('history', id)} />}
     {section === 'models' && <ModelsSection />}
+    {section === 'hooks' && <HooksList />}
     {section === 'extensions' && hasExtensions && <ExtensionsSection />}
     {section === 'skills' && <SkillsSection name={route.kind === 'skill' ? route.name : null}
-      onSkill={name => name ? onRoute({ kind: 'skill', name }) : sectionRoute('skills')} onUse={() => store.returnToWork()} />}
+      onUse={() => store.returnToWork()} />}
     {section === 'permissions' && <PermissionsSection focus={focus} />}
     {section === 'browser' && <BrowserSection />}
   </Page>
@@ -1755,7 +1576,7 @@ export const SettingsNavigation = ({ section, onSection, onBack }: {
           ? { kind: 'mark', icon: <Dot state={entry.state} />, label: `Runtimes: ${entry.state}` }
           : entry.count !== undefined ? { kind: 'count', value: entry.count, label: `${entry.count} accounts` } : undefined
         return <LeftColumnRow key={entry.id} label={entry.label} icon={entry.icon} title={entry.title ?? entry.label}
-          selected={section === entry.id} trailing={trailing} onClick={() => onSection(entry.id)} />
+          selected={(section === 'skills' ? 'runtimes' : section) === entry.id} trailing={trailing} onClick={() => onSection(entry.id)} />
       })}
     </LeftColumnGroup>)}
     {groups.length === 0 && <Text as="p" role="meta">Nothing in settings matches “{query.trim()}”.</Text>}

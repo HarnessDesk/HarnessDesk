@@ -22,7 +22,6 @@ const bundle = files(dist).filter(file => extname(file) === '.js').map(file => r
 const addresses = assertSiteIdentities(bundle)
 // `--tour-only` checks the tour's App pages alone, without the Dashboard's interaction proof.
 const tourOnly = process.argv.includes('--tour-only')
-if (!tourOnly) for (const address of ['shane@harnessdesk.app', 'olivia@harnessdesk.app']) assert.ok(addresses.includes(address), `Build lost demo persona: ${address}`)
 console.log(`PASS built-bundle identity scan: ${addresses.join(', ')}`)
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' }
 const built = httpServer((request, response) => {
@@ -96,8 +95,7 @@ try {
       await expect(cost.getByText('Rescan', { exact: true })).toHaveCount(0)
       await expect(cost).not.toContainText('days scanned')
       await expect(year.locator('[data-state="not-scanned"]')).toHaveCount(0)
-      await expect(accounts).toContainText('shane@harnessdesk.app')
-      await expect(accounts).toContainText('olivia@harnessdesk.app')
+      await expect(accounts).toContainText('dev@example.com')
       await expect(accounts.locator('tbody > tr')).toHaveCount(6)
       assert.ok(await breakdown.locator('[data-slot="section-name"]').evaluate(node => {
         const range = document.createRange()

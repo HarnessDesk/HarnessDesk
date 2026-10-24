@@ -1,9 +1,12 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { realpath, rm } from 'node:fs/promises'
+import type { BigIntStats } from 'node:fs'
+import { lstat, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
+import { readGit } from './git-read.js'
 import { isRevisionName } from './git-revision.js'
 
 import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@harnessdesk/protocol'
@@ -42,10 +45,14 @@ const run = promisify(execFile)
 /** Copying a tree out or deleting one is not a hang; give it room. */
 const SLOW = 120_000
 
-const git = async (cwd: string, args: readonly string[], timeout = 20_000): Promise<string> => {
+const personGit = async (cwd: string, args: readonly string[], timeout = 20_000): Promise<string> => {
   const { stdout } = await run('git', ['-C', cwd, ...args], { timeout, maxBuffer: 16 * 1024 * 1024 })
   return stdout
 }
+
+/** Read-only queries never run the repository's own programs. */
+const git = async (cwd: string, args: readonly string[], timeout = 20_000, signal?: AbortSignal): Promise<string> =>
+  (await readGit(cwd, args, { timeout, maxBuffer: 16 * 1024 * 1024, ...(signal ? { signal, killSignal: 'SIGKILL' as const } : {}) })).stdout
 
 /**
  * Both streams, for the one verb that reports on the wrong one: `worktree
@@ -53,7 +60,7 @@ const git = async (cwd: string, args: readonly string[], timeout = 20_000): Prom
  * this module announce that it pruned nothing while git pruned three.
  */
 const gitSaid = async (cwd: string, args: readonly string[]): Promise<string> => {
-  const { stdout, stderr } = await run('git', ['-C', cwd, ...args], {
+  const { stdout, stderr } = await run('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
     timeout: 20_000,
     maxBuffer: 16 * 1024 * 1024,
   })
@@ -177,24 +184,160 @@ const parseList = (out: string): Listed[] => {
  * that appeared between the looking and the clicking cannot be discarded on
  * the strength of a number that is no longer true.
  *
- * Ignored contents are asked for with directories collapsed — `node_modules/`
- * as one line rather than thirty thousand — which is both the readable answer
- * and the fast one.
+ * Ignored directories stay collapsed in the displayed inventory. The digest
+ * includes their descendants.
+ *
+ * **What the digest holds of a file depends on whose it is.** What git reports
+ * as changed, tracked or not, is somebody's own work: it is held to the file's
+ * mode, identity, size and both times, ctime among them because a write moves
+ * it and setting mtime cannot put it back. What git ignores is what a tool
+ * makes again — dependencies, build output, caches — and a dev server or a
+ * watcher is often writing there while a person decides, so held to its times
+ * it would make the lane impossible to remove. It is held to its path, type,
+ * size and mode instead, and the folders it is read through to their mode and
+ * identity: a name that appears or goes, a file that changes size or mode, or a folder
+ * swapped for another still voids a confirmation, and a write that leaves the
+ * size alone does not.
+ *
+ * **The whole reading has a deadline**, git and disk together. A stalled mount
+ * under an ignored folder holds a git listing, or a call to the disk, for as
+ * long as the mount stays silent, and a removal that waited for it would never
+ * answer. At the deadline the git children are killed and the reading is
+ * refused, so a removal refuses with it and takes nothing it did not list.
  */
 const SHOWN = 40
 
-export const inventory = async (path: string): Promise<GitWorktreeInventory> => {
+/** The longest one reading may take in all, matching the timeout of every other read here. */
+const INVENTORY_DEADLINE_MS = 20_000
+
+export interface InventoryOptions {
+  /** How long the whole reading may take; a test shortens it. */
+  readonly deadlineMs?: number
+}
+
+/** What a reading that ran out of time is refused with: the consequence, in the words a removal reports it. */
+const unfinished = (): Error => new Error("Couldn't list what this worktree holds in time; nothing was removed.")
+
+/** Rejects when the signal does. Work waiting on a call nobody can cancel is not waited for. */
+const ended = (signal: AbortSignal): Promise<never> => new Promise((_, reject) => {
+  if (signal.aborted) reject(signal.reason)
+  else signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+})
+
+/** NUL records arrive incrementally, without buffering a whole tree listing. */
+const inventoryGitFields = async function* (cwd: string, args: readonly string[], signal: AbortSignal): AsyncGenerator<string> {
+  signal.throwIfAborted()
+  const child = spawn('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
+    // The consumer pauses this stream for metadata checks. A wall-clock
+    // deadline of this child's own would charge that work to Git while its
+    // pipe is blocked; the deadline is the whole reading's, and ends the child.
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  // Killed where it stands, not when the consumer next asks for a field: a
+  // consumer waiting on the disk may never ask again.
+  const stop = (): void => { if (child.exitCode === null && !child.killed) child.kill('SIGKILL') }
+  signal.addEventListener('abort', stop, { once: true })
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString('utf8')).slice(-8_192) })
+  const finished = new Promise<Error | null>((resolve) => {
+    child.once('error', resolve)
+    child.once('close', (code, killedBy) => resolve(code === 0 ? null
+      : new Error(stderr.trim() || `Git inventory listing stopped (${killedBy ?? code}).`)))
+  })
+  try {
+    let pending: Buffer = Buffer.alloc(0)
+    for await (const chunk of child.stdout) {
+      const bytes = pending.length ? Buffer.concat([pending, chunk]) : chunk as Buffer
+      let start = 0
+      for (let end = bytes.indexOf(0); end !== -1; end = bytes.indexOf(0, start)) {
+        signal.throwIfAborted()
+        yield bytes.subarray(start, end).toString('utf8')
+        start = end + 1
+      }
+      pending = Buffer.from(bytes.subarray(start))
+    }
+    signal.throwIfAborted()
+    const error = await finished
+    if (error) throw error
+    if (pending.length) throw new Error('Git inventory listing ended before its last path was complete.')
+  } finally {
+    signal.removeEventListener('abort', stop)
+    if (child.exitCode === null && !child.killed) child.kill()
+    // After the deadline the child is not waited for: one stuck in the kernel on
+    // a mount that stopped answering exits when the mount does, and nothing
+    // here depends on that.
+    if (!signal.aborted) await finished
+  }
+}
+
+/** What of an entry the digest holds, and what of each folder the entry is read through. */
+interface Holding {
+  readonly entry: (info: BigIntStats | null) => string
+  readonly folder: (info: BigIntStats | null) => string
+  /** An entry that is no longer there stands for nothing, instead of standing for its absence. */
+  readonly skipsAbsent: boolean
+}
+
+const metadataText = (info: BigIntStats | null): string => info
+  ? `${info.mode}\0${info.dev}\0${info.ino}\0${info.size}\0${info.mtimeNs}\0${info.ctimeNs}`
+  : 'missing'
+
+const kindOf = (info: BigIntStats): string =>
+  info.isSymbolicLink() ? 'link' : info.isDirectory() ? 'folder' : info.isFile() ? 'file' : 'other'
+
+/** Changed work: everything a write, a replacement or a chmod moves. */
+const EXACT: Holding = { entry: metadataText, folder: metadataText, skipsAbsent: false }
+
+/** Ignored files: what is there, its size and mode, never when something last touched it. */
+const IGNORED: Holding = {
+  // A folder's size and times move with every name made or removed in it.
+  entry: (info) => !info ? 'missing' : info.isDirectory() ? `folder\0${info.mode}` : `${kindOf(info)}\0${info.size}\0${info.mode}`,
+  folder: (info) => info ? `${info.mode}\0${info.dev}\0${info.ino}` : 'missing',
+  skipsAbsent: true,
+}
+
+const inventoryMetadata = async (path: string, text: (info: BigIntStats | null) => string) => {
+  const info = await lstat(path, { bigint: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
+    throw error
+  })
+  return { info, text: text(info) }
+}
+type ParentMetadata = Map<string, ReturnType<typeof inventoryMetadata>>
+
+/** A replaced directory leaves its former descendants absent from this checkout. */
+const inventoryEntry = async (root: string, path: string, parents: ParentMetadata, holding: Holding) => {
+  const parts = path.replace(/\/$/, '').split('/')
+  let at = root
+  for (const [index, part] of parts.entries()) {
+    at = join(at, part)
+    if (index === parts.length - 1) return inventoryMetadata(at, holding.entry)
+    let pending = parents.get(at)
+    if (!pending) {
+      pending = inventoryMetadata(at, holding.folder)
+      parents.set(at, pending)
+    }
+    const entry = await pending
+    // Inspect each parent before reading below it. A link is an entry of its
+    // own, never a directory through which to read a former child's contents.
+    if (!entry.info?.isDirectory()) return { info: null, text: 'missing' }
+  }
+  return { info: null, text: 'missing' }
+}
+
+const readInventory = async (path: string, signal: AbortSignal): Promise<GitWorktreeInventory> => {
+  const root = await realpath(path)
   const changes: { path: string; status: string }[] = []
   const ignored: string[] = []
 
-  const out = await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+  const out = await git(path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], undefined, signal)
   for (const entry of parsePorcelain(out)) {
     changes.push({ path: entry.path, status: `${entry.index}${entry.worktree}` })
   }
 
   // Ignored contents are their own call, without `--untracked-files=all`:
   // with it, git expands every file inside an ignored directory.
-  const dirty = await git(path, ['status', '--porcelain=v1', '-z', '--ignored']).catch(() => '')
+  const dirty = await git(path, ['status', '--porcelain=v1', '-z', '--ignored'], undefined, signal)
   /* Through the reader, not `startsWith('!! ')` over every field: an origin is
      a bare path, so a source *named* `!! something` was read as an ignored
      record and reported as ignored having never been. */
@@ -205,8 +348,90 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
   // Over the whole inventory, not the shown slice: a change beyond the cap
   // still has to invalidate a confirmation.
   const digest = createHash('sha256')
+  digest.update(out)
+  // Compare only staged changes, then retain every conflict stage separately.
+  // Neither listing needs the unchanged entries of a large index.
+  for (const args of [
+    ['diff', '--cached', '--raw', '--no-abbrev', '--no-renames', '--no-ext-diff', '--no-textconv', '-z'],
+    ['ls-files', '--unmerged', '-z'],
+  ]) {
+    digest.update('\0')
+    for await (const field of inventoryGitFields(path, args, signal)) digest.update(field).update('\0')
+  }
   for (const change of changes) digest.update(`${change.status}\u0000${change.path}\u0000`)
   for (const entry of ignored) digest.update(`!!\u0000${entry}\u0000`)
+  // Git can collapse wholly ignored directories even with all untracked
+  // paths requested. Ask for every ignored file separately for the digest.
+  const fingerprint = async (file: string, parents: ParentMetadata, holding: Holding) => {
+    const { info, text } = await inventoryEntry(root, file, parents, holding)
+    // No contents need opening, including large, unreadable or replaced files:
+    // what `holding` keeps of the metadata stands for them. For changed work
+    // that includes ctime, which a write moves and setting mtime cannot restore.
+    return {
+      file,
+      text: info === null && holding.skipsAbsent ? '' : `${file}\0${text}\0`,
+      directory: info?.isDirectory() ?? false,
+    }
+  }
+  type Fingerprint = Awaited<ReturnType<typeof fingerprint>>
+  const changed = () => new Error('The worktree changed while reading its inventory. Review it again.')
+  const include = async (entry: Fingerprint, concurrency: number, parents: ParentMetadata, holding: Holding): Promise<string> => {
+    if (!entry.directory) return entry.text
+    // Each subtree has its own digest, so parallel siblings cannot reorder
+    // the confirmation. Divide the batch's worker budget among its subtrees.
+    const subtree = createHash('sha256').update(entry.text)
+    // Git leaves nested repositories as a single directory. Include every
+    // descendant's metadata; a symbolic link is never a directory to descend.
+    const prefix = entry.file.replace(/\/$/, '')
+    const names = (await readdir(join(root, prefix)).catch((error: NodeJS.ErrnoException) => {
+      // What a tool makes again may be gone by the time it is read: nothing of it is left to take.
+      if (holding.skipsAbsent && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return []
+      throw error
+    })).sort()
+    for (let start = 0; start < names.length; start += concurrency) {
+      for (const text of await readBatch(names.slice(start, start + concurrency).map((name) => `${prefix}/${name}`), holding, concurrency)) {
+        subtree.update(text)
+      }
+    }
+    const again = (await fingerprint(entry.file, parents, holding)).text
+    if (again === '' && holding.skipsAbsent) return ''
+    if (again !== entry.text) throw changed()
+    return `${entry.text}${subtree.digest('hex')}\0`
+  }
+  const readBatch = async (files: string[], holding: Holding, concurrency = 64): Promise<string[]> => {
+    // A reading that has run out of time asks nothing more of the disk.
+    signal.throwIfAborted()
+    // Cache promises as well as their metadata text: siblings share the
+    // in-flight parent check, and every cached ancestor is checked again
+    // after the batch (including any nested traversal) has finished.
+    const parents: ParentMetadata = new Map()
+    const entries = await Promise.all(files.map((file) => fingerprint(file, parents, holding)))
+    const share = Math.max(1, Math.floor(concurrency / Math.max(1, files.length)))
+    const texts = await Promise.all(entries.map((entry) => include(entry, share, parents, holding)))
+    const ancestors = [...parents]
+    for (let start = 0; start < ancestors.length; start += concurrency) {
+      await Promise.all(ancestors.slice(start, start + concurrency).map(async ([path, before]) => {
+        if ((await inventoryMetadata(path, holding.folder)).text !== (await before).text) throw changed()
+      }))
+    }
+    return texts
+  }
+  const changedFiles = [...new Set(changes.map((change) => change.path))].sort()
+  for (let start = 0; start < changedFiles.length; start += 64) {
+    for (const text of await readBatch(changedFiles.slice(start, start + 64), EXACT)) digest.update(text)
+  }
+  digest.update('\0ignored\0')
+  // Bound metadata reads while retaining Git's record order in the digest.
+  let batch: string[] = []
+  const flush = async (): Promise<void> => {
+    for (const text of await readBatch(batch, IGNORED)) digest.update(text)
+    batch = []
+  }
+  for await (const file of inventoryGitFields(path, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'], signal)) {
+    batch.push(file)
+    if (batch.length === 64) await flush()
+  }
+  await flush()
 
   return {
     changes: changes.slice(0, SHOWN),
@@ -214,6 +439,23 @@ export const inventory = async (path: string): Promise<GitWorktreeInventory> => 
     changeCount: changes.length,
     ignoredCount: ignored.length,
     stateId: digest.digest('hex').slice(0, 32),
+  }
+}
+
+export const inventory = async (path: string, options: InventoryOptions = {}): Promise<GitWorktreeInventory> => {
+  const deadline = new AbortController()
+  const timer = setTimeout(() => deadline.abort(unfinished()), options.deadlineMs ?? INVENTORY_DEADLINE_MS)
+  try {
+    const reading = readInventory(path, deadline.signal)
+    // Once the deadline has answered, what the stopped work says on its way down has no one to hear it.
+    reading.catch(() => {})
+    return await Promise.race([reading, ended(deadline.signal)])
+  } catch (error) {
+    // The deadline's own words, whatever the work it stopped reported.
+    if (deadline.signal.aborted) throw deadline.signal.reason
+    throw error
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -445,7 +687,7 @@ export const add = async (
     throw new Error(`${target} moved while it was being checked; nothing was created.`)
   }
   try {
-    await git(root, args, SLOW)
+    await personGit(root, args, SLOW)
   } catch (error) {
     fail('Could not add the worktree', error)
   }
@@ -479,6 +721,7 @@ export const remove = async (
   force: boolean,
   expect: string | undefined,
   stateDir: string,
+  inventoryOptions: InventoryOptions = {},
 ): Promise<{ branch: string | null }> => {
   const worktrees = await list(root, stateDir)
   const entry = await find(worktrees, path)
@@ -496,8 +739,9 @@ export const remove = async (
   // A prunable entry has no directory left to read, so there is nothing to
   // lose and nothing to ask about; git drops the record on its own.
   if (!entry.prunable) {
-    const held = await inventory(target).catch(() => null)
-    const loses = held !== null && (held.changeCount > 0 || held.ignoredCount > 0)
+    const pending = await changes(target).catch(() => null)
+    const held = await inventory(target, inventoryOptions)
+    const loses = held.changeCount > 0 || held.ignoredCount > 0
 
     // Anything worth losing has to be confirmed against the inventory the
     // caller actually saw. `force` says "discard tracked work"; this says
@@ -516,13 +760,12 @@ export const remove = async (
       }
     }
 
-    const pending = await changes(target).catch(() => null)
     if (!force && pending && (pending.modified > 0 || pending.untracked > 0)) {
       throw new WorktreeDirtyError(target, pending)
     }
   }
   try {
-    await git(root, ['worktree', 'remove', ...(force ? ['--force'] : []), target], SLOW)
+    await personGit(root, ['worktree', 'remove', ...(force ? ['--force'] : []), target], SLOW)
   } catch (error) {
     fail('Could not remove the worktree', error)
   }
@@ -549,7 +792,7 @@ export const prune = async (root: string): Promise<{ summary: string; removed: s
       .map((line) => /^Removing (?:worktrees\/)?(.+?):/.exec(line.trim())?.[1] ?? null)
       .filter((name): name is string => name !== null)
     if (removed.length === 0) return { summary: 'Nothing to prune — every worktree is where git left it.', removed }
-    await git(root, ['worktree', 'prune'])
+    await personGit(root, ['worktree', 'prune'])
   } catch (error) {
     fail('Could not prune', error)
   }
@@ -579,7 +822,7 @@ export const setLock = async (
   const target = await canonical(entry.path)
   const said = reason?.trim()
   try {
-    await git(
+    await personGit(
       root,
       locked
         ? ['worktree', 'lock', ...(said && said.length > 0 ? ['--reason', said] : []), target]
@@ -612,7 +855,7 @@ export const move = async (
     throw new Error(`${target} moved while it was being checked; nothing was moved.`)
   }
   try {
-    await git(root, ['worktree', 'move', await canonical(entry.path), target], SLOW)
+    await personGit(root, ['worktree', 'move', await canonical(entry.path), target], SLOW)
   } catch (error) {
     fail('Could not move the worktree', error)
   }

@@ -97,6 +97,7 @@ import {
   type WireNotification,
   type ResolvedModelRoute,
   type Approval,
+  type ApprovalResolution,
   type ContributionId,
   type ScopeQuery,
   type WorkspaceAdmission,
@@ -120,6 +121,7 @@ import { packagedPath, type AgentDirectory } from './agent-registry.js'
 import { exportAgentFolders, importAgentFolder } from './agent-files.js'
 import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-file.js'
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
+import { AgentFileRoots } from './agent-file-roots.js'
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
@@ -475,6 +477,8 @@ export interface HostOptions {
   /** Optional: HarnessDesk runs fine with no extension kernel at all. */
   readonly extensions?: ExtensionHost
   readonly state?: StateStore
+  /** Bootstrap starts the shared tool socket only after this host owns the home. */
+  readonly startToolGateway?: () => void
   /** Opens a native directory picker. Supplied by the desktop shell. */
   readonly pickDirectory?: () => Promise<string | null>
   /** Shows a folder in the OS file browser. Supplied by the desktop shell. */
@@ -896,6 +900,12 @@ export class Host {
    * constructor, so a host that is built and never started watches nothing.
    */
   #agentWatch: AgentWatch | null = null
+  /**
+   * The roster's own folders as roots a file may be read or written under
+   * (`#fileRoots`). Read off the thread and kept until the roster changes
+   * (`#push` below), not listed again for every file request.
+   */
+  readonly #agentFileRoots = new AgentFileRoots({ roots: () => this.#agents.roots })
   /**
    * Bumped on every call to `#watchProjects`; a call applies its snapshot only
    * if it is still the latest by the time it has one, so a slower, older call
@@ -1367,11 +1377,17 @@ export class Host {
       },
       facts: async (goal) => {
         const state = this.#goalState(goal)
-        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root, state.root))
       },
       append: async (goal, record) => {
         const state = this.#goalState(goal)
-        const outcome = await this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record)
+        const outcome = await this.#evidence.appendReview(await projectOf(state.cwd ?? state.root, state.root), record, () => {
+          // Person decisions have no runtime Seat; an agent review still needs its original live claim at admission.
+          if (record.seat === null) return
+          const seat = this.#evidence.seats.byId(record.seat ?? '')
+          const binding = seat && record.card ? this.#flows.findingBinding(goal, record.card.id, seat.session) : null
+          if (!binding?.held || binding.seat !== record.seat) throw new Error('You do not hold this card, so no review can be recorded against it.')
+        })
         if (outcome.outcome === 'added') this.#push({ method: 'finding/changed', params: { goal, revision: Date.now() } })
         return outcome
       },
@@ -1493,10 +1509,9 @@ export class Host {
           })
           this.#abandonedApprovals.add(`${runtime}\u0000${id}\u0000${approval.id}`)
           if (this.#abandonedApprovals.size > 2000) this.#abandonedApprovals.delete(this.#abandonedApprovals.values().next().value!)
-          const answer = this.#heldAnswers.get(String(approval.id))
-          if (answer) {
-            this.#heldAnswers.delete(String(approval.id))
-            answer('refused')
+          const held = this.#heldAnswers.get(approvalKey(runtime, id, approval.id))
+          if (held) {
+            held.answer('refused')
           } else {
             void Promise.resolve().then(() => record.live?.respondToApproval(approval.id, { type: 'cancel' })).catch(() => {})
           }
@@ -1547,7 +1562,7 @@ export class Host {
        */
       facts: async (goal) => {
         const state = this.#goalState(goal)
-        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root, state.root))
       },
       /* A trigger's run: compiled from the same frozen closure its arm
          consented to, attached only to the Goal its firing made, and gated
@@ -1664,7 +1679,7 @@ export class Host {
         embargoedRounds: (goal) => this.#flows.embargoedRounds(goal),
         facts: async (goal) => {
           const state = this.#goalState(goal)
-          return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+          return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root, state.root))
         },
         seriesOfGoal: (goal) => this.#flows.seriesOfGoal(goal),
         overridesOfGoal: (goal) => this.#flows.overridesOfGoal(goal),
@@ -1679,7 +1694,7 @@ export class Host {
       goalClosed: (goal) => findingDecisionRefusal(this.#goalStore, goal),
       projectOf: async (goal) => {
         const state = this.#goalState(goal)
-        return projectOf(state.cwd ?? state.root)
+        return projectOf(state.cwd ?? state.root, state.root)
       },
       headOf: async (cwd) => {
         const revision = await revisionOf(cwd)
@@ -1713,11 +1728,11 @@ export class Host {
       },
       projectOf: async (goal) => {
         const state = this.#goalState(goal)
-        return projectOf(state.cwd ?? state.root)
+        return projectOf(state.cwd ?? state.root, state.root)
       },
       facts: async (goal) => {
         const state = this.#goalState(goal)
-        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root, state.root))
       },
       ledger: (project) => this.#findings.ledgerOf(project),
       seat: (id) => this.#evidence.seats.byId(id),
@@ -2271,27 +2286,19 @@ export class Host {
     }
   }
 
+  hasRuntime(id: RuntimeId): boolean {
+    return this.#runtimes.has(id)
+  }
+
   /**
    * Registers a runtime. Starting it is separate and allowed to fail: a machine
    * without Codex installed should still open the app and explain itself.
+   * Replacing one requires awaiting unregister first, which owns its teardown.
    */
   register(runtime: AgentRuntime): void {
     const id = runtime.info.id
     if (this.#runtimes.has(id)) {
-      this.#historyImport.cancel(id)
-      this.#logger.warn('a runtime with this id was already registered; replacing it', {
-        runtime: id,
-      })
-      this.#invalidateDelegations(id)
-      this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was replaced.'))
-      this.#directRuntimeStarts.delete(String(id))
-      this.#discoveringRuntimes.delete(String(id))
-      this.#discoveryOnlyRuntimes.delete(String(id))
-      this.#accountReads.get(id)?.dispose()
-      for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
-      this.#runtimeSubscriptions.delete(id)
-      this.#catalogs.forget(id)
-      this.#updates.delete(id)
+      throw new Error(`A runtime with id ${id} is already registered. Await unregister before registering it again.`)
     }
     // These async surfaces belong to the same process as the runtime verbs.
     // Keep their receiver (including private fields) and share its lifecycle.
@@ -2410,6 +2417,8 @@ export class Host {
     this.#historyImport.cancel(id)
     const runtime = this.#runtimes.get(id)
     if (!runtime) return
+    this.#invalidateDelegations(id)
+    this.#settleHeld(id)
     this.registry.detachAll(id)
     this.#terminals.detachAll(id)
     // Whatever was waiting on that agent's conversations can never arrive.
@@ -2576,6 +2585,7 @@ export class Host {
       return
     }
     this.#goalWriter = writer
+    this.options.startToolGateway?.()
     await this.#state.load()
     if (this.#disposed) return
     await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
@@ -3382,7 +3392,7 @@ export class Host {
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */
     this.#team.stopWaiting('the desk is closing')
-    for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
+    for (const held of [...this.#heldAnswers.values()]) held.answer('unanswered')
     this.#questions.close()
     await intakeClosed
     await this.#flows.flush()
@@ -4344,13 +4354,16 @@ export class Host {
    */
   async #interruptGoal(goal: string): Promise<void> {
     const seats = this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored)
-    await Promise.all(seats.map(async (seat) => {
+    const results = await Promise.allSettled(seats.map(async (seat) => {
       const record = this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
       if (!record?.live || record.running.size === 0) return
       await record.live.interrupt().catch((error: unknown) => {
         this.#logger.warn('a trigger Seat’s turn could not be interrupted', { seat: seat.id, error: error instanceof Error ? error.message : String(error) })
+        throw error
       })
     }))
+    const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : [])
+    if (errors.length) throw new AggregateError(errors, 'Some Goal turns could not be interrupted.')
   }
 
   /** The runtimes a Goal's open Seats spend from. */
@@ -4780,7 +4793,8 @@ export class Host {
         },
       },
       ceilings: {
-        answerHeld: (approvalId, decision) => this.#answerHeld(approvalId, decision),
+        answerHeld: (runtime, sessionId, approvalId, decision) => this.#answerHeld(runtime, sessionId, approvalId, decision),
+        settleHeld: (runtime, sessionId) => this.#settleHeld(runtime, sessionId),
       },
       questions: {
         answerStopped: (runtime, sessionId, approvalId, decision) => this.#answerStoppedQuestion(runtime, sessionId, approvalId, decision),
@@ -4885,7 +4899,10 @@ export class Host {
     })
   }
 
-  readonly #localFiles = new LocalFiles({ log: (message, details) => this.#logger.warn(message, details) })
+  readonly #localFiles = new LocalFiles({
+    log: (message, details) => this.#logger.warn(message, details),
+    roots: (mode) => this.#fileRoots(mode),
+  })
 
   /**
    * The reader for a request: the runtime's own view when it declares one,
@@ -4927,16 +4944,16 @@ export class Host {
    * the roster's own folders — this machine's for both, because a person
    * edits their own Agents in the desk's editor; the built-in one for reading
    * only, because nobody edits what ships (*Customize…* copies it first).
-   * `confine` compares path text by design, so a user Agent folder linked to a
-   * dotfiles checkout is read and saved through that link, just as the roster
-   * reads it. The built-in root never joins the write list.
+   * An Agent folder or its source linked into these host-owned roots is
+   * explicitly admitted, just as the roster reads it. Links in a project do
+   * not extend its roots. The built-in roots never join the write list.
+   *
+   * Asked, not computed on the spot: the roster's folders are listed off the
+   * thread and kept (`AgentFileRoots`), because this is asked for every file
+   * request and a listing that waited on the disk here stopped them all.
    */
-  #fileRoots(mode: 'read' | 'write'): string[] {
-    return [
-      ...this.#openRoots(),
-      join(this.#state.directory, 'agents'),
-      ...(mode === 'read' ? [this.#agents.roots.builtin] : []),
-    ]
+  async #fileRoots(mode: 'read' | 'write'): Promise<string[]> {
+    return [...this.#openRoots(), ...(await this.#agentFileRoots.list(mode))]
   }
 
   /**
@@ -4984,7 +5001,7 @@ export class Host {
     let admitted = true
     let fallbackOpened: string[] | undefined
     try {
-      confine(real, opened)
+      await confine(real, opened)
     } catch (refusal) {
       admitted = false
       fallbackOpened = []
@@ -5460,7 +5477,7 @@ export class Host {
     const entry = this.#previewTickets.get(ticket)
     this.#previewTickets.delete(ticket)
     if (!entry || entry.expiresAt < Date.now()) return null
-    const path = confine(entry.path, this.#fileRoots('read'))
+    const path = await confine(entry.path, await this.#fileRoots('read'))
     const files = this.#files(entry.runtime)
     const metadata = await files.stat(path)
     if (metadata.size !== undefined && metadata.size > WORKSPACE_BINARY_LIMIT_BYTES) {
@@ -6021,7 +6038,11 @@ export class Host {
     return this.#messageTurns.get(this.#turnKey(runtime, sessionId, turn)) ?? PERSON
   }
 
-  readonly #heldAnswers = new Map<string, (answer: 'allowed' | 'refused' | 'unanswered') => void>()
+  readonly #heldAnswers = new Map<string, {
+    runtime: string
+    sessionId: string
+    answer: (answer: 'allowed' | 'refused' | 'unanswered', resolution?: ApprovalResolution) => void
+  }>()
   /** Recent Stop settlements: a delayed runtime reply cannot replace abandonment. */
   readonly #abandonedApprovals = new Set<string>()
 
@@ -6060,23 +6081,24 @@ export class Host {
     this.registry.apply(record.runtime, requested)
     this.#push({ method: 'event', params: { runtime: record.runtime, event: requested } })
     const waitMs = this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
-    const answer = await new Promise<'allowed' | 'refused' | 'unanswered'>((resolve) => {
-      const timer = setTimeout(() => resolve('unanswered'), waitMs)
-      this.#heldAnswers.set(String(id), (said) => {
+    const key = approvalKey(runtime, sessionId, id)
+    return new Promise<'allowed' | 'refused' | 'unanswered'>((resolve) => {
+      const answer = (said: 'allowed' | 'refused' | 'unanswered', resolution?: ApprovalResolution): void => {
+        this.#heldAnswers.delete(key)
         clearTimeout(timer)
+        if (record.approvals.has(String(id))) this.#onEvent(record.runtime, {
+          type: 'approval/resolved',
+          sessionId: record.session.id,
+          approvalId: id,
+          resolution: resolution ?? (said === 'unanswered'
+            ? { outcome: 'timedOut' }
+            : { outcome: 'decided', decision: { type: 'option', optionId: said === 'allowed' ? HELD_ALLOW : HELD_REFUSE } }),
+        })
         resolve(said)
-      })
+      }
+      const timer = setTimeout(() => answer('unanswered'), waitMs)
+      this.#heldAnswers.set(key, { runtime, sessionId, answer })
     })
-    this.#heldAnswers.delete(String(id))
-    if (record.approvals.has(String(id))) this.#onEvent(record.runtime, {
-      type: 'approval/resolved',
-      sessionId: record.session.id,
-      approvalId: id,
-      resolution: answer === 'unanswered'
-        ? { outcome: 'timedOut' }
-        : { outcome: 'decided', decision: { type: 'option', optionId: answer === 'allowed' ? HELD_ALLOW : HELD_REFUSE } },
-    })
-    return answer
   }
 
   /**
@@ -6095,7 +6117,7 @@ export class Host {
    */
   async #answerStoppedQuestion(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<boolean> {
     if (decision.type !== 'answers') return false
-    const once = `${runtime}\u0000${sessionId}\u0000${approvalId}`
+    const once = approvalKey(runtime, sessionId, approvalId)
     const inFlight = this.#lateAnswers.get(once)
     if (inFlight) return inFlight
     if (this.#lateAnswered.has(once)) return true
@@ -6124,7 +6146,7 @@ export class Host {
     const words = questionWords(approval, decision)
     if (words === null) throw new Error('Choose an answer before sending it.')
     const settle = async (): Promise<void> => {
-      this.#settlingAnswers.set(String(approval.id), decision)
+      this.#settlingAnswers.set(once, decision)
       await record.live?.respondToApproval(approval.id, { type: 'cancel' }).catch((error: unknown) => {
         this.#logger.warn('a stopped question could not be closed with its agent', { runtime, sessionId, error: error instanceof Error ? error.message : String(error) })
       })
@@ -6137,7 +6159,7 @@ export class Host {
           resolution: { outcome: 'decided', decision: { type: 'cancel' } },
         })
       }
-      this.#settlingAnswers.delete(String(approval.id))
+      this.#settlingAnswers.delete(once)
     }
     const delivering = (async (): Promise<boolean> => {
       /* Fail closed: the turn that asked is over, so an answer handed to the
@@ -6157,11 +6179,19 @@ export class Host {
     }
   }
 
-  #answerHeld(approvalId: string, decision: ApprovalDecision): boolean {
-    const answer = this.#heldAnswers.get(approvalId)
-    if (!answer) return false
-    answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : 'refused')
+  #answerHeld(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): boolean {
+    const held = this.#heldAnswers.get(approvalKey(runtime, sessionId, approvalId))
+    if (!held || !this.registry.hasApproval(runtimeId(runtime), makeSessionId(sessionId), makeApprovalId(approvalId))) return false
+    held.answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : 'refused')
     return true
+  }
+
+  #settleHeld(runtime: string, sessionId?: string): void {
+    for (const held of this.#heldAnswers.values()) {
+      if (held.runtime === runtime && (sessionId === undefined || held.sessionId === sessionId)) {
+        held.answer('unanswered', { outcome: 'abandoned', reason: 'The conversation closed before anyone answered.' })
+      }
+    }
   }
 
   #noteDelegation(runtime: RuntimeId, event: AgentEvent): void {
@@ -7753,9 +7783,10 @@ export class Host {
        refused — so no window shows it cancelled, and no denial holds the
        Seat's messages to its teammates in the turn that carries the answer. */
     if (event.type === 'approval/resolved') {
-      const answered = this.#settlingAnswers.get(String(event.approvalId))
+      const key = approvalKey(runtime, event.sessionId, event.approvalId)
+      const answered = this.#settlingAnswers.get(key)
       if (answered) {
-        this.#settlingAnswers.delete(String(event.approvalId))
+        this.#settlingAnswers.delete(key)
         event = { ...event, resolution: { outcome: 'decided', decision: answered } }
       }
     }
@@ -7837,6 +7868,7 @@ export class Host {
         : []
     // The Team wait captures a running turn; settle it before detach clears
     // that turn from the registry's live status.
+    if (event.type === 'session/closed' || event.type === 'session/detached') this.#settleHeld(runtime, event.sessionId)
     if (event.type === 'session/detached') {
       this.#team.onSessionDetached(runtime, String(event.sessionId), 'The conversation process stopped before the message was read.')
     }
@@ -8835,6 +8867,7 @@ export class Host {
     }
     if (health.state !== 'ready' && health.state !== 'idle') {
       this.#invalidateDelegations(runtime)
+      this.#settleHeld(runtime)
       for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)
       this.#terminals.detachAll(runtime)
       // Same reason as `unregister`: these sessions went down without a
@@ -8846,6 +8879,9 @@ export class Host {
   }
 
   #push(notification: WireNotification): void {
+    // This machine's roster changed — however: the watch noticed, or a method wrote it — so the
+    // Agent folders linked into it may have too.
+    if (notification.method === 'agent/changed' && notification.params.project === null) this.#agentFileRoots.invalidate()
     if (!this.#disposed && notification.method === 'team/changed') this.#indexTeam(notification.params.state)
     if (!this.#disposed && notification.method === 'session/removed' && !this.#sessionIndex.isRemoved(notification.params.runtime, notification.params.sessionId)) {
       this.#cancelSessionIndex(notification.params.runtime, notification.params.sessionId)
@@ -9006,6 +9042,7 @@ export const isDirectory = async (path: string): Promise<boolean> => {
 
 /** One conversation, as a question deadline keys it. */
 const questionKey = (runtime: string, sessionId: string): string => `${runtime}\u0000${sessionId}`
+const approvalKey = (runtime: string, sessionId: string, approvalId: string): string => JSON.stringify([runtime, sessionId, approvalId])
 
 /**
  * A question and a person's answer to it, in words an agent can read: each

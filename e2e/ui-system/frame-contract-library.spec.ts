@@ -13,7 +13,7 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 // E6 owns Library's main-page door; the shared preview assembly is retired in E9.
 for (const width of [1440, 720]) test(`E6 Library door preserves normal history and retained work ${width}`, async ({ page }) => {
-  await expectPageJourney(page, 'Library', 'library', width)
+  await expectPageJourney(page, 'Customize', 'library', width)
 })
 test('E6 Library has its own crumb and applicable More actions', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library&frame-no-folder=1', 'light')
@@ -31,7 +31,7 @@ for (const width of [1440, 720]) test(`E6 Library column sessions and New sessio
   const reveal = async () => { if (width < FRAME.fold.sidebarFloats) await page.getByRole('button', {name:'Show sidebar',exact:true}).click() }
   await reveal()
   const column = page.locator('[data-left-column]:visible')
-  const door = column.getByRole('button', { name: 'Library', exact: true })
+  const door = column.getByRole('button', { name: 'Customize', exact: true })
   await door.click()
   await reveal()
   await column.getByRole('button', { name: 'New session', exact: true }).click()
@@ -56,12 +56,13 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
 }
 test('E6 Library retains search and matrix under another destination', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library', 'light')
-  await page.getByRole('searchbox', { name: 'Search library', exact: true }).fill('design')
-  await page.getByRole('radio', { name: 'Matrix', exact: true }).click()
+  await page.getByRole('searchbox', { name: 'Search skills', exact: true }).fill('design')
+  await page.getByTitle('View', { exact: true }).click()
+  await page.getByRole('menuitemradio', { name: 'Runtime comparison', exact: true }).click()
   await page.keyboard.press('Meta+,')
   await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
   await page.keyboard.press('Meta+[')
-  await expect(page.getByRole('searchbox', { name: 'Search library', exact: true })).toHaveValue('design')
+  await expect(page.getByRole('searchbox', { name: 'Search skills', exact: true })).toHaveValue('design')
   await expect(page.locator('[data-slot="library-matrix"]')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.locator('[data-page-destination="library"]')).toBeHidden()
@@ -70,20 +71,20 @@ test('E6 Library retains search and matrix under another destination', async ({ 
 test('E6 Library sections record visits while retaining local choices', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library', 'light')
   await expectDestinationTab(page, 'skill')
-  const search = page.getByRole('searchbox', { name: 'Search library', exact: true })
+  const search = page.getByRole('searchbox', { name: 'Search skills', exact: true })
   await search.fill('design')
   await selectFrameTab(page, 'mcp')
   await expectDestinationTab(page, 'mcp')
   // Each section keeps its own search (#1773): MCP starts empty, Skills keeps what was typed.
-  await expect(search).toHaveValue('')
+  await expect(page.getByRole('searchbox', { name: 'Search servers', exact: true })).toHaveValue('')
   await page.keyboard.press('Meta+[')
   await expectDestinationTab(page, 'skill')
   await expect(search).toHaveValue('design')
   await page.keyboard.press('Meta+]')
   await expectDestinationTab(page, 'mcp')
-  await expect(search).toHaveValue('')
+  await expect(page.getByRole('searchbox', { name: 'Search servers', exact: true })).toHaveValue('')
 })
-for (const label of ['Teams', 'Agents', 'Plugins', 'Dashboard', 'Settings']) test(`E6 Library column ${label} door navigates away`, async ({ page }) => {
+for (const label of ['Teams', 'Agents', 'Dashboard', 'Settings']) test(`E6 Library column ${label} door navigates away`, async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library', 'light')
   const column = page.locator('[data-left-column]:visible')
   await column.getByRole('button', { name: label, exact: true }).click()
@@ -94,7 +95,7 @@ for (const label of ['Teams', 'Agents', 'Plugins', 'Dashboard', 'Settings']) tes
 for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
   test(`E6 Library expanded matrix stays inside its page ${width} ${theme}`, async ({ page }) => {
     await measureDestination(page, 'frame-wall=settings&frame-section=library', 'wide', theme, width,
-      {bodyChoice:{label:'How to show the library',value:'matrix',item:'Matrix'}})
+      {bodyChoice:{label:'View',value:'matrix',item:'Runtime comparison'}})
     const disclosure = page.locator('[data-slot="library-matrix"] tbody tr').first().getByRole('button').first()
     await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
     await disclosure.click()
@@ -131,4 +132,11 @@ test('E6 Library More offers Terminal in the chosen project', async ({ page }) =
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
   await expect(page.getByRole('menuitemradio',{name:/Terminal/})).toHaveCount(1)
   await expect(page.getByRole('menuitem',{name:'Back to app',exact:true})).toHaveCount(0)
+})
+
+test('Customize Plugins tab uses the same highlighted sidebar entrance', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings&frame-section=library', 'light')
+  await page.getByRole('radiogroup', { name: 'Customize sections', exact: true }).getByRole('radio', { name: 'Plugins', exact: true }).click()
+  await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(1)
+  await expect(page.locator('[data-left-column]:visible').getByRole('button', { name: 'Customize', exact: true })).toHaveAttribute('aria-current', 'page')
 })

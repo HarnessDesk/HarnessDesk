@@ -32,6 +32,7 @@ import type { AppSnapshot, AppStore } from '../state/store'
 import { sidebarPlacement } from '../state/workbench'
 import {
   AgentIcon,
+  HookIcon,
   ServerIcon,
   ArchiveIcon,
   FolderIcon,
@@ -79,12 +80,13 @@ const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: 
   models: { label: 'Models', icon: <SlidersIcon size={14} />, keywords: 'models endpoints presets routes' },
   skills: { label: 'Skills', icon: <SlidersIcon size={14} />, keywords: 'skills commands hooks' },
   extensions: { label: 'Extensions', icon: <SlidersIcon size={14} />, keywords: 'extensions mcp servers apps' },
-  library: { label: 'Library', icon: <LibraryIcon size={14} />, keywords: 'library skills mcp servers import capabilities across agents' },
-  plugins: { label: 'Plugins', icon: <PluginIcon size={14} />, keywords: 'plugins tools capabilities' },
+  hooks: { label: 'Hooks', icon: <HookIcon size={14} />, keywords: 'hooks runtime events lifecycle' },
+  library: { label: 'Customize', icon: <LibraryIcon size={14} />, keywords: 'library skills mcp servers import capabilities across agents' },
+  plugins: { label: 'Customize · Plugins', icon: <PluginIcon size={14} />, keywords: 'plugins tools capabilities' },
   permissions: { label: 'Permissions', icon: <SlidersIcon size={14} />, keywords: 'permissions approvals sandbox rules deny allow' },
   browser: { label: 'Browser', icon: <SlidersIcon size={14} />, keywords: 'browser pane window profile cookies' },
 }
-const SETTINGS_PAGES = (Object.keys(SETTINGS_PAGE) as Exclude<Section, 'archive'>[]).map((section) => ({ section, ...SETTINGS_PAGE[section] }))
+const SETTINGS_PAGES = (Object.keys(SETTINGS_PAGE) as Exclude<Section, 'archive'>[]).filter(section => section !== 'skills').map((section) => ({ section, ...SETTINGS_PAGE[section] }))
 
 /**
  * ⌘K: everything the app can do, one keystroke away.
@@ -456,10 +458,10 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         (entry): Entry => ({
           id: `settings-${entry.section}`,
           group: 'Actions',
-          label: `Settings › ${entry.section === 'skills' && skillsLabel ? skillsLabel : entry.label}`,
+          label: entry.section === 'library' || entry.section === 'plugins' ? entry.label : `Settings › ${entry.label}`,
           hint: entry.section === 'runtimes' ? '⌘,' : undefined,
           icon: entry.icon,
-          keywords: `settings ${entry.keywords}${entry.section === 'skills' && skillsLabel ? ` ${skillsLabel}` : ''}`,
+          keywords: `settings ${entry.keywords}${entry.section === 'library' && skillsLabel ? ` ${skillsLabel}` : ''}`,
           run: () => {
             close()
             host.openSettings(entry.section)

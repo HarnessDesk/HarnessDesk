@@ -72,6 +72,18 @@ test('flow/start-goal accepts optional lineage, and keeps output metadata host-o
   }
 })
 
+test('flow/start-goal preserves null lineage separately from omitted lineage', () => {
+  const params = { root: '/repo', source: 'version: 2', token: 't1', sentence: 'Go' }
+  assert.equal((request('flow/start-goal', { ...params, continues: null }).params as HostParams<'flow/start-goal'>).continues, null)
+  assert.equal((request('flow/start-goal', params).params as HostParams<'flow/start-goal'>).continues, undefined)
+})
+
+test('authoring/shape/render preserves null layout metadata separately from omitted metadata', () => {
+  const policy = checkPolicy({})
+  assert.equal((request('authoring/shape/render', { policy: { ...policy, layout: null } }).params as HostParams<'authoring/shape/render'>).policy.layout, null)
+  assert.equal((request('authoring/shape/render', { policy }).params as HostParams<'authoring/shape/render'>).policy.layout, undefined)
+})
+
 test('flow/preview and flow/start-goal reject a caller-supplied authority field outright', () => {
   const forgedFields = ['compiled', 'ceiling', 'evidence', 'commands', 'origin', 'authorization', 'attachments']
   for (const field of forgedFields) {

@@ -48,7 +48,7 @@ for (const theme of ['light', 'dark'] as const) {
     await plan.getByRole('button', { name: 'Apply 1 change', exact: true }).click()
     await expect(plan.getByTestId('apply-summary')).toHaveText('1 change made.')
     await plan.getByRole('button', { name: 'Close', exact: true }).last().click()
-    await sheet.getByRole('button', { name: 'Back to Library', exact: true }).click()
+    await sheet.getByRole('button', { name: 'Back to Customize', exact: true }).click()
     await expect(page.locator('[data-slot="skill-card"]')).not.toContainText('Update available')
   })
   test(`Library edited-copy update review ${theme}`, async ({ page }) => {

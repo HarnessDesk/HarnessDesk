@@ -9,6 +9,7 @@ import { makeRepo } from './fixtures/evidence-desk.js'
 import type { FakeSession } from './fixtures/fake-runtime.js'
 import { claimed, desk, E2E, execution, start, TASK, whenChanged } from './fixtures/flow-host-evidence.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
+import { HoldFake } from './fixtures/hold-runtime.js'
 import { commitTriggers, intakeDesk, until, type IntakeDesk } from './fixtures/intake-host.js'
 
 /*
@@ -263,6 +264,35 @@ const resolutions = (pushed: readonly WireNotification[]): unknown[] => pushed.f
   const event = (one.params as { event: { type: string; approvalId?: string; resolution?: unknown } }).event
   return event.type === 'approval/resolved' && event.approvalId === 'qu-base' ? [event.resolution] : []
 })
+
+for (const owner of ['runtime', 'session'] as const) {
+  test(`settling a stopped question preserves another ${owner}'s resolution with the same id`, E2E, async (t) => {
+    const a = await stoppedOnAQuestion(t)
+    const other = owner === 'runtime' ? new HoldFake('other') : a.d.runtime
+    if (owner === 'runtime') a.d.host.register(other)
+    const live = await other.createSession({ cwd: a.d.repo.dir })
+    const session = other.sessions.get(live.id)!
+    if (owner === 'runtime') assert.equal(session.id, a.session.id)
+    else assert.notEqual(session.id, a.session.id)
+    const otherAnswer = session.askQuestion('qu-base' as never, 'Which base?', OPTIONS)
+    const respond = a.session.respondToApproval.bind(a.session)
+    t.mock.method(a.session, 'respondToApproval', async (...args: Parameters<AgentSession['respondToApproval']>) => {
+      await session.respondToApproval('qu-base' as never, { type: 'cancel' })
+      await respond(...args)
+    })
+
+    const before = a.d.pushed.length
+    await answerIt(a)
+    assert.deepEqual(await otherAnswer, { type: 'cancel' })
+    assert.deepEqual(resolutions(a.d.pushed.slice(before)), [
+      { outcome: 'decided', decision: { type: 'cancel' } },
+      { outcome: 'decided', decision: ANSWER },
+    ], 'only the stopped question carries the delivered answer')
+    assert.deepEqual(a.denials, [String(session.id)], 'only the other conversation records a cancellation')
+    assert.equal(hasQuestion(a), false)
+    assert.equal((await runOf(a)).state, 'running')
+  })
+}
 
 test('an answered question resumes the trigger’s Seat that asked it, and the run goes on to its end', E2E, async (t) => {
   const a = await stoppedOnAQuestion(t)

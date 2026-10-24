@@ -1253,19 +1253,32 @@ export const HandoffSheet = ({
  * worktrees below: those are checkouts HarnessDesk cut, and this one was
  * here first.
  */
-export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void } = {}) => {
+export const PlaceControl = ({ onChooseProject: chooseProject }: { onChooseProject?: () => void | Promise<boolean | void> } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const { ref } = useNarrowToolbar('work-in')
   const workspace = snapshot.workspace
+  const carried = snapshot.draftPlace === null ? snapshot.draftHandoff?.cwd : undefined
+  /* A folder chosen here is the person's say over where this draft starts, and
+     a hand-off only says where the work was. Opening a folder switches the
+     workspace and clears the draft's place, which would hand the choice back
+     to the hand-off's folder, so a folder that was chosen is recorded as the
+     place. Only while a hand-off folder is still outranking the workspace:
+     without one, the folder's own default (a new worktree, say) stays. */
+  const onChooseProject = chooseProject && (() => {
+    void Promise.resolve(chooseProject()).then((chosen) => {
+      const now = store.getSnapshot()
+      if (chosen === true && now.draftPlace === null && now.draftHandoff?.cwd) store.startDraftIn(null)
+    })
+  })
   useEffect(() => { if (!session && workspace) void store.refreshWorkspaceGit(workspace.path) }, [store, workspace?.path, !!session])
   if (session) return null
-  const folderPicker = <Popover title={workspace?.path ?? `Starts in ${snapshot.chatsFolder}`} drop="up" align="left"
+  const folderPicker = <Popover title={carried ?? workspace?.path ?? `Starts in ${snapshot.chatsFolder}`} drop="up" align="left"
     triggerVariant={{ variant: 'ghost', size: 'content-min' }}
-    label={<><FolderOpenIcon size={13} /><Text role="row" truncate className={sheet.word}>{workspace?.name ?? 'No folder'}</Text></>}>
+    label={<><FolderOpenIcon size={13} /><Text role="row" truncate className={sheet.word}>{carried ? carried.split('/').filter(Boolean).at(-1) ?? carried : workspace?.name ?? 'No folder'}</Text></>}>
     {close => <Menu close={close}>
-      <MenuItem label="No folder" selected={!workspace} title={`Starts in ${snapshot.chatsFolder}`} onSelect={() => store.clearDraftFolder()} />
+      <MenuItem label="No folder" selected={!workspace && !carried} title={`Starts in ${snapshot.chatsFolder}`} onSelect={() => store.clearDraftFolder()} />
       {onChooseProject && <MenuItem label="Choose folder…" icon={<FolderOpenIcon size={14} />} onSelect={onChooseProject} />}
     </Menu>}
   </Popover>
@@ -1278,7 +1291,6 @@ export const PlaceControl = ({ onChooseProject }: { onChooseProject?: () => void
   }
 
   const place = snapshot.draftPlace
-  const carried = place === null ? snapshot.draftHandoff?.cwd : undefined
   const checking = place === null && !carried && workspace.repo !== null && workspace.git == null && !keepsWorkspacePlace(workspace)
   const automatic = place === null && !carried && canIsolateDraft(workspace)
   const folder = workspace.path.split('/').filter(Boolean).at(-1) ?? workspace.path

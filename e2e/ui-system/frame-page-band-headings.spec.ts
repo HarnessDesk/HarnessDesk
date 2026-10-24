@@ -7,7 +7,7 @@ import { WALL_TIME } from './frame-wall-destinations'
 const families = [
   { id: 'teams', query: 'frame-wall=teams' },
   { id: 'agents', query: 'frame-wall=agents' },
-  // The Library's only section band is on its Changes page; the plain page is checked to have none.
+  // Changes has date bands; Skills has one earned band for native runtime commands.
   { id: 'library', query: 'frame-wall=library', bands: 'frame-wall=library&frame-kind=changes' },
   { id: 'plugins', query: 'frame-wall=plugins&frame-plugin-page=capabilities' },
   { id: 'dashboard', query: 'frame-wall=dashboard&frame-view=overview' },
@@ -57,14 +57,17 @@ for (const theme of ['light', 'dark'] as const) for (const family of families) {
   })
 }
 
-// The Library's plain page keeps no band: its one band is on the Changes page,
-// so a section role here is a leftover rather than a page band.
+// Skills cards need no band; native runtime commands form their own named group.
 for (const theme of ['light', 'dark'] as const) {
-  test(`the plain Library page has no section band ${theme}`, async ({ page }) => {
+  test(`Customize Skills has only its runtime commands section band ${theme}`, async ({ page }) => {
     await page.clock.setFixedTime(WALL_TIME)
     await openFrame(page, 'frame-wall=library', theme)
-    await expect(page.locator('h1').first()).toBeVisible()
-    await expect(page.locator('body').locator('h2[data-role="section"], h2 [data-role="section"], h3 [data-role="section"]')).toHaveCount(0)
+    await expect(page.getByRole('heading', { level: 1, name: 'Customize', exact: true })).toBeVisible()
+    const bands = page.locator('h2[data-role="section"], h2 [data-role="section"], h3 [data-role="section"]')
+    await expect(bands).toHaveText(['Runtime commands'])
+    await expect(bands).toHaveCSS('font-size', '16px')
+    await expect(bands).toHaveCSS('font-weight', await bands.evaluate(node => getComputedStyle(node).getPropertyValue('--hd-weight-semibold').trim()))
+    await expect(page.locator('[data-slot="skill-card"]').first()).toBeVisible()
   })
 }
 

@@ -831,3 +831,14 @@ test('an unread shot README preserves a narrow UI selection', () => {
   assert.equal(run.count, 1)
   assert.deepEqual(run.deferred, [])
 })
+
+for (const path of ['packages/ui/src/components/BringHome.tsx', 'e2e/ui-system/a-deleted-helper.ts']) {
+  test(`a global input cannot hide an unresolved development input: ${path}`, () => {
+    const run = cliPlan(['pnpm-lock.yaml', path], 'push', { CI_REF_NAME: 'development' })
+    assert.equal(run.browser_specs, 'all')
+    assert.doesNotMatch(run.summary, /Deferred to full tier/)
+    assert.match(run.summary, /global input pnpm-lock.yaml/)
+    assert.match(run.summary, path.startsWith('packages/') ? /no impact map/ : /unresolved suite input/)
+    assert.match(run.summary, /running every browser spec/)
+  })
+}

@@ -1156,6 +1156,10 @@ const handlers = {
       send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Internal server error', data: { details: 'the model backend timed out' } } })
       return
     }
+    if (process.env.FAKE_ACP_MISSING_API_KEY === '1') {
+      send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Gemini API key is missing or not configured.' } })
+      return
+    }
     if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed || signedOut) {
       send({
         jsonrpc: '2.0',
