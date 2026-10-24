@@ -319,7 +319,7 @@ export interface LeadOrigin { readonly source: 'pull-request' | 'issue' | 'sched
 export interface LeadHandback {
   readonly key: string; readonly event: string; readonly kind: 'checks' | 'reviews'; readonly head: string
   readonly runId: string; readonly teamId: string; readonly round: number; readonly at: number
-  readonly stage: 'prepared' | 'running' | 'awaiting-ci' | 'completed'; readonly publishedHead: string | null; readonly detail?: string
+  readonly stage: 'prepared' | 'running' | 'awaiting-ci' | 'completed' | 'failed' | 'abandoned' | 'withdrawn'; readonly publishedHead: string | null; readonly detail?: string
 }
 export interface LeadThreadSend { readonly idempotencyKey: string; readonly text: string }
 /** Stable first result, retained across retries and journal recovery. */
@@ -579,7 +579,7 @@ const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path 
 }
 export const parseLeadOrigin: Validator<LeadOrigin> = object({ source: literalUnion('pull-request', 'issue', 'schedule'), event: id, subject: opaque, url: nullable(content) })
 const handbackParser: Validator<LeadHandback> = object({ key: id, event: id, kind: literalUnion('checks', 'reviews'), head: opaque,
-  runId: id, teamId: id, round: integer(1), at: integer(), stage: literalUnion('prepared', 'running', 'awaiting-ci', 'completed'), publishedHead: nullable(opaque), detail: optional(boundedText(8000, false, proseControls)) })
+  runId: id, teamId: id, round: integer(1), at: integer(), stage: literalUnion('prepared', 'running', 'awaiting-ci', 'completed', 'failed', 'abandoned', 'withdrawn'), publishedHead: nullable(opaque), detail: optional(boundedText(8000, false, proseControls)) })
 export const parseLeadHandback: Validator<LeadHandback> = (value, path = '') => Object.fromEntries(Object.entries(handbackParser(value, path)).filter(([, item]) => item !== undefined)) as unknown as LeadHandback
 export const parseLeadFollowPreferences: Validator<LeadFollowPreferences> = object({ checks: isBoolean, reviews: isBoolean })
 const pullRequestParser: Validator<LeadPullRequest> = object({

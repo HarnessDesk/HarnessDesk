@@ -39,6 +39,11 @@ class RigRuntime extends CodexRuntime {
 }
 export interface LeadRigOptions {
   readonly enabled?: boolean
+  /** Offline host-publication fixture: one run, pinned demo repository and distinct repair commits. */
+  readonly publication?: boolean
+  readonly waitMs?: number
+  readonly reviewAvailable?: () => boolean
+  readonly forgeGh?: (args: readonly string[]) => Promise<{ stdout: string; stderr: string; exitCode: number }>
   readonly scenario?: 'happy' | 'interrupted' | 'worker-approval' | 'forbidden'
   readonly manualChecks?: boolean
   readonly holdWorkers?: boolean
@@ -74,6 +79,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
   let disposed = false, workerMicros = 0, failGate = false, failedGate = false
   const checkStarts = new Set<string>()
   let evidenceFailure: Error | undefined
+  let latestEvidence: LeadAcceptanceEvidence | null = null
   let currentStep = '', preview: { token: string; source: string; expiresAt: number } | undefined
   let deskSocketPath = ''
   let supervisorOptions!: LeadSupervisorOptions
@@ -87,7 +93,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
   const gitBinary = execFileSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).trim()
   const git = (cwd: string, ...args: string[]) => execFileSync(gitBinary, args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
   const waitFor = async (predicate: () => boolean | Promise<boolean>, label = 'rig state') => {
-    const until = Date.now() + 240_000
+    const until = Date.now() + (options.waitMs ?? 240_000)
     while (!await predicate()) {
       if (evidenceFailure && /spawnSync ps.*EPERM/.test(evidenceFailure.message)) throw evidenceFailure
       if (Date.now() >= until) throw new Error(`Timed out waiting for ${label}; phase=${journal?.state.phase}; reason=${journal?.state.managementReason}; evidence=${evidenceFailure?.message ?? 'none'}`)
@@ -102,7 +108,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     journal.state.cards.find((card): card is Extract<LeadCard, { type: T }> => card.type === type && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
   const personGates = () => journal.state.runs.flatMap(run => host.teamPlane.stateFor(run.teamId).intents.filter(card => card.role === 'accept'))
   const worktrees = () => [...new Set(host.flowsPlane.leadRuns().flatMap(run => Object.values(run.seatPlans ?? {}).flatMap(plan => plan.handed.map(checkout => checkout.cwd))))]
-  const releaseWorkers = async () => { for (const marker of ['write', 'repair', 'review']) await writeFile(join(gates, marker), '') }
+  const releaseWorkers = async () => { for (const marker of ['write', 'repair', 'review', 'followRepair']) await writeFile(join(gates, marker), '') }
   const restoreEnvironment = () => {
     if (previousHome === undefined) delete process.env['HARNESSDESK_HOME']; else process.env['HARNESSDESK_HOME'] = previousHome
     if (previousPath === undefined) delete process.env['PATH']; else process.env['PATH'] = previousPath
@@ -129,6 +135,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     execFileSync(gitBinary, ['fast-import', '--quiet'], { cwd: project.path, input: Buffer.concat([
       Buffer.from(`commit refs/heads/main\nauthor Jane Doe <dev@example.com> 1700000000 +0000\ncommitter Jane Doe <dev@example.com> 1700000000 +0000\ndata 16\nSynthetic source\nM 100644 inline .harnessdesk/checks.yml\ndata ${seed.length}\n`), seed, Buffer.from('\n\n')]), stdio: ['pipe', 'pipe', 'pipe'] })
     git(project.path, 'checkout', 'main')
+    if (options.publication) git(project.path, 'remote', 'add', 'origin', 'https://github.com/acme/widgets.git')
     await writeFile(passes, JSON.stringify({ passes: {}, done: [] }))
     const bin = join(home, 'bin'); await mkdir(bin)
     // Observe Git effects routed through PATH, including host-internal calls.
@@ -144,8 +151,8 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       { role: 'implement', agent: 'implementer', seat: { runtime: 'rig-writer', model: 'gpt-5.5' }, ceiling: 'edit' },
       { role: 'review', agent: 'code-reviewer', seat: { runtime: 'rig-reviewer', model: 'gpt-5.5' }, ceiling: 'read' },
     ]
-    const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1,
-      steps: (options.manualChecks ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments })),
+    const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1, ...(options.publication ? { publicationRepository: 'acme/widgets' } : {}),
+      steps: (options.manualChecks || options.publication ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments })),
       assertions: [{ id: 'unit', kind: 'check', description: 'Required check passes' }, { id: 'review', kind: 'review', description: 'Independent review approves' },
         { id: 'blockers', kind: 'blocking-findings', description: 'No unresolved blockers' }], caps: { usdMicros: 10_000_000, rounds: 20 } })
     const seats = Object.fromEntries(assignments.map(one => [one.role, [one.seat]]))
@@ -203,8 +210,8 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       extensions = new ExtensionKernel()
       host = new Host({ extensions, logger, state: new StateStore(join(home, 'state.json')), leadEnabled: enabled,
         catalogRefreshMs: 0, libraryHome: join(home, 'person'),
-        evidence: { gh: async args => { if (args.some(arg => ['create', 'merge', 'delete', 'edit', 'comment', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(arg))) forbidden.push(`forge:${args.join(' ')}`); return { stdout: '', stderr: 'No forge in Lead rig', exitCode: 1 } } },
-        forge: { gh: async args => { if (args.some(arg => ['create', 'merge', 'delete', 'edit', 'comment', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(arg))) forbidden.push(`forge:${args.join(' ')}`); return { stdout: '', stderr: 'No forge in Lead rig', exitCode: 1 } } },
+        evidence: { gh: options.forgeGh ?? (async args => { if (args.some(arg => ['create', 'merge', 'delete', 'edit', 'comment', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(arg))) forbidden.push(`forge:${args.join(' ')}`); return { stdout: '', stderr: 'No forge in Lead rig', exitCode: 1 } }) },
+        forge: { gh: options.forgeGh ?? (async args => { if (args.some(arg => ['create', 'merge', 'delete', 'edit', 'comment', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(arg))) forbidden.push(`forge:${args.join(' ')}`); return { stdout: '', stderr: 'No forge in Lead rig', exitCode: 1 } }) },
         trashPath: async path => { forbidden.push(`delete:${path}`); throw new Error('No deletion in Lead rig') },
       })
       // Fake only the key broker boundary. It never reaches safeStorage or a real key store.
@@ -240,8 +247,9 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
           capabilities: new GatedRegistry(extensions!, () => host.ceilingGate),
           env: { FAKE_CODEX_PROCESS_CALLS: workerLog, FAKE_CODEX_FLOW: JSON.stringify({ state: passes, gates, approvalLog: workerLog, passPerRun: true, approvalBeforeWork: options.scenario === 'worker-approval', steps: {
             write: { kind: 'write', title: 'Implement the approved goal', outcomes: ['committed'], file: 'retry.txt', contents: 'Incomplete retry status list\n' },
-            repair: { kind: 'write', title: 'Repair the blocking findings and rerun required checks', outcomes: ['committed'], file: 'retry.txt', contents: 'Complete retry status list\n' },
-            review: { kind: 'review', title: 'Check and review the committed result', outcomes: ['request-changes', 'approve'] },
+            repair: { kind: 'write', title: 'Repair the blocking findings and rerun required checks', outcomes: ['committed'], file: 'retry.txt', contents: options.publication ? 'Complete retry status list {{intent}}\n' : 'Complete retry status list\n' },
+            ...(options.publication ? { followRepair: { kind: 'write', title: 'Repair the followed pull request', outcomes: ['committed'], file: 'retry.txt', contents: 'Followed retry status list {{intent}}\n' } } : {}),
+            review: { kind: 'review', title: 'Check and review the committed result', outcomes: options.publication ? ['approve'] : ['request-changes', 'approve'] },
           } }) },
         }, providerName)
         // The priced-source variant starts its synthetic runtime before the
@@ -273,7 +281,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         // The synthetic person authorizes the declared local command through the same window call.
         // Its real check runner writes revision-qualified evidence, never a fixture assertion.
         const implementation = board.board.intents.filter(card => cardIds.has(card.id) && card.role === 'implement' && card.state === 'done').at(-1)
-        if (!options.manualChecks && revision && implementation && !checkStarts.has(`${runId}:${revision}`) && !evidence.cards.flatMap(card => card.facts).some(one => one.record.fact.kind === 'check' && one.record.fact.at === revision)) {
+        if (!options.manualChecks && !options.publication && revision && implementation && !checkStarts.has(`${runId}:${revision}`) && !evidence.cards.flatMap(card => card.facts).some(one => one.record.fact.kind === 'check' && one.record.fact.at === revision)) {
           const checks = await host.call('evidence/checks', { project: project.path })
           const check = checks.checks.find(one => one.name === 'verify')
           if (check && checks.at) {
@@ -290,11 +298,13 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         // These facts were re-read and verified fresh at this revision now.
         // Use that read time so multi-step rig runtime cannot age a valid fact.
         const readAt = Date.now()
-        return { project, runId, contractDigest: journal.state.contract!.digest, revision, observedAt: Date.now(), complete: true,
+        return latestEvidence = { project, runId, contractDigest: journal.state.contract!.digest, revision, observedAt: Date.now(), complete: true,
           spendComplete: leadBudgetProjection(journal.state.budget!, Date.now()).spend === 'known',
-          checks: facts.flatMap(record => record.fact.kind === 'check' && record.fact.at === revision ? [{ assertionId: 'unit', id: record.id, revision: record.fact.at, observedAt: readAt,
+          // Publication tests fake only normalized check inputs; review receipts,
+          // exact checkout identity, host acceptance and gateway effects stay real.
+          checks: options.publication && revision ? [{ assertionId: 'unit', id: `fixture-check-${revision}`, revision, observedAt: readAt, exit: 0, timedOut: false, dirty: false, counted: true }] : facts.flatMap(record => record.fact.kind === 'check' && record.fact.at === revision ? [{ assertionId: 'unit', id: record.id, revision: record.fact.at, observedAt: readAt,
             exit: record.fact.exit, timedOut: record.fact.timedOut, dirty: record.fact.dirty, counted: record.fact.counted === true }] : []),
-          reviews: facts.flatMap(record => record.fact.kind === 'review' && record.fact.at === revision ? [{ assertionId: 'review', id: record.id,
+          reviews: facts.flatMap(record => options.reviewAvailable?.() !== false && record.fact.kind === 'review' && record.fact.at === revision ? [{ assertionId: 'review', id: record.id,
             revision: record.fact.at, observedAt: readAt, verdict: record.fact.verdict, complete: true }] : []),
           findingsComplete: !findings.embargoed, findings: findings.blocking ? [{ id: `${runId}:blocking`, revision, blocking: true, resolved: false }] : [], diffs: [],
         }
@@ -395,7 +405,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       assert.deepEqual([...forbidden, ...effects.map(one => one.join(' '))], [], 'zero merges, publishes, deletions, forge writes and pushes')
     }
     return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service },
-      provider, children, calls, windowNotifications, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
+      provider, children, calls, windowNotifications, get latestEvidence() { return latestEvidence }, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
       async probeExpiredConsent() {
         await sendGoal(); await waitFor(() => provider.pending, 'held planning request')
         const socket = new WebSocket(`ws+unix://${deskSocketPath}:/client`)

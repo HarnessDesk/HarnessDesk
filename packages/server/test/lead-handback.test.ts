@@ -96,7 +96,7 @@ test('repair publication waits for reviewed work then head-bound nonempty CI and
   await s.owner.recover(); assert.equal(s.calls.filter(c => Array.isArray(c)).length, 1)
   const op = (s.journal.state as any).handbacks[0]
   assert.equal(op.stage, 'awaiting-ci')
-  for (const check of [null, ...['pending', 'absent', 'failed', 'passed'].map(state => ({ head: 'b'.repeat(40), state, total: state === 'pending' ? 2 : 0 }))]) {
+  for (const check of [null, ...['pending'].map(state => ({ head: 'b'.repeat(40), state, total: state === 'pending' ? 2 : 0 }))]) {
     await s.journal.observePr({ ...s.journal.state.pr!, head: 'b'.repeat(40), observedHead: 'b'.repeat(40), check: check as any })
     await s.owner.recover(); assert.equal((s.journal.state as any).ciPassed.length, 0)
   }
@@ -157,12 +157,15 @@ complete: { accept: [accepted] }
   assert.equal(rig.events.filter(event => event.startsWith('order:')).length, resumed, 'polling never rearms the same live turn twice')
 })
 
-test('turning follow off while a hand-back is prepared holds its dispatch until enabled again', async t => {
+test('turning follow off withdraws prepared work and lets the other kind flow', async t => {
   const s = await setup(t); s.eligible(false); await s.owner.observe([s.fact])
   await s.journal.settingsChanged(undefined, { checks: false, reviews: true })
   s.eligible(true); await s.owner.recover(); assert.equal(s.calls.length, 0)
   await s.journal.settingsChanged(undefined, { checks: true, reviews: true })
-  await s.owner.recover(); assert.equal(s.calls.length, 1)
+  await s.owner.recover(); assert.equal(s.calls.length, 0)
+  assert.equal(s.journal.state.handbacks[0]!.stage, 'withdrawn')
+  await s.owner.observe([{ ...s.fact, event: 'review-other-kind', action: 'review-commented', review: { id: 1, head, state: 'commented' }, authorWrites: true }])
+  assert.equal(s.calls.length, 1)
 })
 
 test('CI passed is real durable evidence once per Team and head, including after recovery', async () => {
@@ -185,4 +188,90 @@ test('CI passed is real durable evidence once per Team and head, including after
   assert.equal(records.length, 2)
   assert.deepEqual(records.map(record => record.intake?.goal).sort(), ['team-1', 'team-2'])
   assert.equal((records[0]!.fact as any).checks[0].name, 'CI passed')
+})
+
+for (const outcome of ['failed', 'absent', 'passed-empty']) test(`observe retires a repaired head with ${outcome} CI before admitting its failure`, async t => {
+  const s = await setup(t), repaired = 'b'.repeat(40)
+  await s.owner.observe([s.fact]); s.reviewed({ ...s.source, head: repaired }); await s.owner.recover()
+  await s.journal.observePr({ ...s.journal.state.pr!, head: repaired, check: { head: repaired, state: outcome === 'passed-empty' ? 'passed' : outcome as any, total: outcome === 'failed' ? 1 : 0 } })
+  await s.owner.observe([{ ...s.fact, head: repaired, event: 'failure-2', check: { head: repaired, state: 'failed', total: 1 } }])
+  assert.equal(s.journal.state.handbacks[0]!.stage, 'failed')
+  assert.equal(s.journal.state.handbacks.length, 2)
+  assert.equal(s.journal.state.handbacks[1]!.head, repaired)
+  assert.equal(s.journal.state.handbackLimit, false)
+})
+for (const stage of ['running', 'awaiting-ci']) test(`release abandons ${stage} repair before reclaim and never pushes its result`, async t => {
+  const s = await setup(t), repaired = 'b'.repeat(40), foreign = 'c'.repeat(40)
+  await s.owner.observe([s.fact])
+  if (stage === 'awaiting-ci') { s.reviewed({ ...s.source, head: repaired }); await s.owner.recover() }
+  const pushes = s.calls.filter(Array.isArray).length
+  await s.journal.observePr({ ...s.journal.state.pr!, branchOwner: 'person', observedHead: foreign, branchChange: 'fast-forward' })
+  assert.equal(s.journal.state.handbacks[0]!.stage, 'abandoned')
+  s.reviewed({ ...s.source, head: foreign }); await s.owner.recover()
+  assert.equal(s.calls.filter(Array.isArray).length, pushes)
+  const card: any = { version: 1, id: 'reclaim', revision: 1, type: 'branch-ownership', contractDigest: s.contract.digest,
+    repository: 'acme/widgets', number: 7, observedHead: foreign, summary: 'Reclaim the branch after a person pushed.' }
+  await s.journal.offerCard(card)
+  await s.journal.decideCard({ version: 1, cardId: card.id, cardType: card.type, expectedRevision: 1, contractDigest: s.contract.digest, choice: 'reclaim-branch' } as any, null)
+  await s.owner.recover(); assert.equal(s.calls.filter(Array.isArray).length, pushes)
+  s.reviewed(null)
+  await s.owner.observe([{ ...s.fact, head: foreign, event: 'fresh-after-reclaim', check: { head: foreign, state: 'failed', total: 1 } }])
+  assert.equal(s.journal.state.handbacks.length, 2)
+  assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
+})
+test('pending repair defers same-head check before the D4 limit', async t => {
+  const s = await setup(t); await s.owner.observe([s.fact])
+  await assert.rejects(s.owner.observe([{ ...s.fact, event: 'later-same-head' }]), /lead-handback-pending/)
+  assert.equal(s.journal.state.handbackLimit, false)
+})
+test('a failed push journals Needs-you once and recovery waits for resume', async t => {
+  const s = await setup(t); await s.owner.observe([s.fact]); s.reviewed({ ...s.source, head: 'b'.repeat(40) })
+  let attempts = 0
+  s.options.push = async () => {
+    attempts++
+    const op: any = { source: { ...s.source, head: 'b'.repeat(40) }, number: 7, previousHead: head, at: 100, stage: 'prepared', effectStarted: false }
+    if (attempts === 1) { await s.journal.ownedPush(op); await s.journal.ownedPush({ ...op, stage: 'needs-you' }); throw new Error('push refused') }
+  }
+  await assert.rejects(s.owner.recover(), /push refused/)
+  const seq = s.journal.state.seq
+  await s.owner.recover(); await s.owner.recover()
+  assert.equal(attempts, 1); assert.equal(s.journal.state.seq, seq)
+  await s.journal.resume()
+  await s.owner.recover(); assert.equal(attempts, 2, 'person resume permits a new push attempt')
+})
+test('prepared repair preserves the pending renewal phase', async t => {
+  const s = await setup(t); s.setNow(2000); s.options.now = () => 2000
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-tools-refused')
+  await s.journal.renewPlan(2000)
+  assert.equal(s.journal.state.phase, 'awaiting-plan')
+  await s.owner.observe([s.fact])
+  assert.equal(s.journal.state.phase, 'awaiting-plan')
+  assert.equal(s.journal.state.handbacks[0]!.stage, 'prepared')
+})
+test('real LeadBudgets prepareRepair validates the journaled repair and membership', async t => {
+  const s = await setup(t); s.eligible(false); await s.owner.observe([s.fact])
+  const op = s.journal.state.handbacks[0]!, run = s.rig.flows.leadRuns()[0]!
+  await s.budgets.prepareRepair(run, op.key, op.round)
+  await assert.rejects(s.budgets.prepareRepair(run, 'other-key', op.round), /lead-repair-not-approved/)
+  s.setMember(false)
+  await assert.rejects(s.budgets.prepareRepair(run, op.key, op.round), /lead-repair-not-approved/)
+})
+
+test('a stopped awaiting-CI repair ignores a later failed-check fact', async t => {
+  const s = await setup(t), repaired = 'b'.repeat(40)
+  await s.owner.observe([s.fact]); s.reviewed({ ...s.source, head: repaired }); await s.owner.recover()
+  await s.journal.observePr({ ...s.journal.state.pr!, head: repaired, check: { head: repaired, state: 'pending', total: 1 } })
+  await s.journal.stop()
+  const seq = s.journal.state.seq
+  await s.owner.observe([{ ...s.fact, event: 'late-after-stop', head: repaired, check: { head: repaired, state: 'failed', total: 1 } }])
+  assert.equal(s.journal.state.seq, seq)
+})
+
+test('a newer pending poll cannot hide a failed-check fact on the published head', async t => {
+  const s = await setup(t), repaired = 'b'.repeat(40)
+  await s.owner.observe([s.fact]); s.reviewed({ ...s.source, head: repaired }); await s.owner.recover()
+  await s.journal.observePr({ ...s.journal.state.pr!, head: repaired, at: 200, check: { head: repaired, state: 'pending', total: 1 } })
+  await s.owner.observe([{ ...s.fact, at: 150, event: 'repaired-head-failure', head: repaired, check: { head: repaired, state: 'failed', total: 1 } }])
+  assert.equal(s.journal.state.handbacks[0]!.stage, 'failed')
+  assert.equal(s.journal.state.handbacks.length, 2)
 })

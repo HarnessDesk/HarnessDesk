@@ -152,3 +152,64 @@ test('a crash after origin preparation reserves the draft for its exact firing k
   assert.equal((await s.owner.offer({ key: 'first-firing', text: 'Original draft', origin })).delivered, true)
   await s.controls.idle(); assert.equal(s.requests(), 1)
 })
+
+test('a person message in a fresh draft after new-goal keeps a firing pending even when the loop is blocked', async t => {
+  const s = await automatic(t)
+  await s.journal.updateBudget({ version: 1, type: 'stop', now: 100, reason: 'cancelled' })
+  await s.journal.runStopEffects(async () => {})
+  await s.journal.beginGoal('next-goal', 100)
+  await s.journal.appendMessage('person-started', 'Please investigate my issue.')
+  s.configured(false)
+  assert.equal(s.journal.state.phase, 'draft')
+  const seq = s.journal.state.seq
+  const result = await s.owner.offer({ key: 'unrelated-firing', text: 'Draft another plan', origin })
+  assert.equal(result.delivered, false); assert.match(result.reason, /busy/)
+  await assert.rejects((s.controls.send as any)({ idempotencyKey: 'direct-firing', text: 'Draft another plan' }, origin), (error: any) => error.wireCode === 'lead-request-in-flight')
+  assert.equal(s.journal.state.seq, seq); assert.equal(s.requests(), 0)
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(s.journal.state, 'b'.repeat(64))).state, s.journal.state)
+})
+
+for (const [label, body] of [['long', 'x'.repeat(16_384)], ['control', 'context\u001bmore'], ['secret', 'sk-ant-' + 'fixture-credential-value']] as const) {
+  test(`Lead firing with ${label} body drafts bounded labelled untrusted context`, async t => {
+    const s = await automatic(t)
+    const result = await s.owner.offerTrigger({ key: `trigger-${label}`, project: s.project.path, sentence: 'Draft a plan for this event.',
+      fact: { ...origin, title: 'Fixture title', body, action: 'opened' } })
+    assert.equal(result.delivered, true); await s.controls.idle()
+    const text = s.journal.state.messages.find(message => message.role === 'user')!.text
+    assert.ok(text.length < 2500); assert.ok(!text.includes('\u001b'))
+    assert.match(text, /BEGIN UNTRUSTED EVENT CONTEXT/); assert.match(text, /END UNTRUSTED EVENT CONTEXT/)
+    assert.match(text, /Fixture title/); assert.match(text, /github.com\/acme\/widgets\/pull\/7/)
+    if (label === 'long') assert.match(text, /truncated/i)
+    if (label === 'secret') { assert.ok(!text.includes(body)); assert.match(text, /body omitted.*lead-secret-refused/i) }
+    assert.equal(s.journal.state.runs.length, 0)
+  })
+}
+
+test('an evicted person message still owns the draft through its durable send receipt', async t => {
+  const s = await automatic(t)
+  await s.journal.appendMessage('person-started', 'My work is still pending.')
+  for (let i = 0; i < 257; i++) await s.journal.appendReply(`Fixture reply ${i}.`)
+  assert.equal(s.journal.state.messages.some(message => message.role === 'user'), false)
+  const result = await s.owner.offer({ key: 'unrelated-firing', text: 'Draft another plan', origin })
+  assert.equal(result.delivered, false); assert.match(result.reason, /busy/)
+})
+
+test('a secret-shaped trigger sentence or title falls back to safe event metadata', async t => {
+  const s = await automatic(t), secret = 'sk-ant-' + 'fixture-only-trigger-text'
+  const result = await s.owner.offerTrigger({ key: 'protected-trigger', project: s.project.path, sentence: secret,
+    fact: { ...origin, title: secret, body: secret, action: 'opened' } })
+  assert.equal(result.delivered, true); await s.controls.idle()
+  const text = s.journal.state.messages.find(message => message.role === 'user')!.text
+  assert.ok(!text.includes(secret)); assert.match(text, /lead-secret-refused/)
+  assert.match(text, /github.com\/acme\/widgets\/pull\/7/)
+})
+
+test('a person message also fences a firing whose origin was reserved before a crash', async t => {
+  const s = await automatic(t)
+  await s.journal.setOrigin(origin, 'reserved-firing')
+  await s.journal.appendMessage('person-started', 'Investigate my task first.')
+  const result = await s.owner.offer({ key: 'reserved-firing', text: 'Draft the reserved event', origin })
+  assert.equal(result.delivered, false); assert.match(result.reason, /busy/)
+  await assert.rejects((s.controls.send as any)({ idempotencyKey: 'reserved-firing', text: 'Draft the reserved event' }, origin), (error: any) => error.wireCode === 'lead-request-in-flight')
+  assert.equal(s.requests(), 0)
+})

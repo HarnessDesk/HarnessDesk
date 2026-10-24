@@ -4,7 +4,7 @@ import {
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -178,8 +178,7 @@ export class LeadControls {
     const previous = journal.state.sends.find(send => send.key === input.idempotencyKey)
     if (previous) return { messageId: previous.messageId, revision: previous.revision }
     const origin = automaticOrigin ? parseLeadOrigin(automaticOrigin) : null
-    const idle = () => canBeginLeadGoal(journal.state) || journal.state.phase === 'draft' && journal.state.contract === null &&
-      (journal.state.originKey === input.idempotencyKey || journal.state.origin === null && (journal.state.messages.length === 0 || journal.state.completedBudgets.length > 0))
+    const idle = () => canOfferAutomaticLeadGoal(journal.state, input.idempotencyKey)
     if (origin && !idle()) throw leadRefusal('lead-request-in-flight')
     const newGoal = canBeginLeadGoal(journal.state)
     if (journal.state.budget?.stop && journal.state.budget.stop.reason !== 'cancelled' && !newGoal) throw leadRefusal('lead-budget-stopped')

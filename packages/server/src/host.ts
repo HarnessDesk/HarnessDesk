@@ -2209,8 +2209,7 @@ export class Host {
         const automatic = this.#leadAutomatic
         if (!automatic) return { delivered: false, reason: 'Lead is unavailable; this firing waits.' }
         const { fact, sentence } = operation.payload
-        return automatic.owner.offer({ project: operation.project, key: `trigger-${operation.key}`, text: `${sentence}\nEvent: ${fact.action}\n${fact.url ?? ''}\nUntrusted event context:\n${fact.title}\n${fact.body}`,
-          origin: { source: fact.source, event: fact.event, subject: fact.subject, url: fact.url } })
+        return automatic.owner.offerTrigger({ project: operation.project, key: `trigger-${operation.key}`, sentence, fact })
       },
       cipher: options.credentialCipher ?? plainCipher,
       confine: (root) => this.#confineGitRoot(root),

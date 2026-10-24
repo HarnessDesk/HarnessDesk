@@ -18,6 +18,8 @@ export interface LeadStepState { readonly id: string; readonly state: 'pending' 
 export interface LeadState {
   readonly origin: LeadOrigin | null
   readonly originKey: string | null
+  /** New-goal sequence, so retained conversation history cannot claim a fresh draft. */
+  readonly goalStartedSeq: number
   readonly handbacks: readonly LeadHandback[]
   readonly handbackLimit: boolean
   readonly ciPassed: readonly string[]
@@ -50,7 +52,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ origin: null, originKey: null, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
+export const initialLeadState = (): LeadState => ({ origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
   cards: [], decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-transition') }
 const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.revision}`
@@ -65,6 +67,14 @@ export const leadWorkerDispatchBlockedByOpenPr = (state: LeadState, runId?: stri
 /** A repair result remains fenced until CI passes on the published head. */
 export const leadRepairResultReady = (state: LeadState): boolean => !state.handbacks.length ||
   state.handbacks.at(-1)?.stage === 'completed' && !!state.pr && state.pr.branchOwner !== 'person' && state.ciPassed.includes(state.pr.head) && state.pr.check?.state === 'passed' && state.pr.check.head === state.pr.head && state.pr.check.total > 0
+
+export const leadHandbackTerminal = (op: LeadHandback): boolean => ['completed', 'failed', 'abandoned', 'withdrawn'].includes(op.stage)
+
+/** Automatic input may reserve only a draft with no person message in this goal. */
+export const canOfferAutomaticLeadGoal = (state: LeadState, key: string): boolean => canBeginLeadGoal(state) ||
+  state.phase === 'draft' && state.contract === null && (state.originKey === key || state.origin === null) &&
+    !state.sends.some(send => send.revision > state.goalStartedSeq) &&
+    !state.messages.some(message => message.role === 'user' && message.revision > state.goalStartedSeq)
 
 /** Earlier runs stay owned for accounting and recovery, but judge only this plan. */
 export const leadPlanRuns = (state: LeadState): readonly LeadRunIdentity[] => state.runs.filter(run =>
@@ -154,16 +164,19 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         !['accepted', 'declined', 'stopped'].includes(state.phase) && state.runs.some(run => run.runId === op.runId && run.teamId === op.teamId))
       if (!previous) {
         ensure(op.stage === 'prepared' && op.head === state.pr!.head && state.handbacks.length < 64 &&
-          state.handbacks.every(item => item.stage === 'completed') && state.follow[op.kind])
+          state.handbacks.every(leadHandbackTerminal) && state.follow[op.kind])
         ensure(op.kind === 'checks' ? !state.handbacks.some(item => item.kind === 'checks' && item.head === op.head) : state.handbacks.filter(item => item.kind === 'reviews').length < 3)
       } else {
         if (op.stage === 'running') ensure(state.follow[op.kind])
         ensure(JSON.stringify({ ...previous, stage: undefined, publishedHead: undefined }) === JSON.stringify({ ...op, stage: undefined, publishedHead: undefined }))
-        const stages = ['prepared', 'running', 'awaiting-ci', 'completed']
-        ensure(stages.indexOf(op.stage) === stages.indexOf(previous.stage) + 1)
+        const transitions: Record<LeadHandback['stage'], readonly LeadHandback['stage'][]> = {
+          prepared: ['running', 'withdrawn'], running: ['awaiting-ci'], 'awaiting-ci': ['completed', 'failed'],
+          completed: [], failed: [], withdrawn: [], abandoned: [],
+        }
+        ensure(transitions[previous.stage].includes(op.stage))
         ensure(previous.publishedHead === null || previous.publishedHead === op.publishedHead)
       }
-      state = { ...state, handbacks: [...state.handbacks.filter(item => item.key !== op.key), op], phase: op.stage === 'awaiting-ci' ? 'following' : 'running', managementReason: null,
+      state = { ...state, handbacks: [...state.handbacks.filter(item => item.key !== op.key), op], phase: hasPendingLeadPlan(state) ? 'awaiting-plan' : op.stage === 'awaiting-ci' ? 'following' : 'running', managementReason: null,
         decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'result').map(cardKey)])] }
       break
     }
@@ -175,7 +188,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(canBeginLeadGoal(state) && !state.completedBudgets.some(budget => budget.logicalGoalId === event.id) && state.budget!.logicalGoalId !== event.id)
       const budget = reduceLeadBudget(null, { version: 1, type: 'initialize', now: event.now, logicalGoalId: event.id,
         caps: state.budget!.caps, freshnessMs: state.budget!.freshnessMs })
-      state = { ...initialLeadState(), seq: event.seq, name: state.name, follow: state.follow, policy: state.policy, budget,
+      state = { ...initialLeadState(), seq: event.seq, goalStartedSeq: event.seq, name: state.name, follow: state.follow, policy: state.policy, budget,
         completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends,
         decisionMessages: state.decisionMessages }
       break
@@ -250,7 +263,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       if (obsolete.size) state = { ...state, cards: state.cards.filter(card => !obsolete.has(card.id)),
         cardPositions: Object.fromEntries(Object.entries(state.cardPositions).filter(([id]) => !obsolete.has(id))),
         cardRevisions: Object.fromEntries(Object.entries(state.cardRevisions).filter(([id]) => !obsolete.has(id))) }
-      state = { ...state, pr: { ...event.pr, branch: pr!.branch, head, branchOwner, observedHead,
+      state = { ...state, handbacks: branchOwner === 'person' ? state.handbacks.map(op => leadHandbackTerminal(op) ? op : { ...op, stage: 'abandoned' as const }) : state.handbacks,
+        pr: { ...event.pr, branch: pr!.branch, head, branchOwner, observedHead,
         check: event.pr.check?.head === observedHead ? event.pr.check : null,
         ...(event.pr.review === undefined ? {} : { review: event.pr.review?.head === observedHead ? event.pr.review : null }) },
         ...(event.pr.state !== 'open' ? { phase: event.pr.state === 'merged' ? 'accepted' as const : 'declined' as const, managementReason: null } :
@@ -276,7 +290,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, phase: event.phase, managementReason: event.reason ?? null }; break
     case 'resume':
       ensure(state.phase === 'waiting-for-user' && !state.budget?.stop && !hasPendingLeadPlan(state))
-      state = { ...state, phase: state.pr?.state === 'open' ? 'following' : 'running', managementReason: null }; break
+      state = { ...state, phase: state.pr?.state === 'open' ? 'following' : 'running', managementReason: null,
+        ownedPush: state.ownedPush?.stage === 'needs-you' ? { ...state.ownedPush, stage: 'prepared' } : state.ownedPush }; break
     case 'renew-plan': {
       ensure(state.consent && state.contract && state.consent.expiresAt <= event.now && !state.budget?.stop &&
         !state.recoveryBlocked && !['stopped', 'accepted', 'declined'].includes(state.phase) && !hasPendingLeadPlan(state) && state.consent.renewalCardRevision === undefined)
