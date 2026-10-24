@@ -47,6 +47,22 @@ test('owned-head failure journals one same-Team repair, invalidates results, and
   assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
   assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(s.journal.state, 'b'.repeat(64))).state, s.journal.state)
 })
+test('a prepared same-Team repair reopens its settled run without recovery treating it as foreign work', async t => {
+  const s = await setup(t), { leadRoundId } = await import('../src/flow-execution.js')
+  await s.journal.observeSettledRun(s.run.id, leadRoundId(s.run.id, 1))
+  const open = s.options.open
+  s.options.open = async op => {
+    // Budget preparation reads the still-settled Flow before reopening it.
+    await s.journal.observeSettledRun(s.run.id, leadRoundId(s.run.id, 1))
+    return open(op)
+  }
+  await s.owner.observe([s.fact])
+  const owned = s.journal.state.runs[0]!
+  await s.journal.recover(async () => [{ ...owned, firstRoundId: leadRoundId(s.run.id, 1), terminal: false }])
+  assert.equal(s.journal.state.budget!.stop, null)
+  assert.equal(s.journal.state.attempts.get(owned.correlationId)!.contested, false)
+  assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
+})
 for (const point of ['before', 'after']) test(`crash ${point} round creation resumes the same cause and intended round`, async t => {
   const s = await setup(t); s.crash(point)
   await assert.rejects(s.owner.observe([s.fact]), /crash/)

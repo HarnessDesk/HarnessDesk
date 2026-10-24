@@ -166,6 +166,16 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         ensure(op.stage === 'prepared' && op.head === state.pr!.head && state.handbacks.length < 64 &&
           state.handbacks.every(leadHandbackTerminal) && state.follow[op.kind])
         ensure(op.kind === 'checks' ? !state.handbacks.some(item => item.kind === 'checks' && item.head === op.head) : state.handbacks.filter(item => item.kind === 'reviews').length < 3)
+        // This durable intent authorizes reopening the same owned Run. Keep
+        // its identity, but retire the earlier terminal observation before the
+        // host can open the repair round, including a crash before `running`.
+        const owned = state.runs.find(run => run.runId === op.runId && run.teamId === op.teamId)!
+        const attempt = state.attempts.get(owned.correlationId)
+        if (attempt?.evidence !== null && attempt?.evidence !== undefined) {
+          const rows = parseLeadRunEvidence(attempt.evidence)
+          if (rows.some(row => row.runId === op.runId && row.terminal)) updateAttempt(owned.correlationId, current => ({ ...current,
+            evidence: JSON.stringify(rows.map(row => row.runId === op.runId ? { ...row, terminal: false } : row)), evidenceSeq: event.seq }))
+        }
       } else {
         if (op.stage === 'running') ensure(state.follow[op.kind])
         ensure(JSON.stringify({ ...previous, stage: undefined, publishedHead: undefined }) === JSON.stringify({ ...op, stage: undefined, publishedHead: undefined }))

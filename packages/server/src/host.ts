@@ -3359,6 +3359,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#leadBudgets.stopMetering()
     // close() latches Lead dispatch synchronously, before ordinary teardown yields.
     const leadClosed = this.#leadService?.close().catch(() => { this.#logger.warn('Lead shutdown cleanup remains pending') })
     this.#discoveryOnlyRuntimes.clear()

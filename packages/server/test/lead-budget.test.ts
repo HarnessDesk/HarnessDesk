@@ -23,6 +23,26 @@ const journal = async () => {
   return value
 }
 
+test('host shutdown freezes in-flight usage reads before their sources disappear', async t => {
+  const s = await leadRig(t); await s.start(); await s.observe(0)
+  let entered!: () => void, finish!: () => void
+  const reading = new Promise<void>(resolve => { entered = resolve })
+  const release = new Promise<void>(resolve => { finish = resolve })
+  Object.assign(s.budgets.port, { seats: () => [...s.rig.seats.values()], delegation: () => 'none', usage: async () => {
+    entered(); await release; return { complete: false, samples: [] }
+  } })
+  const pending = s.budgets.meter(s.journal)
+  await reading
+  try { (s.budgets as any).stopMetering() } finally { finish() }
+  await pending
+  assert.equal(s.journal.state.budget!.stop, null)
+  assert.equal(leadBudgetProjection(s.journal.state.budget!, 100).spend, 'known')
+  assert.equal((await s.budgets.gate(s.rig.flows.leadRuns()[0]!)).ok, false, 'a closing host cannot admit more work')
+  const fresh = new LeadBudgets({ ...s.budgets.port, usage: async () => ({ complete: true, samples: [] }) })
+  await fresh.meter(s.journal)
+  assert.equal(leadBudgetProjection(s.journal.state.budget!, 100).spend, 'known', 'a new host rebuilds the reading from its sources')
+})
+
 test('host recovery refuses to run while a registered Lead child is live', async t => {
   const s = await leadRig(t)
   const before = structuredClone(s.records)

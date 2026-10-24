@@ -447,6 +447,9 @@ export class LeadJournal {
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
   offerCard(card: LeadCard, admit?: (card: LeadCard) => void): Promise<LeadCard> { return this.#queue(async () => {
     // A prepared, effect-free intent may still be superseded. Once publication
+    // Repair preparation meters the old settled Flow before opening its held
+    // round. That earlier snapshot cannot retire the journaled reopening.
+    if (this.#state.handbacks.some(op => op.runId === runId && op.stage === 'prepared')) return
     // starts, only the host's final decision can release its exact result.
     const op = this.#state.publication
     const personPush = card.type === 'result' && card.publication === 'push' && card.publicationSource && this.#state.phase === 'following'

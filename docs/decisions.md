@@ -4146,3 +4146,8 @@ consume the repair's chance to produce new evidence before independent review.
 Host shutdown preserves a repair already waiting for CI as well as prepared or
 running hand-backs. Its published head and unanswered acceptance round must
 survive restart so a later green observation can offer the reviewed result.
+Preparing a same-Team repair retires the owned run's earlier terminal observation
+before the host opens its next round. Recovery then retains that authorized
+reopening instead of contesting it as foreign work. Shutdown freezes usage reads
+before their sources disappear; a new host rebuilds those readings before it can
+admit work.

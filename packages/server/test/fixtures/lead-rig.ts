@@ -320,7 +320,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         // The priced-source variant starts its synthetic runtime before the
         // host observes it: no predecessor epoch exists whose delegation is lost.
         // Ordinary/eager fixtures still prove zero worker processes pre-consent.
-        if (options.workerSpend) await runtime.start()
+        if (options.workerSpend || restoring) await runtime.start()
         host.register(runtime)
         // Even an empty source is explicit and confined to this rig's synthetic home.
         const usage = join(codexHome, 'sessions'); await mkdir(usage, { recursive: true })
