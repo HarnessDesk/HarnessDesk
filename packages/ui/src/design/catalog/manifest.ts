@@ -1,6 +1,6 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
 export type CatalogVariant = 'bar' | 'chips' | 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'document' | 'summary' | 'start' | 'end' | 'bare'
-export type CatalogSize = 'stack' | 'default' | 'wrap' | 'xs' | 'sm' | 'control' | 'lg' | 'compact' | 'large' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
+export type CatalogSize = 'stack' | 'default' | 'wrap' | 'xs' | 'sm' | 'control' | 'lg' | 'compact' | 'large' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs' | 'turn' | 'header' | 'popover' | 'picker'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
 type CatalogSymbolAxes = Readonly<Record<string, {
@@ -464,7 +464,7 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
   Object.keys(VARIANTS).map((name) => [name, DEFAULT_SIZE]),
 )
 Object.assign(SIZES, {
-  LeadAvatar: ['navigation', 'default', 'lg'],
+  LeadAvatar: ['navigation', 'turn', 'header', 'popover', 'picker'],
   FlowCards: ['compact', 'large'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
@@ -793,7 +793,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
 }
 
 const PATTERN_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
-  'LeadAvatar': { 'LeadAvatar': { 'size': ['navigation', 'default', 'lg'] } },
+  'LeadAvatar': { 'LeadAvatar': { 'size': ['navigation', 'turn', 'header', 'popover', 'picker'] } },
   'FlowCards': { 'FlowCardGrid': { 'size': ['compact', 'large'] } },
   'Menu': { 'MenuLabel': { 'size': ['default', 'compact'] } },
   'Notices': { 'ComposerTail': { 'variant': ['default', 'plain'] }, 'InboxPanel': { 'size': ['icon-sm', 'icon-xs'] } },
@@ -925,7 +925,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
-  ['LeadAvatar', 'lead-avatar', 'The chosen Lead name initial in its single artwork slot'],
+  ['LeadAvatar', 'lead-avatar', 'The chosen Lead character on its disc, one size per place'],
   ['ConversationShell', 'conversation', 'The session and Lead share their window, transcript and floating composer dock'],
   ['lead-contract', 'lead-contract', 'Lead decision prose in the shared transcript, with docked session approvals'],
   ['CommandPalette', 'conversation', 'Fixed search surface, title-led results and a keyboard-hint footer'],

@@ -84,7 +84,7 @@ it.each(['light', 'dark'])('previews a missing plan without an inert action and 
     await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="missing-plan" /></StoreProvider>))
     const notices = box.querySelector('[data-slot="composer-notices"]')!
     expect(notices.textContent).toContain('The plan needs your decision before work continues.')
-    expect(notices.querySelector('button')).toBeNull()
+    expect([...notices.querySelectorAll('button')].filter(node => !node.closest('[data-slot="lead-run-strip"]'))).toEqual([])
     expect(box.querySelector('[data-lead-decision]')).toBeNull()
     await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="predecessor-unavailable" /></StoreProvider>))
     expect(box.textContent).toContain("The previous step's result wasn't accepted, so the next step can't start. Message Dex to change the plan, or stop this goal.")
@@ -96,15 +96,15 @@ it.each(['light', 'dark'])('previews a missing plan without an inert action and 
 })
 
 
-it.each((['light', 'dark'] as const).flatMap(theme => (['running', 'running-message'] as const).map(scene => ({ theme, scene } as const))))('previews $scene Stop in the composer corner in $theme', async ({ theme, scene }) => {
+it.each((['light', 'dark'] as const).flatMap(theme => (['running', 'running-message'] as const).map(scene => ({ theme, scene } as const))))('previews $scene Stop on the run strip, with Send always in the corner, in $theme', async ({ theme, scene }) => {
   const url = window.location.href; window.history.replaceState(null, '', `?theme=${theme}`)
   const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
   try {
     await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene={scene} /></StoreProvider>))
-    expect(box.querySelector('[data-composer-track="send"] [aria-label="Stop"]')).not.toBeNull()
-    expect(box.querySelector('[data-slot="top-bar"] [aria-label="Stop"]')).toBeNull()
+    expect(box.querySelector('[data-slot="lead-run-strip"]')?.textContent).toContain('Dex is running 1 goal')
+    expect([...box.querySelectorAll('[data-slot="lead-run-strip"] button')].map(node => node.textContent)).toEqual(['Stop goal'])
     expect(box.querySelector('[data-slot="top-bar"]')?.textContent).not.toContain('Stop goal')
-    expect(box.querySelectorAll('[data-composer-track="send"] button')).toHaveLength(scene === 'running-message' ? 2 : 1)
+    expect(box.querySelectorAll('[data-composer-track="send"] button')).toHaveLength(1)
     if (scene === 'running-message') expect(box.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('Also check keyboard focus')
   } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
 })
@@ -120,11 +120,11 @@ it.each(['light', 'dark'])('previews the one quiet line while the Lead plans, wh
     await frame('running')
     expect(line()?.textContent).toBe('Step 1 of 1 · Implement and review · 1 run')
     // Stop through the synthetic facade: what was reported as running is no longer reported, and the thread says why.
-    await act(async () => box.querySelector<HTMLButtonElement>('[data-composer-track="send"] [aria-label="Stop"]')!.click())
+    await act(async () => box.querySelector<HTMLButtonElement>('[data-slot="lead-run-strip"] button')!.click())
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(node => node.textContent === 'Stop goal')!.click())
     await act(async () => {})
     expect(line()?.textContent).toBe('This goal was stopped.')
-    expect(box.querySelector('[data-composer-track="send"] [aria-label="Stop"]')).toBeNull()
+    expect(box.querySelector('[data-slot="lead-run-strip"]')).toBeNull()
     expect(box.querySelector('[data-composer-track="send"] [aria-busy="true"]')).toBeNull()
     await frame('stopped')
     expect(line()?.textContent).toBe('This goal was stopped.')

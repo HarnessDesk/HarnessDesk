@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, ConfirmDialog, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Page, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
+import { LEAD_LIMITS, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { Banner, Button, ConfirmDialog, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, Input, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { LeadMessage } from './LeadMessage'
 import { LeadCards, leadDollars } from './LeadCards'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
-import { SettingsIcon, SendIcon, StopIcon } from './Icons'
-import { useLeadName } from './use-lead-name'
+import { AtIcon, FolderIcon, PlusIcon, SendIcon, SettingsIcon } from './Icons'
+import { LeadStatusPanel, useLeadControls } from './LeadControls'
+import styles from './Lead.module.css'
 import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
 
@@ -53,6 +54,34 @@ const STOPPED: Record<LeadStopReason, string> = {
   error: 'This goal was stopped by an error.',
 }
 const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs'}` : 'no runs yet'
+/** Elapsed time beside Stop: minutes under an hour, then hours and minutes. */
+export const leadElapsed = (ms: number) => { const minutes = Math.max(0, Math.floor(ms / 60000)); return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m` }
+const roundsWords = (rounds: number) => `${rounds} ${rounds === 1 ? 'round' : 'rounds'}`
+
+/** The goal's limits as one chip; tightening applies at once, raising asks on a card in the conversation. */
+const LeadLimits = ({ disabled }: { readonly disabled: boolean }) => {
+  const store = useStore(), state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state), caps = state.settings?.caps
+  const [dollars, setDollars] = useState(''), [rounds, setRounds] = useState(''), [pending, setPending] = useState(false), [error, setError] = useState<string | null>(null)
+  if (!caps) return null
+  const micros = Math.round(Number(dollars) * 1000000), roundCount = Number(rounds)
+  const valid = dollars.trim() !== '' && rounds.trim() !== '' && Number.isSafeInteger(micros) && micros >= 0 && micros <= LEAD_LIMITS.maxUsdMicros && Number.isSafeInteger(roundCount) && roundCount >= 0 && roundCount <= LEAD_LIMITS.rounds
+  const raises = valid && (micros > caps.usdMicros || roundCount > caps.rounds)
+  return <ComposerTrack name="mode">
+    <Popover title="Limits for this goal" drop="up" align="left" disabled={disabled} label={`Up to ${leadDollars(caps.usdMicros)} · ${roundsWords(caps.rounds)}`}
+      onOpenChange={open => { if (open) { setDollars(String(caps.usdMicros / 1000000)); setRounds(String(caps.rounds)); setError(null) } }}>
+      {close => <div className={styles.limits} data-slot="lead-limits">
+        <div className={styles.limitsRow}><Text role="muted">Up to $</Text><Input aria-label="Dollar limit" type="number" min={0} step="0.01" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} /></div>
+        <div className={styles.limitsRow}><Input aria-label="Round limit" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} /><Text role="muted">rounds</Text></div>
+        <Text role="muted">{raises ? 'Raising asks for your approval in the conversation.' : 'Tightening applies at once.'}</Text>
+        {error && <Text role="muted">{error}</Text>}
+        <Button disabled={pending || !valid || micros === caps.usdMicros && roundCount === caps.rounds} aria-busy={pending} onClick={async () => {
+          setPending(true); setError(null)
+          try { await store.lead.updateSettings({ caps: { usdMicros: micros, rounds: roundCount } }); close() } catch (failure) { setError(leadRefusalText(failure)) } finally { setPending(false) }
+        }}>{raises ? 'Ask to raise' : 'Apply'}</Button>
+      </div>}
+    </Popover>
+  </ComposerTrack>
+}
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
   const store = useStore(), snapshot = useSnapshot(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
@@ -70,7 +99,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     if (element) { element.focus({ preventScroll: true }); requestedDecisionFocus.current = null }
   }
   const refusal = (error: unknown) => setError(leadRefusalText(error))
-  const { owner } = useDestinationPage(), name = useLeadName(), label = name === 'lex' ? 'Lex' : name === 'dex' ? 'Dex' : 'Lead'
+  const { owner } = useDestinationPage(), controls = useLeadControls(), { name, label, presence } = controls
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
   const terminalWait = state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable'
   const canStop = !!state.thread && !['stopped', 'accepted', 'declined'].includes(state.thread.state) &&
@@ -84,7 +113,11 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     catch (error) { refusal(error) }
     finally { stoppingRef.current = false; decisionLock.current = false; setStopping(false); input.current?.focus() }
   }
-  useConversationTopBar(owner, { place: label, tools: <Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: null } })}><SettingsIcon /></Button>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
+  useConversationTopBar(owner, { mark: <LeadAvatar name={name} size="header" />, place: label, placeTitle: `${label} · ${presence.word}`, placeMenu: close => <LeadStatusPanel close={close} controls={controls} />,
+    state: <Text role="muted" data-slot="lead-presence">{presence.word}</Text>, tools: <Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={controls.openSettings}><SettingsIcon /></Button>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
+  // The run strip's clock: a minute is its smallest step, so it ticks twice a minute while a goal runs.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => { if (!goalActive) return; const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [goalActive])
   useEffect(() => { if (active) void store.lead.readThread().catch(refusal) }, [active, store])
   // Expiry is host-owned; a read at its boundary obtains the renewed plan card.
   useEffect(() => {
@@ -122,6 +155,14 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const entries = [...(state.thread?.messages ?? []).map(message => ({ revision: message.revision, kind: 'message' as const, message })),
     ...cards.map(card => ({ revision: state.thread?.cardPositions?.[card.id] ?? card.revision, kind: 'card' as const, card })),
     ...(state.thread?.decisions ?? []).map(decision => ({ revision: decision.position, kind: 'decided' as const, decision }))].sort((a, b) => a.revision - b.revision)
+  // A Lead turn shows its face once, on its first line; the person's message starts the next turn.
+  const faces = new Set<string>()
+  for (let at = 0, open = false; at < entries.length; at++) {
+    const entry = entries[at]!
+    if (entry.kind !== 'message') continue
+    if (entry.message.role === 'user') open = false
+    else if (!open) { faces.add(entry.message.id); open = true }
+  }
   const actionablePlan = entries.filter(entry => entry.kind === 'card' && entry.card.type === 'plan').at(-1)
   const scrollToPlan = () => {
     if (actionablePlan?.kind !== 'card') return
@@ -157,14 +198,16 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
       {entries.length || live ? <Page width="reading" gutter="none">
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
         {entries.map(entry => entry.kind === 'message'
-          ? <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} text={entry.message.text} />
+          ? <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
+            face={faces.has(entry.message.id)} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
           : <LeadCards key={`card:${entry.card.id}`} {...cardProps} cards={[entry.card]} placement="thread" />)}
         {live}
-      </Page> : <ConversationEmptyState><LeadAvatar name={name} size="lg" /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
+      </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
     </ConversationThread>
     {active && <ConversationDock ref={dock}>
       <ConversationComposerFrame before={<ComposerNoticeStack>
+          {goalActive && <div data-slot="lead-run-strip" className={styles.stripHost}><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}</Banner></div>}
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
           {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replace('{label}', label)}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
@@ -178,14 +221,22 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         </ComposerNoticeStack>} form={{ 'aria-label': 'Lead composer', onSubmit: event => { event.preventDefault(); if (!requestPending && goal.trim() && !state.error && state.revision >= 0) void send() } }}>
               <ComposerText rows={1} ref={input} aria-label="Goal or message" placeholder={`Message ${label}…`} value={goal} onChange={event => setGoal(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!state.error && state.revision >= 0) void send() } }} />
               <ComposerTools>
-                {!state.thread?.messages.some(message => message.role === 'user') && state.settings && <><Chip tone="neutral">{leadDollars(state.settings.caps.usdMicros)}</Chip><Chip tone="neutral">{state.settings.caps.rounds} rounds</Chip></>}
-                <ComposerGap /><ComposerTrack name="send" contentSized={goalActive && !!goal.trim()}>
-                  {(!goalActive || goal.trim()) && <ComposerSend type="submit" disabled={requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : 'Send'} title={requestPending ? 'Sending…' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>}
-                  {goalActive && <ComposerSend type="button" aria-label="Stop" title="Stop goal" disabled={stopping || decisionPending !== null} onClick={() => setConfirmStop(true)}><StopIcon size={12} /></ComposerSend>}
+                <ComposerTrack name="add">
+                  <Popover title="Add" fullWidth drop="up" align="left" icons="all" label={<PlusIcon size={14} />}>
+                    {close => <Menu close={close}>
+                      <MenuItem icon={<AtIcon size={16} />} label="Mention a session or goal" shortcut="@" onSelect={() => { setGoal(goal.length > 0 && !goal.endsWith(' ') ? `${goal} @` : `${goal}@`); input.current?.focus() }} />
+                      <MenuItem icon={<FolderIcon size={16} />} label={state.thread?.project ? `Project: ${state.thread.project.path.split('/').filter(Boolean).at(-1) ?? state.thread.project.path}` : 'Project'} title={state.thread?.project?.path} disabled="This desk works in one project." onSelect={() => {}} />
+                    </Menu>}
+                  </Popover>
+                </ComposerTrack>
+                <LeadLimits disabled={!!state.error || state.revision < 0} />
+                <ComposerGap /><ComposerTrack name="send">
+                  <ComposerSend type="submit" disabled={requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : goalActive ? 'Send to the running goal' : 'Send'} title={requestPending ? 'Sending…' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>
                 </ComposerTrack>
               </ComposerTools>
       </ConversationComposerFrame>
     </ConversationDock>}
+    {controls.dialog}
     {active && confirmStop && <ConfirmDialog title="Stop this goal?" confirmLabel="Stop goal" cancelLabel="Keep working" busy={stopping} onConfirm={() => void stop()} onCancel={() => setConfirmStop(false)}>
       <Text role="prose">Stops this goal and its running work. Files and worktrees are left as they are. You can send a new goal afterward.</Text>
     </ConfirmDialog>}

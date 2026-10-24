@@ -57,7 +57,7 @@ export const LeadSettings = ({ settings, expiry, update, onError, error, cards =
   const waiting = (type: LeadCard['type']) => { const card = cards.find(card => card.type === type); return card ? <Row title="Waiting for your approval in the conversation" control={<Button variant="outline" onClick={() => onOpen(card.id)}>Open</Button>} /> : null }
   return <>
       {error && <Banner role="alert" tone="warning">{error}</Banner>}
-      <Section title="Name"><Rows><Row title="Call me" control={<LeadNameChoice value={settings.name} pending={pending} onChange={name => void submit({ name })} />} /></Rows></Section>
+      <Section title="Who runs your desk"><LeadNameChoice value={settings.name} pending={pending} onChange={name => void submit({ name })} /><Text as="p" role="muted">Only the name and the look differ.</Text></Section>
       <Section title="Provider key">
       <Rows>
         <Row title="Key" titleChip={<Chip tone="neutral">{settings.key.configured ? 'Configured' : 'Not set'}</Chip>} control={<InlineParts>

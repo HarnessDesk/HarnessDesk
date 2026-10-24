@@ -307,7 +307,7 @@ it('names the key row once and puts the allowance note on its dollar row', async
 it('uses unconstrained Lead settings groups and trailing Save rows', async () => {
   await mount(); await act(async () => button('Settings').click())
   const groups = [...document.querySelectorAll('[data-slot="rows"]')]
-  expect(groups).toHaveLength(4)
+  expect(groups).toHaveLength(3)
   for (const group of groups) {
     expect(group.parentElement?.getAttribute('data-slot')).toBe('section')
     expect(group.parentElement?.hasAttribute('data-sizing')).toBe(false)
@@ -339,10 +339,10 @@ it.each(['running', 'waiting-for-user'] as const)('confirms Stop goal from %s an
   const base = leadProjection(), { box, request } = await mount({ ...base,
     waitReason: phase === 'waiting-for-user' ? 'lead-predecessor-unavailable' : null,
     thread: { ...base.thread, state: phase, contract: leadPlan.contract } })
-  const stopLabel = phase === 'running' ? 'Stop' : 'Stop goal'
+  const stopLabel = 'Stop goal'
   expect(button(stopLabel)).toBeDefined()
   expect(box.querySelector('[data-slot="top-bar"]')?.textContent).not.toContain('Stop goal')
-  if (phase === 'running') expect(box.querySelector('[data-composer-track="send"] [aria-label="Stop"]')).not.toBeNull()
+  if (phase === 'running') expect(box.querySelector('[data-slot="lead-run-strip"] button')?.textContent).toBe('Stop goal')
   await act(async () => button(stopLabel).click())
   expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Files and worktrees are left as they are.')
   expect(request.mock.calls.filter(([method]) => method === 'lead/stop')).toHaveLength(0)

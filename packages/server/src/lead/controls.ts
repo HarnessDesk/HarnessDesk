@@ -38,6 +38,7 @@ export class LeadControls {
   #tail: Promise<unknown> = Promise.resolve()
   #notifications: Promise<void> = Promise.resolve()
   #failedRevision: number | null = null
+  #runningSince: { readonly goal: string | null; readonly at: number } | null = null
   #continuation: Promise<void> | null = null
   #continueAgain = false
   #requestInFlight = false
@@ -112,7 +113,12 @@ export class LeadControls {
     const wayOut = this.#wayOut(state)
     const waitReason = state.phase === 'waiting-for-user' && (LEAD_MANAGEMENT_REASONS as readonly (string | null)[]).includes(state.managementReason)
       ? state.managementReason : null
-    const progress = leadProgress(state), team = leadRunTeam(state)
+    const running = leadProgress(state), team = leadRunTeam(state)
+    // The journal keeps no clock for the phase change; the host remembers when it first saw this goal run.
+    const goal = state.budget?.logicalGoalId ?? null
+    if (!running) this.#runningSince = null
+    else if (this.#runningSince?.goal !== goal) this.#runningSince = { goal, at: this.options.now() }
+    const progress = running && this.#runningSince ? { ...running, since: this.#runningSince.at } : running
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
       planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, ...(progress && { progress }), ...(team && { team }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }

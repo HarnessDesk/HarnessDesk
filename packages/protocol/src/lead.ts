@@ -221,7 +221,11 @@ export interface LeadHostProjection {
 }
 export type LeadPersonAction = 'resume' | 'decide-plan' | null
 /** Where a running goal stands, in numbers: the step the Lead is on, of how many, and how many runs it has started. */
-export interface LeadProgress { readonly step: number; readonly steps: number; readonly runs: number }
+export interface LeadProgress {
+  readonly step: number; readonly steps: number; readonly runs: number
+  /** When this host first saw the goal running, for the elapsed time beside Stop; absent when it never saw it start. */
+  readonly since?: number
+}
 /** Live host-owned requests. These are not model-proposed cards or LeadCardDecision inputs. */
 export type LeadAction =
   | { readonly kind: 'worker-approval'; readonly id: string; readonly runId: string; readonly role: string; readonly request: string; readonly choices: readonly ('yes-once' | 'no')[] }
@@ -587,7 +591,7 @@ export const parseLeadEmpty: Validator<Record<string, never>> = object({})
 export const parseLeadNameReceipt: Validator<LeadNameReceipt> = object({ version, revision, settings: object({ name: literalUnion('dex', 'lex') }) })
 
 const parseLeadProgress: Validator<LeadProgress> = (value, path = '') => {
-  const parsed = object<LeadProgress>({ step: integer(1, LEAD_LIMITS.steps), steps: integer(1, LEAD_LIMITS.steps), runs: integer() })(value, path)
+  const parsed = object<LeadProgress>({ step: integer(1, LEAD_LIMITS.steps), steps: integer(1, LEAD_LIMITS.steps), runs: integer(), since: optional(integer(0, Number.MAX_SAFE_INTEGER)) })(value, path)
   return parsed.step <= parsed.steps ? parsed : fail(path, 'step beyond the plan')
 }
 const actionBase = { id, runId: id }

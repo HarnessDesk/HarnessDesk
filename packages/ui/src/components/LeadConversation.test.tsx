@@ -120,8 +120,9 @@ it('empties the uncontrolled credential input before a refused request', async (
 it('shows Name once with a distinct accessible choice label', async () => {
   const { box } = await mount('settings')
   expect(box.querySelector('[aria-label="Lead identity"]')).not.toBeNull()
-  expect([...box.querySelectorAll('[data-slot="section"]')].filter(node => node.textContent?.startsWith('Name'))).toHaveLength(1)
-  expect([...box.querySelectorAll('[data-slot="row"]')].some(node => node.textContent?.startsWith('Call me'))).toBe(true)
+  expect([...box.querySelectorAll('[data-slot="section"]')].filter(node => node.textContent?.startsWith('Who runs your desk'))).toHaveLength(1)
+  expect(box.textContent).toContain('Only the name and the look differ.')
+  expect([...box.querySelectorAll('[aria-label="Lead identity"] [role="radio"]')].map(node => node.getAttribute('aria-label'))).toEqual(['Dex', 'Lex'])
 })
 it('uses a neutral Lead label until the stored Lex preference loads', async () => {
   const store = new AppStore('ws://localhost:0/')

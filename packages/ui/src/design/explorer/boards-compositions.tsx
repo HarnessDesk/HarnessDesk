@@ -3289,7 +3289,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about: 'A change, with its sign said in colour as well as in punctuation.',
     render: DeltaBoard,
   },
-  { id: 'lead-avatar', title: 'Lead avatar', about: 'Dex and Lex share one artwork slot.', render: LeadAvatarSpecimen },
+  { id: 'lead-avatar', title: 'Lead avatar', about: 'Dex and Lex at each place they are drawn: sidebar, turn, bar, popover, picker.', render: LeadAvatarSpecimen },
   {
     id: 'lead-contract',
     title: 'Lead contract',
