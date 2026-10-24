@@ -1,4 +1,7 @@
-import type { PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier } from './phone.js'
+import type {
+  PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
+  PhoneWorkSnapshot, PhoneWorkThread,
+} from './phone.js'
 import type { LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
@@ -762,6 +765,21 @@ export interface HostMethods {
   'phone/teams/list': { params: { readonly limit?: number }; result: PhoneTeamsList }
   /** What a paired phone reads of spend and seats for a range. */
   'phone/dashboard/read': { params: { readonly range?: PhoneRange }; result: PhoneDashboard }
+  /**
+   * Everything a paired phone's Sessions, Teams and Dashboard tabs draw, in the shapes the phone decodes. Pushed whole
+   * on the `workspace` topic when it changes. Not the window's `workspace/*` file methods: those are folders and files.
+   */
+  'workspace/read': { params: Record<string, never>; result: PhoneWorkSnapshot }
+  /** One session's conversation for the phone: its words scrubbed, no command output, no lines of a change. */
+  'workspace/thread/read': { params: { readonly id: string }; result: PhoneWorkThread }
+  /**
+   * Answers one approval a session is waiting on. `scope: "session"` picks that approval's own session-scoped choice and
+   * nothing wider, and only with `allow: true`. Answers `{}`; the new state arrives on the `workspace` topic.
+   */
+  'workspace/approval/decide': {
+    params: { readonly id: string; readonly session: string; readonly allow: boolean; readonly scope?: 'once' | 'session' }
+    result: Record<string, never>
+  }
   'lead/thread/read': { params: Record<string, never>; result: LeadWindowProjection }
   'lead/thread/send': { params: LeadThreadSend; result: LeadSendReceipt }
   'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }

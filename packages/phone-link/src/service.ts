@@ -158,6 +158,16 @@ export class PhoneLinkService {
     for (const endpoint of this.#endpoints) endpoint.deliver(event)
   }
 
+  /**
+   * Whether a phone that is signed in right now may hear a topic, so a producer that is costly to run can wait until
+   * somebody is there to read it.
+   */
+  listening(topic: string): boolean {
+    const tier = Object.hasOwn(this.options.policy.topics, topic) ? this.options.policy.topics[topic] : undefined
+    if (tier === undefined) return false
+    return [...this.#endpoints].some(endpoint => endpoint.device !== null && endpoint.open && (this.registry.get(endpoint.device.id)?.tiers.includes(tier) ?? false))
+  }
+
   async close(): Promise<void> {
     for (const id of [...this.#pending.keys()]) this.#settle(id, null)
     for (const socket of this.wss.clients) socket.close(1001, 'desk-closed')

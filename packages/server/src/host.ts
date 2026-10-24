@@ -2,6 +2,8 @@ import { LeadPersonActions } from './lead/person-actions.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
 import { phoneLinkOff } from './phone-link.js'
 import { PhoneWorkspace } from './phone-workspace.js'
+import { PhoneWork } from './phone-work.js'
+import { leadContainsSecret } from './lead/secrets.js'
 import { answerLeadPersonGate, answerLeadResult } from './lead/person-decision.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
 import { readKeptTranscriptFile } from './kept-transcript.js'
@@ -793,6 +795,7 @@ export class Host {
   #leadControls: LeadControls | null = null
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
   #phoneWorkspace: PhoneWorkspace | null = null
+  #phoneWork: PhoneWork | null = null
   #leadAssembly: LeadAssembly | null = null
   #leadOwnsWorker: ((runtime: string, sessionId: string, includeClosed: boolean) => boolean) | null = null
   #leadListenersAvailable = true
@@ -4764,6 +4767,7 @@ export class Host {
         revoke: device => this.#requirePhoneLink().revoke(device),
       },
       phoneWorkspace: this.#phoneWorkspaceView(),
+      phoneWork: this.#phoneWorkView(),
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),
@@ -9104,6 +9108,33 @@ export class Host {
         if (ledger.progress.finishedAt === null && !ledger.progress.running) ledger.begin()
         return ledger.query(query)
       },
+    })
+  }
+
+  /** The phone's snapshot, conversation and approval answers, built on first use over the same planes. */
+  #phoneWorkView(): PhoneWork {
+    return this.#phoneWork ??= new PhoneWork({
+      workspace: this.#phoneWorkspaceView(),
+      deskName: () => this.#phoneLink?.state().deskName ?? '',
+      home: homedir(),
+      seatName: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? this.#infoOf(known).presentation.name : null
+      },
+      isOwn: (runtime, id) => this.#sessionIndex.isOwn(runtime, id),
+      summary: (runtime, id) => this.#sessionIndex.get(runtime, id),
+      // A conversation this host already holds in full is read as it is; any other is opened the way the window opens it.
+      read: async (runtime, id) => {
+        const held = this.registry.get(runtime, id)
+        return held?.session.itemsLoaded ? held.session : this.call('session/read', { runtime, sessionId: id })
+      },
+      live: (runtime, id) => {
+        const record = this.registry.get(runtime, id)
+        return { running: (record?.running.size ?? 0) > 0, pending: record ? [...record.approvals.values()] : [], cwd: record?.session.cwd ?? null }
+      },
+      respond: async (params) => { await this.call('approval/respond', params) },
+      hasSecret: (text) => leadContainsSecret(text),
+      now: () => Date.now(),
     })
   }
 

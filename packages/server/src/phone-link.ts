@@ -7,6 +7,7 @@ import {
 import { PhoneCallError, PhoneLinkService, type Device, type PhonePolicy } from '@harnessdesk/phone-link'
 import type { Host } from './host.js'
 import type { Logger } from './log.js'
+import { WorkspaceFeed } from './phone-work.js'
 
 /** What the wire methods under `phone/` reach: the window decides, the service obeys. */
 export interface PhoneLinkControl {
@@ -22,6 +23,10 @@ export interface PhoneLinkControl {
  * What a paired phone may ask this desk for, and hear from it. The Lead is the phone's job: read the thread, write
  * to it, stop and resume it, and decide a card. Beside it the phone may read three projections of the work (sessions,
  * Teams, spend) and nothing it could change. Settings, transcripts and everything else stay behind the window.
+ *
+ * The `workspace/…` names are the ones the phone ships with: the same work as one snapshot, a conversation, and the
+ * answer to an approval. They share a prefix with the window's folder and file methods and nothing else; the window's
+ * `workspace/recent`, `workspace/readFile` and the rest stay `notOnPhoneSurface`.
  */
 export const PHONE_POLICY: PhonePolicy = {
   methods: {
@@ -31,13 +36,16 @@ export const PHONE_POLICY: PhonePolicy = {
     'phone/sessions/list': 'read',
     'phone/teams/list': 'read',
     'phone/dashboard/read': 'read',
+    'workspace/read': 'read',
+    'workspace/thread/read': 'read',
+    'workspace/approval/decide': 'answer',
     'lead/thread/send': 'run',
     'lead/stop': 'run',
     'lead/resume': 'run',
     'lead/card/decide': 'answer',
     'lead/action/perform': 'answer',
   },
-  topics: { lead: 'read' },
+  topics: { lead: 'read', workspace: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.
   defaultTiers: ['read', 'run', 'answer'],
 }
@@ -49,6 +57,8 @@ export interface PhoneLinkOptions {
   readonly host?: string
   readonly name?: string
   readonly includeLoopback?: boolean
+  /** How long changes to the work are gathered before one snapshot goes to the phones that are listening. */
+  readonly workspaceDelayMs?: number
 }
 
 export interface RunningPhoneLink {
@@ -56,6 +66,16 @@ export interface RunningPhoneLink {
   readonly control: PhoneLinkControl
   close(): Promise<void>
 }
+
+/**
+ * What may have changed the phone's snapshot: a session or Team starting, finishing, being renamed or removed, an
+ * approval asked or answered. Token and cost updates are left out on purpose: they arrive many times a second.
+ */
+const WORKSPACE_EVENTS = new Set([
+  'session/started', 'session/status', 'session/title', 'session/closed', 'turn/started', 'turn/completed',
+  'approval/requested', 'approval/resolved',
+])
+const WORKSPACE_METHODS = new Set(['goal/changed', 'team/changed', 'session/removed', 'seat/activity'])
 
 /** Starts the LAN listener against a running host and hands the window its controls. */
 export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' | 'attachPhoneLink'>, logger: Logger, options: PhoneLinkOptions): Promise<RunningPhoneLink> {
@@ -75,8 +95,16 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     name: options.name ?? hostname(), includeLoopback: options.includeLoopback,
     log: (message, fields) => log.info(message, fields),
   })
+  const feed = new WorkspaceFeed({
+    build: () => host.call('workspace/read', {}),
+    publish: snapshot => service.publish('workspace', snapshot),
+    listening: () => service.listening('workspace'),
+    delayMs: options.workspaceDelayMs,
+    onError: error => log.info('workspace snapshot failed', { error: error instanceof Error ? error.name : 'error' }),
+  })
   const detach = host.addBroadcaster((notification: WireNotification) => {
     if (notification.method === 'lead/changed') service.publish('lead', notification.params)
+    else if (WORKSPACE_METHODS.has(notification.method) || (notification.method === 'event' && WORKSPACE_EVENTS.has(notification.params.event.type))) feed.poke()
   })
   const state = (): PhoneLinkState => ({
     enabled: true, deskName: service.name, deskId: service.deskId, port: service.port,
@@ -96,7 +124,7 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
   }
   host.attachPhoneLink(control)
   log.info('phone link listening', { port: service.port, deskId: service.deskId })
-  return { service, control, close: async () => { detach(); await service.close() } }
+  return { service, control, close: async () => { detach(); feed.dispose(); await service.close() } }
 }
 
 /** What the window sees when the phone link is not running. */

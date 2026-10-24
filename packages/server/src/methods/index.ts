@@ -1,5 +1,6 @@
 import { leadMethods } from './lead.js'
 import { phoneMethods } from './phone.js'
+import { phoneWorkspaceMethods } from './phone-workspace.js'
 import type { HostMethodName, HostParams, HostResult } from '@harnessdesk/protocol'
 
 import { clientMethods } from './client.js'
@@ -61,6 +62,7 @@ export const hostMethods: HostMethodTable = {
   ...clientMethods,
   ...leadMethods,
   ...phoneMethods,
+  ...phoneWorkspaceMethods,
   ...appMethods,
   ...runtimeMethods,
   ...runtimeExtensionMethods,
@@ -101,6 +103,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   clientMethods,
   leadMethods,
   phoneMethods,
+  phoneWorkspaceMethods,
   appMethods,
   runtimeMethods,
   runtimeExtensionMethods,

@@ -1,10 +1,13 @@
-import { basename } from 'node:path'
 import {
   sessionIndexCursorOf,
   type GoalView, type LedgerQuery, type LedgerReport, type PhoneDashboard, type PhoneProjectShare, type PhoneRange, type PhoneSeatUsage,
   type PhoneSessionRow, type PhoneSessionsList, type PhoneSessionState, type PhoneTeamRow, type PhoneTeamsList, type PhoneTeamStage,
-  type PhoneTeamStatus, type RuntimeId, type SessionId, type SessionSummary, type UsageLane, type UsageReport,
+  type PhoneTeamStatus, type PhoneWorkItem, type PhoneWorkPeriod, type PhoneWorkUsage, type PhoneWorkWorker, type RuntimeId, type SessionId,
+  type SessionSummary, type UsageLane, type UsageReport,
 } from '@harnessdesk/protocol'
+import { folderName, micros, money, scrub } from './phone-redact.js'
+
+export { scrub }
 
 /**
  * What a paired phone reads of the desk's work, written as projections: each row is built field by field from a
@@ -22,8 +25,24 @@ export interface PhoneLiveSession {
   readonly cost: number | null
 }
 
+/** One open seat of a Team, as the phone draws a worker. */
+export interface PhoneTeamMember {
+  readonly seat: string
+  readonly session: { readonly runtime: RuntimeId; readonly id: SessionId }
+  /** The card it holds right now, or the role it was seated for. */
+  readonly title: string
+  readonly role: string | null
+  /** The model the seat runs on, where the desk knows it. */
+  readonly model: string | null
+  /** Whether it holds an open card. */
+  readonly holding: boolean
+  readonly cost: number | null
+}
+
 export interface PhoneTeamInput {
   readonly view: GoalView
+  /** The Team's open seats. Left out by a caller that only needs the row. */
+  readonly members?: readonly PhoneTeamMember[]
   /** The Team's latest Flow run, if it has had one. */
   readonly execution: { readonly state: 'running' | 'settled' | 'stopped' | 'stalled'; readonly role: string | null } | null
   /** Dollars of each seat's conversation, live figure first and the stored one otherwise; null where unpriced. */
@@ -48,41 +67,18 @@ export interface PhoneWorkspacePorts {
 }
 
 const WEEK_MINUTES = 7 * 24 * 60
-const TITLE_LIMIT = 120
 const SCAN_LIMIT = 2000
+const WORK_ITEMS = 80
+const USAGE_TTL = 60_000
+/** What the phone is told for a count the desk does not keep: its decoder has no way to read "unknown". */
+const COUNT_UNKNOWN = 0
 
 const clamp = (value: number | undefined, fallback: number, max: number): number =>
   value === undefined || !Number.isFinite(value) ? fallback : Math.min(max, Math.max(1, Math.floor(value)))
 
-/**
- * Free text a person typed, made safe to leave the desk: paths, addresses and key-shaped strings become an
- * ellipsis, whitespace collapses, and it is shortened. A best effort on prose, which is why the fields built from
- * the desk's own records never go through it.
- */
-export const scrub = (text: string, limit = TITLE_LIMIT): string => {
-  const clean = text
-    .replace(/[^\s@<>()"']+@[^\s@<>()"']+\.[^\s@<>()"']+/g, '…')
-    .replace(/(?:[A-Za-z]:\\|~\/|\/)[^\s"'`)\]]*[\\/][^\s"'`)\]]*/g, '…')
-    .replace(/\b(?:sk|pk|rk|ghp|gho|ghs|ghu|github_pat|xox[abprs])[-_][A-Za-z0-9_-]{12,}/g, '…')
-    .replace(/\b[A-Za-z0-9+/_=-]{40,}\b/g, '…')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return clean.length > limit ? `${clean.slice(0, limit - 1).trimEnd()}…` : clean
-}
-
-/** A folder's own name. Never the path above it, and never a name that is only a home or a root. */
-const folderName = (path: string | null | undefined): string | null => {
-  if (!path) return null
-  const name = basename(path.replace(/[\\/]+$/, ''))
-  return name === '' || name === '.' || name === '..' ? null : scrub(name, 60)
-}
-
 const projectOf = (summary: SessionSummary): string | null => summary.repo ? folderName(summary.repo.root) : null
 
 const keyOf = (runtime: string, id: string): string => `${runtime}\u0000${id}`
-
-const money = (value: number | null | undefined): number | null =>
-  value === null || value === undefined || !Number.isFinite(value) ? null : Math.round(value * 100) / 100
 
 const localMidnight = (at: number): number => { const date = new Date(at); date.setHours(0, 0, 0, 0); return date.getTime() }
 const daysAgo = (midnight: number, days: number): number => { const date = new Date(midnight); date.setDate(date.getDate() - days); return date.getTime() }
@@ -248,6 +244,135 @@ export class PhoneWorkspace {
     const wrapped = teams.filter(({ view }) => view.goal.state === 'wrapped' && view.goal.updatedAt >= since).length
     return Math.max(0, touched - busy) + wrapped
   }
+
+  // ------------------------------------------------------------ the phone's workspace
+
+  /** Open sessions and Teams as the phone lists them, newest first. */
+  async workItems(limit = WORK_ITEMS): Promise<PhoneWorkItem[]> {
+    const [{ rows: sessions }, inputs] = [this.sessionsList({ limit }), await this.#ports.teams()]
+    const live = new Map(this.#ports.live().map(one => [keyOf(one.runtime, one.id), one]))
+    const items: PhoneWorkItem[] = [
+      ...sessions.map((row): PhoneWorkItem => ({
+        id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
+        phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
+        line: row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
+        agent: { name: row.seat }, updatedAt: row.lastActivityAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
+      })),
+      ...inputs.map(input => this.#teamItem(input, live)),
+    ]
+    return items.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit)
+  }
+
+  #teamItem(input: PhoneTeamInput, live: ReadonlyMap<string, PhoneLiveSession>): PhoneWorkItem {
+    const row = this.#teamRow(input)
+    const stageLine = { plan: 'Planning', build: 'Building', review: 'In review', land: 'Landing' }[row.stage]
+    const [phase, line] = ({
+      working: [row.stage === 'review' ? 'watching' : 'running', stageLine],
+      'needs-you': ['needsYou', 'Needs you'],
+      ready: ['needsYou', 'Ready to wrap'],
+      stopped: ['needsYou', 'Stopped'],
+      done: ['done', 'Done'],
+    } as const)[row.status]
+    const members = input.members ?? []
+    const workers: PhoneWorkWorker[] = members.map(member => {
+      const one = live.get(keyOf(member.session.runtime, member.session.id))
+      return {
+        id: member.seat, title: scrub(member.title, 80) || 'Seat',
+        seat: { name: this.#ports.seatName(member.session.runtime) ?? 'Agent', ...(member.model ? { model: scrub(member.model, 40) } : {}) },
+        status: one?.waiting ? 'waiting' : one?.running || member.holding ? 'running' : 'done',
+        cost: micros(member.cost ?? 0),
+      }
+    })
+    const { done, total } = row.progress
+    return {
+      id: row.id, kind: 'team', title: row.title, ...(row.project ? { project: row.project } : {}), phase, line,
+      updatedAt: row.updatedAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
+      team: {
+        stage: row.stage, ...(total > 0 ? { stageNote: `${done} of ${total} done` } : {}),
+        startedAt: input.view.goal.createdAt, workers,
+        reviewers: members.filter(member => /review|referee|audit|critic/i.test(member.role ?? '')).length,
+        spent: micros(row.cost ?? 0),
+      },
+    }
+  }
+
+  #usage: { at: number; value: PhoneWorkUsage | undefined } | null = null
+
+  /**
+   * Spend and allowance in the phone's own shape. Cached for a minute: the ledger and the usage reports do not move
+   * faster than that, and every change to a session would otherwise ask for them again. Absent until the desk has
+   * scanned its usage once.
+   */
+  async workUsage(): Promise<PhoneWorkUsage | undefined> {
+    const now = this.#ports.now()
+    if (this.#usage && now - this.#usage.at < USAGE_TTL && now >= this.#usage.at) return this.#usage.value
+    const value = await this.#readUsage(now)
+    this.#usage = { at: now, value }
+    return value
+  }
+
+  async #readUsage(now: number): Promise<PhoneWorkUsage | undefined> {
+    const midnight = localMidnight(now)
+    const ask = (days: number, groupBy: LedgerQuery['groupBy']): Promise<LedgerReport> => this.#ports.ledger({ days, groupBy })
+    const [reports, byRuntime7, byProject7, total14, byRuntime30, byProject30, total60, teams] = await Promise.all([
+      this.#ports.reports(), ask(7, 'runtime'), ask(7, 'project'), ask(14, 'runtime'), ask(30, 'runtime'), ask(30, 'project'), ask(60, 'runtime'),
+      this.#ports.teams(),
+    ])
+    if (byRuntime7.scannedAt === null) return undefined
+    const live = this.#ports.live()
+    const letters = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const day = daysAgo(midnight, 6 - index)
+      const spent = byRuntime7.daily.filter(row => sameDay(row.day, day)).reduce((sum, row) => sum + row.cost, 0)
+      return { label: letters[new Date(day).getDay()]!, cost: micros(money(spent) ?? 0), isToday: index === 6 }
+    })
+    const period = (span: number, runtimes: LedgerReport, projects: LedgerReport, doubled: LedgerReport): PhoneWorkPeriod => {
+      const spent = money(runtimes.totalCost) ?? 0
+      const previous = doubled.totalCost === null || runtimes.totalCost === null ? null : money(Math.max(0, doubled.totalCost - runtimes.totalCost))
+      const slices = runtimes.rows.flatMap(row => {
+        const name = row.cost === null || row.cost <= 0 ? null : this.#ports.seatName(row.key as RuntimeId)
+        return name === null ? [] : [{ label: name, cost: micros(money(row.cost)!) }]
+      })
+      return {
+        finished: this.#finishedSince(daysAgo(midnight, span - 1), live, teams),
+        // The phone decodes both as required counts and the desk keeps neither per range.
+        needed: COUNT_UNKNOWN, ruleBreaks: COUNT_UNKNOWN,
+        spent: micros(spent),
+        ...(previous !== null && previous > 0 ? { change: Math.round((spent - previous) / previous * 1000) / 1000 } : {}),
+        slices,
+        byProject: projectShares(projects).map(share => ({ name: share.project, cost: micros(share.spent) })),
+        mostExpensive: this.#ports.sessions.costliestSince(daysAgo(midnight, span - 1), 3).flatMap(({ summary, cost }) => {
+          const seat = this.#ports.seatName(summary.runtime)
+          const project = projectOf(summary)
+          return seat === null ? [] : [{ title: scrub(summary.title ?? '') || 'Untitled', ...(project ? { project } : {}), cost: micros(money(cost) ?? 0) }]
+        }),
+      }
+    }
+    return {
+      spentToday: days[6]!.cost,
+      days,
+      runtimes: seatRows(reports, this.#ports.seatName).map(seat => {
+        const reset = seat.resetsAt === null ? null : resetsIn(seat.resetsAt - now)
+        return {
+          id: String(seat.runtime), name: seat.label, models: [], running: [], last7: [],
+          ...(seat.windowPercent === null ? {} : { used: seat.windowPercent / 100 }),
+          ...(reset === null ? {} : { resetsIn: reset }),
+          ...(seat.weekPercent === null ? {} : { weekUsed: seat.weekPercent / 100 }),
+        }
+      }),
+      week: period(7, byRuntime7, byProject7, total14),
+      month: period(30, byRuntime30, byProject30, total60),
+    }
+  }
+}
+
+/** "45m", "2h 10m", "3d 4h": how long until a window frees up; null once it has. */
+const resetsIn = (ms: number): string | null => {
+  const minutes = Math.round(ms / 60_000)
+  if (minutes <= 0) return null
+  if (minutes < 60) return `${minutes}m`
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
+  return `${Math.floor(minutes / (24 * 60))}d ${Math.floor((minutes % (24 * 60)) / 60)}h`
 }
 
 // ------------------------------------------------------------------ pure parts
@@ -279,11 +404,14 @@ const statusOf = (view: GoalView, execution: PhoneTeamInput['execution']): Phone
   return execution && (execution.state === 'stopped' || execution.state === 'stalled') ? 'stopped' : 'working'
 }
 
+/** One row per signed-in agent, with the runtime kept for the caller and never sent. */
+interface SeatRow extends PhoneSeatUsage { readonly runtime: RuntimeId }
+
 /**
  * One row per signed-in agent. A name shared by several accounts gets a number so the rows can be told apart;
  * the account itself is never part of a row.
  */
-const seatsOf = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName']): PhoneSeatUsage[] => {
+const seatRows = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName']): SeatRow[] => {
   const named = reports.flatMap(report => { const name = seatName(report.runtime); return name === null ? [] : [{ report, name }] })
   const total = new Map<string, number>()
   for (const { name } of named) total.set(name, (total.get(name) ?? 0) + 1)
@@ -295,6 +423,7 @@ const seatsOf = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts[
     const short = pick(planWide.filter(lane => lane.windowMinutes !== null && lane.windowMinutes < WEEK_MINUTES), (a, b) => a.windowMinutes! - b.windowMinutes!)
     const week = planWide.find(lane => lane.id === 'weekly') ?? planWide.find(lane => lane.windowMinutes === WEEK_MINUTES)
     return {
+      runtime: report.runtime,
       label: (total.get(name) ?? 0) > 1 ? `${name} ${nth}` : name,
       windowPercent: short ? Math.round(short.usedPercent) : null,
       resetsAt: short?.resetsAt ?? null,
@@ -302,6 +431,9 @@ const seatsOf = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts[
     }
   })
 }
+
+const seatsOf = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts['seatName']): PhoneSeatUsage[] =>
+  seatRows(reports, seatName).map(({ label, windowPercent, resetsAt, weekPercent }) => ({ label, windowPercent, resetsAt, weekPercent }))
 
 const pick = (lanes: readonly UsageLane[], compare: (a: UsageLane, b: UsageLane) => number): UsageLane | undefined => [...lanes].sort(compare)[0]
 

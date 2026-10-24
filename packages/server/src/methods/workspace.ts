@@ -242,4 +242,6 @@ export const workspaceMethods = {
     ctx.editor.report(params.event)
     return null
   },
-} satisfies MethodsUnder<'workspace/' | 'preview/' | 'file/' | 'editor/'>
+// `workspace/read`, `workspace/thread/*` and `workspace/approval/*` are the phone's, answered in `phone-workspace.ts`; the
+// window's own `workspace/…` verbs are the folders and files above. `workspace/read` is named whole so it takes nothing else.
+} satisfies Omit<MethodsUnder<'workspace/' | 'preview/' | 'file/' | 'editor/', 'workspace/thread/' | 'workspace/approval/'>, 'workspace/read'>

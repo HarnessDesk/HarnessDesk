@@ -159,3 +159,186 @@ export interface PhoneDashboard {
   readonly seats: readonly PhoneSeatUsage[]
   readonly period: PhonePeriod
 }
+
+/**
+ * The workspace a paired phone ships knowing: one read-only snapshot (`workspace/read`), a session's conversation
+ * (`workspace/thread/read`) and the one action a phone may take on it so far (`workspace/approval/decide`). The
+ * shapes follow what the phone decodes, field for field, so a name or a unit here is the phone's own.
+ *
+ * It is the same redacted view as the `phone/*` projections above, with two differences made on purpose. Money is
+ * integer micro-dollars (`{ micros }`), the unit the phone's own `Money` decodes. And a conversation is readable:
+ * its words go through `scrubText`, a command's output and a change's lines never leave the desk, and a file is
+ * named by its path inside the project, never by one on this machine.
+ */
+
+export interface PhoneMoney {
+  readonly micros: number
+}
+
+/** Who ran it, as the desk presents the agent; `model` only where the desk knows it. */
+export interface PhoneAgentLabel {
+  readonly name: string
+  readonly model?: string
+}
+
+export type PhoneWorkPhase = 'running' | 'needsYou' | 'watching' | 'done'
+
+export interface PhoneWorkWorker {
+  readonly id: string
+  readonly title: string
+  readonly seat: PhoneAgentLabel
+  readonly status: 'running' | 'done' | 'waiting' | 'failed'
+  readonly cost: PhoneMoney
+}
+
+export interface PhoneWorkTeam {
+  readonly stage: PhoneTeamStage
+  readonly stageNote?: string
+  readonly startedAt: number
+  readonly planApprovedAt?: number
+  readonly workers: readonly PhoneWorkWorker[]
+  readonly reviewers: number
+  readonly spent: PhoneMoney
+}
+
+export interface PhoneWorkItem {
+  /** A session is "<agent>:<session>", a Team its own id. */
+  readonly id: string
+  readonly kind: 'session' | 'team'
+  readonly title: string
+  readonly project?: string
+  readonly phase: PhoneWorkPhase
+  readonly line: string
+  readonly agent?: PhoneAgentLabel
+  /** Left out for the person themselves. */
+  readonly by?: string
+  readonly updatedAt: number
+  readonly cost?: PhoneMoney
+  readonly team?: PhoneWorkTeam
+}
+
+export interface PhoneWorkDay {
+  readonly label: string
+  readonly cost: PhoneMoney
+  readonly isToday: boolean
+}
+
+export interface PhoneWorkAllowance {
+  readonly id: string
+  readonly name: string
+  /** 0–1 of the short window used and not clamped; left out when the agent has no such window. */
+  readonly used?: number
+  readonly resetsIn?: string
+  readonly weekUsed?: number
+  readonly status?: string
+  readonly models: readonly string[]
+  /** Never an account: the phone shows none, so the desk sends none. */
+  readonly running: readonly string[]
+  readonly last7: readonly PhoneMoney[]
+}
+
+export interface PhoneWorkPeriod {
+  readonly finished: number
+  /**
+   * How often the desk needed the person, and how many rules were broken. The phone decodes both as required whole
+   * numbers and the desk keeps neither per range, so these are 0 until the phone can read "unknown".
+   */
+  readonly needed: number
+  readonly ruleBreaks: number
+  readonly spent: PhoneMoney
+  /** A fraction against the period before: -0.12 is 12% less. Left out when there is nothing to compare. */
+  readonly change?: number
+  readonly slices: readonly { readonly label: string; readonly cost: PhoneMoney }[]
+  readonly byProject: readonly { readonly name: string; readonly cost: PhoneMoney }[]
+  readonly mostExpensive: readonly { readonly title: string; readonly project?: string; readonly cost: PhoneMoney }[]
+}
+
+export interface PhoneWorkUsage {
+  readonly spentToday: PhoneMoney
+  /** The desk has no daily allowance; left out. The monthly cap is in `phone/dashboard/read`. */
+  readonly dailyCap?: PhoneMoney
+  readonly resetsAt?: string
+  readonly days: readonly PhoneWorkDay[]
+  readonly runtimes: readonly PhoneWorkAllowance[]
+  readonly week: PhoneWorkPeriod
+  readonly month: PhoneWorkPeriod
+}
+
+/** Which controls the desk honours. A control it cannot is left out of the phone's screens. */
+export interface PhoneWorkCapabilities {
+  readonly startSession: boolean
+  readonly startTeam: boolean
+  readonly reply: boolean
+  readonly stop: boolean
+  readonly delete: boolean
+  readonly chooseModel: boolean
+  readonly choosePermissions: boolean
+  readonly attach: boolean
+  readonly undo: boolean
+  readonly decide: boolean
+}
+
+export interface PhoneWorkSnapshot {
+  readonly deskName: string
+  readonly items: readonly PhoneWorkItem[]
+  /** Left out until the desk has scanned its usage once: the phone then says Unknown. */
+  readonly usage?: PhoneWorkUsage
+  readonly models: readonly never[]
+  readonly flows: readonly never[]
+  readonly commands: readonly never[]
+  readonly capabilities: PhoneWorkCapabilities
+  readonly threads: readonly never[]
+}
+
+export interface PhoneWorkStep {
+  readonly id: string
+  readonly kind: 'thought' | 'read' | 'todo' | 'edit' | 'run' | 'search' | 'agent'
+  readonly title: string
+  readonly detail?: string
+  readonly files: readonly string[]
+  readonly added?: number
+  readonly removed?: number
+  readonly failed: boolean
+  /** Always empty: a command's output stays on the desk. */
+  readonly output: readonly string[]
+  readonly exitCode?: number
+  readonly seconds?: number
+  readonly todos: readonly { readonly text: string; readonly done: boolean; readonly active: boolean }[]
+}
+
+export interface PhoneWorkFileChange {
+  readonly path: string
+  readonly added: number
+  readonly removed: number
+  /** Always empty: the lines of a change are file contents. */
+  readonly hunks: readonly never[]
+}
+
+export type PhoneApprovalState = 'pending' | 'allowed' | 'allowedForSession' | 'denied'
+
+export type PhoneWorkTurn =
+  | { readonly type: 'you'; readonly id: string; readonly text: string; readonly attachments: readonly string[] }
+  | { readonly type: 'agent'; readonly id: string; readonly markdown: string }
+  | { readonly type: 'work'; readonly id: string; readonly seconds: number; readonly summary: string; readonly steps: readonly PhoneWorkStep[] }
+  | { readonly type: 'changes'; readonly id: string; readonly files: readonly PhoneWorkFileChange[] }
+  | {
+      readonly type: 'approval'
+      readonly id: string
+      readonly title: string
+      readonly who: string
+      readonly command: string
+      readonly why: string
+      readonly highRisk: boolean
+      readonly state: PhoneApprovalState
+      /** The desk's own words for allowing until the session ends; present only where the approval offers that. */
+      readonly sessionGrant?: string
+    }
+
+export interface PhoneWorkThread {
+  readonly id: string
+  readonly title: string
+  readonly project?: string
+  readonly agent: PhoneAgentLabel
+  readonly status: 'done' | 'running' | 'asksYou'
+  readonly turns: readonly PhoneWorkTurn[]
+}
