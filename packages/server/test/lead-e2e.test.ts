@@ -199,7 +199,9 @@ for (const surface of ['window', 'phone']) test(`worker approval reaches the ${s
   await rig.waitFor(() => rig.windowNotifications.some((one: any) => one.method === 'lead/changed' && one.params.thread?.cards.some((card: any) => card.kind === 'worker-approval')), 'worker approval card')
   const card = (await rig.host.call('lead/thread/read', {})).thread.cards.find(one => one.type === 'waiting')!
   assert.equal(card.type === 'waiting' && card.kind, 'worker-approval')
-  assert.match('summary' in card ? card.summary : '', /implementer.*node -e process.exit\(0\)/i)
+  // A command request is more than the compact card can carry whole, so its details stay on the desk.
+  assert.match('summary' in card ? card.summary : '', /implementer.*details are hidden/i)
+  assert.doesNotMatch('summary' in card ? card.summary : '', /process\.exit/)
   await assert.rejects(rig.decide(card, 'accept'), { wireCode: 'lead-worker-approval' })
   await rig.eagerApprovalTurn()
   assert.equal((await rig.workerCalls()).filter(one => one.method === 'worker-approval-answer').length, 0)
@@ -207,7 +209,9 @@ for (const surface of ['window', 'phone']) test(`worker approval reaches the ${s
   const action = projection.personActions.find((one: any) => one.kind === 'worker-approval')
   assert.ok(action, 'person can answer the real worker approval')
   const perform = await personSurface(rig, surface, t)
-  await perform({ id: action.id, contractDigest: rig.journal.state.contract!.digest, choice: 'yes-once' })
+  // A hidden request is approved on the desk where it is shown whole; the card can only refuse it.
+  assert.deepEqual(action.choices, ['no'])
+  await perform({ id: action.id, contractDigest: rig.journal.state.contract!.digest, choice: 'no' })
   await rig.waitFor(async () => (await rig.workerCalls()).some(one => one.method === 'worker-approval-answer'), 'person answer reaches worker')
   await rig.assertNoForbiddenEffects()
 })
