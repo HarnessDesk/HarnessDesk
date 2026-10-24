@@ -254,6 +254,7 @@ export class IntakePlane {
       swept: () => this.#syncTimers().catch((error: unknown) => {
         this.#port.log('budget timers could not be updated', { error: String(error) })
       }),
+      log: (message, details) => this.#port.log(message, details),
       timers: this.#timers,
     })
     this.#admission = new Admission(this.#store, {
