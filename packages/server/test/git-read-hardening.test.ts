@@ -650,6 +650,54 @@ test('a filter found early in a long listing refuses the checkout without waitin
   assert.ok(Date.now() - started < timeout / 2, 'the listing was stopped, not waited out')
 })
 
+test('a refused attribute reader drains the stopped writer before removing its private view', { skip: process.platform === 'win32' }, async (t) => {
+  const f = await fixture(t)
+  const pidFile = join(f.base, 'writer.pid')
+  const exited = join(f.base, 'writer-exited')
+  await withGitShim(f, `
+    if (args.includes('ls-files')) {
+      writeFileSync(${JSON.stringify(pidFile)}, String(process.pid))
+      const view = args.find(arg => arg.startsWith('--git-dir=')).slice('--git-dir='.length)
+      const keepAlive = setInterval(() => {}, 1000)
+      process.on('SIGTERM', () => {
+        // The reader has time to close and unpipe before the writer finishes its output.
+        setTimeout(() => process.stdout.write(Buffer.alloc(1024 * 1024, 120), () => {
+          writeFileSync(${JSON.stringify(exited)}, String(require('node:fs').existsSync(view)))
+          clearInterval(keepAlive)
+          process.exit(1)
+        }), 100)
+      })
+      process.stdout.write(Buffer.alloc(1024 * 1024, 120))
+      return true
+    }
+    if (args.includes('check-attr')) {
+      process.stdin.once('data', () => {
+        process.stdin.pause()
+        process.stdout.write('page.txt\\0filter\\0demo\\0')
+      })
+      return true
+    }
+  `, async () => {
+    const read = automaticCheckout(f.root, 'HEAD', { timeout: 30_000 })
+    const refused = assert.rejects(read, /needs a git filter/)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await Promise.race([
+        refused,
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('the stopped writer was not drained')), 10_000) }),
+      ])
+      assert.equal(await readFile(exited, 'utf8'), 'true', 'the private view remained until the writer finished')
+    } finally {
+      clearTimeout(timer)
+      const pid = Number(await readFile(pidFile, 'utf8').catch(() => ''))
+      if (pid) {
+        try { process.kill(pid, 'SIGKILL') } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
+      }
+      await refused.catch(() => undefined)
+    }
+  })
+})
+
 test('a path that cannot be spelled to git is refused rather than checked under another name', async (t) => {
   const f = await fixture(t)
   await writeFile(join(f.root, '.gitattributes'), '* -filter\n')
