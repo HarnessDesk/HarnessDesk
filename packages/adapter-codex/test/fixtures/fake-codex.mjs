@@ -287,6 +287,8 @@ const nextThreadId = () => {
  * `thread/start`, `thread/resume` and `thread/fork`, instead of the second
  * thread's cwd silently overwriting the first's for the rest of the process.
  */
+let gitSteerTurn = 0
+const gitSteerEnvironments = new Map()
 const cwdByThread = new Map()
 
 const thread = (overrides = {}) => {
@@ -866,6 +868,7 @@ const turnOpening = () => {
 }
 
 const playTurn = (openingAlreadySent = false) => {
+  const nativeCommand = process.env.FAKE_CODEX_GIT_APPROVAL ? 'git push origin x' : 'ls -la'
   if (!openingAlreadySent) {
     for (const message of turnOpening()) send(message)
   }
@@ -886,12 +889,12 @@ const playTurn = (openingAlreadySent = false) => {
   const command = {
     type: 'commandExecution',
     id: 'call-c1',
-    command: 'ls -la',
+    command: nativeCommand,
     cwd: settingsState.cwd,
     processId: null,
     source: 'agent',
     status: 'inProgress',
-    commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
+    commandActions: [{ type: 'listFiles', command: nativeCommand, path: settingsState.cwd }],
     aggregatedOutput: null,
     exitCode: null,
     durationMs: null,
@@ -910,9 +913,9 @@ const playTurn = (openingAlreadySent = false) => {
       itemId: 'call-c1',
       startedAtMs: nowMs(),
       reason: 'Needs to read the working directory',
-      command: 'ls -la',
+      command: nativeCommand,
       cwd: settingsState.cwd,
-      commandActions: [{ type: 'listFiles', command: 'ls -la', path: settingsState.cwd }],
+      commandActions: [{ type: 'listFiles', command: nativeCommand, path: settingsState.cwd }],
       availableDecisions: ['accept', 'acceptForSession', 'decline'],
     },
   })
@@ -1580,6 +1583,7 @@ rl.on('line', (line) => {
       // A new thread is in the folder it was started in, as Codex reports it.
       holdLoaded(THREAD)
       loadMcpChild(THREAD, params.config ?? {})
+      gitSteerEnvironments.set(THREAD, params.config?.['shell_environment_policy.set'] ?? {})
       logThread(method, params)
       const result = { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) }
       const announced = thread()
@@ -1645,6 +1649,7 @@ rl.on('line', (line) => {
       cwdByThread.set(THREAD, settingsState.cwd)
       holdLoaded(THREAD)
       loadMcpChild(THREAD, params.config ?? {})
+      gitSteerEnvironments.set(THREAD, params.config?.['shell_environment_policy.set'] ?? {})
       logThread(method, params)
       const result = startResponse()
       const announced = thread()
@@ -2526,6 +2531,24 @@ rl.on('line', (line) => {
         .map((part) => part.text)
         .join(' ')
         .trim()
+      if (said.startsWith('git-steer-run ')) {
+        const threadId = THREAD, turnId = `${TURN}-git-${++gitSteerTurn}`, request = JSON.parse(said.slice('git-steer-run '.length))
+        send({ ...response, result: { turn: { ...response.result.turn, id: turnId } } })
+        const command = [request.binary, ...request.args].join(' '), cwd = cwdByThread.get(threadId)
+        const item = { type: 'commandExecution', id: 'git-write', command, cwd, processId: null, source: 'agent', status: 'inProgress', commandActions: [{ type: 'unknown', command }], aggregatedOutput: null, exitCode: null, durationMs: null }
+        notify('turn/started', { threadId, turn: { id: turnId, items: [], status: 'inProgress', error: null } })
+        notify('item/started', { threadId, turnId, item })
+        const child = spawn(request.binary, request.args, { cwd, env: { ...process.env, ...gitSteerEnvironments.get(threadId) } })
+        let output = ''
+        child.stdout.on('data', data => { output += data })
+        child.stderr.on('data', data => { output += data })
+        child.on('close', code => {
+          const completed = { ...item, status: code === 0 ? 'completed' : 'failed', aggregatedOutput: output, exitCode: code }
+          notify('item/completed', { threadId, turnId, item: completed })
+          notify('turn/completed', { threadId, turn: { id: turnId, items: [completed], status: 'completed', error: null } })
+        })
+        return
+      }
       if (flowWorker) {
         const threadId = params.threadId
         const turnId = `rig-turn-${++flowTurn}`

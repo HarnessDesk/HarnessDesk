@@ -27,6 +27,7 @@ export interface ToolGatewayBackend {
    * Seat with approved external MCP servers is listed only for its own
    * caller, never for every bridge this socket ever answers.
    */
+  steerGit?(caller: string | undefined, params: Record<string, unknown>): Promise<unknown>
   listTools(caller?: string): readonly (CapabilityContribution & { kind: 'tool' })[]
   /**
    * `caller` is the correlation token from the invoking bridge's
@@ -205,6 +206,12 @@ export class ToolGateway {
             typeof params['caller'] === 'string' ? params['caller'] : undefined,
           )
           reply({ result })
+          return
+        }
+        case 'git/steer': {
+          const params = request.params ?? {}
+          if (!this.backend.steerGit) throw new Error('Git steering is unavailable.')
+          reply({ result: await this.backend.steerGit(typeof params['caller'] === 'string' ? params['caller'] : undefined, params) })
           return
         }
         case 'mcp/list': {

@@ -70,3 +70,4 @@ export * from './notices.js'
 export { sessionIndexCursorOf, sessionIndexCompare } from './session-index-cursor.js'
 
 export type * from './forge.js'
+export * from './git-steer.js'

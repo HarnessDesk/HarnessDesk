@@ -25,7 +25,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
-import { DESK_TOOL_CEILINGS, isCompactionSummary, peelDeskContextPrefix, withoutCompaction } from '@harnessdesk/protocol'
+import { parseGitCommand, DESK_TOOL_CEILINGS, isCompactionSummary, peelDeskContextPrefix, withoutCompaction } from '@harnessdesk/protocol'
 
 import { sessionFiles, sourceOf, trash } from './store.js'
 import { DELEGATION_CAPABILITY, DELEGATION_LIST, DELEGATION_NOTIFICATION } from './delegation-wire.js'
@@ -356,6 +356,11 @@ export const withOptions = (meta: Meta, values: Record<string, string>, abort: A
       PreToolUse: [...preToolUse, { hooks: [readCeilingHook] }],
     }
   }
+  const steering = (options['env'] as NodeJS.ProcessEnv | undefined)?.['HD_GIT_STEER'] ?? process.env['HD_GIT_STEER']
+  if (steering === 'ask' || steering === 'redirect') {
+    const hooks = (options['hooks'] ?? {}) as Record<string, unknown>
+    options['hooks'] = { ...hooks, PreToolUse: [...((hooks['PreToolUse'] as unknown[] | undefined) ?? []), { hooks: [gitSteeringHook] }] }
+  }
   const next: Record<string, unknown> = { ...(meta ?? {}), claudeCode: { ...claudeCode, options, emitRawSDKMessages: true } }
   if (values['ceiling'] === 'read') {
     const harnessdesk = (next['harnessdesk'] ?? {}) as Record<string, unknown>
@@ -416,6 +421,12 @@ export const readCeilingDecision = (
   const match = /^mcp__harnessdesk__(.+)$/.exec(toolName)
   if (match && DESK_READ_TOOLS.has(match[1] ?? '')) return undefined
   return { permissionDecision: 'deny', permissionDecisionReason: 'The read ceiling blocks this tool.' }
+}
+
+export const gitSteeringHook = async (input: { readonly tool_name: string; readonly tool_input: unknown }) => {
+  const command = input.tool_name === 'Bash' && input.tool_input && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>)['command'] : undefined
+  if (typeof command !== 'string' || !parseGitCommand(command)) return {}
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Git writes from this conversation go through HarnessDesk. Use git_push for pushes, or pr_create, pr_update, pr_merge, pr_comment, pr_review and issue_comment for forge writes.' } }
 }
 
 const readCeilingHook = async (input: { readonly tool_name: string; readonly tool_input: unknown }) => {

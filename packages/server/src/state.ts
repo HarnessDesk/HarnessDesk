@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { lanePreferences } from '@harnessdesk/protocol'
+import { gitWritePreferences, lanePreferences } from '@harnessdesk/protocol'
 import { isManagedChatFolder } from './chats.js'
 
 /**
@@ -149,6 +149,12 @@ export class StateStore {
 
   async setPreferences(patch: Record<string, unknown>): Promise<void> {
     const checked = Object.hasOwn(patch, 'lanes') ? { ...patch, lanes: lanePreferences(patch['lanes']) } : patch
+    if (Object.hasOwn(checked, 'gitWrites')) {
+      const raw = checked['gitWrites'] as { projects?: unknown } | null
+      const projects = raw?.projects && typeof raw.projects === 'object' && !Array.isArray(raw.projects)
+        ? Object.fromEntries(Object.entries(raw.projects).filter(([, value]) => ['inherit', 'ask', 'redirect', 'off'].includes(String(value)))) : {}
+      checked['gitWrites'] = { ...gitWritePreferences(raw), projects }
+    }
     this.#state = { ...this.#state, preferences: { ...this.#state.preferences, ...checked } }
     await this.#persist()
   }

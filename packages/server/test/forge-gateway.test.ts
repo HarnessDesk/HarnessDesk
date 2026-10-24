@@ -1,3 +1,4 @@
+import { gitSteerContext } from '../src/git-gateway/steer-context.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
@@ -381,4 +382,13 @@ test('a changed origin while a merge approval waits is recorded as refused', asy
   await assert.rejects(f.run('pr_merge', { number: 1, head: git(f.checkout, 'rev-parse', 'HEAD') }), /repository-changed/)
   const row = (await f.rows())[0]!
   assert.equal(row.op, 'pr.merge'); assert.equal(row.number, 1); assert.equal(row.outcome, 'refused')
+})
+
+test('a host-bound steered refspec keeps the source branch upstream and ordinary calls keep the current-branch check', async t => {
+  const f = await fixture(t), branch = 'feature/remote', sha = git(f.checkout, 'rev-parse', 'HEAD')
+  await gitSteerContext.run({ command: 'git push -u origin HEAD:feature/remote', push: { branch, sourceBranch: 'feature/widgets', sha } }, () => f.run('git_push', { branch, set_upstream: true }))
+  assert.equal(git(f.remote, 'rev-parse', `refs/heads/${branch}`), sha)
+  assert.equal(git(f.checkout, 'config', 'branch.feature/widgets.merge'), `refs/heads/${branch}`)
+  assert.equal(git(f.checkout, 'config', 'branch.feature/widgets.remote'), 'origin')
+  await assert.rejects(f.run('git_push', { branch }), /reviewed-sha-mismatch/)
 })

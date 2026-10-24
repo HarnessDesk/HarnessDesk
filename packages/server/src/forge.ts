@@ -1,3 +1,4 @@
+import { gitSteerContext } from './git-gateway/steer-context.js'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
@@ -200,12 +201,14 @@ export class ForgePlane implements ForgeEngine {
     const repository = ctx.repository ?? proposed
     if (!repository) throw new Error('The checkout origin does not propose a GitHub repository to pin.')
     const previousSha = args.expect === 'create' ? null : args.expect.head
-    const target = { repository, branch: args.branch, sha: args.sha, previousSha, requester }
+    const target = { repository, branch: args.branch, sha: args.sha, previousSha, requester, steeredFrom: gitSteerContext.getStore()?.command }
     let executing = false
     try {
       if (ctx.repository && !await gateway.originMatches(checkout.cwd, ctx.repository)) throw new Error(`The checkout origin ${proposed ?? '(unrecognised)'} differs from the pinned repository ${ctx.repository}; nothing was written.`)
       const inspected = await gateway.inspectCheckout(checkout.cwd)
-      if (inspected.branch !== args.branch || inspected.sha !== args.sha) throw new Error('git-gateway-reviewed-sha-mismatch')
+      const steered = gitSteerContext.getStore()?.push
+      const sourceBranch = steered?.branch === args.branch && steered.sha === args.sha ? steered.sourceBranch : args.branch
+      if (inspected.branch !== sourceBranch || inspected.sha !== args.sha) throw new Error('git-gateway-reviewed-sha-mismatch')
       const push = { ...target, objectStore: inspected.objectStore, tree: inspected.tree }
       // An unpinned origin is only a proposal until the person approves it.
       let assessment = ctx.repository ? await gateway.assessPush(push) : null
@@ -244,10 +247,10 @@ export class ForgePlane implements ForgeEngine {
         }
       }
       executing = true
-      await gateway.push({ ...push, approval, ...(rewrite ? { allowRewrite: true } : {}) }, { beforePush: async () => {
+      await gateway.push({ ...push, steeredFrom: gitSteerContext.getStore()?.command, approval, ...(rewrite ? { allowRewrite: true } : {}) }, { beforePush: async () => {
         this.#live(scope)
         const current = await gateway.inspectCheckout(checkout.cwd)
-        if (current.branch !== args.branch || current.sha !== args.sha || current.tree !== inspected.tree) throw new Error('git-gateway-reviewed-sha-mismatch')
+        if (current.branch !== sourceBranch || current.sha !== args.sha || current.tree !== inspected.tree) throw new Error('git-gateway-reviewed-sha-mismatch')
         if (await gateway.pins.pinned(checkout.root) !== repository || !await gateway.originMatches(checkout.cwd, repository)) throw new Error('git-gateway-repository-changed')
       } })
       return { output: `Pushed ${args.branch} to ${repository} at ${args.sha}.`, repository }
@@ -266,12 +269,12 @@ export class ForgePlane implements ForgeEngine {
         throw new Error(reason)
       }
       this.#live(scope)
-      return { output: await gateway.createPullRequest({ ...args, branch: args.head, repository, requester, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
+      return { output: await gateway.createPullRequest({ ...args, branch: args.head, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
     },
     update: async (args: ForgeUpdate, scope: ForgeScope): Promise<ForgeWriteResult> => {
       const { gateway, checkout, requester, repository } = await this.#destination(scope, 'update', args)
       this.#live(scope)
-      return { output: await gateway.updatePullRequest({ ...args, repository, requester, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
+      return { output: await gateway.updatePullRequest({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
     },
     merge: async (args: ForgeMerge, scope: ForgeScope): Promise<ForgeWriteResult> => {
       const { gateway, checkout, requester, repository } = await this.#destination(scope, 'merge', args)
@@ -287,18 +290,18 @@ export class ForgePlane implements ForgeEngine {
         approval = { by: 'person', at: Date.now() }
       }
       this.#live(scope)
-      return { output: await gateway.mergePullRequest({ ...args, repository, requester, approval, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
+      return { output: await gateway.mergePullRequest({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, approval, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
     },
   }
   async review(args: ForgeReview, scope: ForgeScope): Promise<ForgeWriteResult> {
     const { gateway, checkout, requester, repository } = await this.#destination(scope, 'review', args)
     this.#live(scope)
-    return { output: await gateway.review({ ...args, repository, requester, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
+    return { output: await gateway.review({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
   }
   async comment(args: ForgeComment, scope: ForgeScope): Promise<ForgeWriteResult> {
     const { gateway, checkout, requester, repository } = await this.#destination(scope, 'comment', args)
     this.#live(scope)
-    return { output: await gateway.comment({ ...args, repository, requester, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
+    return { output: await gateway.comment({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
   }
   async repository(scope: ForgeScope): Promise<string | null> {
     return (await this.#context(scope, 'repository', {})).repository

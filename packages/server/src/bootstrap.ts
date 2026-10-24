@@ -317,6 +317,8 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: home,
       env: developerEnv,
+      gitEnvironment: (cwd, caller, path) => host.gitSteering.environment(cwd, caller, path).then(env => env ? { ...env, HD_TOOLS_SOCKET: toolSocketPath(stateDir) } : undefined),
+      onGitSession: (caller, session) => claimCaller(String(id))(caller, session),
       logger: logger.child(id),
       capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
@@ -436,6 +438,11 @@ export const createDefaultHost = (
   const mcpBackend = attachmentGateway(() => host, (token) => callers.get(token))
   const socketPath = toolSocketPath(stateDir)
   const gateway = new ToolGateway(socketPath, {
+    steerGit: async (caller, params) => {
+      const scope = caller ? callers.get(caller) : undefined
+      if (!scope) return { action: 'done', ok: false, output: 'HarnessDesk: this git write has no conversation caller.' }
+      return host.gitSteering.handle(scope.runtime, scope.sessionId, params)
+    },
     listTools: () => extensions.list('tool', {}),
     // Read at each bridge's handshake rather than fixed at start: whether
     // the sentence applies depends on which plugins are enabled right now.
@@ -550,6 +557,8 @@ export const createDefaultHost = (
         : {}),
       ...(executable ? { executable } : {}),
       env: agentEnvironment(socketPath, agent.env, agent.id, developerEnv),
+      gitEnvironment: (cwd, caller, path) => host.gitSteering.environment(cwd, caller, path),
+      onGitSession: (caller, session) => claimCaller(agent.id)(caller, session),
       ...(toolServer
         ? { toolServer: { ...toolServer, onOpen: claimOpen(agent.id), onSession: claimCaller(agent.id) } }
         : {}),
@@ -627,6 +636,8 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: options.codexHome ?? null,
       env: developerEnv,
+      gitEnvironment: (cwd, caller, path) => host.gitSteering.environment(cwd, caller, path).then(env => env ? { ...env, HD_TOOLS_SOCKET: toolSocketPath(stateDir) } : undefined),
+      onGitSession: (caller, session) => claimCaller(String(CODEX_RUNTIME_ID))(caller, session),
       logger: logger.child('codex'),
       capabilities: gated,
       instructions: () => host.forgePlane.instructions(),

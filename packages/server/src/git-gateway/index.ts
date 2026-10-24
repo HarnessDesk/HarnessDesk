@@ -24,6 +24,7 @@ export interface GitPush extends GitTarget {
 interface GitWrite { readonly beforeWrite?: () => Promise<void>; readonly repository: string; readonly requester: GitRequester; readonly approval?: GitApproval; readonly steeredFrom?: string; readonly branch?: string; readonly number?: number; readonly sha?: string; readonly previousSha?: string | null; readonly lease?: string | null }
 export interface GitGatewayOptions {
   readonly directory: string
+  readonly recordOutside?: () => boolean
   readonly stateDirectory?: string
   readonly gh?: (cwd: string, args: readonly string[], env: NodeJS.ProcessEnv) => Promise<{ stdout: string; stderr: string; exitCode: number }>
   /** Fixture capability only; production always constructs the pinned HTTPS URL. */
@@ -220,7 +221,7 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
   remoteHead(repository: string, branch: string): Promise<string | null> {
     return this.#queue(repository, async () => {
       const sha = await this.#head(await this.#mirror(repository), repository, branch)
-      if (sha) await this.gitRecord.observe(repository, branch, sha, null)
+      if (sha && this.options.recordOutside?.() !== false) await this.gitRecord.observe(repository, branch, sha, null)
       return sha
     })
   }
@@ -368,7 +369,7 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
     return this.#queue(repository, () => this.gitRecord.attribute(repository, branch, sha))
   }
   observe(repository: string, branch: string, sha: string, previousSha: string | null): Promise<void> {
-    return this.#queue(repository, () => this.gitRecord.observe(repository, branch, sha, previousSha))
+    return this.#queue(repository, async () => { if (this.options.recordOutside?.() !== false) await this.gitRecord.observe(repository, branch, sha, previousSha) })
   }
   hasSucceededPush(query: SucceededPushQuery): boolean { return this.gitRecord.hasSucceededPush(query) }
   record(query: GitRecordQuery): Promise<GitRecordEntry[]> { return this.#queue(query.repository, () => this.gitRecord.list(query)) }

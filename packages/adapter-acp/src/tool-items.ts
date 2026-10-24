@@ -145,11 +145,12 @@ export const projectToolItem = (
     const command = shellCommandOf(call)
     // A meaningful title is the agent's narration. Preserve that existing
     // posture; generic shell labels and command-only titles use CommandItem.
-    if (command && !call.result?.some(part => part.type === 'image') && (!title || /^(terminal|bash|shell|execute|command)$/i.test(title.trim()) || title === command || title === `\`${command}\``)) {
+    if (command && !call.result?.some(part => part.type === 'image') && (!title || /^(terminal|bash|shell|execute|command)$/i.test(title.trim()) || title === command || title === `Run ${command.length > 60 ? `${command.slice(0, 57)}…` : command}` || title === `\`${command}\``)) {
       const text = call.result?.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
       const stored = call.result?.find(part => part.type === 'json')
       const raw = stored?.type === 'json' ? stored.value : undefined
-      const output = objectOf(raw)
+      const envelope = objectOf(raw)
+      const output = objectOf(envelope?.success) ?? envelope
       const printed = [output?.stdout, output?.stderr].filter((value): value is string => typeof value === 'string').join('')
       const blocks = Array.isArray(raw) ? raw.flatMap(part => {
         const block = objectOf(part)

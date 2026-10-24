@@ -109,7 +109,7 @@ export class GitRecord {
           if (lf >= 0 && parsed && parsed.repository === repository && typeof parsed.id === 'string' && parsed.requester &&
             ['push', 'pr.create', 'pr.update', 'pr.merge', 'pr.comment', 'pr.review', 'issue.comment', 'observed'].includes(parsed.op) &&
             ['intent', 'ok', 'refused', 'failed', 'rejected'].includes(parsed.outcome) &&
-            (isGitRequester(parsed.requester) || parsed.requester.kind === 'outside' && (parsed.op === 'observed' || parsed.outcome === 'refused'))) row = parsed
+            (isGitRequester(parsed.requester) || parsed.requester.kind === 'outside' && (parsed.op === 'observed' || parsed.outcome === 'refused' || parsed.reason === 'own-git-allowed' && parsed.approval?.by === 'person'))) row = parsed
         } catch { /* A damaged physical line is counted, never thrown. */ }
         lines.push({ hash: hash(exact), row }); start = end
       }
@@ -209,7 +209,7 @@ export class GitRecord {
     return this.#queue(row.repository, () => this.#locked(row.repository, () => this.#append(row)))
   }
   async #append(entry: Omit<GitRecordEntry, 'prev'>): Promise<GitRecordEntry> {
-    if (entry.requester.kind === 'outside' && entry.op !== 'observed' && entry.outcome !== 'refused') throw new Error('git-record-outside-invalid')
+    if (entry.requester.kind === 'outside' && entry.op !== 'observed' && entry.outcome !== 'refused' && !(entry.reason === 'own-git-allowed' && entry.approval?.by === 'person')) throw new Error('git-record-outside-invalid')
     const snapshot = this.#read(entry.repository)
     if (!snapshot.verification.ok) throw new Error(`git-record-broken:${snapshot.verification.line}`)
     const row = { ...entry, prev: snapshot.last }, bytes = Buffer.from(`${JSON.stringify(row)}\n`)
@@ -242,7 +242,7 @@ export class GitRecord {
       const read = this.#read(repository)
       let rows = [...(query.branch === undefined ? read.rows : read.branches.get(query.branch) ?? [])].reverse().filter(row =>
         (query.number === undefined || row.number === query.number) &&
-        (query.view !== 'outside' || row.op === 'observed') && (query.view !== 'refused' || row.outcome === 'refused' || row.outcome === 'rejected'))
+        (query.view !== 'outside' || row.requester.kind === 'outside') && (query.view !== 'refused' || row.outcome === 'refused' || row.outcome === 'rejected'))
       if (query.before !== undefined) { const index = rows.findLastIndex(row => row.id === query.before); rows = index < 0 ? [] : rows.slice(index + 1) }
       return rows.slice(0, query.limit)
     }))

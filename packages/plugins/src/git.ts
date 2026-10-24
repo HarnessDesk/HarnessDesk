@@ -1121,7 +1121,8 @@ export const gitPlugin: HarnessPlugin = {
         description: 'Push the current branch through HarnessDesk, as you, to the repository pinned for this project. New branches and rewrites ask you first. Every write is kept in the project’s Git record.',
         inputSchema: { type: 'object', properties: { branch: { type: 'string', description: 'The current branch; defaults to the checkout’s branch.' }, set_upstream: { type: 'boolean', description: 'Set the local upstream after the push succeeds.' } } },
         execute: async (args: { branch?: string; set_upstream?: boolean }, scope) => {
-          const branch = args.branch ?? await git(['branch', '--show-current'])
+          const sourceBranch = await git(['branch', '--show-current'])
+          const branch = args.branch ?? sourceBranch
           if (!branch || branch === 'HEAD') throw new Error('The workspace is on a detached HEAD; check out a branch first.')
           const sha = await git(['rev-parse', 'HEAD'])
           const rows = await ctx.forge.record({ branch, limit: 1000 }, scope)
@@ -1136,7 +1137,7 @@ export const gitPlugin: HarnessPlugin = {
           if (args.set_upstream === true) {
             try {
               await git(['update-ref', `refs/remotes/origin/${branch}`, sha])
-              await git(['branch', `--set-upstream-to=origin/${branch}`, branch])
+              await git(['branch', `--set-upstream-to=origin/${branch}`, sourceBranch])
             } catch (error) { upstreamNote = `Pushed, but the local upstream could not be set: ${error instanceof Error ? error.message : String(error)}` }
           }
           const note = await publish(reference, scope)
