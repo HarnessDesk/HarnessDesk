@@ -867,7 +867,7 @@ export const ToolsSurface = () => (
               kind: 'browser',
               tabs: [
                 { id: 't1', url: 'http://localhost:5273/design.html', title: 'Design system' },
-                { id: 't2', url: 'https://example.com', title: 'Example' },
+                { id: 't2', url: 'http://localhost:5273/preview.html', title: 'Screen preview' },
               ],
               active: 't1',
               driven: 't1',
