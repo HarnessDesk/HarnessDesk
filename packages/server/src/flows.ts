@@ -322,7 +322,7 @@ export class Flows implements TeamFlows {
     await this.#executions?.wakeEvidence(goal)
   }
 
-  prepareLeadRepair(op: { readonly runId: string; readonly teamId: string; readonly key: string; readonly round: number }): Promise<FlowRoundState> {
+  prepareLeadRepair(op: { readonly runId: string; readonly teamId: string; readonly key: string; readonly round: number; readonly detail?: string }): Promise<FlowRoundState> {
     if (!this.#executions) throw new Error('lead-repair-unavailable')
     return this.#executions.prepareLeadRepair(op)
   }

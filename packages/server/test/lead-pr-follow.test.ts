@@ -234,7 +234,7 @@ test('review status is owned, head-bound, preference-gated, and durable', async 
   assert.deepEqual((await createLeadJournal(s.storage)).state.pr?.review, fact.review)
   await s.journal.settingsChanged(undefined, { checks: true, reviews: false })
   await owner.observeFacts([{ ...fact, review: { ...fact.review, id: 11, state: 'approved' } }])
-  assert.deepEqual(s.journal.state.pr?.review, fact.review)
+  assert.deepEqual(s.journal.state.pr?.review, { ...fact.review, id: 11, state: 'approved' })
 })
 
 test('disk refusal before publication preparation prevents every forge effect', async () => {

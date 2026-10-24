@@ -22,7 +22,7 @@ import { Admission, AGAIN_MISSING, SKIP_CHANGED, type AdmissionOptions, type Goa
 import { IntakeEffects, type IntakeObservationPort, type TriggerExecutionPort, type TriggerGoalPort } from './apply.js'
 import { AttentionOutbox, type AttentionInput } from './attention.js'
 import { BudgetWatch, TriggerBudgets, utcDay, type BudgetVerdict } from './budget.js'
-import { TriggerClosures, TriggerConsent, type ArmBinding, type ArmedTrigger, type TriggerClosure } from './consent.js'
+import { consentMatches, TriggerClosures, TriggerConsent, type ArmBinding, type ArmedTrigger, type TriggerClosure } from './consent.js'
 import { usdMicros } from './definition.js'
 import { ForgeSource } from './forge.js'
 import { goalWaits, type HostWaits } from './waits.js'
@@ -96,6 +96,7 @@ export interface IntakeHostPort {
   preview(root: string, source: string, againRole?: string | null): Promise<FlowPreview>
   /** Each attachment one Agent resolves to now, as its identity (`TriggerClosureReads.attachments`). */
   attachments?(root: string, agent: string): Promise<readonly string[]>
+  lead?(operation: IntakeOperation): Promise<{ readonly delivered: true } | { readonly delivered: false; readonly reason: string }>
   readonly goals: TriggerGoalPort & {
     lifecycle(goal: string): GoalLifecycle
     claim(goal: string, claim: () => void): Promise<boolean>
@@ -277,12 +278,21 @@ export class IntakePlane {
       now: () => port.now(),
       lifecycle: (goal) => port.goals.lifecycle(goal),
       claim: (goal, claim) => port.goals.claim(goal, claim),
-      reserve: (snapshot, operation, definition) => this.#budgets.reserve(snapshot, operation, definition),
+      reserve: (snapshot, operation, definition) => 'lead' in definition.opens ? { snapshot } : this.#budgets.reserve(snapshot, operation, definition),
     }, new IntakeEffects({
       goals: port.goals,
+      lead: operation => port.lead?.(operation) ?? Promise.resolve({ delivered: false, reason: 'Lead is disabled; this firing waits.' }),
       flows: port.flows,
       evidence: port.evidence,
       gate: async (operation) => {
+        if (operation.payload && 'lead' in operation.payload.definition.opens) {
+          if (this.#closed || this.#prefs.paused || !this.#dispatchReady) return 'Triggers are paused; this firing waits.'
+          try {
+            const binding = await this.#consent.binding(operation.project, operation.trigger)
+            if (!binding || !consentMatches(operation.payload.binding, binding)) return { reason: 'This trigger changed since it was armed; arm it again.', final: true }
+          } catch { return 'The trigger arm could not be read; this firing waits.' }
+          return null
+        }
         const run = port.flows.execution(operation.run)
         if (!run) return 'This firing’s run is missing, so nothing of it was sent.'
         const verdict = this.#budgets.check(run)
@@ -596,7 +606,7 @@ export class IntakePlane {
       return `Its Seats could not be read now (${error instanceof Error ? error.message : String(error)}), so nothing was sent. It starts on its own once they can.`
     }
     if (closure.availability.length === 0) return null
-    const seat = closure.preview.seats.find((one) => one.plan.blocked === null && one.plan.winner === null)
+    const seat = closure.preview?.seats.find((one) => one.plan.blocked === null && one.plan.winner === null)
     const who = seat ? `“${seat.agent}”` : 'its Agent'
     /* Every candidate passed over for a reason that does not lift on its own
        — this Mac refuses an unattended seat whose ceiling is only asked, or

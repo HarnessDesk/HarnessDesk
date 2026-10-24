@@ -95,8 +95,8 @@ export interface TriggerDefinition {
   /** Project-scoped: what arming and history attach to. */
   readonly id: string
   readonly on: TriggerOn
-  /** Exactly one: a flow by its catalogue id, or a single Agent run as a one-role flow. */
-  readonly opens: { readonly flow: string } | { readonly agent: string }
+  /** Exactly one: a Flow, a single Agent, or a Lead plan that waits for approval. */
+  readonly opens: { readonly flow: string } | { readonly agent: string } | { readonly lead: true }
   /** Which Goal a firing lands in: firings that agree on these fields share an open Goal. */
   readonly goal: readonly TriggerField[]
   /** The round a later firing opens in an open Goal; null records the fact and asks the person. */
@@ -249,6 +249,8 @@ export interface TriggerArmPreview {
   readonly workingCopyChanged: boolean
   readonly definition: TriggerDefinition | null
   readonly flow: FlowPreview | null
+  /** This target drafts only; the plan's later approval owns all worker authority. */
+  readonly lead?: { readonly summary: string; readonly approvalRequired: true }
   readonly problems: readonly TriggerProblem[]
   /** Money is an observed stop threshold: a turn in flight may spend past it before it stops. */
   readonly moneyPolicy: 'observed-stop'

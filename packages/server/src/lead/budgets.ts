@@ -95,7 +95,7 @@ export class LeadBudgets implements FlowLeadGuard {
   async prepareRepair(run: StoredFlowExecution, key: string, round: number): Promise<void> {
     const journal = this.#journal(run), state = journal.state, op = state.handbacks.at(-1)
     await this.meter(journal)
-    if (!op || op.key !== key || op.round !== round || op.runId !== run.id || op.teamId !== run.goal || op.stage !== 'prepared' ||
+    if (!op || op.key !== key || op.round !== round || op.runId !== run.id || op.teamId !== run.goal || op.stage !== 'prepared' || !state.follow[op.kind] ||
       state.pr?.state !== 'open' || state.pr.branchOwner === 'person' || state.handbackLimit || state.recoveryBlocked ||
       !state.consent || state.consent.expiresAt <= this.port.now() || state.consent.renewalCardRevision !== undefined || state.phase !== 'running' ||
       !await this.port.member(state.contract!.project) || leadBudgetProjection(journal.state.budget!, this.port.now()).spend !== 'known' || journal.state.budget?.stop)

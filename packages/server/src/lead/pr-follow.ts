@@ -184,13 +184,13 @@ export class LeadPrFollow {
     const state = this.options.journal.state, pr = state.pr
     if (!pr || pr.state !== 'open' || state.phase === 'stopped' || !state.contract) return []
     return [{ project: state.contract.project.path, repository: pr.repository, number: pr.number, head: pr.observedHead ?? pr.head, since: state.publication?.at ?? pr.at,
-      checks: state.follow.checks, reviews: state.follow.reviews }]
+      checks: true, reviews: true }]
   }
   /** Keep a bounded latest review status; repair admission has its own host owner. */
   observeFacts(facts: readonly TriggerFact[]): Promise<void> { return this.#queue(async () => {
     for (const fact of facts) {
       const { journal } = this.options, state = journal.state, pr = state.pr
-      if (!pr || !this.watches().length || !state.follow.reviews || fact.action !== 'review-commented' || !fact.review ||
+      if (!pr || !this.watches().length || fact.action !== 'review-commented' || !fact.review ||
         fact.repository !== pr.repository || fact.subject !== String(pr.number) || fact.head !== (pr.observedHead ?? pr.head) || fact.review.head !== (pr.observedHead ?? pr.head) ||
         fact.at < (state.publication?.at ?? pr.at) || (pr.review && fact.review.id <= pr.review.id)) continue
       await journal.observePr({ ...pr, review: fact.review, at: Math.max(pr.at, fact.at) })
@@ -230,7 +230,7 @@ export class LeadPrFollow {
     }
     const next: LeadPullRequest = { ...pr, head, branchOwner, observedHead: observation.head,
       ...(releaseReason ? { releaseReason, branchChange } : {}), state: observation.state,
-      check: state.follow.checks ? observation.check?.head === observation.head ? observation.check : null : pr.check?.head === observation.head ? pr.check : null,
+      check: observation.check?.head === observation.head ? observation.check : null,
       review: pr.review?.head === observation.head ? pr.review : null, at: observation.at }
     if (JSON.stringify(next) !== JSON.stringify(pr)) await journal.observePr(next)
     if (next.state === 'open' && next.branchOwner === 'person' && journal.state.contract) {

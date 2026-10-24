@@ -26,11 +26,12 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // cards after that message and before the next journal write.
   const namedSource = threadSource && { ...threadSource, completedBudgets: Object.hasOwn(threadSource, 'completedBudgets') ? threadSource.completedBudgets : [], name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
   const followSource = namedSource && { ...namedSource, follow: Object.hasOwn(namedSource, 'follow') ? namedSource.follow : { checks: true, reviews: true }, pr: Object.hasOwn(namedSource, 'pr') ? namedSource.pr : null, publication: Object.hasOwn(namedSource, 'publication') ? namedSource.publication : null, ownedPush: Object.hasOwn(namedSource, 'ownedPush') ? namedSource.ownedPush : null }
-  const repairSource = followSource && { ...followSource, origin: followSource.origin ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
+  const repairSource = followSource && { ...followSource, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
   const source = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
     ? { ...repairSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : repairSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
   if (source.origin !== null) parseLeadOrigin(source.origin)
+  assert(source.originKey === null || typeof source.originKey === 'string' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(source.originKey))
   assert(Array.isArray(source.handbacks) && source.handbacks.length <= 64 && new Set(source.handbacks.map(op => op.key)).size === source.handbacks.length)
   source.handbacks.forEach(op => parseLeadHandback(op))
   assert(typeof source.handbackLimit === 'boolean' && Array.isArray(source.ciPassed) && source.ciPassed.length <= 64 && source.ciPassed.every(head => /^[a-f0-9]{40,64}$/.test(head)))

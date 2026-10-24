@@ -17,6 +17,7 @@ export interface LeadAttemptState {
 export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null; readonly contractDigest: string | null }
 export interface LeadState {
   readonly origin: LeadOrigin | null
+  readonly originKey: string | null
   readonly handbacks: readonly LeadHandback[]
   readonly handbackLimit: boolean
   readonly ciPassed: readonly string[]
@@ -49,7 +50,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ origin: null, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
+export const initialLeadState = (): LeadState => ({ origin: null, originKey: null, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
   cards: [], decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-transition') }
 const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.revision}`
@@ -58,7 +59,7 @@ const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.r
 export const hasPendingLeadPlan = (state: LeadState): boolean => state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(cardKey(card)))
 
 /** Ordinary worker dispatch stays fenced for the lifetime of an owned open PR.
- * Run C must use this hook and add host-journaled repair-round authority here. */
+ * Only the exact host-journaled running repair may dispatch on its owned run. */
 export const leadWorkerDispatchBlockedByOpenPr = (state: LeadState, runId?: string): boolean => state.pr?.state === 'open' &&
   !(runId && state.pr.branchOwner !== 'person' && !state.handbackLimit && state.handbacks.some(op => op.runId === runId && op.stage === 'running'))
 /** A repair result remains fenced until CI passes on the published head. */
@@ -143,7 +144,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   switch (event.type) {
     case 'origin':
       ensure(state.contract === null && state.runs.length === 0 && state.origin === null)
-      state = { ...state, origin: event.origin }; break
+      state = { ...state, origin: event.origin, originKey: event.key ?? null }; break
     case 'handback-limit':
       ensure(state.pr?.state === 'open')
       state = { ...state, handbackLimit: true, phase: 'waiting-for-user', managementReason: 'lead-handback-limit' }; break
@@ -156,6 +157,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
           state.handbacks.every(item => item.stage === 'completed') && state.follow[op.kind])
         ensure(op.kind === 'checks' ? !state.handbacks.some(item => item.kind === 'checks' && item.head === op.head) : state.handbacks.filter(item => item.kind === 'reviews').length < 3)
       } else {
+        if (op.stage === 'running') ensure(state.follow[op.kind])
         ensure(JSON.stringify({ ...previous, stage: undefined, publishedHead: undefined }) === JSON.stringify({ ...op, stage: undefined, publishedHead: undefined }))
         const stages = ['prepared', 'running', 'awaiting-ci', 'completed']
         ensure(stages.indexOf(op.stage) === stages.indexOf(previous.stage) + 1)

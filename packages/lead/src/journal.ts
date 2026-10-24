@@ -73,7 +73,7 @@ export type LeadJournalEvent =
   | { readonly type: 'handback'; readonly operation: LeadHandback }
   | { readonly type: 'handback-limit' }
   | { readonly type: 'ci-passed'; readonly head: string }
-  | { readonly type: 'origin'; readonly origin: LeadOrigin }
+  | { readonly type: 'origin'; readonly origin: LeadOrigin; readonly key?: string }
   | { readonly type: 'message'; readonly idempotencyKey: string | null; readonly message: LeadMessage }
   | { readonly type: 'renew-plan'; readonly now: number; readonly cardId?: string }
   | { readonly type: 'restore-result'; readonly id: string; readonly revision: number }
@@ -171,7 +171,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin'], 'new-goal': ['id', 'now'],
+    'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
     'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
@@ -184,7 +184,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'handback': event = { type, operation: parseLeadHandback(source.operation) }; break
     case 'handback-limit': event = { type }; break
     case 'ci-passed': event = { type, head: identifier(source.head) }; break
-    case 'origin': event = { type, origin: parseLeadOrigin(source.origin) }; break
+    case 'origin': event = { type, origin: parseLeadOrigin(source.origin), ...(Object.hasOwn(source, 'key') ? { key: identifier(source.key) } : {}) }; break
     case 'new-goal': event = { type, id: identifier(source.id), now: integer(source.now, 0) }; break
     case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']), ...(Object.hasOwn(source, 'reason') ? { reason: source.reason === null ? null : choice(source.reason, LEAD_MANAGEMENT_REASONS) } : {}) }; break
     case 'message': event = { type, idempotencyKey: nullable(source.idempotencyKey, identifier), message: parseLeadMessage(source.message) }; break
@@ -339,7 +339,7 @@ export class LeadJournal {
   handback(operation: LeadHandback): Promise<void> { return this.#queue(() => this.#append({ type: 'handback', operation })) }
   handbackLimit(): Promise<void> { return this.#queue(async () => { if (!this.#state.handbackLimit) await this.#append({ type: 'handback-limit' }) }) }
   ciPassed(head: string): Promise<void> { return this.#queue(async () => { if (!this.#state.ciPassed.includes(head)) await this.#append({ type: 'ci-passed', head }) }) }
-  setOrigin(origin: LeadOrigin): Promise<void> { return this.#queue(() => this.#append({ type: 'origin', origin })) }
+  setOrigin(origin: LeadOrigin, key?: string): Promise<void> { return this.#queue(() => this.#append({ type: 'origin', origin, ...(key ? { key } : {}) })) }
   ownedPush(operation: LeadOwnedPush): Promise<void> { return this.#queue(() => this.#append({ type: 'owned-push', operation })) }
   observePr(pr: LeadPullRequest): Promise<void> { return this.#queue(() => this.#append({ type: 'pr-observed', pr })) }
   appendMessage(idempotencyKey: string, text: string, committed?: () => void): Promise<LeadSendReceipt> {

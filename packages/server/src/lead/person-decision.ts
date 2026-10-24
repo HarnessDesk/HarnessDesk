@@ -74,7 +74,7 @@ export const answerLeadResult = async (options: PersonDecisionOptions, card: Ext
   const gates: Awaited<ReturnType<typeof prepareLeadPersonGate>>[] = []
   for (const run of runs) {
     const execution = options.flows.executionOf(run.runId), board = options.team.stateFor(run.teamId)
-    const candidates = board.intents.filter(intent => execution?.rounds.filter(round => round.role === 'accept').at(-1)?.cards.includes(intent.id) &&
+    const candidates = board.intents.filter(intent => (execution?.rounds.filter(round => round.role === 'accept').at(-1) ?? execution?.rounds.at(-1))?.cards.includes(intent.id) &&
       options.flows.personCard(run.teamId, intent) && ['open', 'claimed', 'done'].includes(intent.state))
     if (candidates.length !== 1) throw leadRefusal('lead-gate-changed')
     gates.push(await prepareLeadPersonGate(options, { version: 1, id: card.id, revision: card.revision, contractDigest: card.contractDigest,

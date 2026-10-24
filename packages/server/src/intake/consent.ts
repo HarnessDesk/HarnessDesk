@@ -81,7 +81,7 @@ export interface TriggerClosure {
   /** The flow text that would run: the resolved catalogue file, or the single-Agent flow. */
   readonly source: string
   readonly digest: string
-  readonly preview: FlowPreview
+  readonly preview: FlowPreview | null
   readonly bindings: readonly { readonly kind: 'flow' | 'agent' | 'command' | 'seating'; readonly id: string; readonly digest: string }[]
   /** What refuses arming this shape, beyond the flow's own problems: all about what it says, none about this moment. */
   readonly problems: readonly TriggerProblem[]
@@ -140,6 +140,11 @@ export class TriggerClosures implements TriggerPreviewPort {
 
   async freeze(root: string, definition: TriggerDefinition): Promise<TriggerClosure> {
     const problems: TriggerProblem[] = []
+    if ('lead' in definition.opens) {
+      if (definition.again !== null) throw new ClosureMissingError('A Lead trigger cannot name again; its plan requires approval.')
+      const source = 'Draft a plan for approval. No worker starts before the person approves.'
+      return { source, digest: sha256(JSON.stringify({ version: 1, target: 'lead', definition, source })), preview: null, bindings: [], problems: [], availability: [] }
+    }
     let text: string
     let flow: { readonly id: string; readonly origin: string; readonly path: string | null }
     if ('flow' in definition.opens) {
@@ -508,6 +513,7 @@ export class TriggerConsent {
       id, token, expiresAt, sourcePath: TRIGGERS_PATH, workingCopyChanged: current.file.workingCopyChanged,
       definition: current.definition, flow: current.closure?.preview ?? null, problems: current.problems, moneyPolicy: 'observed-stop',
       repository: current.repository ?? null,
+      ...(current.definition && 'lead' in current.definition.opens ? { lead: { summary: 'Drafts a plan for approval. No worker starts before approval.', approvalRequired: true as const } } : {}),
     }
   }
 

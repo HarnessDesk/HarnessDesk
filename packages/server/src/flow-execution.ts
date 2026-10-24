@@ -868,6 +868,7 @@ export class FlowExecutions {
   #runs = new Map<string, StoredFlowExecution>()
   /** Seats whose release is waiting on their own turn-ended signal (#1027); keyed by Seat id. */
   readonly #pendingReleases = new Map<string, PendingRelease>()
+  readonly #leadRepairResumed = new Set<string>()
   /** Set once, at the top of `dispose()`, before anything below it can yield — every release path checks it, and once set nothing here schedules another timer or writes another document. */
   #disposed = false
   /** The checks running now, by Run: Stop owns one Run; a Goal pause reaches all its Runs. */
@@ -2860,6 +2861,7 @@ export class FlowExecutions {
         throw new TriggerRefusal('This Goal already has a run. A trigger’s run attaches only to its own new Goal.')
       }
       const closure = await triggered.freeze(request.root, request.definition)
+      if (!closure.preview || 'lead' in request.definition.opens) throw new TriggerRefusal('A Lead trigger drafts a plan for approval; it cannot start a Flow.')
       const compiled = closure.preview.compiled
       if (compiled.document.format !== 'agents') throw new TriggerRefusal('Only a flow in the Agent format runs from a trigger.')
       const policy = compiled.document.flow
@@ -3094,7 +3096,7 @@ export class FlowExecutions {
   }
 
   /** Host-only repair admission. Cards and round accounting land before any worker can run. */
-  prepareLeadRepair(op: { readonly runId: string; readonly teamId: string; readonly key: string; readonly round: number }): Promise<FlowRoundState> {
+  prepareLeadRepair(op: { readonly runId: string; readonly teamId: string; readonly key: string; readonly round: number; readonly detail?: string }): Promise<FlowRoundState> {
     return this.#queue.within(op.runId, async () => {
       let run = this.#get(op.runId)
       if (!run.lead || !this.#lead?.prepareRepair || run.goal !== op.teamId || this.#continued(run)) throw new Error('lead-repair-run-unowned')
@@ -3105,16 +3107,24 @@ export class FlowExecutions {
       if (!existing && run.rounds.at(-1)?.role !== 'accept') throw new Error('lead-repair-acceptance-missing')
       run = await this.#put({ ...run, state: 'running', reason: null })
       return this.#openRound(run.id, { role: 'implement', title: 'Repair the followed pull request',
-        detail: 'Repair the observed checks or review on this branch, commit the change and rerun the required checks. Independent review and person acceptance still apply. Never publish or merge.' },
+        detail: `${op.detail ?? 'Repair the observed checks or review on this branch.'}\n\nCommit the change and rerun the required checks. Independent review and person acceptance still apply. Never publish or merge.` },
         { key: cause, evidence: [] }, [], true)
     })
   }
   releaseLeadRepair(op: { readonly runId: string; readonly key: string }): Promise<void> {
     return this.#queue.within(op.runId, async () => {
       const run = this.#get(op.runId), round = run.rounds.find(round => round.cause === `cause:lead:${op.key}`)
-      if (!round || round.state !== 'opening') return
-      if (!await this.#mayDispatch(run.id)) return
+      if (!round || !await this.#mayDispatch(run.id)) return
+      if (round.state !== 'opening') {
+        if (this.#leadRepairResumed.has(op.key)) return
+        const seated = this.#openCardSeatings(run.id)
+        await this.#advance(run.id)
+        for (const operation of seated) await this.#reArm(run.id, operation, 'relaunched')
+        this.#leadRepairResumed.add(op.key)
+        return
+      }
       await this.#openRound(run.id, { role: 'implement', title: 'Repair the followed pull request' }, { key: round.cause, evidence: round.evidence }, [])
+      this.#leadRepairResumed.add(op.key)
     })
   }
 

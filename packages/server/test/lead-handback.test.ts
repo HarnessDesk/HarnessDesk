@@ -40,6 +40,7 @@ test('owned-head failure journals one same-Team repair, invalidates results, and
   assert.equal(s.calls.length, 1); assert.equal(s.rounds.size, 1)
   const op = (s.journal.state as any).handbacks[0]
   assert.equal(op.teamId, s.run.goal); assert.equal(op.runId, s.run.id); assert.equal(op.head, head)
+  assert.match(op.detail, /failure-1/); assert.match(op.detail, /github.com\/acme\/widgets\/pull\/7/)
   assert.equal(s.journal.state.phase, 'running')
   assert.equal(leadWorkerDispatchBlockedByOpenPr(s.journal.state), true, 'ordinary mutations stay fenced')
   assert.ok(s.journal.state.decidedCards.includes('result:1'))
@@ -74,7 +75,7 @@ test('review hand-backs stop at three and repeated check on a head has one durab
   for (const kind of ['review', 'check']) {
     const s = await setup(t)
     for (let i = 0; i < (kind === 'review' ? 4 : 2); i++) {
-      const fact = kind === 'review' ? { ...s.fact, event: `review-${i}`, action: 'review-commented', review: { id: i + 1, head, state: 'commented' }, authorWrites: true } : { ...s.fact, event: `check-${i}` }
+      const fact = kind === 'review' ? { ...s.fact, event: 'review-event', action: 'review-commented', review: { id: i + 1, head, state: 'commented' }, authorWrites: true } : { ...s.fact, event: `check-${i}` }
       await s.owner.observe([fact])
       // Complete this cycle so a later independent firing is eligible.
       const op = (s.journal.state as any).handbacks.at(-1)
@@ -95,8 +96,12 @@ test('repair publication waits for reviewed work then head-bound nonempty CI and
   await s.owner.recover(); assert.equal(s.calls.filter(c => Array.isArray(c)).length, 1)
   const op = (s.journal.state as any).handbacks[0]
   assert.equal(op.stage, 'awaiting-ci')
-  await s.journal.observePr({ ...s.journal.state.pr!, head: 'b'.repeat(40), observedHead: 'b'.repeat(40), check: { head: 'b'.repeat(40), state: 'passed', total: 0 } })
-  await s.owner.recover(); assert.equal((s.journal.state as any).ciPassed.length, 0)
+  for (const check of [null, ...['pending', 'absent', 'failed', 'passed'].map(state => ({ head: 'b'.repeat(40), state, total: state === 'pending' ? 2 : 0 }))]) {
+    await s.journal.observePr({ ...s.journal.state.pr!, head: 'b'.repeat(40), observedHead: 'b'.repeat(40), check: check as any })
+    await s.owner.recover(); assert.equal((s.journal.state as any).ciPassed.length, 0)
+  }
+  await assert.rejects(s.journal.observePr({ ...s.journal.state.pr!, check: { head, state: 'passed', total: 2 } }), /another head/)
+  await assert.rejects(s.journal.observePr({ ...s.journal.state.pr!, check: { head: 'b'.repeat(40), state: 'passed', total: NaN } }))
   await s.journal.observePr({ ...s.journal.state.pr!, check: { head: 'b'.repeat(40), state: 'passed', total: 2 } })
   await s.owner.recover(); await s.owner.recover()
   assert.equal((s.journal.state as any).ciPassed.length, 1)
@@ -141,4 +146,43 @@ complete: { accept: [accepted] }
   assert.deepEqual(current.rounds.at(-1)!.seats, [String(writer.id)], JSON.stringify(current))
   await (rig.flows as any).prepareLeadRepair(op)
   assert.equal(rig.flows.executionOf(run.id)!.rounds.length, 3)
+  released = false
+  await rig.restart(); await rig.flows.resume()
+  const orders = rig.events.filter(event => event.startsWith('order:')).length
+  released = true
+  await (rig.flows as any).releaseLeadRepair(op)
+  assert.ok(rig.events.filter(event => event.startsWith('order:')).length > orders, 'the held startup is retried once its host owner is restored')
+  const resumed = rig.events.filter(event => event.startsWith('order:')).length
+  await (rig.flows as any).releaseLeadRepair(op)
+  assert.equal(rig.events.filter(event => event.startsWith('order:')).length, resumed, 'polling never rearms the same live turn twice')
+})
+
+test('turning follow off while a hand-back is prepared holds its dispatch until enabled again', async t => {
+  const s = await setup(t); s.eligible(false); await s.owner.observe([s.fact])
+  await s.journal.settingsChanged(undefined, { checks: false, reviews: true })
+  s.eligible(true); await s.owner.recover(); assert.equal(s.calls.length, 0)
+  await s.journal.settingsChanged(undefined, { checks: true, reviews: true })
+  await s.owner.recover(); assert.equal(s.calls.length, 1)
+})
+
+test('CI passed is real durable evidence once per Team and head, including after recovery', async () => {
+  const { EvidencePlane } = await import('../src/evidence/plane.js')
+  const { makeRepo } = await import('./fixtures/evidence-desk.js')
+  const { tempDir } = await import('./scratch.js')
+  const { join } = await import('node:path')
+  const repo = await makeRepo('hd-lead-ci-'), dir = tempDir('hd-lead-ci-store-')
+  const options = { dir, seenFile: join(dir, 'seen.json') }, port = { board: () => null, cwdOf: () => null, push() {}, log() {} }
+  let plane = new EvidencePlane(options, port)
+  const head = await repo.git('rev-parse', 'HEAD')
+  await plane.observeLeadCi(repo.dir, 'team-1', `lead-ci-${head}`, head)
+  await plane.observeLeadCi(repo.dir, 'team-1', `lead-ci-${head}`, head)
+  plane = new EvidencePlane(options, port)
+  await plane.observeLeadCi(repo.dir, 'team-1', `lead-ci-${head}`, head)
+  await plane.observeLeadCi(repo.dir, 'team-2', `lead-ci-${head}`, head)
+  const read = await plane.store.read(repo.dir, 'evidence')
+  assert.equal(read.skipped, 0)
+  const records = read.lines.flatMap(line => line.type === 'evidence' && line.record.fact.kind === 'ci' ? [line.record] : [])
+  assert.equal(records.length, 2)
+  assert.deepEqual(records.map(record => record.intake?.goal).sort(), ['team-1', 'team-2'])
+  assert.equal((records[0]!.fact as any).checks[0].name, 'CI passed')
 })

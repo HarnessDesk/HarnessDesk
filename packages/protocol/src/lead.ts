@@ -319,7 +319,7 @@ export interface LeadOrigin { readonly source: 'pull-request' | 'issue' | 'sched
 export interface LeadHandback {
   readonly key: string; readonly event: string; readonly kind: 'checks' | 'reviews'; readonly head: string
   readonly runId: string; readonly teamId: string; readonly round: number; readonly at: number
-  readonly stage: 'prepared' | 'running' | 'awaiting-ci' | 'completed'; readonly publishedHead: string | null
+  readonly stage: 'prepared' | 'running' | 'awaiting-ci' | 'completed'; readonly publishedHead: string | null; readonly detail?: string
 }
 export interface LeadThreadSend { readonly idempotencyKey: string; readonly text: string }
 /** Stable first result, retained across retries and journal recovery. */
@@ -578,8 +578,9 @@ const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path 
   return Object.fromEntries(entries.map(([key, value]) => [id(key, path), integer(1)(value, path)]))
 }
 export const parseLeadOrigin: Validator<LeadOrigin> = object({ source: literalUnion('pull-request', 'issue', 'schedule'), event: id, subject: opaque, url: nullable(content) })
-export const parseLeadHandback: Validator<LeadHandback> = object({ key: id, event: id, kind: literalUnion('checks', 'reviews'), head: opaque,
-  runId: id, teamId: id, round: integer(1), at: integer(), stage: literalUnion('prepared', 'running', 'awaiting-ci', 'completed'), publishedHead: nullable(opaque) })
+const handbackParser: Validator<LeadHandback> = object({ key: id, event: id, kind: literalUnion('checks', 'reviews'), head: opaque,
+  runId: id, teamId: id, round: integer(1), at: integer(), stage: literalUnion('prepared', 'running', 'awaiting-ci', 'completed'), publishedHead: nullable(opaque), detail: optional(boundedText(8000, false, proseControls)) })
+export const parseLeadHandback: Validator<LeadHandback> = (value, path = '') => Object.fromEntries(Object.entries(handbackParser(value, path)).filter(([, item]) => item !== undefined)) as unknown as LeadHandback
 export const parseLeadFollowPreferences: Validator<LeadFollowPreferences> = object({ checks: isBoolean, reviews: isBoolean })
 const pullRequestParser: Validator<LeadPullRequest> = object({
   review: optional(nullable(object({ id: integer(1), head: opaque, state: literalUnion('commented', 'changes-requested', 'approved') }))),
@@ -604,8 +605,7 @@ const threadParser: Validator<LeadThread> = object({
 })
 export const parseLeadThread: Validator<LeadThread> = (value, path = '') => {
   const parsed = threadParser(value, path)
-  if (parsed.pr === undefined) { const { pr: _, ...rest } = parsed; return rest }
-  return parsed
+  return Object.fromEntries(Object.entries(parsed).filter(([key, item]) => !['pr', 'origin', 'handback'].includes(key) || item !== undefined)) as unknown as LeadThread
 }
 /** Keep the largest newest suffix within the thread's UTF-8 JSON budget, without mutating
  * the source or dropping cards. Journal readers first hydrate at most LEAD_LIMITS.messages
