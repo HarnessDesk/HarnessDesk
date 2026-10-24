@@ -9,6 +9,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Customize brings Skills, MCP and Plugins together.** One sidebar entry replaces Library and Plugins. Skills use readable two-column cards with a short reach count; runtime scope, search, a compact list and an explicit runtime comparison keep deeper management close without filling every card with icons. Settings sends skill management to Customize and keeps Hooks on its own page.
 
+- **OpenCode stops reading “Signed out.” after you sign back in.** After signing out from Settings, signing in again outside HarnessDesk now shows the account in Settings without having to open a session first.
+
 ## 0.6.0 — 2026-10-21
 
 A Team opens on its recorded Work, Settings reads calmer and behaves the same

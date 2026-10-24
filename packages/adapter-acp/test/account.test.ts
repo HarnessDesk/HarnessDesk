@@ -873,6 +873,144 @@ test('a refusal outranks the record: the agent’s own answer is the newer evide
 })
 
 /**
+ * An agent whose own record is its sign-in status (OpenCode) and that offers
+ * no status command: "Sign in outside HarnessDesk" is its way back in, and
+ * the desk never sees that sign-in happen. The sign-out the desk itself ran
+ * is the only thing it knows, so that must not outlast a record that now
+ * names an account — while a refusal, the agent's own answer, still does.
+ */
+type Named = ReturnType<NonNullable<AcpAgentConfig['resolveIdentity']>>
+const OTHER = { kind: 'agent', label: 'other@example.com', email: 'other@example.com' }
+
+const statusIsRecord = (read: () => Named, env: Record<string, string> = {}, account?: AcpAgentConfig['account']): AcpRuntime =>
+  new AcpRuntime({
+    id: 'fake-acp',
+    name: 'Fake ACP Agent',
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    env,
+    identityIsStatus: true,
+    resolveIdentity: read,
+    ...(account ? { account } : {}),
+  })
+
+test('after a sign-out, an account the agent’s record later names reads as signed in, not “Signed out.”', async () => {
+  let record: Named = DEV
+  const runtime = statusIsRecord(() => record, { FAKE_ACP_LOGOUT: '1' })
+  await runtime.start()
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.deepEqual((await runtime.getAccount()).accounts, [DEV])
+
+    record = null
+    await runtime.logout()
+    const out = await runtime.getAccount()
+    assert.deepEqual(out.accounts, [])
+    assert.equal(out.refusal, 'Signed out.', 'the sign-out is what the record says too, until it says otherwise')
+
+    // The person signs in outside HarnessDesk, the way the agent offers: the desk sees only the record change.
+    record = OTHER
+    const changed = events.filter((event) => event.type === 'account/changed').length
+    const back = await runtime.getAccount()
+    assert.deepEqual(back.accounts, [OTHER])
+    assert.equal(back.refusal, undefined, 'no longer signed out')
+    assert.deepEqual(back.signInMethods, [])
+    assert.equal(events.filter((event) => event.type === 'account/changed').length, changed + 1, 'the surface was told to look again')
+    assert.deepEqual((await runtime.getAccount()).accounts, [OTHER], 'and it stays')
+
+    // Signed out again from outside: an empty record is the sign-in outside the desk once more, with no stale sentence.
+    record = null
+    const gone = await runtime.getAccount()
+    assert.deepEqual(gone.accounts, [])
+    assert.equal(gone.refusal, undefined)
+    assert.equal(gone.signInMethods[0]?.id, 'acp:device')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a sign-out stands while its command still runs, and the record still names the account', async (t) => {
+  let record: Named = DEV
+  let release!: () => void
+  const running = new Promise<void>((resolve) => { release = resolve })
+  t.mock.method(CliAccount.prototype, 'logout', async () => { await running })
+  const runtime = statusIsRecord(() => record, {}, { logout: { command: FAKE_CLI, args: ['logout'] } })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    assert.deepEqual((await runtime.getAccount()).accounts, [DEV])
+    const signingOut = runtime.logout()
+    const during = await runtime.getAccount()
+    assert.deepEqual(during.accounts, [], 'the account being signed out is not signed in again by a read in between')
+    assert.equal(during.refusal, 'Signed out.')
+    record = null
+    release()
+    await signingOut
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  } finally {
+    release()
+    await runtime.dispose()
+  }
+})
+
+test('a sign-out that fails after a read in between puts the account back (#1842)', async (t) => {
+  let release!: () => void
+  const running = new Promise<void>((resolve) => { release = resolve })
+  t.mock.method(CliAccount.prototype, 'logout', async () => { await running; throw new Error('keychain refused') })
+  const runtime = statusIsRecord(() => DEV, {}, { logout: { command: FAKE_CLI, args: ['logout'] } })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    const signingOut = runtime.logout()
+    assert.deepEqual((await runtime.getAccount()).accounts, [])
+    release()
+    await assert.rejects(signingOut, /keychain refused/)
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [DEV], 'the credentials are still there')
+    assert.equal(status.refusal, undefined)
+  } finally {
+    release()
+    await runtime.dispose()
+  }
+})
+
+test('a refusal is not lifted by the record, even one that follows a sign-out', async () => {
+  let record: Named = DEV
+  const runtime = statusIsRecord(() => record, { FAKE_ACP_LOGOUT: '1' })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    record = null
+    await runtime.logout()
+    // The agent's own word on it is newer than the desk’s sign-out.
+    runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
+    record = OTHER
+    const refused = await runtime.getAccount()
+    assert.deepEqual(refused.accounts, [], 'a record on disk is what the agent will try, not proof it works')
+    assert.equal(refused.refusal, 'Authentication required.')
+    assert.equal(refused.signInMethods[0]?.id, 'acp:device')
+    assert.equal((await runtime.getAccount()).refusal, 'Authentication required.', 'and it stays')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('an agent that refused a session at the start is not lifted by its record either', async () => {
+  const runtime = statusIsRecord(() => DEV, { FAKE_ACP_AUTH_REQUIRED: '1' })
+  await runtime.start()
+  try {
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    const status = await runtime.getAccount()
+    assert.deepEqual(status.accounts, [])
+    assert.match(status.refusal ?? '', /^Authentication required/)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+/**
  * #17 — a sign-in binary that does not exist.
  *
  * With no `'error'` listener, `spawn` of a missing command threw an unhandled
