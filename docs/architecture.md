@@ -178,6 +178,10 @@ sample.
   or unreadable storage is preserved and blocks replacement sign-in.
   Cancellation and startup use the saved key to revoke approved but
   unfinished sign-ins, best effort; neither cleanup signs the renderer in.
+  `account/delete` deletes the cloud account with the desk session, then clears
+  this origin's sealed identity through the same path as sign-out and emits
+  `account/changed`. A failed deletion keeps the local identity; there is no
+  local-only account deletion.
   Account pictures are bounded host-fetched raster data from public HTTPS
   addresses; the renderer retains its self/data/blob image policy. Desk name
   and the phone-access preference live in ordinary preferences.

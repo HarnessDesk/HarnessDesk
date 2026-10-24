@@ -60,12 +60,23 @@ export const HarnessDeskSignOut = ({ onClose }: { onClose: () => void }) => {
   </ConfirmDialog>
 }
 
+const HarnessDeskDeleteAccount = ({ onClose }: { onClose: () => void }) => {
+  const store = useStore()
+  const { busy, error, run } = useHarnessDeskAccountAction()
+  return <ConfirmDialog title="Delete your HarnessDesk account?" confirmLabel="Delete account" cancelLabel="Keep account" tone="destructive"
+    busy={busy} onCancel={() => { if (!busy) onClose() }} onConfirm={() => void run(() => store.deleteHarnessDeskAccount()).then(done => { if (done) onClose() })}>
+    This removes the account and unlinks every desk and phone. Agents and local work on this Mac are not affected. This cannot be undone.
+    {error && <ActionError>{error}</ActionError>}
+  </ConfirmDialog>
+}
+
 /** The Account page owns the HarnessDesk identity, desk and account-linked phones. */
 export const HarnessDeskAccountSection = () => {
   const store = useStore()
   const { harnessDeskAccount: status, sidebarCollapsed } = useSnapshot()
   const { busy, error, run } = useHarnessDeskAccountAction()
   const [signOut, setSignOut] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState('')
   const [unlink, setUnlink] = useState<{ deviceId: string; name: string } | null>(null)
@@ -95,7 +106,10 @@ export const HarnessDeskAccountSection = () => {
     <SectionHead level="label" name="Without an account" />
     <Rows><Row mark={<MobileIcon size={16} />} title="Pair a phone with a code" desc="Not available in this build"
       control={<Button variant="outline" disabled>Show code</Button>} /></Rows>
+    {signedIn && <><SectionHead level="label" name="HarnessDesk account" />
+      <Rows><Row title="Delete account" control={<Button variant="destructive" disabled={busy} onClick={() => setDeleting(true)}>Delete account…</Button>} /></Rows></>}
     {signOut && <HarnessDeskSignOut onClose={() => setSignOut(false)} />}
+    {deleting && <HarnessDeskDeleteAccount onClose={() => setDeleting(false)} />}
     {renaming && <Dialog title="Rename this desk" onClose={() => setRenaming(false)} footer={<>
       <Button disabled={busy || !name.trim()} onClick={() => void run(() => store.renameHarnessDesk(name.trim())).then(done => { if (done) setRenaming(false) })}>Rename</Button>
       <Button variant="secondary" disabled={busy} onClick={() => setRenaming(false)}>Cancel</Button>

@@ -1,5 +1,29 @@
 import { expect, it, vi } from 'vitest'
 import { AppStore } from './store'
+it('deletes the HarnessDesk account through the host and replaces its status without changing runtime accounts', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const signedIn = { status: 'signedIn', account: { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: null }, desk: { name: 'Demo desk', reachable: true }, phones: [{ deviceId: 'AAAAAAAAAAAAAAAAAAAAAA', name: 'iPhone', lastSeenAt: null }] }
+  const signedOut = { status: 'signedOut', desk: { name: 'Demo desk', reachable: false }, phones: [] }
+  const request = vi.spyOn(store.transport, 'request').mockResolvedValueOnce(signedIn as never).mockResolvedValueOnce(signedOut as never)
+  await store.loadHarnessDeskAccount()
+  const accounts = store.getSnapshot().accountsByRuntime
+  await store.deleteHarnessDeskAccount()
+  expect(request).toHaveBeenLastCalledWith('account/delete', {})
+  expect(store.getSnapshot().harnessDeskAccount).toEqual(signedOut)
+  expect(store.getSnapshot().accountsByRuntime).toBe(accounts)
+})
+
+it('keeps the signed-in account if cloud deletion fails and never falls back to sign-out', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const signedIn = { status: 'signedIn', account: { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: null }, desk: { name: 'Demo desk', reachable: true }, phones: [] }
+  const failure = Object.assign(new Error("Can't reach HarnessDesk. Try again when you're online."), { code: 'accountCloudUnreachable' })
+  const request = vi.spyOn(store.transport, 'request').mockResolvedValueOnce(signedIn as never).mockRejectedValueOnce(failure)
+  await store.loadHarnessDeskAccount()
+  await expect(store.deleteHarnessDeskAccount()).rejects.toBe(failure)
+  expect(request.mock.calls).toEqual([['account/status', {}], ['account/delete', {}]])
+  expect(store.getSnapshot().harnessDeskAccount).toEqual(signedIn)
+})
+
 it('keeps HarnessDesk mutations separate from runtime account credentials', async () => {
   const store = new AppStore('ws://localhost:0/')
   const status = { status: 'signedIn', account: { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: null }, desk: { name: 'Demo desk', reachable: true }, phones: [] }

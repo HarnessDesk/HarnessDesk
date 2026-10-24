@@ -22,12 +22,17 @@ const mount = (status = account, sidebarCollapsed = false) => {
   const renameHarnessDesk = vi.fn(async () => {})
   const signInToHarnessDesk = vi.fn(async () => {})
   const signOutOfHarnessDesk = vi.fn(async () => {})
-  const snapshot = { ...emptySnapshot(), harnessDeskAccount: status, sidebarCollapsed }
-  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot,
-    setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk,
+  let snapshot = { ...emptySnapshot(), harnessDeskAccount: status, sidebarCollapsed }
+  const listeners = new Set<() => void>()
+  const deleteHarnessDeskAccount = vi.fn(async () => {
+    snapshot = { ...snapshot, harnessDeskAccount: { status: 'signedOut', desk: { ...status.desk, reachable: false }, phones: [] } }
+    for (const listener of listeners) listener()
+  })
+  const store = { subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, getSnapshot: () => snapshot,
+    setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk, deleteHarnessDeskAccount,
   } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><HarnessDeskAccountSection /></StoreProvider>))
-  return { setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk }
+  return { setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk, deleteHarnessDeskAccount, store }
 }
 const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === name)!
 it('shows the account, desk and linked phones; keeps unavailable code pairing honest', () => {
@@ -58,6 +63,70 @@ it('offers sign-in while signed out without offering account-only controls', asy
   await act(async () => button('Sign in…').click())
   expect(signInToHarnessDesk).toHaveBeenCalledOnce()
   expect(container.querySelector('[role="switch"]')).toBeNull()
+  expect(button('Delete account…')).toBeUndefined()
+})
+
+it('explains account deletion and keeps the account when cancelled', () => {
+  const { deleteHarnessDeskAccount } = mount()
+  act(() => button('Delete account…').click())
+  const dialog = document.querySelector('[role="alertdialog"]')!
+  expect(dialog.textContent).toContain('Delete your HarnessDesk account?')
+  expect(dialog.textContent).toContain('This removes the account and unlinks every desk and phone. Agents and local work on this Mac are not affected. This cannot be undone.')
+  expect(deleteHarnessDeskAccount).not.toHaveBeenCalled()
+  act(() => button('Keep account').click())
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(deleteHarnessDeskAccount).not.toHaveBeenCalled()
+  expect(container.textContent).toContain('jane@example.com')
+})
+
+it('confirms deletion through the host and follows the signed-out account state', async () => {
+  const { deleteHarnessDeskAccount, store } = mount()
+  act(() => button('Delete account…').click())
+  await act(async () => button('Delete account').click())
+  expect(deleteHarnessDeskAccount).toHaveBeenCalledExactlyOnceWith()
+  expect(store.getSnapshot().harnessDeskAccount?.status).toBe('signedOut')
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  expect(button('Sign in…')).toBeDefined()
+  expect(button('Delete account…')).toBeUndefined()
+  expect(container.textContent).not.toContain('jane@example.com')
+  expect(container.textContent).not.toContain('iPhone')
+})
+
+it.each([
+  new Error('The account could not be deleted. Try again.'),
+  Object.assign(new Error("Can't reach HarnessDesk. Try again when you're online."), { code: 'accountCloudUnreachable' }),
+])('keeps deletion failures in the dialog without a local-only fallback: %s', async failure => {
+  const { deleteHarnessDeskAccount, signOutOfHarnessDesk, store } = mount()
+  deleteHarnessDeskAccount.mockRejectedValueOnce(failure)
+  act(() => button('Delete account…').click())
+  await act(async () => button('Delete account').click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(failure.message)
+  expect(store.getSnapshot().harnessDeskAccount?.status).toBe('signedIn')
+  expect(container.textContent).toContain('jane@example.com')
+  expect(button('Sign out on this desk only')).toBeUndefined()
+  expect(signOutOfHarnessDesk).not.toHaveBeenCalled()
+  expect(button('Delete account').disabled).toBe(false)
+})
+
+it('keeps deletion mounted on Escape while pending so a later failure remains visible', async () => {
+  const { deleteHarnessDeskAccount, store } = mount()
+  let reject!: (failure: Error) => void
+  deleteHarnessDeskAccount.mockImplementationOnce(() => new Promise<void>((_resolve, fail) => { reject = fail }))
+  act(() => button('Delete account…').click())
+  const dialog = document.querySelector('[role="alertdialog"]')!
+  await act(async () => button('Delete account').click())
+  expect(button('Delete account').disabled).toBe(true)
+  expect(button('Keep account').disabled).toBe(true)
+  await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  expect(document.querySelector('[role="alertdialog"]')).toBe(dialog)
+  const message = "Can't reach HarnessDesk. Try again when you're online."
+  await act(async () => reject(new Error(message)))
+  expect(document.querySelector('[role="alertdialog"]')).toBe(dialog)
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(message)
+  expect(store.getSnapshot().harnessDeskAccount?.status).toBe('signedIn')
+  expect(button('Keep account').disabled).toBe(false)
+  act(() => button('Keep account').click())
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
 })
 
 it('formats host last-seen timestamps as Unix seconds', () => {

@@ -4,6 +4,8 @@ import { CLIENT_METHODS, clientTierFor, parseClientMessage, ValidationError } fr
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 test('app account controls validate desk names, phone ids and boolean preferences at the wire', () => {
   assert.doesNotThrow(() => request('account/status', {}))
+  assert.doesNotThrow(() => request('account/delete', {}))
+  assert.throws(() => request('account/delete', null), ValidationError)
   assert.doesNotThrow(() => request('account/signOut', { localOnly: true }))
   assert.throws(() => request('account/signOut', { localOnly: 'true' }), ValidationError)
   assert.doesNotThrow(() => request('account/renameDesk', { name: 'Studio Mac' }))
@@ -13,7 +15,7 @@ test('app account controls validate desk names, phone ids and boolean preference
   assert.throws(() => request('account/setReachable', { reachable: 'true' }), ValidationError)
 })
 test('app account identity and controls are confined to the local renderer door', () => {
-  for (const method of ['account/status', 'account/signIn', 'account/openSignIn', 'account/cancel', 'account/signOut', 'account/phones', 'account/unlinkPhone', 'account/renameDesk', 'account/setReachable']) {
+  for (const method of ['account/status', 'account/signIn', 'account/openSignIn', 'account/cancel', 'account/signOut', 'account/delete', 'account/phones', 'account/unlinkPhone', 'account/renameDesk', 'account/setReachable']) {
     assert.equal(clientTierFor(method), null, method)
     assert.equal(Object.hasOwn(CLIENT_METHODS, method), false, method)
   }

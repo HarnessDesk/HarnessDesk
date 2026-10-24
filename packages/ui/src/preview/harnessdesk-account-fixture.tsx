@@ -22,7 +22,16 @@ export const HarnessDeskAccountPreview = () => {
     }
     const next = frameDestinationStore(previewStore({ ...fixture.getSnapshot(), harnessDeskAccount: status,
       theme: params.get('theme') === 'dark' ? 'dark' : 'light' }))
-    if (stage === 'settings' || stage === 'settings-offline') next.openDestination({ kind: 'settings', route: { kind: 'section', section: 'profile', focus: null } })
+    // Keep every deletion scenario in this synthetic account preview.
+    const request = next.transport.request.bind(next.transport)
+    next.transport.request = (async (method, args) => {
+      if (method === 'account/delete') {
+        if (stage === 'settings-delete-offline') throw Object.assign(new Error("Can't reach HarnessDesk. Try again when you're online."), { code: 'accountCloudUnreachable' })
+        return { status: 'signedOut', desk: { ...status.desk, reachable: false }, phones: [] }
+      }
+      return request(method, args)
+    }) as typeof next.transport.request
+    if (stage === 'settings' || stage === 'settings-offline' || stage === 'settings-delete' || stage === 'settings-delete-offline') next.openDestination({ kind: 'settings', route: { kind: 'section', section: 'profile', focus: null } })
     if (stage === 'settings-offline') {
       const signOut = next.signOutOfHarnessDesk.bind(next)
       next.signOutOfHarnessDesk = async localOnly => {

@@ -992,6 +992,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'account/signIn': shape({}),
   'account/openSignIn': shape({}),
   'account/cancel': shape({}),
+  'account/delete': shape({}),
   'account/signOut': shape({ localOnly: optional(isBoolean) }),
   'account/unlinkPhone': shape({ deviceId: (value, path = '') => {
     const id = isString(value, path)

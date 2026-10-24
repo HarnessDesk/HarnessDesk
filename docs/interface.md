@@ -547,6 +547,15 @@ accounts; credentials stay out of the renderer. Account pictures are bounded
 raster data supplied by the host; the renderer never loads the account’s
 remote picture URL, and the app’s image content policy stays unchanged.
 
+While signed in, the bottom of Account offers **Delete account…**. Its
+**Delete your HarnessDesk account?** confirmation explains that deletion removes
+the account and unlinks every desk and phone, leaves agents and local work on
+this Mac unaffected, and cannot be undone. **Keep account** cancels;
+**Delete account** asks the host to delete the cloud account. The page follows
+the host's signed-out state after success. A failure stays in the confirmation;
+offline deletion says **Can't reach HarnessDesk. Try again when you're online.**
+and offers no local-only deletion.
+
 The **Local profile** beneath the account settings remains a name and a face
 kept on this Mac. Its page is its own preview: the head follows the name as
 you type it. The faces are the app's

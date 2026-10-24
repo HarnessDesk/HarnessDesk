@@ -44,7 +44,9 @@ a token is accepted by every service that trusts its key id.
 The hosted service is closed source and runs three things:
 
 - **Accounts and sign-in.** It issues tokens and checks that a desk owns the
-  key it names.
+  key it names. Account deletion uses that authenticated lane to remove the
+  account and unlink its desks and phones before the desktop clears its local
+  sign-in. It never removes agent credentials or local work.
 - **The relay.** Desk and phone each open an outbound connection to it, and it
   passes their frames to each other.
 - **Push.** It wraps a message the desk has already encrypted in a generic

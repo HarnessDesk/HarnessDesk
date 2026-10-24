@@ -459,6 +459,19 @@ export class HarnessDeskAccount {
     this.#emit(this.#signedOut(this.#storageBlocked))
     return this.#snapshot
   }
+  /** Account deletion is confirmed remotely before removing this desk's sealed identity. */
+  deleteAccount() { return this.#serialize(async () => {
+    try {
+      const { token } = await this.#authorized()
+      this.#parse(Ok, await this.#request('/account/delete', {}, token))
+    } catch (error) {
+      if (error instanceof CloudUnreachableError || (error instanceof CloudError && error.status >= 500)) {
+        throw new Error("Can't reach HarnessDesk. Try again when you're online.")
+      }
+      throw error
+    }
+    return this.#clearLocal()
+  }, false) }
   signOut(localOnly = false) { return this.#serialize(async () => {
     if (!localOnly && this.#identity) {
       try {

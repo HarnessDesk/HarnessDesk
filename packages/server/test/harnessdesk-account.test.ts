@@ -66,6 +66,7 @@ async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: bo
     if (url.pathname === '/v1/desk/account') return Response.json({ account: { ...account, pictureUrl: options.pictureUrl ?? null }, desk: { deskId, name }, phones: revoked ? [] : [{ deviceId, name: 'Phone', lastSeenAt: null }] })
     if (url.pathname === '/v1/desk/rename') { name = body.name!; return Response.json({ deskId, name }) }
     if (url.pathname === '/v1/links/revoke') { assert.equal(body.deskId, deskId); revoked = true; return Response.json({ ok: true }) }
+    if (url.pathname === '/v1/account/delete') { cloudRevoked = true; return Response.json({ ok: true }) }
     if (url.pathname === '/v1/desks/revoke') { assert.equal(body.deskId, deskId); cloudRevoked = true; return Response.json({ ok: true }) }
     throw new Error('unexpected fake route')
   }
@@ -368,4 +369,37 @@ test('startup cleans an approved legacy key even when no pending record survived
   const reopened = new HarnessDeskAccount({ state: r.state, cipher, cloudUrl: 'https://cloud.example.com', now: () => 1_000_000, fetch: r.request, changed: () => {} })
   assert.equal((await reopened.status()).status, 'signedOut'); reopened.close()
   assert.equal(r.calls.filter(c => c.path === '/v1/desks/revoke').length, 1)
+})
+
+test('account deletion clears this origin identity and notifies signed out only after cloud success', async () => {
+  const r = await rig(); await r.service.signIn(); r.approve(); await r.timers.shift()!()
+  const release = r.holdRequest('/v1/account/delete')
+  const deleting = r.service.deleteAccount()
+  await until(() => r.calls.some(c => c.path === '/v1/account/delete'))
+  assert.equal((await r.service.status()).status, 'signedIn')
+  assert.equal((await readdir(r.dir)).filter(file => file.endsWith('.sealed')).length, 1)
+  release(); await deleting
+  assert.equal((await r.service.status()).status, 'signedOut')
+  assert.deepEqual(r.changes.at(-1), await r.service.status())
+  assert.deepEqual((await readdir(r.dir)).filter(file => file.endsWith('.sealed')), [])
+  assert.deepEqual(r.calls.find(c => c.path === '/v1/account/delete')!.body, {})
+  r.service.close()
+  const again = new HarnessDeskAccount({ state: r.state, cipher, cloudUrl: 'https://cloud.example.com', fetch: r.request, changed: () => {} })
+  assert.equal((await again.status()).status, 'signedOut'); again.close()
+})
+for (const failure of ['offline', 401, 404, 429, 500] as const) test(`failed account deletion (${failure}) keeps the local identity`, async () => {
+  const r = await rig(); await r.service.signIn(); r.approve(); await r.timers.shift()!()
+  const file = (await readdir(r.dir)).find(file => file.endsWith('.sealed'))!
+  const saved = await readFile(join(r.dir, file)); const before = r.changes.length
+  r.fault('/account/delete', failure)
+  await assert.rejects(r.service.deleteAccount(), failure === 'offline' || failure === 500 ? { message: "Can't reach HarnessDesk. Try again when you're online." } : /HarnessDesk/)
+  assert.equal((await r.service.status()).status, 'signedIn')
+  assert.deepEqual(await readFile(join(r.dir, file)), saved)
+  assert.equal(r.changes.length, before); r.service.close()
+})
+test('account deletion requires a signed-in account and never creates a new identity', async () => {
+  const r = await rig()
+  await assert.rejects(r.service.deleteAccount(), /Sign in to HarnessDesk first/)
+  assert.equal(r.calls.length, 0)
+  assert.deepEqual((await readdir(r.dir)).filter(file => file.endsWith('.sealed')), []); r.service.close()
 })

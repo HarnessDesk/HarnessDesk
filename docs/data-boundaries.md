@@ -136,6 +136,13 @@ confirmation offers **Sign out on this desk only**: it clears the local
 identity while the desk stays linked until unlinked from another device.
 An already-revoked cloud identity does not prevent local sign-out. A local
 preference prevents a legacy copy from restoring a signed-out identity.
+Settings › Account also offers **Delete account…**. Its confirmation removes
+the cloud account and unlinks every desk and phone. The host clears its local
+identity only after the cloud confirms deletion; an offline attempt must be
+retried when connected. The service retains anonymous desk and link generation counters
+and a hash of the deleted account id to reject old credentials; neither
+contains the deleted profile or device registrations. Agents and local work
+on this Mac are unaffected.
 Agent accounts and all local work stay available. The phone-access switch
 only saves a preference in this build; no desktop relay connection is opened.
 

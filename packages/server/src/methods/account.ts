@@ -6,6 +6,7 @@ export const harnessDeskAccountMethods = {
   'account/signIn': (ctx) => ctx.harnessDeskAccount.signIn(),
   'account/openSignIn': (ctx) => ctx.harnessDeskAccount.openSignIn(),
   'account/cancel': (ctx) => ctx.harnessDeskAccount.cancel(),
+  'account/delete': (ctx) => ctx.harnessDeskAccount.deleteAccount(),
   'account/signOut': (ctx, params) => ctx.harnessDeskAccount.signOut(params.localOnly),
   'account/unlinkPhone': (ctx, params) => ctx.harnessDeskAccount.unlinkPhone(params.deviceId),
   'account/renameDesk': (ctx, params) => ctx.harnessDeskAccount.renameDesk(params.name),

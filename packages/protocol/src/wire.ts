@@ -767,6 +767,7 @@ export interface HostMethods {
   'account/signIn': { params: Record<string, never>; result: HarnessDeskAccountStatus }
   'account/openSignIn': { params: Record<string, never>; result: HarnessDeskAccountStatus }
   'account/cancel': { params: Record<string, never>; result: HarnessDeskAccountStatus }
+  'account/delete': { params: Record<string, never>; result: HarnessDeskAccountStatus }
   'account/signOut': { params: { readonly localOnly?: boolean }; result: HarnessDeskAccountStatus }
   'account/unlinkPhone': { params: { readonly deviceId: string }; result: HarnessDeskAccountStatus }
   'account/renameDesk': { params: { readonly name: string }; result: HarnessDeskAccountStatus }
