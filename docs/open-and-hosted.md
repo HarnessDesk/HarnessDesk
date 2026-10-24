@@ -20,7 +20,8 @@ The desktop's service integration is in this repository under the MIT licence:
   session never reaches the desk. `harnessdesk://` only focuses the app.
 - **The desk's identity.** Each desk creates an Ed25519 key; its id is derived
   from the public key. The existing desktop keystore cipher protects the key,
-  renewable desk token and cached profile in `account.sealed`. There is no
+  renewable desk token and cached profile in a separate sealed file per cloud
+  origin. There is no
   plaintext fallback for this account. Future QR pairing uses this identity
   so a phone can verify the desk it scanned.
 - **Encryption.** The relay connection and push messages will be encrypted on

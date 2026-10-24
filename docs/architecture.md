@@ -171,8 +171,13 @@ sample.
   session and account metadata. The renderer uses `account/*` and
   `account/changed`, never the cloud contract or a credential. The desktop
   supplies its existing keystore cipher and `shell.openExternal`; this account
-  refuses the standalone host's plaintext fallback. `account.sealed` contains
-  only encrypted key, session and cached account data and stays out of backups.
+  refuses the standalone host's plaintext fallback. Each cloud origin has its
+  own `account-<origin hash>.sealed` file containing only encrypted key,
+  pending approval, session and cached account data, excluded from backups.
+  A readable legacy `account.sealed` migrates to its recorded origin. Opaque
+  or unreadable storage is preserved and blocks replacement sign-in.
+  Cancellation and startup use the saved key to revoke approved but
+  unfinished sign-ins, best effort; neither cleanup signs the renderer in.
   Account pictures are bounded host-fetched raster data from public HTTPS
   addresses; the renderer retains its self/data/blob image policy. Desk name
   and the phone-access preference live in ordinary preferences.

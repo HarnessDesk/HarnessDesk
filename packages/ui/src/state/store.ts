@@ -1000,8 +1000,8 @@ export class AppStore {
   async cancelHarnessDeskSignIn(): Promise<void> {
     await this.#updateHarnessDeskAccount(() => this.transport.request('account/cancel', {}))
   }
-  async signOutOfHarnessDesk(): Promise<void> {
-    await this.#updateHarnessDeskAccount(() => this.transport.request('account/signOut', {}))
+  async signOutOfHarnessDesk(localOnly?: boolean): Promise<void> {
+    await this.#updateHarnessDeskAccount(() => this.transport.request('account/signOut', localOnly ? { localOnly: true } : {}))
   }
   async renameHarnessDesk(name: string): Promise<void> {
     await this.#updateHarnessDeskAccount(() => this.transport.request('account/renameDesk', { name }))

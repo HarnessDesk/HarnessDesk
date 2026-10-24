@@ -22,6 +22,7 @@ globalThis.fetch = async (input) => {
   const url = new URL(String(input))
   assert.equal(url.origin, 'https://cloud.example.com')
   if (url.pathname === '/v1/desk/challenge') return Response.json({challenge:'A'.repeat(43),expiresAt:Math.floor(Date.now()/1000)+60})
+  if (url.pathname === '/v1/desk-link/poll') return Response.json({status:'pending'})
   assert.equal(url.pathname, '/v1/desk-link/start')
   return Response.json({userCode:'ABCD-EFGH',pollSecret:'p'.repeat(43),verifyUrl:'https://cloud.example.com/link#code=ABCD-EFGH',expiresAt:Math.floor(Date.now()/1000)+600,intervalSeconds:30})
 }

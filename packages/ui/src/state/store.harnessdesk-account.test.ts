@@ -18,6 +18,15 @@ it('keeps HarnessDesk mutations separate from runtime account credentials', asyn
   expect(store.getSnapshot().accountsByRuntime).toEqual({})
 })
 
+it('explicitly requests desk-only sign-out when the person chooses the offline fallback', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const status = { status: 'signedOut', desk: { name: 'Demo desk', reachable: false }, phones: [] }
+  const request = vi.spyOn(store.transport, 'request').mockResolvedValue(status as never)
+  await store.signOutOfHarnessDesk(true)
+  expect(request).toHaveBeenLastCalledWith('account/signOut', { localOnly: true })
+  expect(store.getSnapshot().harnessDeskAccount).toEqual(status)
+})
+
 it('does not replace a pushed sign-in with an older status read', async () => {
   const store = new AppStore('ws://localhost:0/')
   let resolve!: (value: unknown) => void

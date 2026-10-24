@@ -1,5 +1,6 @@
 import { loadAccountPicture, isAccountPictureDataUrl } from './account-picture.js'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile, unlink, stat } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -15,7 +16,7 @@ import type { CredentialCipher } from './credentials.js'
 import type { StateStore } from './state.js'
 
 interface Session { token: string; expiresAt: number }
-interface Secrets { version: 1; origin: string; key: string; session?: Session; cached?: ReturnType<typeof DeskAccountResponse.parse>; picture?: { source: string; data: string } }
+interface Secrets { version: 1; origin: string; key: string; pending?: Pending; session?: Session; cached?: ReturnType<typeof DeskAccountResponse.parse>; picture?: { source: string; data: string } }
 interface Pending { userCode: string; pollSecret: string; verifyUrl: string; expiresAt: number; intervalSeconds: number }
 interface Options {
   state: StateStore
@@ -29,6 +30,10 @@ interface Options {
   setTimer?: (fn: () => Promise<void>, ms: number) => unknown
   clearTimer?: (timer: unknown) => void
 }
+class CloudUnreachableError extends Error {
+  readonly wireCode = 'accountCloudUnreachable'
+  constructor() { super('HarnessDesk could not reach your account. Try again.') }
+}
 class CloudError extends Error {
   constructor(readonly status: number) { super('HarnessDesk could not reach your account. Try again.') }
 }
@@ -38,6 +43,8 @@ export class HarnessDeskAccount {
   readonly #options: Options
   readonly #base: URL
   readonly #fetch: typeof fetch
+  readonly #file: string
+  #storageBlocked: string | undefined
   #loaded: Promise<void> | undefined
   #identity: SigningIdentity | undefined
   #secrets: Secrets | undefined
@@ -57,6 +64,7 @@ export class HarnessDeskAccount {
     if ((this.#base.protocol !== 'https:' && !(loopback && this.#base.protocol === 'http:')) || this.#base.username || this.#base.password || this.#base.pathname !== '/' || this.#base.search || this.#base.hash) {
       throw new Error('HARNESSDESK_CLOUD_URL must be an HTTPS origin (HTTP loopback is allowed for local development).')
     }
+    this.#file = join(options.state.directory, `account-${createHash('sha256').update(this.#base.origin).digest('hex')}.sealed`)
     this.#fetch = options.fetch ?? fetch
     this.#snapshot = this.#signedOut()
   }
@@ -77,8 +85,9 @@ export class HarnessDeskAccount {
   async #persist() {
     const data = this.#secrets
     if (!data) return
+    if (this.#storageBlocked) throw new Error(this.#storageBlocked)
     const blob = this.#encrypted().encrypt(JSON.stringify(data))
-    const file = join(this.#options.state.directory, 'account.sealed')
+    const file = this.#file
     const writing = this.#writes.catch(() => {}).then(async () => {
       await mkdir(this.#options.state.directory, { recursive: true })
       await writeFile(`${file}.tmp`, blob, { mode: 0o600 })
@@ -87,31 +96,55 @@ export class HarnessDeskAccount {
     this.#writes = writing
     await writing
   }
-  #load() {
+  #load(remote = true) {
     return this.#loaded ??= (async () => {
       await this.#options.state.load()
       this.#snapshot = this.#signedOut()
       // No plaintext fallback, and no attempt to decrypt a desktop secret in a standalone host.
-      if (!this.#options.cipher || this.#options.cipher.protection === 'file permissions only') return
+      if (!this.#options.cipher || this.#options.cipher.protection === 'file permissions only') {
+        for (const file of [this.#file, join(this.#options.state.directory, 'account.sealed')]) {
+          try { await stat(file); this.#blockStorage(); break }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') { this.#blockStorage(); break } }
+        }
+        return
+      }
       let bytes: Buffer
-      try { bytes = await readFile(join(this.#options.state.directory, 'account.sealed')) }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw new Error('HarnessDesk could not read its encrypted account storage.') }
+      let legacy = false
+      try { bytes = await readFile(this.#file) }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') { this.#blockStorage(); return }
+        const ignored = this.#options.state.state.preferences['accountLegacyIgnoredOrigins']
+        if (Array.isArray(ignored) && ignored.includes(this.#base.origin)) return
+        try { bytes = await readFile(join(this.#options.state.directory, 'account.sealed')); legacy = true }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.#blockStorage(); return }
+      }
       try {
         const data = JSON.parse(this.#encrypted().decrypt(bytes)) as Secrets
-        if (data.version !== 1 || data.origin !== this.#base.origin || typeof data.key !== 'string') return
+        // A readable legacy identity belonging to another origin is left for that origin to migrate.
+        if (legacy && typeof data?.origin === 'string' && data.origin !== this.#base.origin) return
+        if (data.version !== 1 || data.origin !== this.#base.origin || typeof data.key !== 'string') throw new Error('invalid sealed identity')
         this.#identity = await signingIdentityFromPkcs8(fromB64u(data.key))
         this.#secrets = { version: 1, origin: data.origin, key: data.key,
           ...(data.session && typeof data.session.token === 'string' && Number.isSafeInteger(data.session.expiresAt) ? { session: data.session } : {}) }
+        const pending = StartDeskLinkResponse.safeParse(data.pending)
+        if (pending.success) this.#secrets.pending = pending.data
         const cached = DeskAccountResponse.safeParse(data.cached)
         if (cached.success) this.#secrets.cached = cached.data
         if (typeof data.picture?.source === 'string' && isAccountPictureDataUrl(data.picture.data)) {
           this.#secrets.picture = data.picture
           this.#pictureSource = data.picture.source
         }
-      } catch { this.#emit(this.#signedOut('Your encrypted account could not be opened. Sign in again.')); return }
+        if (legacy) {
+          // Only a validated, decryptable blob moves. Never replace an existing origin's file.
+          await writeFile(this.#file, bytes, { flag: 'wx', mode: 0o600 })
+          await unlink(join(this.#options.state.directory, 'account.sealed')).catch(() => {})
+        }
+      } catch { this.#identity = undefined; this.#secrets = undefined; this.#blockStorage(); return }
+      if (!legacy) await this.#removeLegacyDuplicate()
       if (this.#secrets?.session) {
         const cached = this.#secrets.cached
         if (cached) this.#emit({ status: 'signedIn', account: this.#withPicture(cached.account), desk: this.#desk(), phones: cached.phones })
+        if (!remote) return
         const generation = this.#generation
         try { await this.#refresh(generation) }
         catch {
@@ -120,14 +153,35 @@ export class HarnessDeskAccount {
             this.#schedule(() => this.#refreshQuietly(generation), 30)
           }
         }
+      } else if (this.#identity && remote) {
+        // A process can quit after browser approval and before saving its first session.
+        // Old sealed files have no pending record; proof of the existing key is sufficient to clean them up too.
+        const generation = this.#generation
+        const cleaned = await this.#cleanupUnfinished(this.#secrets?.pending, generation)
+        if (cleaned && this.#current(generation) && this.#secrets) { delete this.#secrets.pending; await this.#persist() }
       }
     })()
   }
+  async #removeLegacyDuplicate() {
+    if (!this.#secrets) return
+    const file = join(this.#options.state.directory, 'account.sealed')
+    let bytes: Buffer
+    try { bytes = await readFile(file) }
+    catch { return } // Legacy cleanup cannot disable a valid origin identity.
+    let data: Partial<Secrets>
+    try { data = JSON.parse(this.#encrypted().decrypt(bytes)) as Partial<Secrets> }
+    catch { return } // Opaque bytes are kept. The origin's sign-out marker prevents restoring them later.
+    if (data?.version === 1 && data.origin === this.#base.origin && data.key === this.#secrets.key) await unlink(file).catch(() => {})
+  }
+  #blockStorage() {
+    this.#storageBlocked = 'Your encrypted account could not be opened. The saved file was kept; restore access to secure storage before signing in again.'
+    this.#emit(this.#signedOut(this.#storageBlocked))
+  }
   async status(): Promise<HarnessDeskAccountStatus> { await this.#load(); return this.#snapshot }
-  #serialize<T>(fn: () => Promise<T>): Promise<T> {
+  #serialize<T>(fn: () => Promise<T>, remote = true): Promise<T> {
     const next = this.#mutations.catch(() => {}).then(async () => {
       if (this.#closed) throw new Error('This desk is closing.')
-      await this.#load()
+      await this.#load(remote)
       return fn()
     })
     this.#mutations = next
@@ -141,8 +195,11 @@ export class HarnessDeskAccount {
         headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       })
-    } catch { throw new Error('HarnessDesk could not reach your account. Try again.') }
-    if (!response.ok) throw new CloudError(response.status)
+    } catch { throw new CloudUnreachableError() }
+    if (!response.ok) {
+      if (path === '/desk-link/start' && response.status === 429) throw new Error('Too many attempts. Try again in a few minutes.')
+      throw new CloudError(response.status)
+    }
     try { return await response.json() } catch { throw new Error('HarnessDesk received an invalid account response.') }
   }
   #parse<T>(schema: { parse(value: unknown): T }, value: unknown): T {
@@ -170,6 +227,7 @@ export class HarnessDeskAccount {
     if (!this.#options.setTimer) (this.#timer as ReturnType<typeof setTimeout>).unref()
   }
   async #key() {
+    if (this.#storageBlocked) throw new Error(this.#storageBlocked)
     this.#encrypted()
     if (!this.#identity) {
       this.#identity = await generateSigningIdentity()
@@ -198,6 +256,9 @@ export class HarnessDeskAccount {
       if (!this.#current(generation)) return this.#snapshot
       if (started.expiresAt <= this.#now()) throw new Error('The sign-in code expired. Try again.')
       this.#pending = started
+      this.#secrets!.pending = started
+      await this.#persist()
+      if (!this.#current(generation)) return this.#snapshot
       this.#emit({ status: 'pending', desk: this.#desk(), phones: [], pending: { userCode: started.userCode, verifyUrl: page.href, expiresAt: started.expiresAt } })
       this.#schedule(() => this.#poll(generation), Math.min(30, Math.max(1, started.intervalSeconds)))
       try { await this.#options.openExternal(page.href) }
@@ -234,6 +295,7 @@ export class HarnessDeskAccount {
       await this.#options.state.setPreferences({ accountDeskName: response.desk.name })
       if (!this.#current(generation)) return
       this.#secrets = { ...this.#secrets!, session, cached: response }
+      delete this.#secrets.pending
       if (this.#secrets.picture?.source !== response.account.pictureUrl) delete this.#secrets.picture
       if (this.#pictureSource !== response.account.pictureUrl) this.#pictureSource = undefined
       await this.#persist()
@@ -282,15 +344,15 @@ export class HarnessDeskAccount {
   async #poll(generation: number) {
     const pending = this.#pending
     if (!pending || !this.#current(generation)) return
-    if (pending.expiresAt <= this.#now()) { this.#pending = undefined; this.#emit(this.#signedOut('The sign-in code expired. Try again.')); return }
+    const expired = pending.expiresAt <= this.#now()
     try {
       const result = this.#parse(PollDeskLinkResponse, await this.#request('/desk-link/poll', { pollSecret: pending.pollSecret }))
       if (!this.#current(generation)) return
-      if (result.status === 'denied') { this.#pending = undefined; this.#emit(this.#signedOut('The sign-in request was declined.')); return }
+      if (result.status === 'denied') { await this.#endPending(generation, 'The sign-in request was declined.'); return }
       if (result.status === 'approved') {
         const deskId = await idFromPub((await this.#key()).pub)
         if (!this.#current(generation)) return
-        if (result.deskId !== deskId) throw new Error('The approved desk did not match this desk.')
+        if (result.deskId !== deskId) { await this.#endPending(generation, 'The approved desk did not match this desk.'); return }
         await this.#refresh(generation)
         if (this.#current(generation)) this.#pending = undefined
         return
@@ -298,24 +360,63 @@ export class HarnessDeskAccount {
     } catch (error) {
       if (!this.#current(generation)) return
       if (error instanceof CloudError && [401, 404, 410].includes(error.status)) {
-        this.#pending = undefined; this.#emit(this.#signedOut('The sign-in code is no longer valid. Try again.')); return
+        await this.#endPending(generation, 'The sign-in code is no longer valid. Try again.'); return
       }
       this.#emit({ ...this.#snapshot, error: 'Waiting for your account. Check your connection.' })
     }
+    if (expired) { await this.#endPending(generation, 'The sign-in code expired. Try again.'); return }
     if (this.#current(generation)) this.#schedule(() => this.#poll(generation), Math.min(30, Math.max(1, pending.intervalSeconds)))
   }
-  /** Fence in-flight polls immediately, before any I/O yields. */
-  async cancel(): Promise<HarnessDeskAccountStatus> {
-    if (this.#snapshot.status === 'signedIn' && !this.#pending) return this.#snapshot
-    const generation = ++this.#generation
-    this.#pending = undefined; this.#stopTimer()
-    await this.#load()
-    if (!this.#current(generation)) return this.#snapshot
-    if (this.#snapshot.status !== 'signedIn') {
-      if (this.#secrets) { delete this.#secrets.session; delete this.#secrets.cached; delete this.#secrets.picture; this.#pictureSource = undefined; await this.#persist() }
-      if (this.#current(generation)) this.#emit(this.#signedOut())
+  async #endPending(generation: number, error: string) {
+    if (!this.#current(generation)) return
+    this.#pending = undefined
+    if (this.#secrets) { delete this.#secrets.pending; await this.#persist() }
+    if (this.#current(generation)) this.#emit(this.#signedOut(error))
+  }
+  /** Best effort, host-only cleanup: approval is never promoted to a local sign-in here. */
+  async #cleanupUnfinished(pending: Pending | undefined, generation: number): Promise<boolean> {
+    if (!this.#identity || !this.#current(generation)) return false
+    try {
+      if (pending) {
+        try {
+          const result = this.#parse(PollDeskLinkResponse, await this.#request('/desk-link/poll', { pollSecret: pending.pollSecret }))
+          if (!this.#current(generation)) return false
+          if (result.status === 'pending') return false
+          if (result.status === 'denied') return true
+          if (result.deskId !== await idFromPub(this.#identity.pub)) return false
+        } catch (error) {
+          // A link record may have expired out of storage while its approved desk still exists.
+          if (!(error instanceof CloudError && [401, 404, 410].includes(error.status))) return false
+        }
+      }
+      if (!this.#current(generation)) return false
+      const session = await this.#session(generation)
+      if (!session || !this.#current(generation)) return false
+      this.#parse(Ok, await this.#request('/desks/revoke', { deskId: await idFromPub(this.#identity.pub) }, session.token))
+      return this.#current(generation)
+    } catch (error) {
+      return error instanceof CloudError && [401, 404].includes(error.status)
     }
-    return this.#snapshot
+  }
+  /** Fence in-flight polls immediately; the cleanup joins the mutation queue before a new sign-in. */
+  cancel(): Promise<HarnessDeskAccountStatus> {
+    if (this.#snapshot.status === 'signedIn' && !this.#pending) return Promise.resolve(this.#snapshot)
+    const generation = ++this.#generation
+    const pending = this.#pending
+    this.#pending = undefined; this.#stopTimer()
+    return this.#serialize(async () => {
+      if (!this.#current(generation)) return this.#snapshot
+      const cleaned = await this.#cleanupUnfinished(pending ?? this.#secrets?.pending, generation)
+      if (!this.#current(generation)) return this.#snapshot
+      if (this.#secrets) {
+        delete this.#secrets.session; delete this.#secrets.cached; delete this.#secrets.picture
+        this.#pictureSource = undefined
+        if (cleaned) delete this.#secrets.pending
+        await this.#persist()
+      }
+      if (this.#current(generation)) this.#emit(this.#signedOut(this.#storageBlocked))
+      return this.#snapshot
+    })
   }
   async #authorized() {
     if (!this.#secrets?.session || this.#snapshot.status !== 'signedIn') throw new Error('Sign in to HarnessDesk first.')
@@ -342,12 +443,35 @@ export class HarnessDeskAccount {
     this.#parse(Ok, await this.#request('/links/revoke', { deskId, deviceId }, token))
     await this.#refresh(this.#generation); return this.#snapshot
   }) }
-  signOut() { return this.#serialize(async () => {
-    const { token, deskId } = await this.#authorized()
-    this.#parse(Ok, await this.#request('/desks/revoke', { deskId }, token))
+  async #clearLocal() {
     ++this.#generation; this.#stopTimer(); this.#pending = undefined
-    delete this.#secrets!.session; delete this.#secrets!.cached; delete this.#secrets!.picture; this.#pictureSource = undefined; await this.#persist()
-    this.#emit(this.#signedOut()); return this.#snapshot
-  }) }
+    await this.#writes.catch(() => {})
+    // An opaque file cannot safely be interpreted or replaced, even by a new sign-in.
+    if (!this.#storageBlocked && this.#options.cipher && this.#options.cipher.protection !== 'file permissions only') {
+      const ignored = this.#options.state.state.preferences['accountLegacyIgnoredOrigins']
+      const origins = Array.isArray(ignored) ? ignored.filter((origin): origin is string => typeof origin === 'string') : []
+      await this.#options.state.setPreferences({ accountLegacyIgnoredOrigins: [...new Set([...origins, this.#base.origin])] })
+      await this.#removeLegacyDuplicate()
+      try { await unlink(this.#file) }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('HarnessDesk could not clear its encrypted account storage.') }
+    }
+    this.#identity = undefined; this.#secrets = undefined; this.#pictureSource = undefined
+    this.#emit(this.#signedOut(this.#storageBlocked))
+    return this.#snapshot
+  }
+  signOut(localOnly = false) { return this.#serialize(async () => {
+    if (!localOnly && this.#identity) {
+      try {
+        const session = await this.#session(this.#generation)
+        if (session) this.#parse(Ok, await this.#request('/desks/revoke', { deskId: await idFromPub(this.#identity.pub) }, session.token))
+      } catch (error) {
+        if (!(error instanceof CloudError && [401, 404].includes(error.status))) {
+          if (error instanceof CloudError && error.status >= 500) throw new CloudUnreachableError()
+          throw error
+        }
+      }
+    }
+    return this.#clearLocal()
+  }, !localOnly) }
   close() { this.#closed = true; ++this.#generation; this.#stopTimer() }
 }

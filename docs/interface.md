@@ -479,13 +479,17 @@ local profile face and name until you sign in — followed by a disclosure. Its 
 The default runtime's account, readiness and usage live in the menu. The trigger's
 tooltip still names who new sessions run as and any applicable quota warning.
 The menu starts with **Sign in to HarnessDesk…**, with the reason **Open this
-desk from your phone**. Signing in opens the system browser at
-app.harnessdesk.app; a **Finish in your browser** banner above the seat shows
-the matching short code, **Open the page again** and **Cancel**. The notice
+desk from your phone**. Signing in opens the system browser at the configured
+cloud host (app.harnessdesk.app by default); a **Finish in your browser** banner
+above the seat names that host and shows the matching short code,
+**Open the page again** and **Cancel**. The notice
 uses the seat’s inset and stacks its header above full-width copy and actions. A signed-in
 account instead opens a **HarnessDesk account** submenu with **Linked phones**
 and its count, **Account settings**, and **Sign out of HarnessDesk…**. The
-confirmation explains that agent accounts stay signed in.
+confirmation explains that agent accounts stay signed in. If the cloud cannot
+be reached, it also offers **Sign out on this desk only**, which removes the
+local sign-in and explains that the desk stays linked to the account until it
+is unlinked from another device.
 The current agent account, Usage, Settings and agent sign-out retain their
 own actions. The agent account opens a separate picker;
 **Run new sessions as** lists each available account on one line, grouped by

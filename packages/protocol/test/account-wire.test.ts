@@ -4,6 +4,8 @@ import { CLIENT_METHODS, clientTierFor, parseClientMessage, ValidationError } fr
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 test('app account controls validate desk names, phone ids and boolean preferences at the wire', () => {
   assert.doesNotThrow(() => request('account/status', {}))
+  assert.doesNotThrow(() => request('account/signOut', { localOnly: true }))
+  assert.throws(() => request('account/signOut', { localOnly: 'true' }), ValidationError)
   assert.doesNotThrow(() => request('account/renameDesk', { name: 'Studio Mac' }))
   assert.doesNotThrow(() => request('account/unlinkPhone', { deviceId: 'A'.repeat(22) }))
   for (const name of ['', ' ', 'x'.repeat(81), 1]) assert.throws(() => request('account/renameDesk', { name }), ValidationError)

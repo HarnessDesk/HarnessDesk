@@ -16,13 +16,13 @@ const account: HarnessDeskAccountStatus = {
   desk: { name: 'Jane’s MacBook Pro', reachable: true },
   phones: [{ deviceId: 'AAAAAAAAAAAAAAAAAAAAAA', name: 'iPhone', lastSeenAt: null }],
 }
-const mount = (status = account) => {
+const mount = (status = account, sidebarCollapsed = false) => {
   const setHarnessDeskReachable = vi.fn(async () => {})
   const unlinkHarnessDeskPhone = vi.fn(async () => {})
   const renameHarnessDesk = vi.fn(async () => {})
   const signInToHarnessDesk = vi.fn(async () => {})
   const signOutOfHarnessDesk = vi.fn(async () => {})
-  const snapshot = { ...emptySnapshot(), harnessDeskAccount: status }
+  const snapshot = { ...emptySnapshot(), harnessDeskAccount: status, sidebarCollapsed }
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot,
     setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk,
   } as unknown as AppStore
@@ -82,4 +82,41 @@ it('opens an eighty-character desk rename field and only writes on confirmation'
 it('leaves the pending sign-in banner to the visible sidebar', () => {
   mount({ status: 'pending', desk: account.desk, phones: [], pending: { userCode: 'ABCD-EFGH', verifyUrl: 'https://app.harnessdesk.app/link#code=ABCD-EFGH', expiresAt: Math.floor(Date.now() / 1000) + 60 } })
   expect(container.textContent).not.toContain('Finish in your browser')
+})
+
+it('offers desk-only sign-out after the cloud is unreachable and explains the remaining account link', async () => {
+  const { signOutOfHarnessDesk } = mount()
+  signOutOfHarnessDesk.mockRejectedValueOnce(Object.assign(new Error('The account service could not be reached.'), { code: 'accountCloudUnreachable' }))
+  act(() => button('Sign out…').click())
+  expect(button('Sign out on this desk only')).toBeUndefined()
+  await act(async () => button('Sign out').click())
+  const dialog = document.querySelector('[role="alertdialog"]')!
+  expect(dialog.textContent).toContain('This desk stays linked to your account until you unlink it from another device.')
+  await act(async () => button('Sign out on this desk only').click())
+  expect(signOutOfHarnessDesk).toHaveBeenLastCalledWith(true)
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+})
+
+it('keeps other sign-out failures retryable without offering desk-only sign-out', async () => {
+  const { signOutOfHarnessDesk } = mount()
+  signOutOfHarnessDesk.mockRejectedValueOnce(new Error('Secure storage is unavailable.'))
+  act(() => button('Sign out…').click())
+  await act(async () => button('Sign out').click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Secure storage is unavailable.')
+  expect(button('Sign out on this desk only')).toBeUndefined()
+  await act(async () => button('Sign out').click())
+  expect(signOutOfHarnessDesk).toHaveBeenLastCalledWith()
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+})
+
+it('names the configured cloud host in the pending sign-in banner', () => {
+  mount({ status: 'pending', desk: account.desk, phones: [], pending: { userCode: 'ABCD-EFGH', verifyUrl: 'https://app-staging.harnessdesk.app/link#code=ABCD-EFGH', expiresAt: Math.floor(Date.now() / 1000) + 60 } }, true)
+  expect(container.textContent).toContain('Sign in on app-staging.harnessdesk.app.')
+  expect(container.textContent).not.toContain('app.harnessdesk.app')
+})
+
+it.each(['not a URL', 'javascript:alert(1)', 'file:///tmp/link'])('uses a generic browser instruction for an invalid approval URL: %s', verifyUrl => {
+  mount({ status: 'pending', desk: account.desk, phones: [], pending: { userCode: 'ABCD-EFGH', verifyUrl, expiresAt: Math.floor(Date.now() / 1000) + 60 } }, true)
+  expect(container.textContent).toContain('Sign in using your browser.')
+  expect(container.textContent).not.toContain('app.harnessdesk.app')
 })

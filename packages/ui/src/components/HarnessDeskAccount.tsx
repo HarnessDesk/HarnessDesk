@@ -8,15 +8,29 @@ import { MobileIcon } from './Icons'
 export const useHarnessDeskAccountAction = () => {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorCode, setErrorCode] = useState<string | null>(null)
   const run = async (action: () => Promise<void>): Promise<boolean> => {
     if (busy) return false
     setBusy(true)
     setError(null)
+    setErrorCode(null)
     try { await action(); return true }
-    catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); return false }
+    catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+      setErrorCode(typeof failure === 'object' && failure !== null && 'code' in failure && typeof failure.code === 'string' ? failure.code : null)
+      return false
+    }
     finally { setBusy(false) }
   }
-  return { busy, error, run }
+  return { busy, error, errorCode, run }
+}
+
+const signInLocation = (verifyUrl: string): string => {
+  try {
+    const url = new URL(verifyUrl)
+    if ((url.protocol === 'https:' || url.protocol === 'http:') && url.hostname) return `on ${url.hostname}`
+  } catch { /* A malformed approval URL must not name a different service. */ }
+  return 'using your browser'
 }
 
 export const HarnessDeskSignInPending = () => {
@@ -27,18 +41,22 @@ export const HarnessDeskSignInPending = () => {
   return <NoticeHost size="compact"><Banner title="Finish in your browser" icon={<Spinner />} role="status" measure="container" layout="stack"
     actions={<><BannerAction size="sm" disabled={busy} onClick={() => void run(() => store.openHarnessDeskSignIn())}>Open the page again</BannerAction>
       <BannerAction variant="secondary" size="sm" disabled={busy} onClick={() => void run(() => store.cancelHarnessDeskSignIn())}>Cancel</BannerAction></>}>
-    Sign in on app.harnessdesk.app. Match this code: <CodeText>{status.pending.userCode}</CodeText>.
+    Sign in {signInLocation(status.pending.verifyUrl)}. Match this code: <CodeText>{status.pending.userCode}</CodeText>.
     {(error || status.error) && <ActionError>{error || status.error}</ActionError>}
   </Banner></NoticeHost>
 }
 
 export const HarnessDeskSignOut = ({ onClose }: { onClose: () => void }) => {
   const store = useStore()
-  const { busy, error, run } = useHarnessDeskAccountAction()
+  const { busy, error, errorCode, run } = useHarnessDeskAccountAction()
+  const signOut = (localOnly?: boolean) => void run(() => localOnly ? store.signOutOfHarnessDesk(true) : store.signOutOfHarnessDesk()).then(done => { if (done) onClose() })
+  const localOnlyAvailable = errorCode === 'accountCloudUnreachable'
   return <ConfirmDialog title="Sign out of HarnessDesk?" confirmLabel="Sign out" cancelLabel="Keep signed in" tone="destructive"
-    busy={busy} onCancel={onClose} onConfirm={() => void run(() => store.signOutOfHarnessDesk()).then(done => { if (done) onClose() })}>
+    busy={busy} onCancel={onClose} onConfirm={() => signOut()}
+    alternative={localOnlyAvailable ? { label: 'Sign out on this desk only', onClick: () => signOut(true) } : undefined}>
     This desk will no longer be reachable from your phone. Your agent accounts stay signed in.
     {error && <ActionError>{error}</ActionError>}
+    {localOnlyAvailable && <Note>Signing out on this desk only removes its local sign-in. This desk stays linked to your account until you unlink it from another device.</Note>}
   </ConfirmDialog>
 }
 

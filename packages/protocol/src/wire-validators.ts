@@ -992,7 +992,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'account/signIn': shape({}),
   'account/openSignIn': shape({}),
   'account/cancel': shape({}),
-  'account/signOut': shape({}),
+  'account/signOut': shape({ localOnly: optional(isBoolean) }),
   'account/unlinkPhone': shape({ deviceId: (value, path = '') => {
     const id = isString(value, path)
     if (!/^[A-Za-z0-9_-]{21}[AQgw]$/.test(id)) throw new ValidationError(path, 'expected a device id')

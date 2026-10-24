@@ -122,13 +122,20 @@ The browser's account session stays in the browser. The host's private desk
 key, session and cached account details are encrypted using the desktop's
 existing OS keystore cipher. Ordinary preferences retain the desk name and
 phone-access choice. The app cannot sign in when encrypted storage is
-unavailable. The account's sealed file is excluded from app backups.
+unavailable. Production and staging use separate sealed files, each excluded
+from app backups. An unreadable identity is kept and reported; a new sign-in
+cannot silently overwrite it. Interrupted approvals are cleaned up on
+Cancel or startup using the desk key, best effort.
 
 **Retention:** the cloud keeps the account's desk registration and phone-link
 revocation records; signing out revokes this desk and its links rather than
 deleting the cloud account. Settings › Account can unlink a phone or sign out
-of HarnessDesk. Sign-out clears the local token and cached account identity
-and stops account polling; the encrypted desk key remains for a later sign-in.
+of HarnessDesk. Sign-out clears the local key, token and cached account
+identity and stops account polling. If the cloud cannot be reached, the
+confirmation offers **Sign out on this desk only**: it clears the local
+identity while the desk stays linked until unlinked from another device.
+An already-revoked cloud identity does not prevent local sign-out. A local
+preference prevents a legacy copy from restoring a signed-out identity.
 Agent accounts and all local work stay available. The phone-access switch
 only saves a preference in this build; no desktop relay connection is opened.
 
