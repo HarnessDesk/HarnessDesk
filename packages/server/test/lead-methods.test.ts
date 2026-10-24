@@ -1687,6 +1687,7 @@ test('a steer reaches the running worker without a restart, and one no worker ta
   const projection = await s.controls.steer({ text: 'Keep the public API unchanged.' })
   assert.deepEqual(taken, ['Keep the public API unchanged.'])
   assert.deepEqual(projection.steers.map((item: any) => [item.text, item.state]), [['Keep the public API unchanged.', 'acknowledged']])
+  assert.equal(projection.steers[0].after, before, 'a steer records where in the thread it was said')
   assert.equal(s.journal.state.seq, before, 'a steer writes nothing to the journal and restarts nothing')
   take = false
   await assert.rejects(s.controls.steer({ text: 'And add a test.' }), code('lead-steer-unavailable'))

@@ -162,7 +162,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     : null
   const entries = [...(state.thread?.messages ?? []).map(message => ({ revision: message.revision, kind: 'message' as const, message })),
     ...cards.map(card => ({ revision: state.thread?.cardPositions?.[card.id] ?? card.revision, kind: 'card' as const, card })),
-    ...(state.thread?.decisions ?? []).map(decision => ({ revision: decision.position, kind: 'decided' as const, decision }))].sort((a, b) => a.revision - b.revision)
+    ...(state.thread?.decisions ?? []).map(decision => ({ revision: decision.position, kind: 'decided' as const, decision })),
+    // A steer sits just after what the thread held when it was sent; one without a revision stays at the end.
+    ...(state.steers ?? []).map((steer, index) => ({ revision: steer.after === undefined ? Infinity : steer.after + 0.5, kind: 'steer' as const, steer, index }))].sort((a, b) => a.revision - b.revision)
   // A Lead turn shows its face once, on its first line; the person's message starts the next turn.
   const faces = new Set<string>()
   for (let at = 0, open = false; at < entries.length; at++) {
@@ -208,10 +210,10 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {entries.map(entry => entry.kind === 'message'
           ? <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             face={faces.has(entry.message.id)} />
+          : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
+            note={<Chip tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
           : <LeadCards key={`card:${entry.card.id}`} {...cardProps} cards={[entry.card]} placement="thread" />)}
-        {(state.steers ?? []).map((item, index) => <LeadMessage key={`steer:${item.id}`} role="user" text={item.text}
-          note={<Chip tone={item.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${index + 1} · ${item.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />)}
         {live}
       </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
     </ConversationThread>

@@ -52,12 +52,12 @@ export const LeadScheduleSettings = ({ label, schedule, pending, save }: {
     </Section>
     <Section title="Quiet hours">
       <Rows>
-        <Row title="Hold scheduled tasks" titleChip={schedule.quiet ? <Chip tone="neutral">{`${schedule.quiet.from}–${schedule.quiet.to}`}</Chip> : undefined}
+        <Row title="Hold scheduled tasks"
           control={<Switch aria-label="Quiet hours" checked={!!schedule.quiet} disabled={pending} onCheckedChange={on => put(schedule.tasks, on ? { from: '22:00', to: '07:00' } : null)} />} />
-        {schedule.quiet && <Row title="From" control={<InlineParts>
-          <Input aria-label="Quiet from" type="time" value={schedule.quiet.from} disabled={pending} onChange={event => event.target.value && put(schedule.tasks, { ...schedule.quiet!, from: event.target.value })} />
-          <Input aria-label="Quiet to" type="time" value={schedule.quiet.to} disabled={pending} onChange={event => event.target.value && put(schedule.tasks, { ...schedule.quiet!, to: event.target.value })} />
-        </InlineParts>} />}
+        {schedule.quiet && <>
+          <Row title="Starts" control={<Input aria-label="Quiet hours start" type="time" value={schedule.quiet.from} disabled={pending} onChange={event => event.target.value && put(schedule.tasks, { ...schedule.quiet!, from: event.target.value })} />} />
+          <Row title="Ends" control={<Input aria-label="Quiet hours end" type="time" value={schedule.quiet.to} disabled={pending} onChange={event => event.target.value && put(schedule.tasks, { ...schedule.quiet!, to: event.target.value })} />} />
+        </>}
       </Rows>
     </Section>
   </>

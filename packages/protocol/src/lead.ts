@@ -250,7 +250,9 @@ export interface LeadMemoryItem { readonly id: string; readonly text: string; re
 export interface LeadMemory { readonly version: 1; readonly items: readonly LeadMemoryItem[] }
 export const LEAD_SCHEDULE_LIMITS = { tasks: 20, memory: 100 } as const
 /** A word the person sent to the running worker through the Lead, without restarting it. */
-export interface LeadSteer { readonly id: string; readonly text: string; readonly at: number; readonly state: 'acknowledged' | 'refused' }
+export interface LeadSteer { readonly id: string; readonly text: string; readonly at: number; readonly state: 'acknowledged' | 'refused'
+  /** The thread revision it was sent at, so it sits where it was said rather than at the end. */
+  readonly after?: number }
 /** Live host-owned requests. These are not model-proposed cards or LeadCardDecision inputs. */
 export type LeadAction =
   | { readonly kind: 'worker-approval'; readonly id: string; readonly runId: string; readonly role: string; readonly request: string; readonly choices: readonly ('yes-once' | 'no')[] }
@@ -627,7 +629,7 @@ export const parseLeadPresence: Validator<LeadPresence> = object({
   checked: integer(), quiet: integer(), lastCheckedAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)),
   readings: list(object<LeadRunReading>({ runId: id, kind: literalUnion('advanced', 'stuck', 'plan-only', 'blocked', 'done'), quietMinutes: optional(integer()) }), 64, 0, reading => reading.runId),
 })
-const parseLeadSteer: Validator<LeadSteer> = object({ id, text: text(4000), at: integer(0, Number.MAX_SAFE_INTEGER), state: literalUnion('acknowledged', 'refused') })
+const parseLeadSteer: Validator<LeadSteer> = object({ id, text: text(4000), at: integer(0, Number.MAX_SAFE_INTEGER), state: literalUnion('acknowledged', 'refused'), after: optional(integer(0, Number.MAX_SAFE_INTEGER)) })
 const clockTime: Validator<string> = (value, path = '') => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fail(path, 'expected HH:MM')
 const parseLeadScheduledTask: Validator<LeadScheduledTask> = object({ id, title: text(80), goal: text(2000), every: literalUnion('day', 'weekdays', 'mondays', 'fridays'),
   at: clockTime, enabled: isBoolean, lastRunAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)) })

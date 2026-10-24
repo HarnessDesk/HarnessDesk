@@ -454,3 +454,12 @@ it('says nothing about a check while the goal is not running or the plan asks fo
   const { box } = await mount({ ...base, team: room, thread: { ...base.thread, state: 'waiting-for-user' as const, messages: [goalMessage], contract: leadPlan.contract } })
   expect(box.textContent).not.toContain('project check')
 })
+
+it('puts a steer where it was said, not after everything that followed', async () => {
+  const base = leadProjection(), later = { version: 1 as const, id: 'later', revision: 5, role: 'assistant' as const, text: 'Step two is done.' }
+  const { box } = await mount({ ...base, thread: { ...base.thread, state: 'running', messages: [goalMessage, later] },
+    steers: [{ id: 'steer-1', text: 'Keep the public API unchanged.', at: 1, state: 'acknowledged', after: 2 }] })
+  const text = box.textContent ?? ''
+  expect(text.indexOf('Keep the public API unchanged.')).toBeGreaterThan(text.indexOf('Repair the failing check'))
+  expect(text.indexOf('Keep the public API unchanged.')).toBeLessThan(text.indexOf('Step two is done.'))
+})

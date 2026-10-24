@@ -43,11 +43,12 @@ export const leadAwayDigest = (seen: LeadSeen, state: LeadState, label: string, 
 
 /** Shown once on return, kept until dismissed or the next absence; what is seen is recorded while the page is in view. */
 export const LeadAway = ({ active, state, label }: { readonly active: boolean; readonly state: LeadState; readonly label: string }) => {
-  const [digest, setDigest] = useState<LeadAwayDigest | null>(null)
+  // The absence is fixed on return; its lines are read from the live state, so a card settled since says so.
+  const [away, setAway] = useState<{ readonly seen: LeadSeen; readonly back: number } | null>(null)
   const wasActive = useRef(false)
   useEffect(() => {
     if (state.revision < 0 || state.error) return
-    if (active && !wasActive.current) { const seen = read(); setDigest(seen ? leadAwayDigest(seen, state, label, Date.now()) : null) }
+    if (active && !wasActive.current) { const seen = read(); setAway(seen ? { seen, back: Date.now() } : null) }
     wasActive.current = active
     if (active && document.visibilityState !== 'hidden') write({ at: Date.now(), revision: state.revision, spent: spentOf(state) })
   }, [active, state.revision, state.error])
@@ -55,14 +56,15 @@ export const LeadAway = ({ active, state, label }: { readonly active: boolean; r
   useEffect(() => {
     const back = () => {
       if (!active || document.visibilityState === 'hidden' || state.revision < 0 || state.error) return
-      const seen = read(); if (seen) setDigest(leadAwayDigest(seen, state, label, Date.now()))
+      const seen = read(); if (seen) setAway({ seen, back: Date.now() })
       write({ at: Date.now(), revision: state.revision, spent: spentOf(state) })
     }
     document.addEventListener('visibilitychange', back)
     return () => document.removeEventListener('visibilitychange', back)
   })
+  const digest = away && !state.error ? leadAwayDigest(away.seen, state, label, away.back) : null
   if (!digest) return null
-  return <div data-slot="lead-away"><Banner title={digest.title} onDismiss={() => setDigest(null)}>
+  return <div data-slot="lead-away"><Banner title={digest.title} onDismiss={() => setAway(null)}>
     {digest.lines.map(line => <Text key={line} as="p" role="muted">{line}</Text>)}
   </Banner></div>
 }

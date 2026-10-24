@@ -51,6 +51,8 @@ export interface LeadRigOptions {
   readonly workerSpend?: boolean
   /** How long a worker spend reading stays fresh; a short one lets a test outwait it. */
   readonly freshnessMs?: number
+  /** The sentence the scripted plan reply opens with; a walk can add a line for the person to keep. */
+  readonly planText?: string
 }
 /** Synthetic services around the actual host, fd-3 child, client door and Flow.
  * Each instance owns its temp home and restores its environment before removal.
@@ -151,7 +153,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     const reply = (body: Record<string, any>): unknown[] => {
       const state = journal.state
       if (!state.contract || !state.consent) {
-        const plan = text(JSON.stringify({ version: 1, type: 'lead-output', text: 'Review the two-part repair before work starts.', plan: proposal }))
+        const plan = text(JSON.stringify({ version: 1, type: 'lead-output', text: options.planText ?? 'Review the two-part repair before work starts.', plan: proposal }))
         if (options.eager && !eagerStart) {
           eagerStart = true
           return [plan, { type: 'tool_use', id: 'eager-start', name: 'flow_start_goal', input: {

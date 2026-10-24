@@ -357,7 +357,7 @@ export class LeadControls {
     if (!taken) throw leadRefusal('lead-steer-unavailable')
     const goal = journal.state.budget?.logicalGoalId ?? null
     if (this.#steers.goal !== goal) this.#steers = { goal, list: [] }
-    this.#steers.list.push({ id: this.options.nextId(), text: input.text, at: this.options.now(), state: 'acknowledged' })
+    this.#steers.list.push({ id: this.options.nextId(), text: input.text, at: this.options.now(), state: 'acknowledged', after: journal.state.seq })
     void this.#notify(true)
     return this.#projection()
   }) }
