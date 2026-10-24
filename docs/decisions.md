@@ -1684,14 +1684,26 @@ with synchronous calls on the host's own thread. A single link onto a volume
 that had stopped answering then stopped every wire method and every session's
 stream behind it, for as long as the volume stayed silent.
 
-So the walk uses `fs/promises`, where a silent volume holds one worker of the
-thread pool and nothing else. The spelling is judged first and costs nothing:
-a path outside every root's spelling is refused without the disk being asked.
-Only then are the target and the roots that spell it resolved, together, and
-only for `CONFINE_DEADLINE_MS`. When that is up the request is refused with
-the volume named as the reason — a late answer never admits a path — and the
-walk is told to stop: a call already asked cannot be taken back, but no next
-one is started.
+So the walk uses `fs/promises`, where a silent volume holds workers of the
+thread pool and not the host's own thread. The spelling is judged first and
+costs nothing: a path outside every root's spelling is refused without the disk
+being asked. Only then are the target and the roots that spell it resolved,
+together, and only for `CONFINE_DEADLINE_MS`. When that is up the request is
+refused with the volume named as the reason — a late answer never admits a
+path — and the walk is told to stop: a call already asked cannot be taken back,
+but no next one is started.
+
+That call keeps its worker until the volume answers, and the pool is four
+threads for every file, folder and lookup on any volume. An editor polling a
+silent volume every few seconds would leave another call behind each time, and
+four of them leave nothing for the rest of the host. So a root whose request
+gave up is held: a request that names it is refused at once with the same
+answer (`unreadable`, for `workspace/readFile`), and the disk is not asked,
+until every call left behind has come back, answered or failed. It is held by
+root, the unit a request names, so a stall below a root refuses every path in
+it for as long as the call is out. And a volume cannot be told from a slow one
+before the deadline, so the requests that arrived within a deadline of the first
+were asked all the same.
 
 The roster's own folders (`AgentFileRoots`) are the other disk read a file
 request made. They are listed off the thread, kept for a few seconds, shared by

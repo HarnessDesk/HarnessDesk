@@ -15,6 +15,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Git LFS repositories keep working.** A repository whose files go through a filter you have set up in your own Git configuration, such as Git LFS, shows only real changes in status again, and a new lane can be cut from it.
 
+- **A stalled network folder no longer slows the rest of the app.** When a project's drive stops answering, its files report that the drive isn't answering right away, and the app's other file access carries on.
+
 ## 0.6.0 — 2026-10-21
 
 A Team opens on its recorded Work, Settings reads calmer and behaves the same
