@@ -305,6 +305,34 @@ test('repair pushes journal before acting, advance the owned head, and reconcile
   assert.equal(journal.state.seq, seq)
 })
 
+test('resume supersedes an effect-free prepared repair after its reviewed head changes', async () => {
+  const { LeadPrFollow, pushToOwnedBranch } = await moduleOf(), s = await prepare(), source = repository()
+  await pushToOwnedBranch(source, null)
+  const pr = { repository: source.repository, number: 7, head: source.head, branch: source.branch }
+  const owner = new LeadPrFollow({ journal: s.journal, now: () => 101, validate: async () => {}, source: async () => source,
+    find: async () => [pr], create: async () => pr })
+  await owner.accept(s.card, s.decision, s.contract)
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'First reviewed repair')
+  const first = { ...source, head: git(source.cwd, 'rev-parse', 'HEAD') }
+  let validations = 0
+  await assert.rejects(owner.pushOwned(first, async () => {
+    if (++validations === 2) throw new Error('lead-repair-review-changed')
+  }), /lead-repair-review-changed/)
+  assert.equal(s.journal.state.ownedPush?.stage, 'needs-you')
+  assert.equal(s.journal.state.ownedPush?.effectStarted, false)
+  await s.journal.resume()
+  assert.equal(s.journal.state.ownedPush?.stage, 'prepared')
+  git(source.cwd, 'commit', '--allow-empty', '-m', 'New reviewed repair')
+  const second = { ...source, head: git(source.cwd, 'rev-parse', 'HEAD') }
+  await owner.pushOwned(second, async () => {})
+  const seq = s.journal.state.seq
+  await owner.pushOwned(second, async () => {}); await owner.pushOwned(second, async () => {})
+  assert.equal(s.journal.state.seq, seq)
+  assert.equal(s.journal.state.ownedPush?.stage, 'completed')
+  assert.equal(s.journal.state.pr?.head, second.head)
+  assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
+})
+
 for (const [observed, phase] of [['merged', 'accepted'], ['closed', 'declined'], ['open', 'waiting-for-user']] as const) {
   test(`foreign PR head with ${observed} lifecycle becomes ${phase} without adopting its head`, async () => {
     const { LeadPrFollow } = await moduleOf(), s = await prepare(), source = repository()

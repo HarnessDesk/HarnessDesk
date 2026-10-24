@@ -96,7 +96,7 @@ export interface IntakeHostPort {
   preview(root: string, source: string, againRole?: string | null): Promise<FlowPreview>
   /** Each attachment one Agent resolves to now, as its identity (`TriggerClosureReads.attachments`). */
   attachments?(root: string, agent: string): Promise<readonly string[]>
-  lead?(operation: IntakeOperation): Promise<{ readonly delivered: true } | { readonly delivered: false; readonly reason: string }>
+  lead?(operation: IntakeOperation): Promise<{ readonly delivered: true } | { readonly delivered: false; readonly reason: string; readonly final?: true }>
   readonly goals: TriggerGoalPort & {
     lifecycle(goal: string): GoalLifecycle
     claim(goal: string, claim: () => void): Promise<boolean>

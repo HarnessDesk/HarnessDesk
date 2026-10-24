@@ -160,6 +160,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       publicationSources = sources
       const budget = journal.state.budget && leadBudgetProjection(journal.state.budget!, clock.now())
       const reviewed = contract && state.steps.every(step => step.state === 'started') && evaluated.length > 0 &&
+        (!state.handbacks.length || sources.every(source => source.reviewedHead === journal.state.pr?.head)) &&
         evaluated.every(item => item.result.status === 'reviewed') && budget?.spend === 'known' && budget.reservedUsdMicros === 0
       if (!reviewed || !leadRepairResultReady(journal.state)) await invalidate()
       else if (journal.state.pr?.branchOwner !== 'person' && !terminal(journal.state.phase) && journal.state.phase !== 'following' && (!journal.state.publication || ['completed', 'superseded'].includes(journal.state.publication.stage) || journal.state.publication.stage === 'needs-you' && journal.state.publication.effectStarted === false)) {

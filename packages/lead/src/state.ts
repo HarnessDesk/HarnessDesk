@@ -66,7 +66,7 @@ export const leadWorkerDispatchBlockedByOpenPr = (state: LeadState, runId?: stri
   !(runId && state.pr.branchOwner !== 'person' && !state.handbackLimit && state.handbacks.some(op => op.runId === runId && op.stage === 'running'))
 /** A repair result remains fenced until CI passes on the published head. */
 export const leadRepairResultReady = (state: LeadState): boolean => !state.handbacks.length ||
-  state.handbacks.at(-1)?.stage === 'completed' && !!state.pr && state.pr.branchOwner !== 'person' && state.ciPassed.includes(state.pr.head) && state.pr.check?.state === 'passed' && state.pr.check.head === state.pr.head && state.pr.check.total > 0
+  leadHandbackTerminal(state.handbacks.at(-1)!) && !state.handbackLimit && !!state.pr && state.pr.branchOwner !== 'person' && state.ciPassed.includes(state.pr.head) && state.pr.check?.state === 'passed' && state.pr.check.head === state.pr.head && state.pr.check.total > 0
 
 export const leadHandbackTerminal = (op: LeadHandback): boolean => ['completed', 'failed', 'abandoned', 'withdrawn'].includes(op.stage)
 
@@ -165,7 +165,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       if (!previous) {
         ensure(op.stage === 'prepared' && op.head === state.pr!.head && state.handbacks.length < 64 &&
           state.handbacks.every(leadHandbackTerminal) && state.follow[op.kind])
-        ensure(op.kind === 'checks' ? !state.handbacks.some(item => item.kind === 'checks' && item.head === op.head) : state.handbacks.filter(item => item.kind === 'reviews').length < 3)
+        ensure(op.kind === 'checks' ? !state.handbacks.some(item => item.kind === 'checks' && item.head === op.head && item.stage !== 'withdrawn') : state.handbacks.filter(item => item.kind === 'reviews' && item.stage !== 'withdrawn').length < 3)
         // This durable intent authorizes reopening the same owned Run. Keep
         // its identity, but retire the earlier terminal observation before the
         // host can open the repair round, including a crash before `running`.
@@ -186,14 +186,17 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         ensure(transitions[previous.stage].includes(op.stage))
         ensure(previous.publishedHead === null || previous.publishedHead === op.publishedHead)
       }
-      state = { ...state, handbacks: [...state.handbacks.filter(item => item.key !== op.key), op], phase: hasPendingLeadPlan(state) ? 'awaiting-plan' : op.stage === 'awaiting-ci' ? 'following' : 'running', managementReason: null,
+      const preserveWait = !!previous && state.phase === 'waiting-for-user' && !state.managementReason?.startsWith('lead-repair-')
+      state = { ...state, handbacks: [...state.handbacks.filter(item => item.key !== op.key), op], phase: hasPendingLeadPlan(state) ? 'awaiting-plan' : preserveWait ? state.phase : op.stage === 'awaiting-ci' ? 'following' : 'running', managementReason: preserveWait ? state.managementReason : null,
         decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'result').map(cardKey)])] }
       break
     }
     case 'ci-passed':
       ensure(state.pr?.state === 'open' && state.pr.branchOwner !== 'person' && state.pr.head === event.head &&
         state.pr.check?.head === event.head && state.pr.check.state === 'passed' && state.pr.check.total > 0 && !state.ciPassed.includes(event.head))
-      state = { ...state, ciPassed: [...state.ciPassed, event.head] }; break
+      state = { ...state, ciPassed: [...state.ciPassed, event.head],
+        ...(state.handbacks.at(-1) && leadHandbackTerminal(state.handbacks.at(-1)!) && !hasPendingLeadPlan(state) &&
+          (state.phase !== 'waiting-for-user' || state.managementReason?.startsWith('lead-repair-')) ? { phase: 'running', managementReason: null } : {}) }; break
     case 'new-goal': {
       ensure(canBeginLeadGoal(state) && !state.completedBudgets.some(budget => budget.logicalGoalId === event.id) && state.budget!.logicalGoalId !== event.id)
       const budget = reduceLeadBudget(null, { version: 1, type: 'initialize', now: event.now, logicalGoalId: event.id,
@@ -241,7 +244,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(original && ['repository', 'branch', 'cwd', 'defaultBranch', 'runId', 'teamId'].every(key =>
         original[key as keyof typeof original] === op.source[key as keyof typeof op.source]))
       if (op.stage === 'superseded') {
-        ensure(previous?.stage === 'needs-you' && previous.effectStarted === false && JSON.stringify({ ...previous, stage: 'superseded' }) === JSON.stringify(op))
+        ensure(previous && ['needs-you', 'prepared'].includes(previous.stage) && previous.effectStarted === false && JSON.stringify({ ...previous, stage: 'superseded' }) === JSON.stringify(op))
         state = { ...state, ownedPush: op }; break
       }
       if (!previous || previous.source.head !== op.source.head) ensure(op.stage === 'prepared' && op.previousHead === pr!.head && (!previous || ['completed', 'superseded'].includes(previous.stage)))

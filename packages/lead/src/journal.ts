@@ -436,6 +436,7 @@ export class LeadJournal {
     // Recheck on the writer queue: the child's snapshot predates this RPC.
     if (this.#resultFenced()) return
     if (op?.stage === 'needs-you' && op.effectStarted === false) await this.#append({ type: 'publication', operation: { ...op, stage: 'superseded' }, pr: null })
+    if (!this.#state.cards.some(card => card.type === 'result' && !this.#state.decidedCards.includes(`${card.id}:${card.revision}`))) return
     await this.#append({ type: 'invalidate-results' })
   }) }
   /** Host-only bookkeeping from a fresh owned execution read. Unlike crash

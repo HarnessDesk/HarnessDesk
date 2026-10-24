@@ -2137,6 +2137,12 @@ hand-back limit is a Needs-you wait with a reason in the conversation. Only an
 active repair round says it is repairing; passive following says Following.
 An automatic goal retains its linked From origin line.
 
+An ended repair is judged against the current owned branch head. Green CI and
+matching reviewed evidence can offer its result again; otherwise one Needs-you
+wait explains a failed, withdrawn, abandoned or unverified repair. Missing CI
+runs keep a published repair waiting. Turning following off before dispatch
+withdraws that repair without spending its automatic repair allowance.
+
 Settings › Lead › Triggers has Follow my pull requests switches for Checks failed
 and Review comment; each defaults on and saves independently to settings.follow.
 Open a goal when is a read-only list of project declarations with opens.lead

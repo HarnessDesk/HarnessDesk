@@ -98,8 +98,12 @@ test('host repairs validate reviewed heads, adopt a crashed gateway push once, a
   const pushes = async () => (await readFile(join(dir, 'gateway', 'ledger.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line)).filter(row => row.op === 'push' && row.outcome === 'succeeded')
   assert.equal((await pushes()).length, 2, 'one initial push and exactly one repair push')
   assert.equal(rig.pending('result'), undefined, 'E4 waits for CI')
+  await following.deliver(watch(), { facts: [], observations: [{ repository: 'acme/widgets', number: 7, head: h2, state: 'open', check: { head: h2, state: 'failed', total: 1 }, at: Date.now() }] } as any)
+  assert.equal(rig.journal.state.phase, 'waiting-for-user', 'a failed repaired head without a new event has a durable exit')
+  assert.equal(rig.journal.state.managementReason, 'lead-repair-failed')
+  assert.equal(rig.pending('result'), undefined)
   await following.deliver(watch(), { facts: [], observations: [{ repository: 'acme/widgets', number: 7, head: h2, state: 'open', check: { head: h2, state: 'passed', total: 1 }, at: Date.now() }] } as any)
-  assert.equal(rig.journal.state.handbacks[0]!.stage, 'completed')
+  assert.equal(rig.journal.state.handbacks[0]!.stage, 'failed', 'terminal history stays immutable when current-head CI recovers')
   assert.ok(rig.pending('result'), 'E4 re-offers only after owned-head CI passes')
   // Hold the next worker in its turn while the person extends and releases the branch.
   const repairGate = join(rig.home, 'worker-gates', 'followRepair')

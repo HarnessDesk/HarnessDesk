@@ -46,7 +46,8 @@ const prepareLeadPersonGate = async (options: PersonDecisionOptions, card: Extra
   check()
   const evidence = await options.readEvidence(owned.runId)
   const result = evaluateLeadAcceptance(contract, evidence, { now: options.now(), freshnessMs: 60000, revision: options.journal.state.seq })
-  if (evidence.runId !== card.runId || result.status !== 'reviewed' || compareAssertions && leadAssertionFacts(result.assertions) !== leadAssertionFacts(card.assertions))
+  if (evidence.runId !== card.runId || options.journal.state.handbacks.length > 0 && evidence.revision !== options.journal.state.pr?.head ||
+    result.status !== 'reviewed' || compareAssertions && leadAssertionFacts(result.assertions) !== leadAssertionFacts(card.assertions))
     throw leadRefusal('lead-gate-changed')
   check()
   return { assertions: result.assertions, check, async answer() {

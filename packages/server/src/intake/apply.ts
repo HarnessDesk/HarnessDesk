@@ -55,7 +55,7 @@ export async function applyAdmission(operation: IntakeOperation, port: IntakeApp
 export interface IntakeTargets {
   readonly goals: TriggerGoalPort
   /** Delivers a plan-only input through the Lead's automatic-goal owner, idempotent on operation.key. */
-  lead?(operation: IntakeOperation): Promise<{ readonly delivered: true } | { readonly delivered: false; readonly reason: string }>
+  lead?(operation: IntakeOperation): Promise<{ readonly delivered: true } | { readonly delivered: false; readonly reason: string; readonly final?: true }>
   readonly flows: TriggerExecutionPort
   readonly evidence: IntakeObservationPort
   /**
@@ -168,7 +168,7 @@ export class IntakeEffects implements AdmissionEffects {
     if (refused !== null) return { released: false, reason: refused.reason, final: true }
     if (operation.payload && 'lead' in operation.payload.definition.opens) {
       const result = await this.#targets.lead?.(operation) ?? { delivered: false, reason: 'Lead is disabled; this firing waits.' }
-      return result.delivered ? { released: true } : { released: false, reason: result.reason }
+      return result.delivered ? { released: true } : { released: false, reason: result.reason, ...(result.final && { final: true }) }
     }
     await this.#targets.flows.resumeTriggered(operation.run)
     return { released: true }

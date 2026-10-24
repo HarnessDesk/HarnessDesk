@@ -45,6 +45,18 @@ const prepare = async (storage: ReturnType<typeof memory>) => {
   return journal
 }
 
+test('refreshes with no outstanding result do not keep journaling invalidations', async () => {
+  const journal = await prepare(memory()), seq = journal.state.seq
+  await journal.invalidateResults(); await journal.invalidateResults()
+  assert.equal(journal.state.seq, seq)
+  await journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget!, 100) })
+  await journal.invalidateResults()
+  const invalidated = journal.state.seq
+  await journal.invalidateResults(); await journal.invalidateResults()
+  assert.equal(journal.state.seq, invalidated)
+})
+
 test('a failed person save protects its exact result until fresh retry validation refuses it', async () => {
   const journal = await prepare(memory())
   const card = { version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest,

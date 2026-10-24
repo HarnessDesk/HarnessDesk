@@ -47,7 +47,7 @@ export const pushOwnedLeadBranch = async (options: {
   if (pr.branchOwner === 'person') throw new Error('lead-push-branch-released')
   if (previous?.stage === 'completed' && previous.source.head === source.head && pr.head === source.head) return
   await validate()
-  if (previous?.stage === 'needs-you' && previous.source.head !== source.head && previous.effectStarted === false)
+  if (previous && ['needs-you', 'prepared'].includes(previous.stage) && previous.source.head !== source.head && previous.effectStarted === false)
     await journal.ownedPush({ ...previous, stage: 'superseded' })
   const replay = previous?.source.head === source.head && previous.stage !== 'superseded'
   let operation: LeadOwnedPush = replay ? { ...previous!, stage: previous!.stage === 'push-started' ? 'push-started' : 'prepared' } :

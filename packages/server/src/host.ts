@@ -142,7 +142,7 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { LeadAssembly, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
@@ -3586,11 +3586,13 @@ export class Host {
         last.state !== 'running' || !last.cards.length || !last.cards.every(id => this.#team.stateFor(op.teamId).intents.some(card => card.id === id && card.state === 'open'))) return null
       const evidence = await decisionEvidence(op.runId), budget = leadBudgetProjection(journal.state.budget!, Date.now())
       const result = evaluateLeadAcceptance(contract, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
-      if (result.status !== 'reviewed' || evidence.revision === op.head || budget.spend !== 'known' || budget.reservedUsdMicros) return null
+      if (result.status !== 'reviewed' || !leadHandbackTerminal(op) && evidence.revision === op.head || budget.spend !== 'known' || budget.reservedUsdMicros) return null
       const old = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
       const card = { version: 1 as const, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1, type: 'result' as const,
         contractDigest: contract.digest, outcome: 'reviewed' as const, summary: 'CI passed. Fresh checks and independent review are ready for your decision.', assertions: result.assertions, budget }
-      return { source: await publication.source(card, contract), card }
+      const source = await publication.source(card, contract)
+      if (leadHandbackTerminal(op) && source.head !== journal.state.pr?.head) return null
+      return { source, card }
     }
     const repairs = new LeadHandbacks({ journal, now: () => Date.now(),
       gate: async op => {
@@ -3613,9 +3615,14 @@ export class Host {
       if (this.#disposed) return
       await repairs.recover()
       const op = journal.state.handbacks.at(-1)
-      if (op?.stage !== 'completed' || journal.state.phase !== 'running' || journal.state.handbackLimit || journal.state.pr?.branchOwner === 'person') return
+      if (!op || !leadHandbackTerminal(op) || !leadRepairResultReady(journal.state) || journal.state.handbackLimit ||
+        ['accepted', 'declined', 'stopped', 'awaiting-plan'].includes(journal.state.phase) || journal.state.pr?.branchOwner === 'person') return
       const result = await repairResult(op)
-      if (!result || journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))) return
+      if (journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))) return
+      if (!result) {
+        if (op.stage !== 'completed') await journal.setManagementPhase('waiting-for-user', 'lead-repair-unverified')
+        return
+      }
       await journal.offerCard(result.card)
       await journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
     })().finally(() => { repairRefresh = null })

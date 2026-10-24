@@ -496,3 +496,15 @@ it('links the followed PR with check, review and ownership chips and limits work
   await update({ thread: { ...base.thread, state: 'following', pr, handback: { ...handback, stage: 'completed' } } })
   expect(box.textContent).not.toContain('Repairing checks')
 })
+
+it.each([
+  ['lead-repair-failed', 'Checks failed on the repaired branch.'],
+  ['lead-repair-withdrawn', 'The repair was withdrawn when following was turned off.'],
+  ['lead-repair-abandoned', 'The repair ended after the branch changed.'],
+  ['lead-repair-unverified', 'CI passed, but the current branch has no matching reviewed result.'],
+] as const)('explains the durable %s wait', async (waitReason, text) => {
+  const base = leadProjection()
+  const { box } = await mount({ ...base, thread: { ...base.thread!, state: 'waiting-for-user', cards: [] }, wayOut: 'resume', waitReason })
+  expect(box.textContent).toContain(text)
+  expect(box.querySelector('[data-lead-decision]')).toBeNull()
+})

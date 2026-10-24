@@ -616,6 +616,22 @@ test('restore compares the stored card facts with the current result signature',
   await loop.close()
 })
 
+test('terminal repair readiness never re-offers evidence for an older owned head', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  const read = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(s.journal), 'state')!.get!
+  const head = 'b'.repeat(40)
+  Object.defineProperty(s.journal, 'state', { configurable: true, get: () => ({ ...read.call(s.journal),
+    handbacks: [{ stage: 'abandoned' }], ciPassed: [head],
+    pr: { head, branchOwner: 'lead', state: 'open', check: { head, state: 'passed', total: 1 } } }) })
+  try {
+    await s.journal.invalidateResults()
+    await loop.refresh()
+    assert.equal(liveResults(s).length, 0)
+  } finally { Reflect.deleteProperty(s.journal, 'state'); await loop.close() }
+})
+
 test('a gap during an approved start keeps a continuation for resync without restarting', async () => {
   let release!: (value: any) => void
   const s = await fixture([() => new Promise(resolve => { release = resolve }), message()])
