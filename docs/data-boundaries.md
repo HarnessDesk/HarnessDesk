@@ -138,7 +138,8 @@ An already-revoked cloud identity does not prevent local sign-out. A local
 preference prevents a legacy copy from restoring a signed-out identity.
 Settings › Account also offers **Delete account…**. Its confirmation removes
 the cloud account and unlinks every desk and phone. The host clears its local
-identity only after the cloud confirms deletion; an offline attempt must be
+identity after the cloud confirms deletion or rejects its credentials as no
+longer authorized. Other failures keep the identity; an offline attempt must be
 retried when connected. The service retains anonymous desk and link generation counters
 and a hash of the deleted account id to reject old credentials; neither
 contains the deleted profile or device registrations. Agents and local work

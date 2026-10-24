@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { b64u, fromB64u, idFromPub, verifyEd25519, webDeskLinkProofMessage, webDeskProofMessage } from '@harnessdesk/crypto'
+import { Client, start, stop } from './fixtures/harness.js'
 import { StateStore } from '../src/state.js'
 import { HarnessDeskAccount } from '../src/harnessdesk-account.js'
 
@@ -34,6 +35,7 @@ async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: bo
   let now = 1_000_000
   const faults = new Map<string, number | 'offline'>()
   let pollDeskId: string | undefined
+  let lostDeleteReply: 'offline' | 500 | undefined
   let cloudRevoked = false
   let approved = options.approved ?? false; let denied = false; let name = 'Studio Mac'; let deskId = ''; let revoked = false
   let waitPath: string | null = null; let releasePath: (() => void) | null = null; let requestWait: Promise<void> | null = null
@@ -66,12 +68,18 @@ async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: bo
     if (url.pathname === '/v1/desk/account') return Response.json({ account: { ...account, pictureUrl: options.pictureUrl ?? null }, desk: { deskId, name }, phones: revoked ? [] : [{ deviceId, name: 'Phone', lastSeenAt: null }] })
     if (url.pathname === '/v1/desk/rename') { name = body.name!; return Response.json({ deskId, name }) }
     if (url.pathname === '/v1/links/revoke') { assert.equal(body.deskId, deskId); revoked = true; return Response.json({ ok: true }) }
-    if (url.pathname === '/v1/account/delete') { cloudRevoked = true; return Response.json({ ok: true }) }
+    if (url.pathname === '/v1/account/delete') {
+      if (cloudRevoked) return Response.json({ error: { code: 'unauthorized' } }, { status: 401 })
+      cloudRevoked = true
+      if (lostDeleteReply === 'offline') throw new Error('fake response lost after commit')
+      if (lostDeleteReply === 500) return Response.json({ error: { code: 'fake_response_lost' } }, { status: 500 })
+      return Response.json({ ok: true })
+    }
     if (url.pathname === '/v1/desks/revoke') { assert.equal(body.deskId, deskId); cloudRevoked = true; return Response.json({ ok: true }) }
     throw new Error('unexpected fake route')
   }
   const service = new HarnessDeskAccount({ state, readPicture: options.readPicture, cipher: options.plain ? undefined : cipher, cloudUrl: 'https://cloud.example.com', fetch: request, openExternal: async (url: string) => { opened.push(url) }, changed: (status: unknown) => changes.push(status), now: () => now, setTimer: (fn: () => Promise<void>) => { timers.push(fn); return fn }, clearTimer: () => {} })
-  return { service, fault: (path: string, status: number | 'offline') => faults.set('/v1' + path, status), wrongDesk: () => { pollDeskId = 'B'.repeat(21) + 'A' }, setPictureUrl: (url: string | undefined) => { options.pictureUrl = url }, setNow: (value: number) => { now = value }, state, request, cipher, opened, changes, calls, dir, timers, holdRequest: (path: string) => { waitPath = path; requestWait = new Promise<void>(r => { releasePath = r }); return () => releasePath!() }, approve: () => { approved = true }, deny: () => { denied = true }, refuse: () => { refuse = true }, holdPoll: () => { pollWait = new Promise<void>(r => { deferPoll = r }); return () => deferPoll!() } }
+  return { service, loseDeleteReply: (failure: 'offline' | 500) => { lostDeleteReply = failure }, fault: (path: string, status: number | 'offline') => faults.set('/v1' + path, status), wrongDesk: () => { pollDeskId = 'B'.repeat(21) + 'A' }, setPictureUrl: (url: string | undefined) => { options.pictureUrl = url }, setNow: (value: number) => { now = value }, state, request, cipher, opened, changes, calls, dir, timers, holdRequest: (path: string) => { waitPath = path; requestWait = new Promise<void>(r => { releasePath = r }); return () => releasePath!() }, approve: () => { approved = true }, deny: () => { denied = true }, refuse: () => { refuse = true }, holdPoll: () => { pollWait = new Promise<void>(r => { deferPoll = r }); return () => deferPoll!() } }
 }
 
 test('browser sign-in shows matching code, proves key, polls, and persists only encrypted secrets', async () => {
@@ -387,7 +395,7 @@ test('account deletion clears this origin identity and notifies signed out only 
   const again = new HarnessDeskAccount({ state: r.state, cipher, cloudUrl: 'https://cloud.example.com', fetch: r.request, changed: () => {} })
   assert.equal((await again.status()).status, 'signedOut'); again.close()
 })
-for (const failure of ['offline', 401, 404, 429, 500] as const) test(`failed account deletion (${failure}) keeps the local identity`, async () => {
+for (const failure of ['offline', 404, 500] as const) test(`failed account deletion (${failure}) keeps the local identity`, async () => {
   const r = await rig(); await r.service.signIn(); r.approve(); await r.timers.shift()!()
   const file = (await readdir(r.dir)).find(file => file.endsWith('.sealed'))!
   const saved = await readFile(join(r.dir, file)); const before = r.changes.length
@@ -402,4 +410,40 @@ test('account deletion requires a signed-in account and never creates a new iden
   await assert.rejects(r.service.deleteAccount(), /Sign in to HarnessDesk first/)
   assert.equal(r.calls.length, 0)
   assert.deepEqual((await readdir(r.dir)).filter(file => file.endsWith('.sealed')), []); r.service.close()
+})
+
+for (const lostReply of ['offline', 500] as const) for (const retryPath of ['delete', 'session'] as const) {
+  test(`delete retry clears local identity after committed deletion lost as ${lostReply} and ${retryPath} returns 401`, async () => {
+    const r = await rig(); await r.service.signIn(); r.approve(); await r.timers.shift()!()
+    r.loseDeleteReply(lostReply)
+    await assert.rejects(r.service.deleteAccount(), { message: "Can't reach HarnessDesk. Try again when you're online." })
+    assert.equal((await r.service.status()).status, 'signedIn')
+    assert.equal((await readdir(r.dir)).filter(file => file.endsWith('.sealed')).length, 1)
+    if (retryPath === 'session') r.setNow(100_000_000)
+    assert.equal((await r.service.deleteAccount()).status, 'signedOut')
+    assert.deepEqual(r.changes.at(-1), await r.service.status())
+    assert.deepEqual((await readdir(r.dir)).filter(file => file.endsWith('.sealed')), [])
+    assert.equal(r.calls.filter(c => c.path === '/v1/account/delete').length, retryPath === 'delete' ? 2 : 1)
+    r.service.close()
+  })
+}
+test('delete rate limiting has a distinct retry message and preserves the sealed identity', async () => {
+  const r = await rig(); await r.service.signIn(); r.approve(); await r.timers.shift()!()
+  const file = (await readdir(r.dir)).find(file => file.endsWith('.sealed'))!
+  const before = await readFile(join(r.dir, file)); const changes = r.changes.length
+  r.fault('/account/delete', 429)
+  await assert.rejects(r.service.deleteAccount(), { message: 'Too many attempts. Try again in a few minutes.' })
+  assert.equal((await r.service.status()).status, 'signedIn')
+  assert.deepEqual(await readFile(join(r.dir, file)), before)
+  assert.equal(r.changes.length, changes); r.service.close()
+})
+for (const failure of ['offline', 500] as const) test(`delete ${failure} carries the preview's real error code over the renderer wire`, async t => {
+  const r = await rig(); t.after(() => r.service.close())
+  await r.service.signIn(); r.approve(); await r.timers.shift()!(); r.fault('/account/delete', failure)
+  const wireDir = join(r.dir, 'wire-host'); await mkdir(wireDir)
+  const harness = await start({}, wireDir); t.after(() => stop(harness))
+  const call = harness.host.call.bind(harness.host)
+  harness.host.call = ((method, params) => method === 'account/delete' ? r.service.deleteAccount() : call(method, params)) as typeof harness.host.call
+  const client = await Client.connect(harness.server); t.after(() => client.close())
+  await assert.rejects(client.call('account/delete', {}), { code: 'accountCloudUnreachable', message: "Can't reach HarnessDesk. Try again when you're online." })
 })

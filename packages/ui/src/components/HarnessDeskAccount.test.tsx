@@ -94,6 +94,7 @@ it('confirms deletion through the host and follows the signed-out account state'
 
 it.each([
   new Error('The account could not be deleted. Try again.'),
+  new Error('Too many attempts. Try again in a few minutes.'),
   Object.assign(new Error("Can't reach HarnessDesk. Try again when you're online."), { code: 'accountCloudUnreachable' }),
 ])('keeps deletion failures in the dialog without a local-only fallback: %s', async failure => {
   const { deleteHarnessDeskAccount, signOutOfHarnessDesk, store } = mount()

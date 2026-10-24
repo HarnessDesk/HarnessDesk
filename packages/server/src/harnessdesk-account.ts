@@ -32,7 +32,7 @@ interface Options {
 }
 class CloudUnreachableError extends Error {
   readonly wireCode = 'accountCloudUnreachable'
-  constructor() { super('HarnessDesk could not reach your account. Try again.') }
+  constructor(message = 'HarnessDesk could not reach your account. Try again.') { super(message) }
 }
 class CloudError extends Error {
   constructor(readonly status: number) { super('HarnessDesk could not reach your account. Try again.') }
@@ -459,14 +459,17 @@ export class HarnessDeskAccount {
     this.#emit(this.#signedOut(this.#storageBlocked))
     return this.#snapshot
   }
-  /** Account deletion is confirmed remotely before removing this desk's sealed identity. */
+  /** Remove this desk's identity after deletion or a cloud rejection of its revoked credentials. */
   deleteAccount() { return this.#serialize(async () => {
     try {
       const { token } = await this.#authorized()
       this.#parse(Ok, await this.#request('/account/delete', {}, token))
     } catch (error) {
+      // The first delete may have committed even when its response never reached this desk.
+      if (error instanceof CloudError && error.status === 401) return this.#clearLocal()
+      if (error instanceof CloudError && error.status === 429) throw new Error('Too many attempts. Try again in a few minutes.')
       if (error instanceof CloudUnreachableError || (error instanceof CloudError && error.status >= 500)) {
-        throw new Error("Can't reach HarnessDesk. Try again when you're online.")
+        throw new CloudUnreachableError("Can't reach HarnessDesk. Try again when you're online.")
       }
       throw error
     }

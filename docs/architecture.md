@@ -180,8 +180,9 @@ sample.
   unfinished sign-ins, best effort; neither cleanup signs the renderer in.
   `account/delete` deletes the cloud account with the desk session, then clears
   this origin's sealed identity through the same path as sign-out and emits
-  `account/changed`. A failed deletion keeps the local identity; there is no
-  local-only account deletion.
+  `account/changed`. A 401 on deletion or session renewal clears the identity
+  too, allowing a retry after a lost success response. Other failures keep the
+  local identity; there is no local-only account deletion.
   Account pictures are bounded host-fetched raster data from public HTTPS
   addresses; the renderer retains its self/data/blob image policy. Desk name
   and the phone-access preference live in ordinary preferences.
