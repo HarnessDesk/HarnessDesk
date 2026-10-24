@@ -3661,7 +3661,7 @@ export class Host {
           if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
           return this.call(call.method, call.params)
         }) }, card, decision, contract),
-      decideResult: validateResult,
+      decideResult: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract),
       stopRequest: () => this.#leadService!.stopGoal(),
       meterSpend: () => this.#leadBudgets.meter(journal),
       stopEffects: () => stopOwned('lead-budget-stopped'),

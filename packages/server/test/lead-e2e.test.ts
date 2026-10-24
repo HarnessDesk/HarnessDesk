@@ -110,8 +110,11 @@ test('two-run reviewed result follows failed review and repair and retries a fai
   }
   const card = rig.pending('result')!
   rig.failSecondGateSave()
-  await assert.rejects(rig.decide(card, 'accept'), { wireCode: 'lead-gate-save-failed' })
+  const failed = await rig.decide(card, 'accept').then(() => null, error => error)
+  assert.equal(rig.gateSaveFailed, true, 'the injected second-board save must actually refuse')
+  assert.equal(failed?.wireCode, 'lead-gate-save-failed')
   assert.notEqual(rig.journal.state.phase, 'accepted')
+  assert.equal(rig.journal.state.decidedCards.includes(`${card.id}:${card.revision}`), false)
   assert.equal(rig.personGates().filter(one => one.state === 'done').length, 1)
   await rig.decide(card, 'accept')
   assert.equal(rig.journal.state.phase, 'accepted')

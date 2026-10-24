@@ -276,6 +276,10 @@ export class LeadJournal {
   #tail: Promise<unknown> = Promise.resolve()
   #failed = false
   #stopEffectFailure: { readonly reason: 'stop-effects-failed'; readonly stopSeq: number } | null = null
+  // A partially saved person decision remains owned by the host. Child reads
+  // can observe the intermediate boards; only a freshly validated retry can
+  // complete it, or release its exact result when the gates have changed.
+  #retryResult: { readonly id: string; readonly revision: number; readonly digest: string; readonly goal: string | null } | null = null
   private readonly security: LeadJournalSecurity
   constructor(private readonly storage: LeadJournalStorage, records: readonly LeadJournalRecord[], security: LeadJournalSecurity = {}, checkpoint: LeadState | null = null) {
     this.security = mergeLeadJournalSecurity(storage.journalSecurity?.() ?? {}, security)
@@ -411,7 +415,10 @@ export class LeadJournal {
   }
   #resultFenced(): boolean {
     const op = this.#state.publication
-    return this.#state.phase === 'following' || !!(op && op.stage !== 'superseded' && !(op.stage === 'needs-you' && op.effectStarted === false) &&
+    const retry = this.#retryResult
+    return !!(retry && retry.goal === (this.#state.budget?.logicalGoalId ?? null) && retry.digest === this.#state.contract?.digest &&
+      !['accepted', 'declined', 'stopped'].includes(this.#state.phase) && this.#state.cards.some(card => card.id === retry.id && card.revision === retry.revision)) ||
+      this.#state.phase === 'following' || !!(op && op.stage !== 'superseded' && !(op.stage === 'needs-you' && op.effectStarted === false) &&
       !this.#state.decidedCards.includes(`${op.decision.cardId}:${op.decision.expectedRevision}`) &&
       this.#state.cards.some(card => card.id === op.decision.cardId && card.revision === op.decision.expectedRevision && card.contractDigest === op.decision.contractDigest))
   }
@@ -503,9 +510,19 @@ export class LeadJournal {
         throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
       // Validate the immutable card and reducer transition before any human side effect.
       reduceLeadRecord(this.#state, { version: 1, seq: this.#state.seq + 1, type: 'card-decision', decision, expiresAt })
-      await beforeDecision?.()
+      try { await beforeDecision?.() }
+      catch (error) {
+        if (card.type === 'result' && (error as { wireCode?: unknown })?.wireCode === 'lead-gate-save-failed')
+          this.#retryResult = { id: card.id, revision: card.revision, digest: card.contractDigest, goal: this.#state.budget?.logicalGoalId ?? null }
+        else if (this.#retryResult?.id === card.id && this.#retryResult.revision === card.revision) {
+          this.#retryResult = null
+          await this.#append({ type: 'invalidate-results' })
+        }
+        throw error
+      }
       await this.#append({ type: 'card-decision', decision, expiresAt }, committed)
     }, stopEffects)
+      if (this.#retryResult?.id === card.id && this.#retryResult.revision === card.revision) this.#retryResult = null
   }
   /** Caller must await durable admission before sending a paid request or opening a round. */
   updateBudget(event: LeadBudgetEvent, stopEffects?: () => Promise<void>): Promise<LeadBudgetLedger> {

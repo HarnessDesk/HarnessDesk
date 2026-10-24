@@ -643,6 +643,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         }
         failGate = true
       },
+      get gateSaveFailed() { return failedGate },
       async interruptAt(kind: 'child-crash' | 'host-restart' | 'connection-gap') {
         if (kind === 'child-crash') { children.at(-1)!.kill('SIGKILL'); await waitFor(() => children.at(-1)?.exitCode !== null || children.at(-1)?.signalCode !== null, 'child exit') }
         else if (kind === 'connection-gap') {

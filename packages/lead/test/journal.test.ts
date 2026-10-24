@@ -45,6 +45,26 @@ const prepare = async (storage: ReturnType<typeof memory>) => {
   return journal
 }
 
+test('a failed person save protects its exact result until fresh retry validation refuses it', async () => {
+  const journal = await prepare(memory())
+  const card = { version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget!, 100) }
+  await journal.offerCard(card)
+  const decision = { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }
+  await assert.rejects(journal.decideCard(decision, null, undefined, async () => {
+    throw Object.assign(new Error('save refused'), { wireCode: 'lead-gate-save-failed' })
+  }))
+  await journal.invalidateResults()
+  assert.equal(journal.state.decidedCards.includes('result:1'), false)
+  await assert.rejects(journal.offerCard({ ...card, revision: 2 }), { wireCode: 'lead-card-stale' })
+  await assert.rejects(journal.decideCard(decision, null, undefined, async () => {
+    throw Object.assign(new Error('gate changed'), { wireCode: 'lead-gate-changed' })
+  }))
+  assert.equal(journal.state.decidedCards.includes('result:1'), true)
+  await journal.offerCard({ ...card, revision: 2 })
+  assert.equal(journal.state.cards.find((value: any) => value.id === card.id)!.revision, 2)
+})
+
 test('crash after successful start before recording response never starts a second Flow', async () => {
   const storage = memory(), journal = await prepare(storage)
   let starts = 0

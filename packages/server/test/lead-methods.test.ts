@@ -609,6 +609,35 @@ test('a partial gate with the opposite outcome refuses retry', async () => {
   await assert.rejects(g.answerLeadResult(g.options, g.card, g.click, g.c), code('lead-gate-changed'))
   assert.equal(g.answers(), 0)
 })
+test('a failed second gate save keeps its result retryable after an intermediate child invalidation', async () => {
+  const g = await gateRig(true), { LeadControls } = await controlsModule()
+  await g.journal.offerCard(g.card)
+  let invalidation: Promise<void> | undefined, fail = true
+  const answer = g.options.team.intentAction
+  g.options.team.intentAction = async (...args: any[]) => {
+    if (args[0] === 'team-2' && fail) {
+      // The first gate's board notification lets the child invalidate its old
+      // snapshot while the host is still saving the remaining person gate.
+      invalidation = g.journal.invalidateResults()
+      throw Object.assign(new Error('board save failed'), { wireCode: 'lead-gate-save-failed' })
+    }
+    return answer(...args)
+  }
+  const controls = new LeadControls({ journal: g.journal, service: g.service, project, model: 'fixture-model', now: () => 100,
+    nextId: () => 'unused', push() {}, decidePerson: async () => {},
+    decideResult: () => g.answerLeadResult(g.options, g.card, g.click, g.c) })
+  try {
+    await assert.rejects(controls.decide(g.click), code('lead-gate-save-failed'))
+    await invalidation
+    await g.journal.invalidateResults()
+    assert.equal(g.journal.state.decidedCards.includes('result:1'), false)
+    await assert.rejects(controls.decide({ ...g.click, expectedRevision: 2 }), code('lead-card-stale'))
+    fail = false
+    await controls.decide(g.click)
+    assert.equal(g.answers(), 2)
+    await assert.rejects(controls.decide(g.click), code('lead-card-decided'))
+  } finally { controls.close(); await controls.idle() }
+})
 for (const guard of ['execution', 'ownership', 'step-flow', 'step-revision', 'recipe-source'] as const) test(`person gate refuses changed ${guard} before answering`, async () => {
   const g = await gateRig()
   const { leadReviewedResultSource, LEAD_REVIEWED_RESULT } = await import('@harnessdesk/lead')
