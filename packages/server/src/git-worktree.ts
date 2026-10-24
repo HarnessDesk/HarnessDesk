@@ -52,7 +52,7 @@ const personGit = async (cwd: string, args: readonly string[], timeout = 20_000)
 
 /** Read-only queries never run the repository's own programs. */
 const git = async (cwd: string, args: readonly string[], timeout = 20_000, signal?: AbortSignal): Promise<string> =>
-  (await readGit(cwd, args, { timeout, maxBuffer: 16 * 1024 * 1024, ...(signal ? { signal } : {}) })).stdout
+  (await readGit(cwd, args, { timeout, maxBuffer: 16 * 1024 * 1024, ...(signal ? { signal, killSignal: 'SIGKILL' as const } : {}) })).stdout
 
 /**
  * Both streams, for the one verb that reports on the wrong one: `worktree

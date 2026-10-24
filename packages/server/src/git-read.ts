@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { HARDENED_GIT_CONFIG, automaticMutationConfig } from './git-hardening.js'
 import { parsePorcelain, type PorcelainEntry } from './porcelain.js'
 
-const exec = promisify(execFile)
+const execute = promisify(execFile)
 const commandAt = (args: readonly string[]): number => {
   for (let i = 0; i < args.length; i++) {
     if (['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--config-env'].includes(args[i]!)) i++
@@ -19,8 +19,22 @@ interface ReadOptions {
   readonly timeout?: number
   readonly maxBuffer?: number
   readonly signal?: AbortSignal
+  readonly killSignal?: NodeJS.Signals
   readonly env?: NodeJS.ProcessEnv
 }
+/** Apply the requested abort signal even when execFile uses killSignal only for its own timeout. */
+const exec = (file: string, args: readonly string[], options: ReadOptions & { readonly cwd?: string }) => {
+  const pending = execute(file, args, options)
+  const { signal, killSignal } = options
+  if (signal && killSignal) {
+    const stop = (): void => { if (pending.child.exitCode === null) pending.child.kill(killSignal) }
+    signal.addEventListener('abort', stop, { once: true })
+    pending.child.once('close', () => signal.removeEventListener('abort', stop))
+    if (signal.aborted) stop()
+  }
+  return pending
+}
+
 type Output = { readonly stdout: string; readonly stderr: string }
 type Setting = { readonly key: string; readonly value: string | null }
 /** Standard input comes from one place: bytes written once, or the output of another git command. */
@@ -66,7 +80,7 @@ const STDERR_KEPT = 64 * 1024
  */
 const launch = (
   argv: readonly string[],
-  limits: { readonly env: NodeJS.ProcessEnv; readonly timeout: number; readonly signal?: AbortSignal },
+  limits: { readonly env: NodeJS.ProcessEnv; readonly timeout: number; readonly signal?: AbortSignal; readonly killSignal?: NodeJS.Signals },
   stdin: { readonly mode: 'ignore' | 'pipe'; readonly input?: string | Buffer },
   onData?: (chunk: Buffer) => void,
 ): { readonly child: ChildProcess; readonly closed: Promise<void> } => {
@@ -184,7 +198,7 @@ const userFilters = async (cwd: string, options: ReadOptions): Promise<Trusted> 
     let listed: string
     try {
       listed = (await exec('git', [...HARDENED_GIT_CONFIG, 'config', scope, '--null', '--list', '--includes'], {
-        cwd, env, signal: options.signal,
+        cwd, env, signal: options.signal, killSignal: options.killSignal,
         timeout: options.timeout ?? 20_000, maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
       })).stdout
     } catch (error) {
@@ -293,7 +307,7 @@ const withView = async <T>(
       // Keep the private view until an aborted process has finished writing.
       try { return await pending } finally { await closed }
     }, stream: async (args, onData, streamOptions = {}) => {
-      const limits = { env: streamOptions.env ? { ...env, ...streamOptions.env } : env, timeout, signal: options.signal }
+      const limits = { env: streamOptions.env ? { ...env, ...streamOptions.env } : env, timeout, signal: options.signal, killSignal: options.killSignal }
       const piped = streamOptions.feed !== undefined || streamOptions.input !== undefined
       const reader = launch(argv(args), limits, { mode: piped ? 'pipe' : 'ignore', input: streamOptions.input }, onData)
       const writer = streamOptions.feed ? launch(argv(streamOptions.feed), limits, { mode: 'ignore' }) : undefined

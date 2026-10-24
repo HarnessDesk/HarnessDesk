@@ -1291,38 +1291,39 @@ test('an inventory held up by a call on the disk is refused at the deadline, and
   assert.ok(await gone(made.path))
 })
 
-test('a status read that never ends is stopped at the deadline and its child is killed', { timeout: 30_000, skip: process.platform === 'win32' }, async (t) => {
-  const { repo, state, made } = await withCache('holding')
-  const held = await inventory(made.path)
-  // A git that goes quiet on the read which lists what is ignored, as it would on a stalled mount.
-  const bin = await tempDir('hd-git-shim-')
-  const pidFile = join(bin, 'stuck.pid')
-  const real = (await run('sh', ['-c', 'command -v git'])).stdout.trim()
-  await writeFile(join(bin, 'git'), [
-    '#!/bin/sh',
-    'for arg in "$@"; do',
-    `  if [ "$arg" = "--ignored" ]; then echo $$ > '${pidFile}'; exec sleep 60; fi`,
-    'done',
-    `exec '${real}' "$@"`,
-    '',
-  ].join('\n'), { mode: 0o755 })
-  const path = process.env.PATH
-  process.env.PATH = `${bin}:${path ?? ''}`
-  let pid = 0
-  try {
-    await assert.rejects(remove(repo, made.path, true, held.stateId, state, { deadlineMs: 4_000 }), DEADLINE)
-    pid = Number(await readFile(pidFile, 'utf8'))
-    assert.ok(pid > 0, 'the status read was started')
-    await eventually(() => {
-      try { process.kill(pid, 0); return false } catch { return true }
-    }, 'the status read child was killed')
-  } finally {
-    if (path === undefined) delete process.env.PATH
-    else process.env.PATH = path
-    if (pid > 0) try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
-  }
-  assert.ok(!(await gone(made.path)))
-})
+for (const stalledStatus of ['--untracked-files=all', '--ignored']) {
+  test(`a ${stalledStatus} status read that ignores SIGTERM is stopped at the deadline and its child is killed`, { timeout: 30_000, skip: process.platform === 'win32' }, async () => {
+    const { made } = await withCache('holding')
+    // A quiet status process keeps running on SIGTERM, as a deadline must allow for.
+    const bin = await tempDir('hd-git-shim-')
+    const pidFile = join(bin, 'stuck.pid')
+    const real = (await run('sh', ['-c', 'command -v git'])).stdout.trim()
+    await writeFile(join(bin, 'git'), [
+      '#!/bin/sh',
+      'for arg in "$@"; do',
+      `  if [ "$arg" = "${stalledStatus}" ]; then trap '' TERM; echo $$ > '${pidFile}'; exec sleep 60; fi`,
+      'done',
+      `exec '${real}' "$@"`,
+      '',
+    ].join('\n'), { mode: 0o755 })
+    const path = process.env.PATH
+    process.env.PATH = `${bin}:${path ?? ''}`
+    let pid = 0
+    try {
+      await assert.rejects(inventory(made.path, { deadlineMs: 4_000 }), DEADLINE)
+      pid = Number(await readFile(pidFile, 'utf8'))
+      assert.ok(pid > 0, 'the status read was started')
+      await eventually(() => {
+        try { process.kill(pid, 0); return false } catch { return true }
+      }, 'the status read child was killed')
+    } finally {
+      if (path === undefined) delete process.env.PATH
+      else process.env.PATH = path
+      if (pid > 0) try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+    }
+    assert.ok(!(await gone(made.path)))
+  })
+}
 
 // ------------------------------------------------------------------- prune
 
