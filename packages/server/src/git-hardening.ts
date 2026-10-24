@@ -20,11 +20,15 @@ import { promisify } from 'node:util'
  * diffs use short gitlink summaries rather than starting a child diff with its
  * own configuration.
  *
- * Filter names are configuration-defined, so automatic reads use an isolated
- * configuration (`git-read.ts`) with those definitions omitted. Host diffs also pass
- * `--no-ext-diff --no-textconv`. Automatic checkouts keep that private
- * configuration through materialization, inspect the target's attributes and
- * refuse filtered paths; `commit_work` does the same for its files, and also
+ * Filter drivers name programs as well, so automatic reads use an isolated
+ * configuration (`git-read.ts`) that leaves out every filter the repository
+ * defines. The filters the person's own system and global configuration define
+ * are read apart from the repository and carried into it, so a status sees a
+ * converted file (Git LFS, say) as the person's git does and a lane can be cut
+ * from a tree that uses one. Host diffs also pass `--no-ext-diff --no-textconv`.
+ * Automatic checkouts keep that private configuration through materialization,
+ * inspect the target's attributes and refuse a file whose filter the person
+ * has not defined; `commit_work` refuses any filtered file of its own, and also
  * excludes system and global configuration.
  *
  * Verbs a person triggers themselves — bringing a branch home, the git

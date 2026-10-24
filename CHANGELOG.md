@@ -13,6 +13,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **A paused or capped run keeps saying why while its cleanup finishes.** When a budget cap or a pause stops a run, the run shows that reason until the interrupted work has been cleaned up, instead of switching to a generic “waits while its interrupted work is cleaned up” message, and it is not held a second time in the meantime.
 
+- **Git LFS repositories keep working.** A repository whose files go through a filter you have set up in your own Git configuration, such as Git LFS, shows only real changes in status again, and a new lane can be cut from it.
+
 ## 0.6.0 — 2026-10-21
 
 A Team opens on its recorded Work, Settings reads calmer and behaves the same

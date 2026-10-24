@@ -900,14 +900,27 @@ default ssh, no signing, and no signature check when a history read prints a
 commit (`log.showSignature` would start the repository's `gpg.program` for each
 signed commit a `log` or `show` lists). Working-file reads use a private Git
 directory with an immutable configuration snapshot. Included and global settings are
-flattened into that snapshot; include paths and filter definitions are omitted.
-The consuming process cannot acquire another driver from live configuration.
+flattened into that snapshot; include paths and the repository's filter
+definitions are omitted. The filters the person's own configuration defines are
+the one thing added: they are read apart from the repository, from a folder that
+belongs to none, by the `--system` and `--global` scopes alone (the system file
+only where `GIT_CONFIG_NOSYSTEM` would let git read it), and a file that is not
+there is no definition. A repository that keeps its files behind Git LFS then
+reads clean in status and can have a lane cut from it, because the program that
+converts them is the person's own. A repository can neither add a driver to
+that set nor change one in it, so a filter only the repository defines is never
+run. A status read leaves `required` off for those filters, so a program that
+has gone missing shows as a change instead of failing the read. The consuming
+process cannot acquire another driver from live configuration.
 Status disables Git's implicit submodule content reads and reads initialized
 children through the same isolated runner, retaining their content, untracked,
 and commit-change reporting. Parent diffs use short gitlink summaries rather
 than starting child diff commands, and pass `--no-ext-diff --no-textconv`.
 Automatic checkouts inspect the target tree's attributes in a private index
-and refuse files with a filter instead of writing them without conversion.
+and refuse files whose filter the person has not defined, instead of writing
+them without conversion; the filters they have defined convert the files with
+their own program. Removing a lane still runs git with every filter off, so no
+filter program is needed to remove one.
 They register an empty checkout and check its attributes again before writing
 files, because conditional configuration can differ in a linked worktree.
 Verbs a person triggers — bringing a branch home, the git client's commit,
