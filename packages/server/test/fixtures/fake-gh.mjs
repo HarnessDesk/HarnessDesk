@@ -90,6 +90,7 @@ const answer = (state, path) => {
     return pullJson(state, one)
   }
   if (parts[3] === 'pulls' && parts[5] === 'reviews') {
+    if (parts[6]) return state.pulls.find((row) => row.number === Number(parts[4]))?.reviews?.find((one) => one.id === Number(parts[6]))
     return slice(state.pulls.find((row) => row.number === Number(parts[4]))?.reviews ?? [])
   }
   if (parts[3] === 'commits') {

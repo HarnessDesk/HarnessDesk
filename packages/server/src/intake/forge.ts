@@ -57,40 +57,69 @@ export interface PullWatch {
   readonly since?: number
 }
 
-interface CheckCounts { readonly total: number; readonly failed: number; readonly pending: number }
-interface PendingReview { readonly fact: TriggerFact; readonly login: string; readonly id: number }
+interface CheckCounts { readonly total: number; readonly failed: number; readonly pending: number; readonly failureAt?: number }
+interface PendingReview {
+  readonly id: number
+  readonly account: number
+  readonly login: string
+  readonly at: number
+  readonly state: TriggerReview['state']
+}
 export interface PullWatchState {
   readonly head: string
-  readonly phase: 'checks' | 'statuses' | 'reviews' | 'authors'
+  readonly phase: 'checks' | 'statuses' | 'reviews' | 'authors' | 'body'
   readonly page: number
   readonly counts: CheckCounts
   readonly pending: readonly PendingReview[]
+  readonly aggregate?: string
+  readonly idle?: { readonly interval: number; readonly next: number; readonly updated: number; readonly interest: string; readonly aggregate: string }
+  readonly nonWriters?: readonly number[]
   readonly more: boolean
   readonly failed: boolean
+  /** Shared across arms by design: one review event per head. */
   readonly reviewed: boolean
 }
 
 /** Closed parser for optional version-1 watch metadata; older cursors omit it. */
 export const pullStatesOf = (value: unknown): Record<string, PullWatchState> | null => {
   if (!isMap(value) || Object.keys(value).length > FACT_LIMIT || Buffer.byteLength(JSON.stringify(value), 'utf8') > BATCH_BYTES) return null
+  const parsed: Record<string, PullWatchState> = {}
+  let pendingCount = 0
   for (const [number, entry] of Object.entries(value)) {
     if (!/^[1-9][0-9]{0,15}$/.test(number) || !Number.isSafeInteger(Number(number)) || !isMap(entry) || !SHA.test(String(entry['head'])) ||
-      !['checks', 'statuses', 'reviews', 'authors'].includes(String(entry['phase'])) || !Number.isSafeInteger(entry['page']) ||
+      !['checks', 'statuses', 'reviews', 'authors', 'body'].includes(String(entry['phase'])) || !Number.isSafeInteger(entry['page']) ||
       (entry['page'] as number) < 1 || (entry['page'] as number) > 10 || !isMap(entry['counts']) ||
       !Array.isArray(entry['pending']) || entry['pending'].length > PER_PAGE ||
       typeof entry['more'] !== 'boolean' || typeof entry['failed'] !== 'boolean' || typeof entry['reviewed'] !== 'boolean') return null
+    if (entry['nonWriters'] !== undefined && (!Array.isArray(entry['nonWriters']) || entry['nonWriters'].length > NON_WRITER_LIMIT ||
+      entry['nonWriters'].some((id: unknown) => !Number.isSafeInteger(id) || (id as number) < 1) || new Set(entry['nonWriters']).size !== entry['nonWriters'].length)) return null
+    if (entry['aggregate'] !== undefined && (typeof entry['aggregate'] !== 'string' || entry['aggregate'].length > 120)) return null
+    const idle = entry['idle']
+    if (idle !== undefined && (!isMap(idle) || !Number.isSafeInteger(idle['interval']) || (idle['interval'] as number) < WATCH_INTERVAL || (idle['interval'] as number) > WATCH_MAX_INTERVAL ||
+      !Number.isSafeInteger(idle['next']) || (idle['next'] as number) < 0 || !Number.isSafeInteger(idle['updated']) || (idle['updated'] as number) < 0 ||
+      typeof idle['interest'] !== 'string' || idle['interest'].length > 120 || typeof idle['aggregate'] !== 'string' || idle['aggregate'].length > 120)) return null
     const counts = entry['counts']
     for (const field of ['total', 'failed', 'pending']) {
       if (!Number.isSafeInteger(counts[field]) || (counts[field] as number) < 0 || (counts[field] as number) > 2000) return null
     }
+    if (counts['failureAt'] !== undefined && (!Number.isSafeInteger(counts['failureAt']) || (counts['failureAt'] as number) < 0)) return null
     if ((counts['failed'] as number) + (counts['pending'] as number) > (counts['total'] as number)) return null
-    for (const pending of entry['pending']) {
-      if (!isMap(pending) || typeof pending['login'] !== 'string' || !LOGIN.test(pending['login']) || !Number.isSafeInteger(pending['id']) || (pending['id'] as number) < 1) return null
-      const fact = factOf(pending['fact'])
-      if (!fact || fact.action !== 'review-commented' || fact.subject !== number || fact.head !== entry['head'] || fact.author !== accountDigest(pending['id'] as number)) return null
+    const pending: PendingReview[] = []
+    for (const raw of entry['pending']) {
+      if (!isMap(raw) || typeof raw['login'] !== 'string' || !LOGIN.test(raw['login'])) return null
+      // Read old version-1 cursors, but discard their unverified prose immediately.
+      const old = raw['fact'] === undefined ? null : factOf(raw['fact'])
+      if (raw['fact'] !== undefined && (!old || old.action !== 'review-commented' || old.subject !== number || old.head !== entry['head'] || old.author !== accountDigest(raw['id'] as number))) return null
+      const candidate = { id: old?.review?.id ?? raw['id'], account: old ? raw['id'] : raw['account'], login: raw['login'], at: old?.at ?? raw['at'], state: old?.review?.state ?? raw['state'] }
+      if (!Number.isSafeInteger(candidate.id) || (candidate.id as number) < 1 || !Number.isSafeInteger(candidate.account) || (candidate.account as number) < 1 ||
+        !Number.isSafeInteger(candidate.at) || (candidate.at as number) < 0 || !['commented', 'changes-requested', 'approved'].includes(String(candidate.state))) return null
+      pending.push(candidate as PendingReview)
     }
+    pendingCount += pending.length
+    if (pendingCount > PENDING_LIMIT) return null
+    parsed[number] = { ...entry, pending } as unknown as PullWatchState
   }
-  return value as Record<string, PullWatchState>
+  return parsed
 }
 
 /** A current lifecycle read, kept separate from the two opt-in trigger events. */
@@ -141,6 +170,14 @@ const OVERLAP_MS = 5 * 60_000
 const TITLE_LIMIT = 4096
 const BODY_LIMIT = 16384
 const FACT_LIMIT = 1000
+const WATCH_INTERVAL = 30_000
+const WATCH_MAX_INTERVAL = 10 * 60_000
+const NON_WRITER_LIMIT = 100
+const PENDING_LIMIT = 1000
+class PullWatchOverflow extends ForgeReadError {
+  constructor(message: string) { super('unreadable', message) }
+}
+
 const BATCH_BYTES = 2 * 1024 * 1024
 const ISSUE_LIMIT = 100
 const SUBJECT_LIMIT = 5000
@@ -359,7 +396,7 @@ export class ForgeSource {
     })
     if (signal.aborted) throw new ForgeReadError('offline', 'The read was stopped.')
     if (result.timedOut || Date.now() > deadline) throw outOfTime()
-    if (result.overflow) throw unreadable()
+    if (result.overflow) throw new PullWatchOverflow('The forge response exceeded the read limit.')
     if (result.exitCode !== 0) throw failureOf(result.stderr)
     try {
       return JSON.parse(result.stdout) as unknown
@@ -591,10 +628,19 @@ export class ForgeSource {
       const interested = watches.filter((watch) => watch.number === undefined || watch.number === number)
       const checks = interested.some((watch) => watch.checks)
       const reviews = interested.some((watch) => watch.reviews)
+      const checkFloor = Math.max(cursor.baseline, Math.min(...interested.filter((watch) => watch.checks).map((watch) => watch.since ?? cursor.baseline)))
       const reviewFloor = Math.max(cursor.baseline, Math.min(...interested.filter((watch) => watch.reviews).map((watch) => watch.since ?? cursor.baseline)))
+      const interest = `${checks}:${reviews}:${checks ? checkFloor : 0}:${reviews ? reviewFloor : 0}`
+      const listed = rows.find((one) => one.number === number)
+      const previous = pulls[number]
+      if (previous?.idle && previous.idle.next > this.#now() && previous.idle.interest === interest &&
+        (!listed || (listed.head === previous.head && listed.state === 'open' && !listed.merged && listed.updated === previous.idle.updated))) continue
       let slots = 2
+      let cycleComplete = false
+      const factStart = facts.length
+      const observationStart = observations.length
       try {
-        let row = rows.find((one) => one.number === number)
+        let row = listed
         if (!row) {
           slots -= 1
           row = this.#pull(await this.#get(project, `repos/${repository}/pulls/${number}`, deadline, signal))
@@ -615,7 +661,8 @@ export class ForgeSource {
           head: row.head, phase: checks ? 'checks' : 'reviews', page: 1,
           counts: { total: 0, failed: 0, pending: 0 }, pending: [], more: false, failed: false, reviewed: false,
         }
-        if (!reviews && state.phase === 'authors') state = { ...state, phase: 'checks', pending: [], page: 1, more: false, counts: { total: 0, failed: 0, pending: 0 } }
+        if (state.idle && (state.idle.updated !== row.updated || state.idle.interest !== interest)) state = { ...state, idle: undefined }
+        if (!reviews && (state.phase === 'authors' || state.phase === 'body')) state = { ...state, phase: 'checks', pending: [], page: 1, more: false, counts: { total: 0, failed: 0, pending: 0 } }
         let check: TriggerCheck | null = null
         const writers = new Map<string, boolean | null>()
         const fact = (action: 'checks-failed' | 'review-commented', at: number): TriggerFact => ({
@@ -634,7 +681,7 @@ export class ForgeSource {
             const list = isMap(answer) ? answer[runs ? 'check_runs' : 'statuses'] : null
             const total = isMap(answer) ? answer['total_count'] : null
             if (!Array.isArray(list) || list.length > PER_PAGE || !Number.isSafeInteger(total) || (total as number) < 0) throw unreadable()
-            if ((total as number) > this.#maxPages * PER_PAGE) return null
+            if ((total as number) > this.#maxPages * PER_PAGE) throw new PullWatchOverflow('Too many checks on this pull request; supplemental state was not read.')
             const expected = Math.min(PER_PAGE, Math.max(0, (total as number) - (state.page - 1) * PER_PAGE))
             if (list.length !== expected) throw unreadable()
             if (!runs && (!isMap(answer) || answer['sha'] !== row.head)) throw unreadable()
@@ -652,26 +699,33 @@ export class ForgeSource {
               if (runs && conclusion !== null && !['success', 'failure', 'neutral', 'cancelled', 'skipped', 'timed_out', 'action_required', 'stale', 'startup_failure'].includes(String(conclusion))) throw unreadable()
               counts.total += 1
               if (runs ? status !== 'completed' || conclusion === null : status === 'pending') counts.pending += 1
-              else if (runs ? !['success', 'neutral', 'skipped'].includes(String(conclusion)) : status !== 'success') counts.failed += 1
+              else if (runs ? !['success', 'neutral', 'skipped'].includes(String(conclusion)) : status !== 'success') {
+                counts.failed += 1
+                const stamp = raw[runs ? 'completed_at' : 'updated_at']
+                // Missing failure time cannot establish an event after arming.
+                counts.failureAt = Math.max(counts.failureAt ?? 0, stamp == null ? 0 : time(stamp))
+              }
             }
             const more = state.page * PER_PAGE < (total as number)
-            if (more && (list.length !== PER_PAGE || state.page >= this.#maxPages)) return null
+            if (more && (list.length !== PER_PAGE || state.page >= this.#maxPages)) throw new PullWatchOverflow('Too many checks on this pull request; supplemental state was not read.')
             state = { ...state, counts, page: more ? state.page + 1 : 1, phase: more ? state.phase : runs ? 'statuses' : 'reviews' }
-            if (counts.failed > 0 || (!runs && !more)) {
+            if (!runs && !more) {
+              state = { ...state, aggregate: `${counts.total}:${counts.failed}:${counts.pending}:${counts.failureAt ?? 0}` }
               check = { head: row.head, state: counts.failed > 0 ? 'failed' : counts.pending > 0 ? 'pending' : counts.total > 0 ? 'passed' : 'absent', total: counts.total }
               if (check.state === 'failed' && !state.failed) {
-                facts.push({ ...fact('checks-failed', this.#now()), body: row.body, check })
+                if ((counts.failureAt ?? 0) > checkFloor) facts.push({ ...fact('checks-failed', counts.failureAt!), body: row.body, check })
                 state = { ...state, failed: true }
               }
             }
           } else if (state.phase === 'reviews') {
             if (!reviews || (state.reviewed && state.page === 1)) {
               state = { ...state, phase: 'checks', page: 1, counts: { total: 0, failed: 0, pending: 0 } }
+              cycleComplete = true
               break
             }
             slots -= 1
             const answer = await this.#page(project, `repos/${repository}/pulls/${number}/reviews?per_page=${PER_PAGE}&page=${state.page}`, deadline, signal)
-            if (answer.length === PER_PAGE && state.page >= this.#maxPages) return null
+            if (answer.length === PER_PAGE && state.page >= this.#maxPages) throw new PullWatchOverflow('Too many reviews on this pull request; supplemental state was not read.')
             const pending: PendingReview[] = []
             for (const raw of answer) {
               if (!isMap(raw)) throw unreadable()
@@ -686,54 +740,81 @@ export class ForgeSource {
               if (kind === 'approved' && !body.trim()) continue
               const user = raw['user']
               if (!isMap(user) || !Number.isSafeInteger(user['id']) || (user['id'] as number) < 1 || typeof user['login'] !== 'string' || !LOGIN.test(user['login'])) continue
-              const candidate = {
-                ...fact('review-commented', at), body, review: { id, head: row.head, state: kind },
-                author: accountDigest(user['id'] as number), authorWrites: null,
-                desk: isDeskPost(body), url: `https://github.com/${repository}/pull/${number}#pullrequestreview-${id}`,
-              }
-              if (candidate.desk || await this.#posted(candidate)) continue
-              if (state.reviewed) continue
-              pending.push({ fact: candidate, login: user['login'], id: user['id'] as number })
+              if (isDeskPost(body) || state.reviewed || state.nonWriters?.includes(user['id'] as number)) continue
+              // Remembered desk publications need no permission or body reread.
+              if (await this.#posted({ ...fact('review-commented', at), review: { id, head: row.head, state: kind }, author: accountDigest(user['id'] as number),
+                url: `https://github.com/${repository}/pull/${number}#pullrequestreview-${id}` })) continue
+              pending.push({ id, account: user['id'] as number, login: user['login'], at, state: kind })
             }
+            const otherPending = Object.entries(pulls).reduce((count, [key, value]) => count + (key === String(number) ? 0 : value.pending.length), 0)
+            if (otherPending + pending.length > PENDING_LIMIT) throw new PullWatchOverflow('Too many pending reviews; this pull request’s supplemental state was not read.')
             state = { ...state, pending, phase: 'authors', more: answer.length === PER_PAGE }
           } else {
-            if (state.reviewed) state = { ...state, pending: [] }
+            if (state.reviewed) state = { ...state, pending: [], phase: 'authors' }
             if (state.pending.length === 0) {
               state = state.more ? { ...state, phase: 'reviews', page: state.page + 1 } :
                 { ...state, phase: 'checks', page: 1, counts: { total: 0, failed: 0, pending: 0 } }
-              if (!state.more) break
+              if (!state.more) { cycleComplete = true; break }
               continue
             }
             const candidate = state.pending[0]!
-            if (candidate.fact.repository !== repository || candidate.fact.project !== project || candidate.fact.event !== eventKey([repository, number, 'review-commented', row.head])) throw unreadable()
-            if (candidate.fact.at <= reviewFloor || candidate.fact.desk || await this.#posted(candidate.fact)) {
-              state = { ...state, pending: state.pending.slice(1) }
-              pulls[number] = state
+            if (candidate.at <= reviewFloor || state.nonWriters?.includes(candidate.account)) {
+              state = { ...state, pending: state.pending.slice(1), phase: 'authors' }
               continue
             }
-            const key = `${candidate.login}\u0000${candidate.id}`
-            if (!writers.has(key)) {
+            if (state.phase === 'body') {
+              // Permission was verified before retaining or rereading any body.
               slots -= 1
-              writers.set(key, await this.#writes(project, repository, candidate.login, candidate.id, deadline, signal))
+              const raw = await this.#get(project, `repos/${repository}/pulls/${number}/reviews/${candidate.id}`, deadline, signal)
+              if (!isMap(raw) || raw['id'] !== candidate.id || raw['commit_id'] !== row.head || !isMap(raw['user']) || raw['user']['id'] !== candidate.account ||
+                raw['user']['login'] !== candidate.login || time(raw['submitted_at']) !== candidate.at) throw unreadable()
+              const kinds: Record<string, TriggerReview['state']> = { COMMENTED: 'commented', CHANGES_REQUESTED: 'changes-requested', APPROVED: 'approved' }
+              const kind = kinds[String(raw['state'])]
+              const body = prose(raw['body'])
+              const reviewed = { ...fact('review-commented', candidate.at), body, review: { id: candidate.id, head: row.head, state: candidate.state },
+                author: accountDigest(candidate.account), authorWrites: true, desk: isDeskPost(body), url: `https://github.com/${repository}/pull/${number}#pullrequestreview-${candidate.id}` }
+              if (kind === candidate.state && (kind !== 'approved' || body.trim()) && !reviewed.desk && !await this.#posted(reviewed)) {
+                facts.push(reviewed)
+                state = { ...state, reviewed: true }
+              }
+              state = { ...state, pending: state.pending.slice(1), phase: 'authors' }
+            } else {
+              const key = `${candidate.login}\u0000${candidate.account}`
+              if (!writers.has(key)) {
+                slots -= 1
+                writers.set(key, await this.#writes(project, repository, candidate.login, candidate.account, deadline, signal))
+              }
+              if (writers.get(key) === true) state = { ...state, phase: 'body' }
+              else {
+                if (writers.get(key) === false) state = { ...state, nonWriters: [...(state.nonWriters ?? []), candidate.account].slice(-NON_WRITER_LIMIT) }
+                skipped.push({ trigger: null, subject: String(number), reason: 'This review’s author does not have verified write access.', count: 1 })
+                state = { ...state, pending: state.pending.slice(1) }
+              }
             }
-            const writes = writers.get(key) ?? null
-            if (writes === true && !state.reviewed) {
-              facts.push({ ...candidate.fact, authorWrites: true })
-              state = { ...state, reviewed: true }
-            } else if (writes !== true) {
-              skipped.push({ trigger: null, subject: String(number), reason: 'This review’s author does not have verified write access.', count: 1 })
-            }
-            state = { ...state, pending: state.pending.slice(1) }
           }
           pulls[number] = state
-          if (facts.length > FACT_LIMIT || Buffer.byteLength(JSON.stringify([facts, pulls, observations]), 'utf8') > BATCH_BYTES) return null
+          if (facts.length > FACT_LIMIT || Buffer.byteLength(JSON.stringify([facts, pulls, observations]), 'utf8') > BATCH_BYTES) throw new PullWatchOverflow('Too much supplemental state on this pull request; it was not read.')
           progressed = true
+        }
+        if (cycleComplete) {
+          const aggregate = state.aggregate ?? ''
+          const unchanged = state.idle?.aggregate === aggregate && state.idle.updated === row.updated && state.idle.interest === interest
+          const interval = unchanged ? Math.min(WATCH_MAX_INTERVAL, state.idle!.interval * 2) : WATCH_INTERVAL
+          state = { ...state, idle: { interval, next: this.#now() + (unchanged ? interval : 0), updated: row.updated, interest, aggregate } }
         }
         pulls[number] = state
         observations.push({ repository, number, head: row.head, state: row.merged ? 'merged' : row.state, check, at: this.#now() })
+        if (Buffer.byteLength(JSON.stringify([facts, pulls, observations]), 'utf8') > BATCH_BYTES) throw new PullWatchOverflow('Too much supplemental state on this pull request; it was not read.')
         progressed = true
         next = numbers[(numbers.indexOf(number) + 1) % numbers.length] ?? 0
       } catch (error) {
+        if (error instanceof PullWatchOverflow) {
+          facts.splice(factStart)
+          observations.splice(observationStart)
+          delete pulls[number]
+          skipped.push({ trigger: null, subject: String(number), reason: error.message, count: 1 })
+          continue
+        }
         if (!(error instanceof ForgeReadError) || !error.budget || signal.aborted) throw error
         if (!progressed) return null
         next = number

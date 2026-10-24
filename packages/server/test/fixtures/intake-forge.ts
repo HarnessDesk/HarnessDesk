@@ -27,8 +27,8 @@ export interface FakePull {
   baseRepo?: string
   url?: string
   merged?: boolean
-  checks?: { id: number; head_sha: string; name: string; status: string; conclusion: string | null }[]
-  statuses?: { id: number; context: string; state: string }[]
+  checks?: { id: number; head_sha: string; name: string; status: string; conclusion: string | null; completed_at?: string }[]
+  statuses?: { id: number; context: string; state: string; updated_at?: string }[]
   reviews?: { id: number; commit_id: string; body: string; state: string; submitted_at: string; user: { id: number; login: string } | null }[]
   extra?: Record<string, unknown>
 }
@@ -132,6 +132,7 @@ export class FakeForge {
       return this.pullJson(one)
     }
     if (parts[3] === 'pulls' && parts[5] === 'reviews') {
+      if (parts[6]) return this.pulls.find((row) => row.number === Number(parts[4]))?.reviews?.find((one) => one.id === Number(parts[6]))
       return slice(this.pulls.find((row) => row.number === Number(parts[4]))?.reviews ?? [])
     }
     if (parts[3] === 'commits') {

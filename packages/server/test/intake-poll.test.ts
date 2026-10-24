@@ -8,7 +8,7 @@ import type { TriggerFact } from '@harnessdesk/protocol'
 import type { ArmedTrigger } from '../src/intake/consent.js'
 import { ForgeSource } from '../src/intake/forge.js'
 import { IntakeMonitor, intakeSources, SourceCursors } from '../src/intake/poll.js'
-import { armOf, Clocks, FakeForge, FakeTimers, Gate, settle, sha } from './fixtures/intake-forge.js'
+import { armOf, Clocks, FakeForge, FakeTimers, Gate, settle, sha, iso } from './fixtures/intake-forge.js'
 import { tempDir } from './scratch.js'
 
 /*
@@ -339,7 +339,9 @@ test('an opt-in arm watches old PRs and failed delivery preserves supplemental w
   r.arms = [{ ...base, definition: { ...base.definition, on: { kind: 'pull-request', events: ['checks-failed'] } } }]
   r.forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: ARMED - 3_600_000, updated: ARMED - 3_600_000 })
   await r.monitor.baseline(r.arms[0]!)
-  r.forge.pulls[0]!.checks = [{ id: 1, head_sha: sha('a'), name: 'build', status: 'completed', conclusion: 'failure' }]
+  r.forge.pulls[0]!.checks = [{ id: 1, head_sha: sha('a'), name: 'build', status: 'completed', conclusion: 'failure', completed_at: iso(ARMED + 1) }]
+  r.clocks.advance(MINUTE)
+  await r.monitor.tick(r.clocks.wall) // The check page is retained before the status page completes the aggregate.
   const before = await cursorFile(r.home)
   r.offerFails = () => true
   r.clocks.advance(MINUTE)
