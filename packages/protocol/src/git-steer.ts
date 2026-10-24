@@ -74,7 +74,7 @@ export function parseGitWrite(binary: string, argv: readonly string[]): GitWrite
     } else if (verb === 'create' && arg === '--draft') args['draft'] = true
     else if (verb === 'create' && arg === '--fill') fill = true
     else if (verb === 'merge' && ['--squash', '--merge', '--rebase'].includes(arg)) args['method'] = arg.slice(2)
-    else if (verb === 'review' && ['--approve', '--request-changes', '--comment', '-a', '-r', '-c'].includes(arg)) args['event'] = ({ '-a': 'approve', '-r': 'request_changes', '-c': 'comment' } as Record<string, string>)[arg] ?? arg.slice(2).replace('-', '_')
+    else if (verb === 'review' && ['--approve', '--request-changes', '--comment', '-a', '-r', '-c'].includes(arg)) args['event'] = ({ '-a': 'approve', '-r': 'request-changes', '-c': 'comment' } as Record<string, string>)[arg] ?? arg.slice(2)
     else if (!arg.startsWith('-') && verb !== 'create' && args['number'] === undefined && /^[1-9]\d*$/.test(arg)) args['number'] = Number(arg)
     else return refuseForge(`Unsupported forge argument ${arg}.`)
   }

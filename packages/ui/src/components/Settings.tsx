@@ -1,3 +1,4 @@
+import { GitWriteSettings } from './GitRecord'
 import { LeadSettingsSection } from './LeadSettings'
 import { PhoneSettingsSection } from './PhoneSettings'
 import SettingsChatsFolder from './SettingsChatsFolder'
@@ -650,6 +651,7 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
       <CeilingsSection focus={focus} />
 
       <QuestionWaitSection />
+      <GitWriteSettings />
 
       <ClientAnswersSection />
 

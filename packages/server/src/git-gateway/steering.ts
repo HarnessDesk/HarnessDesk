@@ -148,6 +148,7 @@ export class GitSteering {
     command = redactGitCommand(command)
     if (mode === 'off') return { action: 'own' }
     let invoked = false
+    let approved: { repository: string; branch: string; sha: string } | undefined
     try {
       signal?.throwIfAborted()
       if (write) await this.port.admit(scope, write.kind === 'push' ? 'git_push' : write.tool ?? 'git_push', write.kind === 'forge' ? write.args : {})
@@ -158,8 +159,8 @@ export class GitSteering {
         const becomes = translated.branch ? `Push ${translated.branch} to ${repository ?? 'the project repository'} · ${translated.sha?.slice(0, 7)}` : translated.tool
         const push = translated.tool === 'git_push'
         const answer = await this.port.ask(scope, { summary: `${scope.name} wants to run ${translated.tool === 'git_push' ? 'git push' : 'a forge write'} itself`,
-          reason: `\`\`\`\n${command}\n\`\`\`\nBecomes ${becomes}. Through HarnessDesk the write is recorded and runs without this checkout’s git settings.`, facts: [{ label: 'Repository', value: repository ?? 'Not pinned' }, ...(translated.branch ? [{ label: 'Branch', value: translated.branch }, { label: 'Head', value: translated.sha! }] : []), { label: 'Command', value: command }, { label: 'Becomes', value: becomes }],
-          options: [{ id: 'allow', label: push ? 'Push through HarnessDesk' : 'Write through HarnessDesk', intent: 'approve' }, ...(allowOwn ? [{ id: 'own', label: 'Let it use its own git', intent: 'approve' as const }] : []), { id: 'refuse', label: push ? "Don't push" : "Don't write", intent: 'deny' }] }, signal)
+          reason: 'Through HarnessDesk the write is recorded and runs without this checkout’s git settings. Its own git is not recorded as HarnessDesk’s.', facts: [{ label: 'Repository', value: repository ?? 'Not pinned' }, ...(translated.branch ? [{ label: 'Branch', value: translated.branch }, { label: 'Head', value: translated.sha! }] : []), { label: 'Command', value: command }, { label: 'Becomes', value: becomes }],
+          options: [{ id: 'allow', label: push ? 'Push through HarnessDesk' : 'Write through HarnessDesk', intent: 'approve' }, ...(allowOwn ? [{ id: 'own', label: 'Let it use its own git', intent: 'alternative' as const }] : []), { id: 'refuse', label: push ? "Don't push" : "Don't write", intent: 'deny' }] }, signal)
         signal?.throwIfAborted()
         if (answer === 'standing' && allowOwn) {
           const ticket = randomUUID(), repository = await this.gateway.pins.pinned(scope.root) ?? await this.gateway.proposedRepository(scope.cwd)
@@ -169,13 +170,14 @@ export class GitSteering {
           this.port.say(scope, `Own git allowed · ${command}`)
           return { action: 'own', ticket }
         }
+        if (answer === 'allowed' && repository && translated.branch && translated.sha) approved = { repository, branch: translated.branch, sha: translated.sha }
         if (answer !== 'allowed') { await this.#refuse(scope, command, write, 'The person declined.'); this.port.say(scope, `Not pushed · ${command} · the person declined`); return { action: 'done', ok: false, output: 'HarnessDesk: not pushed — the person declined.' } }
       }
       signal?.throwIfAborted()
       this.port.say(scope, mode === 'redirect' ? `Sent through HarnessDesk · ${command} · your choice for this project` : `Sent through HarnessDesk · ${command} · you approved`)
       if (translated.sha && await this.#gitRead(scope, ['rev-parse', 'HEAD']) !== translated.sha) throw new Error('The checkout head changed while the steering question waited; retry the push.')
       invoked = true
-      const result = await gitSteerContext.run({ command, admitted: true, signal, approved: mode === 'ask', ...(translated.branch && translated.sourceBranch && translated.sha ? { push: { branch: translated.branch, sourceBranch: translated.sourceBranch, sha: translated.sha } } : {}) }, () => this.port.invoke(scope, translated.tool, translated.args))
+      const result = await gitSteerContext.run({ command, admitted: true, signal, approved, ...(translated.branch && translated.sourceBranch && translated.sha ? { push: { branch: translated.branch, sourceBranch: translated.sourceBranch, sha: translated.sha } } : {}) }, () => this.port.invoke(scope, translated.tool, translated.args))
       if (!result.ok) throw new Error(result.error)
       const output = result.content.filter(part => part.type === 'text').map(part => part.text).join('\n')
       const repository = await this.gateway.pins.pinned(scope.root)

@@ -1,5 +1,6 @@
+import { OutsideHeadBanner } from './GitRecord'
 import { useRef, useState, type MutableRefObject } from 'react'
-import type { LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage } from '@harnessdesk/protocol'
+import type { LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage, LeadPullRequest } from '@harnessdesk/protocol'
 import { Button, CodeText, Row, LeadContract, Text } from '../design'
 import { folderName } from '../lib/projects'
 import { LeadDecision } from './LeadDecision'
@@ -29,7 +30,8 @@ const policyMode = { plan: 'Plan', default: 'Default', manage: 'Manage' }
 const ruleWords = (rule: { effect: string; method: keyof typeof PERMISSION_LABELS; action: string | null; project: string | null } | undefined) => rule ? `${rule.effect} · ${PERMISSION_LABELS[rule.method]} · ${rule.action ?? 'All actions'} · ${rule.project ?? 'Approved project'}` : 'No rule'
 
 /** Window-owned details and revision-bound decisions. The child never receives a click. */
-export const LeadCards = ({ cards, personActions = [], onPerform, decisions = [], contract, budget, onDecide, onChanges, onApprovals, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, placement = 'both' }: {
+export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform, decisions = [], contract, budget, onDecide, onChanges, onApprovals, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, placement = 'both' }: {
+  readonly releasedBranch?: LeadPullRequest | null
   readonly personActions?: readonly LeadAction[]; readonly onPerform?: (input: LeadActionInput) => Promise<unknown>
   readonly decisionLock?: MutableRefObject<boolean>; readonly decisionPending?: string | null
   readonly setDecisionPending?: (id: string | null) => void; readonly expiry?: number | null
@@ -81,7 +83,8 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
     const caps = renewal && budget ? budget.caps : card.type === 'plan' ? card.contract.caps : undefined
     const ref = (element: HTMLElement | null) => { if (element) focus.current.set(card.id, element); else focus.current.delete(card.id) }
     return <div key={`${card.id}:${card.revision}:${choice ?? 'pending'}`}>
-      {placement !== 'dock' && <LeadContract cardId={card.id} cardType={card.type} summary={summary} state={state} focusRef={ref}>
+      {card.type === 'branch-ownership' && !state && placement !== 'dock' && <OutsideHeadBanner branch={releasedBranch?.branch ?? `Branch for #${card.number}`} head={card.observedHead} previous={releasedBranch?.head} rewritten={releasedBranch?.branchChange === 'rewrite'} disabled={pending !== null} onReclaim={() => { void decide(card, 'reclaim-branch') }} />}
+      {placement !== 'dock' && (card.type !== 'branch-ownership' || state) && <LeadContract cardId={card.id} cardType={card.type} summary={summary} state={state} focusRef={ref}>
         {caps && <><Text as="p" role="meta">Up to {leadDollars(caps.usdMicros)} · {caps.rounds} rounds · {scope ? folderName(scope.project.path) : ''}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}
         {(card.type === 'waiting' && !worker || card.type === 'result') && <>
           <Text as="p" role="meta">{(['check', 'review', 'blocking-findings', 'diff'] as const).flatMap(kind => {
@@ -97,9 +100,9 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
           {spend && <Text as="p" role="meta">I spent {leadDollars(spend.leadUsdMicros)}{spend.spend === 'known' && <> · workers reported {leadDollars(spend.workerUsdMicros)}</>}.</Text>}
         </>}
       </LeadContract>}
-      {placement !== 'thread' && !state && active === card && !personActions.some(action => action.id === card.id) && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'branch-ownership' ? `${summary}\n\nReclaim ${card.observedHead.slice(0, 12)} to allow further reviewed updates.` : card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'branch-ownership' ? 'Resume automatic repairs on this branch?' : card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}
-        approveLabel={card.type === 'branch-ownership' ? 'Reclaim branch' : person ? 'Accept' : 'Approve'} onApprove={person || approval || card.type === 'branch-ownership' ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, card.type === 'branch-ownership' ? 'reclaim-branch' : person ? 'accept' : 'approve') } : undefined}
-        onDecline={person || approval || card.type === 'branch-ownership' ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, 'decline') } : undefined}
+      {card.type !== 'branch-ownership' && placement !== 'thread' && !state && active === card && !personActions.some(action => action.id === card.id) && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}
+        approveLabel={person ? 'Accept' : 'Approve'} onApprove={person || approval ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, person ? 'accept' : 'approve') } : undefined}
+        onDecline={person || approval ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, 'decline') } : undefined}
         link={worker ? { label: 'Open approvals', run: () => onApprovals(card.runId) } : person ? { label: 'Open changes', run: onChanges } : undefined} />}
     </div>
   })}{placement !== 'thread' && personActions.map(action => <Row key={action.id} kind="record" layout="record"

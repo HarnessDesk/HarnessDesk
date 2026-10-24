@@ -1130,8 +1130,10 @@ export const gitPlugin: HarnessPlugin = {
           const previous = rows.find(row => row.sha && row.outcome === 'ok')
           const expect = previous?.sha ? { head: previous.sha } : 'create' as const
           const result = await ctx.forge.push({ branch, sha, expect }, scope)
+          let commits: number | undefined
+          if (previous?.sha) { try { const value = Number(await git(['rev-list', '--count', `${previous.sha}..${sha}`])); if (Number.isSafeInteger(value) && value >= 0) commits = value } catch { /* A rewrite may no longer contain the previous head locally. */ } }
           const reference: ForgeReference = { kind: 'branch', action: previous?.sha ? 'updated' : 'opened', repo: result.repository,
-            ref: branch, sha, previousSha: previous?.sha ?? null, url: `https://github.com/${result.repository}/tree/${branch.split('/').map(encodeURIComponent).join('/')}`,
+            ref: branch, sha, previousSha: previous?.sha ?? null, ...(commits !== undefined ? { commits } : {}), url: `https://github.com/${result.repository}/tree/${branch.split('/').map(encodeURIComponent).join('/')}`,
             title: branch, state: null, author: null, additions: null, deletions: null, files: null, excerpt: null, via: 'gh', signature: null }
           let upstreamNote: string | null = null
           if (args.set_upstream === true) {

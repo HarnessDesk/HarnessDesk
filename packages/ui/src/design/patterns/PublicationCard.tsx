@@ -37,9 +37,9 @@ export const publicationVerb = (reference: ForgeReference): string => {
   // from what it happens to carry; a pull request is the default subject.
   const thing = reference.subject === 'issue' ? 'the issue' : 'the pull request'
   switch (reference.kind) {
-    case 'branch': return 'Pushed a branch'
+    case 'branch': return 'Pushed'
     case 'pullRequest':
-      return reference.action === 'merged' ? 'Merged the pull request' : reference.action === 'updated' ? 'Updated the pull request' : reference.action === 'opened' ? 'Opened a pull request' : 'Pull request'
+      return reference.action === 'merged' ? 'Merged' : reference.action === 'updated' ? 'Updated the pull request' : reference.action === 'opened' ? 'Opened a pull request' : 'Pull request'
     case 'review':
       return 'Reviewed the pull request'
     case 'comment':

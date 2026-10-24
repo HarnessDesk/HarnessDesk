@@ -29,6 +29,7 @@ import { sanitizeText } from '../lib/sanitize'
 /** The glyph for an answer: yes, yes-and-keep-saying-yes, no. */
 const INTENT_ICON = {
   approve: <CheckIcon size={13} />,
+  alternative: <CheckIcon size={13} />,
   approveAlways: <CheckAllIcon size={13} />,
   deny: <CrossIcon size={13} />,
   cancel: <CrossIcon size={13} />,
@@ -117,12 +118,12 @@ const PermissionBody = ({ approval, hideSummary = false }: {
   hideSummary?: boolean
 }) => (
   <>
-    {!hideSummary && <ApprovalReason className={styles.reason}>{permissionSummary(approval.summary)}</ApprovalReason>}
+    {!hideSummary && !approval.facts?.length && <ApprovalReason className={styles.reason}>{permissionSummary(approval.summary)}</ApprovalReason>}
     {/* Why the agent is asking, when it said. The summary is the tool it wants
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
+    {approval.facts?.map(fact => fact.label === 'Command' ? <ApprovalCode key={fact.label}>{sanitizeText(fact.value)}</ApprovalCode> : <ApprovalMeta key={fact.label} label={fact.label}>{sanitizeText(fact.value)}</ApprovalMeta>)}
     {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
-    {approval.facts?.map(fact => <ApprovalReason key={fact.label} className={styles.reason}>{fact.label}: {fact.value}</ApprovalReason>)}
     {(approval.filesystem?.length ?? 0) > 0 && (
       <>
         <Text role="muted" as="div">Filesystem</Text>
@@ -210,7 +211,7 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester 
   )
   const approval = mine[0]?.approval
   const TITLES = titles(runtime.presentation.name)
-  const title = approval?.type === 'command' ? commandTitle(approval) : approval ? TITLES[approval.type] : ''
+  const title = approval?.type === 'permission' && approval.facts?.length ? approval.summary : approval?.type === 'command' ? commandTitle(approval) : approval ? TITLES[approval.type] : ''
   const [answers, setAnswers] = useState<Record<string, string[]>>({})
   const scope = useRef<HTMLDivElement>(null)
   const docked = placement === 'docked'

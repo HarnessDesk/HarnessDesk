@@ -392,3 +392,9 @@ test('a host-bound steered refspec keeps the source branch upstream and ordinary
   assert.equal(git(f.checkout, 'config', 'branch.feature/widgets.remote'), 'origin')
   await assert.rejects(f.run('git_push', { branch }), /reviewed-sha-mismatch/)
 })
+
+test('a steering approval substitutes only for the same repository branch and head', async t => {
+  const f = await fixture(t), sha = git(f.checkout, 'rev-parse', 'HEAD'), branch = 'feature/widgets'
+  await gitSteerContext.run({ command: 'git push origin feature/widgets', admitted: true, approved: { repository: 'acme/other', branch, sha } }, () => f.run('git_push', {}))
+  assert.equal(f.questions.length, 1, 'a different repository still asks its own pin question')
+})

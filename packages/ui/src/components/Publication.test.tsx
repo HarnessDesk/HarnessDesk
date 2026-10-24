@@ -233,8 +233,9 @@ it('keeps Open reference and Copy link in the publication row’s sibling More m
 
 it('branch publications and merged actions render a stable row before the record UI arrives', () => {
   const branch: ForgeReference = { ...reference(), kind: 'branch', number: undefined, ref: 'feature/widgets', sha: 'a'.repeat(40), previousSha: null, title: 'feature/widgets', state: null }
-  expect(publicationVerb(branch)).toBe('Pushed a branch')
-  expect(publicationVerb(reference({ action: 'merged' }))).toBe('Merged the pull request')
+  expect(publicationVerb(branch)).toBe('Pushed')
+  expect(publicationVerb(reference({ action: 'merged' }))).toBe('Merged')
   render({ id: 'branch' as PublicationItem['id'], type: 'publication', reference: branch })
-  expect(container.textContent).toContain('acme/widgets feature/widgets')
+  expect(container.textContent).toContain('feature/widgets')
+  expect(container.textContent).toContain('aaaaaaa · new branch')
 })

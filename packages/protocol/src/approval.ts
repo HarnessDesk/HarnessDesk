@@ -124,7 +124,7 @@ export interface ApprovalOption {
   readonly id: string
   readonly label: string
   readonly description?: string
-  readonly intent: 'approve' | 'approveAlways' | 'deny' | 'cancel'
+  readonly intent: 'approve' | 'approveAlways' | 'alternative' | 'deny' | 'cancel'
   /**
    * For an `approveAlways` choice an adapter can scope: one tool for this session, a whole server for this session,
    * or beyond the session. Typed by the adapter from the agent's own option ids, so a card reads data and never

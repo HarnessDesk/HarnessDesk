@@ -1,3 +1,4 @@
+import { PullRequestRecord } from './GitRecord'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { LEAD_LIMITS, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, LeadSlot, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, Input, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
@@ -202,6 +203,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     focusDock(requestedDecisionFocus.current)
   }, [active, selectedDecision, state.revision])
   const cardProps = {
+    releasedBranch: pr,
     onPerform: (input: Parameters<typeof store.lead.perform>[0]) => store.lead.perform(input),
     focusCard: selectedDecision, decisionLock, decisionPending, setDecisionPending, expiry: state.planConsentExpiresAt, contract, budget: state.thread?.budget,
     onDecide: (decision: Parameters<typeof store.lead.decide>[0]) => { setError(null); return store.lead.decide(decision) }, onError: refusal, onSettled: () => input.current?.focus(),
@@ -222,6 +224,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {pr && <Text as="p" role="meta" data-slot="lead-pr-status" title={pr.observedHead ?? pr.head}>
           {`Pull request #${pr.number} · ${(pr.observedHead ?? pr.head).slice(0, 7)} · ${pr.state === 'merged' ? 'Merged' : pr.state === 'closed' ? 'Closed' : `Checks ${pr.check?.state ?? 'not confirmed'} · Review ${pr.review?.state ?? 'not confirmed'}`}${pr.branchOwner === 'person' ? ' · Branch managed by you' : ''}`}
         </Text>}
+        {pr && state.thread?.project && <PullRequestRecord root={state.thread.project.path} reference={{ repo: pr.repository, number: pr.number }} branch={pr.branch} />}
         {live}
       </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
     </ConversationThread>

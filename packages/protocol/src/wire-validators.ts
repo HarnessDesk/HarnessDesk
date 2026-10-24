@@ -1509,6 +1509,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     digest: optional(isString),
   }),
 
+  'git/record/list': shape({ root: isString, branch: optional(isString), number: optional(goalInteger(1)), view: optional(literalUnion('all', 'outside', 'refused')), limit: optional(goalInteger(1)), before: optional(isString) }),
+  'git/record/attribute': shape({ root: isString, branch: isString, sha: isString }),
   'git/status': shape({ root: isString }),
   'git/branches': shape({ root: isString }),
   'git/checkout': shape({ root: isString, branch: isString, create: optional(isBoolean) }),

@@ -1,3 +1,4 @@
+import type { ForgeGitEntry, ForgeRequester } from './forge.js'
 import type {
   PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
   PhoneWorkSnapshot, PhoneWorkThread,
@@ -2492,6 +2493,12 @@ export interface HostMethods {
     }
     result: { readonly started: true }
   }
+
+  'git/record/list': {
+    params: { readonly root: string; readonly branch?: string; readonly number?: number; readonly view?: 'all' | 'outside' | 'refused'; readonly limit?: number; readonly before?: string }
+    result: { readonly repository: string | null; readonly entries: readonly ForgeGitEntry[]; readonly counts: { readonly all: number; readonly outside: number; readonly refused: number } }
+  }
+  'git/record/attribute': { params: { readonly root: string; readonly branch: string; readonly sha: string }; result: ForgeRequester | 'outside' }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
   'git/branches': {

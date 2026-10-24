@@ -316,7 +316,7 @@ interface ForgeReferenceFields {
 }
 
 export type ForgeReference = ForgeReferenceFields & (
-  | { readonly kind: 'branch'; readonly number?: number; readonly ref: string; readonly sha: string; readonly previousSha: string | null }
+  | { readonly kind: 'branch'; readonly number?: number; readonly ref: string; readonly sha: string; readonly previousSha: string | null; readonly commits?: number }
   | { readonly kind: 'pullRequest' | 'issue' | 'review' | 'comment'; readonly number: number; readonly ref?: never; readonly sha?: never; readonly previousSha?: never }
 )
 

@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 export interface GitSteerContext {
   readonly command: string
   readonly admitted?: boolean
-  readonly approved?: boolean
+  readonly approved?: { readonly repository: string; readonly branch: string; readonly sha: string } | undefined
   readonly signal?: AbortSignal | undefined
   readonly push?: { readonly branch: string; readonly sourceBranch: string; readonly sha: string }
 }

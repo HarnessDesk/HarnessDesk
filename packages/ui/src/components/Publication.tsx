@@ -7,16 +7,17 @@ import { useStore } from '../state/context'
 import { AgentHoverCard } from './AgentCards'
 import { GitHubMark } from './BrandIcons'
 import { Button, InfoCardBody, SubjectActionsMenu, CodeText, KindGlyph, StatePill, Text, publicationVerb } from '../design'
+import { PullRequestRecord } from './GitRecord'
 import { FrontDoor } from './FrontDoor'
 import styles from './Publication.module.css'
 
 const figure = (n: number | null): string => (n === null ? '' : n.toLocaleString())
 
-const addressOf = (reference: ForgeReference): string => reference.kind === 'branch' ? `${reference.repo} ${reference.ref}` : `${reference.repo} #${reference.number}`
+const addressOf = (reference: ForgeReference): string => reference.kind === 'branch' ? reference.ref : `${reference.repo} #${reference.number}`
 
 /** Forge facts remain plain text on the shared InfoCard body. Actions live
  * beside the publication link in the row's subject menu. */
-export const PublicationCard = ({ reference }: { reference: ForgeReference }) => <InfoCardBody
+export const PublicationCard = ({ reference, root }: { reference: ForgeReference; root?: string }) => <><InfoCardBody
   title={reference.title || addressOf(reference)}
   rows={[
     { id: 'address', label: 'Reference', value: addressOf(reference) },
@@ -27,7 +28,7 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
     ...(reference.additions === null ? [] : [{ id: 'added', label: 'Added', value: figure(reference.additions) }]),
     ...(reference.deletions === null ? [] : [{ id: 'removed', label: 'Removed', value: figure(reference.deletions) }]),
   ]}
-  notes={reference.excerpt ? [reference.excerpt] : []} />
+  notes={reference.excerpt ? [reference.excerpt] : []} />{root && reference.kind === 'pullRequest' && <PullRequestRecord root={root} reference={reference} />}</>
 
 /**
  * A publication in the transcript: what the conversation put on the forge.
@@ -59,7 +60,7 @@ export const Publication = ({ item, root }: { item: PublicationItem; root?: stri
         <KindGlyph kind={reference.kind} size={13} />
       </Text>
       <Text role="meta" ink="secondary">{publicationVerb(reference)}</Text>
-      <AgentHoverCard body={() => <PublicationCard reference={reference} />} side="bottom" align="start">
+      <AgentHoverCard body={() => <PublicationCard reference={reference} root={root} />} side="bottom" align="start">
         {/* No tooltip of its own. The card opens on this same rest and prints
             the forge's title in its crest, so a `title` here was a second box
             over the first — repeating the card's heading where the forge gave
@@ -81,6 +82,7 @@ export const Publication = ({ item, root }: { item: PublicationItem; root?: stri
         </Button>
       </AgentHoverCard>
       <StatePill state={reference.state} />
+      {reference.kind === 'branch' && <Text role="meta" ink="secondary">{reference.sha.slice(0, 7)} · {reference.previousSha ? reference.commits !== undefined ? `${reference.commits} commits on ${reference.previousSha.slice(0, 7)}` : `update on ${reference.previousSha.slice(0, 7)}` : 'new branch'}</Text>}
       <SubjectActionsMenu label={addressOf(reference)} actions={[
         { label: 'Open reference', onSelect: () => openExternal(reference.url) },
         { label: 'Copy link', onSelect: () => { void navigator.clipboard?.writeText(reference.url) } },

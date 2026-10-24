@@ -222,7 +222,8 @@ export class ForgePlane implements ForgeEngine {
       let approval: GitApproval = { by: 'standing', at: Date.now() }
       let rewrite = assessment !== null && assessment.head !== null && !assessment.fastForward
       if (!ctx.repository || rewrite || !(continuation || this.#standing.has(standingKey))) {
-        const answer = gitSteerContext.getStore()?.approved && !rewrite ? 'allowed' : await this.port.askPerson?.(scope, {
+        const approved = gitSteerContext.getStore()?.approved
+        const answer = approved?.repository === repository && approved.branch === args.branch && approved.sha === args.sha && !rewrite ? 'allowed' : await this.port.askPerson?.(scope, {
           summary: `Push ${args.branch} to ${repository}`,
           reason: `${!ctx.repository ? 'Approve and pin this repository for the project. ' : ''}${rewrite ? 'This rewrites the branch. ' : ''}Push from HarnessDesk’s own copy, as you, and keep a record. The checkout’s git settings are not used.`,
           facts: [{ label: 'Repository', value: repository }, { label: 'Branch', value: args.branch }, { label: 'Head', value: args.sha }],

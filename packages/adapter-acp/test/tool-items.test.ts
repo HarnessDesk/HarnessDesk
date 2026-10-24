@@ -279,3 +279,12 @@ test('an already completed tool announcement keeps its status', async t => {
   assert.ok(items[0]?.type === 'fileChange')
   assert.equal(items[0].status, 'completed')
 })
+
+test('a command item carries its explicit execution cwd rather than the conversation fallback', async t => {
+  const result = await run(t, [
+    start({ toolCallId: 'shell', title: 'git push origin x', kind: 'execute', rawInput: { command: 'git push origin x', cwd: '/tmp/another-checkout' } }),
+    finish({ toolCallId: 'shell', rawOutput: { stdout: 'done', exitCode: 0 } }),
+  ])
+  const command = result.items.find(item => item.type === 'command')
+  assert.ok(command && command.type === 'command'); assert.equal(command.cwd, '/tmp/another-checkout')
+})

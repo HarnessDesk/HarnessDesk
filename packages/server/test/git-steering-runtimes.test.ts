@@ -111,6 +111,14 @@ for (const kind of ['codex', 'acp', 'cursor', 'claude'] as const) test(`${kind}:
   assert.ok(events.some(event => event.type === 'item/completed' && (event.item.type === 'command' && event.item.output?.includes('recorded.') || kind === 'claude' && event.item.type === 'notice' && event.item.text.includes('Sent through HarnessDesk'))), JSON.stringify(events))
   assert.ok(events.some(event => event.type === 'approval/requested' && 'options' in event.approval && event.approval.options.some(option => option.label === 'Push through HarnessDesk')))
   assert.equal((await f.engine.record({ repository: 'acme/widgets', limit: 10 }))[0]?.outcome, 'ok')
+  const page = await f.host.call('git/record/list', { root: f.cwd })
+  assert.equal(page.repository, 'acme/widgets'); assert.equal(page.entries.length, 1); assert.deepEqual(page.counts, { all: 1, outside: 0, refused: 0 })
+  assert.notEqual(await f.host.call('git/record/attribute', { root: f.cwd, branch: 'x', sha: git(f.cwd, 'rev-parse', 'HEAD') }), 'outside')
+  git(f.cwd, 'commit', '--allow-empty', '-qm', 'Outside update'); git(f.cwd, 'push', f.remote, 'HEAD:x')
+  await f.engine.remoteHead('acme/widgets', 'x')
+  const outside = await f.host.call('git/record/list', { root: f.cwd, view: 'outside' })
+  assert.equal(outside.counts.outside, 1); assert.equal(outside.entries[0]?.requester.kind, 'outside')
+
 })
 
 test('ACP steering rejects once even when reject always is the first option', async t => {

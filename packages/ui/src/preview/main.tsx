@@ -1,3 +1,4 @@
+import { GitGatewayFrames } from './frames-git-gateway'
 import { LeadFrames } from './harness'
 import './update-bridge'
 import { Issue1675Frames } from './issue-1675-fixture'
@@ -1197,6 +1198,7 @@ const Preview = () => {
       <TranscriptFrames />
       <PanelFrames />
       <CoverageFrames />
+      <GitGatewayFrames />
       {SHOW_SIDE_BY_SIDE && <SideBySideFrames />}
       {new URLSearchParams(window.location.search).has('run-inspector') && <RunInspectorFrames />}
       {new URLSearchParams(window.location.search).has('flow-graph') && <FlowGraphFrames />}
@@ -1324,6 +1326,8 @@ createRoot(container).render(
           ? <SettingsNavigationProbe />
           : new URLSearchParams(window.location.search).has('conversation-defaults')
           ? <ConversationDefaultsPreview />
+          : new URLSearchParams(window.location.search).has('git-gateway')
+          ? <GitGatewayFrames selected={new URLSearchParams(window.location.search).get('git-gateway')} />
           : new URLSearchParams(window.location.search).has('library-updates')
           ? <LibraryUpdateFrames />
           : new URLSearchParams(window.location.search).has('library-github')

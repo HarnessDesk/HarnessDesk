@@ -217,7 +217,7 @@ it('offers a reclaim choice bound to the observed branch head', async () => {
   const card = { version: 1, id: 'reclaim-7', revision: 1, type: 'branch-ownership', contractDigest: leadContract.digest,
     repository: 'acme/widgets', number: 7, observedHead: 'b'.repeat(40), summary: 'The branch was updated by another writer.' } as any
   const { box, decide } = mount([card])
-  expect(box.textContent).toContain('Reclaim branch')
-  await act(async () => { handlers.at(-1)?.onApprove?.() })
+  expect(box.textContent).toContain('Take the branch back')
+  await act(async () => { button(box, 'Take the branch back').click() })
   expect(decide).toHaveBeenCalledWith(expect.objectContaining({ cardId: card.id, choice: 'reclaim-branch', expectedRevision: 1 }))
 })
