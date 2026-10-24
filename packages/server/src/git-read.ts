@@ -313,7 +313,16 @@ const withView = async <T>(
       const piped = streamOptions.feed !== undefined || streamOptions.input !== undefined
       const reader = launch(argv(args), limits, { mode: piped ? 'pipe' : 'ignore', input: streamOptions.input }, onData)
       const writer = streamOptions.feed ? launch(argv(streamOptions.feed), limits, { mode: 'ignore' }) : undefined
-      if (writer) writer.child.stdout!.pipe(reader.child.stdin!)
+      if (writer) {
+        const output = writer.child.stdout!
+        const input = reader.child.stdin!
+        // pipe() pauses the source when its destination disappears. Drain the
+        // unread output so even a stopped writer can reach close.
+        const drain = () => { output.unpipe(input); output.resume() }
+        input.once('error', drain)
+        input.once('close', drain)
+        output.pipe(input)
+      }
       // The first failure is the cause. Stopping the other end is how it learns of it:
       // a listing nobody reads would wait on its pipe, and a reader cannot tell a short listing.
       let cause: { readonly error: unknown } | undefined
