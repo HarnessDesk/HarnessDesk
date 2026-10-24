@@ -331,3 +331,23 @@ test('a label filter offers only the labelled issues it names', async () => {
   assert.equal(r.offers.filter(([id]) => id === 'everything').length, 3, 'a trigger with no label reads every event it declares')
   await r.monitor.close()
 })
+
+
+test('an opt-in arm watches old PRs and failed delivery preserves supplemental work', async () => {
+  const r = rig()
+  const base = armOf('follow')
+  r.arms = [{ ...base, definition: { ...base.definition, on: { kind: 'pull-request', events: ['checks-failed'] } } }]
+  r.forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: ARMED - 3_600_000, updated: ARMED - 3_600_000 })
+  await r.monitor.baseline(r.arms[0]!)
+  r.forge.pulls[0]!.checks = [{ id: 1, head_sha: sha('a'), name: 'build', status: 'completed', conclusion: 'failure' }]
+  const before = await cursorFile(r.home)
+  r.offerFails = () => true
+  r.clocks.advance(MINUTE)
+  await r.monitor.tick(r.clocks.wall)
+  assert.equal(await cursorFile(r.home), before, 'delivery failed before any supplemental watermark was committed')
+  r.offerFails = null
+  r.clocks.advance(2 * MINUTE)
+  await r.monitor.tick(r.clocks.wall)
+  assert.deepEqual(r.offers, [['follow', 'checks-failed', '1']])
+  await r.monitor.close()
+})

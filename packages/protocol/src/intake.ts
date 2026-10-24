@@ -30,7 +30,7 @@ export const TRIGGER_SOURCES: readonly TriggerSource[] = ['pull-request', 'issue
  */
 export type TriggerField = 'pr' | 'head' | 'event' | 'issue' | 'slot'
 
-export type PullRequestEvent = 'opened' | 'pushed'
+export type PullRequestEvent = 'opened' | 'pushed' | 'checks-failed' | 'review-commented'
 export type IssueEvent = 'labelled' | 'closed' | 'commented'
 
 /**
@@ -65,7 +65,14 @@ export type TriggerOn =
   | { readonly kind: 'issue'; readonly events: readonly IssueEvent[] }
   | { readonly kind: 'schedule'; readonly events: readonly ['tick']; readonly everyMinutes: number }
 
-/** Per source: its events, the fields it may name, and what an omitted key defaults to. */
+/** The complete vocabulary; new events do not silently broaden an existing declaration. */
+export const TRIGGER_EVENTS = {
+  'pull-request': ['opened', 'pushed', 'checks-failed', 'review-commented'],
+  issue: ['labelled', 'closed', 'commented'],
+  schedule: ['tick'],
+} as const
+
+/** Per source: its default events, the fields it may name, and what an omitted key defaults to. */
 export const TRIGGER_DEFAULTS: {
   readonly 'pull-request': { readonly events: readonly PullRequestEvent[]; readonly fields: readonly TriggerField[]; readonly goal: readonly TriggerField[]; readonly dedupe: readonly TriggerField[] }
   readonly issue: { readonly events: readonly IssueEvent[]; readonly fields: readonly TriggerField[]; readonly goal: readonly TriggerField[]; readonly dedupe: readonly TriggerField[] }
@@ -281,7 +288,20 @@ export interface TriggerProjectView {
 
 // -------------------------------------------------------------- monitoring
 
-export type TriggerAction = 'opened' | 'pushed' | 'labelled' | 'closed' | 'commented' | 'tick'
+export type TriggerAction = PullRequestEvent | IssueEvent | 'tick'
+
+/** Bounded aggregate, bound to the checked head; absent and pending never mean passed. */
+export interface TriggerCheck {
+  readonly head: string
+  readonly state: 'absent' | 'pending' | 'passed' | 'failed'
+  readonly total: number
+}
+
+export interface TriggerReview {
+  readonly id: number
+  readonly head: string
+  readonly state: 'commented' | 'changes-requested' | 'approved'
+}
 
 /**
  * One fact a source observed, normalized. Everything in it is either
@@ -318,20 +338,22 @@ export interface TriggerFact {
    */
   readonly label?: string
   /**
-   * Who wrote a comment (`commented` only): an opaque digest of the forge
+   * Who wrote a comment or review: an opaque digest of the forge
    * and the author's numeric account id — the same digest an arm binds for
    * the signed-in account — or null when it could not be read.
    */
   readonly author?: string | null
   /**
    * Whether the forge says the comment's author can write to the bound
-   * repository: asked only for a trigger that lets collaborators fire it,
+   * repository: asked for every review, and for issue triggers that let collaborators fire,
    * with the answer's account id checked against the author's; null when it
    * was not asked or could not be read.
    */
   readonly authorWrites?: boolean | null
   /** The comment opens with a marker the desk writes on what it posts itself (matched exactly): never a firing. */
   readonly desk?: boolean
+  readonly check?: TriggerCheck
+  readonly review?: TriggerReview
 }
 
 /** How one watched source stands, in sentences a surface can show. */

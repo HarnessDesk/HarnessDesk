@@ -789,6 +789,7 @@ const triggerOpensValidator: Validator<TriggerDefinition['opens']> = (value, pat
 const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
   const record = isObject(value, path)
   const kind = record['kind']
+  if (!Array.isArray(record['events']) || record['events'].length === 0 || new Set(record['events']).size !== record['events'].length) throw new ValidationError(`${path}.events`, 'expected a nonempty list without duplicates')
   if (kind === 'schedule') {
     const events = flowWordList(1, literalUnion('tick'))(record['events'], `${path}.events`)
     const everyMinutes = goalInteger(1)(record['everyMinutes'], `${path}.everyMinutes`)
@@ -796,7 +797,7 @@ const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
     return { kind: 'schedule', events: ['tick'] as const, everyMinutes }
   }
   if (kind === 'pull-request') {
-    return { kind: 'pull-request', events: flowWordList(2, literalUnion('opened', 'pushed'))(record['events'], `${path}.events`) }
+    return { kind: 'pull-request', events: flowWordList(4, literalUnion('opened', 'pushed', 'checks-failed', 'review-commented'))(record['events'], `${path}.events`) }
   }
   if (kind === 'issue') {
     return { kind: 'issue', events: flowWordList(3, literalUnion('labelled', 'closed', 'commented'))(record['events'], `${path}.events`) }

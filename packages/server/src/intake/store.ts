@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { open, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { TRIGGER_COMMENT_FROM, TRIGGER_SOURCES, type TriggerDefinition, type TriggerFact, type TriggerSource, type TriggerStopReason } from '@harnessdesk/protocol'
+import { TRIGGER_COMMENT_FROM, TRIGGER_EVENTS, TRIGGER_SOURCES, type TriggerDefinition, type TriggerFact, type TriggerSource, type TriggerStopReason } from '@harnessdesk/protocol'
 
 import { syncDirectory } from '../goals/store.js'
 import type { ArmBinding } from './consent.js'
@@ -175,6 +175,7 @@ export const definitionOf = (value: unknown): TriggerDefinition | null => {
   if (!isMap(value) || !slug(value['id']) || !isMap(value['on'])) return null
   const on = value['on']
   if (!TRIGGER_SOURCES.includes(on['kind'] as never) || !Array.isArray(on['events']) || on['events'].length === 0) return null
+  if (!on['events'].every((one) => (TRIGGER_EVENTS[on['kind'] as keyof typeof TRIGGER_EVENTS] as readonly unknown[]).includes(one)) || new Set(on['events']).size !== on['events'].length) return null
   if (on['kind'] === 'schedule' && !(Number.isSafeInteger(on['everyMinutes']) && (on['everyMinutes'] as number) >= 1 && (on['everyMinutes'] as number) <= 10080)) return null
   const opens = value['opens']
   if (!isMap(opens) || Object.keys(opens).length !== 1 || !(slug(opens['flow']) || slug(opens['agent']))) return null
@@ -199,7 +200,7 @@ export const factOf = (value: unknown): TriggerFact | null => {
   if (!isMap(value) || !TRIGGER_SOURCES.includes(value['source'] as never) || !filled(value['project'])) return null
   if (!(value['repository'] === null || (text(value['repository'], 200) && REPO.test(value['repository'] as string)))) return null
   if (typeof value['subject'] !== 'string' || !/^[1-9][0-9]{0,15}$/.test(value['subject']) || !HEX.test(String(value['event']))) return null
-  if (!['opened', 'pushed', 'labelled', 'closed', 'commented', 'tick'].includes(value['action'] as string) || !time(value['at'])) return null
+  if (!['opened', 'pushed', 'checks-failed', 'review-commented', 'labelled', 'closed', 'commented', 'tick'].includes(value['action'] as string) || !time(value['at'])) return null
   if (!(value['head'] === null || SHA.test(String(value['head']))) || typeof value['fork'] !== 'boolean') return null
   if (!text(value['title'], 4096 * 4) || !text(value['body'], 16384 * 4 + 64) || !(value['url'] === null || text(value['url']))) return null
   if (!(value['trigger'] === null || slug(value['trigger']))) return null
@@ -207,6 +208,21 @@ export const factOf = (value: unknown): TriggerFact | null => {
   if (!(value['author'] === undefined || value['author'] === null || HEX.test(String(value['author'])))) return null
   if (!(value['authorWrites'] === undefined || value['authorWrites'] === null || typeof value['authorWrites'] === 'boolean')) return null
   if (!(value['desk'] === undefined || typeof value['desk'] === 'boolean')) return null
+  if (value['check'] !== undefined) {
+    const check = value['check']
+    if (!isMap(check) || check['head'] !== value['head'] || !SHA.test(String(check['head'])) ||
+      !['absent', 'pending', 'passed', 'failed'].includes(String(check['state'])) ||
+      !Number.isSafeInteger(check['total']) || (check['total'] as number) < 0 || (check['total'] as number) > 2000 ||
+      (check['state'] === 'absent' ? check['total'] !== 0 : check['total'] === 0)) return null
+  }
+  if (value['review'] !== undefined) {
+    const review = value['review']
+    if (!isMap(review) || review['head'] !== value['head'] || !SHA.test(String(review['head'])) ||
+      !Number.isSafeInteger(review['id']) || (review['id'] as number) < 1 ||
+      !['commented', 'changes-requested', 'approved'].includes(String(review['state']))) return null
+  }
+  if (value['action'] === 'checks-failed' && (value['source'] !== 'pull-request' || !isMap(value['check']) || value['check']['state'] !== 'failed')) return null
+  if (value['action'] === 'review-commented' && (value['source'] !== 'pull-request' || value['review'] === undefined)) return null
   return value as unknown as TriggerFact
 }
 

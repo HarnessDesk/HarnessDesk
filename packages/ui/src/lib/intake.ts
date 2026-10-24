@@ -25,6 +25,8 @@ import type {
 const PR_EVENT_WORDS: Readonly<Record<PullRequestEvent, string>> = {
   opened: 'opens',
   pushed: 'is pushed',
+  'checks-failed': 'has failing checks',
+  'review-commented': 'receives a review comment',
 }
 
 const ISSUE_EVENT_WORDS: Readonly<Record<IssueEvent, string>> = {

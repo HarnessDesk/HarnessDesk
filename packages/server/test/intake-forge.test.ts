@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
 import type { TriggerDefinition, TriggerFact } from '@harnessdesk/protocol'
 
-import { accountDigest, ForgeSource, readPullFact, type SourceCursor } from '../src/intake/forge.js'
-import { dedupeKey, groupKey } from '../src/intake/keys.js'
+import type { GhApiRunner } from '../src/findings/forge.js'
+import { tempDir } from './scratch.js'
+import { accountDigest, ForgeSource, readPullFact, type SourceCursor, type PullObservation } from '../src/intake/forge.js'
+import { dedupeKey, groupKey, eventKey } from '../src/intake/keys.js'
 import { FakeForge, iso, REPO, sha } from './fixtures/intake-forge.js'
 
 /*
@@ -328,4 +334,256 @@ test('a read that ran short never loses a comment or an event on an issue it did
   assert.ok(seen.includes('#99:labelled'), 'and its early event')
   assert.equal(seen.filter((one) => one === '#99:commented').length, 1, 'once')
   assert.equal(seen.filter((one) => one === '#99:labelled').length, 1, 'once')
+})
+
+
+const watching = { watches: [{ number: 1, checks: true, reviews: true }] }
+const watchedPoll = (forge: FakeForge, cursor: SourceCursor) => source(forge, ARMED + 20 * MINUTE).poll(PROJECT, cursor, never, watching)
+const review = (id: number, user = { id: 42, login: 'a-maintainer' }) => ({
+  id, commit_id: sha('a'), body: 'Please fix the widgets.', state: 'COMMENTED', submitted_at: iso(ARMED + MINUTE), user,
+})
+
+test('watched old PRs observe unchanged-head checks and reviews with two supplemental requests per poll', async () => {
+  const forge = new FakeForge()
+  forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: ARMED - 60 * MINUTE, updated: ARMED - 30 * MINUTE })
+  const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  const one = forge.pulls[0]!
+  one.checks = [{ id: 12, head_sha: one.head, name: 'build', status: 'completed', conclusion: 'failure' }]
+  one.reviews = [review(22)]
+  forge.permissions.set('a-maintainer', { id: 42, permission: 'write' })
+  forge.calls.length = 0
+  assert.deepEqual((await poll(forge, baseline, ARMED + 20 * MINUTE)).facts, [])
+  assert.equal(forge.calls.length, 1, 'ordinary PRs receive no supplemental reads')
+  let cursor = baseline
+  const facts: TriggerFact[] = []
+  for (let i = 0; i < 8; i += 1) {
+    forge.calls.length = 0
+    const batch = await watchedPoll(forge, cursor)
+    assert.equal(batch.complete, true)
+    assert.ok(forge.calls.length <= 3, 'one source list plus at most two supplemental requests, permissions included')
+    facts.push(...batch.facts)
+    cursor = batch.next
+  }
+  assert.deepEqual(facts.map((one) => one.action).sort(), ['checks-failed', 'review-commented'])
+  for (const fact of facts) assert.equal(fact.event, eventKey([REPO, 1, fact.action, sha('a')]))
+  const reviewed = facts.find((one) => one.action === 'review-commented')!
+  assert.equal(reviewed.author, accountDigest(42))
+  assert.equal(reviewed.authorWrites, true)
+  one.head = sha('b')
+  one.checks = [{ id: 13, head_sha: one.head, name: 'build', status: 'completed', conclusion: 'failure' }]
+  const changed: TriggerFact[] = []
+  for (let i = 0; i < 4; i += 1) {
+    const batch = await watchedPoll(forge, cursor)
+    changed.push(...batch.facts)
+    cursor = batch.next
+  }
+  assert.equal(changed.find((one) => one.action === 'checks-failed')?.event, eventKey([REPO, 1, 'checks-failed', sha('b')]))
+})
+
+test('supplemental failures replay the same identities and never silently consume overflow', async () => {
+  const forge = new FakeForge()
+  forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: ARMED + MINUTE,
+    checks: [{ id: 1, head_sha: sha('a'), name: 'build', status: 'completed', conclusion: 'failure' }] })
+  const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  const first = await watchedPoll(forge, baseline)
+  const replay = await watchedPoll(forge, baseline)
+  assert.ok(first.facts.some((one) => one.action === 'checks-failed'))
+  assert.deepEqual(replay.facts.map((one) => one.event), first.facts.map((one) => one.event))
+  forge.fail = (path) => path.includes('/check-runs') ? { exitCode: 1, stderr: 'HTTP 429' } : null
+  await assert.rejects(watchedPoll(forge, baseline), /rate limit/)
+  forge.fail = null
+  forge.pulls[0]!.checks = Array.from({ length: 1001 }, (_, i) => ({ id: i + 1, head_sha: sha('a'), name: 'build', status: 'completed', conclusion: 'success' }))
+  let cursor = baseline
+  let gap = false
+  for (let i = 0; i < 12; i += 1) {
+    const batch = await watchedPoll(forge, cursor)
+    if (!batch.complete) { gap = true; break }
+    cursor = batch.next
+  }
+  assert.equal(gap, true)
+})
+
+
+test('lifecycle and check snapshots stay separate from events and absent, pending and stale checks never mean green', async () => {
+  const forge = new FakeForge()
+  forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: ARMED - 60 * MINUTE, updated: ARMED - 30 * MINUTE })
+  let cursor = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  const snapshots: PullObservation[] = []
+  for (let i = 0; i < 3; i += 1) {
+    const batch = await watchedPoll(forge, cursor)
+    snapshots.push(...(batch.observations ?? []))
+    assert.deepEqual(batch.facts, [])
+    cursor = batch.next
+  }
+  assert.ok(snapshots.some((one) => one.check?.state === 'absent'))
+  forge.pulls[0]!.checks = [{ id: 1, head_sha: sha('a'), name: 'build', status: 'in_progress', conclusion: null }]
+  const observed = []
+  for (let i = 0; i < 5; i += 1) {
+    const batch = await watchedPoll(forge, cursor)
+    observed.push(...(batch.observations ?? []))
+    cursor = batch.next
+  }
+  assert.ok(observed.some((one) => one.check?.state === 'pending'))
+  assert.ok(observed.every((one) => one.check?.state !== 'passed'))
+  forge.pulls[0]!.checks![0]!.status = 'completed'
+  forge.pulls[0]!.checks![0]!.conclusion = 'success'
+  const green = []
+  for (let i = 0; i < 5; i += 1) {
+    const batch = await watchedPoll(forge, cursor)
+    green.push(...(batch.observations ?? []))
+    cursor = batch.next
+  }
+  assert.ok(green.some((one) => one.check?.state === 'passed'))
+  forge.pulls[0]!.state = 'closed'
+  forge.pulls[0]!.merged = true
+  const merged = await watchedPoll(forge, cursor)
+  assert.equal(merged.observations?.[0]?.state, 'merged')
+  assert.deepEqual(merged.facts, [])
+  forge.pulls[0]!.state = 'open'
+  forge.pulls[0]!.merged = false
+  forge.pulls[0]!.checks![0]!.head_sha = sha('b')
+  await assert.rejects(watchedPoll(forge, { ...cursor, pulls: undefined }), /cannot read/)
+})
+
+test('a deferred noncollaborator cannot starve other authors or another watched PR', async () => {
+  const forge = new FakeForge()
+  for (const number of [1, 2]) forge.pulls.push({ number, head: sha('a'), state: 'open', created: ARMED - 60 * MINUTE, updated: ARMED - 30 * MINUTE })
+  forge.pulls[0]!.reviews = [review(1, { id: 7, login: 'jane-doe' }), review(2)]
+  forge.pulls[1]!.reviews = [review(3)]
+  forge.permissions.set('jane-doe', { id: 7, permission: 'read' })
+  forge.permissions.set('a-maintainer', { id: 42, permission: 'write' })
+  let cursor = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  const facts: TriggerFact[] = []
+  for (let i = 0; i < 5; i += 1) {
+    forge.calls.length = 0
+    const batch = await source(forge).poll(PROJECT, cursor, never, { watches: [{ checks: false, reviews: true }] })
+    assert.ok(forge.calls.length <= 5, 'one list plus at most two requests for each PR')
+    facts.push(...batch.facts)
+    cursor = batch.next
+  }
+  assert.deepEqual(facts.map((one) => one.subject).sort(), ['1', '2'])
+  assert.ok(facts.every((one) => one.author === accountDigest(42)))
+})
+
+
+test('the spawned fake gh answers the same watch endpoints as the in-process forge', async () => {
+  const forge = new FakeForge()
+  forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: ARMED - MINUTE,
+    checks: [{ id: 1, head_sha: sha('a'), name: 'build', status: 'completed', conclusion: 'failure' }], reviews: [review(1)] })
+  forge.permissions.set('a-maintainer', { id: 42, permission: 'write' })
+  const home = tempDir('hd-fake-gh-watch-')
+  const state = join(home, 'state.json')
+  await writeFile(state, JSON.stringify({ repo: REPO, user: forge.user, pulls: forge.pulls, issues: [], permissions: Object.fromEntries(forge.permissions) }))
+  const fixture = fileURLToPath(new URL('./fixtures/fake-gh.mjs', import.meta.url))
+  const run: GhApiRunner = (args, _input, options) => new Promise((resolve) => {
+    execFile(process.execPath, [fixture, ...args], { cwd: home, env: { ...process.env, FAKE_GH_STATE: state }, timeout: options.timeoutMs, maxBuffer: options.maxBytes, encoding: 'utf8' }, (error, stdout, stderr) => {
+      resolve({ stdout, stderr, exitCode: error ? 1 : 0, timedOut: error?.killed === true, overflow: false })
+    })
+  })
+  const a = new ForgeSource({ run, now: () => ARMED + MINUTE })
+  const b = source(forge, ARMED + MINUTE)
+  let left = await a.inventory(home, 'pull-request', REPO, never)
+  let right = await b.inventory(home, 'pull-request', REPO, never)
+  // Inventory at the same instant, then place a review after it.
+  forge.pulls[0]!.reviews![0]!.submitted_at = iso(ARMED + 2 * MINUTE)
+  await writeFile(state, JSON.stringify({ repo: REPO, user: forge.user, pulls: forge.pulls, issues: [], permissions: Object.fromEntries(forge.permissions) }))
+  for (let i = 0; i < 4; i += 1) {
+    const actual = await a.poll(home, left, never, watching)
+    const expected = await b.poll(home, right, never, watching)
+    assert.deepEqual(actual, expected)
+    left = actual.next
+    right = expected.next
+  }
+})
+
+test('paginated reviews cannot overflow silently after an eligible review was found', async () => {
+  const forge = new FakeForge()
+  forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: ARMED - MINUTE })
+  let cursor = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  forge.pulls[0]!.reviews = Array.from({ length: 1001 }, (_, i) => review(i + 1))
+  forge.permissions.set('a-maintainer', { id: 42, permission: 'write' })
+  let gap = false
+  for (let i = 0; i < 25; i += 1) {
+    const batch = await source(forge).poll(PROJECT, cursor, never, { watches: [{ number: 1, checks: false, reviews: true }] })
+    if (!batch.complete) { gap = true; break }
+    cursor = batch.next
+  }
+  assert.equal(gap, true)
+})
+
+
+test('closed watches expose lifecycle only and malformed short check pages refuse', async () => {
+  const forge = new FakeForge()
+  forge.pulls.push({ number: 1, head: sha('a'), state: 'closed', created: ARMED - 60 * MINUTE, updated: ARMED - 30 * MINUTE,
+    checks: [{ id: 1, head_sha: sha('a'), name: 'build', status: 'completed', conclusion: 'failure' }], reviews: [review(1)] })
+  const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  forge.calls.length = 0
+  const closed = await watchedPoll(forge, baseline)
+  assert.deepEqual(closed.facts, [])
+  assert.equal(closed.observations?.[0]?.state, 'closed')
+  assert.equal(forge.calls.length, 2, 'source list and a direct lifecycle read only')
+  forge.pulls[0]!.state = 'open'
+  const run: GhApiRunner = async (args, input, options) => {
+    const answer = await forge.runner(args, input, options)
+    return args.at(-1)?.includes('/check-runs') ? { ...answer, stdout: JSON.stringify({ total_count: 1, check_runs: [] }) } : answer
+  }
+  await assert.rejects(new ForgeSource({ run, now: () => ARMED + MINUTE }).poll(PROJECT, baseline, never, watching), /cannot read/)
+})
+
+
+test('a source deadline rotates watched PRs without losing partial supplemental work', async () => {
+  const forge = new FakeForge()
+  for (const number of [1, 2, 3]) forge.pulls.push({ number, head: sha(String(number)), state: 'open', created: ARMED - 60 * MINUTE, updated: ARMED - 30 * MINUTE })
+  const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  for (const one of forge.pulls) one.checks = [{ id: one.number, head_sha: one.head, name: 'build', status: 'completed', conclusion: 'failure' }]
+  const realNow = Date.now
+  let wall = 1000
+  Date.now = () => wall
+  try {
+    const run: GhApiRunner = async (args, input, options) => { wall += 1; return forge.runner(args, input, options) }
+    const reader = new ForgeSource({ run, now: () => ARMED + MINUTE, timeoutMs: 5 })
+    const options = { watches: [{ checks: true, reviews: false }] }
+    const first = await reader.poll(PROJECT, baseline, never, options)
+    assert.equal(first.complete, true)
+    assert.equal(first.next.pullNext, 3)
+    const second = await reader.poll(PROJECT, first.next, never, options)
+    assert.equal(second.complete, true)
+    assert.deepEqual([...first.facts, ...second.facts].map((one) => one.subject).sort(), ['1', '2', '3'])
+  } finally { Date.now = realNow }
+})
+
+
+test('deferred normalized reviews share the existing two MiB batch bound', async () => {
+  const forge = new FakeForge()
+  for (const number of [1, 2]) forge.pulls.push({ number, head: sha('a'), state: 'open', created: ARMED - 60 * MINUTE, updated: ARMED - 30 * MINUTE })
+  const baseline = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  for (const one of forge.pulls) one.reviews = Array.from({ length: 100 }, (_, i) => ({ ...review(i + 1), body: 'x'.repeat(16_000) }))
+  const batch = await source(forge).poll(PROJECT, baseline, never, { watches: [{ checks: false, reviews: true }] })
+  assert.equal(batch.complete, false)
+  assert.equal(batch.next, baseline)
+  assert.deepEqual(batch.facts, [])
+  assert.equal(batch.observations, undefined)
+})
+
+
+test('a newly interested watch cannot consume an older review and suppress a later eligible one', async () => {
+  const forge = new FakeForge()
+  forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: ARMED - MINUTE, updated: ARMED - MINUTE })
+  let cursor = await source(forge).inventory(PROJECT, 'pull-request', REPO, never)
+  forge.pulls[0]!.reviews = [review(1)]
+  forge.permissions.set('a-maintainer', { id: 42, permission: 'write' })
+  const options = { watches: [{ number: 1, checks: false, reviews: true, since: ARMED + 2 * MINUTE }] }
+  for (let i = 0; i < 3; i += 1) {
+    const batch = await source(forge, ARMED + 3 * MINUTE).poll(PROJECT, cursor, never, options)
+    assert.deepEqual(batch.facts, [])
+    cursor = batch.next
+  }
+  forge.pulls[0]!.reviews!.push({ ...review(2), submitted_at: iso(ARMED + 3 * MINUTE) })
+  const facts: TriggerFact[] = []
+  for (let i = 0; i < 3; i += 1) {
+    const batch = await source(forge, ARMED + 4 * MINUTE).poll(PROJECT, cursor, never, options)
+    facts.push(...batch.facts)
+    cursor = batch.next
+  }
+  assert.deepEqual(facts.map((one) => one.review?.id), [2])
 })

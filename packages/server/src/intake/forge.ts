@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto'
 
-import type { TriggerAction, TriggerFact, TriggerSource } from '@harnessdesk/protocol'
+import type { TriggerAction, TriggerCheck, TriggerFact, TriggerReview, TriggerSource } from '@harnessdesk/protocol'
 
 import { spawnGh, type GhApiRunner } from '../findings/forge.js'
 import { isDeskPost } from '../findings/publication.js'
 import { labelName } from './definition.js'
 import { eventKey } from './keys.js'
+import { factOf } from './store.js'
 
 /**
  * The forge, read for intake: new pull requests and changed heads, and issue
@@ -41,10 +42,70 @@ export interface SourceCursor {
   readonly continuation: string | null
   /** Per pull request its last head; per issue its highest event and comment ids; per schedule its last slot. */
   readonly subjects: Readonly<Record<string, { readonly head: string | null; readonly event: string }>>
+  /** Optional in version 1: bounded, normalized work deferred by the per-PR request budget. */
+  readonly pulls?: Readonly<Record<string, PullWatchState>>
+  /** The next watched PR, so a source deadline cannot starve later PRs. */
+  readonly pullNext?: number
+}
+
+/** Omit number for every open PR; explicit numbers also observe closed/merged PRs. */
+export interface PullWatch {
+  readonly number?: number
+  readonly checks: boolean
+  readonly reviews: boolean
+  /** The interest’s own arming/ownership baseline; defaults to the source baseline. */
+  readonly since?: number
+}
+
+interface CheckCounts { readonly total: number; readonly failed: number; readonly pending: number }
+interface PendingReview { readonly fact: TriggerFact; readonly login: string; readonly id: number }
+export interface PullWatchState {
+  readonly head: string
+  readonly phase: 'checks' | 'statuses' | 'reviews' | 'authors'
+  readonly page: number
+  readonly counts: CheckCounts
+  readonly pending: readonly PendingReview[]
+  readonly more: boolean
+  readonly failed: boolean
+  readonly reviewed: boolean
+}
+
+/** Closed parser for optional version-1 watch metadata; older cursors omit it. */
+export const pullStatesOf = (value: unknown): Record<string, PullWatchState> | null => {
+  if (!isMap(value) || Object.keys(value).length > FACT_LIMIT || Buffer.byteLength(JSON.stringify(value), 'utf8') > BATCH_BYTES) return null
+  for (const [number, entry] of Object.entries(value)) {
+    if (!/^[1-9][0-9]{0,15}$/.test(number) || !Number.isSafeInteger(Number(number)) || !isMap(entry) || !SHA.test(String(entry['head'])) ||
+      !['checks', 'statuses', 'reviews', 'authors'].includes(String(entry['phase'])) || !Number.isSafeInteger(entry['page']) ||
+      (entry['page'] as number) < 1 || (entry['page'] as number) > 10 || !isMap(entry['counts']) ||
+      !Array.isArray(entry['pending']) || entry['pending'].length > PER_PAGE ||
+      typeof entry['more'] !== 'boolean' || typeof entry['failed'] !== 'boolean' || typeof entry['reviewed'] !== 'boolean') return null
+    const counts = entry['counts']
+    for (const field of ['total', 'failed', 'pending']) {
+      if (!Number.isSafeInteger(counts[field]) || (counts[field] as number) < 0 || (counts[field] as number) > 2000) return null
+    }
+    if ((counts['failed'] as number) + (counts['pending'] as number) > (counts['total'] as number)) return null
+    for (const pending of entry['pending']) {
+      if (!isMap(pending) || typeof pending['login'] !== 'string' || !LOGIN.test(pending['login']) || !Number.isSafeInteger(pending['id']) || (pending['id'] as number) < 1) return null
+      const fact = factOf(pending['fact'])
+      if (!fact || fact.action !== 'review-commented' || fact.subject !== number || fact.head !== entry['head'] || fact.author !== accountDigest(pending['id'] as number)) return null
+    }
+  }
+  return value as Record<string, PullWatchState>
+}
+
+/** A current lifecycle read, kept separate from the two opt-in trigger events. */
+export interface PullObservation {
+  readonly repository: string
+  readonly number: number
+  readonly head: string
+  readonly state: 'open' | 'merged' | 'closed'
+  readonly check: TriggerCheck | null
+  readonly at: number
 }
 
 export interface PollBatch {
   readonly facts: readonly TriggerFact[]
+  readonly observations?: readonly PullObservation[]
   readonly next: SourceCursor
   readonly complete: boolean
   readonly problem: string | null
@@ -195,6 +256,7 @@ interface PullRow {
   readonly headRepo: string | null
   readonly baseRepo: string
   readonly state: 'open' | 'closed'
+  readonly merged: boolean
   readonly title: string
   readonly body: string
   readonly url: string | null
@@ -219,6 +281,8 @@ export interface ForgeSourceOptions {
   readonly timeoutMs?: number
   readonly maxBytes?: number
   readonly maxPages?: number
+  /** Local remembered publication ids, never a forge read. */
+  readonly posted?: (fact: TriggerFact) => Promise<boolean>
 }
 
 export class ForgeSource {
@@ -227,6 +291,7 @@ export class ForgeSource {
   readonly #timeoutMs: number
   readonly #maxBytes: number
   readonly #maxPages: number
+  readonly #posted: (fact: TriggerFact) => Promise<boolean>
 
   constructor(options: ForgeSourceOptions) {
     this.#run = options.run ?? spawnGh()
@@ -234,6 +299,7 @@ export class ForgeSource {
     this.#timeoutMs = options.timeoutMs ?? 30_000
     this.#maxBytes = options.maxBytes ?? 4 * 1024 * 1024
     this.#maxPages = options.maxPages ?? 10
+    this.#posted = options.posted ?? (async () => false)
   }
 
   /**
@@ -321,8 +387,13 @@ export class ForgeSource {
     }
     const state = raw['state']
     if (state !== 'open' && state !== 'closed') throw unreadable()
+    if (raw['merged'] !== undefined && typeof raw['merged'] !== 'boolean') throw unreadable()
+    if (raw['merged_at'] !== undefined && raw['merged_at'] !== null) time(raw['merged_at'])
+    const merged = raw['merged'] === true || typeof raw['merged_at'] === 'string'
+    if (merged && state !== 'closed') throw unreadable()
     return {
       number: read.number, head: read.head, headRepo: lost ? null : read.headRepo, baseRepo: read.baseRepo, state,
+      merged,
       title: read.title, body: prose(raw['body']), url: null, created: time(raw['created_at']), updated: time(raw['updated_at']),
     }
   }
@@ -382,10 +453,11 @@ export class ForgeSource {
   /**
    * `permissions`: a trigger on this source lets collaborators' comments
    * fire it, so each new comment's author is asked about once — one bounded
-   * read per comment, never for a desk post or an unreadable author.
+   * read per comment, never for a desk post or an unreadable author. PR
+   * `watches` opt into supplemental reads and always verify review authors.
    */
-  async poll(project: string, cursor: SourceCursor, signal: AbortSignal, options: { readonly permissions?: boolean } = {}): Promise<PollBatch> {
-    if (cursor.source === 'pull-request') return this.#pulls(project, cursor, signal)
+  async poll(project: string, cursor: SourceCursor, signal: AbortSignal, options: { readonly permissions?: boolean; readonly watches?: readonly PullWatch[] } = {}): Promise<PollBatch> {
+    if (cursor.source === 'pull-request') return this.#pulls(project, cursor, signal, options.watches ?? [])
     if (cursor.source === 'issue') return this.#issues(project, cursor, signal, options.permissions === true)
     throw unreadable()
   }
@@ -426,7 +498,7 @@ export class ForgeSource {
     return { facts, next, complete: true, problem: null, skipped }
   }
 
-  async #pulls(project: string, cursor: SourceCursor, signal: AbortSignal): Promise<PollBatch> {
+  async #pulls(project: string, cursor: SourceCursor, signal: AbortSignal, watches: readonly PullWatch[]): Promise<PollBatch> {
     const repository = this.#repo(cursor)
     const deadline = Date.now() + this.#timeoutMs
     const floor = cursor.observedThrough - OVERLAP_MS
@@ -480,7 +552,195 @@ export class ForgeSource {
         title: row.title, body: row.body, url: row.url, trigger: null,
       })
     }
-    return this.#bounded(cursor, facts, { ...cursor, observedThrough: through, continuation: null, subjects }, skipped)
+    const watched = await this.#watch(project, repository, cursor, rows, watches, deadline, signal, facts, skipped)
+    if (watched === null) return this.#gap(cursor, 'More watched pull request state than one read can cover.')
+    for (const observation of watched.observations) {
+      if (observation.state !== 'open') delete subjects[String(observation.number)]
+    }
+    const next = { ...cursor, observedThrough: through, continuation: null, subjects, pulls: watched.pulls, pullNext: watched.next }
+    if (Buffer.byteLength(JSON.stringify([facts, watched.observations, watched.pulls]), 'utf8') > BATCH_BYTES) return this.#gap(cursor, 'More changed than one read can hold.')
+    const batch = this.#bounded(cursor, facts, next, skipped)
+    return batch.complete ? { ...batch, observations: watched.observations } : batch
+  }
+
+  /** Two supplemental requests per PR, including direct lifecycle and permission reads. */
+  async #watch(
+    project: string, repository: string, cursor: SourceCursor, rows: readonly PullRow[], watches: readonly PullWatch[],
+    deadline: number, signal: AbortSignal, facts: TriggerFact[], skipped: PollBatch['skipped'][number][],
+  ): Promise<{ pulls: Record<string, PullWatchState>; observations: PullObservation[]; next: number } | null> {
+    for (const watch of watches) {
+      if (watch.number !== undefined) positive(watch.number)
+      if (watch.since !== undefined && (!Number.isSafeInteger(watch.since) || watch.since < 0)) throw unreadable()
+      if (typeof watch.checks !== 'boolean' || typeof watch.reviews !== 'boolean') throw unreadable()
+    }
+    const all = watches.some((watch) => watch.number === undefined)
+    const numbers = [...new Set([
+      ...watches.flatMap((watch) => watch.number === undefined ? [] : [watch.number]),
+      ...(all ? Object.keys(cursor.subjects).map(Number) : []),
+      ...(all ? rows.filter((row) => row.state === 'open').map((row) => row.number) : []),
+    ])].sort((a, b) => a - b)
+    for (const number of numbers) positive(number)
+    if (numbers.length > FACT_LIMIT) return null
+    const ordered = [...numbers.filter((n) => n >= (cursor.pullNext ?? 0)), ...numbers.filter((n) => n < (cursor.pullNext ?? 0))]
+    const pulls: Record<string, PullWatchState> = {}
+    for (const number of numbers) if (cursor.pulls?.[number]) pulls[number] = cursor.pulls[number]!
+    const observations: PullObservation[] = []
+    let next = 0
+    let progressed = false
+    for (const number of ordered) {
+      const interested = watches.filter((watch) => watch.number === undefined || watch.number === number)
+      const checks = interested.some((watch) => watch.checks)
+      const reviews = interested.some((watch) => watch.reviews)
+      const reviewFloor = Math.max(cursor.baseline, Math.min(...interested.filter((watch) => watch.reviews).map((watch) => watch.since ?? cursor.baseline)))
+      let slots = 2
+      try {
+        let row = rows.find((one) => one.number === number)
+        if (!row) {
+          slots -= 1
+          row = this.#pull(await this.#get(project, `repos/${repository}/pulls/${number}`, deadline, signal))
+          if (row.number !== number) throw unreadable()
+        }
+        if (row.baseRepo !== repository || row.headRepo === null) {
+          delete pulls[number]
+          continue
+        }
+        if (row.state === 'closed') {
+          delete pulls[number]
+          observations.push({ repository, number, head: row.head, state: row.merged ? 'merged' : 'closed', check: null, at: this.#now() })
+          progressed = true
+          next = numbers[(numbers.indexOf(number) + 1) % numbers.length] ?? 0
+          continue
+        }
+        let state: PullWatchState = pulls[number]?.head === row.head ? pulls[number]! : {
+          head: row.head, phase: checks ? 'checks' : 'reviews', page: 1,
+          counts: { total: 0, failed: 0, pending: 0 }, pending: [], more: false, failed: false, reviewed: false,
+        }
+        if (!reviews && state.phase === 'authors') state = { ...state, phase: 'checks', pending: [], page: 1, more: false, counts: { total: 0, failed: 0, pending: 0 } }
+        let check: TriggerCheck | null = null
+        const writers = new Map<string, boolean | null>()
+        const fact = (action: 'checks-failed' | 'review-commented', at: number): TriggerFact => ({
+          source: 'pull-request', project, repository, subject: String(number),
+          event: eventKey([repository, number, action, row.head]), action, at, head: row.head,
+          fork: row.headRepo !== repository, title: row.title, body: '',
+          url: `https://github.com/${repository}/pull/${number}`, trigger: null,
+        })
+        // Each successful step is retained only with the batch's eventual delivery acknowledgement.
+        while (slots > 0) {
+          if (state.phase === 'checks' || state.phase === 'statuses') {
+            if (!checks) { state = { ...state, phase: 'reviews', page: 1 }; continue }
+            const runs = state.phase === 'checks'
+            slots -= 1
+            const answer = await this.#get(project, `repos/${repository}/commits/${row.head}/${runs ? 'check-runs' : 'status'}?per_page=${PER_PAGE}&page=${state.page}`, deadline, signal)
+            const list = isMap(answer) ? answer[runs ? 'check_runs' : 'statuses'] : null
+            const total = isMap(answer) ? answer['total_count'] : null
+            if (!Array.isArray(list) || list.length > PER_PAGE || !Number.isSafeInteger(total) || (total as number) < 0) throw unreadable()
+            if ((total as number) > this.#maxPages * PER_PAGE) return null
+            const expected = Math.min(PER_PAGE, Math.max(0, (total as number) - (state.page - 1) * PER_PAGE))
+            if (list.length !== expected) throw unreadable()
+            if (!runs && (!isMap(answer) || answer['sha'] !== row.head)) throw unreadable()
+            const counts = { ...state.counts }
+            for (const raw of list) {
+              if (!isMap(raw)) throw unreadable()
+              positive(raw['id'])
+              if (runs && raw['head_sha'] !== row.head) throw unreadable()
+              const name = runs ? raw['name'] : raw['context']
+              if (typeof name !== 'string' || Buffer.byteLength(name, 'utf8') > TITLE_LIMIT) throw unreadable()
+              const status = runs ? raw['status'] : raw['state']
+              if (typeof status !== 'string' || (runs && !['queued', 'in_progress', 'completed', 'waiting', 'requested', 'pending'].includes(status)) ||
+                (!runs && !['pending', 'success', 'failure', 'error'].includes(status))) throw unreadable()
+              const conclusion = runs ? raw['conclusion'] : null
+              if (runs && conclusion !== null && !['success', 'failure', 'neutral', 'cancelled', 'skipped', 'timed_out', 'action_required', 'stale', 'startup_failure'].includes(String(conclusion))) throw unreadable()
+              counts.total += 1
+              if (runs ? status !== 'completed' || conclusion === null : status === 'pending') counts.pending += 1
+              else if (runs ? !['success', 'neutral', 'skipped'].includes(String(conclusion)) : status !== 'success') counts.failed += 1
+            }
+            const more = state.page * PER_PAGE < (total as number)
+            if (more && (list.length !== PER_PAGE || state.page >= this.#maxPages)) return null
+            state = { ...state, counts, page: more ? state.page + 1 : 1, phase: more ? state.phase : runs ? 'statuses' : 'reviews' }
+            if (counts.failed > 0 || (!runs && !more)) {
+              check = { head: row.head, state: counts.failed > 0 ? 'failed' : counts.pending > 0 ? 'pending' : counts.total > 0 ? 'passed' : 'absent', total: counts.total }
+              if (check.state === 'failed' && !state.failed) {
+                facts.push({ ...fact('checks-failed', this.#now()), body: row.body, check })
+                state = { ...state, failed: true }
+              }
+            }
+          } else if (state.phase === 'reviews') {
+            if (!reviews || (state.reviewed && state.page === 1)) {
+              state = { ...state, phase: 'checks', page: 1, counts: { total: 0, failed: 0, pending: 0 } }
+              break
+            }
+            slots -= 1
+            const answer = await this.#page(project, `repos/${repository}/pulls/${number}/reviews?per_page=${PER_PAGE}&page=${state.page}`, deadline, signal)
+            if (answer.length === PER_PAGE && state.page >= this.#maxPages) return null
+            const pending: PendingReview[] = []
+            for (const raw of answer) {
+              if (!isMap(raw)) throw unreadable()
+              const id = positive(raw['id'])
+              if (raw['state'] === 'PENDING' || raw['state'] === 'DISMISSED') continue
+              const states: Record<string, TriggerReview['state']> = { COMMENTED: 'commented', CHANGES_REQUESTED: 'changes-requested', APPROVED: 'approved' }
+              const kind = states[String(raw['state'])]
+              if (!kind || !SHA.test(String(raw['commit_id']))) throw unreadable()
+              const at = time(raw['submitted_at'])
+              if (raw['commit_id'] !== row.head || at <= reviewFloor) continue
+              const body = prose(raw['body'])
+              if (kind === 'approved' && !body.trim()) continue
+              const user = raw['user']
+              if (!isMap(user) || !Number.isSafeInteger(user['id']) || (user['id'] as number) < 1 || typeof user['login'] !== 'string' || !LOGIN.test(user['login'])) continue
+              const candidate = {
+                ...fact('review-commented', at), body, review: { id, head: row.head, state: kind },
+                author: accountDigest(user['id'] as number), authorWrites: null,
+                desk: isDeskPost(body), url: `https://github.com/${repository}/pull/${number}#pullrequestreview-${id}`,
+              }
+              if (candidate.desk || await this.#posted(candidate)) continue
+              if (state.reviewed) continue
+              pending.push({ fact: candidate, login: user['login'], id: user['id'] as number })
+            }
+            state = { ...state, pending, phase: 'authors', more: answer.length === PER_PAGE }
+          } else {
+            if (state.reviewed) state = { ...state, pending: [] }
+            if (state.pending.length === 0) {
+              state = state.more ? { ...state, phase: 'reviews', page: state.page + 1 } :
+                { ...state, phase: 'checks', page: 1, counts: { total: 0, failed: 0, pending: 0 } }
+              if (!state.more) break
+              continue
+            }
+            const candidate = state.pending[0]!
+            if (candidate.fact.repository !== repository || candidate.fact.project !== project || candidate.fact.event !== eventKey([repository, number, 'review-commented', row.head])) throw unreadable()
+            if (candidate.fact.at <= reviewFloor || candidate.fact.desk || await this.#posted(candidate.fact)) {
+              state = { ...state, pending: state.pending.slice(1) }
+              pulls[number] = state
+              continue
+            }
+            const key = `${candidate.login}\u0000${candidate.id}`
+            if (!writers.has(key)) {
+              slots -= 1
+              writers.set(key, await this.#writes(project, repository, candidate.login, candidate.id, deadline, signal))
+            }
+            const writes = writers.get(key) ?? null
+            if (writes === true && !state.reviewed) {
+              facts.push({ ...candidate.fact, authorWrites: true })
+              state = { ...state, reviewed: true }
+            } else if (writes !== true) {
+              skipped.push({ trigger: null, subject: String(number), reason: 'This review’s author does not have verified write access.', count: 1 })
+            }
+            state = { ...state, pending: state.pending.slice(1) }
+          }
+          pulls[number] = state
+          if (facts.length > FACT_LIMIT || Buffer.byteLength(JSON.stringify([facts, pulls, observations]), 'utf8') > BATCH_BYTES) return null
+          progressed = true
+        }
+        pulls[number] = state
+        observations.push({ repository, number, head: row.head, state: row.merged ? 'merged' : row.state, check, at: this.#now() })
+        progressed = true
+        next = numbers[(numbers.indexOf(number) + 1) % numbers.length] ?? 0
+      } catch (error) {
+        if (!(error instanceof ForgeReadError) || !error.budget || signal.aborted) throw error
+        if (!progressed) return null
+        next = number
+        break
+      }
+    }
+    return { pulls, observations, next }
   }
 
   /** Every page of one issue's list, or a gap: never a short list read as the whole. */

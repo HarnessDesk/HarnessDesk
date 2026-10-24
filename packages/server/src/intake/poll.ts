@@ -7,7 +7,7 @@ import { Serial } from '../goals/assignments.js'
 import { atomicJson } from '../goals/store.js'
 import type { ArmedTrigger } from './consent.js'
 import { acceptsFact } from './definition.js'
-import { ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor } from './forge.js'
+import { pullStatesOf, ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor } from './forge.js'
 import { dueSlots, scheduleInventory } from './schedule.js'
 
 /**
@@ -83,6 +83,9 @@ export const intakeSources = (forge: ForgeSource): IntakeSources => ({
     group.source === 'schedule' ? dueSlots(group.project, group.arms, cursor, now) : forge.poll(group.project, cursor, signal, {
       // Asked only when an arm on this source lets collaborators' comments fire it.
       permissions: group.arms.some((arm) => arm.definition.from === 'collaborators'),
+      watches: group.arms.flatMap((arm) => arm.definition.on.kind !== 'pull-request' ? [] : [{
+        since: arm.baseline, checks: arm.definition.on.events.includes('checks-failed'), reviews: arm.definition.on.events.includes('review-commented'),
+      }]).filter((watch) => watch.checks || watch.reviews),
     }),
 })
 
@@ -99,7 +102,11 @@ const cursorOf = (value: unknown): SourceCursor | null => {
     if (!isMap(entry) || !(entry['head'] === null || typeof entry['head'] === 'string') || typeof entry['event'] !== 'string') return null
     clean[key] = { head: entry['head'] as string | null, event: entry['event'] }
   }
+  const pulls = value['pulls'] === undefined ? undefined : pullStatesOf(value['pulls'])
+  if (pulls === null || (value['pullNext'] !== undefined && (!Number.isSafeInteger(value['pullNext']) || (value['pullNext'] as number) < 0))) return null
   return {
+    ...(pulls === undefined ? {} : { pulls }),
+    ...(value['pullNext'] === undefined ? {} : { pullNext: value['pullNext'] as number }),
     version: 1, source: value['source'] as TriggerSource, repository: repository as string | null,
     baseline: baseline as number, observedThrough: observedThrough as number, continuation: continuation as string | null, subjects: clean,
   }

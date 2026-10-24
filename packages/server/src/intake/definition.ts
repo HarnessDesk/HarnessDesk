@@ -3,6 +3,7 @@ import {
   DEFAULT_FLOW_BUDGET,
   DEFAULT_TRIGGER_BUDGET,
   TRIGGER_DEFAULTS,
+  TRIGGER_EVENTS,
   TRIGGER_LABEL_CHARS,
   TRIGGER_LABEL_LIMIT,
   TRIGGER_COMMENT_FROM,
@@ -288,7 +289,7 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
 
   let events: readonly string[] | null = defaults.events
   if (raw['events'] !== undefined) {
-    events = fieldList(raw['events'], `${at}.events`, defaults.events as readonly string[], problems, 'events')
+    events = fieldList(raw['events'], `${at}.events`, TRIGGER_EVENTS[source], problems, 'events')
   }
 
   let label: readonly string[] | undefined

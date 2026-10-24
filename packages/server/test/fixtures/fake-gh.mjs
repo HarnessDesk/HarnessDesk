@@ -51,6 +51,7 @@ const pullJson = (state, one) => ({
   title: one.title ?? `Change ${one.number}`,
   body: one.body ?? null,
   state: one.state,
+  merged: one.merged ?? false,
   created_at: iso(one.created),
   updated_at: iso(one.updated),
   html_url: one.url ?? `https://github.com/${state.repo}/pull/${one.number}`,
@@ -81,6 +82,24 @@ const answer = (state, path) => {
       .filter((one) => wantState === 'all' || one.state === wantState)
       .sort((a, b) => b.updated - a.updated)
     return slice(rows).map((one) => pullJson(state, one))
+  }
+  if (parts[3] === 'pulls' && parts.length === 5) {
+    const one = state.pulls.find((row) => row.number === Number(parts[4]))
+    if (!one) throw new Error('Not Found (HTTP 404)')
+    return pullJson(state, one)
+  }
+  if (parts[3] === 'pulls' && parts[5] === 'reviews') {
+    return slice(state.pulls.find((row) => row.number === Number(parts[4]))?.reviews ?? [])
+  }
+  if (parts[3] === 'commits') {
+    const one = state.pulls.find((row) => row.head === parts[4])
+    if (parts[5] === 'check-runs') return { total_count: one?.checks?.length ?? 0, check_runs: slice(one?.checks ?? []) }
+    if (parts[5] === 'status') return { sha: parts[4], total_count: one?.statuses?.length ?? 0, statuses: slice(one?.statuses ?? []) }
+  }
+  if (parts[3] === 'collaborators' && parts[5] === 'permission') {
+    const one = state.permissions?.[parts[4]]
+    if (!one) throw new Error('Not Found (HTTP 404)')
+    return { permission: one.permission, role_name: one.permission, user: { id: one.id, login: parts[4] } }
   }
   if (parts[3] === 'issues' && parts.length === 4) {
     const rows = [...state.issues].sort((a, b) => b.updated - a.updated)
