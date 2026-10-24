@@ -77,6 +77,9 @@ const answer = (state, path) => {
   if (parts[0] !== 'repos' || `${parts[1]}/${parts[2]}` !== state.repo) {
     throw new Error(`unexpected path ${path}`)
   }
+  if (parts[3] === 'rules' && parts[4] === 'branches') return []
+  if (parts[3] === 'branches') return { protected: (state.protectedBranches ?? []).includes(decodeURIComponent(parts[4])), protection: { enabled: false } }
+  if (parts.length === 3) return { squash_merge_commit_message: 'PR_BODY', merge_commit_message: 'PR_TITLE' }
   if (parts[3] === 'pulls' && parts.length === 4) {
     const wantState = url.searchParams.get('state')
     const rows = state.pulls
@@ -147,7 +150,7 @@ const state = load()
 // machine already has — is the one actually being spawned.
 if (process.env['FAKE_GH_TRACE']) {
   try {
-    appendFileSync(process.env['FAKE_GH_TRACE'], `${JSON.stringify({ argv: args, cwd: process.cwd() })}\n`)
+    appendFileSync(process.env['FAKE_GH_TRACE'], `${JSON.stringify({ argv: args, cwd: process.cwd(), hasCredential: !!process.env['GH_TOKEN'] })}\n`)
   } catch {
     // best effort only
   }
@@ -165,13 +168,13 @@ if (args[0] === 'repo' && args[1] === 'view') {
   const after = (flag) => args[args.indexOf(flag) + 1]
   const pullView = one => ({ number: one.number, title: one.title ?? `Change ${one.number}`, body: one.body ?? '',
     state: one.merged ? 'MERGED' : one.state === 'closed' ? 'CLOSED' : 'OPEN', url: `https://github.com/${state.repo}/pull/${one.number}`,
-    headRefName: one.branch ?? 'worker', headRefOid: one.head, isCrossRepository: false, headRepositoryOwner: { login: state.repo.split('/')[0] }, author: { login: state.user?.login ?? 'demo' } })
+    baseRefName: one.base ?? 'main', headRefName: one.branch ?? 'worker', headRefOid: one.head, isCrossRepository: false, headRepositoryOwner: { login: state.repo.split('/')[0] }, author: { login: state.user?.login ?? 'demo' } })
   if (args[1] === 'list') {
     process.stdout.write(JSON.stringify(state.pulls.filter(one => one.state === 'open' && (!args.includes('--head') || one.branch === after('--head'))).map(pullView)))
   } else if (args[1] === 'create') {
     const head = state.publicationHead ?? execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
     const number = Math.max(0, ...state.pulls.map(one => one.number)) + 1, now = Date.now()
-    state.pulls.push({ number, head, branch: after('--head'), state: 'open', title: after('--title'), body: after('--body'), created: now, updated: now })
+    state.pulls.push({ number, head, branch: after('--head'), state: 'open', title: after('--title'), body: after('--body'), base: args.includes('--base') ? after('--base') : 'main', created: now, updated: now })
     writeFileSync(statePath, JSON.stringify(state, null, 2))
     process.stdout.write(`https://github.com/${state.repo}/pull/${number}\n`)
   } else if (['edit', 'merge', 'comment', 'review'].includes(args[1])) {
@@ -216,10 +219,13 @@ if (args[0] === 'repo' && args[1] === 'view') {
     process.exitCode = 0
   }
 } else if (args[0] === 'api') {
-  const path = args[args.length - 1]
+  const path = args.find(arg => arg === 'user' || arg.startsWith('repos/')) ?? args[args.length - 1]
   try {
     const body = answer(state, path)
-    process.stdout.write(JSON.stringify(body))
+    const jq = args.includes('--jq') ? args[args.indexOf('--jq') + 1] : null
+    if (jq === '.check_runs[]') process.stdout.write((body.check_runs ?? []).map(one => JSON.stringify(one)).join('\n'))
+    else if (jq === '.login') process.stdout.write(body.login ?? '')
+    else process.stdout.write(JSON.stringify(body))
     process.exitCode = 0
   } catch (error) {
     process.stderr.write(`gh: ${error.message}\n`)

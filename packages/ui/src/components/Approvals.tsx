@@ -122,6 +122,7 @@ const PermissionBody = ({ approval, hideSummary = false }: {
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
     {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
+    {approval.facts?.map(fact => <ApprovalReason key={fact.label} className={styles.reason}>{fact.label}: {fact.value}</ApprovalReason>)}
     {(approval.filesystem?.length ?? 0) > 0 && (
       <>
         <Text role="muted" as="div">Filesystem</Text>

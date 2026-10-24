@@ -163,7 +163,7 @@ export interface HarnessContext {
    * `forge` permission. Every verb takes the `ScopeQuery` its tool
    * invocation carried, for the reason the team verbs do.
    */
-  readonly forge: {
+  readonly forge: Pick<import('./forge.js').ForgeService, 'push' | 'pullRequest' | 'review' | 'comment' | 'record' | 'attribute'> & {
     seat(scope?: ScopeQuery): Promise<ForgeSeat | null>
     identity(scope?: ScopeQuery): Promise<ForgeIdentity>
     publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void>

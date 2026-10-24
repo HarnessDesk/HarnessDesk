@@ -645,9 +645,17 @@ Three things worth knowing:
 - **Null signs nothing.** A call the desk cannot place — no conversation
   behind it, or a host with no forge plane — gets no seat, and a signature
   built from a guess would be a false one. Say so in the result instead.
-- **Requires `forge: true`**, which is described to the person as “Sign pull
-  requests, reviews and comments for the conversation, and put what it published in the
-  transcript”. The reach itself is `shell`'s.
+- **Grants:** `forge: true` retains publish-only consent: “Sign pull requests,
+  reviews and comments for the conversation, with its Team name, and put what
+  it published in the transcript”. `forge: { publish: true, write: true }` also
+  grants host-executed writes: “Push branches and open, update and merge pull
+  requests through HarnessDesk, as you, recorded in the project's Git record.”
+  The write verbs are `push`, `pullRequest.create`, `pullRequest.update`,
+  `pullRequest.merge`, `review` and `comment`. `record` and `attribute` accept
+  either grant. The host derives the requester from the live invocation and
+  the destination from the project's approved pin; neither is a tool argument.
+  Credentials stay with the host's gateway. `shell` remains the Git plugin's
+  capability for reads and local upstream configuration.
 
 `ForgeSeat` (and `ForgeSeatInfo` across the child boundary) carries `agent`,
 `version`, `model`, `effort`, `thinking` and `label`, plus nullable `role`,
@@ -778,7 +786,7 @@ privileged path:
 
 | Plugin | Engine | What it adds |
 | --- | --- | --- |
-| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `pr_create`, `pr_update`, `pr_review`, `pr_comment`, `pr_view`, `pr_checks`, `pr_merge`, `issue_view` and `issue_comment` through `gh`, signed for the conversation's seat and recorded in it |
+| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `git_push` and the PR/comment writes through the host's pinned gateway, signed for the conversation's seat and recorded in it; `pr_view`, `pr_checks` and `issue_view` read through `gh` |
 | files | `ctx.fs` | read and list within the workspace (read-only &mdash; see [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)) |
 | search | `ctx.fs` | content and filename search |
 | task list | — | `todo_write` / `todo_read` for an agent whose runtime has no plan tool of its own; the sidebar's Tasks panel is the app's and is read from the conversation, not from here |

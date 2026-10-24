@@ -17,9 +17,11 @@ export interface GitPush extends GitTarget {
   readonly objectStore: string; readonly tree: string
   readonly protectedBases?: readonly string[]
   readonly approval?: GitApproval
+  /** A person approved this exact lease-bound rewrite. */
+  readonly allowRewrite?: boolean
   readonly steeredFrom?: string
 }
-interface GitWrite { readonly repository: string; readonly requester: GitRequester; readonly approval?: GitApproval; readonly steeredFrom?: string; readonly branch?: string; readonly number?: number; readonly sha?: string; readonly previousSha?: string | null; readonly lease?: string | null }
+interface GitWrite { readonly beforeWrite?: () => Promise<void>; readonly repository: string; readonly requester: GitRequester; readonly approval?: GitApproval; readonly steeredFrom?: string; readonly branch?: string; readonly number?: number; readonly sha?: string; readonly previousSha?: string | null; readonly lease?: string | null }
 export interface GitGatewayOptions {
   readonly directory: string
   readonly stateDirectory?: string
@@ -74,19 +76,19 @@ export class GitGateway {
       try { await execute('git', ['check-ref-format', `refs/heads/${branch}`], { env: this.#env, timeout: 10_000 }) } catch { invalid() }
     }
     for (const input of [value.title, value.body, target.steeredFrom]) if (input !== undefined && !text(input)) invalid()
-    for (const sha of [target.sha, target.previousSha, target.lease]) if (sha !== undefined && sha !== null && !/^[a-f0-9]{40,64}$/.test(sha)) invalid()
+    for (const sha of [target.sha, target.previousSha, target.lease]) if (sha !== undefined && sha !== null && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha)) invalid()
     if (value.title !== undefined && !value.title.trim() || value.draft !== undefined && typeof value.draft !== 'boolean') invalid()
     if (target.approval !== undefined && target.approval !== null && (typeof target.approval !== 'object' || !['person', 'standing', 'ceiling', 'steered'].includes(target.approval.by) ||
       target.approval.at !== undefined && (!Number.isSafeInteger(target.approval.at) || target.approval.at < 0))) invalid()
     if (op && !['push', 'pr.create', 'observed'].includes(op) && target.number === undefined) invalid()
     if (op === 'pr.create' && (!target.branch || value.title === undefined || value.body === undefined)) invalid()
-    if (op === 'pr.update' && value.title === undefined && value.body === undefined) invalid()
-    if (op === 'pr.merge' && (!text(value.head) || !/^[a-f0-9]{40,64}$/.test(value.head!) || !['squash', 'merge', 'rebase'].includes(value.method!))) invalid()
+    if (op === 'pr.update' && value.title === undefined && value.body === undefined && value.base === undefined) invalid()
+    if (op === 'pr.merge' && (!text(value.head) || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.head!) || !['squash', 'merge', 'rebase'].includes(value.method!))) invalid()
     if (op === 'pr.review' && (!['approve', 'request-changes', 'comment'].includes(value.event!) || value.body === undefined)) invalid()
     if ((op === 'pr.comment' || op === 'issue.comment') && (!['pullRequest', 'issue'].includes(value.subject!) || value.body === undefined)) invalid()
   }
   async #validate(target: GitTarget): Promise<void> {
-    if (typeof target.sha !== 'string' || !/^[a-f0-9]{40,64}$/.test(target.sha) || target.previousSha !== null && !/^[a-f0-9]{40,64}$/.test(target.previousSha))
+    if (typeof target.sha !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(target.sha) || target.previousSha !== null && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(target.previousSha))
       throw new Error('git-gateway-reviewed-sha-mismatch')
     await this.#validateWrite(target)
     if (!target.branch) throw new Error('git-gateway-target-invalid')
@@ -126,12 +128,12 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       return { outcome: 'refused', reason }
     return { outcome: 'failed', reason }
   }
-  async #effect<T>(entry: Omit<GitRecordEntry, 'prev' | 'outcome'>, work: () => Promise<T>): Promise<T> {
+  async #effect<T>(entry: Omit<GitRecordEntry, 'prev' | 'outcome'>, work: () => Promise<T>, completed?: (result: T) => Pick<GitRecordEntry, 'number'>): Promise<T> {
     await this.gitRecord.append({ ...entry, outcome: 'intent' })
     let result: T
     try { result = await work() }
     catch (error) { await this.gitRecord.append({ ...entry, at: Date.now(), ...this.#failure(error, entry.op) }); throw error }
-    await this.gitRecord.append({ ...entry, at: Date.now(), outcome: 'ok' })
+    await this.gitRecord.append({ ...entry, ...completed?.(result), at: Date.now(), outcome: 'ok' })
     return result
   }
   async #reconcile(): Promise<void> {
@@ -182,7 +184,7 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
     const [branch, identity] = await Promise.all([read(['symbolic-ref', '-q', '--short', 'HEAD']).catch(error => { if ((error as { code?: number }).code === 1) return null; throw error }),
       read(['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir', 'HEAD', 'HEAD^{tree}'])])
     const [objectStore, commonDir, sha, tree] = identity.split('\n')
-    if (!objectStore || !commonDir || !sha || !tree || ![sha, tree].every(value => /^[a-f0-9]{40,64}$/.test(value)))
+    if (!objectStore || !commonDir || !sha || !tree || ![sha, tree].every(value => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value)))
       throw new Error('git-gateway-checkout-unverifiable')
     return { branch, sha, tree, objectStore, commonDir: await realpath(commonDir) }
   }
@@ -222,6 +224,34 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       return sha
     })
   }
+  /** Parse a checkout's origin only as a proposal; execution never follows it. */
+  async proposedRepository(cwd: string): Promise<string | null> {
+    const result = await execute('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, 'config', '--get', 'remote.origin.url'],
+      { env: { ...this.#env, GIT_CONFIG_GLOBAL: '/dev/null' }, timeout: 10_000 }).catch(error => {
+        if ((error as { code?: number }).code === 1) return { stdout: '' }; throw error
+      })
+    const url = result.stdout.trim()
+    const match = /^(?:https:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(url)
+    return match?.[1] ? canonicalRepository(match[1]) : null
+  }
+  /** Read-only preflight, using the same mirror and protected-branch guards as execution. */
+  assessPush(request: GitPush): Promise<{ readonly head: string | null; readonly fastForward: boolean }> {
+    return this.#queue(request.repository, async () => {
+      await this.#validate(request)
+      if (request.requester.kind === 'session') await this.#guardSessionPush(request)
+      const mirror = await this.#mirror(request.repository)
+      await this.#git(mirror, ['fetch', '--no-tags', '--no-write-fetch-head', '--', resolve(request.objectStore), request.sha], true)
+      const head = await this.#head(mirror, request.repository, request.branch)
+      if (head !== request.previousSha) throw new Error(head && request.previousSha === null ? 'git-gateway-branch-exists-not-owned' : 'git-gateway-owned-head-changed')
+      if (head === null) return { head, fastForward: false }
+      await this.#git(mirror, ['fetch', '--no-tags', '--', this.#url(request.repository), head], !!this.options.localRemote)
+      try { await this.#git(mirror, ['merge-base', '--is-ancestor', head, request.sha]); return { head, fastForward: true } }
+      catch (error) { if ((error as { code?: number }).code === 1) return { head, fastForward: false }; throw error }
+    })
+  }
+  async refuse(op: GitRecordEntry['op'], target: GitWrite, reason: string): Promise<void> {
+    await this.gitRecord.append({ ...this.#entry(op, target), outcome: 'refused', reason })
+  }
   push(request: GitPush, options: { readonly reconcile?: boolean; readonly beforePush?: () => Promise<void> } = {}): Promise<{ pushed: boolean }> {
     return this.#queue(request.repository, async () => {
       request = { ...request, repository: canonicalRepository(request.repository) }
@@ -236,7 +266,7 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
         const mirror = await this.#mirror(request.repository), ref = `refs/heads/${request.branch}`
         await this.#git(mirror, ['check-ref-format', ref])
         if (request.requester.kind === 'session') await this.#guardSessionPush(request)
-        if (typeof request.tree !== 'string' || !/^[a-f0-9]{40,64}$/.test(request.tree)) throw new Error('git-gateway-tree-invalid')
+        if (typeof request.tree !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(request.tree)) throw new Error('git-gateway-tree-invalid')
         // Object intake never executes worker configuration or chooses a remote.
         await this.#git(mirror, ['fetch', '--no-tags', '--no-write-fetch-head', '--', resolve(request.objectStore), request.sha], true)
           .catch(error => { if (/not our ref|couldn.t find remote ref|not a valid|unadvertised object/i.test(String(error))) throw new Error('git-gateway-reviewed-sha-mismatch'); throw error })
@@ -255,7 +285,10 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
           if (remote !== request.previousSha) throw new Error('git-gateway-owned-head-changed')
           await this.#git(mirror, ['fetch', '--no-tags', '--', this.#url(request.repository), request.previousSha], !!this.options.localRemote)
           try { await this.#git(mirror, ['merge-base', '--is-ancestor', request.previousSha, request.sha]) }
-          catch { throw new Error('git-gateway-not-fast-forward') }
+          catch (error) {
+            if ((error as { code?: number }).code !== 1) throw error
+            if (!request.allowRewrite || request.approval?.by !== 'person') throw new Error('git-gateway-not-fast-forward')
+          }
         }
         await options.beforePush?.()
         journaled = true
@@ -311,7 +344,7 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
   /** Fetch the observed head from the pinned destination, never a worker remote. */
   isAncestor(repository: string, owned: string, observed: string): Promise<boolean> {
     return this.#queue(repository, async () => {
-      if (![owned, observed].every(sha => /^[a-f0-9]{40,64}$/.test(sha))) throw new Error('git-gateway-sha-invalid')
+      if (![owned, observed].every(sha => /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha))) throw new Error('git-gateway-sha-invalid')
       const mirror = await this.#mirror(repository)
       for (const sha of [owned, observed]) {
         try { await this.#git(mirror, ['cat-file', '-e', `${sha}^{commit}`]) }
@@ -353,20 +386,24 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       const entry = this.#entry(op, target)
       try { await this.#validateWrite(target, op) }
       catch (error) { await this.gitRecord.append({ ...entry, ...this.#failure(error) }); throw error }
-      return this.#effect(entry, () => this.#gh(target.repository, args))
+      return this.#effect(entry, async () => { await target.beforeWrite?.(); return this.#gh(target.repository, args) }, op === 'pr.create' ? output => {
+        const url = output.split(/\r?\n/).find(line => line.startsWith(`https://github.com/${canonicalRepository(target.repository)}/pull/`))
+        const number = Number(url?.split('/').at(-1))
+        return Number.isSafeInteger(number) && number > 0 ? { number } : {}
+      } : undefined)
     })
   }
   createPullRequest(target: GitWrite & { readonly branch: string; readonly title: string; readonly body: string; readonly base?: string; readonly draft?: boolean }): Promise<string> {
     return this.#forgeWrite('pr.create', target,
       ['pr', 'create', '--head', target.branch, ...(target.base ? ['--base', target.base] : []), '--title', target.title, '--body', target.body, ...(target.draft ? ['--draft'] : [])])
   }
-  updatePullRequest(target: GitWrite & { readonly number: number; readonly title?: string; readonly body?: string }): Promise<string> {
+  updatePullRequest(target: GitWrite & { readonly number: number; readonly title?: string; readonly body?: string; readonly base?: string }): Promise<string> {
     return this.#forgeWrite('pr.update', target, ['pr', 'edit', String(target.number),
-      ...(target.title === undefined ? [] : ['--title', target.title]), ...(target.body === undefined ? [] : ['--body', target.body])])
+      ...(target.title === undefined ? [] : ['--title', target.title]), ...(target.body === undefined ? [] : ['--body', target.body]), ...(target.base === undefined ? [] : ['--base', target.base])])
   }
-  mergePullRequest(target: GitWrite & { readonly number: number; readonly head: string; readonly method: 'squash' | 'merge' | 'rebase' }): Promise<string> {
+  mergePullRequest(target: GitWrite & { readonly number: number; readonly head: string; readonly method: 'squash' | 'merge' | 'rebase'; readonly body?: string }): Promise<string> {
     return this.#forgeWrite('pr.merge', { ...target, sha: target.head },
-      ['pr', 'merge', String(target.number), `--${target.method}`, '--match-head-commit', target.head])
+      ['pr', 'merge', String(target.number), `--${target.method}`, '--match-head-commit', target.head, ...(target.body === undefined ? [] : ['--body', target.body])])
   }
   comment(target: GitWrite & { readonly subject: 'pullRequest' | 'issue'; readonly number: number; readonly body: string }): Promise<string> {
     return this.#forgeWrite(target.subject === 'pullRequest' ? 'pr.comment' : 'issue.comment', target,

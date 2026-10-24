@@ -12,12 +12,14 @@ import styles from './Publication.module.css'
 
 const figure = (n: number | null): string => (n === null ? '' : n.toLocaleString())
 
+const addressOf = (reference: ForgeReference): string => reference.kind === 'branch' ? `${reference.repo} ${reference.ref}` : `${reference.repo} #${reference.number}`
+
 /** Forge facts remain plain text on the shared InfoCard body. Actions live
  * beside the publication link in the row's subject menu. */
 export const PublicationCard = ({ reference }: { reference: ForgeReference }) => <InfoCardBody
-  title={reference.title || `${reference.repo} #${reference.number}`}
+  title={reference.title || addressOf(reference)}
   rows={[
-    { id: 'address', label: 'Reference', value: `${reference.repo} #${reference.number}` },
+    { id: 'address', label: 'Reference', value: addressOf(reference) },
     { id: 'kind', label: 'Kind', value: reference.kind },
     ...(reference.state ? [{ id: 'state', label: 'State', value: reference.state }] : []),
     ...(reference.author ? [{ id: 'author', label: 'Author', value: reference.author }] : []),
@@ -49,7 +51,7 @@ export const Publication = ({ item, root }: { item: PublicationItem; root?: stri
   const store = useStore()
   const [reviewing, setReviewing] = useState(false)
   const { reference } = item
-  const address = `${reference.repo} #${reference.number}`
+  const address = addressOf(reference)
   const canReview = root !== undefined && reference.kind === 'pullRequest'
   return (
     <div className={styles.publication} data-kind={reference.kind} role="status">
@@ -79,7 +81,7 @@ export const Publication = ({ item, root }: { item: PublicationItem; root?: stri
         </Button>
       </AgentHoverCard>
       <StatePill state={reference.state} />
-      <SubjectActionsMenu label={`${reference.repo} #${reference.number}`} actions={[
+      <SubjectActionsMenu label={addressOf(reference)} actions={[
         { label: 'Open reference', onSelect: () => openExternal(reference.url) },
         { label: 'Copy link', onSelect: () => { void navigator.clipboard?.writeText(reference.url) } },
       ]} />
@@ -93,7 +95,7 @@ export const Publication = ({ item, root }: { item: PublicationItem; root?: stri
           Review…
         </Button>
       )}
-      {reviewing && root !== undefined && (
+      {reviewing && root !== undefined && reference.kind === 'pullRequest' && (
         <FrontDoor
           context={{ kind: 'pull-request', root, number: reference.number }}
           onClose={() => setReviewing(false)}

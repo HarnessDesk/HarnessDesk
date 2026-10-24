@@ -60,6 +60,8 @@ export interface FileChangeApproval extends ApprovalBase {
 export interface PermissionApproval extends ApprovalBase {
   readonly type: 'permission'
   readonly summary: string
+  /** Host-supplied facts for a held gateway write. */
+  readonly facts?: readonly { readonly label: string; readonly value: string }[]
   /** Structured provenance added by the desk's Claude bridge for its board server. */
   readonly flowBoardTool?: { readonly server: 'harnessdesk'; readonly tool: string }
   readonly filesystem?: readonly string[]

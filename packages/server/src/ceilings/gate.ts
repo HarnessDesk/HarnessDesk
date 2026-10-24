@@ -38,6 +38,8 @@ export interface Conversation {
 export interface HeldQuestion {
   readonly summary: string
   readonly reason: string
+  readonly facts?: readonly { readonly label: string; readonly value: string }[]
+  readonly options?: readonly import('@harnessdesk/protocol').ApprovalOption[]
 }
 
 export interface GatedCall {

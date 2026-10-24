@@ -1,3 +1,4 @@
+import type { ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult } from '@harnessdesk/protocol'
 import type {
   CapabilityContribution,
   DecideFindingInput,
@@ -69,7 +70,8 @@ import type {
 // 9 adds `team/notify` — `{ scope, where, title, body?, task? }` — a message
 // from the calling conversation's Agent to the person, delivered by the host
 // to the inbox or that conversation's composer under the person's setting.
-export const EXTENSION_PROTOCOL_VERSION = 9
+// 10 adds the host-executed forge write verbs and Git record reads.
+export const EXTENSION_PROTOCOL_VERSION = 10
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -280,6 +282,14 @@ export interface ChildToHostMethods {
    * someone else got first, a conflict — come back as sentences; only
    * transport and programming errors throw.
    */
+  'forge/push': { params: { readonly scope: TeamCallScope; readonly args: ForgePush }; result: ForgeWriteResult }
+  'forge/create': { params: { readonly scope: TeamCallScope; readonly args: ForgeCreate }; result: ForgeWriteResult }
+  'forge/update': { params: { readonly scope: TeamCallScope; readonly args: ForgeUpdate }; result: ForgeWriteResult }
+  'forge/merge': { params: { readonly scope: TeamCallScope; readonly args: ForgeMerge }; result: ForgeWriteResult }
+  'forge/review': { params: { readonly scope: TeamCallScope; readonly args: ForgeReview }; result: ForgeWriteResult }
+  'forge/comment': { params: { readonly scope: TeamCallScope; readonly args: ForgeComment }; result: ForgeWriteResult }
+  'forge/record': { params: { readonly scope: TeamCallScope; readonly args: ForgeRecordQuery }; result: readonly ForgeGitEntry[] }
+  'forge/attribute': { params: { readonly scope: TeamCallScope; readonly args: ForgeAttribute }; result: ForgeRequester | 'outside' }
   'forge/seat': { params: { readonly scope: TeamCallScope }; result: ForgeSeatInfo | null }
   'forge/identity': { params: { readonly scope: TeamCallScope }; result: ForgeIdentityInfo }
   'forge/publish': {

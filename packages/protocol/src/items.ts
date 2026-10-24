@@ -287,10 +287,10 @@ export interface ErrorItem extends ItemBase {
  */
 export const DESK_POST_MARKER = '<!-- harnessdesk:post -->'
 
-export interface ForgeReference {
-  readonly kind: 'pullRequest' | 'issue' | 'review' | 'comment'
+interface ForgeReferenceFields {
+  readonly kind: 'pullRequest' | 'issue' | 'review' | 'comment' | 'branch'
   /** What the conversation did to it; absent for something merely looked up. */
-  readonly action?: 'opened' | 'updated' | 'posted'
+  readonly action?: 'opened' | 'updated' | 'posted' | 'merged'
   /**
    * What a review or a comment is on, said rather than guessed: the row
    * reads "Commented on the issue" because the plugin said so, never
@@ -299,7 +299,6 @@ export interface ForgeReference {
   readonly subject?: 'pullRequest' | 'issue'
   /** `owner/name`, as the forge spells it. */
   readonly repo: string
-  readonly number: number
   readonly url: string
   readonly title: string | null
   readonly state: 'open' | 'draft' | 'merged' | 'closed' | null
@@ -316,9 +315,14 @@ export interface ForgeReference {
   readonly signature: string | null
 }
 
-const FORGE_KINDS = new Set(['pullRequest', 'issue', 'review', 'comment'])
+export type ForgeReference = ForgeReferenceFields & (
+  | { readonly kind: 'branch'; readonly number?: number; readonly ref: string; readonly sha: string; readonly previousSha: string | null }
+  | { readonly kind: 'pullRequest' | 'issue' | 'review' | 'comment'; readonly number: number; readonly ref?: never; readonly sha?: never; readonly previousSha?: never }
+)
+
+const FORGE_KINDS = new Set(['pullRequest', 'issue', 'review', 'comment', 'branch'])
 const FORGE_STATES = new Set(['open', 'draft', 'merged', 'closed'])
-const FORGE_ACTIONS = new Set(['opened', 'updated', 'posted'])
+const FORGE_ACTIONS = new Set(['opened', 'updated', 'posted', 'merged'])
 const FORGE_SUBJECTS = new Set(['pullRequest', 'issue'])
 
 /**
@@ -337,8 +341,11 @@ export const isForgeReference = (value: unknown): value is ForgeReference => {
     typeof ref['kind'] === 'string' &&
     FORGE_KINDS.has(ref['kind']) &&
     typeof ref['repo'] === 'string' &&
-    typeof ref['number'] === 'number' &&
-    Number.isFinite(ref['number']) &&
+    (ref['kind'] === 'branch'
+      ? typeof ref['ref'] === 'string' && ref['ref'].length > 0 && typeof ref['sha'] === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(ref['sha']) &&
+        (ref['previousSha'] === null || typeof ref['previousSha'] === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(ref['previousSha'])) &&
+        (ref['number'] === undefined || typeof ref['number'] === 'number' && Number.isFinite(ref['number']))
+      : typeof ref['number'] === 'number' && Number.isFinite(ref['number'])) &&
     typeof ref['url'] === 'string' &&
     /^https?:\/\//.test(ref['url']) &&
     (ref['via'] === 'gh' || ref['via'] === 'app') &&

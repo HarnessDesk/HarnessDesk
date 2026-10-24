@@ -38,7 +38,13 @@ const expectedCwd = path.join(home, 'expected-cwd')
 if (fs.existsSync(expectedCwd) && process.cwd() !== fs.readFileSync(expectedCwd, 'utf8')) {
   process.stderr.write('fake gh: wrong checkout\n'); process.exit(1)
 }
-const after = (flag) => { const at = args.indexOf(flag); return at === -1 ? null : args[at + 1] }
+const after = (flag) => {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag) return args[i + 1] ?? null
+    if (['--title', '--body', '--base', '--head', '--json', '--jq'].includes(args[i])) i++
+  }
+  return null
+}
 const bodyFile = path.join(home, 'body.md')
 const mergedFile = path.join(home, 'merged')
 const pr = () => ({
@@ -167,7 +173,18 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
   const seat = { current: SEAT as ForgeSeat | null }
   // Set, the desk refuses publication with this reason: a Seat still reviewing in a blind round.
   const embargo = { current: null as string | null }
+  const hostWrite = async (args: string[]) => ({ repository: 'acme/widgets', output: execFileSync('gh', args, { cwd: existsSync(join(home, 'expected-cwd')) ? readFileSync(join(home, 'expected-cwd'), 'utf8') : repo, encoding: 'utf8' }).trim() })
   const engine: ForgeEngine = {
+    push: async () => { throw new Error('Use the gateway integration fixture for pushes') },
+    pullRequest: {
+      create: args => hostWrite(['pr', 'create', '--head', args.head, '--title', args.title, '--body', args.body, ...(args.base ? ['--base', args.base] : []), ...(args.draft ? ['--draft'] : [])]),
+      update: args => hostWrite(['pr', 'edit', String(args.number), ...(args.title === undefined ? [] : ['--title', args.title]), ...(args.body === undefined ? [] : ['--body', args.body]), ...(args.base === undefined ? [] : ['--base', args.base])]),
+      merge: args => hostWrite(['pr', 'merge', String(args.number), `--${args.method}`, '--match-head-commit', args.head, ...(args.body === undefined ? [] : ['--body', args.body])]),
+    },
+    review: args => hostWrite(['pr', 'review', String(args.number), `--${args.event}`, '--body', args.body]),
+    comment: args => hostWrite([args.subject === 'issue' ? 'issue' : 'pr', 'comment', String(args.number), '--body', args.body]),
+    record: async () => [], attribute: async () => 'outside',
+
     seat: async () => seat.current,
     identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }),
     publish: async (reference) => {
@@ -335,7 +352,7 @@ test('pr_create never pushes: an unpushed branch is refused with the command to 
   execFileSync('git', ['checkout', '-q', '-b', 'feature/unpushed'], { cwd: forge.repo })
   const said = await forge.run('pr_create', { title: 'x', body: 'y' })
   assert.match(said, /has not been pushed/)
-  assert.match(said, /git push -u origin feature\/unpushed/)
+  assert.match(said, /git_push/)
   assert.ok(!forge.calls().some((args) => args[1] === 'create'), 'gh was never asked to create anything')
   assert.equal(forge.published.length, 0)
 
@@ -346,7 +363,7 @@ test('pr_create never pushes: an unpushed branch is refused with the command to 
   execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@x', 'commit', '-q', '-m', 'second'], { cwd: forge.repo })
   const again = await forge.run('pr_create', { title: 'x', body: 'y' })
   assert.match(again, /1 commit is not pushed yet/)
-  assert.match(again, /git push/)
+  assert.match(again, /git_push/)
 })
 
 test('pr_create accepts a branch pushed to its remote without an upstream', async (t) => {
@@ -404,7 +421,7 @@ for (const state of ['unpublished', 'local ahead', 'remote ahead'] as const) {
     const said = await forge.run('pr_create', { title: 'x', body: 'y' })
     if (state === 'unpublished') {
       assert.match(said, /has not been pushed/)
-      assert.match(said, /git push -u origin feature\/from-main/)
+      assert.match(said, /git_push/)
     } else {
       assert.match(said, state === 'local ahead'
         ? /1 commit ahead of origin\/feature\/from-main and 0 commits behind it/
@@ -1546,6 +1563,11 @@ test('all direct desk publication paths honor embargo', async (t) => {
   // A desk that cannot answer refuses as well: a post on a guess is what the embargo exists to prevent.
   forge.embargo.current = null
   setForgeEngine({
+    push: async () => { throw new Error('No gateway in this fixture') },
+      pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
+      review: async () => { throw new Error('No gateway in this fixture') },
+      comment: async () => { throw new Error('No gateway in this fixture') },
+      record: async () => [], attribute: async () => 'outside' as const,
     seat: async () => SEAT, identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }), publish: async () => {},
     publicationAllowed: async () => { throw new Error('the host is gone') },
   })
@@ -2136,4 +2158,14 @@ test('two agents with the same role retain separate latest seats', () => {
     { agent: 'Preview Agent', label: 'Preview Model' },
   ])
   assert.equal(unmarked(signDescription('Seatless.', '{role}: {seat}', null, edited)), 'Seatless.\n\nWriter: Writer Model Mini · Writer: Preview Model')
+})
+
+test('pr_update preserves literal flag-looking text when crossing the structured forge boundary', async t => {
+  const forge = await rig(t)
+  await forge.run('pr_create', { title: 'Widgets', body: 'First.' })
+  assert.match(await forge.run('pr_update', { title: '--body', body: '--base', base: 'main' }), /Updated pull request/)
+  const edit = forge.calls().find(call => call[1] === 'edit')!
+  assert.equal(edit[edit.indexOf('--title') + 1], '--body')
+  // Read the fake forge's stored body, rather than treating its values as argv flags again.
+  assert.match(unmarked(readFileSync(join(forge.home, 'body.md'), 'utf8')), /^--base\n/)
 })

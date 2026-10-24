@@ -5,10 +5,20 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+
+
 import { ExtensionKernel, setForgeEngine, type ForgeEngine, type ForgeScope } from '@harnessdesk/cordis-host'
 import type { ContributionId, RuntimeId, SessionId } from '@harnessdesk/protocol'
 
 import { SupervisedExtensionHost } from '../src/index.js'
+
+const unavailableWrites = {
+  push: async () => { throw new Error('No gateway in this fixture') },
+  pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
+  review: async () => { throw new Error('No gateway in this fixture') },
+  comment: async () => { throw new Error('No gateway in this fixture') },
+  record: async () => [], attribute: async () => 'outside' as const,
+}
 
 /**
  * The blind-round embargo, across the plugin child: a plugin asks it before
@@ -22,6 +32,7 @@ const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url))
 const BLIND = 'Refused: this Seat is reviewing in a blind round that has not closed.'
 
 const engine = (asked: ForgeScope[]): ForgeEngine => ({
+  ...unavailableWrites,
   seat: async () => null,
   identity: async () => ({ via: 'gh', login: null, available: true, reason: null }),
   publish: async () => {},

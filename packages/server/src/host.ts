@@ -1234,6 +1234,27 @@ export class Host {
       ...(this.options.forge?.gh ? { gh: (_cwd, args) => this.options.forge!.gh!(args) } : {}) })
     this.#forge = new ForgePlane(
       {
+        gitGateway: this.#gitGateway,
+        checkoutOf: async (scope) => {
+          if (!scope.runtime || !scope.sessionId) return null
+          const cwd = this.registry.get(runtimeId(scope.runtime), makeSessionId(scope.sessionId))?.session.cwd
+          const root = cwd ? await this.#boardRootOf(cwd) : null
+          return cwd && root ? { cwd, root } : null
+        },
+        admitWrite: async (verb, scope) => {
+          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '' }
+          const result = await this.#ceilingGate.admit({ tool: names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
+            scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!) }, publishes: true })
+          if (!result.admitted) throw new Error(result.refusal)
+        },
+        askPerson: (scope, question) => this.#askHeld(scope.runtime!, scope.sessionId!, question),
+        mergeStep: (scope) => {
+          if (!scope.runtime || !scope.sessionId || this.#ceilingOf(scope.runtime, scope.sessionId)?.level !== 'merge') return false
+          const seat = this.#flows.seatOf(scope.runtime, scope.sessionId)
+          if (!seat || seat.permission !== 'merge') return false
+          const kept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+          return !!kept?.board && this.#team.stateFor(kept.board).intents.some(card => card.state === 'claimed' && card.claim?.runtime === scope.runtime && card.claim?.sessionId === scope.sessionId)
+        },
         agentOf: (runtime) => {
           const info = this.#runtimes.get(runtime)?.info
           return info ? { name: info.presentation.name, version: info.version ?? null } : null
@@ -6390,7 +6411,8 @@ export class Host {
     return this.#messageTurns.get(this.#turnKey(runtime, sessionId, turn)) ?? PERSON
   }
 
-  readonly #heldAnswers = new Map<string, (answer: 'allowed' | 'refused' | 'unanswered') => void>()
+  readonly #heldOptions = new Map<string, readonly string[]>()
+  readonly #heldAnswers = new Map<string, (answer: 'allowed' | 'standing' | 'refused' | 'unanswered') => void>()
   /** Recent Stop settlements: a delayed runtime reply cannot replace abandonment. */
   readonly #abandonedApprovals = new Set<string>()
 
@@ -6407,6 +6429,11 @@ export class Host {
   }
 
   async #askPerson(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'refused' | 'unanswered'> {
+    const answer = await this.#askHeld(runtime, sessionId, question)
+    return answer === 'standing' ? 'refused' : answer
+  }
+
+  async #askHeld(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'> {
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
     if (!record || this.#disposed) return 'unanswered'
     const id = makeApprovalId(`held-${randomBytes(6).toString('hex')}`)
@@ -6419,17 +6446,19 @@ export class Host {
       type: 'permission',
       summary: question.summary,
       reason: question.reason,
-      options: [
+      ...(question.facts ? { facts: question.facts } : {}),
+      options: question.options ?? [
         { id: HELD_ALLOW, label: 'Allow it once', intent: 'approve' },
         { id: HELD_REFUSE, label: 'Refuse', intent: 'deny' },
       ],
     }
+    this.#heldOptions.set(String(id), approval.options.map(option => option.id))
     const requested: AgentEvent = { type: 'approval/requested', approval }
     this.#audit.record(record.runtime, requested, () => record.session.cwd)
     this.registry.apply(record.runtime, requested)
     this.#push({ method: 'event', params: { runtime: record.runtime, event: requested } })
     const waitMs = this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
-    const answer = await new Promise<'allowed' | 'refused' | 'unanswered'>((resolve) => {
+    const answer = await new Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>((resolve) => {
       const timer = setTimeout(() => resolve('unanswered'), waitMs)
       this.#heldAnswers.set(String(id), (said) => {
         clearTimeout(timer)
@@ -6437,13 +6466,14 @@ export class Host {
       })
     })
     this.#heldAnswers.delete(String(id))
+    this.#heldOptions.delete(String(id))
     if (record.approvals.has(String(id))) this.#onEvent(record.runtime, {
       type: 'approval/resolved',
       sessionId: record.session.id,
       approvalId: id,
       resolution: answer === 'unanswered'
         ? { outcome: 'timedOut' }
-        : { outcome: 'decided', decision: { type: 'option', optionId: answer === 'allowed' ? HELD_ALLOW : HELD_REFUSE } },
+        : { outcome: 'decided', decision: { type: 'option', optionId: answer === 'allowed' ? HELD_ALLOW : answer === 'standing' ? 'standing' : HELD_REFUSE } },
     })
     return answer
   }
@@ -6529,7 +6559,8 @@ export class Host {
   #answerHeld(approvalId: string, decision: ApprovalDecision): boolean {
     const answer = this.#heldAnswers.get(approvalId)
     if (!answer) return false
-    answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : 'refused')
+    if (decision.type === 'option' && !this.#heldOptions.get(approvalId)?.includes(decision.optionId)) return false
+    answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : decision.type === 'option' && decision.optionId === 'standing' ? 'standing' : 'refused')
     return true
   }
 

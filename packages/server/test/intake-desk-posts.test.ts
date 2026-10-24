@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+
+
 
 import { ExtensionKernel, setForgeEngine, type ForgeEngine } from '@harnessdesk/cordis-host'
 import { gitPlugin } from '@harnessdesk/plugins'
@@ -11,6 +14,14 @@ import type { TriggerArmPreview, TriggerHistoryPage } from '@harnessdesk/protoco
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { iso, sha } from './fixtures/intake-forge.js'
 import { commitTriggers, intakeDesk, type IntakeDesk } from './fixtures/intake-host.js'
+
+const unavailableWrites = {
+  push: async () => { throw new Error('No gateway in this fixture') },
+  pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
+  review: async () => { throw new Error('No gateway in this fixture') },
+  comment: async () => { throw new Error('No gateway in this fixture') },
+  record: async () => [], attribute: async () => 'outside' as const,
+}
 
 /*
  * The desk posts to the forge as the same account a trigger is armed with,
@@ -67,6 +78,8 @@ const tools = (t: { after(fn: () => void | Promise<void>): void }, d: IntakeDesk
     else process.env['GH_FAKE_HOME'] = before.home
   })
   const engine: ForgeEngine = {
+    ...unavailableWrites,
+    comment: async args => ({ repository: 'acme/widgets', output: execFileSync(join(root, 'gh'), [args.subject === 'issue' ? 'issue' : 'pr', 'comment', String(args.number), '--body', args.body], { cwd: root, encoding: 'utf8' }).trim() }),
     seat: async () => null,
     identity: async () => ({ via: 'gh', login: 'jane-doe', available: true, reason: null }),
     // The host's own plane: it names no open conversation here, so only its first step — telling intake — lands.

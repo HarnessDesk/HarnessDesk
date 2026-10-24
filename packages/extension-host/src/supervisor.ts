@@ -7,6 +7,8 @@ import {
   canonicalScopeQuery,
   setEditorEngine,
   setForgeEngine,
+  validateForgeArgs,
+  type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeVerb,
   setTeamEngine,
   type BrowserEngine,
   type BrowserSettings,
@@ -132,6 +134,7 @@ export class PluginHostProcess {
    * for it, never as an arbitrary live session.
    */
   readonly #teamScopes = new Map<string, number>()
+  readonly #forgeLifetimes = new Map<string, Set<AbortController>>()
   #crashes = 0
   #browser: BrowserSettingsWire | null = null
   #startedAt = 0
@@ -414,6 +417,32 @@ export class PluginHostProcess {
             'Refused: this forge call does not ride a live invocation the host dispatched to this plugin for that conversation, so it cannot be attributed. Forge verbs work only while a tool call, context resolution, or command for that conversation — dispatched to this plugin, which must be granted `forge` — is in flight.',
           )
           return
+        }
+        const verb = request.method.slice(6) as ForgeVerb
+        if (['push', 'create', 'update', 'merge', 'review', 'comment', 'record', 'attribute'].includes(verb)) {
+          const plugin = this.#plugins.find(entry => String(entry.instanceId) === scope.plugin)
+          const grant = plugin?.permissions.forge
+          if (!['record', 'attribute'].includes(verb) && !(typeof grant === 'object' && grant.write === true)) {
+            refuse('Permission denied: forge.write'); return
+          }
+          validateForgeArgs(verb, params['args'])
+          // A child cannot supply a signal or extend a host-issued tool lease.
+          const trusted = { ...scope, signal: scope.invocation === undefined
+            ? this.#forgeLifetimes.get(teamScopeKey(scope.runtime!, scope.sessionId!, scope.plugin!))?.values().next().value?.signal
+            : this.#browserInvocations.signal(scope.invocation, scope.plugin) }
+          const args = params['args']
+          let result: unknown
+          switch (verb) {
+            case 'push': result = await plane.push(args as ForgePush, trusted); break
+            case 'create': result = await plane.pullRequest.create(args as ForgeCreate, trusted); break
+            case 'update': result = await plane.pullRequest.update(args as ForgeUpdate, trusted); break
+            case 'merge': result = await plane.pullRequest.merge(args as ForgeMerge, trusted); break
+            case 'review': result = await plane.review(args as ForgeReview, trusted); break
+            case 'comment': result = await plane.comment(args as ForgeComment, trusted); break
+            case 'record': result = await plane.record(args as ForgeRecordQuery, trusted); break
+            case 'attribute': result = await plane.attribute(args as ForgeAttribute, trusted); break
+          }
+          reply({ response: request.request, result }); return
         }
         switch (request.method) {
           case 'forge/identity': {
@@ -774,12 +803,21 @@ export class PluginHostProcess {
       }
     }
     const armKeys = this.#armedScopesFor(method, params)
+    const lifetime = new AbortController()
+    for (const key of armKeys) {
+      const lifetimes = this.#forgeLifetimes.get(key) ?? new Set<AbortController>()
+      lifetimes.add(lifetime); this.#forgeLifetimes.set(key, lifetimes)
+    }
     for (const key of armKeys) this.#teamScopes.set(key, (this.#teamScopes.get(key) ?? 0) + 1)
     try {
       return await this.#dispatch(method, params)
     } finally {
       if (browserInvocation) this.#browserInvocations.end(browserInvocation)
+      lifetime.abort()
       for (const key of armKeys) {
+        const lifetimes = this.#forgeLifetimes.get(key)
+        lifetimes?.delete(lifetime)
+        if (!lifetimes?.size) this.#forgeLifetimes.delete(key)
         const count = (this.#teamScopes.get(key) ?? 1) - 1
         if (count <= 0) this.#teamScopes.delete(key)
         else this.#teamScopes.set(key, count)
@@ -866,7 +904,7 @@ export class PluginHostProcess {
     }
     if ((this.#teamScopes.get(teamScopeKey(scope.runtime, scope.sessionId, scope.plugin)) ?? 0) <= 0) return false
     const plugin = this.#plugins.find((entry) => String(entry.instanceId) === scope.plugin)
-    if (plugin === undefined || !plugin.enabled || plugin.permissions[plane] !== true) return false
+    if (plugin === undefined || !plugin.enabled || (plane === 'team' ? plugin.permissions.team !== true : !(plugin.permissions.forge === true || typeof plugin.permissions.forge === 'object' && (plugin.permissions.forge.publish || plugin.permissions.forge.write)))) return false
     if (scope.invocation !== undefined) {
       try {
         this.#browserInvocations.resolve(scope.invocation, scope.plugin)
