@@ -1729,8 +1729,8 @@ four of them leave nothing for the rest of the host. So a root whose request
 gave up is held: a request that names it is refused at once with the same
 answer (`unreadable`, for `workspace/readFile`), and the disk is not asked,
 until every call left behind has come back, answered or failed. It is held by
-root, the unit a request names, so a stall below a root refuses every path in
-it for as long as the call is out. And a volume cannot be told from a slow one
+the most specific named root containing the target, so a stall below a nested
+root refuses its paths while paths elsewhere in the outer root remain usable. And a volume cannot be told from a slow one
 before the deadline, so the requests that arrived within a deadline of the first
 were asked all the same.
 

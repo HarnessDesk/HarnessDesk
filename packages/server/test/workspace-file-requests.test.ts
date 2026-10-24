@@ -275,6 +275,36 @@ test('a root with a call still out on a silent volume is refused at once and not
   )
 })
 
+test('a stalled nested root holds its own files while a read elsewhere in the outer root still answers', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const outer = harness.stateDir
+  const inner = join(outer, 'mount')
+  await mkdir(inner)
+  await client.call('workspace/open', { path: outer })
+  await client.call('workspace/open', { path: inner })
+  const notes = join(outer, 'notes.md')
+  await writeFile(notes, 'outer draft\n')
+  const stalled = join(inner, 'file.txt')
+  const disk = holdDisk(outer, (read, path) => read === 'realpath' && path === stalled)
+  try {
+    const first = await confine(stalled, [outer, inner], { deadlineMs: 30 }).catch((error: unknown) => error)
+    assert.ok(volumeDidNotAnswer(first))
+    const asked = disk.calls.length
+    const held = await client.call('workspace/readFile', { path: join(inner, 'other.txt') }) as { kind?: string }
+    assert.equal(held.kind, 'unreadable')
+    assert.deepEqual(disk.calls.slice(asked), [], 'the inner root is not walked again')
+    const read = await client.call('workspace/readFile', { path: notes }) as { kind?: string; content?: string }
+    assert.equal(read.kind, 'text')
+    assert.equal(read.content, 'outer draft\n')
+  } finally {
+    disk.release()
+    disk.restore()
+  }
+})
+
 test('a root stays held until every call left behind on it has come back', { timeout: 30_000 }, async (t) => {
   const dir = await scratch(t)
   const root = join(dir, 'project')

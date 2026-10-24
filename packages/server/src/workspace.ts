@@ -179,7 +179,9 @@ const confinedTarget = async (
   }, deadlineMs)
   if (answered.settled === 'late') {
     stop.abort()
-    holdRoots(named, walks)
+    // Nested roots name distinct volumes; hold the closest root to this target.
+    const closest = named.reduce((inner, root) => root.length > inner.length ? root : inner)
+    holdRoots([closest], walks)
     throw volumeSilent(target)
   }
   if (answered.settled === 'error') throw new PathUnresolvableError(target, answered.error)
