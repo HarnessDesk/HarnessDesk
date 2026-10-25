@@ -270,6 +270,7 @@ test('full fixture refuses merge, publication, deletion, forge and push proposal
     assert.equal(rig.journal.state.runs.length, 0)
     await rig.assertNoForbiddenEffects()
     if (attempt < 4) {
+      await rig.waitFor(async () => !(await rig.host.call('lead/thread/read', {})).requestInFlight, 'prior refusal turn completes')
       const before = rig.provider.requests.length
       await rig.sendGoal()
       await rig.waitFor(() => rig.provider.requests.length > before, 'next forbidden proposal')

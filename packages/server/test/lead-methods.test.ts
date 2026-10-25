@@ -1778,6 +1778,63 @@ test('the window wake read returns journaled silent checks without invoking the 
   assert.equal(s.sends.length, 0)
 })
 
+for (const changedScope of [false, true]) test(`a slow window action read ${changedScope ? 'rereads a changed contract' : 'publishes the latest revision without rereading superseded updates'}`, async () => {
+  let reads = 0, release: (() => void) | undefined
+  const s = await rig({ controls: { readPersonActions: async () => {
+    reads++
+    if (reads === 1) await new Promise<void>(resolve => { release = resolve })
+    return []
+  } } })
+  try {
+    await s.journal.appendReply('Inspecting the work.')
+    for (let i = 0; i < 100 && !release; i++) await Promise.resolve()
+    assert.ok(release)
+    for (let i = 0; i < 10; i++) await s.journal.recordWake({ id: `quiet-${i}`, at: 100, source: 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null })
+    if (changedScope) { await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000) }
+    const revision = s.journal.state.seq
+    const unblock = release
+    unblock(); await s.controls.idle()
+    assert.equal(reads, changedScope ? 2 : 1, 'only a changed action scope needs another live read')
+    const latest = (s.notifications.at(-1) as any).params
+    assert.equal(latest.revision, revision)
+    assert.equal(latest.thread.messages.at(-1).text, 'Inspecting the work.')
+  } finally { release?.(); s.controls.close() }
+})
+
+test('journal-only window updates reuse live actions until desk evidence changes, while explicit reads stay fresh', async () => {
+  let reads = 0
+  const s = await rig({ controls: { readPersonActions: async () => { reads++; return [] } } })
+  try {
+    await s.journal.appendReply('Inspecting the work.'); await s.controls.idle()
+    assert.equal(reads, 1)
+    for (let i = 0; i < 10; i++) {
+      await s.journal.recordWake({ id: `quiet-${i}`, at: 100, source: 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null })
+      await s.controls.idle()
+    }
+    assert.equal(reads, 1, 'wake bookkeeping cannot trigger another live evidence read')
+    await s.controls.workerApprovalsChanged(); await s.controls.idle()
+    assert.equal(reads, 2, 'a desk change refreshes the live actions')
+    await s.controls.readThread()
+    assert.equal(reads, 3, 'an explicit window read always checks the live desk')
+  } finally { s.controls.close() }
+})
+
+test('a result decision meters even a recent reading before its potentially slow evidence validation', async () => {
+  let metered = false
+  const s = await rig({ controls: { meterSpend: async () => { metered = true }, decideResult: async () => { assert.equal(metered, true) } } })
+  try {
+    await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+    await s.journal.updateBudget({ version: 1, type: 'bind', now: 100, goalId: 'goal-1', executionId: 'run-1' })
+    await s.journal.updateBudget({ version: 1, type: 'observe', now: 100, at: 100, revision: 1,
+      source: 'worker-samples', sourceIds: ['sample-1'], goalId: 'goal-1', executionIds: ['run-1'], quality: 'known', usdMicros: 0 })
+    const card: LeadCard = { version: 1, id: 'fresh-result', revision: 1, type: 'result', contractDigest: contract.digest,
+      outcome: 'reviewed', summary: 'Ready', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) }
+    await s.journal.offerCard(card)
+    await s.controls.decide({ version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' })
+    assert.equal(s.journal.state.phase, 'accepted')
+  } finally { s.controls.close() }
+})
+
 test('a silent wake between reading settings and saving them does not stale the decision fence', async () => {
   const s = await rig(), before = await s.controls.readSettings()
   await s.journal.recordWake({ id: 'quiet-save', at: 100, source: 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null })

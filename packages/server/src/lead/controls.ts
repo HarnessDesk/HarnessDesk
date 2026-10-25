@@ -54,6 +54,8 @@ export class LeadControls {
   #automaticRequest = false
   #closed = false
   #lastRevision = -1
+  #actionsGeneration = 0
+  #actions: { readonly scope: string; readonly generation: number; readonly value: readonly LeadAction[] } | null = null
   readonly #detach: () => void
   constructor(private readonly options: LeadControlsOptions) {
     this.#detach = options.journal.onChange(() => { void this.#notify() })
@@ -63,7 +65,7 @@ export class LeadControls {
       // Coalesced journal writes often leave many notifications at the same
       // revision. Do not repeat live evidence reads for each superseded entry.
       if (!liveApprovals && this.options.journal.state.seq <= this.#lastRevision) return
-      const projection = await this.#projection()
+      const projection = await this.#projection(liveApprovals)
       if (projection.revision < this.#lastRevision || !liveApprovals && projection.revision === this.#lastRevision) return
       try { this.options.push({ method: 'lead/changed', params: projection }) }
       catch { this.#failedRevision = projection.revision; throw leadRefusal('lead-projection-failed') }
@@ -107,16 +109,34 @@ export class LeadControls {
     return parseLeadSettingsProjection({ version: 1, name: this.options.journal.state.name, nameChosen: this.options.journal.state.nameChosen, model: this.options.model,
       follow: this.options.journal.state.follow, key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
-  async #projection(): Promise<LeadWindowProjection> {
+  async #projection(liveActions = true): Promise<LeadWindowProjection> {
     // Renewal is opportunistic. A refusal must leave reads and key removal usable.
     try { await this.options.journal.renewPlan(this.options.now(), card =>
       admitLeadCard(this.options.journal.state, card, this.options.project, this.options.model)) } catch { /* Keep the last durable projection readable. */ }
-    const settings = await this.#settings(), state = this.options.journal.state
+    const settings = await this.#settings()
+    let state = this.options.journal.state
     // Settings reads may yield to a journal write. Retry from one coherent revision.
-    if (settings.name !== state.name || settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps) || JSON.stringify(settings.follow) !== JSON.stringify(state.follow)) return this.#projection()
+    if (settings.name !== state.name || settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps) || JSON.stringify(settings.follow) !== JSON.stringify(state.follow)) return this.#projection(liveActions)
     if (this.#failedRevision === state.seq) throw leadRefusal('lead-projection-failed')
     let thread: ReturnType<typeof leadWindowThread>
-    const personActions = await this.options.readPersonActions?.() ?? []
+    // Journaled tool reads and wake rows do not change worker requests or check
+    // evidence. Only notifications may reuse these facts; window reads stay live.
+    const scope = JSON.stringify([state.contract, state.runs]), generation = this.#actionsGeneration
+    const personActions = !liveActions && this.#actions?.scope === scope && this.#actions.generation === generation
+      ? this.#actions.value : await this.options.readPersonActions?.() ?? []
+    if (generation === this.#actionsGeneration) this.#actions = { scope, generation, value: personActions }
+    const latest = this.options.journal.state
+    if (latest.seq !== state.seq) {
+      // Journaled reads and wake bookkeeping can advance while live actions
+      // are read. Publish those updates together instead of rereading evidence
+      // once per superseded notification. A changed action scope or settings
+      // still needs a new coherent read.
+      if (JSON.stringify([state.contract, state.runs]) !== JSON.stringify([latest.contract, latest.runs]) ||
+        settings.name !== latest.name || settings.nameChosen !== latest.nameChosen || settings.policy.revision !== latest.policy?.revision ||
+        JSON.stringify(settings.caps) !== JSON.stringify(latest.budget?.caps) || JSON.stringify(settings.follow) !== JSON.stringify(latest.follow)) return this.#projection(liveActions)
+      state = latest
+    }
+    if (this.#failedRevision === state.seq) throw leadRefusal('lead-projection-failed')
     try { thread = leadWindowThread(state, this.options.project, settings, this.options.now(), [
       ...(this.options.readWorkerApprovals?.() ?? []), ...leadApprovalCards(personActions, state.contract?.digest ?? '')]) }
     catch { this.#failedRevision = state.seq; throw leadRefusal('lead-projection-failed') }
@@ -161,6 +181,7 @@ export class LeadControls {
     return !this.#continuation && state.messages.at(-1)?.role === 'user'
   }
   workerApprovalsChanged(): Promise<void> {
+    this.#actionsGeneration++
     return this.#queue(async () => { if (!this.#closed) await this.#notify(true) })
   }
   async readWakes() { const state = this.options.journal.state; return { revision: state.seq, wakes: state.wakes } }
@@ -316,11 +337,12 @@ export class LeadControls {
       } : undefined, committed)
     if (card.type === 'plan' && decision.choice === 'approve') await this.#commitRequest(commit)
     else {
-      // A person may answer long after the workers went quiet, and a reading that ages out while the decision holds the
-      // journal refuses a result that is still exactly as it was offered: read their spend again first, unless the reading
-      // has most of its freshness left.
+      // Result/person validation can read several runs while holding the writer.
+      // Give it a fresh spend reading even when the previous one is still young;
+      // half of a short freshness window may not cover those evidence reads.
       const budget = journal.state.budget, observed = budget?.observation?.at
-      if (card.type !== 'plan' && budget && (observed === undefined || this.options.now() - observed > budget.freshnessMs / 2))
+      if (card.type !== 'plan' && budget && (card.type === 'result' || card.type === 'waiting' && card.kind === 'person' ||
+        observed === undefined || this.options.now() - observed > budget.freshnessMs / 2))
         try { await this.options.meterSpend?.() } catch { /* The decision refuses while spend stays unknown. */ }
       if (card.type === 'branch-ownership' && decision.choice === 'reclaim-branch') {
         if (!this.options.reclaimBranch) throw leadRefusal('lead-operation-refused')

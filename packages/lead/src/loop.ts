@@ -60,6 +60,14 @@ const resultSignature = (contract: string, assertions: readonly LeadAssertionRes
     reservedUsdMicros: budget.reservedUsdMicros, spend: budget.spend, stop: budget.stop },
 })
 const empty = (): ClientSnapshot => ({ teams: [], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] })
+// A tool reply must remain the next user turn after its tool use. Desk context
+// belongs in that same turn, after the correlated results, even during a wake.
+const withObservation = (messages: readonly MessagesTurn[], text: string): readonly MessagesTurn[] => {
+  const last = messages.at(-1), block = { type: 'text' as const, text }
+  return last?.role === 'user'
+    ? [...messages.slice(0, -1), { ...last, content: [...last.content, block] }]
+    : [...messages, { role: 'user', content: [block] }]
+}
 /** API-only management. Messages is the sole model brain. This owner supplies
  * scope, observations, durable cards and wakeups; it never interprets a CLI or
  * treats the subscription stream as an alternate agent. */
@@ -70,6 +78,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let snapshot: ClientSnapshot | null = null, relays: ReturnType<typeof leadWorkerApprovalRelay>[] = []
   let acceptance: { runId: string; result: LeadAcceptanceResult }[] = []
   let cancelBatch: (() => void) | null = null, dirty = false, continuationPending = false
+  let batchRunning = false, batchAgain = false
+  let refreshPending = false
   let tail: Promise<unknown> = Promise.resolve(), iterator: AsyncIterator<ClientEvent> | null = null
   let pump: Promise<void> | null = null, active: AbortController | null = null
   let history: readonly MessagesTurn[] | null = null, requestTemplate: LeadMessagesRequest | null = null
@@ -136,6 +146,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   }
   const refresh = async (): Promise<void> => {
     if (closed) return
+    refreshPending = false
     const expected = generation
     try {
       await desk.synced()
@@ -150,11 +161,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const evaluated: typeof acceptance = []
       const sources: typeof publicationSources = []
       const actions: LeadAction[] = []
-      for (const run of leadPlanRuns(state)) {
+      // A busy current step must not wait behind another read of an older
+      // acceptance gate. Keep the published evidence in plan order below.
+      for (const run of [...leadPlanRuns(state)].reverse()) {
         await read({ method: 'flow/execution', params: { run: run.runId } })
         const facts = structuredClone(await options.readEvidence(run.runId, read))
-        sources.push({ runId: run.runId, reviewedHead: facts.revision, evidenceRevision: leadPublicationEvidenceRevision(facts) })
-        actions.push(...facts.personActions ?? [])
+        sources.unshift({ runId: run.runId, reviewedHead: facts.revision, evidenceRevision: leadPublicationEvidenceRevision(facts) })
+        actions.unshift(...facts.personActions ?? [])
         if (closed || generation !== expected) return
         if (!contract || facts.runId !== run.runId || facts.contractDigest !== contract.digest ||
           facts.project.id !== project.id || facts.project.path !== project.path) throw new Error('lead-evidence-scope')
@@ -162,7 +175,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         // uncertain-request write-offs, or Messages usage settlements.
         if (facts.spend) await journal.updateBudget(facts.spend)
         const accounting = journal.state.budget && leadBudgetProjection(journal.state.budget!, clock.now())
-        evaluated.push({ runId: run.runId, result: evaluateLeadAcceptance(contract, { ...facts,
+        evaluated.unshift({ runId: run.runId, result: evaluateLeadAcceptance(contract, { ...facts,
           spendComplete: facts.spendComplete && accounting?.spend === 'known' && accounting.reservedUsdMicros === 0 },
           { now: clock.now(), freshnessMs: options.freshnessMs ?? 60_000, revision: journal.state.seq }) })
       }
@@ -246,7 +259,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     signal?.addEventListener('abort', abort, { once: true })
     const evidenceAt = deskReadAt, evidenceGeneration = generation
     let result: LeadMessagesResult
-    try { result = await messages.request({ ...input, ...(input.proactive ? { messages: [...input.messages, { role: 'user' as const, content: [{ type: 'text' as const, text: 'This is an automatic wake. Reply with the proactive finding/caveat/ask envelope from your instructions, or stay quiet.' }] }] } : {}), system: [input.system, standingInstructions()].filter(Boolean).join('\n') }, active.signal) }
+    try { result = await messages.request({ ...input, ...(input.proactive ? { messages: withObservation(input.messages, 'This is an automatic wake. Reply with the proactive finding/caveat/ask envelope from your instructions, or stay quiet.') } : {}), system: [input.system, standingInstructions()].filter(Boolean).join('\n') }, active.signal) }
     catch { result = { status: 'failed', reason: 'lead-messages-failed' } }
     finally { signal?.removeEventListener('abort', abort); active = null }
     history = result.messages ?? history
@@ -303,7 +316,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     }
     // Model-proposed result/waiting cards are summaries only. The loop constructs
     // actionable cards from fresh reads, and never offers a worker approval card.
-    await refresh()
+    const uses = result.messages?.at(-2)?.content.filter(block => block.type === 'tool_use') ?? []
+    const previewOnly = uses.length > 0 && uses.every(use => use.name === 'flow_preview') && result.succeededTools?.length === uses.length
+    if (!previewOnly || !synchronized || refreshPending) await refresh()
     // A model can request a push card through its existing result proposal output.
     // Copy only the intent; the actionable card is rebuilt from fresh host evidence.
     if (journal.state.pr?.branchOwner !== 'person' && result.proposals?.cards.some(card => card.type === 'result' && card.publication === 'push')) {
@@ -359,9 +374,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   }
   const schedule = (activity = true) => {
     dirty ||= activity
+    // Coalesce across the queued work as well as the timer. Evidence reads may
+    // outlast many events; those events owe one fresh batch, not a queue of reads.
+    if (batchRunning) { batchAgain = true; return }
     if (cancelBatch || closed) return
     cancelBatch = clock.schedule(() => {
       cancelBatch = null
+      batchRunning = true
       void queue(async () => {
         if (closed) return
         const activity = dirty, continueTools = continuationPending
@@ -370,7 +389,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         let stepped = false
         try {
           if (journal.state.phase === 'following') return
-          await refresh()
+          // The previous tool turn already read fresh evidence after dispatch.
+          // Reuse it only until a desk/evidence event makes another read due.
+          if (!continueTools || activity || !synchronized || refreshPending) await refresh()
           if (blocked()) {
             const state = journal.state
             if (!terminal(state.phase) && state.phase !== 'waiting-for-user' && !state.recoveryBlocked) {
@@ -385,14 +406,20 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           deskOwed = false
           if (look) gate.shown(look.fingerprint)
           const readings = classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs)
-          const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: `Desk activity changed. Inspect fresh desk observations before acting.\nRun readings: ${JSON.stringify(readings)}.\n${leadObservation(personActions)}` }] }
+          const observation = `Desk activity changed. Inspect fresh desk observations before acting.\nRun readings: ${JSON.stringify(readings)}.\n${leadObservation(personActions)}`
           // Tool continuations retain the initiating turn's mode, even if a desk event
           // coalesced with them. A later desk wake is a new automatic turn.
           const proactive = continueTools ? requestTemplate.proactive === true : activity
           stepped = true
-          await step({ ...requestTemplate, proactive, wakeSource: pendingWake.source, messages: [...history, ...(activity ? [observation] : [])] }, undefined, pendingWake)
+          await step({ ...requestTemplate, proactive, wakeSource: pendingWake.source, messages: activity ? withObservation(history, observation) : history }, undefined, pendingWake)
           report()
-        } finally { if (!stepped) await journal.recordWake(pendingWake) }
+        } finally {
+          try { if (!stepped) await journal.recordWake(pendingWake) }
+          finally {
+            batchRunning = false
+            if (batchAgain && !closed) { batchAgain = false; schedule(false) }
+          }
+        }
       }).catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
     })
   }
@@ -413,6 +440,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           const state = journal.state
           if ('run' in event && !state.runs.some(run => run.runId === event.run)) continue
           if ('team' in event && event.team !== null && !state.teams.includes(event.team)) continue
+          refreshPending = true
           // Notices carry prose, not changed evidence. Refresh them in the batch
           // without consuming another decision revision for identical facts.
           if (event.type !== 'notice' && event.type !== 'hello') {
@@ -455,6 +483,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     poke: () => { if (!closed && started && history && journal.state.phase === 'running') schedule(true) },
     start: () => queue(start),
     request: (input: LeadMessagesRequest, signal?: AbortSignal) => queue(async () => { await start(); return step(input, signal) }),
+    /** Host evidence notifications share the bounded desk-event batch. */
+    refreshSoon: () => { if (!closed && started) { refreshPending = true; schedule(false) } },
     refresh: () => queue(async () => { await start(); await refresh() }),
     idle: async () => { await tail },
     async close() {

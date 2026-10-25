@@ -120,7 +120,7 @@ const history = (value: unknown): MessagesTurn[] => {
       if (!Array.isArray(rawContent) || !rawContent.length || rawContent.length > LIMIT.blocks) return fail()
       const content = rawContent.map((raw: unknown, index: number) => {
         const entry = object(raw)
-        if (!pending.length) {
+        if (!pending.length || index >= pending.length) {
           const parsed = block(entry)
           if (parsed.type !== 'text') return fail()
           return parsed
@@ -129,7 +129,7 @@ const history = (value: unknown): MessagesTurn[] => {
         if (entry.type !== 'tool_result' || entry.tool_use_id !== pending[index] || typeof entry.is_error !== 'boolean') return fail()
         return { type: 'tool_result' as const, tool_use_id: identifier(entry.tool_use_id), content: string(entry.content), is_error: entry.is_error }
       })
-      if (pending.length && content.length !== pending.length) fail()
+      if (pending.length && content.length < pending.length) fail()
       pending = []
       result.push({ role: 'user', content })
     }

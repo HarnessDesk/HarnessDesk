@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import { serve } from '../../packages/server/dist/src/index.js'
 import { createLeadRig } from '../../packages/server/dist/test/fixtures/lead-rig.js'
-import { COLLECT, USER, textReasons } from './audit.mjs'
+import { COLLECT, TILDIFY, USER, textReasons } from './audit.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const option = (name, fallback) => {
@@ -83,6 +83,7 @@ try {
         if (state === 'approval') await surface.locator('[data-lead-decision-type="plan"]').scrollIntoViewIfNeeded()
         if (state === 'waiting') await surface.locator('[data-lead-decision-type="waiting"]').scrollIntoViewIfNeeded()
         if (state === 'result') await surface.locator('[data-lead-decision-type="result"]').scrollIntoViewIfNeeded()
+        await page.evaluate(TILDIFY(rig.project.path, '~/widgets'))
         const reasons = textReasons(await page.evaluate(COLLECT), { user: USER })
         if (reasons.length) throw new Error(reasons.join('\n'))
         const filename = `${state}-${name}-${theme}.png`

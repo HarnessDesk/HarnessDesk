@@ -218,7 +218,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         await close(); exit(0); return
       case 'evidence-changed':
         if (!loop) throw denied()
-        void loop.refresh().catch(() => {}); return
+        loop.refreshSoon(); return
       case 'shutdown': await close(); exit(0); return
       default: throw denied()
     }

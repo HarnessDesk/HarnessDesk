@@ -9357,7 +9357,10 @@ export class Host {
     if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {
       this.#provenance.evidenceChanged(this.#team.stateFor(notification.params.room).root)
       const room = notification.params.room
-      if (this.#leadService && this.#flows.leadRuns().some(run => run.goal === room)) this.#leadService.evidenceChanged()
+      if (this.#leadService && this.#flows.leadRuns().some(run => run.goal === room)) {
+        this.#leadService.evidenceChanged()
+        void this.#leadControls?.workerApprovalsChanged().catch(() => { this.#logger.warn('Lead evidence action projection is unavailable') })
+      }
     }
     if (!this.#disposed && (notification.method === 'session/removed' ||
       (notification.method === 'event' && notification.params.event.type === 'session/started'))) {

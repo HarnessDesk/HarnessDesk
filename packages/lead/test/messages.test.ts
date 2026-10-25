@@ -61,6 +61,19 @@ test('scripted rate limit and multiple tool uses preserve ordered errors and jou
   assert.ok(JSON.parse(sent.body).tools.every((t: any) => !('type' in t) && t.input_schema.type === 'object'))
 })
 
+test('a correlated tool continuation can carry desk context after all results', async () => {
+  const context = { type: 'text', text: 'Desk activity changed; inspect fresh observations.' }
+  for (const valid of [true, false]) {
+    const s = await setup([message([tool('read', 'library_usage')], { stop_reason: 'tool_use' }), message()])
+    const first = await s.client.request(input, new AbortController().signal)
+    const messages = [...first.messages.slice(0, -1), { role: 'user', content: valid ? [...first.toolResults, context] : [context, ...first.toolResults] }]
+    const continued = await s.client.request({ ...input, messages }, new AbortController().signal)
+    assert.equal(continued.status, valid ? 'completed' : 'refused')
+    assert.equal(s.fake.requests.length, valid ? 2 : 1)
+    if (valid) assert.deepEqual(JSON.parse(s.fake.requests[1].body).messages.at(-1).content, [...first.toolResults, context])
+  }
+})
+
 test('refused or non-durable reservations and invalid token counts send nothing', async () => {
   for (const patch of [{}, { countInput: async () => -1 }, { countInput: async () => Number.NaN }]) {
     const s = await setup([], patch, 10)

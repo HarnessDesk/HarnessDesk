@@ -1636,3 +1636,91 @@ test('a person tool continuation stays a person reply when a notice coalesces wi
     assert.equal(s.records.filter(record => record.type === 'wake').length, 2)
   } finally { await loop.close() }
 })
+
+for (const coalesced of [false, true]) test(`a two-step goal starts step 2 through a desk-woken preview continuation${coalesced ? ' with another desk change' : ''}`, async () => {
+  const s = await fixture([message(), message([tool('preview-second', 'flow_preview', {
+    root: contract.project.path, source: lead.leadReviewedResultSource,
+  })], { stop_reason: 'tool_use' }), async request => {
+    const latest = JSON.parse(request.body).messages.at(-1).content
+    const preview = latest.find((block: any) => block.type === 'tool_result' && block.tool_use_id === 'preview-second' && !block.is_error)
+    return preview && JSON.parse(preview.content).token === 'preview-1'
+      ? message([tool('start-second', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })
+      : message()
+  }])
+  const second = { ...contract.steps[0]!, id: 'second' }
+  const two = protocol.parseLeadAcceptanceContract({ ...contract, steps: [...contract.steps, second] })
+  await s.journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: two.digest, contract: two })
+  await s.journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: two.digest, choice: 'approve' }, 1000)
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.execute(startCall()); s.setEvidence({ ...spendEvidence(), reviews: [] })
+  const resolve = s.options.resolveTool, call = s.options.desk.call
+  const readings: string[] = []
+  s.options.readEvidence = async (runId: string) => { readings.push(runId); return { ...spendEvidence(), runId, reviews: [] } }
+  s.options.resolveTool = async (request: any) => ({ ...await resolve(request), stepId: 'second', start: second, predecessor: { runId: 'run-1', ready: true } })
+  s.options.desk.call = async (method: string, params: unknown) => method === 'flow/preview' ? { token: 'preview-1' }
+    : method === 'flow/start-goal' ? { id: 'run-2', goal: 'team-2', rounds: [{ n: 1 }], state: 'running' } : call(method, params)
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    s.emit({ type: 'run.changed', run: 'run-1' }); await s.drain(); await s.tick(); await loop.idle()
+    if (coalesced) { s.emit({ type: 'run.changed', run: 'run-1' }); await s.drain() }
+    await s.tick(); await loop.idle()
+    assert.equal(s.journal.state.steps[1]!.state, 'started', 'the latest user turn must retain the correlated preview result')
+    assert.equal(s.journal.state.runs[1]!.runId, 'run-2')
+    assert.equal(s.fake.requests.length, 3)
+    assert.deepEqual(readings.slice(-2), ['run-2', 'run-1'], 'the active step gets its evidence read before the older acceptance wait')
+  } finally { await loop.close() }
+})
+
+test('desk events during a slow evidence refresh coalesce into one following batch', async () => {
+  const s = await fixture([message()])
+  await s.approve()
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  await tools.execute(startCall()); s.setEvidence({ ...spendEvidence(), reviews: [] })
+  const read = s.options.readEvidence
+  let hold = false, reads = 0, release: (() => void) | undefined
+  s.options.readEvidence = async () => {
+    reads++
+    if (hold) { hold = false; await new Promise<void>(resolve => { release = resolve }) }
+    return read()
+  }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input); reads = 0; hold = true
+    const changed = () => s.emit({ type: 'seat.changed', team: 'team-1' })
+    changed(); await s.drain(); await s.tick()
+    assert.ok(release, 'the evidence read is in flight')
+    for (let i = 0; i < 20; i++) { changed(); await s.drain(); await s.tick() }
+    release(); await loop.idle(); await s.tick(); await loop.idle()
+    assert.ok(reads <= 2, `a burst during a slow read needs at most two refreshes, got ${reads}`)
+    assert.equal(s.fake.requests.length, 1, 'seat activity without an actionable change costs no model turn')
+  } finally { release?.(); await loop.close() }
+})
+
+test('a tool continuation reuses the preceding fresh observation until a desk event arrives', async () => {
+  const s = await fixture([message([tool('catalog', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' }), message()])
+  let reads = 0
+  const synced = s.options.desk.synced
+  s.options.desk.synced = async () => { reads++; await synced() }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    const before = reads
+    await s.tick(); await loop.idle()
+    assert.equal(reads - before, 1, 'only the observation after the continuation needs another read')
+    assert.equal(s.fake.requests.length, 2)
+  } finally { await loop.close() }
+})
+
+test('a successful preview does not repeat the same observation before its start continuation', async () => {
+  const s = await fixture([message([tool('preview', 'flow_preview', { root: contract.project.path, source: lead.leadReviewedResultSource })], { stop_reason: 'tool_use' })])
+  let reads = 0
+  const synced = s.options.desk.synced
+  s.options.desk.synced = async () => { reads++; await synced() }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.equal(reads, 1, 'a preview with no intervening desk change reuses the initial observation')
+    assert.equal(s.fake.requests.length, 1)
+  } finally { await loop.close() }
+})

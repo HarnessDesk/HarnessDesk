@@ -163,7 +163,7 @@ test('startup and shutdown deadlines terminate only their unresponsive child pid
   assert.equal(shutdownPid, 4242)
 })
 
-test('evidence that reaches the desk without a run or card event makes the child read the desk again', async () => {
+test('an evidence burst without a run or card event makes the child read the desk once', async () => {
   const childModule = await import('../src/' + 'child.js')
   const { fixture: managementFixture } = await import('./fixtures/loop.js')
   const management = await managementFixture(), input = new PassThrough(), output = new PassThrough()
@@ -181,9 +181,9 @@ test('evidence that reaches the desk without a run or card event makes the child
   for (let i = 0; i < 30; i++) await Promise.resolve()
   const before = reads
   // A check a person ran lands as evidence alone: nothing in the subscription wakes the loop.
-  input.write(frame({ version: 1, type: 'evidence-changed' }))
-  for (let i = 0; i < 100; i++) await Promise.resolve()
-  assert.equal(reads > before, true)
+  for (let i = 0; i < 20; i++) input.write(frame({ version: 1, type: 'evidence-changed' }))
+  await new Promise(resolve => setTimeout(resolve, 80))
+  assert.equal(reads - before, 1, 'evidence messages share the desk event coalescing window')
   assert.equal(received.some(message => message.type === 'desk-lost'), false)
   await runtime.close()
 })
