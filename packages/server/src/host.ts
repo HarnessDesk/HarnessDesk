@@ -1255,7 +1255,7 @@ export class Host {
             scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!), ...(scope.turnId ? { turnId: scope.turnId as TurnId } : {}) }, publishes: true })
           if (!result.admitted) throw new Error(result.refusal)
         },
-        askPerson: (scope, question) => this.#askHeld(scope.runtime!, scope.sessionId!, question, this.options.heldWaitMs ?? 10 * 60_000),
+        askPerson: (scope, question, signal) => this.#askHeld(scope.runtime!, scope.sessionId!, question, this.options.heldWaitMs ?? 10 * 60_000, signal),
         mergeStep: (scope, target) => {
           if (!scope.runtime || !scope.sessionId || this.#ceilingOf(scope.runtime, scope.sessionId)?.level !== 'merge') return false
           const kept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
@@ -6482,6 +6482,7 @@ export class Host {
       summary: question.summary,
       reason: question.reason,
       ...(question.facts ? { facts: question.facts } : {}),
+      ...(question.gateway ? { gateway: true } : {}),
       options: question.options ?? [
         { id: HELD_ALLOW, label: 'Allow it once', intent: 'approve' },
         { id: HELD_REFUSE, label: 'Refuse', intent: 'deny' },
@@ -8301,7 +8302,7 @@ export class Host {
     if (event.type === 'item/completed' || event.type === 'turn/completed') {
       const items = event.type === 'item/completed' ? [event.item] : event.turn.items
       const turn = event.type === 'item/completed' ? event.turnId : event.turn.id
-      for (const item of items) if (item.type === 'command' && item.exitCode === 0 && parseGitCommand(item.command)) {
+      for (const item of items) if (item.type === 'command' && item.exitCode === 0) {
         void this.#gitSteerScope(String(runtime), String(event.sessionId)).then(scope => {
           if (scope) return this.gitSteering.completed({ ...scope, turn: String(turn) }, item.command, 0, item.cwd)
         }).catch(error => this.#logger.warn('Outside git write could not be observed', { error: String(error) }))
@@ -8590,8 +8591,8 @@ export class Host {
     if (approval.type === 'command' && approval.kind === 'stdin') return false
     if (approval.type === 'command' || approval.type === 'permission' && !String(approval.id).startsWith('held-')) {
       const command = approval.type === 'command' ? approval.command : approval.summary
-      const write = parseGitCommand(command)
       const record = this.registry.get(runtime, approval.sessionId)
+      const write = this.gitSteering.parseCommand(command, approval.cwd ?? record?.session.cwd ?? process.cwd())
       const root = record?.shellCheckout?.project ?? record?.session.cwd
       const deny = approval.options.find(option => option.intent === 'deny' && option.once) ?? approval.options.find(option => option.intent === 'deny' && option.once !== false)
       if (write && write.kind !== 'unmappable' && root && deny && record?.live && this.gitSteering.steerFor(root) !== 'off') {
@@ -8599,12 +8600,13 @@ export class Host {
         let declined = false
         void Promise.resolve().then(async () => {
           const scope = await this.#gitSteerScope(String(runtime), String(approval.sessionId))
-          const cwd = approval.cwd ?? record.session.cwd
-          if (!scope || !cwd || !await this.gitSteering.inside(scope.cwd, cwd)) throw new Error('Native git command is outside the conversation checkout.')
+          const base = approval.cwd ?? record.session.cwd
+          const cwd = base && this.gitSteering.commandCwd(command, base)
+          if (!scope || !cwd || !await this.gitSteering.sameCheckout(scope.cwd, cwd)) throw new Error('Native git command is outside the conversation checkout.')
           await live.respondToApproval(approval.id, { type: 'option', optionId: deny.id })
           declined = true
           this.#say(String(runtime), String(approval.sessionId), `Steered ${redactGitCommand(command)} to HarnessDesk — ask the agent to use git_push`)
-          if (scope) await this.gitSteering.steer(scope, command, write, false)
+          if (scope) await this.gitSteering.steer(scope, command, write, false, undefined, cwd)
         }).catch(error => {
           this.#logger.warn('Git approval steering failed', { error: String(error) })
           if (declined) this.#say(String(runtime), String(approval.sessionId), 'Git steering could not finish; ask the agent to use git_push.')

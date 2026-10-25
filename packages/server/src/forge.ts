@@ -36,7 +36,7 @@ export interface ForgePort {
   readonly gitGateway?: GitGateway
   checkoutOf?(scope: ForgeScope): Promise<{ readonly cwd: string; readonly root: string } | null>
   admitWrite?(verb: ForgeVerb, scope: ForgeScope, args?: unknown): Promise<void>
-  askPerson?(scope: ForgeScope, question: HeldQuestion): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>
+  askPerson?(scope: ForgeScope, question: HeldQuestion, signal?: AbortSignal): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>
   mergeStep?(scope: ForgeScope, target: { readonly number: number; readonly head: string }): boolean
   /** The agent behind a runtime — its presentation name and version — or null when the host has no such runtime. */
   agentOf(runtime: string): { readonly name: string; readonly version: string | null } | null
@@ -224,11 +224,11 @@ export class ForgePlane implements ForgeEngine {
       if (!ctx.repository || rewrite || !(continuation || this.#standing.has(standingKey))) {
         const approved = gitSteerContext.getStore()?.approved
         const answer = approved?.repository === repository && approved.branch === args.branch && approved.sha === args.sha && !rewrite ? 'allowed' : await this.port.askPerson?.(scope, {
-          summary: `Push ${args.branch} to ${repository}`,
+          gateway: true, summary: `Push ${args.branch} to ${repository}`,
           reason: `${!ctx.repository ? 'Approve and pin this repository for the project. ' : ''}${rewrite ? 'This rewrites the branch. ' : ''}Push from HarnessDesk’s own copy, as you, and keep a record. The checkout’s git settings are not used.`,
           facts: [{ label: 'Repository', value: repository }, { label: 'Branch', value: args.branch }, { label: 'Head', value: args.sha }],
           options: [{ id: 'allow', label: 'Push', intent: 'approve' }, { id: 'standing', label: 'Push this branch without asking', intent: 'approveAlways' }, { id: 'refuse', label: "Don't push", intent: 'deny' }],
-        })
+        }, gitSteerContext.getStore()?.signal)
         if (answer !== 'allowed' && answer !== 'standing') throw new Error(answer === 'unanswered' ? 'Push question timed out; nothing was written.' : 'Push refused: the person did not approve it.')
         if (answer === 'standing') this.#standing.add(standingKey)
         this.#live(scope)
@@ -241,10 +241,10 @@ export class ForgePlane implements ForgeEngine {
         assessment = await gateway.assessPush(push)
         rewrite = assessment.head !== null && !assessment.fastForward
         if (rewrite) {
-          const answer = await this.port.askPerson?.(scope, { summary: `Push ${args.branch} to ${repository}`,
+          const answer = await this.port.askPerson?.(scope, { gateway: true, summary: `Push ${args.branch} to ${repository}`,
             reason: 'This rewrites the branch. Push the reviewed head from HarnessDesk’s own copy, as you, and keep a record.',
             facts: [{ label: 'Repository', value: repository }, { label: 'Branch', value: args.branch }, { label: 'Head', value: args.sha }],
-            options: [{ id: 'allow', label: 'Push', intent: 'approve' }, { id: 'refuse', label: "Don't push", intent: 'deny' }] })
+            options: [{ id: 'allow', label: 'Push', intent: 'approve' }, { id: 'refuse', label: "Don't push", intent: 'deny' }] }, gitSteerContext.getStore()?.signal)
           if (answer !== 'allowed') throw new Error(answer === 'unanswered' ? 'Push question timed out; nothing was written.' : 'Push refused: the person did not approve the rewrite.')
           this.#live(scope)
         }
@@ -284,9 +284,9 @@ export class ForgePlane implements ForgeEngine {
       const { gateway, checkout, requester, repository } = await this.#destination(scope, 'merge', args)
       let approval: GitApproval = { by: 'ceiling', at: Date.now() }
       if (!this.port.mergeStep?.(scope, { number: args.number, head: args.head })) {
-        const answer = await this.port.askPerson?.(scope, { summary: `Merge pull request #${args.number} in ${repository}`,
+        const answer = await this.port.askPerson?.(scope, { gateway: true, summary: `Merge pull request #${args.number} in ${repository}`,
           reason: `Merge the reviewed head ${args.head}.`, facts: [{ label: 'Repository', value: repository }, { label: 'Branch', value: await gateway.pullRequestHeadRef(repository, args.number) }, { label: 'Head', value: args.head }],
-          options: [{ id: 'allow', label: 'Merge', intent: 'approve' }, { id: 'refuse', label: "Don't merge", intent: 'deny' }] })
+          options: [{ id: 'allow', label: 'Merge', intent: 'approve' }, { id: 'refuse', label: "Don't merge", intent: 'deny' }] }, gitSteerContext.getStore()?.signal)
         if (answer !== 'allowed') {
           await gateway.refuse('pr.merge', { repository, requester, number: args.number, sha: args.head }, 'Merge refused: the person did not approve it.')
           throw new Error(answer === 'unanswered' ? 'Merge question timed out; nothing was written.' : 'Merge refused: the person did not approve it.')

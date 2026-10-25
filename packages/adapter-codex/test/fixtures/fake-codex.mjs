@@ -1594,7 +1594,7 @@ rl.on('line', (line) => {
         send({ id, result })
         notify('thread/started', { thread: announced })
       }, 'THREAD_OPEN_HELD')
-      if (!flowWorker) notify('warning', {
+      if (!flowWorker && process.env.FAKE_CODEX_QUIET_TOOLS !== '1') notify('warning', {
         threadId: THREAD,
         message: `TOOLS_DECLARED ${declaredTools.map((t) => (t.namespace ? `${t.namespace}/${t.name}` : t.name)).join(',') || '(none)'}`,
       })

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile, execFileSync } from 'node:child_process'
-import { mkdtempSync, existsSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs'
+import { mkdtempSync, existsSync, mkdirSync, writeFileSync, rmSync, realpathSync, linkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -208,7 +208,7 @@ test('R3 cwd accepts subdirectories and rejects observation of other checkouts',
   const reply = await f.steer.handle('fixture', 's1', { binary: 'git', argv: ['push', 'origin', 'x'], cwd: join(f.cwd, 'sub') })
   assert.equal(reply.ok, true, reply.output ?? '')
   await f.steer.completed(f.scope, '/usr/bin/git push origin x', 0, f.home)
-  assert.equal(f.rows.filter(row => row.includes('went around')).length, 1)
+  assert.equal(f.rows.filter(row => row.includes('went around')).length, 0)
 })
 test('R3 partial preferences retain outside setting and project overrides', async t => {
   const f = await rig(t), state = new StateStore(join(f.state, 'partial.json')); await state.load()
@@ -255,4 +255,105 @@ test('R3 read fast path does not start Node', async t => {
   const f = await rig(t)
   const result = await f.command('git', ['status', '--short'], { NODE_OPTIONS: '--this-option-must-not-be-read' })
   assert.equal(result.code, 0, result.stderr)
+})
+
+const finalSpellings: [string, string[]][] = [
+  ...[['-P'], ['-p'], ['--exec-path=/fixture'], ['--no-replace-objects'], ['-c', 'color.ui=never']].map(prefix => ['git', [...prefix, 'push', 'origin', 'x']] as [string, string[]]),
+  ...[['-o', '--dry-run'], ['--push-option', '-n'], ['--repo', '--help'], ['--receive-pack', '-h'], ['--exec', '--help']].map(options => ['git', ['push', ...options, 'origin', 'x']] as [string, string[]]),
+  ['gh', ['pr', 'merge', '5', '--subject', '-h', '--squash']],
+  ['gh', ['pr', 'comment', '5', '-R', 'other/repo', '--body', '-h']],
+  ['gh', ['api', '-X', 'DELETE', 'repos/acme/widgets/git/refs/heads/x', '-p', '-h']],
+]
+test('final stand-ins never pass through reproduced writes without a socket', async t => {
+  const f = await rig(t), fake = join(f.home, 'must-not-run')
+  writeFileSync(fake, '#!/bin/sh\necho BYPASSED\n', { mode: 0o700 })
+  for (const [binary, argv] of finalSpellings) {
+    const result = await f.command(binary, argv, { HD_TOOLS_SOCKET: join(f.home, 'absent.sock'), HD_GIT_REAL_GIT: fake, HD_GIT_REAL_GH: fake })
+    assert.equal(result.code, 1, `${binary} ${argv.join(' ')}: ${result.stdout}`)
+    assert.doesNotMatch(result.stdout, /BYPASSED/)
+  }
+})
+test('final local commands pass through with no record entry', async t => {
+  const f = await rig(t); await f.gateway.pins.pin(f.cwd, 'acme/widgets', { kind: 'person', id: 'person' })
+  for (const args of [['mv', 'file', 'moved'], ['rm', '--cached', 'moved'], ['merge-base', 'HEAD', 'HEAD'], ['show-ref'], ['-c', 'color.ui=never', 'status'], ['-c', 'alias.status=push', 'status']]) {
+    const result = await f.command('git', args, { HD_TOOLS_SOCKET: join(f.home, 'absent.sock') })
+    assert.equal(result.code, 0, args.join(' ') + result.stdout + result.stderr)
+  }
+  assert.deepEqual(await f.gateway.record({ repository: 'acme/widgets', limit: 100 }), [])
+  assert.equal(f.questions.length, 0)
+})
+test('final real-git aliases resolve only remote writes and shell aliases never forge push records', async t => {
+  const f = await rig(t); await f.gateway.pins.pin(f.cwd, 'acme/widgets', { kind: 'person', id: 'person' })
+  git(f.cwd, 'config', 'alias.local', 'status --short'); git(f.cwd, 'config', 'alias.publish', 'push origin x'); git(f.cwd, 'config', 'alias.shell', '!echo fixture')
+  assert.equal((await f.command('git', ['local'], { HD_TOOLS_SOCKET: join(f.home, 'absent.sock') })).code, 0)
+  assert.equal((await f.command('git', ['publish'], { HD_TOOLS_SOCKET: join(f.home, 'absent.sock') })).code, 1)
+  assert.equal((await f.command('git', ['shell'])).code, 1)
+  assert.deepEqual(await f.gateway.record({ repository: 'acme/widgets', limit: 100 }), [])
+})
+test('final steering card discloses first-push pin and forge own-command choice', async t => {
+  const f = await rig(t); await f.command('git', ['push', 'origin', 'x'])
+  assert.match(f.questions[0]!.reason, /pin this repository/)
+  assert.match(f.questions[0]!.facts!.find(fact => fact.label === 'Repository')!.value, /pinned on approval/)
+  await f.command('gh', ['pr', 'comment', '5', '--body', 'fixture'])
+  assert.ok(f.questions[1]!.options!.some(option => option.label === 'Let it use its own gh'))
+})
+test('final completed absolute compound pushes warn and observe one embedded write', async t => {
+  const f = await rig(t); await f.gateway.pins.pin(f.cwd, 'acme/widgets', { kind: 'person', id: 'person' }); git(f.cwd, 'push', f.remote, 'HEAD:x')
+  for (const [index, command] of ["/bin/zsh -lc '/usr/bin/git push origin x 2>&1'", "/bin/bash -l -c '/usr/bin/git push origin x && echo ok'"].entries()) await f.steer.completed({ ...f.scope, turn: `compound-${index}` }, command, 0)
+  assert.equal(f.rows.filter(row => row.includes('went around')).length, 2)
+  assert.ok((await f.gateway.record({ repository: 'acme/widgets', limit: 100 })).some(row => row.requester.kind === 'outside'))
+})
+test('final body files use the command cwd and refuse hard links', async t => {
+  const f = await rig(t); f.prefs['gitWrites'] = { steer: 'redirect' }; const sub = join(f.cwd, 'docs'); mkdirSync(sub)
+  writeFileSync(join(f.cwd, 'body.md'), 'wrong root body'); writeFileSync(join(sub, 'body.md'), 'subdirectory body')
+  const reply = await f.steer.handle('fixture', 's1', { binary: 'gh', argv: ['pr', 'comment', '5', '-F', 'body.md'], cwd: sub })
+  assert.equal(reply.ok, true, reply.output ?? ''); assert.deepEqual(f.tools[0]?.args, { number: 5, body: 'subdirectory body' })
+  const secret = join(f.home, 'secret'); writeFileSync(secret, 'not for posting'); linkSync(secret, join(f.cwd, 'linked.md'))
+  const linked = await f.steer.handle('fixture', 's1', { binary: 'gh', argv: ['pr', 'comment', '5', '-F', 'linked.md'], cwd: f.cwd })
+  assert.equal(linked.ok, false); assert.equal(f.tools.length, 1)
+})
+test('final nested repositories never steer or observe the outer checkout', async t => {
+  const f = await rig(t); f.prefs['gitWrites'] = { steer: 'redirect' }; const nested = join(f.cwd, 'vendor')
+  git(f.cwd, 'init', '-q', '-b', 'nested', nested)
+  const reply = await f.steer.handle('fixture', 's1', { binary: 'git', argv: ['push'], cwd: nested })
+  assert.equal(reply.ok, false); assert.equal(f.tools.length, 0)
+  await f.steer.completed(f.scope, '/usr/bin/git push origin nested', 0, nested)
+  assert.equal(f.rows.filter(row => row.includes('went around')).length, 0)
+})
+test('final own-git tickets expire after the held-question window', async t => {
+  const f = await rig(t); f.choose('standing'); const start = Date.now
+  try {
+    const result = await f.steer.handle('fixture', 's1', { binary: 'git', argv: ['push'], cwd: f.cwd })
+    Date.now = () => start() + 11 * 60_000
+    const receipt = await f.steer.handle('fixture', 's1', { ticket: result.ticket, exitCode: 0 })
+    assert.equal(receipt.ok, false); assert.match(receipt.output!, /invalid own-git receipt/)
+  } finally { Date.now = start }
+})
+
+test('final -P push fails closed with the real git executable and no socket', async t => {
+  const f = await rig(t); git(f.cwd, 'remote', 'set-url', 'origin', f.remote)
+  const result = await f.command('git', ['-P', 'push', 'origin', 'x'], { HD_TOOLS_SOCKET: join(f.home, 'absent.sock') })
+  assert.equal(result.code, 1); assert.match(result.stderr, /go through the git_push tool/)
+  assert.throws(() => git(f.remote, 'rev-parse', '--verify', 'refs/heads/x'))
+})
+test('final split shell flags reach the stand-in refusal without a socket', async t => {
+  const f = await rig(t)
+  for (const [shell, flags] of [['/bin/bash', ['-l', '-c']], ['/bin/bash', ['--login', '-c']], ['/bin/bash', ['-i', '-c']], ['/bin/zsh', ['-l', '-c']], ['/bin/zsh', ['-ilc']], ['/bin/sh', ['-c']]] as const) {
+    await assert.rejects(run(shell, [...flags, `'${join(f.steer.directory, 'git')}' push origin x`], { cwd: f.cwd, env: { ...f.env, HD_TOOLS_SOCKET: join(f.home, 'absent.sock') } }), error => {
+      assert.match((error as { stderr: string }).stderr, /go through the git_push tool/); return true
+    })
+  }
+})
+
+test('final zsh profiles see their original ZDOTDIR and keep history outside the shim', async t => {
+  const f = await rig(t), user = join(f.home, 'profiles'); mkdirSync(user)
+  writeFileSync(join(user, 'profile-fragment'), 'export HD_FIXTURE_PROFILE=loaded\n')
+  writeFileSync(join(user, '.zshenv'), '. "$ZDOTDIR/profile-fragment"\n')
+  const result = await run('/bin/zsh', ['-ilc', 'printf "%s\\n%s\\n" "$HD_FIXTURE_PROFILE" "$HISTFILE"'], { cwd: f.cwd, env: { ...f.env, HD_GIT_USER_ZDOTDIR: user } })
+  assert.equal(result.stdout, `loaded\n${user}/.zsh_history\n`)
+  const original = process.env['HD_GIT_USER_ZDOTDIR']
+  try {
+    process.env['HD_GIT_USER_ZDOTDIR'] = user
+    assert.equal((await f.steer.environment(f.cwd, 'nested'))?.['HD_GIT_USER_ZDOTDIR'], user)
+  } finally { if (original === undefined) delete process.env['HD_GIT_USER_ZDOTDIR']; else process.env['HD_GIT_USER_ZDOTDIR'] = original }
 })

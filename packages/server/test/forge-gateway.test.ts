@@ -408,3 +408,11 @@ test('PR creation accepts a gateway continuation when the local upstream still n
   await f.run('pr_create', { title: 'Widgets', body: 'Published through the host.' })
   assert.equal((await f.rows())[0]?.op, 'pr.create')
 })
+
+test('final D2 push question receives the disconnected steering caller signal', async t => {
+  const f = await fixture(t), controller = new AbortController()
+  const plane = new ForgePlane({ gitGateway: f.gateway, checkoutOf: async () => ({ cwd: f.checkout, root: f.checkout }), admitWrite: async () => {},
+    askPerson: async (_scope, _question, signal) => { assert.equal(signal, controller.signal); controller.abort(); return 'unanswered' },
+    agentOf: () => ({ name: 'Test Agent', version: null }), optionsOf: () => [], toolsOffered: () => true, record: () => true })
+  await assert.rejects(gitSteerContext.run({ command: 'git push', signal: controller.signal }, () => plane.push({ branch: 'feature/widgets', sha: git(f.checkout, 'rev-parse', 'HEAD'), expect: 'create' }, { plugin: 'git', runtime: 'fixture', sessionId: 's1', signal: controller.signal })), /timed out|abort/i)
+})

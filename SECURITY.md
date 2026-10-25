@@ -77,7 +77,7 @@ push pins the destination, and later origin mismatches refuse publication.
 
 The local steering socket has separate steering-only caller tokens. These
 are not general tool or MCP invocation tokens, and the stand-in strips desk
-tool tokens from real-binary children. An unresolved alias or unsupported
+tool tokens from real-binary children. An opaque shell alias or unsupported
 mutation refuses in Ask/Always modes. Forge body-file reads occur only after
 admission, are restricted to regular files inside the checkout, use
 nonblocking opens and are capped at 64 KiB. Closing a waiting caller withdraws

@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import { connect } from 'node:net'
 import { readFileSync, realpathSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { parseGitWrite } from '@harnessdesk/protocol/git-steer'
+import { parseGitWrite, gitAliasResolver } from '@harnessdesk/protocol/git-steer'
 
 export const GIT_STEER_UNREACHABLE = 'HarnessDesk: pushes from this conversation go through the git_push tool; use it instead.'
 interface Reply { action: 'done' | 'own'; ok?: boolean; output?: string; ticket?: string }
@@ -45,7 +45,12 @@ async function real(binary: string, argv: readonly string[]): Promise<{ code: nu
   })
 }
 export async function runGitStandIn(binary: string, argv: readonly string[]): Promise<void> {
-  const parsed = parseGitWrite(binary, argv)
+  const alias = gitAliasResolver(args => {
+    const git = process.env['HD_GIT_REAL_GIT']
+    if (!git) return undefined
+    try { return execFileSync(git, [...args], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() } catch { return undefined }
+  })
+  const parsed = parseGitWrite(binary, argv, alias)
   let result: { code: number; signal: NodeJS.Signals | null }
   if (!parsed) result = await real(binary, argv)
   else {

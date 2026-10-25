@@ -444,3 +444,9 @@ test('gateway publications remain visible outside the work fold and do not hide 
   expect(view.answer).toEqual([answer])
   expect(view.trailing).toEqual([publication])
 })
+
+test('final Running row uses the same unwrapping as steering for escaped login commands', () => {
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'"
+  const script = ['git', 'push', 'origin', 'fix/checkout-retry'].map(quote).join(' ')
+  expect(activityLabel(item('command', 'c', { command: '/bin/zsh -l -c ' + quote(script) }))).toBe('Running git push origin fix/checkout-retry')
+})

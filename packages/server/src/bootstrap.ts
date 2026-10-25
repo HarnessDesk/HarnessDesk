@@ -465,8 +465,9 @@ export const createDefaultHost = (
       logger.warn('a tool bridge started from an agent configuration, not a conversation', { agent })
       runtime.emit({ type: 'notice', class: 'info', kind: 'runtime:warning', level: 'warning', message: TOKENLESS_BRIDGE_NOTICE })
     },
-    invokeByName: (namespace, name, args, caller) =>
-      invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
+    invokeByName: (namespace, name, args, caller) => caller && steeringCallers.has(caller)
+      ? Promise.resolve({ ok: false, error: 'A steering-only caller cannot invoke general tools.' })
+      : invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
         logger.debug(message, details),
       ),
     ...mcpBackend,

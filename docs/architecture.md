@@ -224,8 +224,14 @@ authority. Only the existing head-bound reclaim decision restores it.
 PATH stand-ins, native approvals or the bridge's pre-tool callback, and
 completed command observation. Login-shell scripts are unwrapped without
 execution. The zsh installer sources the user's normal profile files and
-restores PATH after login profiles. Known reads take a shell fast path;
-unresolved aliases and unsupported mutations refuse rather than pass through.
+restores PATH after login profiles. Profile files run with the user’s original
+`ZDOTDIR`, and `HISTFILE` defaults there. The shim remains the shell’s
+`ZDOTDIR` between profiles so steering survives login PATH resets; system
+startup code that uses it for completion caches can place those caches in
+the stand-in directory. Known reads take a shell fast path;
+non-write verbs pass through, and aliases are read from real git configuration.
+Aliases expanding to writes use the same parser; opaque shell aliases and
+unsupported mutations refuse in Ask and Always modes.
 An unreachable steering socket refuses a write. Shells carry a separate
 steering-only caller token, rejected by the general tool and MCP maps; real
 binary children do not inherit the desk tool tokens. A disconnected caller

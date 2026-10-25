@@ -32,7 +32,7 @@ function fixtureStore(scene: string) {
   }) as typeof own.transport.request
   if (scene === 'push' || scene === 'steer') {
     const steer = scene === 'steer'
-    const approval: Approval = { id: approvalId(`held-gateway-${scene}`), type: 'permission', sessionId: snapshot.sessions.get(PREVIEW_SESSION_KEY)!.id, requestedAt: 1,
+    const approval: Approval = { id: approvalId(`held-gateway-${scene}`), type: 'permission', gateway: true, sessionId: snapshot.sessions.get(PREVIEW_SESSION_KEY)!.id, requestedAt: 1,
       summary: steer ? 'Writer wants to run git push itself' : `Push ${branch} to acme/widgets`,
       reason: steer ? "Through HarnessDesk the push is recorded and runs without this checkout's git settings. Its own git is not recorded as HarnessDesk's." : "HarnessDesk pushes from its own copy of the repository, as you, and keeps a record of the push. The checkout's own git settings are not used.",
       facts: steer ? [{ label: 'Command', value: `git push -u origin ${branch}` }, { label: 'Becomes', value: `Push ${branch} to acme/widgets · new branch · ${sha.slice(0, 7)}` }] : [{ label: 'Repository', value: 'acme/widgets · pinned for this project' }, { label: 'Branch', value: `${branch} · new branch` }, { label: 'Head', value: `${sha.slice(0, 7)} · 3 commits on main` }],

@@ -1,3 +1,4 @@
+import { unwrapGitCommand } from '@harnessdesk/protocol'
 import type { AgentItem, FileChange, ItemStatus, Turn } from '@harnessdesk/protocol'
 
 import { elapsedSince, instant } from './clock'
@@ -156,7 +157,7 @@ export const activityLabel = (item: AgentItem): string => {
       if (first?.type === 'read') return `Reading ${first.name}`
       if (first?.type === 'search') return first.query ? `Searching for ${first.query}` : 'Searching'
       if (first?.type === 'listFiles') return 'Listing files'
-      return `Running ${item.command.replace(/^\/bin\/\w+ -lc '?/, '').replace(/'$/, '').slice(0, 80)}`
+      return `Running ${unwrapGitCommand(item.command).slice(0, 80)}`
     }
     case 'toolCall':
       return item.tool

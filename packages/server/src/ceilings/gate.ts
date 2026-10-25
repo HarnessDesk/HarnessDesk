@@ -39,6 +39,7 @@ export interface Conversation {
 }
 
 export interface HeldQuestion {
+  readonly gateway?: boolean
   readonly summary: string
   readonly reason: string
   readonly facts?: readonly { readonly label: string; readonly value: string }[]

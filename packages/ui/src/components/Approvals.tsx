@@ -210,7 +210,7 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester,
   const mine = useMemo(
     () => snapshot.approvals.filter((entry) => {
       if (entry.key !== key) return false
-      const gateway = entry.approval.type === 'permission' && entry.approval.facts?.some(fact => fact.label === 'Repository')
+      const gateway = entry.approval.type === 'permission' && entry.approval.gateway === true
       return gatewayOnly ? gateway : placement === 'overlay' ? !gateway : true
     }),
     [snapshot.approvals, key, gatewayOnly, placement],

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { connect } from 'node:net'
 import { closeSync, fstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -26,7 +27,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
-import { parseGitCommand, DESK_TOOL_CEILINGS, isCompactionSummary, peelDeskContextPrefix, withoutCompaction } from '@harnessdesk/protocol'
+import { parseGitCommand, gitCommandDirectories, gitAliasResolver, DESK_TOOL_CEILINGS, isCompactionSummary, peelDeskContextPrefix, withoutCompaction } from '@harnessdesk/protocol'
 
 import { sessionFiles, sourceOf, trash } from './store.js'
 import { DELEGATION_CAPABILITY, DELEGATION_LIST, DELEGATION_NOTIFICATION } from './delegation-wire.js'
@@ -426,7 +427,11 @@ export const readCeilingDecision = (
 
 export const gitSteeringHook = async (input: { readonly tool_name: string; readonly tool_input: unknown }, environment: NodeJS.ProcessEnv = process.env) => {
   const command = input.tool_name === 'Bash' && input.tool_input && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>)['command'] : undefined
-  if (typeof command !== 'string' || !parseGitCommand(command)) return {}
+  const alias = gitAliasResolver(args => {
+    const cwd = typeof command === 'string' ? gitCommandDirectories(command).reduce((base, path) => resolve(base, path), process.cwd()) : process.cwd()
+    try { return execFileSync(environment['HD_GIT_REAL_GIT'] || 'git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() } catch { return undefined }
+  })
+  if (typeof command !== 'string' || !parseGitCommand(command, 0, alias)) return {}
   if (environment['HD_TOOLS_SOCKET'] && environment['HD_GIT_CALLER']) {
     const off = await new Promise<boolean>(resolve => {
       const socket = connect(environment['HD_TOOLS_SOCKET']!), finish = (value: boolean) => { socket.destroy(); resolve(value) }

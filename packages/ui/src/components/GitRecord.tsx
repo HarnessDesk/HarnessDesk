@@ -63,7 +63,7 @@ export const ProjectGitRecord = ({ root, initialView = 'all' }: { readonly root:
   return <Section title="Git record" description={page?.repository ?? undefined}>
     {problem ? <Note tone="bad">{problem}</Note> : !page ? <Rows><Row title="Reading…" /></Rows> : !page.repository ? <Note>No pushes yet. The first push you approve pins this project's repository.</Note> : <>
       <PageRecordViews label="Git record views" value={view} change={setView} choices={(['all', 'outside', 'refused'] as const).map(value => ({ value, label: { all: 'All', outside: 'Outside', refused: 'Refused' }[value], count: page.counts[value] }))} />
-      {page.entries.length ? <PageRecords label="Git record" columns={[{ id: 'where', label: 'Where' }, { id: 'who', label: 'Who' }, { id: 'when', label: 'When' }]} groups={[{ id: 'record', label: page.repository, rows: page.entries.map(row => ({ id: row.id, title: title(row), description: row.reason, mark: mark(row), state: state(row), values: { where: where(row), who: who(row), when: when(row.at) }, compact: `${who(row)} · ${where(row)} · ${when(row.at)}`, open: () => open(row) })) }]} /> : <Note>No {view === 'all' ? '' : `${view} `}writes recorded.</Note>}
+      {page.entries.length ? <PageRecords showGroupLabels={false} label="Git record" columns={[{ id: 'where', label: 'Where' }, { id: 'who', label: 'Who' }, { id: 'when', label: 'When' }]} groups={[{ id: 'record', label: page.repository, rows: page.entries.map(row => ({ id: row.id, title: title(row), description: row.reason, mark: mark(row), state: state(row), values: { where: where(row), who: who(row), when: when(row.at) }, compact: `${who(row)} · ${where(row)} · ${when(row.at)}`, open: () => open(row) })) }]} /> : <Note>No {view === 'all' ? '' : `${view} `}writes recorded.</Note>}
       {earlier && <Button variant="ghost" onClick={more}>Show earlier</Button>}
     </>}
   </Section>
@@ -88,7 +88,7 @@ export const GitWriteSettings = () => {
   return <Section title="Git writes" description="Pushes and pull-request writes made through HarnessDesk are always recorded.">
     {problem && <Note tone="bad">{problem}</Note>}
     {preferences && <Rows>
-      <Row title="Send agents' own pushes through HarnessDesk" desc="When an agent runs git push or a pull-request command itself. Changes apply to new conversations. Never also applies to conversations already open."
+      <Row title="Send agents' own pushes through HarnessDesk" desc="When an agent runs git push or a pull-request command itself. Takes effect at once in open conversations; turning steering back on after Never needs a new conversation."
         control={<NativeSelect aria-label="Send agents' own pushes through HarnessDesk" value={preferences.steer} onChange={event => void save({ steer: event.target.value as GitSteerMode })}>{Object.entries(modes).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</NativeSelect>} />
       <Row title="Record pushes HarnessDesk did not make" desc="A branch head that moves outside HarnessDesk is marked Outside in the record."
         control={<Switch aria-label="Record pushes HarnessDesk did not make" checked={preferences.recordOutside} onCheckedChange={recordOutside => void save({ recordOutside })} />} />

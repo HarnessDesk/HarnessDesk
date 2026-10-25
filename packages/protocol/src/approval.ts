@@ -59,6 +59,8 @@ export interface FileChangeApproval extends ApprovalBase {
 /** A request to widen the sandbox itself, rather than to run one thing. */
 export interface PermissionApproval extends ApprovalBase {
   readonly type: 'permission'
+  /** Host-owned publication question, shown in the conversation dock. */
+  readonly gateway?: boolean
   readonly summary: string
   readonly cwd?: string
   /** Host-supplied facts for a held gateway write. */

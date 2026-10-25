@@ -29,7 +29,7 @@ it('settings persist partial choices and project overrides retain other projects
   const select = box.querySelector<HTMLSelectElement>('select[aria-label="Agents\' own pushes"]')!
   await act(async () => { select.value = 'redirect'; select.dispatchEvent(new Event('change', { bubbles: true })) })
   expect(gitWrites.projects).toEqual({ '/other': 'off', '/workspace/widgets': 'redirect' })
-  expect(box.textContent).toContain('Changes apply to new conversations')
+  expect(box.textContent).toContain('Takes effect at once in open conversations')
 })
 it('an unpinned project explains the first approval without showing an empty table', async () => {
   const store = new AppStore('ws://localhost:0/')

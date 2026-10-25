@@ -240,10 +240,15 @@ it('names the runtime when an ordinary conversation asks to write files', () => 
 })
 
 it('gateway approvals belong only to the docked conversation card', () => {
-  const gateway = { ...approval, type: 'permission', summary: 'Push feature/widgets?', facts: [{ label: 'Repository', value: 'acme/widgets' }, { label: 'Branch', value: 'feature/widgets' }] } as unknown as Approval
+  const gateway = { ...approval, type: 'permission', gateway: true, summary: 'Push feature/widgets?', facts: [{ label: 'Repository', value: 'acme/widgets' }, { label: 'Branch', value: 'feature/widgets' }] } as unknown as Approval
   mount('pane-1', gateway)
   expect(container.querySelector('[role="dialog"]')).toBeNull()
   mount('pane-1', gateway, undefined, true)
   expect(container.querySelector('[data-slot="approval-card"]')?.textContent).toContain('acme/widgets')
   expect(container.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('fact labels alone never move a permission question into the gateway dock', () => {
+  mount('pane-1', { ...approval, type: 'permission', summary: 'Inspect repository', facts: [{ label: 'Repository', value: 'acme/widgets' }] } as unknown as Approval)
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull()
 })

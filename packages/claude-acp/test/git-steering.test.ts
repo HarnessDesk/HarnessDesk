@@ -15,3 +15,10 @@ test('SDK PreToolUse receives a model-readable steering denial at every ceiling;
     assert.deepEqual(await sdkHook({ tool_name: 'Bash', tool_input: { command: 'git status' } }), {})
   }
 })
+
+test('final Claude steering hook passes ordinary local git commands', async () => {
+  const result = withOptions({ claudeCode: { options: { env: { HD_GIT_STEER: 'ask' } } } }, { ceiling: 'edit' }, new AbortController())
+  const hooks = (result['claudeCode'] as { options: { hooks: { PreToolUse: { hooks: ((input: unknown) => Promise<unknown>)[] }[] } } }).options.hooks.PreToolUse
+  const hook = hooks.at(-1)!.hooks[0]!
+  for (const command of ['git rm f', 'git mv f g', 'git merge-base HEAD HEAD', 'git show-ref', 'git -c color.ui=never status']) assert.deepEqual(await hook({ tool_name: 'Bash', tool_input: { command } }), {}, command)
+})

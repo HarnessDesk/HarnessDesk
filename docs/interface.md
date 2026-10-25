@@ -868,9 +868,9 @@ the page and branch/PR publications refresh it. An unpinned project says
 **Settings › Permissions › Git writes** offers **Send agents' own pushes
 through HarnessDesk** as **Ask each time / Always / Never**, and **Record
 pushes HarnessDesk did not make** as a switch. Host writes are always
-recorded. Changes apply to new conversations; Never also releases steering
-in conversations already open. Turning it on for a conversation opened with
-Never requires a new conversation.
+recorded. Changes take effect at once in open conversations with steering
+installed. Turning steering back on for a conversation opened with Never
+requires a new conversation.
 
 The project's **Git writes** section shows **Pushes go to** as a read-only
 pin and **Agents' own pushes** as **As in Settings (current) / Always / Ask /
