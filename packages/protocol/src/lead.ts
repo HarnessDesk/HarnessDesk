@@ -171,7 +171,15 @@ export interface LeadCardDecision {
   readonly contractDigest: string | null
   readonly choice: 'approve' | 'decline' | 'accept' | 'accept-open-pr' | 'reclaim-branch'
 }
+/** One host-rendered unprompted finding. Actions navigate existing surfaces; they never grant authority. */
+export interface LeadProactive {
+  readonly finding: string
+  readonly caveat: string
+  readonly ask: string
+  readonly action?: 'plan' | 'changes' | 'approvals'
+}
 export interface LeadMessage {
+  readonly proactive?: LeadProactive
   readonly version: 1
   readonly id: string
   readonly revision: LeadRevision
@@ -572,7 +580,20 @@ export const parseLeadCardDecisionFor = (value: unknown, current: unknown): Lead
     return fail('', 'card has no pending person decision')
   return parsed
 }
-export const parseLeadMessage: Validator<LeadMessage> = object({ version, id, revision, role: literalUnion('user', 'assistant', 'system'), text: content })
+const proactiveLine: Validator<string> = (value, path = '') => {
+  const line = boundedText(800, false, proseControls)(value, path)
+  return /[\r\n]/.test(line) ? fail(path, 'expected one proactive line') : line
+}
+export const parseLeadProactive: Validator<LeadProactive> = object({ finding: proactiveLine, caveat: proactiveLine, ask: proactiveLine, action: optional(literalUnion('plan', 'changes', 'approvals')) })
+/** Evidence captured before a newer read (or a failed read) cannot be stated as a verified finding. */
+export const leadProactiveReport = (value: LeadProactive, evidenceAt: number, lastReadAt: number, readSucceeded: boolean): LeadProactive => {
+  const report = parseLeadProactive(value)
+  return readSucceeded && evidenceAt >= lastReadAt ? report : {
+    ...report, finding: `Unverified report: ${report.finding}`,
+    caveat: 'I could not verify this against the latest desk read.',
+  }
+}
+export const parseLeadMessage: Validator<LeadMessage> = object({ version, id, revision, proactive: optional(parseLeadProactive), role: literalUnion('user', 'assistant', 'system'), text: content })
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {
   const entries = Object.entries(isObject(value, path))
   if (entries.length > LEAD_LIMITS.cards) fail(path, 'too many card positions')

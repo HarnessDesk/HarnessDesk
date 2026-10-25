@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Banner, Text } from '../design'
+import { leadProactiveReport, type LeadProactive } from '@harnessdesk/protocol'
+import { LeadProactiveCard } from './LeadCards'
+import { Banner } from '../design'
 import { leadPresence } from '../lib/lead-presence'
 import type { LeadState } from '../state/lead'
 import { leadDollars } from './LeadCards'
@@ -21,7 +23,7 @@ const spentOf = (state: LeadState) => state.thread?.budget ? state.thread.budget
 const clock = (at: number) => new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at)
 const zone = (at: number) => new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(at).find(part => part.type === 'timeZoneName')?.value ?? ''
 
-export interface LeadAwayDigest { readonly title: string; readonly lines: readonly string[] }
+export interface LeadAwayDigest { readonly title: string; readonly report: LeadProactive }
 
 /** The four lines a person needs on return: what was said, where the goal stands, what waits for them, what it cost. */
 export const leadAwayDigest = (seen: LeadSeen, state: LeadState, label: string, now: number): LeadAwayDigest | null => {
@@ -32,12 +34,11 @@ export const leadAwayDigest = (seen: LeadSeen, state: LeadState, label: string, 
   const spent = Math.max(0, spentOf(state) - seen.spent)
   return {
     title: `While you were away · ${clock(seen.at)}–${clock(now)} ${zone(now)}`.trim(),
-    lines: [
-      said ? `${label} wrote ${said} message${said === 1 ? '' : 's'}${decided ? ` · ${decided} card${decided === 1 ? '' : 's'} settled` : ''}` : `${label} stayed quiet`,
-      state.progress ? `Step ${state.progress.step} of ${state.progress.steps} · ${presence.word}` : presence.word,
-      presence.needs ? `${presence.needs} need${presence.needs === 1 ? 's' : ''} you` : 'Nothing needs you',
-      `${leadDollars(spent)} spent while away`,
-    ],
+    report: leadProactiveReport({
+      finding: said ? `${label} wrote ${said} message${said === 1 ? '' : 's'} while you were away.` : `${label} stayed quiet while you were away.`,
+      caveat: `${decided} decisions settled; ${leadDollars(spent)} reported spent while away.`,
+      ask: presence.needs ? 'Inspect the waiting decision below.' : 'Send a message when you have another goal.',
+    }, state.presence?.lastCheckedAt ?? 0, now, !state.error && !!state.presence?.lastCheckedAt && state.presence.lastCheckedAt >= now),
   }
 }
 
@@ -65,6 +66,6 @@ export const LeadAway = ({ active, state, label }: { readonly active: boolean; r
   const digest = away && !state.error ? leadAwayDigest(away.seen, state, label, away.back) : null
   if (!digest) return null
   return <div data-slot="lead-away"><Banner title={digest.title} onDismiss={() => setAway(null)}>
-    {digest.lines.map(line => <Text key={line} as="p" role="muted">{line}</Text>)}
+    <LeadProactiveCard report={digest.report} />
   </Banner></div>
 }

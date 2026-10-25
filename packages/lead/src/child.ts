@@ -102,7 +102,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
     offerCard: card => rpc('offerCard', [card]) as ReturnType<LeadJournalPort['offerCard']>,
     restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
     recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
-    appendReply: async text => { await rpc('appendReply', [text]) },
+    appendReply: async (text, proactive) => { await rpc('appendReply', proactive ? [text, proactive] : [text]) },
   }
   let closing: Promise<void> | null = null
   const close = (): Promise<void> => {
@@ -202,7 +202,9 @@ export const runLeadChild = (options: ChildOptions = {}) => {
       case 'request': {
         if (!loop || (message.id as number) <= requestId) throw denied()
         requestId = message.id as number
-        ipcObject(message.input, Object.hasOwn(ipcObject(message.input), 'system') ? ['messages', 'maxTokens', 'system'] : ['messages', 'maxTokens'])
+        const input = ipcObject(message.input)
+        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive'] as const).filter(key => Object.hasOwn(input, key))])
+        if (input.proactive !== undefined && typeof input.proactive !== 'boolean') throw denied()
         const result = await loop.request(message.input as unknown as LeadMessagesRequest)
         if (loop.state.reason === 'lead-connection-ended') send({ type: 'desk-lost' })
         else send({ type: 'response', id: message.id, result: result ?? { status: 'refused', reason: 'lead-management-paused' } })

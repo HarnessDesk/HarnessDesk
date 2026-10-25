@@ -1,5 +1,5 @@
 import type { LeadJournalPort } from './child-ipc.js'
-import { clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
+import { leadProactiveReport, type LeadProactive, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
 import { isLeadQuiet, leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
 import { classifyLeadRuns, createLeadWakeGate, type LeadRunReading, type LeadWakeCounts } from './wake.js'
@@ -77,7 +77,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let lastResultSignature: string | null = null
   let noProgressTurns = 0, waitingForResume = false
   const gate = createLeadWakeGate(options.stuckMs)
-  let deskOwed = false
+  let deskOwed = false, deskReadAt = 0
   const owned = () => ({ runs: journal.state.runs.map(run => run.runId), teams: journal.state.teams })
   const tools = createLeadTools({ journal, desk, project, now: () => clock.now(), nextId, synchronized: () => synchronized && !closed,
     resolveTool: options.resolveTool })
@@ -131,7 +131,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const next = structuredClone(desk.snapshot())
       // Whole replacement, including cleared waiting/approval/review collections.
       if (generation !== expected || closed) return
-      snapshot = next
+      snapshot = next; deskReadAt = clock.now()
       await tools.settleStarts()
       await writeOffUncertain()
       const state = journal.state, contract = state.contract
@@ -233,6 +233,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     const abort = () => active?.abort()
     if (signal?.aborted) active.abort()
     signal?.addEventListener('abort', abort, { once: true })
+    const evidenceAt = deskReadAt, evidenceGeneration = generation
     let result: LeadMessagesResult
     try { result = await messages.request({ ...input, system: [input.system, standingInstructions()].filter(Boolean).join('\n') }, active.signal) }
     catch { result = { status: 'failed', reason: 'lead-messages-failed' } }
@@ -243,12 +244,22 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // follows it. A text the desk will not keep stays in the result, so the host scans it and refuses it by name.
     // A reply that is only the quiet marker is the model choosing to say nothing; the person never sees it.
     if (result.text && isLeadQuiet(result.text)) { const { text: _quiet, ...silent } = result; result = silent }
-    if (result.text && !terminal(journal.state.phase)) {
+    if ((result.text || input.proactive && result.proposals?.plan) && !terminal(journal.state.phase)) {
       // The same sentence again, with nothing from the person between, is one standing line, not a new
       // message: every desk wake otherwise adds "Waiting for ..." to the thread once more.
       const last = journal.state.messages.at(-1), words = (text: string) => text.replace(/\s+/g, ' ').trim()
-      if (!(last?.role === 'assistant' && words(last.text) === words(result.text))) {
-        try { await journal.appendReply(result.text) }
+      if (!(last?.role === 'assistant' && words(last.text) === words(result.text ?? ''))) {
+        try {
+          if (input.proactive) {
+            const action = personActions[0], reading = classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs)[0]
+            const report: LeadProactive = result.proposals?.plan
+              ? { finding: 'A plan is ready for your decision.', caveat: 'No work starts before you approve it.', ask: 'Review plan', action: 'plan' }
+              : action ? { finding: action.kind === 'check' ? `The ${action.name} check has no result.` : `The ${action.role} is waiting for approval.`, caveat: 'Only you can answer the request on its card.', ask: 'Open approvals', action: 'approvals' }
+              : { finding: reading ? `The latest desk reading marked a run ${reading.kind}.` : 'The desk has an update to inspect.', caveat: 'This reading does not establish that the work is accepted.', ask: 'Inspect the work', action: 'changes' }
+            const proactive = leadProactiveReport(report, evidenceAt, deskReadAt, synchronized && evidenceGeneration === generation)
+            await journal.appendReply([proactive.finding, proactive.caveat, proactive.ask].join('\n'), proactive)
+          } else await journal.appendReply(result.text!)
+        }
         catch { await waitForUser('lead-request-failed'); return result }
       }
       const { text: _kept, ...delivered } = result
@@ -345,7 +356,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         if (look) gate.shown(look.fingerprint)
         const readings = classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs)
         const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: `Desk activity changed. Inspect fresh desk observations before acting.\nRun readings: ${JSON.stringify(readings)}.\n${leadObservation(personActions)}` }] }
-        await step({ ...requestTemplate!, messages: [...history!, ...(activity ? [observation] : [])] })
+        await step({ ...requestTemplate!, proactive: true, messages: [...history!, ...(activity ? [observation] : [])] })
         report()
       }).catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
     })

@@ -251,7 +251,7 @@ export class LeadSupervisor {
     try {
       const arity = { execute: 1, updateBudget: 1, setManagementPhase: 2, invalidateResults: 0, offerCard: 1,
         restoreResult: 2, recoverUnsettledRequests: 0, appendReply: 1, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2 }[operation]
-      if (args.length !== arity) throw error('protocol')
+      if (args.length !== arity && !(operation === 'appendReply' && args.length === 2)) throw error('protocol')
       let value: unknown = null
       switch (operation) {
         case 'provider-send': {
@@ -304,7 +304,7 @@ export class LeadSupervisor {
           // A goal that has ended takes no more words. A text the desk will not show, a secret or one the journal cannot
           // hold, is refused by name and does not break the child; the host scans whatever stays in the result again.
           if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) break
-          try { parseLeadMessage({ version: 1, id: 'message-1', revision: 1, role: 'assistant', text }); await this.options.admitReply?.(text) }
+          try { parseLeadMessage({ version: 1, id: 'message-1', revision: 1, role: 'assistant', text, ...(args[1] ? { proactive: args[1] } : {}) }); await this.options.admitReply?.(JSON.stringify(args)) }
           catch {
             if (!running.exited) write(running, { type: 'reply', id, ok: false, value: 'lead-reply-refused', state: journal.state })
             return
@@ -313,7 +313,7 @@ export class LeadSupervisor {
           // ending, not a child that broke the protocol: it must not be killed as one, or cleanup meant for a
           // cancellation would run as a failure and reach work a cancellation leaves alone.
           if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) break
-          try { await durable(journal.appendReply(text)) }
+          try { await durable(journal.appendReply(text, args[1] as import('@harnessdesk/protocol').LeadProactive | undefined)) }
           catch (failure) { if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) throw failure }
           break
         }

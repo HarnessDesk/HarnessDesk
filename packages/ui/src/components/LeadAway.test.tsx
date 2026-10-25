@@ -11,14 +11,13 @@ const stateOf = (scene: Parameters<typeof leadSceneProjection>[0]): LeadState =>
 }
 
 describe('the away digest', () => {
-  it('sums up an absence in four lines', () => {
-    const state = stateOf('running'), now = 10 * 60 * 60_000
+  it('sums up an absence as one finding, caveat and ask', () => {
+    const state = { ...stateOf('running'), presence: null }, now = 10 * 60 * 60_000
     const digest = leadAwayDigest({ at: now - 2 * 60 * 60_000, revision: 0, spent: 0 }, state, 'Dex', now)!
     expect(digest.title).toMatch(/^While you were away · \d\d:\d\d–\d\d:\d\d/)
-    expect(digest.lines).toHaveLength(4)
-    expect(digest.lines[0]).toMatch(/^Dex wrote \d+ message/)
-    expect(digest.lines[1]).toMatch(/^Step 1 of /)
-    expect(digest.lines[3]).toMatch(/spent while away$/)
+    expect(digest.report.finding).toContain('Dex wrote')
+    expect(digest.report.caveat).toContain('could not verify')
+    expect(digest.report.ask).toBeTruthy()
   })
   it('says nothing after a short glance away or when nothing changed', () => {
     const state = stateOf('running'), now = 10 * 60 * 60_000

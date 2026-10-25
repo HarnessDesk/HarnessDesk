@@ -51,6 +51,7 @@ export class LeadControls {
   #continuation: Promise<void> | null = null
   #continueAgain = false
   #requestInFlight = false
+  #automaticRequest = false
   #closed = false
   #lastRevision = -1
   readonly #detach: () => void
@@ -216,11 +217,11 @@ export class LeadControls {
       const receipt = await journal.appendMessage(input.idempotencyKey, input.text, committed)
       if (resume) await journal.resume(undefined, true, committed)
       return receipt
-    })
+    }, !!origin)
   }) }
-  async #commitRequest<T>(commit: (committed: () => void) => Promise<T>): Promise<T> {
+  async #commitRequest<T>(commit: (committed: () => void) => Promise<T>, proactive = false): Promise<T> {
     let committed = false
-    try { return await commit(() => { committed = true; this.#requestInFlight = true }) }
+    try { return await commit(() => { committed = true; this.#requestInFlight = true; this.#automaticRequest = proactive }) }
     finally { if (committed) this.#detachContinue() }
   }
   #detachContinue(forcePublication = false): void {
@@ -250,6 +251,7 @@ export class LeadControls {
   }
   async #continue(): Promise<void> {
     const { journal, service } = this.options
+    const proactive = this.#automaticRequest; this.#automaticRequest = false
     if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) || journal.state.budget?.stop) {
       this.#requestInFlight = false
       await journal.settingsChanged()
@@ -270,7 +272,7 @@ export class LeadControls {
       else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
         { type: 'text', text: 'No plan is approved yet. Continue with a plan for the person to approve.' },
       ] })
-      const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages })
+      const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages, ...(proactive ? { proactive: true } : {}) })
       if (result.text) await service.assertPublic(result.text)
       this.#requestInFlight = this.#continueAgain
       if (result.text && !['accepted', 'declined', 'stopped'].includes(journal.state.phase)) await journal.appendReply(result.text)

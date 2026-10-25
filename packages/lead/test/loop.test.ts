@@ -1333,7 +1333,9 @@ test('every step stores what the model said, including the steps the host never 
     const first = await loop.request(input)
     await s.tick(); await loop.idle()
     assert.equal(s.fake.requests.length, 2, 'the tool result went back for a second step')
-    assert.deepEqual(said(s), ['Looking at the desk first.', 'The catalog has nothing for this goal yet.'])
+    assert.equal(said(s)[0], 'Looking at the desk first.')
+    assert.ok(s.journal.state.messages.at(-1)?.proactive)
+    assert.equal(said(s)[1]?.split('\n').length, 3)
     assert.equal(first.text, undefined)
   } finally { await loop.close() }
 })

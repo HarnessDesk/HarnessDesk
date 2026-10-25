@@ -1,3 +1,4 @@
+import { LeadProactiveCard } from './LeadCards'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -252,4 +253,14 @@ it('omits the project separator when an allowance has no matching scope', () => 
   const format = (modules['./LeadCards.tsx'] as any).leadAllowance
   expect(format).toBeTypeOf('function')
   expect(format(leadBudget.caps)).toBe('Up to $5.00 · 4 rounds')
+})
+
+it('renders exactly three proactive parts and only maps existing navigation actions', () => {
+  const box = document.createElement('div'), root = createRoot(box), open = vi.fn()
+  act(() => root.render(<StoreProvider store={previewStore()}><LeadProactiveCard report={{ finding: 'The review is ready.', caveat: 'Checks need you.', ask: 'Open changes', action: 'changes' }} onAction={open} /></StoreProvider>))
+  try {
+    expect(box.querySelectorAll('[data-proactive-part]')).toHaveLength(3)
+    act(() => button(box, 'Open changes').click())
+    expect(open).toHaveBeenCalledWith('changes')
+  } finally { act(() => root.unmount()) }
 })

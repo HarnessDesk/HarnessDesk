@@ -1,11 +1,12 @@
 import { useRef, useState, type MutableRefObject } from 'react'
-import type { LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage } from '@harnessdesk/protocol'
+import type { LeadProactive, LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage } from '@harnessdesk/protocol'
 import { Button, CodeText, Row, LeadContract, LeadPlanFlow, Text } from '../design'
 import { folderName } from '../lib/projects'
 import { LeadDecision } from './LeadDecision'
 import { LEAD_HANDBACK_LIMIT, LEAD_REPAIR_RECOVERY_FAILED } from './lead-wait-copy'
 import { PERMISSION_LABELS } from './lead-permission-labels'
 import { Markdown } from './Markdown'
+import { sanitizeText } from '../lib/sanitize'
 
 const cents = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 /** Money the way a person reads it, in whole cents. An amount above zero that would round to $0.00 is said in words, because $0.00 means none. */
@@ -113,3 +114,12 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
     </> : <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'run')}>{`Run check ${action.name}`}</Button>} />)}</>
 }
 const LeadReason = ({ text }: { readonly text: string }) => <Markdown text={text} />
+
+/** A single host-shaped finding, qualification and next step; navigation never answers a decision. */
+export const LeadProactiveCard = ({ report, onAction }: { readonly report: LeadProactive; readonly onAction?: (action: NonNullable<LeadProactive['action']>) => void }) => <LeadContract>
+  <Text as="p" role="prose" data-proactive-part="finding">{sanitizeText(report.finding)}</Text>
+  <Text as="p" role="muted" data-proactive-part="caveat">{sanitizeText(report.caveat)}</Text>
+  <div data-proactive-part="ask">{report.action && onAction
+    ? <Button variant="outline" onClick={() => onAction(report.action!)}>{sanitizeText(report.ask)}</Button>
+    : <Text as="p" role="prose">{sanitizeText(report.ask)}</Text>}</div>
+</LeadContract>
