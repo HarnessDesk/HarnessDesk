@@ -181,8 +181,8 @@ it('keeps other sign-out failures retryable without offering desk-only sign-out'
 })
 
 it('names the configured cloud host in the pending sign-in banner', () => {
-  mount({ status: 'pending', desk: account.desk, phones: [], pending: { userCode: 'ABCD-EFGH', verifyUrl: 'https://app-staging.harnessdesk.app/link#code=ABCD-EFGH', expiresAt: Math.floor(Date.now() / 1000) + 60 } }, true)
-  expect(container.textContent).toContain('Sign in on app-staging.harnessdesk.app.')
+  mount({ status: 'pending', desk: account.desk, phones: [], pending: { userCode: 'ABCD-EFGH', verifyUrl: 'https://staging.example.com/link#code=ABCD-EFGH', expiresAt: Math.floor(Date.now() / 1000) + 60 } }, true)
+  expect(container.textContent).toContain('Sign in on staging.example.com.')
   expect(container.textContent).not.toContain('app.harnessdesk.app')
 })
 

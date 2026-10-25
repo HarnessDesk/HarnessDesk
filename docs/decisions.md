@@ -4371,7 +4371,7 @@ before their sources disappear; a new host rebuilds those readings before it can
 admit work.
 ## Every git write goes through one gateway, and the host holds the credential
 
-The owner's approved git-gateway design reverses the shell-reach part of
+The git-gateway design reverses the shell-reach part of
 [A pull request is published through the desk](#a-pull-request-is-published-through-the-desk-and-the-desk-signs-it).
 A worker controls its checkout's remotes, URL rewrites, hooks and credential
 configuration. Running a publication command there as the person lets worker
@@ -4388,10 +4388,9 @@ Steering needs three layers because no runtime guarantees a pre-execution
 look at every native command. PATH stand-ins catch ordinary shell commands;
 login-shell parsing and zsh profile shims preserve that route on the measured
 surface. Native approvals and the Claude bridge's pre-tool callback supply
-another opportunity. Completed concrete commands catch successful bypasses
-afterward. These are tested against fake runtimes, including a real login
-shell and the bridge's SDK callback, not real vendor endpoints. Absolute
-binaries and other shell configurations can still bypass the first layer.
+another opportunity. Completed concrete commands report afterward what
+the earlier layers did not see. These are tested against fake runtimes, including a real login
+shell and the bridge's SDK callback, not real vendor endpoints.
 Generic ACP steering currently isolates a worker per conversation because the
 protocol has no negotiated per-session shell environment; preserving caller
 identity takes precedence over process sharing until that channel exists.
@@ -4403,7 +4402,7 @@ attribution. Person-allowed own git triggers observation of the pinned remote
 and remains outside. The outside-recording switch covers those observations
 as well as other fetched outside heads; gateway writes remain recorded.
 
-The owner approved all five decisions in the design note:
+Five decisions settle it:
 
 - **D1:** Ask each time is the steering default.
 - **D2:** New branches and every rewrite ask; owned fast-forward updates can

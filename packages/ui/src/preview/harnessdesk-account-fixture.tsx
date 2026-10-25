@@ -17,7 +17,7 @@ export const HarnessDeskAccountPreview = () => {
       status: pending ? 'pending' : stage === 'signed-out' ? 'signedOut' : 'signedIn',
       desk: { name: 'Jane’s MacBook Pro', reachable: true },
       phones: stage === 'signed-out' || pending ? [] : [{ deviceId: 'AAAAAAAAAAAAAAAAAAAAAA', name: 'iPhone', lastSeenAt: Math.floor(Date.now() / 1000) - 120 }],
-      ...(pending ? { pending: { userCode: 'ABCD-EFGH', verifyUrl: `https://${stage === 'pending-staging' ? 'app-staging.harnessdesk.app' : 'app.harnessdesk.app'}/link#code=ABCD-EFGH`, expiresAt: Math.floor(Date.now() / 1000) + 600 } }
+      ...(pending ? { pending: { userCode: 'ABCD-EFGH', verifyUrl: `https://${stage === 'pending-staging' ? 'staging.example.com' : 'app.harnessdesk.app'}/link#code=ABCD-EFGH`, expiresAt: Math.floor(Date.now() / 1000) + 600 } }
         : stage === 'signed-out' ? {} : { account: { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: null, pictureDataUrl: accountPicture } }),
     }
     const next = frameDestinationStore(previewStore({ ...fixture.getSnapshot(), harnessDeskAccount: status,
