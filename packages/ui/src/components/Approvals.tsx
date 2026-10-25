@@ -29,6 +29,7 @@ import { sanitizeText } from '../lib/sanitize'
 /** The glyph for an answer: yes, yes-and-keep-saying-yes, no. */
 const INTENT_ICON = {
   approve: <CheckIcon size={13} />,
+  alternative: <CheckIcon size={13} />,
   approveAlways: <CheckAllIcon size={13} />,
   deny: <CrossIcon size={13} />,
   cancel: <CrossIcon size={13} />,
@@ -117,10 +118,11 @@ const PermissionBody = ({ approval, hideSummary = false }: {
   hideSummary?: boolean
 }) => (
   <>
-    {!hideSummary && <ApprovalReason className={styles.reason}>{permissionSummary(approval.summary)}</ApprovalReason>}
+    {!hideSummary && !approval.facts?.length && <ApprovalReason className={styles.reason}>{permissionSummary(approval.summary)}</ApprovalReason>}
     {/* Why the agent is asking, when it said. The summary is the tool it wants
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
+    {approval.facts?.map(fact => fact.label === 'Command' ? <ApprovalCode key={fact.label}>{sanitizeText(fact.value)}</ApprovalCode> : <ApprovalMeta key={fact.label} label={fact.label}>{sanitizeText(fact.value)}</ApprovalMeta>)}
     {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
     {(approval.filesystem?.length ?? 0) > 0 && (
       <>
@@ -192,8 +194,10 @@ const UserInputBody = ({
  * visible and leaves that false. For a caller replacing a focused composer,
  * a key already on its way from that sentence is not an answer (`TYPED_THROUGH_MS`).
  */
-export const Approvals = ({ placement = 'overlay', takeFocus = false, requester }: {
+export const Approvals = ({ placement = 'overlay', takeFocus = false, requester, gatewayOnly = false }: {
   requester?: { name: string; mark?: ReactNode; open: () => void }
+  /** Gateway questions are rendered in the conversation's existing dock. */
+  gatewayOnly?: boolean
   placement?: 'overlay' | 'docked'
   /** Docked only: explicitly transfer focus when replacing a focused control. Inline chat leaves this false. */
   takeFocus?: boolean
@@ -204,12 +208,16 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester 
   const key = useSessionKey()
   const focused = useIsFocusedPane()
   const mine = useMemo(
-    () => snapshot.approvals.filter((entry) => entry.key === key),
-    [snapshot.approvals, key],
+    () => snapshot.approvals.filter((entry) => {
+      if (entry.key !== key) return false
+      const gateway = entry.approval.type === 'permission' && entry.approval.gateway === true
+      return gatewayOnly ? gateway : placement === 'overlay' ? !gateway : true
+    }),
+    [snapshot.approvals, key, gatewayOnly, placement],
   )
   const approval = mine[0]?.approval
   const TITLES = titles(runtime.presentation.name)
-  const title = approval?.type === 'command' ? commandTitle(approval) : approval ? TITLES[approval.type] : ''
+  const title = approval?.type === 'permission' && approval.facts?.length ? approval.summary : approval?.type === 'command' ? commandTitle(approval) : approval ? TITLES[approval.type] : ''
   const [answers, setAnswers] = useState<Record<string, string[]>>({})
   const scope = useRef<HTMLDivElement>(null)
   const docked = placement === 'docked'

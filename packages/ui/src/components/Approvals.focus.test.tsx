@@ -71,7 +71,7 @@ const approval = {
 const PANE = 'pane-1' as never
 
 /** Render the card in `pane-1`, with the layout focused wherever the test says. */
-const mount = (focusedPane: string, asking: Approval = approval, requester?: { name: string; mark?: React.ReactNode; open: () => void }) => {
+const mount = (focusedPane: string, asking: Approval = approval, requester?: { name: string; mark?: React.ReactNode; open: () => void }, gatewayOnly = false) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -96,7 +96,7 @@ const mount = (focusedPane: string, asking: Approval = approval, requester?: { n
         <PaneProvider
           scope={{ paneId: PANE, view: { kind: 'conversation', session: KEY }, sessionKey: KEY }}
         >
-          <Approvals requester={requester} />
+          <Approvals requester={requester} {...(gatewayOnly ? { placement: 'docked', gatewayOnly: true } : {})} />
         </PaneProvider>
       </StoreProvider>,
     )
@@ -237,4 +237,18 @@ it('gives the caret back when the approval goes away', () => {
 it('names the runtime when an ordinary conversation asks to write files', () => {
   mount('pane-1', { ...approval, type: 'fileChange', changes: [] } as unknown as Approval)
   expect(card()?.textContent).toContain('The runtime wants to write changes to disk.')
+})
+
+it('gateway approvals belong only to the docked conversation card', () => {
+  const gateway = { ...approval, type: 'permission', gateway: true, summary: 'Push feature/widgets?', facts: [{ label: 'Repository', value: 'acme/widgets' }, { label: 'Branch', value: 'feature/widgets' }] } as unknown as Approval
+  mount('pane-1', gateway)
+  expect(container.querySelector('[role="dialog"]')).toBeNull()
+  mount('pane-1', gateway, undefined, true)
+  expect(container.querySelector('[data-slot="approval-card"]')?.textContent).toContain('acme/widgets')
+  expect(container.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('fact labels alone never move a permission question into the gateway dock', () => {
+  mount('pane-1', { ...approval, type: 'permission', summary: 'Inspect repository', facts: [{ label: 'Repository', value: 'acme/widgets' }] } as unknown as Approval)
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull()
 })

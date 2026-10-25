@@ -1,3 +1,4 @@
+import { unwrapGitCommand } from '@harnessdesk/protocol'
 import type { AgentItem, FileChange, ItemStatus, Turn } from '@harnessdesk/protocol'
 
 import { elapsedSince, instant } from './clock'
@@ -79,12 +80,12 @@ export const splitTurn = (turn: Turn): TurnView => {
   let boundary = turn.items.length
   for (let index = turn.items.length - 1; index >= 0; index -= 1) {
     const item = turn.items[index] as AgentItem
-    if (item.type === 'error' || (item.type === 'notice' && item.kind) || isSilentReasoning(item)) continue
+    if (item.type === 'error' || item.type === 'publication' || (item.type === 'notice' && item.kind) || isSilentReasoning(item)) continue
     if (!isAnswer(item)) break
     boundary = index
   }
   turn.items.forEach((item, index) => {
-    if (item.type === 'notice' && item.kind) {
+    if (item.type === 'publication' || item.type === 'notice' && item.kind) {
       trailing.push(item)
       return
     }
@@ -156,7 +157,7 @@ export const activityLabel = (item: AgentItem): string => {
       if (first?.type === 'read') return `Reading ${first.name}`
       if (first?.type === 'search') return first.query ? `Searching for ${first.query}` : 'Searching'
       if (first?.type === 'listFiles') return 'Listing files'
-      return `Running ${item.command.replace(/^\/bin\/\w+ -lc '?/, '').replace(/'$/, '').slice(0, 80)}`
+      return `Running ${unwrapGitCommand(item.command).slice(0, 80)}`
     }
     case 'toolCall':
       return item.tool

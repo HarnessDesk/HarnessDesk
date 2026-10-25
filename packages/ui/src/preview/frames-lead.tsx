@@ -117,10 +117,10 @@ const LEAD_CONTRACT_CATALOG_SIZES = ['default'] as const
 const LEAD_CONTRACT_CATALOG_STATES = ['default', 'loading'] as const
 
 /** The catalog renders the real pattern, including narrow action wrapping. */
-export const LeadContractSpecimen = () => <div className="flex flex-col gap-6">{LEAD_CONTRACT_CATALOG_STATES.map(state => <div key={state} data-variant={LEAD_CONTRACT_CATALOG_VARIANTS[0]} data-size={LEAD_CONTRACT_CATALOG_SIZES[0]} data-state={state}>
+export const LeadContractSpecimen = () => { const own = useMemo(() => createLeadFixtureStore('pending-plan'), []); return <StoreProvider store={own}><div className="flex flex-col gap-6">{LEAD_CONTRACT_CATALOG_STATES.map(state => <div key={state} data-variant={LEAD_CONTRACT_CATALOG_VARIANTS[0]} data-size={LEAD_CONTRACT_CATALOG_SIZES[0]} data-state={state}>
   <LeadCards cards={leadSceneProjection('pending-plan').thread.cards} onDecide={async () => {}} onChanges={() => {}} onApprovals={() => {}} placement="thread" />
   <LeadDecision id="specimen" title="Approve this plan?" pending={state === 'loading'} onApprove={() => {}} onDecline={() => {}} />
-</div>)}</div>
+</div>)}</div></StoreProvider> }
 const LEAD_AVATAR_CATALOG_SIZES = ['navigation', 'turn', 'header', 'popover', 'picker'] as const
 export const LeadAvatarSpecimen = () => <div className="flex flex-col gap-3">{LEAD_AVATAR_CATALOG_SIZES.map(size => <div key={size} data-variant="default" data-state="default" data-size={size} className="flex items-center gap-3"><LeadAvatar name="dex" size={size} mood="working" /><LeadAvatar name="lex" size={size} mood="working" /></div>)}<LeadNameChoice value="dex" pending={false} onChange={() => {}} /></div>
 

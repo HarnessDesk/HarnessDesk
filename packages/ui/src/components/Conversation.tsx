@@ -28,6 +28,7 @@ import { ConversationDetails } from '../panels/work-details'
 import { handOverToComposer } from '../lib/compose'
 import { dismissOverlays } from '../lib/overlays'
 import { Composer } from './Composer'
+import { Approvals } from './Approvals'
 import { useConversationTopBar } from './use-conversation-top-bar'
 import { WindowControls } from './WindowControls'
 import {
@@ -107,7 +108,7 @@ const EmptyTitle = ({ children }: { children: ReactNode }) => (
 )
 /** An empty-state sentence, in the reading role. */
 const EmptyBody = ({ children }: { children: ReactNode }) => (
-  <Text as="p" role="prose" align="center" className="m-0 max-w-[460px]">
+  <Text as="p" role="prose" align="center">
     {children}
   </Text>
 )
@@ -717,6 +718,7 @@ export const Conversation = ({
           <GoalBar />
           <MessageQueue />
         </PaneColumn>
+        <PaneColumn inset="reading"><Approvals placement="docked" gatewayOnly /></PaneColumn>
         {/* The composer, or the reason there is not one. A conversation whose
             folder has been deleted cannot be added to by anybody — so the box
             that implies it can is replaced by the note saying so, rather than

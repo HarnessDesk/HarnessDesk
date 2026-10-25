@@ -5,6 +5,10 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
+## Unreleased
+
+- **Git writes have one recorded path.** Approve pushes and steer an agent's own push through HarnessDesk, with a pinned project repository, PR and project Git records, and global or project preferences. Heads written elsewhere appear as Outside and name no one.
+
 ## 0.6.1 — 2026-10-23
 
 Customize brings Skills, MCP and Plugins into one place, agent sign-in reads what each agent actually reports, and Git, file and lane operations stay inside the folders they belong to. Lane removal and stalled network folders no longer hang.

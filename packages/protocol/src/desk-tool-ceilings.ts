@@ -5,7 +5,7 @@ export const DESK_TOOL_CEILINGS: Readonly<Record<string, Readonly<Record<string,
   git: {
     git_status: 'read', git_diff: 'read', git_log: 'read', pr_view: 'read', pr_checks: 'read', issue_view: 'read',
     pr_review: 'publish', pr_comment: 'publish', issue_comment: 'publish',
-    pr_create: 'publish', pr_update: 'publish', pr_merge: 'merge',
+    git_push: 'publish', pr_create: 'publish', pr_update: 'publish', pr_merge: 'merge',
   },
   files: { read_file: 'read', list_directory: 'read' },
   search: { search_text: 'read', find_files: 'read' },

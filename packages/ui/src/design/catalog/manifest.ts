@@ -787,7 +787,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'RefusedAction': ['RefusedAction'],
   'SeatList': ['SeatList'],
   'SelectionAction': ['SelectionAction'],
-  'Settings': ['AccountMark', 'Chip', 'Clipped', 'CodeText', 'DetailMark', 'Dot', 'Face', 'Field', 'FileButton', 'FormStack', 'InlineParts', 'Keycap', 'MetaList', 'Monogram', 'NavigationGroupHeader', 'NavigationList', 'Note', 'NoteList', 'Row', 'RowButton', 'RowChoice', 'RowInput', 'RowValue', 'Rows', 'Search', 'SectionHead', 'Segmented', 'SegmentedReadout', 'Spinner', 'Text', 'TextMark'],
+  'Settings': ['AccountMark', 'Chip', 'Clipped', 'CodeText', 'DetailMark', 'Dot', 'Face', 'Field', 'FileButton', 'FormStack', 'InlineParts', 'Keycap', 'MetaList', 'Monogram', 'NavigationGroupHeader', 'NavigationList', 'Note', 'NoteList', 'Row', 'RowButton', 'RowChoice', 'RowInput', 'RowMark', 'RowValue', 'Rows', 'Search', 'SectionHead', 'Segmented', 'SegmentedReadout', 'Spinner', 'Text', 'TextMark'],
   'SettingsChoices': ['AccentChoices', 'PictureChoices', 'RingChoices'],
   'SettingsRowMenu': ['SettingsRowMenu'],
   'SidebarMenuState': ['SidebarMenuState'],
@@ -1027,6 +1027,7 @@ export const CANONICAL_PATTERN_MODULES = [
  * it, and it is the exemption the check looks for.
  */
 export const PRODUCT_SURFACES = [
+  ['surface.git-gateway', 'git-gateway', 'Push and steering approvals, publication rows, outside heads, PR and project records, Git write preferences', 'packages/ui/src/components/GitRecord.tsx', false, 'packages/ui/src/components/ProjectPage.tsx', 'GitGatewaySurface'],
   ['surface.team-start', 'team-start', 'New Team picker, roles and shape options', 'packages/ui/src/components/FrontDoor.tsx', false, 'packages/ui/src/app/App.tsx', 'TeamStartSurface'],
   ['surface.run-again', 'run-again', 'Fresh Run preview from recorded inputs and editable seating', 'packages/ui/src/components/RunAgain.tsx', false, 'packages/ui/src/components/TeamRoomPane.tsx', 'RunAgainSurface'],
   ['surface.flow-brief', 'flow-brief', 'Flow Brief paragraphs and capped text-file import', 'packages/ui/src/components/FlowStart.tsx', false, 'packages/ui/src/components/NewSessionChoice.tsx', 'FlowBriefSurface'],

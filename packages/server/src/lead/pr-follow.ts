@@ -232,7 +232,7 @@ export class LeadPrFollow {
     let head = pr.head, branchOwner = pr.branchOwner ?? 'lead', releaseReason = pr.releaseReason, branchChange = pr.branchChange
     if (observation.state === 'open' && observation.head !== (pr.observedHead ?? pr.head)) {
       const author = await gateway.attribute(pr.repository, pr.branch, observation.head)
-      const attributed = author !== 'unknown' && author.kind === 'lead-goal' && author.id === state.budget?.logicalGoalId
+      const attributed = author !== 'outside' && author.kind === 'lead-goal' && author.id === state.budget?.logicalGoalId
       // A late poll can still carry a head from an earlier successful push.
       // Distinguish it from an actual rewind at the pinned remote before
       // adopting anything or releasing authority.
@@ -251,7 +251,7 @@ export class LeadPrFollow {
         branchOwner = 'person'
         // An unavailable ancestry proof must never grant push authority.
         branchChange = fastForward ? 'fast-forward' : 'rewrite'
-        releaseReason = `Branch ${fastForward ? 'extended' : 'rewritten'} by ${author === 'unknown' ? 'an unknown writer' : `${author.kind} ${author.id}`}. Automatic updates are paused.`
+        releaseReason = `Branch ${fastForward ? 'extended' : 'rewritten'} by ${author === 'outside' ? 'an unknown writer' : `${author.kind} ${author.id}`}. Automatic updates are paused.`
       }
     }
     const next: LeadPullRequest = { ...pr, head, branchOwner, observedHead: observation.head,

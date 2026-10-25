@@ -218,8 +218,8 @@ const stepOf = (item: AgentItem, cwd: string): PhoneWorkStep | null => {
     case 'reasoning': return step(id, 'thought', scrub(item.summary[0] ?? '', TEXT_STEP_TITLE) || 'Thinking')
     case 'assistantMessage': return item.phase === 'commentary' ? step(id, 'thought', scrub(item.text, TEXT_STEP_TITLE) || 'Thinking') : null
     case 'publication': {
-      const what = { pullRequest: 'a pull request', issue: 'an issue', review: 'a review', comment: 'a comment' }[item.reference.kind]
-      const verb = { opened: 'Opened', updated: 'Updated', posted: 'Posted' }[item.reference.action ?? 'opened'] ?? 'Looked at'
+      const what = { pullRequest: 'a pull request', issue: 'an issue', review: 'a review', comment: 'a comment', branch: 'a branch' }[item.reference.kind]
+      const verb = { opened: 'Opened', updated: 'Updated', posted: 'Posted', merged: 'Merged' }[item.reference.action ?? 'opened'] ?? 'Looked at'
       return step(id, 'run', item.reference.action ? `${verb} ${what}` : `Looked at ${what}`)
     }
     default: return null

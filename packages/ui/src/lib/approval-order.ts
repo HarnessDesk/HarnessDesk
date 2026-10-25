@@ -10,12 +10,12 @@ import type { ApprovalOption } from '@harnessdesk/protocol'
  * the shortcut numbers — this only decides which one your hand lands on.
  */
 const approvingLast = (a: ApprovalOption, b: ApprovalOption): number =>
-  (a.intent === 'approveAlways' ? 0 : 1) - (b.intent === 'approveAlways' ? 0 : 1)
+  (a.intent === 'approve' ? 1 : 0) - (b.intent === 'approve' ? 1 : 0)
 
 /** The order a permission card draws an agent's choices: its refusals first, then its approvals, the plain yes last. */
 export const approvalChoiceOrder = (options: readonly ApprovalOption[]): ApprovalOption[] => [
   ...options.filter((option) => option.intent === 'deny' || option.intent === 'cancel'),
   ...options
-    .filter((option) => option.intent === 'approve' || option.intent === 'approveAlways')
+    .filter((option) => option.intent === 'approve' || option.intent === 'approveAlways' || option.intent === 'alternative')
     .sort(approvingLast),
 ]

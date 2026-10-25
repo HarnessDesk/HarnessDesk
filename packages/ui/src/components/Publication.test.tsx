@@ -48,7 +48,7 @@ const render = (item: PublicationItem): void => {
   })
 }
 
-const reference = (overrides: Partial<ForgeReference> = {}): ForgeReference => ({
+const reference = (overrides: Partial<Exclude<ForgeReference, { kind: 'branch' }>> = {}): Exclude<ForgeReference, { kind: 'branch' }> => ({
   kind: 'pullRequest',
   action: 'opened',
   repo: 'acme/widgets',
@@ -66,7 +66,7 @@ const reference = (overrides: Partial<ForgeReference> = {}): ForgeReference => (
   ...overrides,
 })
 
-const item = (overrides: Partial<ForgeReference> = {}): PublicationItem =>
+const item = (overrides: Partial<Exclude<ForgeReference, { kind: 'branch' }>> = {}): PublicationItem =>
   ({ id: 'p1', type: 'publication', reference: reference(overrides) }) as unknown as PublicationItem
 
 describe('the publication row', () => {
@@ -229,4 +229,13 @@ it('keeps Open reference and Copy link in the publication row’s sibling More m
     else delete (navigator as { clipboard?: unknown }).clipboard
     delete (window as unknown as { harnessdesk?: unknown }).harnessdesk
   }
+})
+
+it('branch publications and merged actions render a stable row before the record UI arrives', () => {
+  const branch: ForgeReference = { ...reference(), kind: 'branch', number: undefined, ref: 'feature/widgets', sha: 'a'.repeat(40), previousSha: null, title: 'feature/widgets', state: null }
+  expect(publicationVerb(branch)).toBe('Pushed')
+  expect(publicationVerb(reference({ action: 'merged' }))).toBe('Merged')
+  render({ id: 'branch' as PublicationItem['id'], type: 'publication', reference: branch })
+  expect(container.textContent).toContain('feature/widgets')
+  expect(container.textContent).toContain('aaaaaaa · new branch')
 })

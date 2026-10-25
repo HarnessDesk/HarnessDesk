@@ -124,7 +124,7 @@ lifetime({ type: 'bridge' })
 const cancelled = new Set()
 
 const newSession = (id0, cwd) => {
-  const id = id0 ?? `acp-session-${Date.now().toString(36)}-${++sessionCounter}`
+  const id = id0 ?? `acp-session-${process.pid}-${Date.now().toString(36)}-${++sessionCounter}`
   const state = {
     id,
     // Where the conversation ran. A real agent stores this and hands it back
@@ -286,6 +286,18 @@ const runPrompt = async (id, params) => {
   const say = (chunk) =>
     update(state.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk } })
 
+  if (text.startsWith('git-steer-run ')) {
+    const request = JSON.parse(text.slice('git-steer-run '.length)), command = [request.binary, ...request.args].join(' ')
+    update(state.id, { sessionUpdate: 'tool_call', toolCallId: 'git-write', title: command, kind: 'execute', status: 'in_progress', rawInput: { command } })
+    const child = spawn(request.binary, request.args, { cwd: state.cwd, env: process.env })
+    let output = ''
+    child.stdout.on('data', data => { output += data }); child.stderr.on('data', data => { output += data })
+    child.on('close', code => {
+      update(state.id, { sessionUpdate: 'tool_call_update', toolCallId: 'git-write', status: code === 0 ? 'completed' : 'failed', rawOutput: { stdout: output, exitCode: code } })
+      reply(id, { stopReason: 'end_turn' })
+    })
+    return
+  }
   if (text.includes('run a tool in this session')) {
     const { execFileSync } = await import('node:child_process')
     say(execFileSync('/bin/pwd', { cwd: state.cwd, encoding: 'utf8' }).trim())

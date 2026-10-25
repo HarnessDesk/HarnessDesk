@@ -63,6 +63,35 @@ brief:
 A report that shows any of those sentences to be false is exactly the report
 we want.
 
+## Worker configuration and git publication
+
+Gateway writes do not execute in the worker checkout. The host imports an
+exact reviewed commit and tree into its private bare mirror, validates the
+objects and pushes an explicit branch refspec to the host's pinned HTTPS
+repository, with a lease. Worker `remote.*`, `insteadOf`, `pushInsteadOf`,
+credential helpers, askpass programs, hooks and transfer configuration cannot
+redirect that push or run with the gateway credential. The host's one-shot
+helper consults the person's credentials from outside every checkout; forge
+mutations run in host state with an explicit repository. The first approved
+push pins the destination, and later origin mismatches refuse publication.
+
+The local steering socket has separate steering-only caller tokens. These
+are not general tool or MCP invocation tokens, and the stand-in strips desk
+tool tokens from real-binary children. An opaque shell alias or unsupported
+mutation refuses in Ask/Always modes. Forge body-file reads occur only after
+admission, are restricted to regular files inside the checkout, use
+nonblocking opens and are capped at 64 KiB. Closing a waiting caller withdraws
+its question and prevents the later write.
+
+Steering is not a second agent sandbox. An agent can use an absolute binary
+or another shell environment; concrete successful bypasses produce a warning
+and an outside observation rather than a guessed attribution. Forge reads
+still run through the built-in plugin's shell grant and can access the
+person's write-capable gh login. The gateway's isolated credential path does
+not remove that ambient access. Hash chains detect damaged record files;
+they do not defend against a malicious process already able to rewrite all
+of the same user's host state. See [the gateway architecture](docs/architecture.md#the-git-gateway).
+
 ## Out of scope
 
 - **Upstream agent vulnerabilities.** Flaws inside Codex, Claude Code,

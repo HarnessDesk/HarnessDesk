@@ -60,6 +60,10 @@
     {
       "id": "surface.signin",
       "implementationPath": "packages/ui/src/components/SignIn.tsx"
+    },
+    {
+      "id": "surface.git-gateway",
+      "implementationPath": "packages/ui/src/components/GitRecord.tsx"
     }
   ]
 }

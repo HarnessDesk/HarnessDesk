@@ -5,11 +5,22 @@ import { join } from 'node:path'
 import { after as afterAll, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+
+
 import type { ForgeEngine, TeamEngine } from '@harnessdesk/cordis-host'
 import type { ContributionId, RuntimeId, SessionId } from '@harnessdesk/protocol'
 
 import type { SupervisedExtensionHost, SupervisedExtensionHostOptions } from '../src/index.js'
 import { childrenGone, childrenUp, Hosts } from './hosts.js'
+
+const unavailableWrites = {
+  repository: async () => 'acme/widgets',
+  push: async () => { throw new Error('No gateway in this fixture') },
+  pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
+  review: async () => { throw new Error('No gateway in this fixture') },
+  comment: async () => { throw new Error('No gateway in this fixture') },
+  record: async () => [], attribute: async () => 'outside' as const,
+}
 
 /**
  * Process isolation, exercised for real: third-party plugins run in a child
@@ -562,6 +573,7 @@ test('a plugin without the grant cannot ride a granted sibling’s armed scope',
 test('a forge call rides its own invocation or is refused; the identity needs no scope', async () => {
   const seats: unknown[] = []
   const engine: ForgeEngine = {
+    ...unavailableWrites,
     seat: async (callScope) => {
       seats.push(callScope)
       return { agent: 'Codex', version: null, model: 'GPT-5.4', effort: 'High', thinking: false, label: 'Codex GPT-5.4 · High', role: null, round: null, team: null }
@@ -644,6 +656,7 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
     raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
   }
   const forge: ForgeEngine = {
+    ...unavailableWrites,
     seat: async (callScope) => {
       seats.push(callScope)
       return { agent: 'Codex', version: null, model: null, effort: null, thinking: false, label: 'Codex', role: null, round: null, team: null }

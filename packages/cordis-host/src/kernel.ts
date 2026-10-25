@@ -30,6 +30,7 @@ import {
 
 import { FsService, HttpService, ShellService, WorkspaceService } from './capabilities.js'
 import { BrowserService, setBrowserSettings, type BrowserSettings } from './browser.js'
+import { inForgeInvocation } from './forge-invocation.js'
 import { runBrowserInvocation, type BrowserIdentity } from './browser-scopes.js'
 import { EditorService } from './editor.js'
 import { TeamService } from './team.js'
@@ -461,7 +462,7 @@ export class ExtensionKernel implements CapabilityRegistry {
       // open one) and `ctx.shell`. With several Teams open, a relative read resolved against the open folder read
       // another Team's files.
       const execute = () => this.#runtime.withContextWorkspace(workspaceRoot, () =>
-        inShellWorkspace(workspaceRoot, () => asActor('agent', () => entry.executor!(args, scope))), admission.enterCheckout)
+        inShellWorkspace(workspaceRoot, () => asActor('agent', () => inForgeInvocation(owner, scope, () => entry.executor!(args, scope)))), admission.enterCheckout)
       return identity ? await runBrowserInvocation(identity, execute) : await execute()
     } catch (error) {
       if (error instanceof PermissionDenied) {
@@ -515,8 +516,8 @@ export class ExtensionKernel implements CapabilityRegistry {
       if (!resolver) continue
       try {
         // Scope every workspace capability to the host-admitted checkout, never the caller's hint.
-        const text = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
-          Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...scope })))), admission.enterCheckout), 5_000)
+        const text = await inForgeInvocation(String(contribution.owner), scope, () => withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
+          Promise.resolve(inShellWorkspace(workspaceRoot, () => resolver(Object.freeze({ ...scope })))), admission.enterCheckout), 5_000))
         if (typeof text === 'string' && text.trim().length > 0) {
           out.push({ label: contribution.label, text })
         }
@@ -546,8 +547,8 @@ export class ExtensionKernel implements CapabilityRegistry {
        Nothing offers it out of scope now, and this is the half that does not
        depend on the caller having asked the right question. */
     if (!scopeApplies(entry.contribution.scope, scope)) return null
-    const value = await withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
-      Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref))), admission.enterCheckout), 30_000)
+    const value = await inForgeInvocation(String(entry.contribution.owner), scope, () => withTimeout(this.#runtime.withContextWorkspace(workspaceRoot, () =>
+      Promise.resolve(inShellWorkspace(workspaceRoot, () => entry.resolver!(scope, ref))), admission.enterCheckout), 30_000))
     if (typeof value === 'string') return { label: entry.contribution.label, text: value }
     return {
       label: entry.contribution.label,
@@ -564,7 +565,7 @@ export class ExtensionKernel implements CapabilityRegistry {
     try {
       // A command is a person: they typed it, or pressed a control that names
       // it. An agent's slash commands go to the agent, never here.
-      await asActor('human', () => handler(argument, scope))
+      await asActor('human', () => inForgeInvocation(String(found.owner), scope, () => handler(argument, scope)))
     } catch (error) {
       // A command that exists and fails is not "unhandled" — it failed, and
       // the person who typed it deserves the reason, named.

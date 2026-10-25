@@ -1,3 +1,4 @@
+import { PullRequestRecord } from './GitRecord'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { LEAD_LIMITS, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, LeadSlot, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, Input, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
@@ -218,6 +219,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     focusDock(requestedDecisionFocus.current)
   }, [active, selectedDecision, state.revision])
   const cardProps = {
+    releasedBranch: pr,
     onPerform: (input: Parameters<typeof store.lead.perform>[0]) => store.lead.perform(input),
     focusCard: selectedDecision, decisionLock, decisionPending, setDecisionPending, expiry: state.planConsentExpiresAt, contract, budget: state.thread?.budget,
     onDecide: (decision: Parameters<typeof store.lead.decide>[0]) => { setError(null); return store.lead.decide(decision) }, onError: refusal, onSettled: () => input.current?.focus(),
@@ -250,6 +252,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           <Chip tone="neutral">{pr.branchOwner === 'person' ? 'Your branch' : 'Automatic repairs'}</Chip>
         </InlineParts></div>}
         {(state.waitReason === 'lead-handback-limit' || state.waitReason === 'lead-repair-recovery-failed') && <LeadCards {...cardProps} cards={[]} waitReason={state.waitReason} placement="thread" />}
+        {pr && state.thread?.project && <PullRequestRecord root={state.thread.project.path} reference={{ repo: pr.repository, number: pr.number }} branch={pr.branch} />}
         {live}
       </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
     </ConversationThread>

@@ -863,6 +863,64 @@ tool output** adds output from tools and commands, with those hits marked
 **Tool output**. Reasoning stays outside search, and the choice is remembered
 on this viewer.
 
+### Git writes and the Git record
+
+A gateway push arrives as the ordinary docked approval, titled **Push
+`branch` to `owner/repo`**. Repository, Branch and Head are `ApprovalMeta`
+facts. Its reason explains the host's own copy and recorded push; its answers
+are **Push**, **Push this branch without asking** and **Don't push**. A first
+push pins the project's repository. A rewrite always asks again.
+
+An agent's own command in Ask mode gets a docked steering card. `ApprovalCode`
+shows the command, `ApprovalMeta` shows Repository, Branch, Head and what it
+**Becomes**, and one `ApprovalReason` explains the choice. The answers are
+**Push through HarnessDesk**, **Let it use its own git** and **Don't push**.
+Own git is a one-off alternative, never a standing grant. Forge operations
+say **Write through HarnessDesk** and **Don't write**. An accepted steering
+card also approves the matching first push; it does not bypass rewrite
+approval. Refusals and results reach the command's own output and the thread.
+
+Branch publications read **Pushed**, a branch chip, and the short SHA with
+**new branch**, or the commit count on the previous head when known. A merged
+PR publication reads **Merged**, its PR chip and the **Merged** state pill.
+Always mode adds a notice row saying **Sent through HarnessDesk · your choice
+for this project**. A successful concrete write that bypassed the gateway
+gets **A push went around HarnessDesk**, or **A forge write went around
+HarnessDesk**, in the conversation's existing warning notice placement.
+Mentioning git in prose and dry runs do not raise this warning.
+
+A pull request's hover card has a **Record** section, also present in the
+Lead's PR panel. `SectionHead`, `Rows`, `Row` and `RowMark` show each write's
+operation and who, where and when. An outside head has an **Outside** title
+chip and says **Seen time. Not written through HarnessDesk, so no one here
+is named.** A commit author is never substituted for the unproven pusher.
+
+The project page places **Git record** after Checks and Provenance. Its
+**All / Outside / Refused** views show counts above `PageRecords`, with State,
+Where, Who and When columns. Rows open their conversation, Goal or forge
+reference. Pages show 50 entries and **Show earlier**; opening or focusing
+the page and branch/PR publications refresh it. An unpinned project says
+**No pushes yet. The first push you approve pins this project's repository.**
+
+**Settings › Permissions › Git writes** offers **Send agents' own pushes
+through HarnessDesk** as **Ask each time / Always / Never**, and **Record
+pushes HarnessDesk did not make** as a switch. Host writes are always
+recorded. Changes take effect at once in open conversations with steering
+installed. Turning steering back on for a conversation opened with Never
+requires a new conversation.
+
+The project's **Git writes** section shows **Pushes go to** as a read-only
+pin and **Agents' own pushes** as **As in Settings (current) / Always / Ask /
+Never**. One `MenuNote` explains that with Never, an agent's own push can
+still appear as Outside and is named for nobody; the global outside-recording
+switch controls those observations too.
+
+An outside change on the Lead's followed branch is a warning `Banner` headed
+**branch moved outside HarnessDesk**; a rewrite is a danger banner headed
+**branch was rewritten outside HarnessDesk**. They explain that pushes stop,
+checks and reviews continue, and nothing outside is attributed. **Take the
+branch back** uses the existing reclaim decision, bound to the observed head.
+
 ## The composer
 
 **Agent names a role; Runtime names the program that runs a conversation.**

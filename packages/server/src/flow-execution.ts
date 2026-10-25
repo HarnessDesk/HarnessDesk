@@ -1624,6 +1624,14 @@ export class FlowExecutions {
     return { operation, seat: operation?.seat ? this.#port.seatOf(operation.seat) : null }
   }
 
+  /** Only the run's merge grant for its frozen PR and reviewed head can skip a question. */
+  isMergeStep(goal: string, card: number, target: { readonly number: number; readonly head: string }): boolean {
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.state !== 'running' || found.run.document.format !== 'agents') return false
+    const binding = bindingsFor(found.run, found.round.role)[found.slot]
+    return binding?.grant === 'merge' && found.run.target?.pr === target.number && found.run.target.head === target.head
+  }
+
   /** Which conversation may take this card, or null for a card no v2 run bound. */
   bindingOf(goal: string, card: number): { readonly session: SeatRecord['session'] | null; readonly opening: boolean } | null {
     const found = this.#cardOf(goal, card)

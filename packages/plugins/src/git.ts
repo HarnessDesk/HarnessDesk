@@ -10,15 +10,10 @@ import { assessCheckRuns, type RequiredCheck } from './check-runs.js'
  * through `ctx.shell` rather than importing `child_process` is what keeps the
  * permission model honest for HarnessDesk's own code too.
  *
- * Two halves. The reads — status, diff, log, the chips — have always been
- * here. The `pr_*` and `issue_*` tools are how an agent publishes *through
- * the desk*: they reach GitHub with the person's own `gh`, exactly as the
- * agent's own shell would, and add the two things a shell cannot. The pull
- * request is signed for the seat that wrote it — which agent, on which
- * model, at which effort — in the line the person configured below; and what
- * was published is recorded in the conversation, as the object it is, through
- * `ctx.forge`. Both need the `forge` grant, and both are the desk's part of
- * the job; the forge is `gh`'s.
+ * Reads run under `shell`. Writes go through `ctx.forge` to the host's
+ * pinned GitGateway, which owns the credential and records the requester.
+ * The plugin composes seat signatures and transcript references.
+
  */
 
 /** Context is for reading, not for flooding a turn: past this, the tail is the agent's to fetch. */
@@ -742,8 +737,10 @@ export interface PullRequestCreatePort {
   runGit(args: readonly string[]): Promise<{ exitCode: number; stdout: string; stderr: string }>
   gh(args: readonly string[]): Promise<string>
   publicationAllowed(): Promise<void>
+  published?(branch: string, sha: string): Promise<boolean>
   description(body: string): Promise<string>
   viewPullRequest(selector: string): Promise<GhPullRequest>
+  create?(args: { head: string; title: string; body: string; base?: string; draft?: boolean }): Promise<string>
 }
 export const createPullRequest = async (port: PullRequestCreatePort, args: PullRequestCreateArgs): Promise<GhPullRequest> => {
   const { git, gh } = port
@@ -752,64 +749,69 @@ export const createPullRequest = async (port: PullRequestCreatePort, args: PullR
   if (title === '') throw new Error('A pull request needs a title.')
   const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'])
   if (branch === 'HEAD') throw new Error('The workspace is on a detached HEAD; check out a branch first.')
-  // Publication is from this branch on the repository's remote, even
-  // when it inherited an upstream such as origin/main at checkout.
-  const remotes = (await git(['remote'])).split('\n').filter((name) => name !== '')
-  const remote = remotes.includes('origin') ? 'origin' : (remotes[0] ?? 'origin')
-  const upstream = await port.runGit(['rev-parse', '--symbolic-full-name', '@{u}'])
-  // A check that never finished says nothing about the branch (#161, review of #239, round 1).
-  if (upstream.exitCode === -1) throw new Error(`Couldn't tell whether ${branch} has been pushed: ${upstream.stderr.trim()}`)
-  if (upstream.exitCode !== 0 || upstream.stdout.trim() !== `refs/remotes/${remote}/${branch}`) {
-    const remoteRef = `refs/heads/${branch}`
-    const remoteHead = await port.runGit(['ls-remote', '--heads', remote, remoteRef])
-    if (remoteHead.exitCode === -1) {
-      throw new Error(`Couldn't tell whether ${branch} has been pushed to ${remote}: ${remoteHead.stderr.trim()}`)
-    }
-    if (remoteHead.exitCode !== 0) {
-      throw new Error(`Couldn't tell whether ${branch} has been pushed to ${remote}: ${remoteHead.stderr.trim()}`)
-    }
-    const publishedHead = remoteHead.stdout
-      .split('\n')
-      .map((line) => line.trim().split(/\s+/))
-      .find(([, ref]) => ref === remoteRef)?.[0]
-    if (!publishedHead) {
-      throw new Error(
-        `Branch ${branch} has not been pushed. Push it first — \`git push -u ${remote} ${branch}\` — then call pr_create again; this tool never pushes.`,
-      )
-    }
-    const head = await git(['rev-parse', 'HEAD'])
-    if (publishedHead !== head) {
-      // Fetch the advertised object to count commits even when the
-      // remote has moved from another checkout and its tip is unknown
-      // locally. This writes no branch or FETCH_HEAD, never pushes,
-      // and must not run repository-configured hooks or maintenance.
-      const fetched = await port.runGit([
-        ...GIT_READ_HARDENING_ARGS,
-        '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
-        'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', remote, publishedHead,
-      ])
-      if (fetched.exitCode !== 0) {
-        throw new Error(`Couldn't compare ${branch} with ${remote}/${branch}: ${fetched.stderr.trim()}`)
+  // A host-owned push need not move this checkout's tracking ref. The host
+  // rechecks the actual remote immediately before creating the PR.
+  const published = port.published && await port.published(branch, await git(['rev-parse', 'HEAD']))
+  if (!published) {
+    // Publication is from this branch on the repository's remote, even
+    // when it inherited an upstream such as origin/main at checkout.
+    const remotes = (await git(['remote'])).split('\n').filter((name) => name !== '')
+    const remote = remotes.includes('origin') ? 'origin' : (remotes[0] ?? 'origin')
+    const upstream = await port.runGit(['rev-parse', '--symbolic-full-name', '@{u}'])
+    // A check that never finished says nothing about the branch (#161, review of #239, round 1).
+    if (upstream.exitCode === -1) throw new Error(`Couldn't tell whether ${branch} has been pushed: ${upstream.stderr.trim()}`)
+    if (upstream.exitCode !== 0 || upstream.stdout.trim() !== `refs/remotes/${remote}/${branch}`) {
+      const remoteRef = `refs/heads/${branch}`
+      const remoteHead = await port.runGit(['ls-remote', '--heads', remote, remoteRef])
+      if (remoteHead.exitCode === -1) {
+        throw new Error(`Couldn't tell whether ${branch} has been pushed to ${remote}: ${remoteHead.stderr.trim()}`)
       }
-      const difference = await git(['rev-list', '--left-right', '--count', `${publishedHead}...HEAD`])
-      const [remoteAhead, localAhead] = difference.split(/\s+/).map(Number)
-      if (!Number.isSafeInteger(remoteAhead) || !Number.isSafeInteger(localAhead)) {
-        throw new Error(`Couldn't compare ${branch} with ${remote}/${branch}: git returned an invalid commit count.`)
+      if (remoteHead.exitCode !== 0) {
+        throw new Error(`Couldn't tell whether ${branch} has been pushed to ${remote}: ${remoteHead.stderr.trim()}`)
       }
-      if (remoteAhead !== 0 || localAhead !== 0) {
+      const publishedHead = remoteHead.stdout
+        .split('\n')
+        .map((line) => line.trim().split(/\s+/))
+        .find(([, ref]) => ref === remoteRef)?.[0]
+      if (!publishedHead) {
         throw new Error(
-          `Branch ${branch} is ${localAhead} commit${localAhead === 1 ? '' : 's'} ahead of ${remote}/${branch} and ` +
-            `${remoteAhead} commit${remoteAhead === 1 ? '' : 's'} behind it. ` +
-            `Reconcile them before calling pr_create; this tool never pushes.`,
+          `Branch ${branch} has not been pushed. Push it first with \`git_push\` — then call pr_create again; this tool never pushes.`,
         )
       }
-    }
-  } else {
-    const unpushed = await git(['rev-list', '--count', '@{u}..HEAD'])
-    if (unpushed !== '0') {
-      throw new Error(
-        `${unpushed} commit${unpushed === '1' ? ' is' : 's are'} not pushed yet. Run \`git push\`, then call pr_create again; this tool never pushes.`,
-      )
+      const head = await git(['rev-parse', 'HEAD'])
+      if (publishedHead !== head) {
+        // Fetch the advertised object to count commits even when the
+        // remote has moved from another checkout and its tip is unknown
+        // locally. This writes no branch or FETCH_HEAD, never pushes,
+        // and must not run repository-configured hooks or maintenance.
+        const fetched = await port.runGit([
+          ...GIT_READ_HARDENING_ARGS,
+          '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
+          'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', remote, publishedHead,
+        ])
+        if (fetched.exitCode !== 0) {
+          throw new Error(`Couldn't compare ${branch} with ${remote}/${branch}: ${fetched.stderr.trim()}`)
+        }
+        const difference = await git(['rev-list', '--left-right', '--count', `${publishedHead}...HEAD`])
+        const [remoteAhead, localAhead] = difference.split(/\s+/).map(Number)
+        if (!Number.isSafeInteger(remoteAhead) || !Number.isSafeInteger(localAhead)) {
+          throw new Error(`Couldn't compare ${branch} with ${remote}/${branch}: git returned an invalid commit count.`)
+        }
+        if (remoteAhead !== 0 || localAhead !== 0) {
+          throw new Error(
+            `Branch ${branch} is ${localAhead} commit${localAhead === 1 ? '' : 's'} ahead of ${remote}/${branch} and ` +
+              `${remoteAhead} commit${remoteAhead === 1 ? '' : 's'} behind it. ` +
+              `Reconcile them before calling pr_create; this tool never pushes.`,
+          )
+        }
+      }
+    } else {
+      const unpushed = await git(['rev-list', '--count', '@{u}..HEAD'])
+      if (unpushed !== '0') {
+        throw new Error(
+          `${unpushed} commit${unpushed === '1' ? ' is' : 's are'} not pushed yet. Call \`git_push\`, then call pr_create again; this tool never pushes.`,
+        )
+      }
     }
   }
   const existing = JSON.parse(
@@ -821,10 +823,11 @@ export const createPullRequest = async (port: PullRequestCreatePort, args: PullR
     )
   }
   await port.publicationAllowed()
-  const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', await port.description(body)]
+  const description = await port.description(body)
+  const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', description]
   if (typeof args.base === 'string' && args.base.trim() !== '') argv.push('--base', args.base.trim())
   if (args.draft === true) argv.push('--draft')
-  const created = await gh(argv)
+  const created = port.create ? await port.create({ head: branch, title, body: description, ...(args.base ? { base: args.base } : {}), ...(args.draft ? { draft: true } : {}) }) : await gh(argv)
   const url = created.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? ''
   return port.viewPullRequest(url || branch)
 }
@@ -834,8 +837,8 @@ export const gitPlugin: HarnessPlugin = {
     id: 'git',
     name: 'Git',
     description:
-      'Git tools: status, diff, log and branch context; pull requests, reviews and issues on GitHub through gh, signed for the conversation and recorded in it.',
-    permissions: { workspace: { read: true, write: false }, shell: true, forge: true },
+      'Git tools: status, diff, log and branch context; host-executed branch pushes and pull request, review and comment writes through the pinned Git gateway, signed for the conversation and recorded in it; forge reads use gh.',
+    permissions: { workspace: { read: true, write: false }, shell: true, forge: { publish: true, write: true } },
     configSchema: {
       type: 'object',
       description: 'Signature placeholders: {role}, {round}, {team}, {seat}, {agent}, {model}, {effort}, {version}, {thinking}. {seat} includes the agent, model and effort. Round appears after round 1; Team fields are omitted outside a Team. Leave a template empty to turn that signature off.',
@@ -890,8 +893,7 @@ export const gitPlugin: HarnessPlugin = {
         return result.stdout.trim()
       }
 
-      // gh uses the person's own login; HarnessDesk holds no token. A
-      // minute, because a create waits on GitHub and the person's network.
+      // Forge reads stay on shell. Every mutation goes through ctx.forge.
       const gh = async (args: readonly string[]): Promise<string> => {
         if (!ctx.workspace.root) throw new Error('No workspace is open.')
         const result = await ctx.shell.run('gh', args, { timeoutMs: 60_000 })
@@ -899,8 +901,17 @@ export const gitPlugin: HarnessPlugin = {
         return result.stdout.trim()
       }
 
-      const viewPullRequest = async (selector: string): Promise<GhPullRequest> =>
-        JSON.parse(await gh(['pr', 'view', selector, '--json', PR_FIELDS])) as GhPullRequest
+      const repositoryFor = async (scope: ScopeQuery): Promise<string> => {
+        const repository = await ctx.forge.repository(scope)
+        if (!repository) throw new Error('This project has no pinned repository. Push this branch with git_push and approve its repository first.')
+        return repository
+      }
+      const ghFor = (repository: string) => (args: readonly string[]) => gh(
+        args[0] === 'pr' || args[0] === 'issue' ? [...args, '--repo', repository] : args,
+      )
+
+      const viewPullRequest = async (selector: string, repository?: string): Promise<GhPullRequest> =>
+        JSON.parse(await (repository ? ghFor(repository) : gh)(['pr', 'view', selector, '--json', PR_FIELDS])) as GhPullRequest
 
       /** The pull request or issue number a call names, or null when none was given. */
       const selectorOf = (number: unknown): string | null => {
@@ -917,11 +928,11 @@ export const gitPlugin: HarnessPlugin = {
         throw new Error(`"number" must be a positive integer, got ${typeof number}.`)
       }
 
-      const pullRequestFor = async (number: unknown): Promise<GhPullRequest> => {
+      const pullRequestFor = async (number: unknown, repository?: string): Promise<GhPullRequest> => {
         const selector = selectorOf(number)
-        if (selector !== null) return viewPullRequest(selector)
+        if (selector !== null) return viewPullRequest(selector, repository)
         try {
-          return await viewPullRequest('')
+          return await viewPullRequest('', repository)
         } catch (error) {
           throw new Error(
             `${error instanceof Error ? error.message : String(error)} — no pull request number was given, and the current branch has none open.`,
@@ -985,7 +996,7 @@ export const gitPlugin: HarnessPlugin = {
 
       const referenceOf = (
         pr: GhPullRequest,
-        fields: Pick<ForgeReference, 'kind' | 'action' | 'via'> & { url?: string; signature?: string | null },
+        fields: { kind: Exclude<ForgeReference['kind'], 'branch'>; action?: ForgeReference['action']; via: ForgeReference['via'] } & { url?: string; signature?: string | null },
       ): ForgeReference => ({
         kind: fields.kind,
         action: fields.action,
@@ -1111,6 +1122,38 @@ export const gitPlugin: HarnessPlugin = {
       // ------------------------------------------------------- the forge
 
       ctx.tools.register({
+        name: 'git_push',
+        title: 'Push a branch',
+        description: 'Push the current branch through HarnessDesk, as you, to the repository pinned for this project. New branches and rewrites ask you first. Every write is kept in the project’s Git record.',
+        inputSchema: { type: 'object', properties: { branch: { type: 'string', description: 'The current branch; defaults to the checkout’s branch.' }, set_upstream: { type: 'boolean', description: 'Set the local upstream after the push succeeds.' } } },
+        execute: async (args: { branch?: string; set_upstream?: boolean }, scope) => {
+          const sourceBranch = await git(['branch', '--show-current'])
+          const branch = args.branch ?? sourceBranch
+          if (!branch || branch === 'HEAD') throw new Error('The workspace is on a detached HEAD; check out a branch first.')
+          const sha = await git(['rev-parse', 'HEAD'])
+          const rows = await ctx.forge.record({ branch, limit: 1000 }, scope)
+          // A refused attempt's sha is the proposed commit, not the remote lease.
+          const previous = rows.find(row => row.sha && row.outcome === 'ok')
+          const expect = previous?.sha ? { head: previous.sha } : 'create' as const
+          const result = await ctx.forge.push({ branch, sha, expect }, scope)
+          let commits: number | undefined
+          if (previous?.sha) { try { const value = Number(await git(['rev-list', '--count', `${previous.sha}..${sha}`])); if (Number.isSafeInteger(value) && value >= 0) commits = value } catch { /* A rewrite may no longer contain the previous head locally. */ } }
+          const reference: ForgeReference = { kind: 'branch', action: previous?.sha ? 'updated' : 'opened', repo: result.repository,
+            ref: branch, sha, previousSha: previous?.sha ?? null, ...(commits !== undefined ? { commits } : {}), url: `https://github.com/${result.repository}/tree/${branch.split('/').map(encodeURIComponent).join('/')}`,
+            title: branch, state: null, author: null, additions: null, deletions: null, files: null, excerpt: null, via: 'gh', signature: null }
+          let upstreamNote: string | null = null
+          if (args.set_upstream === true) {
+            try {
+              await git(['update-ref', `refs/remotes/origin/${branch}`, sha])
+              await git(['branch', `--set-upstream-to=origin/${branch}`, sourceBranch])
+            } catch (error) { upstreamNote = `Pushed, but the local upstream could not be set: ${error instanceof Error ? error.message : String(error)}` }
+          }
+          const note = await publish(reference, scope)
+          return [result.output, upstreamNote, note].filter(Boolean).join('\n')
+        },
+      })
+
+      ctx.tools.register({
         name: 'pr_create',
         title: 'Open a pull request',
         description:
@@ -1126,10 +1169,17 @@ export const gitPlugin: HarnessPlugin = {
           required: ['title', 'body'],
         },
         execute: async (args: { title: string; body: string; base?: string; draft?: boolean }, scope) => {
+          await publicationAllowed(scope)
+          const repository = await repositoryFor(scope)
+          const pinnedGh = ghFor(repository)
+          const pinnedView = (selector: string) => viewPullRequest(selector, repository)
+
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
-          const pr = await createPullRequest({ git, runGit: args => ctx.shell.run('git', args), gh, viewPullRequest,
+          const pr = await createPullRequest({ git, runGit: args => ctx.shell.run('git', args), gh: pinnedGh, viewPullRequest: pinnedView,
             publicationAllowed: () => publicationAllowed(scope),
+            published: async (branch, sha) => { const rows = await ctx.forge.record({ branch, limit: 1000 }, scope); const latest = rows.find(row => row.outcome === 'ok' && (row.op === 'push' || row.op === 'observed')); return latest?.op === 'push' && latest.sha === sha && latest.requester.kind !== 'outside' },
+            create: async args => (await ctx.forge.pullRequest.create(args, scope)).output,
             description: async body => deskMarked(signDescription(unmarkedPost(body), signed.template, seat)),
           }, args)
           const note = await publish(
@@ -1162,7 +1212,11 @@ export const gitPlugin: HarnessPlugin = {
           },
         },
         execute: async (args: { number?: number; title?: string; body?: string; base?: string }, scope) => {
-          const current = await pullRequestFor(args.number)
+          await publicationAllowed(scope)
+          const repository = await repositoryFor(scope)
+          const pinnedView = (selector: string) => viewPullRequest(selector, repository)
+
+          const current = await pullRequestFor(args.number, repository)
           const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'])
           if (branch === 'HEAD') throw new Error('The workspace is on a detached HEAD; check out this session’s branch first.')
           if (current.headRefName !== branch) {
@@ -1170,25 +1224,26 @@ export const gitPlugin: HarnessPlugin = {
           }
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
-          const argv = ['pr', 'edit', String(current.number)]
+          const update: { number: number; title?: string; body?: string; base?: string } = { number: current.number }
           let changed = 0
           if (typeof args.title === 'string' && args.title.trim() !== '') {
-            argv.push('--title', args.title.trim())
+            update.title = args.title.trim()
             changed += 1
           }
           if (typeof args.body === 'string') {
             // What the desk signed with last time is read off GitHub's own
             // copy, so a body passed back without the mark still loses it.
-            argv.push('--body', deskMarked(signDescription(unmarkedPost(args.body), signed.template, seat, current.body)))
+            update.body = deskMarked(signDescription(unmarkedPost(args.body), signed.template, seat, current.body))
             changed += 1
           }
           if (typeof args.base === 'string' && args.base.trim() !== '') {
-            argv.push('--base', args.base.trim())
+            update.base = args.base.trim()
             changed += 1
           }
           if (changed === 0) throw new Error('Nothing to change: give a title, a body or a base.')
-          await gh(argv)
-          const pr = await viewPullRequest(String(current.number))
+          await publicationAllowed(scope)
+          await ctx.forge.pullRequest.update(update, scope)
+          const pr = await pinnedView(String(current.number))
           const note = await publish(
             referenceOf(pr, {
               kind: 'pullRequest',
@@ -1224,6 +1279,11 @@ export const gitPlugin: HarnessPlugin = {
           required: ['number', 'head'],
         },
         execute: async (args: { number?: number; head?: string; method?: string }, scope) => {
+          await publicationAllowed(scope)
+          const repository = await repositoryFor(scope)
+          const pinnedGh = ghFor(repository)
+          const pinnedView = (selector: string) => viewPullRequest(selector, repository)
+
           const selector = selectorOf(args.number)
           if (selector === null) throw new Error('Name the pull request to merge by its number.')
           const head = String(args.head ?? '').trim()
@@ -1234,13 +1294,13 @@ export const gitPlugin: HarnessPlugin = {
           if (method !== 'squash' && method !== 'merge' && method !== 'rebase') {
             throw new Error('method must be squash, merge or rebase.')
           }
-          const current = await viewPullRequest(selector)
-          const requiredChecks = await readRequiredChecks(gh, repoOf(current.url), current.baseRefName)
+          const current = await pinnedView(selector)
+          const requiredChecks = await readRequiredChecks(pinnedGh, repository, current.baseRefName)
           let runs: { name: string; id: number | string; started_at: string | null; status: string; conclusion: string | null }[]
           try {
-            const raw = await gh([
+            const raw = await pinnedGh([
               'api',
-              `repos/${repoOf(current.url)}/commits/${head}/check-runs?per_page=100`,
+              `repos/${repository}/commits/${head}/check-runs?per_page=100`,
               '--paginate',
               '--jq',
               '.check_runs[]',
@@ -1263,16 +1323,16 @@ export const gitPlugin: HarnessPlugin = {
           if (method !== 'rebase') {
             let setting: unknown = null
             try {
-              const answer = JSON.parse(await gh(['api', `repos/${repoOf(current.url)}`, '--jq', '{squash: .squash_merge_commit_message, merge: .merge_commit_message}'])) as Record<string, unknown>
+              const answer = JSON.parse(await pinnedGh(['api', `repos/${repository}`, '--jq', '{squash: .squash_merge_commit_message, merge: .merge_commit_message}'])) as Record<string, unknown>
               setting = method === 'squash' ? answer['squash'] ?? answer['squash_merge_commit_message'] : answer['merge'] ?? answer['merge_commit_message']
             } catch {
               setting = null
             }
             if (setting === 'PR_BODY') body = unmarked(current.body ?? '').trim()
           }
-          await gh(['pr', 'merge', selector, `--${method}`, '--match-head-commit', head, ...(body !== null ? ['--body', body] : [])])
-          const pr = await viewPullRequest(selector)
-          const note = await publish(referenceOf(pr, { kind: 'pullRequest', via: await viaOf(scope) }), scope)
+          await ctx.forge.pullRequest.merge({ number: current.number, method, head, ...(body !== null ? { body } : {}) }, scope)
+          const pr = await pinnedView(selector)
+          const note = await publish(referenceOf(pr, { kind: 'pullRequest', action: 'merged', via: await viaOf(scope) }), scope)
           return [`Merged pull request #${pr.number}: ${pr.title}`, pr.url, note]
             .filter((line) => line !== null && line !== '')
             .join('\n')
@@ -1294,6 +1354,10 @@ export const gitPlugin: HarnessPlugin = {
           required: ['event', 'body'],
         },
         execute: async (args: { number?: number; event: string; body: string }, scope) => {
+          await publicationAllowed(scope)
+          const repository = await repositoryFor(scope)
+          const pinnedGh = ghFor(repository)
+
           const flag =
             args.event === 'approve'
               ? '--approve'
@@ -1306,15 +1370,15 @@ export const gitPlugin: HarnessPlugin = {
           const body = String(args.body ?? '').trim()
           if (body === '' && flag !== '--approve') throw new Error('A review that is not an approval needs a body.')
           await publicationAllowed(scope)
-          const pr = await pullRequestFor(args.number)
+          const pr = await pullRequestFor(args.number, repository)
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.reviewSignature, DEFAULT_REVIEW_SIGNATURE)
           const review = signed.line === null ? body : body === '' ? signed.line : `${signed.line}\n\n${body}`
-          await gh(['pr', 'review', String(pr.number), flag, '--body', deskMarked(review)])
+          await ctx.forge.review({ number: pr.number, event: args.event === 'request_changes' ? 'request-changes' : args.event as 'approve' | 'comment', body: deskMarked(review) }, scope)
           // `gh pr review` prints no address for what it posted; the API knows.
           let url = pr.url
           try {
-            const last = await gh(['api', `repos/${repoOf(pr.url)}/pulls/${pr.number}/reviews`, '--jq', '.[-1].html_url'])
+            const last = await pinnedGh(['api', `repos/${repository}/pulls/${pr.number}/reviews`, '--jq', '.[-1].html_url'])
             if (/^https?:\/\//.test(last)) url = last
           } catch {
             // The pull request's own address is a fine second best.
@@ -1344,13 +1408,16 @@ export const gitPlugin: HarnessPlugin = {
           required: ['body'],
         },
         execute: async (args: { number?: number; body: string }, scope) => {
+          await publicationAllowed(scope)
+          const repository = await repositoryFor(scope)
+
           const body = String(args.body ?? '').trim()
           if (body === '') throw new Error('A comment needs a body.')
           await publicationAllowed(scope)
-          const pr = await pullRequestFor(args.number)
+          const pr = await pullRequestFor(args.number, repository)
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.commentSignature, DEFAULT_COMMENT_SIGNATURE)
-          const posted = await gh(['pr', 'comment', String(pr.number), '--body', deskMarked(signComment(body, signed.line))])
+          const { output: posted } = await ctx.forge.comment({ subject: 'pullRequest', number: pr.number, body: deskMarked(signComment(body, signed.line)) }, scope)
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? pr.url
           const note = await publish(referenceOf(pr, { kind: 'comment', action: 'posted', via: await viaOf(scope), url, signature: signed.line }), scope)
           return [`Commented on pull request #${pr.number}: ${pr.title}`, url, note]
@@ -1446,16 +1513,20 @@ export const gitPlugin: HarnessPlugin = {
           required: ['number', 'body'],
         },
         execute: async (args: { number: number; body: string }, scope) => {
+          await publicationAllowed(scope)
+          const repository = await repositoryFor(scope)
+          const pinnedGh = ghFor(repository)
+
           const selector = selectorOf(args?.number)
           if (selector === null) throw new Error('Which issue? Give its number.')
           const body = String(args.body ?? '').trim()
           if (body === '') throw new Error('A comment needs a body.')
           // An issue number may be the bound pull request's own conversation: the embargo holds here too.
           await publicationAllowed(scope)
-          const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', 'number,title,state,url,author'])) as GhIssue
+          const issue = JSON.parse(await pinnedGh(['issue', 'view', selector, '--json', 'number,title,state,url,author'])) as GhIssue
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.commentSignature, DEFAULT_COMMENT_SIGNATURE)
-          const posted = await gh(['issue', 'comment', String(issue.number), '--body', deskMarked(signComment(body, signed.line))])
+          const { output: posted } = await ctx.forge.comment({ subject: 'issue', number: issue.number, body: deskMarked(signComment(body, signed.line)) }, scope)
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? issue.url
           const note = await publish(
             {

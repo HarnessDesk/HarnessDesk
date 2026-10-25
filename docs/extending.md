@@ -73,7 +73,7 @@ never runs half-wired.
 | `ctx.browser` | A real browser in the DevTools protocol — see [browser control](browser-control.md) |
 | `ctx.editor` | The file the person is looking at — show it, mark it, edit it |
 | `ctx.team` | The shared board and messages between conversations |
-| `ctx.forge` | The seat a publication is signed as, and the record of it in the conversation |
+| `ctx.forge` | Signing and transcript publication (`forge.publish`); host-executed push, PR, review and comment writes (`forge.write`): “Push branches and open, update and merge pull requests through HarnessDesk, as you, recorded in the project's Git record.” |
 | `ctx.ios` | The iOS Simulator, via `simctl` |
 | `ctx.android` | Android devices and emulators, via `adb` |
 | `ctx.workspace` | The root the call runs in, and its git branch when that is the open project |
@@ -612,10 +612,12 @@ Five things worth knowing:
 
 ### The forge plane
 
-`ctx.forge` is what the desk adds around a git forge a plugin reaches on its
-own. The Git plugin talks to GitHub with the person's `gh` under its `shell`
-grant — that is deliberate, and it is where the credential stays — and asks
-the desk for the two things a shell cannot know:
+`ctx.forge` signs and records publications and executes writes through the
+host's pinned Git gateway. The built-in Git plugin's forge reads still use
+the person's `gh` under its `shell` grant. Those reads can reach the person's
+write-capable gh login: credential isolation is incomplete until reads move
+behind the host in a later round. The built-in plugin's writes are host-only.
+The desk also supplies what a shell cannot know:
 
 ```ts
 // Which agent, on which model, at which effort, made this tool call.
@@ -645,9 +647,47 @@ Three things worth knowing:
 - **Null signs nothing.** A call the desk cannot place — no conversation
   behind it, or a host with no forge plane — gets no seat, and a signature
   built from a guess would be a false one. Say so in the result instead.
-- **Requires `forge: true`**, which is described to the person as “Sign pull
-  requests, reviews and comments for the conversation, and put what it published in the
-  transcript”. The reach itself is `shell`'s.
+- **Grants:** `forge: true` retains publish-only consent: “Sign pull requests,
+  reviews and comments for the conversation, with its Team name, and put what
+  it published in the transcript”. `forge: { publish: true, write: true }` also
+  grants host-executed writes: “Push branches and open, update and merge pull
+  requests through HarnessDesk, as you, recorded in the project's Git record.”
+  The write verbs are `push`, `pullRequest.create`, `pullRequest.update`,
+  `pullRequest.merge`, `review` and `comment`. `repository`, `record` and
+  `attribute` accept either grant. `repository(scope)` returns the approved
+  pin or null; reads
+  preceding a write must refuse without a pin and bind `gh` to that pin. The
+  host derives the requester from the live invocation and the destination
+  from the project's approved pin; neither is a tool argument.
+  Write execution and the gateway's one-shot credential configuration stay
+  with the host; they are stripped from plugin-shell environments. This does
+  not remove the shell's access to the person's own gh login, as described
+  above. `shell` remains the Git plugin's capability for reads and local
+  upstream configuration. Commands record the person as requester; context
+  resolvers cannot call write verbs. Gateway approvals have their own wait,
+  keep child invocations alive while pending, and report timeout explicitly.
+
+The write API is invocation-scoped:
+
+```ts
+await ctx.forge.push({ branch, sha, expect: 'create' }, scope)
+await ctx.forge.pullRequest.create({ head: branch, base, title, body, draft }, scope)
+await ctx.forge.pullRequest.update({ number, title, body }, scope)
+await ctx.forge.pullRequest.merge({ number, head: reviewedSha, method: 'squash' }, scope)
+await ctx.forge.review({ number, event: 'comment', body }, scope)
+await ctx.forge.comment({ subject: 'issue', number, body }, scope)
+const entries = await ctx.forge.record({ branch, limit: 50 }, scope)
+const requester = await ctx.forge.attribute({ branch, sha }, scope)
+```
+
+The repository is the host's approved project pin, never an argument to these
+verbs. For an unpinned project, `git_push` proposes its origin and asks the
+person to approve and pin it. The tool derives the current checkout HEAD,
+refuses default/protected bases, sets a local upstream only when requested,
+and publishes a branch row after the host reports success. A plugin cannot
+replace that requester with a commit author. An unmatched head is `outside`.
+The built-in Git plugin's shell capability remains for reads and local
+upstream metadata; publishing mutations use `forge.write`.
 
 `ForgeSeat` (and `ForgeSeatInfo` across the child boundary) carries `agent`,
 `version`, `model`, `effort`, `thinking` and `label`, plus nullable `role`,
@@ -778,7 +818,7 @@ privileged path:
 
 | Plugin | Engine | What it adds |
 | --- | --- | --- |
-| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `pr_create`, `pr_update`, `pr_review`, `pr_comment`, `pr_view`, `pr_checks`, `pr_merge`, `issue_view` and `issue_comment` through `gh`, signed for the conversation's seat and recorded in it |
+| git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `git_push` and the PR/comment writes through the host's pinned gateway, signed for the conversation's seat and recorded in it; `pr_view`, `pr_checks` and `issue_view` read through `gh` |
 | files | `ctx.fs` | read and list within the workspace (read-only &mdash; see [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)) |
 | search | `ctx.fs` | content and filename search |
 | task list | — | `todo_write` / `todo_read` for an agent whose runtime has no plan tool of its own; the sidebar's Tasks panel is the app's and is read from the conversation, not from here |

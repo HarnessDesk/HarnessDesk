@@ -8587,7 +8587,11 @@ export class AppStore {
     }
   }
 
+  readonly #gitRecordListeners = new Set<() => void>()
+  onGitRecordChange(listener: () => void): () => void { this.#gitRecordListeners.add(listener); return () => this.#gitRecordListeners.delete(listener) }
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    const published = event.type === 'item/completed' ? [event.item] : event.type === 'turn/completed' ? event.turn.items : []
+    if (published.some(item => item.type === 'publication' && (item.reference.kind === 'branch' || item.reference.kind === 'pullRequest'))) for (const listener of this.#gitRecordListeners) listener()
     if (event.type === 'approval/requested') {
       const key = sessionKey(runtime, event.approval.sessionId)
       if (this.#snapshot.approvals.some((entry) => entry.key === key && entry.approval.id === event.approval.id)) return

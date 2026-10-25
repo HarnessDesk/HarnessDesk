@@ -1934,6 +1934,8 @@ test('git RPCs refuse a root nobody opened', async (t) => {
 const RELATIVE_ROOT_ASKS: {
   readonly [M in Extract<HostMethodName, `git/${string}`>]: Omit<HostParams<M>, 'root'>
 } = {
+  'git/record/list': {},
+  'git/record/attribute': { branch: 'x', sha: 'a'.repeat(40) },
   'git/status': {},
   'git/branches': {},
   'git/checkout': { branch: 'not-a-branch' },

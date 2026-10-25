@@ -71,8 +71,8 @@ const Message = ({ className, align, rhythm, ...props }: MessageProps) => (
  * fixed full width gives the percentage the same row every time, whichever
  * way the message aligns.
  */
-const MessageContent = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="message-content" className={cn('flex w-full min-w-0 max-w-full flex-col gap-(--hd-space-1)', className)} {...props} />
+const MessageContent = ({ className, align = 'start', ...props }: React.ComponentProps<'div'> & { align?: 'start' | 'end' }) => (
+  <div data-slot="message-content" className={cn('flex w-full min-w-0 max-w-full flex-col', align === 'end' ? 'items-end gap-(--hd-space-1-5)' : 'gap-(--hd-space-1)', className)} {...props} />
 )
 
 /**
@@ -92,7 +92,7 @@ const messageFooterVariants = cva(
     variants: {
       align: {
         start: 'w-full',
-        end: '',
+        end: 'gap-(--hd-space-2)',
       },
     },
     defaultVariants: { align: 'start' },

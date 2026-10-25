@@ -178,7 +178,7 @@ Script it, or let your agent run it. [Docs →](docs/cli.md)
 - **[Hand-off](docs/multi-agent.md#2-hand-offs-passing-the-baton):** pass a conversation to another agent with a packet it can pick up.
 - **[A browser per Seat](docs/browser-control.md):** each agent opens, clicks and reads its own pages.
 - **[Agents](docs/agents.md):** reusable briefs and ceilings, with ten built-in roles to start from.
-- **Plugins.** Twelve built in. HarnessDesk projects its 73 built-in plugin tools into each agent’s tool interface. [Docs →](docs/extending.md)
+- **Plugins.** Twelve built in. HarnessDesk projects its 74 built-in plugin tools into each agent’s tool interface. [Docs →](docs/extending.md)
 - **[One policy, one audit log](docs/architecture.md):** the same rules, whichever agent asked.
 
 ## Install

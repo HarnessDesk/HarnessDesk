@@ -1,3 +1,4 @@
+import { ProjectGitRecord, ProjectGitWrites } from './GitRecord'
 import { useDestinationActive } from '../panels/destination-page'
 import { PageExplanation, MenuItem, Button, Toolbar } from '../design'
 import { FolderOpenIcon, TrashIcon } from './Icons'
@@ -144,6 +145,8 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
       </Section>
       <ProjectChecks root={root} />
       <ProjectProvenance root={root} />
+      <ProjectGitRecord root={root} />
+      <ProjectGitWrites root={root} />
       {memoryOpen ? (
         <Section title="Memory">
           {openGoals && openGoals.length > 0 && (

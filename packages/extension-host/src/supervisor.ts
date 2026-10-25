@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +8,8 @@ import {
   canonicalScopeQuery,
   setEditorEngine,
   setForgeEngine,
+  validateForgeArgs,
+  type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeVerb,
   setTeamEngine,
   type BrowserEngine,
   type BrowserSettings,
@@ -72,6 +75,12 @@ const DEFAULT_INVOKE_TIMEOUT_MS = 30_000
 /** Restart delays; after the last one the host stays down until asked again. */
 const BACKOFF_MS = [250, 1000, 4000]
 
+interface ForgeLease {
+  readonly controller: AbortController
+  readonly scope: ForgeScope
+  readonly resume: ReturnType<typeof AsyncLocalStorage.snapshot>
+  hold: () => () => void
+}
 interface Pending {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
@@ -132,6 +141,7 @@ export class PluginHostProcess {
    * for it, never as an arbitrary live session.
    */
   readonly #teamScopes = new Map<string, number>()
+  readonly #forgeLifetimes = new Map<string, Set<ForgeLease>>()
   #crashes = 0
   #browser: BrowserSettingsWire | null = null
   #startedAt = 0
@@ -413,6 +423,44 @@ export class PluginHostProcess {
           refuse(
             'Refused: this forge call does not ride a live invocation the host dispatched to this plugin for that conversation, so it cannot be attributed. Forge verbs work only while a tool call, context resolution, or command for that conversation — dispatched to this plugin, which must be granted `forge` — is in flight.',
           )
+          return
+        }
+        const verb = request.method.slice(6) as ForgeVerb
+        if (['push', 'create', 'update', 'merge', 'review', 'comment', 'record', 'attribute', 'repository'].includes(verb)) {
+          const plugin = this.#plugins.find(entry => String(entry.instanceId) === scope.plugin)
+          const grant = plugin?.permissions.forge
+          if (!['record', 'attribute', 'repository'].includes(verb) && !(typeof grant === 'object' && grant.write === true)) {
+            refuse('Permission denied: forge.write'); return
+          }
+          validateForgeArgs(verb, params['args'])
+          // The parent stamps the actor, turn and lifetime; none is a child's claim.
+          const leases = this.#forgeLifetimes.get(teamScopeKey(scope.runtime!, scope.sessionId!, scope.plugin!))
+          if (leases?.size !== 1) { refuse('This forge call has no unambiguous live invocation.'); return }
+          const lease = leases.values().next().value
+          if (!lease) { refuse('This forge call has no live invocation.'); return }
+          if (!['record', 'attribute', 'repository'].includes(verb) && lease.scope.actor === 'context') {
+            refuse('Context resolution cannot write to the forge.'); return
+          }
+          const trusted = { ...lease.scope, plugin: scope.plugin, signal: lease.controller.signal }
+          const release = lease.hold()
+          try {
+            await lease.resume(async () => {
+              const args = params['args']
+              let result: unknown
+              switch (verb) {
+                case 'repository': result = await plane.repository(trusted); break
+                case 'push': result = await plane.push(args as ForgePush, trusted); break
+                case 'create': result = await plane.pullRequest.create(args as ForgeCreate, trusted); break
+                case 'update': result = await plane.pullRequest.update(args as ForgeUpdate, trusted); break
+                case 'merge': result = await plane.pullRequest.merge(args as ForgeMerge, trusted); break
+                case 'review': result = await plane.review(args as ForgeReview, trusted); break
+                case 'comment': result = await plane.comment(args as ForgeComment, trusted); break
+                case 'record': result = await plane.record(args as ForgeRecordQuery, trusted); break
+                case 'attribute': result = await plane.attribute(args as ForgeAttribute, trusted); break
+              }
+              reply({ response: request.request, result })
+            })
+          } finally { release() }
           return
         }
         switch (request.method) {
@@ -774,12 +822,24 @@ export class PluginHostProcess {
       }
     }
     const armKeys = this.#armedScopesFor(method, params)
+    const controller = new AbortController()
+    const inputScope = (params as { scope?: ScopeQuery; query?: ScopeQuery }).scope ?? (params as { query?: ScopeQuery }).query ?? {}
+    const lifetime: ForgeLease = { controller, resume: AsyncLocalStorage.snapshot(), hold: () => () => {},
+      scope: { ...inputScope, actor: method === 'command/run' ? 'human' : method.startsWith('context/') ? 'context' : 'agent' } }
+    for (const key of armKeys) {
+      const lifetimes = this.#forgeLifetimes.get(key) ?? new Set<ForgeLease>()
+      lifetimes.add(lifetime); this.#forgeLifetimes.set(key, lifetimes)
+    }
     for (const key of armKeys) this.#teamScopes.set(key, (this.#teamScopes.get(key) ?? 0) + 1)
     try {
-      return await this.#dispatch(method, params)
+      return await this.#dispatch(method, params, lifetime)
     } finally {
       if (browserInvocation) this.#browserInvocations.end(browserInvocation)
+      controller.abort()
       for (const key of armKeys) {
+        const lifetimes = this.#forgeLifetimes.get(key)
+        lifetimes?.delete(lifetime)
+        if (!lifetimes?.size) this.#forgeLifetimes.delete(key)
         const count = (this.#teamScopes.get(key) ?? 1) - 1
         if (count <= 0) this.#teamScopes.delete(key)
         else this.#teamScopes.set(key, count)
@@ -866,7 +926,7 @@ export class PluginHostProcess {
     }
     if ((this.#teamScopes.get(teamScopeKey(scope.runtime, scope.sessionId, scope.plugin)) ?? 0) <= 0) return false
     const plugin = this.#plugins.find((entry) => String(entry.instanceId) === scope.plugin)
-    if (plugin === undefined || !plugin.enabled || plugin.permissions[plane] !== true) return false
+    if (plugin === undefined || !plugin.enabled || (plane === 'team' ? plugin.permissions.team !== true : !(plugin.permissions.forge === true || typeof plugin.permissions.forge === 'object' && (plugin.permissions.forge.publish || plugin.permissions.forge.write)))) return false
     if (scope.invocation !== undefined) {
       try {
         this.#browserInvocations.resolve(scope.invocation, scope.plugin)
@@ -887,6 +947,7 @@ export class PluginHostProcess {
   async #dispatch<M extends PluginHostMethodName>(
     method: M,
     params: PluginHostMethods[M]['params'],
+    lease?: ForgeLease,
   ): Promise<PluginHostMethods[M]['result']> {
     await this.ensure()
     const child = this.#child
@@ -894,19 +955,25 @@ export class PluginHostProcess {
     const id = ++this.#nextId
     const timeoutMs = this.#options.invokeTimeoutMs ?? DEFAULT_INVOKE_TIMEOUT_MS
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.#pending.delete(id)
-        reject(
-          new Error(
-            `The plugin host did not answer within ${Math.round(timeoutMs / 1000) || 1}s ` +
-              'and was restarted. A plugin is monopolising it.',
-          ),
-        )
-        this.#logger.warn?.('plugin host wedged; killing', { method })
-        child.kill('SIGKILL')
-      }, timeoutMs)
-      timer.unref?.()
-      this.#pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer })
+      const pending: Pending = { resolve: resolve as (value: unknown) => void, reject, timer: null }
+      const arm = () => {
+        pending.timer = setTimeout(() => {
+          this.#pending.delete(id)
+          reject(new Error(`The plugin host did not answer within ${Math.round(timeoutMs / 1000) || 1}s and was restarted. A plugin is monopolising it.`))
+          this.#logger.warn?.('plugin host wedged; killing', { method })
+          child.kill('SIGKILL')
+        }, timeoutMs)
+        pending.timer.unref?.()
+      }
+      let held = 0
+      if (lease) lease.hold = () => {
+        held++
+        if (pending.timer) clearTimeout(pending.timer)
+        pending.timer = null
+        return () => { if (--held === 0 && this.#pending.has(id)) arm() }
+      }
+      arm()
+      this.#pending.set(id, pending)
       child.stdin!.write(`${JSON.stringify({ id, method, params })}\n`)
     })
   }

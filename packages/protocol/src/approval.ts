@@ -59,7 +59,12 @@ export interface FileChangeApproval extends ApprovalBase {
 /** A request to widen the sandbox itself, rather than to run one thing. */
 export interface PermissionApproval extends ApprovalBase {
   readonly type: 'permission'
+  /** Host-owned publication question, shown in the conversation dock. */
+  readonly gateway?: boolean
   readonly summary: string
+  readonly cwd?: string
+  /** Host-supplied facts for a held gateway write. */
+  readonly facts?: readonly { readonly label: string; readonly value: string }[]
   /** Structured provenance added by the desk's Claude bridge for its board server. */
   readonly flowBoardTool?: { readonly server: 'harnessdesk'; readonly tool: string }
   readonly filesystem?: readonly string[]
@@ -121,12 +126,13 @@ export interface ApprovalOption {
   readonly id: string
   readonly label: string
   readonly description?: string
-  readonly intent: 'approve' | 'approveAlways' | 'deny' | 'cancel'
+  readonly intent: 'approve' | 'approveAlways' | 'alternative' | 'deny' | 'cancel'
   /**
    * For an `approveAlways` choice an adapter can scope: one tool for this session, a whole server for this session,
    * or beyond the session. Typed by the adapter from the agent's own option ids, so a card reads data and never
    * parses an agent's English.
    */
+  readonly once?: boolean
   readonly grant?: 'session-tool' | 'session-server' | 'permanent'
 }
 

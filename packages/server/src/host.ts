@@ -1,4 +1,8 @@
 import { HarnessDeskAccount } from './harnessdesk-account.js'
+import { gitSteerContext } from './git-gateway/steer-context.js'
+import { redactGitCommand } from '@harnessdesk/protocol'
+import { GitSteering, type SteerScope } from './git-gateway/steering.js'
+import { parseGitCommand } from '@harnessdesk/protocol'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
 import { LeadHandbacks } from './lead/handback.js'
 import { GitGateway } from './git-gateway/index.js'
@@ -159,7 +163,7 @@ import { factsKey, hostContextPort, previewStart, resolveContext, type ContextPo
 import { previewAgent } from './methods/agents.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
 import { DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
-import { CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
+import { GatedRegistry, CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog, type ClientAuditEntry } from './audit.js'
@@ -478,6 +482,8 @@ export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throu
 export type QuestionTimers = Pick<QuestionPort, 'setTimer' | 'clearTimer'>
 
 export interface HostOptions {
+  /** Inject the same gateway for isolated local-remote rigs. */
+  readonly gitGateway?: GitGateway
   /** Explicit startup capability; the host never reads an environment flag. */
   readonly leadEnabled?: boolean
   /** Replaces the fixed provider destination for the Lead's model requests; tests script it, the app never sets it. */
@@ -860,6 +866,7 @@ export class Host {
    * extension host only needs something that answers the three verbs, and
    * gets it through `forgePlane`.
    */
+  readonly gitSteering: GitSteering
   readonly #gitGateway: GitGateway
   readonly #forge: ForgePlane
   /**
@@ -1251,10 +1258,33 @@ export class Host {
         frozen: join(this.#state.directory, 'attachments', 'frozen'),
       },
     )
-    this.#gitGateway = new GitGateway({ directory: join(this.#state.directory, 'git-gateway'),
+    this.#gitGateway = options.gitGateway ?? new GitGateway({ directory: join(this.#state.directory, 'git-gateway'), stateDirectory: this.#state.directory, recordOutside: () => this.gitSteering.recordOutside,
       ...(this.options.forge?.gh ? { gh: (_cwd, args) => this.options.forge!.gh!(args) } : {}) })
     this.#forge = new ForgePlane(
       {
+        gitGateway: this.#gitGateway,
+        checkoutOf: async (scope) => {
+          if (!scope.runtime || !scope.sessionId) return null
+          await this.#shellWorkspace({ runtime: runtimeId(scope.runtime), sessionId: makeSessionId(scope.sessionId) })
+          const cwd = this.registry.get(runtimeId(scope.runtime), makeSessionId(scope.sessionId))?.shellCheckout?.cwd
+          const root = cwd ? await this.#boardRootOf(cwd) : null
+          return cwd && root ? { cwd, root } : null
+        },
+        admitWrite: async (verb, scope, args) => {
+          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '' }
+          const result = await this.#ceilingGate.admit({ tool: verb === 'comment' && (args as { subject?: string })?.subject === 'issue' ? 'issue_comment' : names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
+            scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!), ...(scope.turnId ? { turnId: scope.turnId as TurnId } : {}) }, publishes: true })
+          if (!result.admitted) throw new Error(result.refusal)
+        },
+        askPerson: (scope, question, signal) => this.#askHeld(scope.runtime!, scope.sessionId!, question, this.options.heldWaitMs ?? 10 * 60_000, signal),
+        mergeStep: (scope, target) => {
+          if (!scope.runtime || !scope.sessionId || this.#ceilingOf(scope.runtime, scope.sessionId)?.level !== 'merge') return false
+          const kept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+          if (!kept?.board) return false
+          return this.#team.stateFor(kept.board).intents.some(card => card.state === 'claimed' &&
+            card.claim?.runtime === scope.runtime && card.claim?.sessionId === scope.sessionId &&
+            this.#flows.isMergeStep(kept.board!, card.id, target))
+        },
         agentOf: (runtime) => {
           const info = this.#runtimes.get(runtime)?.info
           return info ? { name: info.presentation.name, version: info.version ?? null } : null
@@ -1292,6 +1322,30 @@ export class Host {
       },
       options.forge ?? {},
     )
+    this.gitSteering = new GitSteering(this.#state.directory, this.#gitGateway, {
+      preferences: () => this.#state.state.preferences,
+      projectOf: async cwd => await this.#boardRootOf(cwd) ?? cwd,
+      scope: (runtime, sessionId) => this.#gitSteerScope(runtime, sessionId),
+      ask: (scope, question, signal) => this.#askHeld(scope.runtime, scope.sessionId, question, this.options.heldWaitMs ?? 10 * 60_000, signal),
+      admit: async (scope, tool) => {
+        const result = await this.#ceilingGate.admit({ tool, needs: tool === 'pr_merge' ? 'merge' : 'publish', publishes: true,
+          scope: { runtime: runtimeId(scope.runtime), sessionId: makeSessionId(scope.sessionId), ...(scope.turn ? { turnId: scope.turn as TurnId } : {}) } })
+        if (!result.admitted) throw new Error(result.refusal)
+        const allowed = await this.#forge.publicationAllowed({ runtime: scope.runtime, sessionId: scope.sessionId })
+        if (!allowed.ok) throw new Error(allowed.reason)
+      },
+      invoke: async (scope, name, args) => {
+        const tools = this.#requireExtensions()
+        const plugin = tools.plugins().find(entry => entry.identity.id === 'git' && entry.identity.source.kind === 'builtin')
+        const tool = tools.list('tool', {}).find(entry => entry.name === name && entry.owner === plugin?.instanceId && entry.namespace === String(plugin.instanceId))
+        if (!tool) return { ok: false, error: `No tool named ${name} is registered.` }
+        return tools.invokeTool(tool.id, args, { runtime: runtimeId(scope.runtime), sessionId: makeSessionId(scope.sessionId), workspaceRoot: scope.cwd, ...(scope.turn ? { turnId: scope.turn as TurnId } : {}) })
+      },
+      say: (scope, text, banner) => {
+        if (!banner) this.#say(scope.runtime, scope.sessionId, text, 'git:steering')
+        if (banner) this.#onEvent(runtimeId(scope.runtime), { type: 'notice', class: 'conversation', kind: 'git:outside', sessionId: makeSessionId(scope.sessionId), level: 'warning', message: text })
+      },
+    })
     this.#team = new Team(join(this.#state.directory, 'team'), {
       peers: () => this.#teamPeers(),
       rootOf: (cwd) => this.#boardRootOf(cwd),
@@ -4853,6 +4907,7 @@ export class Host {
   #buildContext(): HostContext {
     return {
       options: this.options,
+      gitGateway: this.#gitGateway,
       registry: this.registry,
       state: this.#state,
       logger: this.#logger,
@@ -6367,6 +6422,7 @@ export class Host {
   }
 
   readonly #ceilingGate = new CeilingGate({
+    refused: (call, reason) => this.#forge.refuseTool(call.tool, call.args, { runtime: String(call.scope.runtime), sessionId: String(call.scope.sessionId) }, reason, call.startedAt),
     rootOf: (runtime, sessionId) => this.#rootOf(runtime, sessionId),
     ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
     causeOf: (runtime, sessionId, turnId) => this.#causeOf(runtime, sessionId, turnId),
@@ -6445,8 +6501,9 @@ export class Host {
   readonly #heldAnswers = new Map<string, {
     runtime: string
     sessionId: string
-    answer: (answer: 'allowed' | 'refused' | 'unanswered', resolution?: ApprovalResolution) => void
+    answer: (answer: 'allowed' | 'standing' | 'refused' | 'unanswered', resolution?: ApprovalResolution) => void
   }>()
+  readonly #heldOptions = new Map<string, readonly string[]>()
   /** Recent Stop settlements: a delayed runtime reply cannot replace abandonment. */
   readonly #abandonedApprovals = new Set<string>()
 
@@ -6463,8 +6520,14 @@ export class Host {
   }
 
   async #askPerson(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'refused' | 'unanswered'> {
+    const answer = await this.#askHeld(runtime, sessionId, question)
+    return answer === 'standing' ? 'refused' : answer
+  }
+
+  async #askHeld(runtime: string, sessionId: string, question: HeldQuestion, gatewayWaitMs?: number, signal?: AbortSignal): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'> {
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
     if (!record || this.#disposed) return 'unanswered'
+    if (signal?.aborted) return 'unanswered'
     const id = makeApprovalId(`held-${randomBytes(6).toString('hex')}`)
     const turnId = [...record.running].at(-1)
     const approval: Approval = {
@@ -6475,20 +6538,26 @@ export class Host {
       type: 'permission',
       summary: question.summary,
       reason: question.reason,
-      options: [
+      ...(question.facts ? { facts: question.facts } : {}),
+      ...(question.gateway ? { gateway: true } : {}),
+      options: question.options ?? [
         { id: HELD_ALLOW, label: 'Allow it once', intent: 'approve' },
         { id: HELD_REFUSE, label: 'Refuse', intent: 'deny' },
       ],
     }
+    const key = approvalKey(runtime, sessionId, id)
+    this.#heldOptions.set(key, approval.options.map(option => option.id))
     const requested: AgentEvent = { type: 'approval/requested', approval }
     this.#audit.record(record.runtime, requested, () => record.session.cwd)
     this.registry.apply(record.runtime, requested)
     this.#push({ method: 'event', params: { runtime: record.runtime, event: requested } })
-    const waitMs = this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
-    const key = approvalKey(runtime, sessionId, id)
-    return new Promise<'allowed' | 'refused' | 'unanswered'>((resolve) => {
-      const answer = (said: 'allowed' | 'refused' | 'unanswered', resolution?: ApprovalResolution): void => {
-        this.#heldAnswers.delete(key)
+    const waitMs = gatewayWaitMs ?? this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
+    return new Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>((resolve) => {
+      const abort = () => answer('unanswered')
+      const answer = (said: 'allowed' | 'standing' | 'refused' | 'unanswered', resolution?: ApprovalResolution): void => {
+        if (!this.#heldAnswers.delete(key)) return
+        this.#heldOptions.delete(key)
+        signal?.removeEventListener('abort', abort)
         clearTimeout(timer)
         if (record.approvals.has(String(id))) this.#onEvent(record.runtime, {
           type: 'approval/resolved',
@@ -6496,12 +6565,14 @@ export class Host {
           approvalId: id,
           resolution: resolution ?? (said === 'unanswered'
             ? { outcome: 'timedOut' }
-            : { outcome: 'decided', decision: { type: 'option', optionId: said === 'allowed' ? HELD_ALLOW : HELD_REFUSE } }),
+            : { outcome: 'decided', decision: { type: 'option', optionId: said === 'allowed' ? HELD_ALLOW : said === 'standing' ? (approval.options.some(option => option.id === 'own') ? 'own' : 'standing') : HELD_REFUSE } }),
         })
         resolve(said)
       }
       const timer = setTimeout(() => answer('unanswered'), waitMs)
       this.#heldAnswers.set(key, { runtime, sessionId, answer })
+      signal?.addEventListener('abort', abort, { once: true })
+      if (signal?.aborted) abort()
     })
   }
 
@@ -6586,7 +6657,8 @@ export class Host {
   #answerHeld(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): boolean {
     const held = this.#heldAnswers.get(approvalKey(runtime, sessionId, approvalId))
     if (!held || !this.registry.hasApproval(runtimeId(runtime), makeSessionId(sessionId), makeApprovalId(approvalId))) return false
-    held.answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : 'refused')
+    if (decision.type === 'option' && !this.#heldOptions.get(approvalKey(runtime, sessionId, approvalId))?.includes(decision.optionId)) return false
+    held.answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : decision.type === 'option' && (decision.optionId === 'standing' || decision.optionId === 'own') ? 'standing' : 'refused')
     return true
   }
 
@@ -6639,9 +6711,19 @@ export class Host {
     return flowSeat ? { level: ceilingOfPermission(flowSeat.permission), hold: 'asked' } : null
   }
 
+  /** Resolve the host-owned checkout and current turn for a steering caller. */
+  async #gitSteerScope(runtime: string, sessionId: string): Promise<SteerScope | null> {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record?.live) return null
+    await this.#shellWorkspace({ runtime: runtimeId(runtime), sessionId: makeSessionId(sessionId) })
+    const cwd = record.shellCheckout?.cwd
+    if (!cwd) return null
+    return { runtime, sessionId, cwd, root: record.shellCheckout!.project, turn: String([...record.running].at(-1) ?? record.session.turns.at(-1)?.id ?? ''), name: this.#runtimes.get(runtimeId(runtime))?.info.presentation.name ?? 'Agent' }
+  }
+
   /** Put a desk decision in the conversation's running or latest turn. */
-  #say(runtime: string, sessionId: string, text: string): boolean {
-    const item: NoticeItem = { id: itemId(`desk-${randomBytes(6).toString('hex')}`), type: 'notice', text }
+  #say(runtime: string, sessionId: string, text: string, kind?: string): boolean {
+    const item: NoticeItem = { id: itemId(`desk-${randomBytes(6).toString('hex')}`), type: 'notice', text, ...(kind ? { kind } : {}) }
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
     if (!record) return false
     const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
@@ -8222,6 +8304,15 @@ export class Host {
     // answered here, audited here, and reported as a notice.
     if (event.type === 'approval/requested') {
       if (this.#answerFlowBoardTool(runtime, event.approval)) return
+      const approval = event.approval
+      if (approval.type === 'command' && approval.kind !== 'stdin' || approval.type === 'permission' && !String(approval.id).startsWith('held-')) {
+        const write = parseGitCommand(approval.type === 'command' ? approval.command : approval.summary)
+        const record = this.registry.get(runtime, approval.sessionId)
+        const root = record?.shellCheckout?.project ?? record?.session.cwd
+        if (write?.kind === 'unmappable' && root && this.gitSteering.steerFor(root) !== 'off') {
+          event = { ...event, approval: { ...approval, reason: [approval.reason, redactGitCommand(write.reason)].filter(Boolean).join('\n') } }
+        }
+      }
       const verdict = this.#applyPolicy(runtime, event.approval)
       if (verdict) return
       // A question, not a yes/no: from a Seat nobody watches, it gets a deadline.
@@ -8277,6 +8368,16 @@ export class Host {
       this.#team.onSessionDetached(runtime, String(event.sessionId), 'The conversation process stopped before the message was read.')
     }
     const record = this.registry.apply(runtime, event)
+    if (event.type === 'item/completed' || event.type === 'turn/completed') {
+      const items = event.type === 'item/completed' ? [event.item] : event.turn.items
+      const turn = event.type === 'item/completed' ? event.turnId : event.turn.id
+      for (const item of items) if (item.type === 'command' && item.exitCode === 0) {
+        void this.#gitSteerScope(String(runtime), String(event.sessionId)).then(scope => {
+          if (scope) return this.gitSteering.completed({ ...scope, turn: String(turn) }, item.command, 0, item.cwd)
+        }).catch(error => this.#logger.warn('Outside git write could not be observed', { error: String(error) }))
+      }
+    }
+
     if (record && event.type === 'session/detached') this.#pushQueue(record)
     if (record && (event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'approval/requested' ||
       (event.type === 'session/tasks' && event.tasks.some((task) => task.state === 'running')))) {
@@ -8557,6 +8658,37 @@ export class Host {
     // it. A rule written to allow `npm test` must not answer "y" to whatever
     // that test run is now asking, so stdin approvals always reach a person.
     if (approval.type === 'command' && approval.kind === 'stdin') return false
+    if (approval.type === 'command' || approval.type === 'permission' && !String(approval.id).startsWith('held-')) {
+      const command = approval.type === 'command' ? approval.command : approval.summary
+      const record = this.registry.get(runtime, approval.sessionId)
+      const write = this.gitSteering.parseCommand(command, approval.cwd ?? record?.session.cwd ?? process.cwd())
+      const root = record?.shellCheckout?.project ?? record?.session.cwd
+      const deny = approval.options.find(option => option.intent === 'deny' && option.once) ?? approval.options.find(option => option.intent === 'deny' && option.once !== false)
+      if (write && write.kind !== 'unmappable' && root && deny && record?.live && this.gitSteering.steerFor(root) !== 'off') {
+        const live = record.live
+        let declined = false
+        void Promise.resolve().then(async () => {
+          const scope = await this.#gitSteerScope(String(runtime), String(approval.sessionId))
+          const base = approval.cwd ?? record.session.cwd
+          const cwd = base && this.gitSteering.commandCwd(command, base)
+          if (!scope || !cwd || !await this.gitSteering.sameCheckout(scope.cwd, cwd)) throw new Error('Native git command is outside the conversation checkout.')
+          await live.respondToApproval(approval.id, { type: 'option', optionId: deny.id })
+          declined = true
+          this.#say(String(runtime), String(approval.sessionId), `Steered ${redactGitCommand(command)} to HarnessDesk — ask the agent to use git_push`)
+          if (scope) await this.gitSteering.steer(scope, command, write, false, undefined, cwd)
+        }).catch(error => {
+          this.#logger.warn('Git approval steering failed', { error: String(error) })
+          if (declined) this.#say(String(runtime), String(approval.sessionId), 'Git steering could not finish; ask the agent to use git_push.')
+          else {
+            const event: AgentEvent = { type: 'approval/requested', approval }
+            this.registry.apply(runtime, event)
+            this.#audit.record(runtime, event, () => record.session.cwd)
+            this.#push({ method: 'event', params: { runtime, event } })
+          }
+        })
+        return true
+      }
+    }
     const raw = this.#state.state.preferences['permissionPolicy']
     const rules = Array.isArray(raw)
       ? raw.filter(

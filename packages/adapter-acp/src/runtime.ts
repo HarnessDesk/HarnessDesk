@@ -397,6 +397,9 @@ export interface AcpAgentConfig {
    * server's own `instructions`, if it accepted one.
    */
   readonly instructions?: () => string
+  /** Host-owned PATH steering, minted with the same caller as the tool bridge. */
+  readonly onGitSession?: (caller: string, sessionId: string) => void
+  readonly gitEnvironment?: (cwd: string, caller: string, path?: string) => Promise<Readonly<Record<string, string>> | undefined>
   /** Host-owned identities of option-only sessions, retained across desk recreation. */
   readonly probeSessionsFile?: string
   readonly logger?: {
@@ -2919,8 +2922,11 @@ export class AcpRuntime implements AgentRuntime {
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
   ): Promise<T> {
+    const caller = randomUUID()
+    const steeringCaller = randomUUID()
+    const steering = typeof params['cwd'] === 'string' ? await this.#config.gitEnvironment?.(params['cwd'], steeringCaller, (this.#launch && !('blocked' in this.#launch) ? this.#launch.env?.['PATH'] : undefined) ?? this.#config.env?.['PATH']) : undefined
     let connection = this.#connection
-    if (!this.#initialized?.agentCapabilities?.sessionCapabilities?.close && !this.#config.sharedSessionProcess) {
+    if (steering || !this.#initialized?.agentCapabilities?.sessionCapabilities?.close && !this.#config.sharedSessionProcess) {
       if (this.#disposed) throw shutDown(this.#config.name)
       connection = this.#makeConnection(true)
       if (this.#launch && !('blocked' in this.#launch)) {
@@ -2929,6 +2935,7 @@ export class AcpRuntime implements AgentRuntime {
       }
       const executable = this.#config.executable
       if (executable && this.#executable) connection.withEnv({ [executable.env]: this.#executable.path })
+      if (steering) connection.withEnv(steering)
       this.#workers.add(connection)
       try {
         if (!(await connection.start()) || this.#disposed) throw shutDown(this.#config.name)
@@ -2942,17 +2949,17 @@ export class AcpRuntime implements AgentRuntime {
     const existingId = params['sessionId']
     if (typeof existingId === 'string') this.#sessionConnections.set(makeSessionId(existingId), connection)
     let opened = false
-    const caller = randomUUID()
     const servers = this.#toolServerRefused ? [] : mcpServersOf(this.#config, caller)
     // The token's runtime is known now; its session only once the open answers.
-    if (servers.length > 0) this.#config.toolServer?.onOpen?.(caller)
+    if (steering || servers.length > 0) this.#config.toolServer?.onOpen?.(caller)
     // The claim closes the loop: the bridge this open spawns carries the
     // token, and whoever built the runtime now learns which session it names.
     const claim = (result: T, acceptedTools = true): T => {
       const sessionId = (result as { sessionId?: unknown }).sessionId ?? params['sessionId']
+      if (steering && typeof sessionId === 'string') this.#config.onGitSession?.(steeringCaller, sessionId)
       if (typeof sessionId === 'string') this.#sessionConnections.set(makeSessionId(sessionId), connection)
       opened = true
-      if (acceptedTools && servers.length > 0 && typeof sessionId === 'string') {
+      if ((steering || acceptedTools && servers.length > 0) && typeof sessionId === 'string') {
         this.#config.toolServer?.onSession?.(caller, sessionId)
       }
       return result
@@ -5294,6 +5301,7 @@ class AcpSession implements AgentSession {
                 const described = asked.options.find((one) => one.label === option.name)
                 return {
                   id: option.optionId,
+          once: option.kind === 'reject_once' || option.kind === 'allow_once',
                   label: option.name,
                   ...(described?.description ? { description: described.description } : {}),
                 }
@@ -5322,6 +5330,7 @@ class AcpSession implements AgentSession {
       // user asked me to write outside the workspace" and the dialog showed
       // `write`. A decision needs the sentence, not the verb.
       ...(permissionReason(request.toolCall) ? { reason: permissionReason(request.toolCall) } : {}),
+      cwd: typeof (request.toolCall.rawInput as { cwd?: unknown } | undefined)?.cwd === 'string' ? (request.toolCall.rawInput as { cwd: string }).cwd : this.#cwd,
       options: request.options.map((option) => {
         const geminiGrant = this.#host.info.capabilities.perToolMcpApproval && option.kind === 'allow_always'
           ? ({
@@ -5332,6 +5341,7 @@ class AcpSession implements AgentSession {
           : undefined
         return {
           id: option.optionId,
+          once: option.kind === 'reject_once' || option.kind === 'allow_once',
           label: option.name,
           ...(geminiGrant ? { description: geminiGrant.description, grant: geminiGrant.grant } : {}),
           intent:

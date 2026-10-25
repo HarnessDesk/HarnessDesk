@@ -1,4 +1,9 @@
-import { useState } from 'react'
+import { LeadAway } from '../components/LeadAway'
+import { LeadCheck } from '../components/LeadCheck'
+import { LeadStatusPanel, useLeadControls } from '../components/LeadControls'
+import { PhoneAsk, PhoneSettingsSection } from '../components/PhoneSettings'
+import { createLeadFixtureStore } from './frames-lead'
+import { useMemo, useState } from 'react'
 import type { TriggerBudgetState } from '@harnessdesk/protocol'
 import { Menu, Section, Text } from '../design'
 import { SeatFace } from '../components/AgentCards'
@@ -8,7 +13,7 @@ import { ShieldIcon } from '../components/Icons'
 import { RunRoundCards } from '../components/RunRoundCards'
 import { BudgetFooter } from '../components/TeamRoomPane'
 import { runTimeline } from '../lib/run-timeline'
-import { PaneProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
 import { Dial, Frame } from './main'
 import { PREVIEW_AGENTS, PREVIEW_SESSION_KEY } from './harness'
 import { overviewInput } from './team-overview-fixture'
@@ -21,6 +26,28 @@ const budget: TriggerBudgetState = {
   goal: 'coverage-team', startedAt: now - 30 * 60_000, deadline: now + 30 * 60_000,
   budget: { usd: 5, rounds: 3, hours: 1, withoutProgress: 2 }, spentMicros: 1_250_000,
   reservedMicros: 0, provenance: 'vendorMetered', closedRounds: [1], idleRounds: 0, stop: null,
+}
+
+const LeadStatusCoverage = () => <Menu close={() => {}}><LeadStatusPanel close={() => {}} controls={useLeadControls()} /></Menu>
+const LeadAndPhoneCoverage = () => {
+  const own = useMemo(() => {
+    const fixture = createLeadFixtureStore('running'), snapshot = fixture.getSnapshot()
+    localStorage.setItem('hd-lead-seen-v1', JSON.stringify({ at: Date.now() - 360_000, revision: 0, spent: 0 }))
+    const teams = new Map(snapshot.teams), evidence = new Map(snapshot.boardEvidence)
+    teams.set('coverage-check', { intents: [{ id: 1, role: 'implement', state: 'done' }] } as never)
+    evidence.set('coverage-check', { checks: ['verify'], cards: [{ card: 2, facts: [{ record: { fact: { kind: 'review', verdict: 'approve', at: 'a'.repeat(40) } } }] }] } as never)
+    Object.assign(snapshot, { teams, boardEvidence: evidence })
+    const phone = { enabled: true, deskName: 'Demo desk', deskId: 'demo', port: 3000, devices: [], pending: [{ id: 'demo-phone', name: 'Jane Doe’s phone', requestedAt: Date.now() }] }
+    const request = fixture.transport.request.bind(fixture.transport)
+    fixture.transport.request = (async (method, params) => method === 'phone/state' ? phone : request(method, params)) as typeof fixture.transport.request
+    fixture.phone.changed({ method: 'phone/changed', params: phone } as never)
+    return fixture
+  }, [])
+  return <StoreProvider store={own}>
+    <Section title="Lead status"><LeadStatusCoverage /><LeadAway active state={own.lead.state} label="Dex" />
+      <LeadCheck room="coverage-check" needed revision={1} label="Dex" onError={() => {}} /></Section>
+    <PhoneSettingsSection /><PhoneAsk />
+  </StoreProvider>
 }
 
 /** State-specific exports stay inspectable even when the unified Work view uses compact rows. */
@@ -53,6 +80,7 @@ export const RetainedComponentsCoverage = () => {
           selectedRow: selected, onSelect: setSelected, doingOf: () => null }} />
       </Section>
       <Section title="Run budget" level="heading"><BudgetFooter state={budget} now={now} /></Section>
+      <LeadAndPhoneCoverage />
       </>}
     </div>
   </Frame>

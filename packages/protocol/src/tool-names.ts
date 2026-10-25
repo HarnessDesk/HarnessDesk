@@ -1,3 +1,4 @@
+import { unwrapGitCommand } from './git-steer.js'
 import { FLOW_BOARD_TOOL_NAMES } from './approval.js'
 import type { CapabilityContribution, PluginInstance } from './capability.js'
 
@@ -61,16 +62,7 @@ const unbacktick = (tool: string): string => {
  * `-c` flag, and a single argument after it. Anything else is returned whole,
  * because a command we cannot parse is still a command someone ran.
  */
-export const shellCommandOf = (command: string): string => {
-  const match = /^(?:\S*\/)?(?:ba|z|k|da|fi)?sh\s+-[a-zA-Z]*c\s+([\s\S]+)$/.exec(command.trim())
-  if (!match?.[1]) return command
-  const rest = match[1].trim()
-  const quote = rest.charAt(0)
-  const quoted = (quote === "'" || quote === '"') && rest.length > 1 && rest.endsWith(quote)
-  // Only unwrap when the quotes are the outermost pair; a command containing
-  // the same quote inside would lose its shape.
-  return quoted && !rest.slice(1, -1).includes(quote) ? rest.slice(1, -1) : rest
-}
+export const shellCommandOf = (command: string): string => unwrapGitCommand(command)
 
 /** The identifier as words: `browser_open` → "Browser open". */
 export const toolWords = (tool: string): string => {

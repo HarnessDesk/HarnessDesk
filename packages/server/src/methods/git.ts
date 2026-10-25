@@ -11,6 +11,26 @@ import type { MethodsUnder } from './context.js'
  * one line each handler adds is the git move itself.
  */
 export const gitMethods = {
+  'git/record/list': async (ctx, params) => {
+    const root = await ctx.workspaces.confineGitRoot(params.root)
+    const repository = await ctx.gitGateway.pins.pinned(root)
+    if (!repository) return { repository: null, entries: [], counts: { all: 0, outside: 0, refused: 0 } }
+    const raw = await ctx.gitGateway.record({ repository, limit: Number.MAX_SAFE_INTEGER })
+    // Intent and outcome share an id. A page presents the latest state of
+    // each write, while the journal retains both physical entries.
+    const latest = [...new Map([...raw].reverse().map(entry => [entry.id, entry])).values()].reverse()
+    const branches = new Set([...(params.branch ? [params.branch] : []), ...latest.filter(entry => params.number !== undefined && entry.number === params.number && entry.branch).map(entry => entry.branch!)])
+    const rows = latest.filter(entry => params.number !== undefined ? entry.number === params.number || entry.branch !== undefined && branches.has(entry.branch) : !params.branch || entry.branch === params.branch)
+    const counts = { all: rows.length, outside: rows.filter(entry => entry.requester.kind === 'outside').length, refused: rows.filter(entry => entry.outcome === 'refused' || entry.outcome === 'rejected').length }
+    const view = rows.filter(entry => params.view === 'outside' ? entry.requester.kind === 'outside' : params.view === 'refused' ? entry.outcome === 'refused' || entry.outcome === 'rejected' : true)
+    const cursor = params.before ? view.findIndex(entry => entry.id === params.before) : -1
+    const entries = (params.before && cursor < 0 ? [] : view.slice(cursor + 1)).slice(0, Math.min(params.limit ?? 50, 1000))
+    return { repository, entries, counts }
+  },
+  'git/record/attribute': async (ctx, params) => {
+    const root = await ctx.workspaces.confineGitRoot(params.root), repository = await ctx.gitGateway.pins.pinned(root)
+    return repository ? ctx.gitGateway.attribute(repository, params.branch, params.sha) : 'outside'
+  },
   'git/status': async (ctx, params) => {
     const resolvedRoot = await ctx.workspaces.confineGitRoot(params.root)
     const status = await gitService.status(resolvedRoot)
