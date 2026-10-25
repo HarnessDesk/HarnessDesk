@@ -20,9 +20,25 @@ pnpm serve      # or headless, against a browser
 [docs/getting-started.md](docs/getting-started.md) covers signing in,
 registering ACP agents, and troubleshooting.
 
+The package floor remains Node 22.19. Lead's child and its permission probes
+require Node 25+; run the complete local gate with that runtime. CI jobs that
+exercise the child use Node 25; build, UI and gate jobs also exercise Node 22.
+Linux Node fixture jobs install zsh because the fake agents and shell-profile
+contracts execute `/bin/zsh`. These tests use scripted agents and local remotes.
+
+Account, Git publication and phone access are separate host services. Account
+requests use the desktop's encrypted storage and system-browser opener; local
+phone pairing is opt-in through `HARNESSDESK_PHONE_LINK=1` and appears in
+Settings › Phone without an account link. Lead is opt-in through
+`HARNESSDESK_LEAD=1`; a host below its runtime floor reports it unavailable.
+See [data boundaries](docs/data-boundaries.md) for each service's requests and
+retained state, and [architecture](docs/architecture.md#the-git-gateway) for the
+publication engine. Use isolated homes, placeholder identities and local
+fixtures when checking these paths.
+
 ## The development branch
 
-From the next release, reviewed changes land on the long-lived `development`
+Reviewed changes land on the long-lived `development`
 branch, one commit per change. Each push runs core CI; a nightly full run starts
 at 11:00 UTC, and a failure is fixed the same day. A release pull request from
 `development` into `main` runs the full tier and lands with a merge commit,
@@ -69,7 +85,7 @@ Node tests, the Node end-to-end tests, the UI tests, and the checks.
 Browser integration has two tiers. Ordinary pull requests use the **bounded**
 tier, as do pushes to `development`. A push to `main`, a pull request whose
 head branch is `development` or starts with `batch/`, a pull request labelled
-`full-ci`, and a manual dispatch use the **full** tier.
+`full-ci`, the nightly run and a manual dispatch use the **full** tier.
 Adding `full-ci` starts one full run on the head commit (`full-ci-label.yml`); no other label starts anything. The full tier runs every browser
 spec in both themes, with the existing matrix of up to sixteen shards, and
 native smoke. A check named `CI tier: bounded` or `CI tier: full`, the browser
@@ -258,9 +274,10 @@ recover. Five rules:
 
 1. **Name the measurement or link the code.** "Measured 2026-08-28 against
    codex-cli 0.149.0" can be maintained; "supports the latest Codex" cannot.
-2. **State the gap in the same voice as the feature.** The README's "What it
-   does not do yet" is the most trust-building section in it; never quietly
-   shorten that kind of section.
+2. **State the gap in the same voice as the feature.** A section like
+   [multi-agent.md's "What it does not do yet"](docs/multi-agent.md#what-it-does-not-do-yet)
+   builds more trust than any feature list; never quietly shorten that kind
+   of section.
 3. **No wire-level names in anything a user reads.** Method names and
    protocol vocabulary belong in the architecture documents.
 4. **Second person in guides, third person in reference.** Mixed voice is the
@@ -276,6 +293,6 @@ recover. Five rules:
 ## Where to start
 
 Issues labelled `good first issue` when they exist; otherwise the honest gap
-lists — the README's "What it does not do yet" and the open questions inside
-each document. An issue describing what you intend before a large PR saves
+lists — [multi-agent.md's "What it does not do yet"](docs/multi-agent.md#what-it-does-not-do-yet)
+and the open questions inside each document. An issue describing what you intend before a large PR saves
 both of us the polite version of "not like this".

@@ -83,7 +83,7 @@ them in `docs/decisions.md`.
     every one of them enforced by `node script/design-audit.mjs --strict`:
     - Never import another screen's `*.module.css`. If two screens need the
       same thing, it belongs in `design/ui` or a named `design/patterns` contract.
-      Six existing screen families retain exactly eleven additional co-owners,
+      Three existing screen families retain exactly five additional co-owners,
       capped by `STYLESHEET_OWNERS` in `script/design-audit.mjs`. Their
       `@design-owners` comments document membership but cannot authorize another
       importer. Expanding that debt requires changing this rule and the fixed
@@ -101,9 +101,13 @@ them in `docs/decisions.md`.
       varies. Redefining `--hd-*` is that file's entire job.
     - Never hand-roll an overlay. `Dialog` already answers where the buttons
       go, what Escape does, what a click outside does, and where focus
-      returns. Four surfaces are deliberately not dialogs — Approvals, the
-      command palette, Sign in, AppWindow — and that number is a ceiling you
-      may raise on purpose.
+      returns. Approvals, the command palette and Sign in are built from the
+      same canonical dialog components `design` exports. Only `design/ui` and
+      `design/patterns` may compose the low-level parts (`DialogPopup`,
+      `DialogOverlay`, `DialogViewport`, `DialogPortal` and their `AlertDialog`
+      forms) or write `role="dialog"` or `aria-modal`; no screen is exempt
+      (`overlayViolations` in `script/ui-architecture.mjs`). A new kind of
+      overlay is a new pattern there, not a screen of its own.
     - Never draw an icon in place. It belongs in `components/Icons.tsx`, or
       `BrandIcons.tsx` for a brand mark, and is imported from there. A chart,
       a sparkline or an illustration is **not** an icon and does not go there.
@@ -118,7 +122,7 @@ them in `docs/decisions.md`.
     presentation belongs in `design/patterns`; it composes the same primitives
     and never introduces another generic control spelling. The architecture
     gate rejects alternate headless foundations, retired APIs, and feature
-    imports that bypass the public design entrypoint.
+    imports outside the public design entrypoint.
 
     Look at what you changed: `pnpm design` renders every primitive from the
     real code, in both themes, under a switchable foundation.
@@ -233,12 +237,32 @@ a release.
 Ordinary pull requests run core CI only in the bounded tier: build, typecheck,
 Node tests and end-to-end, UI unit tests, UI tests and gates. Browser shards,
 server-facing browser specs and native smoke run in the full tier: pushes to
-`main`, `batch/` pull requests, `full-ci` pull requests and manual dispatches.
+`main`, pull requests from `development` (the release PR), `batch/` pull requests,
+`full-ci` pull requests, and dispatched runs — manual and the nightly
+(`ciTier` in `script/ci-changes.mjs`).
 Local `check:push` still selects reached and edited specs with the PR geometry
 matrix; the CI summary lists that selection. Required check names stay fixed
 and accept intentional integration skips. The separate `CI tier: full` check
 proves the full tier to `script/land-safe.mjs`, which refuses bounded evidence.
 See CONTRIBUTING.md for local selection and its limits.
+
+## Account, publication, Lead and phone boundaries
+
+Account sign-in, sign-out and deletion belong to the host account service;
+`account/*` is the renderer wire, and encrypted credentials never enter the
+renderer. Every network request and its payload is documented in
+`docs/data-boundaries.md`. A change to that service must keep that inventory
+current. The Git plugin receives `ctx.forge`; publication uses the pinned host
+engine and records its outcome. Lead uses that same engine.
+
+Lead is enabled at startup with `HARNESSDESK_LEAD=1` and its child requires
+Node 25+. The current desktop's embedded runtime is below that floor, so an
+enabled Lead reports unavailable and refuses sends. CI runs the child and
+permission probes on Node 25; the package floor stays Node 22.19. Linux fixture
+jobs install zsh, which their scripted process and profile tests invoke.
+Local phone access is independently enabled with `HARNESSDESK_PHONE_LINK=1`.
+Settings › Phone pairs through a local code and desktop approval without an
+account link; it does not enable account relay transport.
 
 ## Writing plugins
 

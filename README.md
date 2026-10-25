@@ -126,7 +126,7 @@ Set the steps, rules and triggers once, such as who checks, who reviews and what
   </picture>
 
 **See what each skill costs**<br/>
-Open a skill to see who loads it, where it came from and what it costs, then trim the dead weight. [Docs →](docs/interface.md#settings)
+Open a skill from Customize in the sidebar to see who loads it, where it came from and what it costs, then trim the dead weight. [Docs →](docs/interface.md#settings)
 
 </td>
 </tr>
@@ -181,9 +181,27 @@ Script it, or let your agent run it. [Docs →](docs/cli.md)
 - **Plugins.** Twelve built in. HarnessDesk projects its 74 built-in plugin tools into each agent’s tool interface. [Docs →](docs/extending.md)
 - **[One policy, one audit log](docs/architecture.md):** the same rules, whichever agent asked.
 
+## Account, phone and Lead
+
+Settings › Account opens sign-in in your system browser. Approve the named desk
+and matching code there; return to manage its name, sign out, or delete the
+account. Agent sign-ins and local work remain separate. The host's requests and
+stored data are listed in [data boundaries](docs/data-boundaries.md#harnessdesk-account--only-after-you-choose-sign-in).
+
+With local phone access enabled, Settings › Phone shows a code to scan on the
+same network. Allow the phone on the desk; pairing needs no account link.
+Settings › Permissions controls Git write steering and its project overrides;
+the Git record shows gateway writes and observed outside heads.
+
+Lead is an optional conversation for planning work, approving its allowances
+and following workers, checks and reviews. It requires a host running Node 25+
+and the startup opt-in `HARNESSDESK_LEAD=1`. The current desktop embeds an older
+runtime and shows Lead as unavailable when enabled; ordinary sessions remain
+usable. See [the interface](docs/interface.md#lead).
+
 ## Install
 
-Download the signed, notarized app for macOS 13+, Apple silicon or Intel, from the [latest release](https://github.com/HarnessDesk/HarnessDesk/releases/latest). It updates itself. Then bring an agent you already use: [getting started](docs/getting-started.md) covers each one.
+Download the signed, notarized app for macOS 13+, Apple silicon or Intel, from the [latest release](https://github.com/HarnessDesk/HarnessDesk/releases/latest). It updates itself. Then bring an agent you already use: [getting started](docs/getting-started.md) covers installing and signing in to the main ones, and how to add any other agent from the ACP registry or by its own command.
 
 **Build from source** with Node 22.19+ and pnpm 10:
 

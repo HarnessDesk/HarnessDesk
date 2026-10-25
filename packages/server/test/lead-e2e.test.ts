@@ -19,7 +19,11 @@ const personSurface = async (rig: Awaited<ReturnType<typeof createLeadRig>>, sur
   link.control.allow(link.control.state().pending[0]!.id)
   await phone.next(message => message.t === 'enroll.ok')
   return async (params: any) => {
-    const reply = await phone.request('lead/action/perform', params)
+    // Running a required check includes its checkout and process lifetime.
+    // Use the same budget as the rig rather than the simulator's 3s read default.
+    const id = Math.random().toString(36).slice(2)
+    await phone.send({ t: 'req', id, method: 'lead/action/perform', params })
+    const reply = await phone.next(message => message.t === 'res' && message.id === id, 240_000)
     assert.equal(reply.ok, true, JSON.stringify(reply))
     return reply.result
   }

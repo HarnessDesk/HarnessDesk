@@ -9,9 +9,9 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Sign in to your HarnessDesk account from Settings.** Approve the named desk in your browser, then manage its name, linked phones, sign-out and account deletion separately from agent accounts.
 
-- **The Lead plans and follows work from its own conversation.** Review its plan and allowances, steer its workers, and follow reviewed pull requests and automatic repair requests.
+- **The optional Lead plans and follows work from its own conversation.** Enable it on a Node 25+ host to review plans and allowances, steer workers, and follow reviewed pull requests and repair requests. The current desktop shows it as unavailable when enabled on its older embedded runtime.
 
-- **Pair a phone on the local network.** Allow each phone at the desk, choose its access, and remove it from Phone settings.
+- **Pair a phone on the local network without an account link.** With local phone access enabled, Settings › Phone shows a code to scan; allow each phone at the desk and remove it from the same page.
 
 - **Git writes have one recorded path.** Approve pushes and steer an agent's own push through HarnessDesk, with a pinned project repository, PR and project Git records, and global or project preferences. Heads written elsewhere appear as Outside and name no one.
 

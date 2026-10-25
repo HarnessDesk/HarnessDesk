@@ -96,6 +96,7 @@ permissions: {
   android: false,
   editor: false,
   team: false,
+  forge: false,
   secrets: ['MY_API_KEY'],
 }
 ```
@@ -786,8 +787,8 @@ on disk, the manifest file is the manifest.
 
 ### Installation and development
 
-Install it from **Settings → Plugins → Add plugin**. Two install sources
-exist, each recording its provenance so Settings can badge it: a **local
+Install it from **Customize › Plugins → Add plugin**. Two install sources
+exist, each recording its provenance so Customize can badge it: a **local
 path** and an **npm** package name. The manifest is read and its requested
 grants are shown *before* any code is imported or run; npm packages are
 fetched with `npm pack`, so package install scripts never run. Installation
@@ -795,7 +796,8 @@ copies the directory into `~/.harnessdesk/plugins/<id>` (or
 `$HARNESSDESK_PLUGINS`) and records where it came from.
 
 **The development loop:** edit your plugin where it lives, then press
-**Update from source** on its card in Settings → Plugins. The copy is
+**Update from source** in the More menu of its page in Customize › Plugins
+(offered for a plugin installed from a local path). The copy is
 refreshed and the module reloaded — imports are cache-busted, so the new code
 is really the code that runs.
 
@@ -820,7 +822,7 @@ privileged path:
 | --- | --- | --- |
 | git | `ctx.shell`, `ctx.forge` | status, diff, log; branch context; the "Uncommitted changes" and "GitHub issue or PR" context chips; `git_push` and the PR/comment writes through the host's pinned gateway, signed for the conversation's seat and recorded in it; `pr_view`, `pr_checks` and `issue_view` read through `gh` |
 | files | `ctx.fs` | read and list within the workspace (read-only &mdash; see [the editor-plane decision](decisions.md#writing-a-file-belongs-to-the-editor-plane)) |
-| search | `ctx.fs` | content and filename search |
+| search | `ctx.shell` | content and filename search, through ripgrep (`rg`) in the workspace |
 | task list | — | `todo_write` / `todo_read` for an agent whose runtime has no plan tool of its own; the sidebar's Tasks panel is the app's and is read from the conversation, not from here |
 | team | `ctx.team` | shared task board tools and cross-conversation messaging; the "Team board" context chip |
 | checkpoints | `ctx.shell` | record and list recoverable working-tree snapshots; provide the person's recovery command |
@@ -928,6 +930,10 @@ documents every member):
   `AgentSession`: `settings()`, `send`, `steer`, `interrupt`,
   `respondToApproval`, `options()`, `setOption`, `setTitle`,
   `updateSettings`, and `close`.
+- `archiveSession` / `deleteSession` — history lifecycle, required even when
+  you keep no archive: they are only called when `capabilities.archiveHistory`
+  / `capabilities.deleteHistory` say so, and a runtime that declares no
+  archive may throw from `archiveSession`.
 - `getAccount` / `getRateLimits` — return empty rather than inventing: an
   account-less runtime returns `{ accounts: [], signInMethods: [] }` and
   declares `capabilities.account: false`.
@@ -961,14 +967,14 @@ implement:
 
 | Surface | Capability | What it is |
 | --- | --- | --- |
-| `login` / `cancelLogin` / `logout` | `account` | Sign-in flows the shell can drive (`browser`, `deviceCode`) or only describe (`external`). Completion arrives as an `account/loginCompleted` event, never a return value. |
+| `login` / `cancelLogin` / `logout` | `account` | Sign-in flows the shell can drive (`browser`, `deviceCode`), collect a pasted secret for (`apiKey`, kept by the credential broker and never sent back to the renderer), or only describe (`external`). Completion arrives as an `account/loginCompleted` event, never a return value. |
 | `files` (`RuntimeFiles`) | — | Your backend's own view of the filesystem, used for `@` search and reads. **It is a view, not a sandbox**: the host confines paths to open workspaces before your code sees them. |
 | `processes` (`RuntimeProcesses`) | — | Sandboxed interactive processes, if your backend can host them. The host builds its terminals on this. |
 | `tasks` (`RuntimeTasks`) | `backgroundTasks` | The agent's long-running background tasks that outlive the turn. See [background tasks](background-tasks.md). |
 | `extensions` (`RuntimeExtensions`) | `extensionStore`, `mcp` | Your backend's plugin catalogue, app directory, MCP servers, config import. HarnessDesk runs no store of its own. |
 | `rollback` / `compact` / `setMemoryMode` / `review` | `undo`, `compaction`, `memory`, `review` | Conversation verbs. |
 | `listSkills` / `setSkillEnabled` / `listHooks` | `skills`, `hooks` | Reusable instructions and configured hooks. |
-| `archiveSession` / `deleteSession` / `setTitle` / `setGoal` | `archiveHistory`, `deleteHistory`, `nameHistory`, `goals` | History lifecycle and standing session objectives. |
+| `AgentSession.setTitle` / `AgentSession.setGoal` | `nameHistory`, `goals` | A conversation's name and its standing objective. `setTitle` is a required session member; `nameHistory` says whether the name reaches the runtime's own history. `archiveSession` / `deleteSession` (required, above) are gated the same way by `archiveHistory` and `deleteHistory`. |
 
 Declare `pluginTools: true` when HarnessDesk's plugin tools reach this runtime's
 sessions via the tool gateway.

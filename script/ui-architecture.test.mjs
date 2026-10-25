@@ -95,10 +95,14 @@ test('rejects overlay parts through the public API, including renamed imports', 
   assert.ok(findings.some(({ rule }) => rule === 'screen-owned-overlay'))
 })
 
-test('allows the exact AppWindow canonical overlay boundary without permitting sibling screens', () => {
+test('only design/ui and design/patterns may compose dialog parts; no screen path is exempt', () => {
   const source = "import { DialogPopup, DialogPortal } from '../design'; const surface = <DialogPortal><DialogPopup aria-modal /></DialogPortal>"
-  assert.deepEqual(scanUiArchitecture([{ path: 'packages/ui/src/components/AppWindow.tsx', source }]), [])
-  assert.ok(scanUiArchitecture([{ path: 'packages/ui/src/components/OtherWindow.tsx', source }]).some(({ rule }) => rule === 'screen-owned-overlay'))
+  assert.deepEqual(scanUiArchitecture([{ path: 'packages/ui/src/design/patterns/SomeOverlay.tsx', source }]), [])
+  assert.deepEqual(scanUiArchitecture([{ path: 'packages/ui/src/design/ui/some-overlay.tsx', source }]), [])
+  // The retired AppWindow's path was once exempt for its own DialogPopup; it is not any more.
+  for (const screen of ['packages/ui/src/components/AppWindow.tsx', 'packages/ui/src/components/OtherWindow.tsx']) {
+    assert.ok(scanUiArchitecture([{ path: screen, source }]).some(({ rule }) => rule === 'screen-owned-overlay'), screen)
+  }
 })
 
 test('rejects emptied feature rules but permits nested container rules', () => {

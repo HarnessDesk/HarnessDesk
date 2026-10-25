@@ -18,11 +18,11 @@ Skills default to two-column catalogue cards. The title and a bounded descriptio
 
 ## A skill opens as a page, not a sheet — 2026-10-17
 
-A skill has enough definition and evidence to read as a destination: the definition is a card on the left, while loaded runtimes, recorded source and copies, files and cost stay in cards on the right. Back returns to the Library and history retains the route. Findings sit above the columns, and More keeps the less frequent copy actions; writes still open reviewed plans. This keeps the skill consistent with other details and gives long definitions the page’s scroll owner rather than two constrained dialog lanes. MCP retains its existing dialog. **Rule:** a detail is a page with a way back; dialogs are for confirming.
+A skill has enough definition and evidence to read as a destination: the definition is a card on the left, while loaded runtimes, recorded source and copies, files and cost stay in cards on the right. Back returns to Customize (then the Library) and history retains the route. Findings sit above the columns, and More keeps the less frequent copy actions; writes still open reviewed plans. This keeps the skill consistent with other details and gives long definitions the page’s scroll owner rather than two constrained dialog lanes. MCP retains its existing dialog. **Rule:** a detail is a page with a way back; dialogs are for confirming.
 
 ## What the Library changed has its own page, and every write says so in a toast with no Undo — 2026-10-17
 
-The Library keeps its cards for finding skills. Changes made here is a separate
+Customize (then the Library) keeps its cards for finding skills. Changes made here is a separate
 view of the same destination, reached from More and from a write's View changes
 toast. The audit read covers 90 days, with local-day groups, search and filters.
 Restore remains a previewed plan and is offered only for completed backed-up writes.
@@ -48,6 +48,11 @@ weight or foundation token is added.
 **Rule:** a head that names a band of a page's body is a section heading; a label that names a field group stays small.
 
 ## First launch offers installed runtimes — 2026-10-16
+
+> Superseded in part by [First run always has a text box](#first-run-always-has-a-text-box--2026-10-16):
+> its decision 8 removes the history-source copy and the
+> `presentation.historySource` field this entry reads. What follows is the
+> record of the offer as it was first chosen.
 
 The first empty conversation uses the Add a runtime page's machine catalogue
 to offer installed agents that have not been registered. Each is one compact
@@ -79,10 +84,14 @@ pair in the main bar. Control targets keep their design-system size.
 
 ## Browser CI is bounded on a pull request and complete before landing — 2026-10-15
 
+> Superseded by [Ordinary pull requests run core CI; integration runs in the full tier](#ordinary-pull-requests-run-core-ci-integration-runs-in-the-full-tier--2026-10-16):
+> ordinary pull requests no longer run browser shards at all. What follows is
+> the record of the bounded selection, which `check:push` still uses locally.
+
 A measured UI pull request took 79 minutes end to end: sixteen browser shards
 ran for 14–27 minutes and waited 5–29 minutes for runners. Browser work used
 about 340 of 373 runner-minutes. A widely rendered stylesheet can reach nearly
-all 224 specs, so an impact map alone cannot bound that cost.
+all 224 specs at the time, so an impact map alone cannot bound that cost.
 
 Ordinary pull requests keep edited specs and the most specific impact selections
 within four shards, using the existing light geometry matrix and duration
@@ -665,8 +674,10 @@ the same file.
 The alternatives were a copy of the command line in a system folder, which
 needs an administrator and goes stale at the next update, and a package-manager
 install, which puts a second copy of the program beside the app and has to be
-kept in step with it. Windows has no launcher yet: its door is a named pipe and
-its installer is a change of its own.
+kept in step with it. Windows has no launcher yet, and no door either: the
+host does not open the client door on Windows at all (`openClientDoor` in
+`packages/server/src/client-door.ts`), so a launcher there waits on a door of
+its own first, and its installer is a change of its own.
 
 **The rule:** the app puts its command line on a person's PATH with one file in a
 folder they own; it never overwrites a file that is not its own, never edits a
@@ -1234,6 +1245,14 @@ defaulted:
   stays — and the window marks the key spent, so this sidebar stands aside when
   one is open over it.
 
+**Today's numbers.** The figures above are the ones the entry was written
+against. The line has since moved off the desktop window's minimum (still
+720px, `minWidth` in `packages/desktop/electron/main.mjs`) to a fixed 1000px
+(`FRAME.fold.sidebarFloats` in `packages/ui/src/design/frame.ts`), and the
+sidebar is 256px wide by default, so the desktop app floats its sidebar below
+1000px even at its ordinary zoom. The first bullet's reasoning no longer
+holds; the other two, and the rule, do.
+
 **The rule:** a window too narrow for a column covers the conversation rather
 than squeezing it, and only when asked.
 
@@ -1267,9 +1286,20 @@ conversation at 398px, never the 400 it promised. So a 240px sidebar and a
 280px panel keep their column from 922px; at 900px the sidebar floats and the
 conversation keeps 619px beside the panel; from 680px down the panel covers it.
 
+**Today's numbers.** The arithmetic above is the measurement this entry was
+written against. `packages/ui/src/design/frame.ts` now holds the figures: the
+sidebar is 256px, the right panel 400px (320–640), and the reading column's
+floor is 480px (`FRAME.main.min`, still exported as `MIN_READING`). Both lines
+are one fixed width, 1000px (`FRAME.fold.sidebarFloats` and
+`FRAME.fold.panelFloats`), rather than a sum of the drawn widths: below it the
+sidebar floats and a drawn panel covers the conversation; above it the panel
+is clamped so the conversation keeps 480px, yielding only as far as the
+panel's 320px minimum needs. The 1px seam is still counted. The order of the
+rule holds: the panel narrows before the work does.
+
 **The rule:** navigation gives way before the thing being consulted, and the
 thing being consulted before the work; the work never stands beside anything
-narrower than 400px.
+narrower than its reading floor (now 480px).
 
 ## Capabilities are negotiated, not normalised
 
@@ -3123,6 +3153,10 @@ revision, sequence and open-card checks apply to both paths.
 
 ## A runtime wears the face shape — 2026-10-05
 
+> Superseded in part by [Round is someone, square is a thing](#round-is-someone-square-is-a-thing):
+> faces are now round by default and square when chosen (`--hd-face-radius`
+> in `tokens.css`). A runtime still wears the face shape.
+
 The owner chose the face shape for runtimes: a runtime is who does the work
 in these lists, and one meaning keeps one shape everywhere. Settings,
 setup, Add a runtime, gateway rows and the runtime card all follow the
@@ -3161,13 +3195,15 @@ those columns; at a 720px Settings window, the list is 378px wide and Skill
 had only 95px including insets. At a 900px window the list is 558px wide;
 even balancing the remaining description measure left a two-word line.
 
-Below 600px of list-container width, Library therefore uses the table family's
+Below 600px of list-container width, the skill list (now Customize's, then the
+Library's) therefore uses the table family's
 list rows: name and command on the title line, a two-line wrapped description,
 state on the meta line, and whole loading faces and the chevron in the trail.
 The definition keeps the full description one click away. At 600px the table
 has about 293px of identity text beside those trailing facts; the identity
 cell also keeps a 192px floor. This reads the container, like Teams, so both
-the standalone Library and the Settings page respond to their own space.
+the standalone Library and the Settings skills page it then had responded to
+their own space; Customize's list does the same.
 
 In that earlier Library repair, the header's markup, relevant PageHead styles
 and Settings reading measure were unchanged from main; its narrow blurb was
@@ -3656,6 +3692,7 @@ The owner chose D4 A+B: **Open a folder…** in an empty composer and
 Projects. D5 A keeps a finished Team under its project, with the attention
 dot labelled **Ready to wrap**, until it is wrapped; the gone-folder rule
 still applies. D11 A removes Agents and Plugins counts from sidebar rows
+(Plugins has since moved into Customize, which has no sidebar count either)
 and keeps those totals on their pages; the Flows row, added since, follows the
 same rule, so only Dashboard's attention count remains. Part 2 item 8 earns
 **Most used** only from recorded Flow starts; fresh desks list unused Flows
@@ -3736,7 +3773,7 @@ they fold with the toolbar when it runs out.
 
 ## A fetched skill is reviewed as a bundle before installing — 2026-10-16
 
-The Library's Add from GitHub flow pins a public repository revision and lets
+Customize's (then the Library's) Add from GitHub flow pins a public repository revision and lets
 the person choose skills and destination agents before the ordinary plan.
 The plan lists every carried file and lets runnable or binary fetched files
 be read as plain text. Those incoming files require an explicit acknowledgement
@@ -3779,6 +3816,10 @@ shape before a second page uses it; it adds no new tone, token or page behavior.
 
 ## First run always has a text box — 2026-10-16
 
+> Superseded in part by [Conversations can start without a project](#conversations-can-start-without-a-project--2026-10-16):
+> decision 3 is reversed; Send no longer waits for a folder picker. The other
+> decisions stand.
+
 Issue [#1720](https://github.com/HarnessDesk/HarnessDesk/issues/1720) found that
 a fresh desk replaced its text box with a folder button. The owner chose:
 
@@ -3817,7 +3858,7 @@ scratch folder, agent registration or sign-in policy is introduced.
 
 ## Updates are checked when asked and reviewed file by file — 2026-10-16
 
-The Library checks recorded repository origins only when the person asks.
+Customize (then the Library) checks recorded repository origins only when the person asks.
 It shows the most actionable result on the row and the pinned and newer commits
 on the sheet. Recorded origins remain visible before a check. Review fetches
 each distinct source once and plans each runtime copy at the fetched commit,
@@ -3882,6 +3923,10 @@ square and Kimi's white K takes `currentColor`; tests require each fix to still
 find what it removes, so an upstream redraw fails a test instead of shipping.
 
 ## Reviewed changes collect on development; every merge to main is a release — 2026-10-16
+
+> Superseded in part by [Development pushes run the browser specs their change reaches](#development-pushes-run-the-browser-specs-their-change-reaches--2026-10-16):
+> a development push now runs the bounded browser selection as well as the
+> core checks. The branch and release model stand.
 
 CI and the account's job cap became the bottleneck: approved changes waited
 hours for a batch. From the next release, reviewed changes land offline on a
@@ -3953,6 +3998,10 @@ The menu-state preview shows rest, pointer and keyboard states in both themes;
 [the interface](interface.md#menus-and-row-focus) records the behavior and
 [the design guide](design.md) records its shared styling.
 ## Navigation and choices stay usable while runtime reads settle — 2026-10-16
+
+> Superseded in part by [Customize is the shared capability destination](#customize-is-the-shared-capability-destination--2026-10-21):
+> Settings no longer lists Skills; skill management opens Customize. The
+> stable-route rule still holds for the rows Settings keeps.
 
 Settings always lists Skills and Extensions. A runtime may call its skills
 commands and may have no extensions, but those facts describe its page and
@@ -4084,6 +4133,10 @@ fresh allocation.
 
 
 ## The Library's skills page is cards under filter chips — 2026-10-16
+
+> Superseded by [Customize is the shared capability destination](#customize-is-the-shared-capability-destination--2026-10-21):
+> the skills page is now Customize's, its chips are All and Needs attention
+> with the rest under Filter, and Matrix is the Runtime comparison view.
 
 Skills open as compact cards with All, Needs you, One runtime and Nobody chips. Chips count all listed skills, while search, state filters and Agent declarations narrow together. Cards carry the runtime reach strip and at most one problem line; Matrix and the skill page retain the detailed comparison. Add skill groups the three existing ways to bring in a skill. MCP keeps its current page. Catalogue banners appear under Needs you even when that chip reads 0: banners describe the catalogue, while chips count skills.
 
@@ -4418,3 +4471,29 @@ The record journals before effects and hash-chains its physical lines. It is
 kept in host state, not in a worker-controlled checkout. Interrupted forge
 writes are not replayed blindly; recovered pushes require the matching remote
 head and a recorded successful outcome before the Lead can adopt them.
+
+
+## Lead checks its child runtime before it starts — 2026-10-25
+
+Lead's restricted child uses Node's explicit network denial and requires
+Node 25+. Its supervisor refuses an older host before spawn; the settings
+projection reports `unavailable: runtime` and the conversation disables sending
+and restarting with the same reason. The current desktop embeds an older
+runtime, so enabling Lead there displays that state. CI exercises the child
+and its permission probe with Node 25. The package's Node 22.19 floor remains
+unchanged and other CI jobs exercise Node 22.
+
+## Account identity and LAN phone pairing have separate lifetimes — 2026-10-25
+
+The account service stores a sealed identity per service origin and signs in
+through explicit browser approval of a named desk and matching code. Account
+sign-out revokes this desk; account deletion removes the account after its own
+confirmation. Both clear the local sealed identity only on the documented
+success or revoked-credential paths. Offline deletion keeps it for retry.
+
+LAN pairing uses `phone-link/`, a code that works once for ten minutes and
+approval on the desk. Settings › Phone is present only when that service is
+enabled. Pairing needs no account link; account sign-out and deletion leave
+that registry intact. Reachable from your phone only saves an account
+preference; it opens no relay connection. These separate lifetimes keep each
+operation within the connection the person chose.

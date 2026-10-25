@@ -5044,7 +5044,7 @@
         <path data-edge-from="tool" data-edge-to="projection" data-edge-key="0" data-composition-points="268,150;224,150;224,278;180,278" d="M 268 150 L 232 150 Q 224 150 224 158 L 224 270 Q 224 278 216 278 L 180 278" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="projection" data-edge-to="codex" data-edge-key="1" data-composition-points="120,308;120,376" d="M 120 308 L 120 376" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="tool" data-edge-to="gateway" data-edge-key="2" data-composition-points="388,150;432,150;432,278;476,278" d="M 388 150 L 424 150 Q 432 150 432 158 L 432 270 Q 432 278 440 278 L 476 278" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
-        <path data-edge-from="mcp" data-edge-to="gateway" data-edge-label="tools/list, tools/invoke" data-edge-key="3" data-composition-points="536,376;536,308" d="M 536 376 L 536 308" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="mcp" data-edge-to="gateway" data-edge-label="tools/*, mcp/*, server/info" data-edge-key="3" data-composition-points="536,376;536,308" d="M 536 376 L 536 308" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         <path data-edge-from="acp" data-edge-to="mcp" data-edge-label="session/new mcpServers" data-edge-key="4" data-composition-points="536,504;536,436" d="M 536 504 L 536 436" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
         <!-- Components -->
@@ -5124,9 +5124,9 @@
 
 
 
-        <g data-detail="context" data-edge-from="mcp" data-edge-to="gateway" data-edge-label="tools/list, tools/invoke" data-edge-key="3">
-          <rect x="473.4" y="342" width="125.19999999999999" height="14" rx="3" class="c-mask"/>
-          <text x="536" y="352" class="t-security" font-size="8" text-anchor="middle">tools/list, tools/invoke</text>
+        <g data-detail="context" data-edge-from="mcp" data-edge-to="gateway" data-edge-label="tools/*, mcp/*, server/info" data-edge-key="3">
+          <rect x="465.6" y="342" width="140.8" height="14" rx="3" class="c-mask"/>
+          <text x="536" y="352" class="t-security" font-size="8" text-anchor="middle">tools/*, mcp/*, server/info</text>
         </g>
         <g data-detail="context" data-edge-from="acp" data-edge-to="mcp" data-edge-label="session/new mcpServers" data-edge-key="4">
           <rect x="478.2" y="470" width="115.6" height="14" rx="3" class="c-mask"/>
@@ -5362,7 +5362,7 @@
         <ul>
           <li>&bull; NDJSON JSON-RPC over one unix socket in the state directory</li>
           <li>&bull; File permissions are the boundary; nothing is on a port</li>
-          <li>&bull; Two verbs only, so a bridge cannot widen its own reach</li>
+          <li>&bull; Five fixed methods, so a bridge cannot widen its own reach</li>
         </ul>
       </div>
     </div>

@@ -818,7 +818,7 @@ Left is one reading per shape: a continuous bar and percent for a window or allo
 
 Project usage compares named Goals or Agents in a table, with Run and Seat counts and Cost when amounts exist. Team and frozen Run records supply names, flow and branch facts; unread Run counts remain a dash, with a visible note and Try again action when a Team's history could not be read. Entering By Goal or By Agent retries refused Teams while retaining successful reads. A shared row note appears once under the table; varying notes stay beside their row. The unattributed reason is shown when it adds to the label. Cost cells use a short Estimate or At least qualifier and their coverage phrase; the full basis and source age remain in the title. Project usage labels its own Last 30 days or Last 24 hours range, offers a return to 30 days, and resets to 30 days when the project changes. A range whose amounts cannot be read has one unknown-amounts warning; a partial read with figures says amounts are incomplete and keeps the known-subtotal qualification in the Cost cell. A partial read offers Last 24 hours until that range is already active; missing attribution alone does not. With no records the page has one empty sentence. With records but no attribution it names the selected grouping once, and the heading follows that grouping. Unattributed usage is the footer. Receipt Cost uses numeric KeyValue rows, with varying notes, the unattributed reason and total source age on full-width lines below each pair. A shared row note appears once below the list. Recorded usage sits under a strong footer rule; repeated source labels are named once with their file count; Sources keeps each full source sentence.
 
-Meter lists in an account card, plan popover, roster and composer quota popover use the same name, bar, percent and countdown arrangement. Standalone readings say “N% left”; inside What is left they say “N%”. Their fixed reading/countdown tracks align consecutive 4px meters; the roster separates each account from its agent’s name. The narrow account menu and context panel omit the bar but keep the name, remaining figure and reset. Plain meter names reveal a title only when clipped; the roster keeps a full-name title for its separately clipped agent and account, and reset countdowns carry the reset clock time in their title. A lane blocked behind a longer spent window says “blocked” and its title names when that hold lifts. Reset readings share “in 3 d” / “in 2 h 14 m”, with a quiet dash for missing facts.
+Meter lists in an account card, plan popover and roster use the same name, bar, percent and countdown arrangement. Standalone readings say “N% left”; inside What is left they say “N%”. Their fixed reading/countdown tracks align consecutive 4px meters; the roster separates each account from its agent’s name. The narrow account menu and context panel omit the bar but keep the name, remaining figure and reset. Plain meter names reveal a title only when clipped; the roster keeps a full-name title for its separately clipped agent and account, and reset countdowns carry the reset clock time in their title. A lane blocked behind a longer spent window says “blocked” and its title names when that hold lifts. Reset readings share “in 3 d” / “in 2 h 14 m”, with a quiet dash for missing facts.
 
 When the account provides its own activity history, the expanded Plans row
 adds an **All machines** band: its daily token counts cover the account across
@@ -1478,11 +1478,13 @@ first ⌘U.
 
 ## The two smaller surfaces
 
-**In the composer — nothing.** This was going to be a micro-meter on the agent
-chip, appearing under 20%. The strip above makes it a second meter for the same
-fact, two inches from the context ring, which is exactly the confusion the
-original note warned about. The composer keeps the context ring — how full
-*this conversation* is — and the plan lives in one place. The account menu in
+**In the composer — no meter of its own.** This was going to be a micro-meter
+on the agent chip, appearing under 20%. The strip above makes it a second meter
+for the same fact, two inches from the context ring, which is exactly the
+confusion the original note warned about. The composer keeps the context ring —
+how full *this conversation* is — and the plan lives in one place; the ring's
+card lists the active metered agent's windows as rows, with no bar
+([context-usage.md](context-usage.md)). The account menu in
 the sidebar keeps its quota line, which now speaks for meter-backed agents too,
 because that line is about the account you are looking at rather than about all
 of them.

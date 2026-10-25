@@ -206,7 +206,7 @@ it('keeps each sentence-length explanation in its wrapped description, never squ
     'Records the fact and needs a person — no new round opens on its own.',
     'Anyone who can comment on the repository. Posts this desk makes never fire it.',
     'Up to $5, 3 rounds, 4 hours; stops after 2 rounds with no progress.',
-    'Arming reserves this Goal’s whole budget against today’s cap the moment it opens, in Settings › Triggers on this Mac.',
+    'Arming reserves this Goal’s whole budget against today’s cap the moment it opens; set it under Triggers on this Mac in Flows › Manage triggers.',
   ]
   // `data-wrap` is what the stylesheet keys on to let a sentence run to a
   // second line instead of being ellipsised — see Row's description, which wraps unless it is a name or a path (`truncateDesc`).

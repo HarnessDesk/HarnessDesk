@@ -53,13 +53,13 @@ Twenty-four packages make up the repository:
 | `packages/lead` | Portable Lead contracts and injected management ports | `protocol`, `client`; only the exact child.ts and supervisor.ts entries under its src directory may import their allowlisted Node modules and the client's Node entry; the core has no ambient machine or network authority |
 | `packages/cli` | The `harnessdesk` command line over the client library; the app bundles it and installs a launcher for it, and `docs/cli.md` is its reference, generated from its command table | `client`, `protocol` |
 | `packages/ui` | Renderer: AppStore snapshots, slot layout, panels | `protocol`, `client/views` (browser context only, no `node:*`) |
-| `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools` |
+| `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `codex` (wiring in `bootstrap.ts` only), `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools`, `ws` |
 | `packages/adapter-codex` | Native Codex adapter for `codex app-server` | `protocol`, `codex` |
 | `packages/codex` | Generated Codex JSON-RPC protocol client | Zero dependencies |
 | `packages/adapter-acp` | ACP adapter driving stdio peers | `protocol`, `transport-acp` |
 | `packages/transport-acp` | ACP line framing and transport | Zero dependencies |
-| `packages/claude-acp` | Bundled Claude Code ACP bridge | `@agentclientprotocol/claude-agent-acp`, `@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/sdk` |
-| `packages/cursor-acp` | Bundled Cursor ACP bridge for `cursor-agent` | Zero runtime dependencies |
+| `packages/claude-acp` | Bundled Claude Code ACP bridge | `protocol`, `@agentclientprotocol/claude-agent-acp`, `@anthropic-ai/claude-agent-sdk`, `@agentclientprotocol/sdk`, `@modelcontextprotocol/sdk`, `zod` |
+| `packages/cursor-acp` | Bundled Cursor ACP bridge for `cursor-agent` | `protocol` |
 | `packages/adapter-testkit` | Conformance suite for any `AgentRuntime` | `protocol` |
 | `packages/cordis-host` | In-process extension kernel, capability gates | `protocol`, `@deepseek-ai/cordis` |
 | `packages/extension-protocol`| Versioned IPC contract for child plugin host | `protocol` |
@@ -247,7 +247,7 @@ and Never. `gitWrites.projects[root]` overrides the global choice, with
 `inherit` as the default. An installed stand-in and Claude callback consult
 the host's current mode, so switching to Never releases an open conversation.
 Successful native pushes still observe the pinned remote when outside recording
-is enabled, without a steering question or bypass banner.
+is enabled, without a steering question or outside-write banner.
 A conversation opened with Never has no installation; enabling steering needs
 a new conversation. Generic ACP has no negotiated per-session process-
 environment channel, so steering currently requires an isolated worker
@@ -608,7 +608,7 @@ starts remove only their own empty allocation, preserving anything written there
 
 A plugin is a manifest and an `apply` function. It receives **capabilities**
 (`ctx.fs`, `ctx.http`, `ctx.shell`, `ctx.browser`, `ctx.editor`, `ctx.team`,
-`ctx.ios`, `ctx.android`), never primitives, and each consults the permission
+`ctx.forge`, `ctx.ios`, `ctx.android`), never primitives, and each consults the permission
 gate at the point of use. Built-in plugins are held to their manifests too —
 that is the only way the model stays exercised. See [extending.md](extending.md).
 
@@ -719,7 +719,7 @@ These only exist because no vendor owns the desk:
   collaborating on one repository. The host coordinates intent claims, prevents
   overlapping file edits, and routes attributed, quarantined messages across
   conversations with loop guards.
-- **Skill and MCP inventory** (`packages/agent-inventory`, Settings › Library).
+- **Skill and MCP inventory** (`packages/agent-inventory`, Customize).
   Scans skills and MCP server definitions across all installed agents without
   booting them. Translates configurations across agent dialects via a canonical
   specification, generates unified diff previews, takes automatic file backups,
@@ -805,6 +805,16 @@ second runtimes and kernels adapters rather than rewrites:
     `packages/protocol` never import `@harnessdesk/contract` or
     `@harnessdesk/crypto`; the host holds the keys, and the window reads state
     over the wire ([what is open, and what is hosted](open-and-hosted.md)).
+12. **The renderer reaches the client library only through its views.**
+    `packages/ui` imports `@harnessdesk/client/views` and nothing else of
+    `packages/client`, by name or by path; transports stay outside the window.
+13. **The client library keeps its transport in one entry.** `packages/client`
+    imports `@harnessdesk/protocol` and its own core; `src/views` imports only
+    `protocol` and its own files; only `packages/client/src/node.ts` imports `ws` and Node
+    built-ins, and no core module re-exports it.
+14. **The command line stands on the client library.** `packages/cli` imports
+    `@harnessdesk/client`, `@harnessdesk/protocol` and its own command
+    modules, nothing else.
 
 See [AGENTS.md](../AGENTS.md) for the maintainer rules and
 [extending.md](extending.md) for how to add a runtime adapter or plugin.
@@ -820,6 +830,29 @@ An association needs a locally observed diff fact, a matching checkout and a com
 ## Lead child runtime floor
 
 The optional Lead child requires Node 25 or newer and runs with
-`--permission --no-allow-net`. Older hosts, including Electron 42's Node 24.19,
+`--permission --no-allow-net`. Older hosts, including the current desktop's Node 24.19,
 report Lead as unavailable before starting it; the desk stays usable.
 CI jobs that exercise the child or its permission probe use Node 25.
+
+Lead is off by default and enabled at startup with `HARNESSDESK_LEAD=1`.
+On the desktop's unsupported runtime its settings projection carries
+`unavailable: runtime`; the UI explains the floor, disables the composer and
+Send, and refuses Restart. The supervisor checks the floor before spawning;
+no unrestricted child replaces it.
+
+## Independent LAN phone pairing
+
+`HARNESSDESK_PHONE_LINK=1` starts `startPhoneLink` from the desktop shell;
+the standalone host also accepts `--phone-link`. Settings › Phone reads
+`phone/state`, obtains a code with `phone/pairing`, and allows, denies or
+revokes devices through `phone/*`. The account service is not involved.
+The separate `phone-link/` identity and device registry survive restarts;
+enrollment offers do not. A code works once for ten minutes. The person
+approves the phone before its Read, Run and Answer grants take effect.
+`PHONE_POLICY` allowlists the phone's methods and event topics; renderer file
+and general settings methods are outside that surface. The LAN listener is
+closed with the host. Account relay transport remains inactive.
+
+The account request inventory in [data-boundaries.md](data-boundaries.md#harnessdesk-account--only-after-you-choose-sign-in)
+names each endpoint, payload and trigger. Account sign-out/deletion clear the
+origin's sealed identity; they do not clear the LAN device registry.

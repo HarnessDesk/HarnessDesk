@@ -1,5 +1,26 @@
 # What each agent declares it can do
 
+> **Historical — a survey taken on 2026-08-23 and not re-run since.** It
+> records what four runtimes declared that day; it is not the current list.
+> The runtimes added after it — Gemini CLI, OpenClaw, OpenCode, Cline,
+> Hermes Agent, CodeBuddy Code, Kimi CLI, pi, Grok Build, GitHub Copilot,
+> Antigravity and Devin ([runtimes.md](runtimes.md)) — are not in it, and
+> neither are the `RuntimeCapabilities` fields added after it:
+> `sessionEnvironment`, `sourceTranscript`, `nativeServerSelection`,
+> `archiveHistory`, `nameHistory`, `deleteHistory`, `readableHistory`,
+> `instructions`, `backgroundTasks` and `perToolMcpApproval`. The current
+> source is the code: the interface in `packages/protocol/src/runtime.ts`,
+> and what each adapter answers — `packages/adapter-codex` for Codex,
+> `packages/adapter-acp/src/runtime.ts` for every ACP agent, which reads most
+> of its answers off the agent's `initialize` reply.
+>
+> One cell is known to read differently in the code now. The ACP adapter
+> declares `searchHistory` whenever an agent advertises
+> `sessionCapabilities.list`, and the Cursor bridge does
+> (`packages/cursor-acp/src/bridge.ts`), so Cursor now declares it. The
+> table keeps the ○ it measured; what Cursor's search does on a real desk
+> has not been recorded.
+
 Agents differ, and the interface is built to say so rather than to paper over
 it: a runtime **declares** its capabilities, and a control for something an
 agent cannot do is simply not drawn.

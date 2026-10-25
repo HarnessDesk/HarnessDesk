@@ -218,6 +218,11 @@ Measured across runtime CLIs, installer packages, and help outputs on
 | Claude Code | `claude-acp` bridge | — | npm `@anthropic-ai/claude-code`, `~/.local/bin/claude`; `claude update` | `~/.claude` (`CLAUDE_CONFIG_DIR`) | `claude auth login` in browser |
 | Cursor | `cursor-acp` bridge | — | `~/.local/bin/cursor-agent`; `cursor-agent update` | `~/.cursor` | `cursor-agent login` (with `NO_OPEN_BROWSER=1`) |
 | Codex | `codex app-server` | 0.145.0 | brew `codex`, npm `@openai/codex`, `~/.local/bin/codex` | `~/.codex` (`CODEX_HOME`) | Browser sign-in, device code, or `codex login --with-api-key` |
+| Devin † | `devin acp` | — | install script from devin.ai → `~/.local/bin/devin` or `~/.devin/bin/devin`; `devin update` | `~/.devin` | `devin auth login` in browser |
+
+† Devin was added to the catalogue after the measurements above; its row is
+read from its entry in `packages/server/src/installs/known-agents.ts`, not from
+a sitting, and that entry is where it is kept current.
 
 *(Note: DeepSeek Harness is a template on its own ACP server, `dsh --profile
 acp`, and reads its key from `~/.dsh/.credentials.yaml`. See
@@ -343,8 +348,9 @@ On 2026-08-22, two investigations demonstrated why static catalogues fail:
   `~/.codex/config.toml`, HarnessDesk silently substituted the fallback
   catalogue default.
 - **Claude Code catalogue:** The official
-  `@agentclientprotocol/claude-agent-acp` bridge (0.79.0) bundles Agent SDK
-  0.3.274 and can expose the installed Claude Code catalogue through the
+  `@agentclientprotocol/claude-agent-acp` bridge (0.79.0 at the time, bundling
+  Agent SDK 0.3.274; the versions pinned now are in
+  `packages/claude-acp/package.json`) can expose the installed Claude Code catalogue through the
   bridge. HarnessDesk still respects `CLAUDE_CODE_EXECUTABLE` so the bridge
   can drive an external Claude binary capable of declaring its current model
   set rather than silently relying on a stale embedded catalogue.
@@ -535,8 +541,8 @@ A person with four runtimes installed has four accounts to keep alive, and the
 one that is signed out is rarely the one in front of them. So sign-in is a
 **roster, not a modal for the current runtime**: every registered runtime
 down the left with its state, the one selected on the right with the way in.
-Below the roster sits the public ACP registry, where new agents can be added
-in one click.
+The public ACP registry, where new agents can be added in one click, is on
+the **Add a runtime** page, behind **Browse more…** under the templates.
 
 There are four flow shapes, and the page knows the shapes rather than any
 vendor — a runtime declares which one it has, and the right control appears:

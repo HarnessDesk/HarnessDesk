@@ -3275,16 +3275,13 @@ export const patternSourceAppearanceOf = (file, source, ast, countedDefs = new S
   ...inlineStyleAppearanceIn(file, source, ast, root).map((detail) => `${screenAppearanceName(file)}: ${detail}`),
 ]
 
-/** Existing screen families only, capped at eleven additional owners. An
+/** Existing screen families only, capped at five additional owners. An
  * annotation documents membership; it cannot grant a new exception. See
  * AGENTS.md rule 11. Shared generic UI still belongs in design/. */
 export const STYLESHEET_OWNERS = Object.freeze({
   'components/Conversation.module.css': ['components/TurnTail.tsx'],
   'components/Items.module.css': ['components/MessageActions.tsx', 'components/StepGroup.tsx'],
-  'components/Plugins.module.css': ['components/PluginsSection.tsx'],
-  'components/Settings.module.css': ['components/Extensions.tsx'],
-  'components/Sidebar.module.css': ['components/SessionTree.tsx'],
-  'components/ToolPanes.module.css': ['components/BrowserPane.tsx', 'components/FilePane.tsx', 'components/PreviewPane.tsx', 'components/TerminalPane.tsx', 'components/ToolPaneHeader.tsx'],
+  'components/ToolPanes.module.css': ['components/BrowserPane.tsx', 'components/TerminalPane.tsx'],
 })
 
 /** The space steps the system offers, as plain numbers. */
@@ -4513,8 +4510,8 @@ for (const file of tsxFiles()) {
   const source = read(file)
 
   // Shared structural policy covers both raw dialog attributes and low-level
-  // parts, including aliased imports. Canonical patterns own overlay policy;
-  // AppWindow is the exact specialized composition recorded in that policy.
+  // parts, including aliased imports. Canonical patterns own overlay policy,
+  // and no screen is exempt from it.
   const code = codeOf(file)
   for (const detail of overlayViolations(path.relative(root, file).split(path.sep).join('/'), source)) findings.handRolledOverlay.push(`${name}: ${detail}`)
 

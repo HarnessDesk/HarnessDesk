@@ -1,5 +1,28 @@
 # Getting started
 
+## HarnessDesk account and local phone access
+
+Open Settings › Account and choose Sign in. The system browser shows the desk
+name and a code matching the app; approve that desk there. Account settings
+then offer Rename, linked-phone removal, Sign out and Delete account. Deletion
+requires its own confirmation and a successful service response; an offline
+failure leaves the account available to retry. Agent sign-ins and local files
+are separate. [Data boundaries](data-boundaries.md#harnessdesk-account--only-after-you-choose-sign-in)
+lists the requests and local-only sign-out behavior.
+
+For LAN access, launch with `HARNESSDESK_PHONE_LINK=1`, then open Settings › Phone.
+Choose Show code, scan it on the same network and allow the waiting phone on
+the desktop. A code works once for ten minutes. Remove phone disconnects it
+and requires pairing again. No HarnessDesk account link is needed. The
+account's Reachable from your phone switch only stores a preference in this
+build; it does not establish a relay connection.
+
+Lead is separately enabled at startup with `HARNESSDESK_LEAD=1`. It requires
+Node 25+ for its child process. On the current desktop's older embedded
+runtime, an enabled Lead shows an unavailable reason and disables sending.
+A compatible host offers plan approval, allowances, worker questions and
+required checks in the Lead conversation. Ordinary sessions remain available.
+
 ## Install an agent — or three
 
 HarnessDesk drives the agents already on your machine rather than bundling any,
@@ -12,10 +35,14 @@ curl https://cursor.com/install -fsS | bash
 ```
 
 **Codex** is spoken natively. **Claude Code** and **Cursor** arrive through the
-ACP adapter, using the bridges in this repository — both are one click in
-Settings › Runtimes › **Add a runtime**, as is **Gemini CLI**. Every other agent the
+ACP adapter, using the bridges in this repository. Settings › Runtimes ›
+**Add a runtime** lists them at the top with **DeepSeek Harness**, **Gemini
+CLI**, **OpenClaw** and **Hermes Agent**, one click each. Every other agent the
 [public ACP registry](https://agentclientprotocol.com) lists (~40 of them) is
-one click in the same dialog and on the sign-in page: HarnessDesk reads the
+one click under **Browse more…** in the same dialog and on the sign-in page,
+and for the ones the desk already knows — OpenCode, Cline, Kimi CLI, Grok
+Build, GitHub Copilot and others — it also knows where their installers put
+them, how old a copy can be, and how they sign in. HarnessDesk reads the
 registry, says which entries can run on your machine, and adding one either
 points it at `npx`/`uvx` or downloads the agent's own build into HarnessDesk's
 data folder — verified against the registry's digest when the entry carries
@@ -154,9 +181,16 @@ desktop app) and passes them to the agent environment at startup.
 | Shortcut | Action |
 | --- | --- |
 | `⌘N` | New session |
+| `⇧⌘N` | New Team… |
 | `⌘O` | Open folder… |
 | `⌘B` | Toggle sidebar |
 | `⇧⌘D` | Show changes |
+| `⌘G` | Switch Conversation and Editor mode |
+| `⌘P` | Go to file, in Editor mode |
+| `⌘L` | Ask in chat |
+| `` ⌃` `` | Show or hide Terminal |
+| `⌥⌘1`–`⌥⌘4` | Focus tile 1–4 |
+| `⌥⌘↵` | Expand or return the focused tile |
 | `⌘,` | Settings |
 | `⌘U` | Dashboard |
 | `⌘K` | Command palette |
@@ -187,8 +221,8 @@ guardrails, web, browser, iOS simulator, Android and tests. Their tools reach
 every agent — Codex as dynamic tools, Claude Code and DeepSeek Harness through
 an MCP server offered with each conversation, and Cursor through a generated
 plugin directory. If your DSH composition still has a `dsh-mcp-client` entry
-for HarnessDesk from an older setup, remove it. Settings ›
-Plugins shows each one's state, what it contributes, what it was granted, and
+for HarnessDesk from an older setup, remove it. **Customize** in the sidebar,
+on its **Plugins** tab, shows each one's state, what it contributes, what it was granted, and
 its configuration.
 
 Two are worth knowing about immediately:
@@ -221,15 +255,14 @@ architecture.
 
 Root `pnpm dist` rebuilds every Node package and the production UI before
 packaging. `release/` is gitignored and `pnpm clean` does not touch it, so a
-clean release removes that directory separately. The complete signed release
-checklist — clean output, full verification, `dist:notarized`, packaged smoke,
-Gatekeeper, stapler and checksums — is published with each release.
+clean release removes that directory separately. The signed release procedure
+— clean output, full verification, `dist:notarized`, stapling, checksums and
+the Gatekeeper check — is [release.md](release.md).
 
 `pnpm --filter @harnessdesk/desktop run smoke` then launches the built `.app`
 against a throwaway home and fails if any catalogue row says the build "does
 not carry" a bridge — the class of defect that only exists after packaging,
-which no test and no dev launch can see. Details in
-the release notes for that version.
+which no test and no dev launch can see.
 
 ## Troubleshooting
 

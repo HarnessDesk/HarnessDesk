@@ -88,10 +88,17 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 // Canonical Section and SectionHead both occur in Settings; neither is a page band here.
-for (const theme of ['light', 'dark'] as const) {
-  test(`Settings section headings stay labels across pages ${theme}`, async ({ page }) => {
+// Keep navigation batches bounded: thirteen full font-ready navigations exhausted
+// the shared 90s case budget on CI before reaching the last page's assertions.
+const settingsBatches = [
+  { name: 'preferences', sections: ['general', 'appearance', 'notifications', 'shortcuts'], minimum: 18 },
+  { name: 'conversations', sections: ['workspaces', 'archive', 'history', 'storage'], minimum: 6 },
+  { name: 'runtime and access', sections: ['runtimes', 'models', 'permissions', 'browser', 'profile'], minimum: 21 },
+] as const
+for (const theme of ['light', 'dark'] as const) for (const batch of settingsBatches) {
+  test(`Settings section headings stay labels across pages ${batch.name} ${theme}`, async ({ page }) => {
     let measured = 0
-    for (const section of ['general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage', 'runtimes', 'models', 'permissions', 'browser', 'profile']) {
+    for (const section of batch.sections) {
       await openFrame(page, `frame-wall=settings&frame-section=${section}`, theme)
       const heads = page.locator('[data-slot="section-name"], [data-section-name]')
       for (const head of await heads.all()) {
@@ -100,7 +107,7 @@ for (const theme of ['light', 'dark'] as const) {
       }
       if (section === 'archive') expect(await heads.count()).toBeGreaterThan(0)
     }
-    expect(measured).toBeGreaterThan(20)
+    expect(measured).toBeGreaterThanOrEqual(batch.minimum)
   })
 }
 

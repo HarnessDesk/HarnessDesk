@@ -108,9 +108,16 @@ test('audit source cache reads each present or missing stylesheet once and prese
   assert.throws(() => read('denied'), /denied/)
 })
 
-test('existing stylesheet co-ownership is capped at six families and eleven modules', () => {
-  assert.equal(Object.keys(STYLESHEET_OWNERS).length, 6)
-  assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 11)
+test('existing stylesheet co-ownership is capped at three families and five modules', () => {
+  assert.equal(Object.keys(STYLESHEET_OWNERS).length, 3)
+  assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 5)
+})
+
+test('every stylesheet co-ownership entry names files that exist', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  for (const [sheet, owners] of Object.entries(STYLESHEET_OWNERS)) {
+    for (const file of [sheet, ...owners]) assert.ok(fs.existsSync(path.join(uiSrc, file)), `${file} is gone; drop it from STYLESHEET_OWNERS`)
+  }
 })
 
 test('single-screen pattern accounting recognizes non-Git screen families', () => {
@@ -3391,9 +3398,9 @@ test('a recorded stylesheet family accepts only its capped owner and declared an
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   const dir = path.join(root, 'components')
   fs.mkdirSync(dir)
-  fs.writeFileSync(path.join(dir, 'Sidebar.module.css'), '/* @design-owners SessionTree, NewOwner */\n.row { display: flex; }')
-  const inspect = (name) => sheetsOf(dir, path.join(dir, `${name}.tsx`), `components/${name}.tsx`, "import styles from './Sidebar.module.css'", root)
-  assert.deepEqual(inspect('SessionTree').crossImports, [])
+  fs.writeFileSync(path.join(dir, 'Conversation.module.css'), '/* @design-owners TurnTail, NewOwner */\n.row { display: flex; }')
+  const inspect = (name) => sheetsOf(dir, path.join(dir, `${name}.tsx`), `components/${name}.tsx`, "import styles from './Conversation.module.css'", root)
+  assert.deepEqual(inspect('TurnTail').crossImports, [])
   assert.equal(inspect('NewOwner').crossImports.length, 1)
 })
 

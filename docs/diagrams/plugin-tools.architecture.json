@@ -86,7 +86,7 @@
     {
       "from": "mcp",
       "to": "gateway",
-      "label": "tools/list, tools/invoke",
+      "label": "tools/*, mcp/*, server/info",
       "variant": "security",
       "labelDy": -14
     },
@@ -113,7 +113,7 @@
       "items": [
         "NDJSON JSON-RPC over one unix socket in the state directory",
         "File permissions are the boundary; nothing is on a port",
-        "Two verbs only, so a bridge cannot widen its own reach"
+        "Five fixed methods, so a bridge cannot widen its own reach"
       ]
     }
   ]

@@ -176,7 +176,7 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
             <Row title="Budget" desc={triggerBudgetWords(preview.definition.budget)} />
             <Row
               title="Daily cap"
-              desc="Arming reserves this Goal’s whole budget against today’s cap the moment it opens, in Settings › Triggers on this Mac."
+              desc="Arming reserves this Goal’s whole budget against today’s cap the moment it opens; set it under Triggers on this Mac in Flows › Manage triggers."
             />
           </Rows>
           {preview.definition.from === 'anyone' && (

@@ -290,7 +290,7 @@ so the composer, a filter box and an empty desk all still navigate.
 ## The sidebar
 
 The sidebar column has three parts: a **header** with the title bar, brand and
-everything-search, then New session and three navigation rows; one scrolling
+everything-search, then New session and five navigation rows; one scrolling
 **content** area for the list controls and conversations; and a **footer** for
 docked panels, notices and the seat.
 
@@ -326,11 +326,12 @@ dialog. Just a Team opens a shared board without fixed steps.
 desk; the rest stay under **More Flows**. Changing the Flow stays in the dialog
 and keeps each draft.
 
-**Agents**, **Dashboard** and **Plugins** each have a full row under New
-session: the same icon, label and trailing badge grammar as the conversation
-list. Their labels truncate with the rest of the row when space is short; they
-remain visible at the sidebar's 200px minimum. Agents and Plugins keep their
-counts on their own pages; their sidebar rows carry no count. Dashboard shows
+**Teams**, **Flows**, **Agents**, **Customize** and **Dashboard** each have a
+full row under New session: the same icon, label and trailing badge grammar as
+the conversation list. Their labels truncate with the rest of the row when space
+is short; they remain visible at the sidebar's 200px minimum. Customize is one
+destination with **Skills**, **MCP** and **Plugins** tabs. Agents and Customize
+keep their counts on their own pages; their sidebar rows carry no count. Dashboard shows
 an attention count only while a runtime needs attention.
 Its Overview hides the Turns tile when no runtime reports turns; a reported zero
 remains a reading. A plan card with one window names it beside the headline
@@ -556,6 +557,16 @@ the host's signed-out state after success. A failure stays in the confirmation;
 offline deletion says **Can't reach HarnessDesk. Try again when you're online.**
 and offers no local-only deletion.
 
+**Settings › Phone** appears when the host advertises local phone access
+(`HARNESSDESK_PHONE_LINK=1`). Show code displays a QR code that works once for
+ten minutes; New code creates another. Scan it from a phone on the same network,
+then choose Allow or Not now on the desk. The global **Allow this phone?**
+confirmation also appears when another page is open. Phones lists the name,
+Read/Run/Answer grants and last-seen time. Remove asks for confirmation,
+disconnects the device and requires a new pairing to return. This local pairing
+requires no account link. The Account page's linked phones belong to its
+separate service lane.
+
 The **Local profile** beneath the account settings remains a name and a face
 kept on this Mac. Its page is its own preview: the head follows the name as
 you type it. The faces are the app's
@@ -677,7 +688,7 @@ the host limits completed rescans to once a minute.
 
 Ordinary conversation actions, file approvals, task tooltips and system notification
 descriptions call the process a runtime, whether or not a saved Agent role was seated.
-Library batch-install previews count runtime targets for both skills and MCP servers.
+Customize batch-install previews count runtime targets for both skills and MCP servers.
 
 Opening a conversation from the sidebar, command palette or a conversation
 link opens its folder as the workspace, including a worktree whose repository
@@ -823,7 +834,7 @@ through them, appears as a publication row: a verb, then the thing as a chip —
 GitHub's mark and `owner/name #n` — then its state in a word. Hovering the chip
 opens a card with GitHub's own text on it: the title, the author and size, and
 the opening of the description as GitHub holds it, which is where the signature
-the desk wrote is read. Pressing it opens the page. Settings › Plugins › Git
+the desk wrote is read. Pressing it opens the page. Customize › Plugins › Git
 has Description, Review and Comment signature templates. Their placeholders
 are listed once above the settings rows; a blank value turns that kind off.
 The default signature names the Team role and the agent's own model and effort
@@ -877,14 +888,13 @@ shows the command, `ApprovalMeta` shows Repository, Branch, Head and what it
 **Push through HarnessDesk**, **Let it use its own git** and **Don't push**.
 Own git is a one-off alternative, never a standing grant. Forge operations
 say **Write through HarnessDesk** and **Don't write**. An accepted steering
-card also approves the matching first push; it does not bypass rewrite
-approval. Refusals and results reach the command's own output and the thread.
+card also approves the matching first push; rewrite approval remains separate. Refusals and results reach the command's own output and the thread.
 
 Branch publications read **Pushed**, a branch chip, and the short SHA with
 **new branch**, or the commit count on the previous head when known. A merged
 PR publication reads **Merged**, its PR chip and the **Merged** state pill.
 Always mode adds a notice row saying **Sent through HarnessDesk · your choice
-for this project**. A successful concrete write that bypassed the gateway
+for this project**. A successful concrete write made outside the gateway
 gets **A push went around HarnessDesk**, or **A forge write went around
 HarnessDesk**, in the conversation's existing warning notice placement.
 Mentioning git in prose and dry runs do not raise this warning.
@@ -926,7 +936,7 @@ branch back** uses the existing reclaim decision, bound to the observed head.
 **Agent names a role; Runtime names the program that runs a conversation.**
 The composer chooses a Runtime. A conversation seated as an Agent keeps the
 Agent’s role name and Seat; its runtime name comes from `RuntimeInfo.presentation`.
-Library’s **Declared by** filter selects Agent roles, while **Loaded by**,
+Customize’s **Declared by** filter selects Agent roles, while **Loaded by**,
 **Install for**, and **Which runtimes load it** describe runtimes.
 
 While a draft’s runtime starts, its composer row shows **Starting**;
@@ -964,7 +974,17 @@ signed out and not accountless: its conversation opens normally, its seat stays
 offered and it is listed as Ready, and Sign in keeps the ways in it declared
 below that line. An agent the desk told to use a stored key is not unchecked
 once that key is removed: it reads as needing a sign-in again, and the desk
-presses none of its other ways in for it.
+presses none of its other ways in for it. A runtime whose program or required
+CLI is missing reads **Not installed** from the moment the desk opens, not Ready
+until its first conversation; one run through a package runner (`npx`, `uvx`)
+names the missing runner and what provides it instead of offering the agent's
+own install command.
+
+A runtime that can hold more than one account offers **Add another account**
+once signed in. Antigravity asks for a name first; an empty one gives
+“Antigravity 2”, “Antigravity 3” and so on. Each account is its own row over a
+folder of its own, keeps its own conversations, and is removed on its own:
+removal asks it to sign out and moves its folder to the Trash.
 
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).
@@ -1129,7 +1149,8 @@ from the runtime next time. Live and full conversation bodies remain.
 
 Grouped navigation, one short page each: a rail of pages, a 20px title with a
 one-line blurb, small grey section labels over cards of rows, one control at
-the right of each row. **Account** in Preferences opens the account and local
+the right of each row. The rail starts with **Back** and a **Search settings**
+box above every group. **Account** in Preferences opens the account and local
 profile page; the seat at the foot of the rail keeps your current identity.
 
 Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. That row is one bar tall and starts at the body's top, so the title stands on the sidebar wordmark's line. Their chooser or verb sits on the right of the same row, centred on that line, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title.
@@ -1143,15 +1164,15 @@ Account slots stay with their runtime; the count is runtimes, not accounts.
 
 | Group | Pages |
 | --- | --- |
-| **General** | Account · General · Appearance · Notifications · Keyboard shortcuts |
-| **Conversations** | Workspaces · History · Archive |
+| **Preferences** | Account · Lead (when enabled) · General · Appearance · Notifications · Keyboard shortcuts |
+| **Conversations** | Workspaces · History · Storage · Archive |
 | **Runtimes** | Runtimes · Models · Hooks · Extensions |
-| **Capabilities** | Customize (Skills · MCP · Plugins) |
-| **Access** | Permissions · Browser |
+| **Access** | Permissions · Phone (when available) · Browser |
 
 The order is the order a new window is read in: this app, how it looks, what
 it says; the work you have opened and put away; the runtimes and what each one
-brings; what is shared across them; what any of them may do. Hooks and
+brings; what any of them may do. What is shared across them — skills, MCP
+servers and plugins — is not a Settings page but the sidebar's **Customize**. Hooks and
 Extensions are the active runtime's own; their hover text names that runtime.
 The nav always offers Hooks and Extensions with the same labels and order,
 including before the runtime catalogue arrives. Capabilities govern the page's
@@ -1161,10 +1182,10 @@ where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
 
-Library's skills page offers **Add skill**: **Write a skill**, **From GitHub…**,
+Customize's Skills tab offers **Add skill**: **Write a skill**, **From GitHub…**,
 and **Copy from another runtime…**. Its More menu keeps **Check for updates**,
 **Rescan**, and **Changes made here…**; MCP servers retain their existing menus.
-Add skill and Check for updates wait until the Library has been read.
+Add skill and Check for updates wait until the skills have been read.
 A check stays disabled while it runs. Add from GitHub accepts a
 public repository or folder URL and an optional branch, tag or commit. Found
 skills show their folder, file count and counts of files that can run or are
@@ -1180,13 +1201,13 @@ with incoming runnable or binary files requires one acknowledgement before
 Apply. It acknowledges only the operations that need it; local installs ask
 for none. Each operation keeps its own result or refusal after Apply.
 
-Library omits reserved skill folders beginning with `_` and skills whose only
+Customize omits reserved skill folders beginning with `_` and skills whose only
 on-disk definitions are empty. A usable copy elsewhere keeps the skill listed;
 empty copies remain available to the cleanup action. Descriptions render inline
 markdown through the sanitized reading path.
 
 Check for updates asks once about skills installed from a repository, then reads
-the Library again. A toast reports available updates, an up-to-date result, no
+the skills again. A toast reports available updates, an up-to-date result, no
 recorded sources, or sources that could not be checked. Nothing checks on open,
 on focus or on a timer. An update is a quiet row finding, after existing warnings;
 it does not change problem counts. A missing source branch is a warning and an
@@ -1199,7 +1220,7 @@ has no review action; an unreachable source is quiet text. Review fetches each
 behind source once and plans its runtime copies at the freshly fetched commit.
 A refused or missing folder keeps its reason in the card and opens no plan.
 
-A skill opens as a wide page with Back to Library and Use in composer. Its
+A skill opens as a wide page with Back to Customize and Use in composer. Its
 sanitized description sits above a definition card with Rendered and Source
 views and Copy of the exact file. Each distinct Why reason has one warning
 banner titled with the affected runtimes, spanning both columns. The right column holds Update (only after a check),
@@ -1222,18 +1243,18 @@ runnable or binary file; removed files have no Read action. The definition diff
 starts open. An edited-copy reason appears verbatim above the files, and only
 an operation that plans a backup says it will make one. Added or changed runnable
 or binary files use the existing acknowledgement; removed files need none.
-After Apply the ordinary Library read supplies the new state.
+After Apply the ordinary skills read supplies the new state.
 
-**Changes made here** reads the last 90 days of Library writes on its own page,
+**Changes made here** reads the last 90 days of Customize writes on its own page,
 reached from More or the **View changes** action on each write's toast. All,
 Can restore and Failed chips show counts; search matches names and paths.
 Today, Yesterday and Earlier group the entries, with time, runtime and path.
 Only a completed change with a backup offers **Restore…**, which previews what
 it puts back and replaces. Applying a restore refreshes the page. **Back to
-Library** returns to the page it was opened from — a skill's own page, or the
+Customize** returns to the page it was opened from — a skill's own page, or the
 Skills or MCP list — and otherwise opens the section last used; each section
 keeps its filter, search, chip and list-or-matrix choice while the window is
-open. The Library has no history list at its foot. Successful writes share one
+open. Customize has no history list at its foot. Successful writes share one
 success toast; failures share a persistent failure toast with the first
 reason. Skipped operations raise nothing, and the write toasts offer no Undo.
 
@@ -1294,7 +1315,7 @@ scroll inside the dialog body, with the question and Approve/Keep buttons
 remaining on screen so the whole command can be read before consent. The Agent's
 Notes section reads and clears `NOTES.md` beside its file: private
 working context, never system instructions. A Seat's own name card and the
-Library's Agent filter both read back what a Seat's runtime build actually
+Customize's Agent filter both read back what a Seat's runtime build actually
 loaded, by that Seat's own immutable id — "declared, not loaded" and "not
 recorded" are shown as different facts, never folded into one another.
 
@@ -1333,20 +1354,20 @@ It has a page per runtime (health, update, the runtime's own options) or per acc
 reveals ACP registry entries with one group note: “Third-party entries from the
 ACP registry. HarnessDesk has not reviewed them.” Adding or downloading an entry
 works as before; a custom command remains under **Something else**.
-Runtime brand tiles keep the same colour here, in Runtimes, in Library's
+Runtime brand tiles keep the same colour here, in Runtimes, in Customize's
 **Loaded by** column and wherever that runtime is drawn. Account ring colours
 remain a separate preference. In Usage, runtime rows, legend dots, share segments
 and bars share that tint. The first runtime of each tint keeps it; later
 duplicates take unused roster tints, including their ranked faces, so the table
-continues to identify the series. Library's loading tiles are spaced so each mark
+continues to identify the series. Customize's loading tiles are spaced so each mark
 stays whole. Extensions
-appears only for a runtime with a store or MCP servers to show, which today
-means Codex alone. A runtime whose sign-in the desk cannot ask about — an ACP
+is always listed; its page has contents only for a runtime with a store or MCP
+servers to show, which today means Codex alone, and otherwise opens Runtimes. A runtime whose sign-in the desk cannot ask about — an ACP
 runtime with no status command and no stored key — is described by what its own
 answers showed: "Signed in" once a conversation has opened, its declared
 sign-in methods in its own words when it refused one for want of
 authentication, and nothing at all before either has happened. It is never
-"Needs sign-in" on the strength of an empty list. ⌘, opens this page.
+"Needs sign-in" on the strength of an empty list. ⌘, opens Settings at General.
 
 Extensions › Reload and plugin installation hold changes while any conversation
 on the account has selected tool servers. Each notice says how many conversations
@@ -1393,7 +1414,7 @@ that nothing was checked. The whole of it is in
 **As the board narrows.** Occupied columns keep their full width and scroll
 horizontally when they do not fit. Empty columns start as narrow rails with
 their names and zero counts; each rail opens in place and offers a keyboard
-Fold control. The Board tab counts every card, including completed work, so a
+Fold control. The Tasks tab counts every card, including completed work, so a
 finished Team's three Ready cards are visible beside its four empty rails.
 An overflowing board keeps its scrollbar visible before any scrolling gesture.
 When every column is empty, the board shows one “Nothing on the board yet” line.
@@ -2151,12 +2172,18 @@ no completion badge, activity, glow or motion.
 
 ## Lead
 
+Lead is off by default; `HARNESSDESK_LEAD=1` enables it at startup. Its child
+requires Node 25+. The current desktop's older embedded runtime reports Lead
+unavailable when enabled: a banner explains the requirement, the composer and
+Send are disabled, and Restart has the same reason. Ordinary sessions and
+Settings remain usable.
+
 When the host enables Lead, its chosen name, Dex or Lex, opens the conversation
 pane from the sidebar (hover title: Lead). Lead uses the same window shell,
 top bar, thread, Items message renderer, empty-state layout and measured floating
 composer as a session. Its name occupies the session title slot; the settings
 glyph, titled Lead settings, is the only top-bar tool and opens Settings › Lead. There is no
-body heading. A single LeadAvatar slot holds the name's initial until artwork arrives.
+body heading. A single LeadAvatar slot shows the chosen name's artwork and expression.
 Until settings arrive, the name reads Lead and the greeting says "Hi, tell me what
 you want done." The composer says Message Dex… or Message Lex… and shows initial dollar and round
 allowance chips. Enter sends, Shift+Enter adds a line, and Send waits for the

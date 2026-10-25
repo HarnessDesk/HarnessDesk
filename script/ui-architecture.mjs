@@ -67,8 +67,9 @@ const parseSource = (file, source) => {
   return ast
 }
 
-/** Only canonical overlay implementations and the app-window policy compose
- * low-level parts. AppWindow still uses the canonical modal/focus behavior. */
+/** Only canonical overlay implementations — `design/ui` and `design/patterns` —
+ * compose low-level dialog parts or carry `role="dialog"` / `aria-modal`. No
+ * screen is exempt; a surface that is not a dialog draws none of them. */
 const isOverlayAuthority = (file) => /^packages\/ui\/src\/design\/(?:ui|patterns)\//.test(file)
 const OVERLAY_PART = /^(?:Alert)?Dialog(?:Popup|Overlay|Viewport|Portal)$/
 
@@ -89,10 +90,9 @@ const createElementMatcher = (ast) => {
 export const overlayViolations = (file, source, ast = parseSource(file, source)) => {
   if (isOverlayAuthority(file)) return []
   const violations = []
-  const appWindow = file === 'packages/ui/src/components/AppWindow.tsx'
   const isCreateElement = createElementMatcher(ast)
   const visit = (node) => {
-    if (!appWindow && ts.isImportSpecifier(node) && OVERLAY_PART.test((node.propertyName ?? node.name).text)) {
+    if (ts.isImportSpecifier(node) && OVERLAY_PART.test((node.propertyName ?? node.name).text)) {
       violations.push(`imports ${node.propertyName?.text ?? node.name.text} outside a canonical overlay policy`)
     }
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
@@ -100,13 +100,13 @@ export const overlayViolations = (file, source, ast = parseSource(file, source))
       const value = role && ts.isJsxExpression(role) ? role.expression : role
       if (value && ts.isStringLiteral(value) && /^(?:alert)?dialog$/.test(value.text)) violations.push(`raw role="${value.text}" outside a canonical overlay policy`)
       const tag = node.tagName.getText(ast).split('.').at(-1)
-      if (jsxAttribute(node, 'aria-modal', ast) && !(appWindow && tag === 'DialogPopup')) violations.push('aria-modal outside a canonical overlay policy')
-      if (!appWindow && OVERLAY_PART.test(tag)) violations.push('uses dialog parts outside a canonical overlay policy')
+      if (jsxAttribute(node, 'aria-modal', ast)) violations.push('aria-modal outside a canonical overlay policy')
+      if (OVERLAY_PART.test(tag)) violations.push('uses dialog parts outside a canonical overlay policy')
     }
     if (ts.isCallExpression(node) && isCreateElement(node.expression)) {
       const [host, props] = node.arguments
       const tag = host && (ts.isIdentifier(host) ? host.text : ts.isPropertyAccessExpression(host) ? host.name.text : undefined)
-      if (!appWindow && tag && OVERLAY_PART.test(tag)) violations.push('uses dialog parts outside a canonical overlay policy')
+      if (tag && OVERLAY_PART.test(tag)) violations.push('uses dialog parts outside a canonical overlay policy')
       if (props && ts.isObjectLiteralExpression(props)) {
         for (const property of props.properties) {
           if (!ts.isPropertyAssignment(property)) continue
@@ -115,7 +115,7 @@ export const overlayViolations = (file, source, ast = parseSource(file, source))
           if (name === 'role' && ts.isStringLiteral(property.initializer) && /^(?:alert)?dialog$/.test(property.initializer.text)) {
             violations.push(`raw role="${property.initializer.text}" outside a canonical overlay policy`)
           }
-          if (name === 'aria-modal' && !(appWindow && tag === 'DialogPopup')) violations.push('aria-modal outside a canonical overlay policy')
+          if (name === 'aria-modal') violations.push('aria-modal outside a canonical overlay policy')
         }
       }
     }
