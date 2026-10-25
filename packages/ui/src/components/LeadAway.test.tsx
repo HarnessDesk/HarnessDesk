@@ -25,3 +25,15 @@ describe('the away digest', () => {
     expect(leadAwayDigest({ at: 0, revision: state.revision, spent: 0 }, state, 'Dex', now)).toBeNull()
   })
 })
+
+it('a successful desk check before return time keeps the digest verified, including a zero timestamp', () => {
+  for (const checked of [0, 1000]) {
+    const state = stateOf('running'), now = 10 * 60 * 60_000
+    const current = { ...state, presence: { ...state.presence!, lastCheckedAt: checked } }
+    const report = leadAwayDigest({ at: now - LEAD_AWAY_MS, revision: 0, spent: 0 }, current, 'Dex', now)!.report
+    expect(report.finding).not.toContain('Unverified')
+    expect(report.caveat).not.toContain('could not verify')
+    const failed = leadAwayDigest({ at: now - LEAD_AWAY_MS, revision: 0, spent: 0 }, { ...current, error: 'lead-projection-failed' }, 'Dex', now)!.report
+    expect(failed.caveat).toContain('could not verify')
+  }
+})

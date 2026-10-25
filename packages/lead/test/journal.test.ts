@@ -1933,10 +1933,40 @@ test('the wake ledger retains silent checks and the final cost of a model wake a
   const storage = memory(), journal = await open(storage)
   assert.equal(typeof journal.recordWake, 'function')
   await journal.recordWake({ id: 'silent-1', at: 100, source: 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null })
-  await journal.recordWake({ id: 'model-1', at: 110, source: 'schedule', decision: 'silent', modelTurn: true, usdMicros: null })
   await journal.recordWake({ id: 'model-1', at: 110, source: 'schedule', decision: 'asked', modelTurn: true, usdMicros: 1200 })
   const recovered = await open(storage)
   assert.equal(recovered.state.wakes.length, 2)
   assert.equal(recovered.state.wakes[0].decision, 'silent')
   assert.equal(recovered.state.wakes[1].usdMicros, 1200)
+})
+
+test('old checkpoints with a conversation treat the name as already chosen', async () => {
+  for (const messages of [false, true]) {
+    const journal = await open(memory())
+    await journal.settingsChanged()
+    if (messages) await journal.appendReply('An earlier conversation.')
+    const checkpoint: any = lead.leadCheckpoint(journal.state, 'a'.repeat(64))
+    delete checkpoint.state.nameChosen
+    const migrated = lead.parseLeadCheckpoint(checkpoint).state
+    assert.equal(migrated.nameChosen, messages)
+  }
+})
+
+test('wake records are final, idempotent, bounded, and do not advance the decision fence', async () => {
+  const storage = memory(), journal = await open(storage)
+  await journal.setPolicy(policy)
+  const before = journal.state.seq, decision = journal.state.decisionRevision
+  const wake = { id: 'quiet', at: 100, source: 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null }
+  await journal.recordWake(wake)
+  await journal.recordWake(wake)
+  assert.equal(storage.records.filter(record => record.type === 'wake').length, 1)
+  assert.equal(journal.state.decisionRevision, decision)
+  await assert.rejects(journal.recordWake({ ...wake, decision: 'spoke' }), /lead-wake-already-recorded/)
+  await journal.changePolicy({ ...policy, revision: 2, mode: 'plan' }, before, 'policy-next')
+  await assert.rejects(journal.changePolicy({ ...policy, revision: 3, mode: 'plan' }, before, 'policy-stale'), { wireCode: 'lead-revision-stale' })
+  for (let i = 0; i < 130; i++) await journal.recordWake({ ...wake, id: `quiet-${i}`, at: 101 + i })
+  assert.equal(journal.state.wakes.length, 128)
+  const replayed = await open(storage)
+  assert.equal(replayed.state.decisionRevision, journal.state.decisionRevision)
+  assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint(replayed.state, 'a'.repeat(64))).state, replayed.state)
 })

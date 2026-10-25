@@ -1,6 +1,6 @@
 import { leadToolDefinitions, parseLeadToolCall, LeadToolFencedError, LeadToolRefusedError } from './tools.js'
 import { LEAD_LIMITS, clientTierFor, parseLeadAcceptanceContract, parseLeadCard,
-  type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
+  type LeadProactive, parseLeadProactive, type LeadBudgetEvent, type LeadAcceptanceContract, type LeadCard } from '@harnessdesk/protocol'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadMessagesClient, LeadMessagesOptions, LeadMessagesResult, MessagesHttpResponse, MessagesPrice,
   MessagesRedactedThinking, MessagesText, MessagesThinking, MessagesToolUse, MessagesToolResult, MessagesTurn, MessagesUsage } from './messages-types.js'
@@ -182,19 +182,19 @@ const usage = (value: unknown): MessagesUsage => {
  * envelope must then be valid. Whatever the text decodes to is returned as `decoded`
  * so the caller's credential scan sees escaped strings too. Proposals are data only;
  * their validators confer no authority to execute them. */
-const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; decoded: unknown } => {
+const proposals = (text: string): { text: string; plan: LeadAcceptanceContract | null; cards: readonly LeadCard[]; proactive?: LeadProactive; decoded: unknown } => {
   let decoded: unknown = null
   try { decoded = JSON.parse(text) } catch { /* prose */ }
   if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded) || (decoded as Record<string, unknown>).type !== 'lead-output')
     return { text, plan: null, cards: [], decoded }
   const candidate = decoded
-  const source = object(candidate, ['version', 'type', 'text', 'plan', 'cards'])
+  const source = object(candidate, ['version', 'type', 'text', 'proactive', 'plan', 'cards'])
   if (source.version !== 1) return fail()
   if (source.cards !== undefined && (!Array.isArray(source.cards) || source.cards.length > LIMIT.blocks)) return fail()
   const cards = source.cards === undefined ? [] : (source.cards as unknown[]).map(value => parseLeadCard(value))
   if (new Set(cards.map(card => card.id)).size !== cards.length) fail()
   return { text: source.text === undefined ? '' : string(source.text),
-    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, decoded }
+    plan: source.plan === undefined ? null : parseLeadAcceptanceContract(source.plan), cards, ...(source.proactive === undefined ? {} : { proactive: parseLeadProactive(source.proactive) }), decoded }
 }
 /** Cancellation also wins when a broken injected operation ignores its signal. */
 const cancellable = async <T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> => {
@@ -395,6 +395,6 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     }
     return { status: parsed.stop_reason === 'max_tokens' ? 'max-tokens' : signal.aborted ? 'cancelled' : 'completed', usage: used,
       ...(predecessorReason ? { reason: predecessorReason } : {}),
-      text: output.text, proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
+      text: output.text, ...(output.proactive ? { proactive: output.proactive } : {}), proposals: { plan: output.plan, cards: output.cards }, toolResults: results, permissionDeniedTools, transientTools, deskActivityTools, succeededTools, messages: continuation }
   } }
 }

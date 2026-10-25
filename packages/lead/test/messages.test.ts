@@ -473,3 +473,13 @@ test('a credential echoed inside thinking is refused like one in any other block
     assert.ok(!JSON.stringify(result).includes(key))
   }
 })
+
+test('a proactive envelope validates all three parts and refuses extra or multiline fields', async () => {
+  const proactive = { finding: 'The check failed.', caveat: 'Review has not finished.', ask: 'Inspect changes', action: 'changes' }
+  for (const value of [proactive, { ...proactive, extra: 'Another finding' }, { ...proactive, finding: 'One\nTwo' }]) {
+    const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: value }) }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    if (value === proactive) { assert.equal(result.status, 'completed'); assert.deepEqual((result as any).proactive, proactive) }
+    else assert.equal(result.status, 'invalid-response')
+  }
+})

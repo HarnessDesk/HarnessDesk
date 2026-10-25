@@ -1777,3 +1777,25 @@ test('the window wake read returns journaled silent checks without invoking the 
   assert.equal(result.revision, s.journal.state.seq)
   assert.equal(s.sends.length, 0)
 })
+
+test('a silent wake between reading settings and saving them does not stale the decision fence', async () => {
+  const s = await rig(), before = await s.controls.readSettings()
+  await s.journal.recordWake({ id: 'quiet-save', at: 100, source: 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null })
+  const saved = await s.controls.updateSettings({ expectedRevision: before.revision, follow: { checks: false, reviews: true } })
+  assert.equal(saved.settings.follow.checks, false)
+  await assert.rejects(s.controls.updateSettings({ expectedRevision: before.revision, follow: { checks: true, reviews: true } }), code('lead-revision-stale'))
+  s.controls.close()
+})
+
+test('automatic fallback keeps a valid model report and never fabricates a report from plain text', async () => {
+  const proactive = { finding: 'The current check failed.', caveat: 'Review is pending.', ask: 'Inspect changes', action: 'changes' }
+  for (const report of [proactive, undefined]) {
+    const s = await rig({ configured: true, service: { async send() { return { status: 'completed', text: 'Plain model text', ...(report ? { proactive: report } : {}) } } } })
+    await s.controls.send({ idempotencyKey: 'scheduled', text: 'Read CI' }, { source: 'schedule', event: 'morning', subject: 'CI', url: null })
+    await s.controls.idle()
+    const replies = s.journal.state.messages.filter(message => message.role === 'assistant')
+    if (report) { assert.equal(replies.length, 1); assert.match(replies[0]!.proactive!.finding, /The current check failed/); assert.match(replies[0]!.proactive!.caveat, /could not verify/) }
+    else assert.equal(replies.length, 0)
+    s.controls.close()
+  }
+})

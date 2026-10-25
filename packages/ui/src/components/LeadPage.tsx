@@ -155,7 +155,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const send = async (text = goal) => {
     if (inFlight.current || state.requestInFlight || !text.trim()) return
     inFlight.current = true; setSending(true); setError(null)
-    try { await store.lead.send(text.trim(), crypto.randomUUID()); setGoal('') }
+    try { await store.lead.send(text.trim(), crypto.randomUUID()); setGoal(current => current === text ? '' : current) }
     catch (error) { refusal(error) }
     finally { inFlight.current = false; setSending(false); input.current?.focus() }
   }

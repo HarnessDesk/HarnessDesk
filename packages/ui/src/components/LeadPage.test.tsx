@@ -521,3 +521,14 @@ it('explains a repair recovery refusal separately from publication', async () =>
   expect(box.textContent).toContain('The repair could not be recovered.')
   expect(box.textContent).not.toContain('could not be published')
 })
+
+it("starting an opening job preserves the person's unfinished composer draft", async () => {
+  const { store, box } = await mount()
+  Object.assign(store.getSnapshot(), { goals: new Map([['team-1', { goal: { id: 'team-1', root: '/workspace/demo', state: 'open', sentence: 'Keyboard focus' } }]]),
+    flowExecutions: new Map([['run-1', { id: 'run-1', goal: 'team-1', state: 'stalled', rounds: [] }]]) })
+  await input(box.querySelector('textarea')!, 'Keep this unfinished goal')
+  const start = box.querySelector<HTMLButtonElement>('button[aria-label="Start Unblock Keyboard focus"]')!
+  expect(start).not.toBeNull()
+  await act(async () => start.click())
+  expect(box.querySelector('textarea')!.value).toBe('Keep this unfinished goal')
+})

@@ -1333,9 +1333,8 @@ test('every step stores what the model said, including the steps the host never 
     const first = await loop.request(input)
     await s.tick(); await loop.idle()
     assert.equal(s.fake.requests.length, 2, 'the tool result went back for a second step')
-    assert.equal(said(s)[0], 'Looking at the desk first.')
-    assert.ok(s.journal.state.messages.at(-1)?.proactive)
-    assert.equal(said(s)[1]?.split('\n').length, 3)
+    assert.deepEqual(said(s), ['Looking at the desk first.', 'The catalog has nothing for this goal yet.'])
+    assert.equal(s.journal.state.messages.at(-1)?.proactive, undefined)
     assert.equal(first.text, undefined)
   } finally { await loop.close() }
 })
@@ -1571,7 +1570,7 @@ test('desk wakes journal silent gate checks without paying for another turn', as
 test('an unprompted reply after a failed desk read never presents model prose as a verified finding', async () => {
   const s = await fixture([async () => {
     s.setReady(false); s.emit({ type: 'gap', reason: 'lost baseline' }); await s.drain()
-    return message([{ type: 'text', text: 'All checks passed. Ship it now.' }])
+    return message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: { finding: 'The keyboard check passed.', caveat: 'Review is still pending.', ask: 'Inspect changes', action: 'changes' } }) }])
   }])
   const loop = exported('createLeadLoop')(s.options)
   try {
@@ -1579,7 +1578,61 @@ test('an unprompted reply after a failed desk read never presents model prose as
     const reply = s.journal.state.messages.at(-1)!
     assert.match(reply.proactive!.finding, /^Unverified report:/)
     assert.match(reply.proactive!.caveat, /could not verify/)
-    assert.doesNotMatch(reply.text, /All checks passed|Ship it/)
+    assert.match(reply.text, /The keyboard check passed/)
     assert.equal(s.journal.state.wakes[0]!.source, 'schedule')
+  } finally { await loop.close() }
+})
+
+for (const source of ['schedule', 'trigger'] as const) test(`a ${source} wake preserves the model's validated three-part report`, async () => {
+  const report = { finding: 'The keyboard check failed on the current head.', caveat: 'The remaining checks are still running.', ask: 'Inspect changes', action: 'changes' }
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: report }) }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request({ ...input, proactive: true, wakeSource: source })
+    assert.deepEqual(s.journal.state.messages.at(-1)?.proactive, report)
+    assert.equal(s.journal.state.messages.at(-1)?.text, [report.finding, report.caveat, report.ask].join('\n'))
+    assert.equal(s.records.filter(record => record.type === 'wake').length, 1)
+  } finally { await loop.close() }
+})
+
+test('an automatic wake without a proactive envelope stays silent', async () => {
+  const s = await fixture([message([{ type: 'text', text: 'An unsupported claim from the model.' }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    const result = await loop.request({ ...input, proactive: true, wakeSource: 'schedule' })
+    assert.deepEqual(said(s), [])
+    assert.equal(result.text, undefined)
+    assert.equal(s.journal.state.wakes[0]!.decision, 'silent')
+    assert.equal(s.records.filter(record => record.type === 'wake').length, 1)
+  } finally { await loop.close() }
+})
+
+test('a desk notice outside the model-wake filter leaves a silent ledger row', async () => {
+  const s = await fixture([message([{ type: 'text', text: 'I am reading the desk.' }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    s.emit({ type: 'notice', team: null, text: 'A desk notice' }); await s.drain(); await s.tick(); await loop.idle()
+    const wake = s.journal.state.wakes.at(-1)!
+    assert.equal(s.journal.state.wakes.length, 2)
+    assert.equal(wake.source, 'desk-change'); assert.equal(wake.decision, 'silent'); assert.equal(wake.modelTurn, false)
+    assert.equal(s.fake.requests.length, 1)
+    assert.equal(s.records.filter(record => record.type === 'wake').length, 2)
+  } finally { await loop.close() }
+})
+
+test('a person tool continuation stays a person reply when a notice coalesces with it', async () => {
+  const s = await fixture([
+    message([{ type: 'text', text: 'I will read the catalog.' }, tool('catalog', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' }),
+    message([{ type: 'text', text: 'The catalog has nothing for this goal yet.' }]),
+  ])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); await loop.request({ ...input, wakeSource: 'person' })
+    s.emit({ type: 'notice', team: null, text: 'Desk notice' }); await s.drain(); await s.tick(); await loop.idle()
+    assert.deepEqual(said(s), ['I will read the catalog.', 'The catalog has nothing for this goal yet.'])
+    assert.ok(s.journal.state.messages.every(message => !message.proactive))
+    assert.ok(s.journal.state.wakes.every(wake => wake.source === 'person'))
+    assert.equal(s.records.filter(record => record.type === 'wake').length, 2)
   } finally { await loop.close() }
 })

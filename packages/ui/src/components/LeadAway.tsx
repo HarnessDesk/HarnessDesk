@@ -25,7 +25,7 @@ const zone = (at: number) => new Intl.DateTimeFormat(undefined, { timeZoneName: 
 
 export interface LeadAwayDigest { readonly title: string; readonly report: LeadProactive }
 
-/** The four lines a person needs on return: what was said, where the goal stands, what waits for them, what it cost. */
+/** One host-known summary, reported cost caveat and next step on return. */
 export const leadAwayDigest = (seen: LeadSeen, state: LeadState, label: string, now: number): LeadAwayDigest | null => {
   if (state.revision <= seen.revision || now - seen.at < LEAD_AWAY_MS || !state.thread) return null
   const presence = leadPresence(state)
@@ -38,7 +38,7 @@ export const leadAwayDigest = (seen: LeadSeen, state: LeadState, label: string, 
       finding: said ? `${label} wrote ${said} message${said === 1 ? '' : 's'} while you were away.` : `${label} stayed quiet while you were away.`,
       caveat: `${decided} decisions settled; ${leadDollars(spent)} reported spent while away.`,
       ask: presence.needs ? 'Inspect the waiting decision below.' : 'Send a message when you have another goal.',
-    }, state.presence?.lastCheckedAt ?? 0, now, !state.error && !!state.presence?.lastCheckedAt && state.presence.lastCheckedAt >= now),
+    }, state.presence?.lastCheckedAt ?? 0, state.presence?.lastCheckedAt ?? 0, !state.error && state.presence?.lastCheckedAt != null),
   }
 }
 

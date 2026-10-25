@@ -1,5 +1,5 @@
 import type { LeadJournalPort } from './child-ipc.js'
-import { leadProactiveReport, type LeadProactive, type LeadWakeRecord, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
+import { leadProactiveReport, type LeadWakeRecord, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
 import { isLeadQuiet, leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
 import { classifyLeadRuns, createLeadWakeGate, type LeadRunReading, type LeadWakeCounts } from './wake.js'
@@ -246,7 +246,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     signal?.addEventListener('abort', abort, { once: true })
     const evidenceAt = deskReadAt, evidenceGeneration = generation
     let result: LeadMessagesResult
-    try { result = await messages.request({ ...input, system: [input.system, standingInstructions()].filter(Boolean).join('\n') }, active.signal) }
+    try { result = await messages.request({ ...input, ...(input.proactive ? { messages: [...input.messages, { role: 'user' as const, content: [{ type: 'text' as const, text: 'This is an automatic wake. Reply with the proactive finding/caveat/ask envelope from your instructions, or stay quiet.' }] }] } : {}), system: [input.system, standingInstructions()].filter(Boolean).join('\n') }, active.signal) }
     catch { result = { status: 'failed', reason: 'lead-messages-failed' } }
     finally { signal?.removeEventListener('abort', abort); active = null }
     history = result.messages ?? history
@@ -255,23 +255,27 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // follows it. A text the desk will not keep stays in the result, so the host scans it and refuses it by name.
     // A reply that is only the quiet marker is the model choosing to say nothing; the person never sees it.
     if (result.text && isLeadQuiet(result.text)) { const { text: _quiet, ...silent } = result; result = silent }
-    if ((result.text || input.proactive && result.proposals?.plan) && !terminal(journal.state.phase)) {
-      // The same sentence again, with nothing from the person between, is one standing line, not a new
-      // message: every desk wake otherwise adds "Waiting for ..." to the thread once more.
-      const last = journal.state.messages.at(-1), words = (text: string) => text.replace(/\s+/g, ' ').trim()
-      if (!(last?.role === 'assistant' && words(last.text) === words(result.text ?? ''))) {
-        try {
-          if (input.proactive) {
-            const action = personActions[0], reading = classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs)[0]
-            const report: LeadProactive = result.proposals?.plan
-              ? { finding: 'There is a plan proposal to inspect.', caveat: 'It needs desk validation and your approval before work can start.', ask: 'Review plan', action: 'plan' }
-              : action ? { finding: action.kind === 'check' ? `The ${action.name} check has no result.` : `The ${action.role} is waiting for approval.`, caveat: 'Only you can answer the request on its card.', ask: 'Open approvals', action: 'approvals' }
-              : reading ? { finding: `The latest desk reading marked a run ${reading.kind}.`, caveat: 'This reading does not establish that the work is accepted.', ask: 'Inspect the work', action: 'changes' }
-              : { finding: 'A desk check finished without a verified result.', caveat: 'No completed work is confirmed.', ask: 'Send a message if you want me to investigate.' }
-            const proactive = leadProactiveReport(report, evidenceAt, latestDeskReadAt, synchronized && latestDeskReadSucceeded && evidenceGeneration === generation && !result.toolResults?.some(tool => tool.is_error))
-            await journal.appendReply([proactive.finding, proactive.caveat, proactive.ask].join('\n'), proactive)
-          } else await journal.appendReply(result.text!)
+    if (input.proactive) {
+      // Automatic prose is delivered only through the validated model envelope. A plain
+      // reply is still in provider history, but never becomes a made-up host finding.
+      const { text: _plain, ...structured } = result
+      result = structured
+      if (result.proactive && !terminal(journal.state.phase)) {
+        const proactive = leadProactiveReport(result.proactive, evidenceAt, latestDeskReadAt,
+          synchronized && latestDeskReadSucceeded && evidenceGeneration === generation && !result.toolResults?.some(tool => tool.is_error))
+        result = { ...result, proactive }
+        const text = [proactive.finding, proactive.caveat, proactive.ask].join('\n'), last = journal.state.messages.at(-1)
+        if (!(last?.role === 'assistant' && last.text === text && JSON.stringify(last.proactive) === JSON.stringify(proactive))) {
+          try { await journal.appendReply(text, proactive) }
+          catch { await waitForUser('lead-request-failed'); return result }
         }
+        const { proactive: _kept, ...delivered } = result
+        result = delivered
+      }
+    } else if (result.text && !terminal(journal.state.phase)) {
+      const last = journal.state.messages.at(-1), words = (text: string) => text.replace(/\s+/g, ' ').trim()
+      if (!(last?.role === 'assistant' && words(last.text) === words(result.text))) {
+        try { await journal.appendReply(result.text) }
         catch { await waitForUser('lead-request-failed'); return result }
       }
       const { text: _kept, ...delivered } = result
@@ -342,12 +346,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   }
   const step = async (input: LeadMessagesRequest, signal?: AbortSignal, pendingWake?: LeadWakeRecord): Promise<LeadMessagesResult | null> => {
     const before = journal.state
-    const wake: LeadWakeRecord = { ...(pendingWake ?? { id: nextId(), at: clock.now(), source: input.wakeSource ?? 'person' }), decision: 'silent', modelTurn: !blocked(), usdMicros: null }
-    // Record before starting: an interrupted turn still leaves its wake and unknown cost behind.
-    await journal.recordWake(wake)
-    if (blocked()) return null
+    const wake: LeadWakeRecord = pendingWake ?? { id: nextId(), at: clock.now(), source: input.wakeSource ?? 'person', decision: 'silent', modelTurn: false, usdMicros: null }
     let result: LeadMessagesResult | null = null
-    try { result = await performStep(input, signal); return result }
+    try { if (blocked()) return null; result = await performStep(input, signal); return result }
     finally {
       const state = journal.state, said = state.messages.filter(message => message.role === 'assistant' && message.revision > before.seq)
       const asked = said.some(message => !!message.proactive || /\?/.test(message.text)) || state.cards.some(card => (state.cardPositions[card.id] ?? 0) > before.seq)
@@ -358,36 +359,40 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   }
   const schedule = (activity = true) => {
     dirty ||= activity
-    if (cancelBatch || closed || journal.state.phase === 'following') return
+    if (cancelBatch || closed) return
     cancelBatch = clock.schedule(() => {
       cancelBatch = null
       void queue(async () => {
-        if (closed || journal.state.phase === 'following') return
+        if (closed) return
         const activity = dirty, continueTools = continuationPending
         dirty = false; continuationPending = false
-        const pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: activity ? 'desk-change' : requestTemplate?.wakeSource ?? 'person', decision: 'silent', modelTurn: false, usdMicros: null }
-        if (activity || continueTools) await journal.recordWake(pendingWake)
-        await refresh()
-        if (blocked()) {
-          const state = journal.state
-          // Preserve work through synchronization and spend fences without
-          // scheduling another batch until a refresh clears the blocker.
-          if (!terminal(state.phase) && state.phase !== 'waiting-for-user' && !state.recoveryBlocked) {
-            dirty ||= activity; continuationPending ||= continueTools
+        const pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: continueTools ? requestTemplate?.wakeSource ?? 'person' : 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null }
+        let stepped = false
+        try {
+          if (journal.state.phase === 'following') return
+          await refresh()
+          if (blocked()) {
+            const state = journal.state
+            if (!terminal(state.phase) && state.phase !== 'waiting-for-user' && !state.recoveryBlocked) {
+              dirty ||= activity; continuationPending ||= continueTools
+            }
+            return
           }
-          return
-        }
-        if ((!activity && !continueTools) || journal.state.phase === 'awaiting-plan' || !history || !requestTemplate) return
-        // The wake gate: a change that moves nothing the model acts on is a check, not a turn.
-        const look = activity ? gate.look(snapshot, owned(), personActions, clock.now()) : null
-        report()
-        if (look && !look.wake && !continueTools && !deskOwed) return
-        deskOwed = false
-        if (look) gate.shown(look.fingerprint)
-        const readings = classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs)
-        const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: `Desk activity changed. Inspect fresh desk observations before acting.\nRun readings: ${JSON.stringify(readings)}.\n${leadObservation(personActions)}` }] }
-        await step({ ...requestTemplate!, proactive: true, wakeSource: pendingWake.source, messages: [...history!, ...(activity ? [observation] : [])] }, undefined, pendingWake)
-        report()
+          if ((!activity && !continueTools) || journal.state.phase === 'awaiting-plan' || !history || !requestTemplate) return
+          const look = activity ? gate.look(snapshot, owned(), personActions, clock.now()) : null
+          report()
+          if (look && !look.wake && !continueTools && !deskOwed) return
+          deskOwed = false
+          if (look) gate.shown(look.fingerprint)
+          const readings = classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs)
+          const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: `Desk activity changed. Inspect fresh desk observations before acting.\nRun readings: ${JSON.stringify(readings)}.\n${leadObservation(personActions)}` }] }
+          // Tool continuations retain the initiating turn's mode, even if a desk event
+          // coalesced with them. A later desk wake is a new automatic turn.
+          const proactive = continueTools ? requestTemplate.proactive === true : activity
+          stepped = true
+          await step({ ...requestTemplate, proactive, wakeSource: pendingWake.source, messages: [...history, ...(activity ? [observation] : [])] }, undefined, pendingWake)
+          report()
+        } finally { if (!stepped) await journal.recordWake(pendingWake) }
       }).catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
     })
   }

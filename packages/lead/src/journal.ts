@@ -6,7 +6,7 @@ import {
 import { compareLeadPolicyAuthority, sameLeadPolicyValues, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, type LeadState } from './state.js'
+import { leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 
 const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
@@ -337,9 +337,16 @@ export class LeadJournal {
     return this.#append({ type: 'resume' }, committed)
   }) }
   #expectRevision(expected?: number): void {
-    if (expected !== undefined && expected !== this.#state.seq) throw Object.assign(new Error('lead-revision-stale'), { wireCode: 'lead-revision-stale' })
+    if (expected !== undefined && !leadDecisionRevisionMatches(this.#state, expected)) throw Object.assign(new Error('lead-revision-stale'), { wireCode: 'lead-revision-stale' })
   }
-  recordWake(wake: LeadWakeRecord): Promise<void> { return this.#queue(() => this.#append({ type: 'wake', wake: parseLeadWakeRecord(wake) })) }
+  recordWake(wake: LeadWakeRecord): Promise<void> { return this.#queue(async () => {
+    const parsed = parseLeadWakeRecord(wake), previous = this.#state.wakes.find(one => one.id === parsed.id)
+    if (previous) {
+      if (JSON.stringify(previous) !== JSON.stringify(parsed)) throw new Error('lead-wake-already-recorded')
+      return
+    }
+    return this.#append({ type: 'wake', wake: parsed })
+  }) }
   settingsChanged(name?: LeadName, follow?: LeadFollowPreferences): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }) })) }
   publication(operation: LeadPublicationOperation, pr: LeadPullRequest | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'publication', operation, pr })) }
   /** Host-only exit after an external publication succeeded but its final
