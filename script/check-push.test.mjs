@@ -41,7 +41,7 @@ const fixture = async run => {
     put('e2e/ui-system/row-box.spec.ts', 'export {}\n')
     put('e2e/ui-system/server.spec.ts', "import { value } from '../../packages/server/dist/src/index.js'\n")
     put('e2e/ui-system/durations.json', '{"row-box.spec.ts":20,"server.spec.ts":30}')
-    put('.github/workflows/ci.yml', 'jobs:\n  gates:\n    steps:\n      - run: node script/check-secrets.mjs\n  node-e2e:\n    steps:\n      - run: node --test --test-timeout=600000 "packages/server/dist/test/intake-*.test.js"\n      - run: node --test --test-timeout=600000 "packages/server/dist/test/flow-host-evidence-*.test.js"\n')
+    put('.github/workflows/ci.yml', 'jobs:\n  gates:\n    steps:\n      - run: node script/check-secrets.mjs\n  node-e2e:\n    steps:\n      - run: node --test --test-timeout=600000 "packages/server/dist/test/intake-*.test.js"\n      - run: node --test --test-timeout=600000 "packages/server/dist/test/flow-host-evidence-*.test.js"\n  lead-e2e:\n    steps:\n      - run: node --test --test-timeout=600000 "packages/server/dist/test/lead-e2e.test.js"\n      - run: node --test --test-timeout=120000 "packages/server/dist/test/lead-service.test.js"\n')
     put('docs/guide.md', 'Guide\n')
     put('script/check-secrets.mjs', '')
     put('script/check-doc-paths.mjs', '')
@@ -281,6 +281,17 @@ test('Node package selection excludes CI end-to-end files and runs dependants on
     assert.equal(large.steps.find(step => step.name === 'Node tests: protocol').status, 'run')
     assert.match(large.steps.find(step => step.name === 'Node tests: server').reason, /62 test files across changed packages and dependants/)
     assert.equal(createPlan(directory, { paths: ['docs/guide.md'] }).steps.find(step => step.name === 'Node build').status, 'skipped')
+  })
+})
+
+test('Node package selection leaves the dedicated Node 25 Lead files to CI', async () => {
+  await fixture(async (directory, put) => {
+    put('packages/server/test/lead-e2e.test.ts', '')
+    put('packages/server/test/lead-service.test.ts', '')
+    const { createPlan } = await api()
+    const plan = createPlan(directory, { paths: ['packages/server/test/lead-e2e.test.ts'], chromium: true })
+    assert.deepEqual(plan.steps.find(step => step.name === 'Node tests: server').args,
+      ['--test', '--test-timeout=120000', 'packages/server/dist/test/host.test.js'])
   })
 })
 

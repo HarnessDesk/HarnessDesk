@@ -115,7 +115,8 @@ function packageTests(root, paths) {
       }
     }
   }
-  const exclusions = ciCommands(workflowJob(workflow(root), 'node-e2e'))
+  const source = workflow(root)
+  const exclusions = ['node-e2e', 'lead-e2e'].flatMap(job => ciCommands(workflowJob(source, job)))
     .filter(step => step.command === 'node' && step.args.includes('--test'))
     .flatMap(step => step.args.filter(arg => arg.startsWith('packages/') && arg.endsWith('.test.js'))).map(globPattern)
   return { changed, tests: entries.filter(entry => reached.has(entry.directory) && existsSync(join(root, 'packages', entry.directory, 'tsconfig.json')))
