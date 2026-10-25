@@ -1,4 +1,3 @@
-import { AccountLinkFrames } from './frames-account-link'
 import { LeadFrames } from './harness'
 import './update-bridge'
 import { HarnessDeskAccountPreview } from './harnessdesk-account-fixture'
@@ -216,7 +215,7 @@ const sidebarOpenSearchStore = previewStore(sidebarOpenSearchFixture(store.getSn
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
 // The focused finding specimen has no theme dial of its own.
-if (new URLSearchParams(window.location.search).get('findings') === 'seat' || new URLSearchParams(window.location.search).has('desk-link')) {
+if (new URLSearchParams(window.location.search).get('findings') === 'seat') {
   previewMutable.patch({ theme: new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light' })
 }
 /**
@@ -621,7 +620,6 @@ const Preview = () => {
   )
   const [dashboardScope, setDashboardScope] = useState<RuntimeId | null>(null)
   const dashboardStore = useMemo(() => usagePreviewStore(), [])
-  if (new URLSearchParams(window.location.search).has('desk-link')) return <AccountLinkFrames />
   if (new URLSearchParams(window.location.search).has('storage')) return <StorageFrames />
   if (new URLSearchParams(window.location.search).has('history')) return <HistoryFrames />
   if (new URLSearchParams(window.location.search).has('icon-followups')) return <IconFollowupsFrames />

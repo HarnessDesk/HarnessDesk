@@ -19,3 +19,6 @@ export const handshakeEnrollMessage = (th: Bytes): Bytes => concat(utf8('hd-e2ee
 /** Browser approval uses a separate proof domain from session creation and registration. */
 export const webDeskLinkProofMessage = (deskId: string, challenge: string): Bytes =>
   concat(utf8('hd-web-1/link\0'), utf8(deskId), utf8('\0'), utf8(challenge))
+
+/** Device-grant name for the same domain-separated browser approval proof. */
+export const deskLinkProofMessage = webDeskLinkProofMessage

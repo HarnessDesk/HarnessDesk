@@ -1000,9 +1000,6 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   } }),
   'account/setReachable': shape({ reachable: isBoolean }),
 
-  'account/link/state': parseLeadEmpty,
-  'account/link/start': parseLeadEmpty,
-  'account/link/cancel': parseLeadEmpty,
   'phone/state': parseLeadEmpty,
   'phone/pairing': parseLeadEmpty,
   'phone/allow': shape({ id: isString, tiers: optional(arrayOf(phoneTier)) }),

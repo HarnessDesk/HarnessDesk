@@ -1,4 +1,3 @@
-import type { AccountLinkState } from './account-link.js'
 import type {
   PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
   PhoneWorkSnapshot, PhoneWorkThread,
@@ -779,9 +778,6 @@ export interface HostMethods {
   'account/renameDesk': { params: { readonly name: string }; result: HarnessDeskAccountStatus }
   'account/setReachable': { params: { readonly reachable: boolean }; result: HarnessDeskAccountStatus }
 
-  'account/link/state': { params: Record<string, never>; result: AccountLinkState }
-  'account/link/start': { params: Record<string, never>; result: AccountLinkState }
-  'account/link/cancel': { params: Record<string, never>; result: AccountLinkState }
 
   'phone/state': { params: Record<string, never>; result: PhoneLinkState }
   /** A new single-use pairing code for a phone on the same network. */
@@ -971,7 +967,7 @@ export interface HostMethods {
       readonly protocolVersion: number
       readonly hostVersion: string
       /** Optional host-owned destinations, absent until explicitly enabled at startup. */
-      readonly capabilities?: { readonly lead?: true; readonly phone?: true; readonly accountLink?: true }
+      readonly capabilities?: { readonly lead?: true; readonly phone?: true }
       readonly runtimes: readonly RuntimeInfo[]
       /**
        * How this host protects a secret it is given, in words a person can
@@ -2898,7 +2894,6 @@ export interface SeatActivity {
 
 export type WireNotification =
   | { readonly method: 'account/changed'; readonly params: { readonly status: HarnessDeskAccountStatus } }
-  | { readonly method: 'account/link/changed'; readonly params: AccountLinkState }
   | { readonly method: 'phone/changed'; readonly params: PhoneLinkState }
   | { readonly method: 'lead/changed'; readonly params: LeadChanged }
   | { method: 'storage/usageChanged'; params: StorageUsage }

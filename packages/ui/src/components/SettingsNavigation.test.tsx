@@ -133,10 +133,3 @@ test('legacy command details keep the parent Runtimes navigation selected', () =
   expect(row('Skills')).toBeNull()
 })
 
-test('Phone is available for account linking even when the LAN listener is off', () => {
-  const snapshot = previewStore().getSnapshot(), runtime = snapshot.runtimes[0]!
-  const entries = (phoneLink: boolean, accountLinkAvailable: boolean) => settingsGroups({ ...snapshot, phoneLink, accountLinkAvailable }, runtime).flatMap(g => g.entries.map(e => e.id))
-  expect(entries(false, false)).not.toContain('phone')
-  expect(entries(false, true)).toContain('phone')
-  expect(entries(true, false)).toContain('phone')
-})

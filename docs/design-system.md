@@ -2746,10 +2746,6 @@ the small corner and in the secondary ink, for one that sits among
 sentences rather than filling a card. `wrap` folds long lines instead of
 scrolling them, for text read as prose rather than aligned as code.
 
-`size="display"` is a selectable one-time code at the page-title step.
-Combine it with `spaced` for a code read on this screen and typed on another
-device. The role owns its size, leading and selection; screens add no type.
-
 ### `Monogram`
 
 `packages/ui/src/design/patterns/Settings.tsx`

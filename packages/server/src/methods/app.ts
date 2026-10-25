@@ -16,8 +16,8 @@ export const appMethods = {
   'host/hello': (ctx) => ({
     protocolVersion: PROTOCOL_VERSION,
     hostVersion: ctx.options.version ?? '0.1.0',
-    ...(ctx.options.leadEnabled === true || ctx.phone.state().enabled || ctx.accountLink.enabled
-      ? { capabilities: { ...(ctx.options.leadEnabled === true ? { lead: true as const } : {}), ...(ctx.phone.state().enabled ? { phone: true as const } : {}), ...(ctx.accountLink.enabled ? { accountLink: true as const } : {}) } } : {}),
+    ...(ctx.options.leadEnabled === true || ctx.phone.state().enabled
+      ? { capabilities: { ...(ctx.options.leadEnabled === true ? { lead: true as const } : {}), ...(ctx.phone.state().enabled ? { phone: true as const } : {}) } } : {}),
     runtimes: ctx.runtimes.all().map((runtime) => ctx.runtimes.infoOf(runtime)),
     credentialProtection: ctx.credentials.protection,
     // Read here rather than carried on the context: the renderer has no home

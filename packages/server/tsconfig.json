@@ -20,8 +20,6 @@
     { "path": "../plugins" },
     { "path": "../adapter-testkit" },
     { "path": "../lead" },
-    { "path": "../phone-link" },
-    { "path": "../contract" },
-    { "path": "../crypto" }
+    { "path": "../phone-link" }
   ]
 }

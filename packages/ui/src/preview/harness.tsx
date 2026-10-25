@@ -1,4 +1,3 @@
-import { createAccountLinkState } from '../state/account-link'
 import { GITHUB_SOURCE, githubFile, githubPlan } from './library-github-fixture'
 import { createPhoneState } from '../state/phone'
 import { FRAME } from '../design/frame'
@@ -939,7 +938,6 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
 /** The smallest store the mounted screens call. */
 class PreviewStore {
   /** The phone link, answered from what a frame puts there with `phone.changed`. */
-  readonly accountLink = createAccountLinkState({ request: async () => this.accountLink.state as never })
   readonly phone: ReturnType<typeof createPhoneState> = createPhoneState({
     request: async (method: string) => { if (method === 'phone/pairing') return { url: 'harnessdesk://pair?c=preview', expiresAt: Date.now() + 600_000, addresses: [] } as never; return this.phone.state as never },
   })

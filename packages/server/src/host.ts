@@ -1,5 +1,4 @@
 import { HarnessDeskAccount } from './harnessdesk-account.js'
-import { AccountLink } from './account-link.js'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
 import { LeadHandbacks } from './lead/handback.js'
 import { GitGateway } from './git-gateway/index.js'
@@ -812,7 +811,6 @@ export class Host {
   #leadControls: LeadControls | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
   #leadPlannerFiles: LeadPlanner | null = null
-  readonly #accountLink: AccountLink
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
   #phoneWorkspace: PhoneWorkspace | null = null
   #phoneWork: PhoneWork | null = null
@@ -1065,8 +1063,6 @@ export class Host {
   constructor(private readonly options: HostOptions) {
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
-    this.#accountLink = new AccountLink({ home: this.#state.directory, baseUrl: process.env['HARNESSDESK_CLOUD_URL'],
-      changed: state => this.#push({ method: 'account/link/changed', params: state }) })
     this.#runtimeCache = new RuntimeCache(join(this.#state.directory, 'runtime-cache.json'), error => {
       this.#logger.warn('runtime observations could not be saved or read', { error: String(error) })
     })
@@ -2670,7 +2666,6 @@ export class Host {
       this.#logger.warn('Lead listener cleanup is unavailable; ordinary desk startup continues')
     })
     await this.#state.load()
-    await this.#accountLink.load()
     if (this.#disposed) return
     await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
     if (this.#disposed) return
@@ -3385,7 +3380,6 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
-    const accountLinkClosed = this.#accountLink.close()
     this.#leadBudgets.stopMetering()
     // close() latches Lead dispatch synchronously, before ordinary teardown yields.
     const leadClosed = this.#leadService?.close().catch(() => { this.#logger.warn('Lead shutdown cleanup remains pending') })
@@ -3476,7 +3470,6 @@ export class Host {
     // Drain existing authority reads before closing their index and repo queue.
     await Promise.all(this.#indexArchiveReads.values())
     await this.#sessionIndexRepos.close()
-    await accountLinkClosed
     await this.#storage.close()
     await this.#sessionWorktrees.settled()
     this.#sessionIndex.close()
@@ -4964,7 +4957,6 @@ export class Host {
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
       // These closures deliberately repeat the service's availability guard.
-      accountLink: this.#accountLink,
       phone: {
         state: () => this.#phoneLink?.state() ?? phoneLinkOff,
         pairing: () => this.#requirePhoneLink().pairing(),
