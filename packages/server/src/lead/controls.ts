@@ -1,5 +1,5 @@
 import {
-  LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
+  leadProactiveReport, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
@@ -104,7 +104,7 @@ export class LeadControls {
     const { policy, budget } = this.options.journal.state
     if (!policy || !budget) throw leadRefusal('lead-unavailable')
     const key = await this.options.service.status('anthropic')
-    return parseLeadSettingsProjection({ version: 1, name: this.options.journal.state.name, model: this.options.model,
+    return parseLeadSettingsProjection({ version: 1, name: this.options.journal.state.name, nameChosen: this.options.journal.state.nameChosen, model: this.options.model,
       follow: this.options.journal.state.follow, key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
   async #projection(): Promise<LeadWindowProjection> {
@@ -163,6 +163,7 @@ export class LeadControls {
   workerApprovalsChanged(): Promise<void> {
     return this.#queue(async () => { if (!this.#closed) await this.#notify(true) })
   }
+  async readWakes() { const state = this.options.journal.state; return { revision: state.seq, wakes: state.wakes } }
   readThread(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
   readSettings(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
   perform(value: LeadActionInput): Promise<LeadWindowProjection> { return this.#queue(async () => {
@@ -272,10 +273,15 @@ export class LeadControls {
       else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
         { type: 'text', text: 'No plan is approved yet. Continue with a plan for the person to approve.' },
       ] })
-      const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages, ...(proactive ? { proactive: true } : {}) })
+      const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages, ...(proactive ? { proactive: true, wakeSource: journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const } : {}) })
       if (result.text) await service.assertPublic(result.text)
       this.#requestInFlight = this.#continueAgain
-      if (result.text && !['accepted', 'declined', 'stopped'].includes(journal.state.phase)) await journal.appendReply(result.text)
+      if (result.text && !['accepted', 'declined', 'stopped'].includes(journal.state.phase)) {
+        if (proactive) {
+          const report = leadProactiveReport({ finding: 'An automatic request returned an update.', caveat: 'The result needs a fresh desk read.', ask: 'Inspect the thread before continuing.' }, 0, 1, false)
+          await journal.appendReply([report.finding, report.caveat, report.ask].join('\n'), report)
+        } else await journal.appendReply(result.text)
+      }
       else if (result.status === 'refused' && !['accepted', 'declined', 'stopped', 'waiting-for-user'].includes(journal.state.phase) && journal.state.budget &&
         leadBudgetProjection(journal.state.budget, this.options.now()).spend !== 'known') {
         // The Lead declines to spend while the workers' spend is unknown. Say so, rather than leave a message unanswered.
@@ -335,7 +341,7 @@ export class LeadControls {
       // This closed choice has no authority or untrusted prose. Acknowledge the
       // write without resolving a key; every later full projection still scans.
       await journal.settingsChanged(input.name)
-      return parseLeadNameReceipt({ version: 1, revision: journal.state.seq, settings: { name: journal.state.name } })
+      return parseLeadNameReceipt({ version: 1, revision: journal.state.seq, settings: { name: journal.state.name, nameChosen: journal.state.nameChosen } })
     }
     this.#expectRevision(input.expectedRevision)
     if (input.follow && (input.policy || input.caps)) throw leadRefusal('lead-settings-combination')

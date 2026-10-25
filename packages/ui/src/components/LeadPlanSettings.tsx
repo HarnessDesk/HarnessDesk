@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { LEAD_SCHEDULE_LIMITS, parseLeadMemory, parseLeadSchedule, type LeadCard, type LeadMemory, type LeadMemoryItem, type LeadSchedule, type LeadScheduledTask, type LeadTaskRepeat } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, FormStack, InlineParts, Input, NativeSelect, Row, Rows, Section, Switch, Text, Textarea } from '../design'
-import { useStore } from '../state/context'
+import { sanitizeText } from '../lib/sanitize'
+import { useStore, useSnapshot } from '../state/context'
 import { useDestinationActive } from '../panels/destination-page'
 import { leadRefusalText } from './lead-refusals'
 
@@ -14,19 +15,35 @@ export const leadCitedLines = (cards: readonly LeadCard[] = []): ReadonlySet<num
   return new Set([...text.matchAll(/\(m(\d{1,3})\)/g)].map(match => Number(match[1])))
 }
 
-export const LeadScheduleSettings = ({ label, schedule, pending, save }: {
+export const LeadScheduleSettings = ({ label, schedule, pending, save, projects = [] }: {
+  readonly projects?: readonly { readonly name: string; readonly path: string }[]
   readonly label: string
   readonly schedule: LeadSchedule
   readonly pending: boolean
   readonly save: (schedule: LeadSchedule) => void
 }) => {
   const [draft, setDraft] = useState<{ title: string; goal: string; every: LeadTaskRepeat; at: string } | null>(null)
-  const put = (tasks: readonly LeadScheduledTask[], quiet = schedule.quiet) => save({ version: 1, tasks, quiet })
+  const put = (tasks: readonly LeadScheduledTask[], quiet = schedule.quiet) => save({ ...schedule, tasks, quiet })
+  const choices = schedule.seedChoices ?? []
+  const seeds = projects.filter((project, index) => projects.findIndex(one => one.path === project.path) === index && !choices.includes(`ci:${project.path}`)).slice(0, 3)
+  const choose = (project: { readonly name: string; readonly path: string }, accept: boolean) => {
+    const key = `ci:${project.path}`
+    if (pending || choices.includes(key) || choices.length >= 256 || accept && schedule.tasks.length >= LEAD_SCHEDULE_LIMITS.tasks) return
+    save({ ...schedule, seedChoices: [...choices, key], tasks: accept ? [...schedule.tasks, {
+      id: newId(), title: `Check CI on ${project.name}`.slice(0, 80), goal: `Check the current CI results on open pull requests for ${project.name}. Draft a plan for anything needing attention; verify the current head first.`.slice(0, 2000),
+      project: project.path, every: 'weekdays', at: '09:00', enabled: true, lastRunAt: null,
+    }] : schedule.tasks })
+  }
   const valid = draft && draft.title.trim() && draft.goal.trim() && /^\d\d:\d\d$/.test(draft.at)
   return <>
     <Section title="Scheduled tasks">
       <Text as="p" role="muted">{`Each one opens a new goal at its time when ${label} has nothing open, and starts at a plan for you to approve.`}</Text>
       <Rows>
+        {seeds.map(project => <Row key={project.path} data-lead-seed title={sanitizeText(`Check CI on ${project.name}`)} tooltip="Weekdays at 09:00. Accept to create a scheduled task; work still needs plan approval."
+          titleChip={<Chip tone="neutral">Suggested</Chip>} control={<InlineParts>
+            <Button variant="outline" disabled={pending || choices.length >= 256 || schedule.tasks.length >= LEAD_SCHEDULE_LIMITS.tasks} onClick={() => choose(project, true)}>Accept</Button>
+            <Button variant="quiet" disabled={pending || choices.length >= 256} onClick={() => choose(project, false)}>Dismiss</Button>
+          </InlineParts>} />)}
         {schedule.tasks.map(task => <Row key={task.id} title={task.title} tooltip={task.goal} desc={`${REPEATS[task.every]} · ${task.at}`}
           control={<InlineParts>
             <Switch aria-label={`Run ${task.title}`} checked={task.enabled} disabled={pending} onCheckedChange={enabled => put(schedule.tasks.map(one => one.id === task.id ? { ...one, enabled } : one))} />
@@ -100,7 +117,7 @@ export const LeadMemorySettings = ({ label, memory, cited, pending, save }: {
 
 /** Settings › Lead below the allowances: the person's own files, saved whole on each change. */
 export const LeadPlanSettingsSection = ({ label, cards }: { readonly label: string; readonly cards?: readonly LeadCard[] }) => {
-  const store = useStore(), active = useDestinationActive()
+  const store = useStore(), snapshot = useSnapshot(), active = useDestinationActive()
   const [schedule, setSchedule] = useState<LeadSchedule | null>(null), [memory, setMemory] = useState<LeadMemory | null>(null)
   const [pending, setPending] = useState(false), [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -114,7 +131,7 @@ export const LeadPlanSettingsSection = ({ label, cards }: { readonly label: stri
   }
   return <>
     {error && <Banner role="alert" tone="warning">{error}</Banner>}
-    {schedule && <LeadScheduleSettings label={label} schedule={schedule} pending={pending} save={next => run(() => store.lead.updateSchedule(next), value => setSchedule(parseLeadSchedule(value)))} />}
+    {schedule && <LeadScheduleSettings projects={snapshot.workspaces.filter(project => !!project.repo || !!project.git)} label={label} schedule={schedule} pending={pending} save={next => run(() => store.lead.updateSchedule(next), value => setSchedule(parseLeadSchedule(value)))} />}
     {memory && <LeadMemorySettings label={label} memory={memory} cited={leadCitedLines(cards)} pending={pending} save={next => run(() => store.lead.updateMemory(next), value => setMemory(parseLeadMemory(value)))} />}
   </>
 }

@@ -3,6 +3,10 @@ import { LEAD_LIMITS, type LeadStopReason, type LeadWindowProjection } from '@ha
 import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, LeadSlot, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, Input, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { openExternal } from '../lib/desktop'
 import { leadWakeLine } from '../lib/lead-presence'
+import { LeadNameIntro } from './LeadNameIntro'
+import { LeadWakeLedger } from './LeadWakeLedger'
+import { LeadOpening } from './LeadOpening'
+import { leadOpeningJobs } from '../lib/lead-opening'
 import { LeadAway } from './LeadAway'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
@@ -101,6 +105,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const [goal, setGoal] = useState(initialGoal), [error, setError] = useState<string | null>(null)
   const [confirmStop, setConfirmStop] = useState(false), [stopping, setStopping] = useState(false)
   const stoppingRef = useRef(false)
+  const [choosingName, setChoosingName] = useState(false)
   const [sending, setSending] = useState(false), [resuming, setResuming] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null), inFlight = useRef(false), thread = useRef<HTMLDivElement>(null)
   const decisionLock = useRef(false), [decisionPending, setDecisionPending] = useState<string | null>(null)
@@ -132,6 +137,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { if (!goalActive) return; const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [goalActive])
   useEffect(() => { if (active) void store.lead.readThread().catch(refusal) }, [active, store])
+  useEffect(() => { if (active) void store.lead.readWakes().catch(() => {}) }, [active, state.revision, store])
   // Expiry is host-owned; a read at its boundary obtains the renewed plan card.
   useEffect(() => {
     if (!active || state.planConsentExpiresAt === null || state.wayOut === 'decide-plan' || state.thread && ['stopped', 'accepted', 'declined'].includes(state.thread.state)) return
@@ -146,10 +152,10 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     timer = setTimeout(refresh, Math.max(0, Math.min(state.planConsentExpiresAt - Date.now() + 50, 2147483647)))
     return () => { cancelled = true; clearTimeout(timer) }
   }, [active, state.planConsentExpiresAt, state.wayOut, state.thread?.state, store])
-  const send = async () => {
-    if (inFlight.current || state.requestInFlight || !goal.trim()) return
+  const send = async (text = goal) => {
+    if (inFlight.current || state.requestInFlight || !text.trim()) return
     inFlight.current = true; setSending(true); setError(null)
-    try { await store.lead.send(goal.trim(), crypto.randomUUID()); setGoal('') }
+    try { await store.lead.send(text.trim(), crypto.randomUUID()); setGoal('') }
     catch (error) { refusal(error) }
     finally { inFlight.current = false; setSending(false); input.current?.focus() }
   }
@@ -174,6 +180,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     : (phase === 'draft' || phase === 'planning') && state.requestInFlight ? <TurnWorkLive data-slot="lead-live-line" data-kind="planning">Planning…</TurnWorkLive>
     : phase === 'stopped' && !cards.some(card => card.type === 'stopped') ? <TurnWorkLive settled data-slot="lead-live-line" data-kind="stopped">{STOPPED[state.thread?.budget?.stop?.reason ?? 'cancelled']}</TurnWorkLive>
     : null
+  const openingJobs = !state.error && state.thread && !state.thread.messages.length && !state.thread.olderMessages && !state.thread.cards.length ? leadOpeningJobs(snapshot, state.thread.project?.path ?? null, pr) : []
   const entries = [...(state.thread?.messages ?? []).map(message => ({ revision: message.revision, kind: 'message' as const, message })),
     ...cards.map(card => ({ revision: state.thread?.cardPositions?.[card.id] ?? card.revision, kind: 'card' as const, card })),
     ...(state.thread?.decisions ?? []).map(decision => ({ revision: decision.position, kind: 'decided' as const, decision })),
@@ -219,12 +226,19 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   }
   return <ConversationShell ref={shell}>
     <ConversationThread ref={thread} role="region" aria-label={`${label} thread`} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 24 }}>
-      {entries.length || live || pr ? <Page width="reading" gutter="none">
+      {entries.length || live || pr || openingJobs.length || name || state.wakes?.length ? <Page width="reading" gutter="none">
+        <LeadWakeLedger wakes={state.wakes ?? []} />
+        {name && <LeadNameIntro name={name} chosen={state.settings?.nameChosen === true} pending={choosingName || !!state.error || state.revision < 0} onChoose={async name => {
+          if (choosingName) return
+          setChoosingName(true)
+          try { await store.lead.updateSettings({ name }) } catch (error) { refusal(error) } finally { setChoosingName(false) }
+        }} />}
+        <LeadOpening jobs={openingJobs} pending={requestPending || state.revision < 0} onStart={text => void send(text)} />
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
         {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{`From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`}</Button> : `From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`}</Text>}
         {entries.map(entry => entry.kind === 'message'
           ? <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
-            proactive={entry.message.proactive} onAction={action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
+            proactive={entry.message.proactive} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />

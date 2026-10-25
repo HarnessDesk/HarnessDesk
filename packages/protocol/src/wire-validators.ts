@@ -1002,6 +1002,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/stop': parseLeadResume,
   'lead/resume': parseLeadResume,
   'lead/steer': parseLeadSteerInput,
+  'lead/wakes/read': parseLeadEmpty,
   'lead/schedule/read': parseLeadEmpty,
   'lead/schedule/update': parseLeadScheduleUpdate,
   'lead/memory/read': parseLeadEmpty,

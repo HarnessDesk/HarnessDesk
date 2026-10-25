@@ -147,7 +147,7 @@ it('applies a name-only receipt without replacing scanned thread or settings fac
   facade.changed({ method: 'lead/changed', params: projection(2) })
   const before = facade.state
   await facade.updateSettings({ name: 'lex' })
-  expect(facade.state.settings).toEqual({ ...before.settings, name: 'lex' })
+  expect(facade.state.settings).toEqual({ ...before.settings, name: 'lex', nameChosen: true })
   expect(facade.state.thread).toEqual(before.thread)
   expect(facade.state.revision).toBe(before.revision)
   expect(request).toHaveBeenCalledOnce()

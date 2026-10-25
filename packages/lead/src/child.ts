@@ -102,6 +102,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
     offerCard: card => rpc('offerCard', [card]) as ReturnType<LeadJournalPort['offerCard']>,
     restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
     recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
+    recordWake: async wake => { await rpc('recordWake', [wake]) },
     appendReply: async (text, proactive) => { await rpc('appendReply', proactive ? [text, proactive] : [text]) },
   }
   let closing: Promise<void> | null = null
@@ -203,7 +204,8 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         if (!loop || (message.id as number) <= requestId) throw denied()
         requestId = message.id as number
         const input = ipcObject(message.input)
-        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive'] as const).filter(key => Object.hasOwn(input, key))])
+        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive', 'wakeSource'] as const).filter(key => Object.hasOwn(input, key))])
+        if (input.wakeSource !== undefined && !['schedule', 'desk-change', 'person', 'trigger'].includes(String(input.wakeSource))) throw denied()
         if (input.proactive !== undefined && typeof input.proactive !== 'boolean') throw denied()
         const result = await loop.request(message.input as unknown as LeadMessagesRequest)
         if (loop.state.reason === 'lead-connection-ended') send({ type: 'desk-lost' })

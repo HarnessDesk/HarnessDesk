@@ -18,12 +18,17 @@ import { LeadPage } from '../components/LeadPage'
 import { LeadAvatar, LeadNameChoice, LeadPlanFlow } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
-import { LEAD_SCENES, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
+import { LEAD_SCENES, leadWakeFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
 import type { HostMethodName, LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
 export const createLeadFixtureStore = (scene: LeadScene) => {
   const store = frameDestinationStore(previewStore({ leadAvailable: true, runtimes: [leadRuntime], theme: new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light' }))
+  if (scene === 'settings-seeds') Object.assign(store.getSnapshot(), { workspaces: ['Widgets', 'Docs', 'Website'].map(name => ({ name, path: `/workspace/${name.toLowerCase()}`, git: { branch: 'main', sha: 'a'.repeat(40) } })) })
+  if (scene === 'opening-jobs') Object.assign(store.getSnapshot(), {
+    goals: new Map([['demo-team', { goal: { id: 'demo-team', root: '/workspace/demo', state: 'open', sentence: 'Restore keyboard focus' } }]]),
+    flowExecutions: new Map([['stalled', { id: 'stalled', goal: 'demo-team', state: 'stalled', rounds: [] }], ['finished', { id: 'finished', goal: 'demo-team', state: 'settled', rounds: [] }]]),
+  })
   const shellRequest = store.transport.request.bind(store.transport)
   let current = leadSceneProjection(scene), schedule = leadSchedule, memory = leadMemory
   const emit = (next: LeadWindowProjection) => { current = next; store.lead.changed({ method: 'lead/changed', params: current }) }
@@ -44,7 +49,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
         else settings = { ...settings, caps: params.caps }
       }
       emit({ ...current, revision, settings, thread: { ...current.thread, cards } })
-      return params.name ? { version: 1, revision, settings: { name: settings.name } } : current
+      return params.name ? { version: 1, revision, settings: { name: settings.name, nameChosen: true } } : current
     }
     if (method === 'lead/action/perform') {
       if (params.contractDigest !== current.thread.contract?.digest || !current.personActions?.some(action => action.id === params.id)) throw { code: 'lead-card-stale' }
@@ -65,6 +70,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }
+    if (method === 'lead/wakes/read') return { revision: current.revision, wakes: scene === 'wake-ledger' ? leadWakeFixture : [] }
     if (method === 'lead/schedule/read') return schedule
     if (method === 'lead/schedule/update') return schedule = params.schedule
     if (method === 'lead/memory/read') return memory

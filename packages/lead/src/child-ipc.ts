@@ -21,9 +21,9 @@ export type LeadChildConfig = Omit<LeadChildBootstrap, 'key' | 'descriptor'>
 /** This is a port, not another journal writer. Human decisions and recovery are
  * deliberately absent; all methods execute in the host's serialized journal. */
 export type LeadJournalPort = Pick<LeadJournal, 'state' | 'execute' | 'updateBudget' | 'setManagementPhase' |
-  'invalidateResults' | 'offerCard' | 'restoreResult' | 'recoverUnsettledRequests' | 'appendReply'>
+  'recordWake' | 'invalidateResults' | 'offerCard' | 'restoreResult' | 'recoverUnsettledRequests' | 'appendReply'>
 export const LEAD_FRAME_BYTES = 1_048_576
-export const LEAD_RPC_OPERATIONS = ['execute', 'updateBudget', 'setManagementPhase', 'invalidateResults', 'offerCard',
+export const LEAD_RPC_OPERATIONS = ['recordWake', 'execute', 'updateBudget', 'setManagementPhase', 'invalidateResults', 'offerCard',
   'restoreResult', 'recoverUnsettledRequests', 'appendReply', 'resolveTool', 'freezePlan', 'readEvidence', 'provider-send'] as const
 export type LeadRpcOperation = typeof LEAD_RPC_OPERATIONS[number]
 const fail = (): never => { throw new Error('lead-ipc-invalid') }

@@ -50,3 +50,13 @@ test('the files keep the run time across an edit, and offered lines wait for Kee
   assert.deepEqual(await planner.kept(), ['Prefer small pull requests'])
   assert.match(await readFile(join(home, 'lead', 'memory.json'), 'utf8'), /"kept"/)
 })
+
+test('seed choices and project-bound accepted tasks survive a new planner', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'lead-seeds-'))
+  const accepted = { version: 1 as const, quiet: { from: '22:00', to: '07:00' }, seedChoices: ['ci:/workspace/widgets', 'ci:/workspace/docs'],
+    tasks: [{ ...task(), project: '/workspace/widgets' }] }
+  await new LeadPlanner(home).writeSchedule(accepted)
+  assert.deepEqual(await new LeadPlanner(home).readSchedule(), accepted)
+  const schedule = await new LeadPlanner(home).readSchedule()
+  assert.equal(leadDueTask(schedule, at(21, '23:00')), null)
+})

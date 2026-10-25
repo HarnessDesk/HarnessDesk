@@ -1,5 +1,5 @@
 import type { LeadJournalPort } from './child-ipc.js'
-import { leadProactiveReport, type LeadProactive, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
+import { leadProactiveReport, type LeadProactive, type LeadWakeRecord, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
 import { isLeadQuiet, leadInstructions, leadObservation, type LeadSeatChoices } from './instructions.js'
 import { classifyLeadRuns, createLeadWakeGate, type LeadRunReading, type LeadWakeCounts } from './wake.js'
@@ -77,12 +77,22 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let lastResultSignature: string | null = null
   let noProgressTurns = 0, waitingForResume = false
   const gate = createLeadWakeGate(options.stuckMs)
-  let deskOwed = false, deskReadAt = 0
+  let deskOwed = false, deskReadAt = 0, latestDeskReadAt = 0, latestDeskReadSucceeded = false
   const owned = () => ({ runs: journal.state.runs.map(run => run.runId), teams: journal.state.teams })
   const tools = createLeadTools({ journal, desk, project, now: () => clock.now(), nextId, synchronized: () => synchronized && !closed,
     resolveTool: options.resolveTool })
   const messages = createLeadMessages({ ...options.messages, journal, now: () => clock.now(), nextId,
-    resolveTool: tools.resolveTool, dispatch: tools.dispatch })
+    resolveTool: tools.resolveTool, dispatch: async (call, correlationId, signal) => {
+      const reading = clientTierFor(call.method, call.params) === 'read'
+      try {
+        const result = await tools.dispatch(call, correlationId, signal)
+        if (reading) { latestDeskReadAt = clock.now(); latestDeskReadSucceeded = true }
+        return result
+      } catch (error) {
+        if (reading) { latestDeskReadAt = clock.now(); latestDeskReadSucceeded = false }
+        throw error
+      }
+    } })
   const queue = <T>(operation: () => Promise<T>): Promise<T> => {
     const next = tail.then(operation)
     tail = next.catch(() => {})
@@ -110,6 +120,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   const read = async (call: LeadPermissionCall): Promise<unknown> => {
     if (clientTierFor(call.method, call.params) !== 'read') throw new Error('lead-observation-read-only')
     const result = await tools.execute(call)
+    latestDeskReadAt = clock.now(); latestDeskReadSucceeded = result.outcome === 'succeeded'
     if (result.outcome !== 'succeeded') throw new Error('lead-observation-unavailable')
     return result.value
   }
@@ -131,7 +142,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const next = structuredClone(desk.snapshot())
       // Whole replacement, including cleared waiting/approval/review collections.
       if (generation !== expected || closed) return
-      snapshot = next; deskReadAt = clock.now()
+      snapshot = next; deskReadAt = latestDeskReadAt = clock.now(); latestDeskReadSucceeded = true
       await tools.settleStarts()
       await writeOffUncertain()
       const state = journal.state, contract = state.contract
@@ -203,12 +214,12 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       else if (!terminal(journal.state.phase) && budget && budget.spend !== 'known') reason = 'lead-budget-unknown'
       else if (reason === 'lead-budget-unknown') reason = null
       if (generation === expected && !closed) {
-        synchronized = true
+        synchronized = true; deskReadAt = latestDeskReadAt
         if (['lead-connection-gap', 'lead-observations-unavailable'].includes(reason ?? '')) reason = null
         if ((continuationPending || dirty) && history && requestTemplate && !blocked() && !['awaiting-plan', 'following'].includes(journal.state.phase)) schedule(false)
       }
     } catch {
-      synchronized = false; snapshot = empty(); relays = []; personActions = []
+      synchronized = false; latestDeskReadSucceeded = false; snapshot = empty(); relays = []; personActions = []
       await invalidate()
       reason = 'lead-observations-unavailable'
     }
@@ -226,7 +237,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     if (reason === 'lead-budget-unknown') reason = null
     return false
   }
-  const step = async (input: LeadMessagesRequest, signal?: AbortSignal): Promise<LeadMessagesResult | null> => {
+  const performStep = async (input: LeadMessagesRequest, signal?: AbortSignal): Promise<LeadMessagesResult | null> => {
     if (blocked()) return null
     if (journal.state.phase === 'draft') await journal.setManagementPhase('planning')
     active = new AbortController()
@@ -253,10 +264,11 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           if (input.proactive) {
             const action = personActions[0], reading = classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs)[0]
             const report: LeadProactive = result.proposals?.plan
-              ? { finding: 'A plan is ready for your decision.', caveat: 'No work starts before you approve it.', ask: 'Review plan', action: 'plan' }
+              ? { finding: 'There is a plan proposal to inspect.', caveat: 'It needs desk validation and your approval before work can start.', ask: 'Review plan', action: 'plan' }
               : action ? { finding: action.kind === 'check' ? `The ${action.name} check has no result.` : `The ${action.role} is waiting for approval.`, caveat: 'Only you can answer the request on its card.', ask: 'Open approvals', action: 'approvals' }
-              : { finding: reading ? `The latest desk reading marked a run ${reading.kind}.` : 'The desk has an update to inspect.', caveat: 'This reading does not establish that the work is accepted.', ask: 'Inspect the work', action: 'changes' }
-            const proactive = leadProactiveReport(report, evidenceAt, deskReadAt, synchronized && evidenceGeneration === generation)
+              : reading ? { finding: `The latest desk reading marked a run ${reading.kind}.`, caveat: 'This reading does not establish that the work is accepted.', ask: 'Inspect the work', action: 'changes' }
+              : { finding: 'A desk check finished without a verified result.', caveat: 'No completed work is confirmed.', ask: 'Send a message if you want me to investigate.' }
+            const proactive = leadProactiveReport(report, evidenceAt, latestDeskReadAt, synchronized && latestDeskReadSucceeded && evidenceGeneration === generation && !result.toolResults?.some(tool => tool.is_error))
             await journal.appendReply([proactive.finding, proactive.caveat, proactive.ask].join('\n'), proactive)
           } else await journal.appendReply(result.text!)
         }
@@ -328,6 +340,22 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       await waitForUser('lead-run-not-started')
     return result
   }
+  const step = async (input: LeadMessagesRequest, signal?: AbortSignal, pendingWake?: LeadWakeRecord): Promise<LeadMessagesResult | null> => {
+    const before = journal.state
+    const wake: LeadWakeRecord = { ...(pendingWake ?? { id: nextId(), at: clock.now(), source: input.wakeSource ?? 'person' }), decision: 'silent', modelTurn: !blocked(), usdMicros: null }
+    // Record before starting: an interrupted turn still leaves its wake and unknown cost behind.
+    await journal.recordWake(wake)
+    if (blocked()) return null
+    let result: LeadMessagesResult | null = null
+    try { result = await performStep(input, signal); return result }
+    finally {
+      const state = journal.state, said = state.messages.filter(message => message.role === 'assistant' && message.revision > before.seq)
+      const asked = said.some(message => !!message.proactive || /\?/.test(message.text)) || state.cards.some(card => (state.cardPositions[card.id] ?? 0) > before.seq)
+      const known = !!result?.usage && !state.budget?.requests.some(request => request.uncertain)
+      await journal.recordWake({ ...wake, modelTurn: !!result && !['refused', 'cancelled'].includes(result.status), decision: asked ? 'asked' : said.length ? 'spoke' : 'silent',
+        usdMicros: known ? Math.max(0, (state.budget?.leadUsdMicros ?? 0) - (before.budget?.leadUsdMicros ?? 0)) : null })
+    }
+  }
   const schedule = (activity = true) => {
     dirty ||= activity
     if (cancelBatch || closed || journal.state.phase === 'following') return
@@ -337,6 +365,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         if (closed || journal.state.phase === 'following') return
         const activity = dirty, continueTools = continuationPending
         dirty = false; continuationPending = false
+        const pendingWake: LeadWakeRecord = { id: nextId(), at: clock.now(), source: activity ? 'desk-change' : requestTemplate?.wakeSource ?? 'person', decision: 'silent', modelTurn: false, usdMicros: null }
+        if (activity || continueTools) await journal.recordWake(pendingWake)
         await refresh()
         if (blocked()) {
           const state = journal.state
@@ -356,7 +386,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         if (look) gate.shown(look.fingerprint)
         const readings = classifyLeadRuns(snapshot, owned(), personActions, gate.lastMoved, clock.now(), options.stuckMs)
         const observation: MessagesTurn = { role: 'user', content: [{ type: 'text', text: `Desk activity changed. Inspect fresh desk observations before acting.\nRun readings: ${JSON.stringify(readings)}.\n${leadObservation(personActions)}` }] }
-        await step({ ...requestTemplate!, proactive: true, messages: [...history!, ...(activity ? [observation] : [])] })
+        await step({ ...requestTemplate!, proactive: true, wakeSource: pendingWake.source, messages: [...history!, ...(activity ? [observation] : [])] }, undefined, pendingWake)
         report()
       }).catch(async () => { await waitForUser('lead-activity-failed') }).catch(() => {})
     })

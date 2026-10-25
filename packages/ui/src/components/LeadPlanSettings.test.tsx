@@ -42,3 +42,22 @@ it('reads the lines a plan cites from its step titles', () => {
   expect([...leadCitedLines([{ type: 'plan', title: 'Add the export (m2)' } as never])]).toEqual([2])
   expect(leadCitedLines([{ type: 'result', title: '(m1)' } as never]).size).toBe(0)
 })
+
+it('offers project seeds without acting, then persists an accept or a dismissal in the schedule', () => {
+  const save = vi.fn(), empty: LeadSchedule = { version: 1, quiet: { from: '22:00', to: '07:00' }, tasks: [] }
+  const projects = [{ path: '/workspace/widgets', name: 'Widgets' }, { path: '/workspace/docs', name: 'Docs' }]
+  const box = mount(<LeadScheduleSettings label="Dex" schedule={empty} projects={projects} pending={false} save={save} />)
+  expect(box.textContent).toContain('Check CI on Widgets')
+  expect(save).not.toHaveBeenCalled()
+  act(() => button(box, 'Accept').click())
+  const accepted = save.mock.calls[0]![0]
+  expect(accepted.tasks).toHaveLength(1)
+  expect(accepted.tasks[0]).toMatchObject({ project: '/workspace/widgets', every: 'weekdays', at: '09:00', enabled: true, lastRunAt: null })
+  expect(accepted.quiet).toEqual(empty.quiet)
+  expect(accepted.seedChoices).toContain('ci:/workspace/widgets')
+  act(() => button(box, 'Dismiss').click())
+  expect(save.mock.calls[1]![0]).toMatchObject({ tasks: [], seedChoices: ['ci:/workspace/widgets'] })
+  const reopened = mount(<LeadScheduleSettings label="Dex" schedule={accepted} projects={projects} pending={false} save={save} />)
+  expect(reopened.querySelectorAll('[data-lead-seed]')).toHaveLength(1)
+  expect(reopened.querySelector('[data-lead-seed]')?.textContent).toContain('Docs')
+})

@@ -1,11 +1,12 @@
 import type {
-  HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
   request<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>>
 }
 export interface LeadState {
+  readonly wakes?: readonly LeadWakeRecord[]
   readonly personActions: readonly LeadAction[]
   readonly revision: number
   readonly thread: LeadThread | null
@@ -27,7 +28,7 @@ export interface LeadState {
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
   const initial = (): LeadState => ({ personActions: [], revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, presence: null, steers: null, error: null })
-  let state = initial()
+  let state = initial(), wakeRevision = -1
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
   const checkRead = () => { check(); if (state.revision < 0 || state.error) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
@@ -45,15 +46,23 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     }
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
-      : structuredClone({ personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
+      : structuredClone({ wakes: state.wakes ?? [], personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
         requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }
   return {
     get state(): LeadState { return state },
-    reset(): void { state = initial(); for (const listener of listeners) listener() },
+    reset(): void { state = initial(); wakeRevision = -1; for (const listener of listeners) listener() },
     subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } },
     changed(notification: WireNotification): void { if (available() && notification.method === 'lead/changed') apply(notification.params) },
+    async readWakes() {
+      check(); const result = await transport.request('lead/wakes/read', {})
+      if (available() && result.revision >= wakeRevision) {
+        wakeRevision = result.revision; state = { ...state, wakes: result.wakes }
+        for (const listener of listeners) listener()
+      }
+      return result
+    },
     async readThread() { check(); const before = state; const result = await transport.request('lead/thread/read', {}); apply(result, before); return result.thread },
     async readSettings() { check(); const before = state; const result = await transport.request('lead/settings/read', {}); apply(result, before); return result.settings },
     async send(text: string, idempotencyKey: string) {
@@ -81,7 +90,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       else if (available() && state.settings && result.revision >= state.revision) {
         // A name receipt grants no fresh thread or authority facts. Keep the
         // scanned revision until a full projection arrives through read/change.
-        state = { ...state, settings: { ...state.settings, name: result.settings.name } }
+        state = { ...state, settings: { ...state.settings, name: result.settings.name, nameChosen: result.settings.nameChosen ?? true } }
         for (const listener of listeners) listener()
       }
       return result

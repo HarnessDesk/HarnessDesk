@@ -1550,3 +1550,36 @@ test('a released branch never re-offers a result on green refresh while Needs-yo
     assert.equal(journal.state.managementReason, 'lead-pr-branch-rewritten')
   } finally { await loop.close() }
 })
+
+test('desk wakes journal silent gate checks without paying for another turn', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request(input)
+    for (let i = 0; i < 3; i++) {
+      s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'running', flow: 'lead-reviewed-result', round: 1, reason: null })
+      await s.drain(); await s.tick(); await loop.idle()
+    }
+    const wakes = s.journal.state.wakes
+    assert.ok(wakes.some((wake: any) => wake.source === 'person' && wake.modelTurn))
+    assert.ok(wakes.some((wake: any) => wake.source === 'desk-change' && !wake.modelTurn && wake.decision === 'silent'))
+    assert.equal(wakes.length, 4, 'one row per wake, including three coalesced desk checks')
+    assert.equal(s.fake.requests.length, 2)
+  } finally { await loop.close() }
+})
+
+test('an unprompted reply after a failed desk read never presents model prose as a verified finding', async () => {
+  const s = await fixture([async () => {
+    s.setReady(false); s.emit({ type: 'gap', reason: 'lost baseline' }); await s.drain()
+    return message([{ type: 'text', text: 'All checks passed. Ship it now.' }])
+  }])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request({ ...input, proactive: true, wakeSource: 'schedule' })
+    const reply = s.journal.state.messages.at(-1)!
+    assert.match(reply.proactive!.finding, /^Unverified report:/)
+    assert.match(reply.proactive!.caveat, /could not verify/)
+    assert.doesNotMatch(reply.text, /All checks passed|Ship it/)
+    assert.equal(s.journal.state.wakes[0]!.source, 'schedule')
+  } finally { await loop.close() }
+})

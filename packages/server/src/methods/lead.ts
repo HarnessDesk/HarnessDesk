@@ -2,6 +2,7 @@ import type { MethodsUnder } from './context.js'
 
 /** These operations exist only on the authenticated window wire. */
 export const leadMethods = {
+  'lead/wakes/read': ctx => ctx.leadWakesRead(),
   'lead/thread/read': ctx => ctx.leadThreadRead(),
   'lead/thread/send': (ctx, params) => ctx.leadThreadSend(params),
   'lead/card/decide': (ctx, params) => ctx.leadCardDecide(params),

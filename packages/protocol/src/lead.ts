@@ -231,6 +231,7 @@ export interface LeadPullRequest {
   readonly state: 'open' | 'merged' | 'closed'; readonly check: import('./intake.js').TriggerCheck | null; readonly at: number
 }
 export interface LeadSettingsProjection {
+  readonly nameChosen?: boolean
   readonly name: LeadName
   readonly version: 1
   readonly model: string
@@ -260,9 +261,19 @@ export interface LeadPresence {
   readonly checked: number; readonly quiet: number; readonly lastCheckedAt: number | null
   readonly readings: readonly LeadRunReading[]
 }
+/** Durable host observations, including checks that never used a model. Newest 128 are projected. */
+export interface LeadWakeRecord {
+  readonly id: string; readonly at: number
+  readonly source: 'schedule' | 'desk-change' | 'person' | 'trigger'
+  readonly decision: 'silent' | 'spoke' | 'asked'
+  readonly modelTurn: boolean
+  readonly usdMicros: number | null
+}
+export interface LeadWakeLog { readonly revision: number; readonly wakes: readonly LeadWakeRecord[] }
 /** A goal the Lead opens on its own at a set time. It only ever reaches a plan card: the person still approves. */
 export type LeadTaskRepeat = 'day' | 'weekdays' | 'mondays' | 'fridays'
 export interface LeadScheduledTask {
+  readonly project?: string
   readonly id: string; readonly title: string; readonly goal: string
   readonly every: LeadTaskRepeat; readonly at: string; readonly enabled: boolean
   /** When the host last opened it; null before the first time. */
@@ -270,7 +281,7 @@ export interface LeadScheduledTask {
 }
 /** Hours, in the desk's own clock, when the Lead opens nothing on its own. */
 export interface LeadQuietHours { readonly from: string; readonly to: string }
-export interface LeadSchedule { readonly version: 1; readonly tasks: readonly LeadScheduledTask[]; readonly quiet: LeadQuietHours | null }
+export interface LeadSchedule { readonly seedChoices?: readonly string[]; readonly version: 1; readonly tasks: readonly LeadScheduledTask[]; readonly quiet: LeadQuietHours | null }
 /** One line the Lead keeps between goals. A suggestion is the Lead's; only a kept line reaches its instructions. */
 export interface LeadMemoryItem { readonly id: string; readonly text: string; readonly state: 'kept' | 'suggested'; readonly at: number }
 export interface LeadMemory { readonly version: 1; readonly items: readonly LeadMemoryItem[] }
@@ -306,7 +317,7 @@ export type LeadChanged = LeadWindowProjection | LeadProjectionFailure
 export interface LeadNameReceipt {
   readonly version: 1
   readonly revision: LeadRevision
-  readonly settings: { readonly name: LeadName }
+  readonly settings: { readonly name: LeadName; readonly nameChosen?: boolean }
 }
 export const LEAD_CONTROL_REFUSALS = ['lead-unavailable', 'lead-operation-refused', 'lead-secret-refused', 'lead-revision-stale',
   'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
@@ -669,7 +680,7 @@ export const migrateLeadThread: Validator<LeadThread> = (value, path = '') => {
   }
 }
 export const parseLeadSettingsProjection: Validator<LeadSettingsProjection> = object({
-  version, name: literalUnion('dex', 'lex'), model: opaque, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
+  version, name: literalUnion('dex', 'lex'), nameChosen: optional(isBoolean), model: opaque, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
   policy: parseLeadPermissionPolicy, caps: parseLeadCaps, follow: (value, path) => value === undefined ? { checks: true, reviews: true } : parseLeadFollowPreferences(value, path),
 })
 export const parseLeadHostProjection: Validator<LeadHostProjection> = object({
@@ -699,7 +710,7 @@ export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
   credential: optional(object({ provider: (value, path = '') => value === 'anthropic' ? 'anthropic' : fail(path, 'expected Lead credential provider'), key: nullable(text(4096)) })),
 })
 export const parseLeadEmpty: Validator<Record<string, never>> = object({})
-export const parseLeadNameReceipt: Validator<LeadNameReceipt> = object({ version, revision, settings: object({ name: literalUnion('dex', 'lex') }) })
+export const parseLeadNameReceipt: Validator<LeadNameReceipt> = object({ version, revision, settings: object({ name: literalUnion('dex', 'lex'), nameChosen: optional(isBoolean) }) })
 
 const parseLeadProgress: Validator<LeadProgress> = (value, path = '') => {
   const parsed = object<LeadProgress>({ step: integer(1, LEAD_LIMITS.steps), steps: integer(1, LEAD_LIMITS.steps), runs: integer(), since: optional(integer(0, Number.MAX_SAFE_INTEGER)) })(value, path)
@@ -711,9 +722,9 @@ export const parseLeadPresence: Validator<LeadPresence> = object({
 })
 const parseLeadSteer: Validator<LeadSteer> = object({ id, text: text(4000), at: integer(0, Number.MAX_SAFE_INTEGER), state: literalUnion('acknowledged', 'refused'), after: optional(integer(0, Number.MAX_SAFE_INTEGER)) })
 const clockTime: Validator<string> = (value, path = '') => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fail(path, 'expected HH:MM')
-const parseLeadScheduledTask: Validator<LeadScheduledTask> = object({ id, title: text(80), goal: text(2000), every: literalUnion('day', 'weekdays', 'mondays', 'fridays'),
+const parseLeadScheduledTask: Validator<LeadScheduledTask> = object({ project: optional(opaque), id, title: text(80), goal: text(2000), every: literalUnion('day', 'weekdays', 'mondays', 'fridays'),
   at: clockTime, enabled: isBoolean, lastRunAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)) })
-export const parseLeadSchedule: Validator<LeadSchedule> = object({ version, tasks: list(parseLeadScheduledTask, LEAD_SCHEDULE_LIMITS.tasks, 0, task => task.id),
+export const parseLeadSchedule: Validator<LeadSchedule> = object({ seedChoices: optional(list(opaque, 256, 0, key => key)), version, tasks: list(parseLeadScheduledTask, LEAD_SCHEDULE_LIMITS.tasks, 0, task => task.id),
   quiet: nullable(object<LeadQuietHours>({ from: clockTime, to: clockTime })) })
 const parseLeadMemoryItem: Validator<LeadMemoryItem> = object({ id, text: text(400), state: literalUnion('kept', 'suggested'), at: integer(0, Number.MAX_SAFE_INTEGER) })
 export const parseLeadMemory: Validator<LeadMemory> = object({ version, items: list(parseLeadMemoryItem, LEAD_SCHEDULE_LIMITS.memory, 0, item => item.id) })
@@ -736,3 +747,6 @@ export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(ob
 }))
 
 export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, contractDigest: digest, choice: literalUnion('yes-once', 'no', 'run') })
+
+export const parseLeadWakeRecord: Validator<LeadWakeRecord> = object({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked'), modelTurn: isBoolean, usdMicros: nullable(micros) })
+export const parseLeadWakeLog: Validator<LeadWakeLog> = object({ revision: integer(), wakes: list(parseLeadWakeRecord, 128, 0, wake => wake.id) })

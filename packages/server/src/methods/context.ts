@@ -147,6 +147,7 @@ export interface HostContext {
   readonly phoneWorkspace: Pick<import('../phone-workspace.js').PhoneWorkspace, 'sessionsList' | 'teamsList' | 'dashboardRead'>
   /** The phone's snapshot of the work, one conversation, and the one thing it may answer: an approval. */
   readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'threadRead' | 'approvalDecide'>
+  leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
   leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
   leadThreadSend(params: HostParams<'lead/thread/send'>): Promise<HostResult<'lead/thread/send'>>
   leadCardDecide(params: HostParams<'lead/card/decide'>): Promise<HostResult<'lead/card/decide'>>

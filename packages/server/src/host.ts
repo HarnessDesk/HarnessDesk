@@ -3702,7 +3702,7 @@ export class Host {
       const planner = this.#leadPlanner(), due = leadDueTask(await planner.readSchedule(), new Date())
       if (!due) return
       const key = `schedule-${due.task.id}-${due.slot}`
-      const result = await automatic.offer({ key, text: `Scheduled: ${due.task.title}\n${due.task.goal}`,
+      const result = await automatic.offer({ key, ...(due.task.project ? { project: due.task.project } : {}), text: `Scheduled: ${due.task.title}\n${due.task.goal}`,
         origin: { source: 'schedule', event: key, subject: String(due.slot), url: null } })
       if (result.delivered) await planner.markRan(due.task.id, Date.now())
     }
@@ -4940,6 +4940,7 @@ export class Host {
       },
       phoneWorkspace: this.#phoneWorkspaceView(),
       phoneWork: this.#phoneWorkView(),
+      leadWakesRead: async () => (await this.#leadWindow()).readWakes(),
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),

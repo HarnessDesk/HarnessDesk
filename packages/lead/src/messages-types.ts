@@ -17,6 +17,7 @@ export interface MessagesTurn {
 }
 export interface LeadMessagesRequest {
   readonly proactive?: boolean
+  readonly wakeSource?: import('@harnessdesk/protocol').LeadWakeRecord['source']
   readonly messages: readonly MessagesTurn[]
   /** The owner may request structured text using
    * { version: 1, type: 'lead-output', text?, plan?, cards? }.

@@ -41,7 +41,7 @@ const rig = async (over: { configured?: boolean; service?: Record<string, any>; 
   let nextCard = 0
   const controls = new LeadControls({ journal, service, project, model: 'fixture-model', now: () => 100, nextId: () => `card-${++nextCard}`,
     push: (value: WireNotification) => notifications.push(value), decidePerson: async (...args: unknown[]) => { answers.push(args) }, decideResult: async (...args: unknown[]) => { answers.push(args) }, ...over.controls })
-  const ctx = { leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p),
+  const ctx = { leadWakesRead: () => controls.readWakes(), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p),
     leadCardDecide: (p: unknown) => controls.decide(p), leadSettingsRead: () => controls.readSettings(),
     leadSettingsUpdate: (p: unknown) => controls.updateSettings(p), leadResume: (p: unknown) => controls.resume(p), leadStop: (p: unknown) => controls.stop(p) } as unknown as HostContext
   const call = (method: string, params: unknown = {}) => dispatch(ctx, method as never, params as never) as Promise<any>
@@ -802,7 +802,7 @@ for (const kind of ['policy', 'caps'] as const) test(`a ${kind} settings card mu
   const card = (i: number, length: number) => ({ ...plan, id: `fill-${i}`, contract: { ...contract, goal: 'g'.repeat(length) } })
   const admit = (candidate: any) => {
     const state = s.journal.state
-    leadWindowThread({ ...state, seq: state.seq + 1, cardPositions: { ...state.cardPositions, [candidate.id]: state.seq + 1 }, cards: [...state.cards, candidate] }, project, { version: 1, name: 'dex', model: 'fixture-model', policy: state.policy!, caps: state.budget!.caps, key: { configured: true, protection: 'encrypted' } })
+    leadWindowThread({ ...state, seq: state.seq + 1, cardPositions: { ...state.cardPositions, [candidate.id]: state.seq + 1 }, cards: [...state.cards, candidate] }, project, { version: 1, name: 'dex', nameChosen: state.nameChosen, model: 'fixture-model', policy: state.policy!, caps: state.budget!.caps, key: { configured: true, protection: 'encrypted' } })
   }
   let i = 0
   while (i < 64) { try { await s.journal.offerCard(card(i, 16000), admit); i++ } catch { break } }
@@ -1461,7 +1461,7 @@ test('a name-only settings save ignores a stale revision without scanning', asyn
   const s = await rig()
   const before = s.journal.state
   const result = await s.call('lead/settings/update', { expectedRevision: 0, name: 'lex' })
-  assert.deepEqual(result, { version: 1, revision: s.journal.state.seq, settings: { name: 'lex' } })
+  assert.deepEqual(result, { version: 1, revision: s.journal.state.seq, settings: { name: 'lex', nameChosen: true } })
   assert.deepEqual(s.journal.state.policy, before.policy)
   assert.deepEqual(s.journal.state.budget, before.budget)
 })
@@ -1767,4 +1767,13 @@ test('a stale publication source preserves the lead-card-stale refusal code', as
   await s.journal.offerCard({ version: 1, id: 'push', revision: 1, type: 'result', publication: 'push', contractDigest: contract.digest,
     outcome: 'reviewed', summary: 'Push reviewed work', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) })
   await assert.rejects(s.call('lead/card/decide', { version: 1, cardId: 'push', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }), code('lead-card-stale'))
+})
+
+test('the window wake read returns journaled silent checks without invoking the Lead', async () => {
+  const s = await rig()
+  await s.journal.recordWake({ id: 'quiet', at: 100, source: 'desk-change', decision: 'silent', modelTurn: false, usdMicros: null })
+  const result = await s.call('lead/wakes/read')
+  assert.equal(result.wakes[0].decision, 'silent')
+  assert.equal(result.revision, s.journal.state.seq)
+  assert.equal(s.sends.length, 0)
 })
