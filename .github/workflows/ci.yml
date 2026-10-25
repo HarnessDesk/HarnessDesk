@@ -161,7 +161,8 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # Supervisor child tests and permission probes require Node 25.
+          node-version: 25
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -218,7 +219,8 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # Lead end-to-end tests start the permission-restricted child.
+          node-version: 25
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -620,7 +622,8 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # The complete browser deal includes the real Lead host/child specs.
+          node-version: 25
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -724,7 +727,8 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # Server-facing browser specs include the real Lead host/child.
+          node-version: 25
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile

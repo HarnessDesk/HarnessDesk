@@ -17,6 +17,7 @@ async function rig(t: { after(fn: () => void | Promise<void>): void }) {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'hd-git-steer-'))), cwd = join(home, 'checkout'), remote = join(home, 'remote.git'), state = join(home, 'state')
   mkdirSync(state)
   git(home, 'init', '-q', '-b', 'x', cwd); git(home, 'init', '-q', '--bare', remote)
+  git(cwd, 'config', 'user.name', 'Jane Doe'); git(cwd, 'config', 'user.email', 'dev@example.com')
   writeFileSync(join(cwd, 'file'), 'widgets'); git(cwd, 'add', '.'); git(cwd, 'commit', '-qm', 'Widgets')
   git(cwd, 'remote', 'add', 'origin', 'https://github.com/acme/widgets.git')
   const prefs: Record<string, unknown> = {}

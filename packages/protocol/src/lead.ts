@@ -231,6 +231,7 @@ export interface LeadPullRequest {
   readonly state: 'open' | 'merged' | 'closed'; readonly check: import('./intake.js').TriggerCheck | null; readonly at: number
 }
 export interface LeadSettingsProjection {
+  readonly unavailable?: 'runtime'
   readonly nameChosen?: boolean
   readonly name: LeadName
   readonly version: 1
@@ -319,7 +320,7 @@ export interface LeadNameReceipt {
   readonly revision: LeadRevision
   readonly settings: { readonly name: LeadName; readonly nameChosen?: boolean }
 }
-export const LEAD_CONTROL_REFUSALS = ['lead-unavailable', 'lead-operation-refused', 'lead-secret-refused', 'lead-revision-stale',
+export const LEAD_CONTROL_REFUSALS = ['lead-runtime-unsupported', 'lead-unavailable', 'lead-operation-refused', 'lead-secret-refused', 'lead-revision-stale',
   'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
@@ -686,9 +687,10 @@ export const migrateLeadThread: Validator<LeadThread> = (value, path = '') => {
   }
 }
 export const parseLeadSettingsProjection: Validator<LeadSettingsProjection> = omitUnset(object<LeadSettingsProjection>({
+  unavailable: optional(literalUnion('runtime')),
   version, name: literalUnion('dex', 'lex'), nameChosen: optional(isBoolean), model: opaque, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
   policy: parseLeadPermissionPolicy, caps: parseLeadCaps, follow: (value, path) => value === undefined ? { checks: true, reviews: true } : parseLeadFollowPreferences(value, path),
-}), ['nameChosen'])
+}), ['nameChosen', 'unavailable'])
 export const parseLeadHostProjection: Validator<LeadHostProjection> = object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection,
 })

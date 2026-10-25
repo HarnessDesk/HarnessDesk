@@ -816,3 +816,10 @@ The host owns a `ProvenancePlane` beside the evidence plane. It registers open p
 Capture does bounded work, and none when nothing it reads has changed. The reader checks the repository's metadata once for a batch of reads, at the batch's first read, and keeps what Git says about an object id (its type, a commit's parents, the patch between two commits) but never an answer about a missing object and never past a failed check. A reconcile pass is skipped while the commits, ref moves, facts and Seats it reads are as it last left them; it reads at most 128 ranges, eight to a batch with a turn for the event loop after each, and leaves the rest for the next pass. A range it could not read waits for something to change and never starts a pass by itself. A scan that found nothing new writes no checkpoint, and the checkpoint in force is read without reading those it superseded, so an idle desk's journal stops growing. The private view is a folder in the state directory: it is removed when its reader closes, when an admission is abandoned and when the process exits, and at startup the plane sweeps those in its own state folder that nothing owns ([why](decisions.md#provenance-capture-does-bounded-work-and-leaves-nothing-behind)).
 
 An association needs a locally observed diff fact, a matching checkout and a compatible Seat lifetime. Reconciliation adds links to immutable original observations; it does not move checks or reviews to a rewritten commit. Capture preferences belong to this machine, default to on, and are shared by a project's linked checkouts.
+
+## Lead child runtime floor
+
+The optional Lead child requires Node 25 or newer and runs with
+`--permission --no-allow-net`. Older hosts, including Electron 42's Node 24.19,
+report Lead as unavailable before starting it; the desk stays usable.
+CI jobs that exercise the child or its permission probe use Node 25.

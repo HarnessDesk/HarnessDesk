@@ -81,6 +81,11 @@
       "title": "Tables: the family"
     },
     {
+      "selector": "[data-frame-id=\"settings-phone\"] > div",
+      "id": "settings-phone",
+      "title": "Settings \u203a Phone"
+    },
+    {
       "selector": "[data-frame-id=\"settings-archive\"] > div",
       "id": "settings-archive",
       "title": "Settings \u203a Archive"
@@ -409,6 +414,7 @@
     "Stat",
     "Delta",
     "Lead avatar",
+    "Lead plan flow",
     "Lead contract",
     "Plan card",
     "Usage meter row",

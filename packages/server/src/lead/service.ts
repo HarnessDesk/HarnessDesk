@@ -1,7 +1,7 @@
 import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject, LeadControlRefusal, LeadPresence } from '@harnessdesk/protocol'
 import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
 import { LEAD_MESSAGES_DEFAULTS, leadRememberLines, parseLeadMessagesBody } from '@harnessdesk/lead'
-import { LeadSupervisor, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
+import { LeadSupervisor, leadChildRuntimeSupported, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import type { CredentialBroker } from '../credentials.js'
 import type { ClientDoor } from '../client-door.js'
 import type { LeadAdmission } from './admission.js'
@@ -21,6 +21,8 @@ export interface LeadProcess {
   evidenceChanged?(): void
 }
 export interface LeadServiceOptions {
+  /** Test seam for the Node runtime embedded in the host executable. */
+  readonly runtimeVersion?: string
   readonly journal: LeadJournal
   readonly project: LeadProject
   readonly broker: Pick<CredentialBroker, 'leadStatus' | 'resolveLead' | 'storeLead' | 'deleteLead'>
@@ -74,6 +76,7 @@ export class LeadService {
   #exiting: Promise<void> | null = null
   constructor(private readonly options: LeadServiceOptions) {
     this.#supervisor = (options.createSupervisor ?? (settings => new LeadSupervisor(settings)))({
+      ...(options.runtimeVersion === undefined ? {} : { runtimeVersion: options.runtimeVersion }),
       journal: options.journal,
       bootstrap: async (signal?: AbortSignal) => {
         this.#assertOpen()
@@ -304,7 +307,10 @@ export class LeadService {
     this.#publicScans = next.catch(() => {})
     return next
   }
-  status(provider: 'anthropic') { return this.options.broker.leadStatus(provider) }
+  async status(provider: 'anthropic') {
+    return { ...await this.options.broker.leadStatus(provider),
+      ...(!leadChildRuntimeSupported(this.options.runtimeVersion) ? { unavailable: 'runtime' as const } : {}) }
+  }
   setEnabled(enabled: boolean): Promise<void> {
     if (this.#closed) return Promise.reject(new Error('lead-closed'))
     this.#enabled = enabled
@@ -317,6 +323,7 @@ export class LeadService {
   }
   async send(input: LeadMessagesRequest): Promise<LeadMessagesResult> {
     this.#assertOpen()
+    if (!leadChildRuntimeSupported(this.options.runtimeVersion)) throw publicRefusal('lead-runtime-unsupported')
     const generation = this.#generation
     await this.#queue(async () => {
       this.#assertOpen()

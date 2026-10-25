@@ -631,6 +631,19 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     })
 
+    for (const query of ['lead-synthetic=first-name', 'lead-synthetic=opening-jobs', 'lead-synthetic=wake-ledger', 'desk-account=pending', 'desk-account=settings']) test(`coverage Lead and account scene: ${query}`, async () => {
+      const page = getPage()
+      await page.goto(`/preview.html?${query}`)
+      await settleCoveragePage(page)
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+      if (query === 'desk-account=settings') {
+        await page.getByRole('button', { name: 'Sign out…', exact: true }).click()
+        await expect(page.getByRole('alertdialog', { name: 'Sign out of HarnessDesk?' })).toBeVisible()
+        for (const component of (await collectCoverage(page)).covered) covered.add(component)
+        await page.getByRole('button', { name: 'Keep signed in', exact: true }).click()
+      }
+    })
+
     test(`coverage page 2`, async () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto('/preview.html')

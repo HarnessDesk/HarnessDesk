@@ -16,7 +16,7 @@ for (const theme of ['light', 'dark']) for (const scene of scenes) test(`Lead sy
     await expect(page.getByRole('button', { name: 'Checks failed on acme/widgets' })).toBeVisible()
   } else if (scene === 'pending-plan') await expect(frame.locator('[data-slot="lead-plan-flow"]')).toBeVisible()
   else if (scene === 'result-person-gate' || scene === 'push-card') await expect(frame.getByRole('button', { name: 'Accept and open PR', exact: true })).toBeVisible()
-  else if (scene.startsWith('branch-')) await expect(frame.getByRole('button', { name: 'Reclaim branch', exact: true })).toBeVisible()
+  else if (scene.startsWith('branch-')) await expect(frame.getByRole('button', { name: 'Take the branch back', exact: true })).toBeVisible()
   else if (scene === 'handback-running') await expect(frame.locator('[data-slot="lead-live-line"]')).toHaveText('Repairing checks · round 2')
   else if (scene === 'handback-limit') await expect(frame.locator('[data-lead-card="handback-limit"]')).toContainText('Automatic repairs reached their limit')
   else await expect(frame.locator('[data-slot="lead-pr-status"]')).toContainText('#12')
@@ -37,4 +37,15 @@ for (const theme of ['light', 'dark']) test(`Lead plan and four-action result wr
     await expect(action).toBeVisible()
     expect(await action.evaluate(node => { const box = node.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth })).toBe(true)
   }
+})
+
+for (const theme of ['light', 'dark']) test(`an unavailable Lead has one runtime reason and no retry in ${theme}`, async ({ page }, info) => {
+  await page.goto(`/preview.html?lead-synthetic=runtime-unavailable&theme=${theme}`)
+  const frame = page.locator('[data-frame-id="lead-runtime-unavailable"]')
+  await expect(frame.getByText('Lead requires Node 25 or newer. This desk uses an older runtime.', { exact: true })).toHaveCount(1)
+  await expect(frame.getByRole('textbox', { name: 'Goal or message' })).toBeDisabled()
+  await expect(frame.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+  await expect(frame.getByRole('alert')).toHaveCount(0)
+  await expect(frame.getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0)
+  await frame.screenshot({ path: info.outputPath(`runtime-unavailable-${theme}.png`), animations: 'disabled' })
 })

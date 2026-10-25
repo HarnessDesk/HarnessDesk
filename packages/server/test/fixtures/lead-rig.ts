@@ -158,8 +158,11 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     await writeFile(join(home, 'cache/model-pricing.json'), JSON.stringify({ fetchedAt: Date.now(), catalogue: {} }))
     await writeFile(join(home, 'pricing.json'), JSON.stringify({ 'fixture-worker': { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }))
     await mkdir(join(project.path, '.harnessdesk'))
-    // fast-import supplies placeholder authors without changing Git config or identity environment.
+    // The initial source has explicit placeholder authors; worker commits use local fixture configuration.
     git(project.path, 'init', '-b', 'main')
+    // Worker commits inherit only the fixture repository's placeholder identity.
+    git(project.path, 'config', 'user.name', 'Jane Doe')
+    git(project.path, 'config', 'user.email', 'dev@example.com')
     const checks = `verify: { run: 'node -e "process.exit(0)"', timeout: 10 }\n`
     const seed = Buffer.from(checks)
     execFileSync(gitBinary, ['fast-import', '--quiet'], { cwd: project.path, input: Buffer.concat([

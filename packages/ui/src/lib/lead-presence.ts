@@ -16,6 +16,7 @@ const ENDED = new Set(['stopped', 'accepted', 'declined'])
 /** Read from the projection alone; it grants nothing. */
 export const leadPresence = (state: LeadState): LeadPresence => {
   const thread = state.thread
+  if (state.settings?.unavailable) return { mood: 'sleeping', word: 'Unavailable', needs: 0, goalActive: false }
   if (state.error) return { mood: 'sleeping', word: 'Desk offline', needs: 0, goalActive: false }
   if (!thread) return { mood: 'neutral', word: 'Ready', needs: 0, goalActive: false }
   const started = thread.state !== 'draft' || thread.messages.some(message => message.role === 'user')

@@ -25,6 +25,7 @@ const until = async (predicate: () => boolean | Promise<boolean>, message: strin
 async function fixture(t: { after(fn: () => void | Promise<void>): void }, kind: 'codex' | 'acp' | 'cursor' | 'claude', off: boolean | 'project' = false, approve = false) {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'hd-steer-runtime-'))), cwd = join(home, 'checkout'), stateDir = join(home, 'state'), remote = join(home, 'remote.git')
   mkdirSync(stateDir); git(home, 'init', '-q', '-b', 'x', cwd); git(home, 'init', '-q', '--bare', remote)
+  git(cwd, 'config', 'user.name', 'Jane Doe'); git(cwd, 'config', 'user.email', 'dev@example.com')
   writeFileSync(join(cwd, 'file'), 'widgets'); git(cwd, 'add', '.'); git(cwd, 'commit', '-qm', 'Widgets'); git(cwd, 'remote', 'add', 'origin', remote)
   const store = new StateStore(join(stateDir, 'state.json')); await store.load()
   const kernel = new ExtensionKernel()

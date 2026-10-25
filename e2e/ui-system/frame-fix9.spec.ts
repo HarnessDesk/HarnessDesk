@@ -17,7 +17,7 @@ test('FIX9 kept history remains readable after reopening', async ({ page }) => {
   await openFrame(page, 'frame-wall=conversation&frame-fix8-kept=1')
   await page.getByRole('button', { name: 'Kept conversation', exact: true }).click()
   await expect(page.locator('[data-live-transcript]')).toContainText('First kept message')
-  await expect(page.locator('[data-slot="composer-dock"]:has(> [data-slot="pane-column"][data-inset="bars"])')).toContainText('Choose a working installation in Settings.')
+  await expect(page.locator('[data-slot="conversation-dock"]')).toContainText('Choose a working installation in Settings.')
 })
 
 {

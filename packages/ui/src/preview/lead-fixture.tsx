@@ -26,7 +26,7 @@ export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', 
 export const leadMemory: LeadMemory = { version: 1, items: [
   { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
   { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
-export const LEAD_SCENES = ['wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
+export const LEAD_SCENES = ['runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -62,6 +62,7 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
     thread.messages = [...thread.messages, { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The approved Flow is running. I will read its checks and review before asking you to accept.' }]
   }
   if (scene === 'proactive' || scene === 'away-digest') thread.messages = [{ version: 1, id: 'proactive', revision: 2, role: 'assistant', text: 'The review is ready.\nChecks still need you.\nOpen changes', proactive: { finding: 'The review is ready.', caveat: 'Checks still need you.', ask: 'Open changes', action: 'changes' } }]
+  if (scene === 'runtime-unavailable') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, unavailable: 'runtime' } } }
   if (scene === 'first-name') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, nameChosen: false } } }
   if (scene === 'missing-plan') projection = { ...projection, wayOut: 'decide-plan' }
   if (scene === 'predecessor-unavailable' || scene === 'predecessor-unverifiable') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: null, waitReason: `lead-${scene}` } }

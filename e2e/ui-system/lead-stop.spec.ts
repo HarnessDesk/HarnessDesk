@@ -32,14 +32,14 @@ for (const theme of ['light', 'dark'] as const) for (const reason of ['unavailab
 
 
 for (const theme of ['light', 'dark'] as const) for (const scene of ['running', 'running-message'] as const) {
-  test(`Lead ${scene} keeps Stop in the composer corner in ${theme}`, async ({ page }, info) => {
+  test(`Lead ${scene} keeps Stop goal in the running-goal strip in ${theme}`, async ({ page }, info) => {
     await page.setViewportSize({ width: 1280, height: 1000 })
     await page.goto(`/preview.html?lead-synthetic=${scene}&theme=${theme}`)
-    const track = page.locator('[data-composer-track="send"]')
-    const stop = track.getByRole('button', { name: 'Stop', exact: true })
+    const track = page.locator('[data-slot="lead-run-strip"] > div')
+    const stop = track.getByRole('button', { name: 'Stop goal', exact: true })
     await expect(stop).toBeVisible()
     await expect(page.locator('[data-slot="top-bar"]')).not.toContainText('Stop goal')
-    await expect(track.locator('button')).toHaveCount(scene === 'running-message' ? 2 : 1)
+    await expect(track.locator('button')).toHaveCount(1)
     await page.evaluate(async () => { await document.fonts.ready })
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 1000 })

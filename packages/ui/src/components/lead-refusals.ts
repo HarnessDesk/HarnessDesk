@@ -1,6 +1,7 @@
 import type { LeadControlRefusal } from '@harnessdesk/protocol'
 /** Closed refusal vocabulary; transport messages and typed codes never render. */
 export const REFUSALS: Record<LeadControlRefusal, string> = {
+  'lead-runtime-unsupported': 'Lead requires Node 25 or newer. This desk uses an older runtime.',
   'lead-unavailable': 'The Lead is unavailable.', 'lead-operation-refused': 'The Lead could not complete that action.',
   'lead-secret-refused': 'That content cannot be shared in the Lead thread.', 'lead-revision-stale': 'The Lead changed. Review the latest version and try again.',
   'lead-no-person-wait': 'There is no request to resume.', 'lead-plan-pending': 'Review the plan before continuing.',

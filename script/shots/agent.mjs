@@ -31,6 +31,7 @@
  *   <store>.page         a number: `session/list` answers that many rows a page
  */
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -126,7 +127,6 @@ const notify = (method, params) => send({ jsonrpc: '2.0', method, params })
 const update = (sessionId, body) => notify('session/update', { sessionId, update: body })
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 
-let seq = 0
 const sessions = new Map()
 const cancelled = new Set()
 const newSession = (id, cwd, mcpServers) => {
@@ -520,8 +520,7 @@ const handlers = {
   },
 
   'session/new': (id, params) => {
-    seq += 1
-    const state = newSession(`s-${seq}`, params?.cwd ?? process.cwd(), params?.mcpServers)
+    const state = newSession(`s-${randomUUID()}`, params?.cwd ?? process.cwd(), params?.mcpServers)
     remember(state)
     reply(id, {
       sessionId: state.id,

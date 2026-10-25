@@ -11,7 +11,7 @@ for (const theme of ['light', 'dark'] as const) {
     const dock = frame.locator('[data-shared-composer]')
     expect(await dock.evaluate(node => getComputedStyle(node).backgroundImage)).toBe('none')
     expect(await dock.evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
-    const conversationDock = frame.locator('[data-mode="conversation"] [data-slot="composer-dock"]').first()
+    const conversationDock = frame.locator('[data-mode="conversation"] [data-slot="conversation-dock"]').first()
     expect(await conversationDock.evaluate(node => getComputedStyle(node).backgroundImage)).toContain('linear-gradient')
   })
 

@@ -1,3 +1,4 @@
+import { createLeadState } from '../state/lead'
 import { GITHUB_SOURCE, githubFile, githubPlan } from './library-github-fixture'
 import { createPhoneState } from '../state/phone'
 import { FRAME } from '../design/frame'
@@ -937,6 +938,9 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
 
 /** The smallest store the mounted screens call. */
 class PreviewStore {
+  /** The same unavailable facade as a flag-off real desk; opt-in fixtures replace it. */
+  readonly lead = createLeadState({ request: (method, params) => this.transport.request(method, params) as never }, () => this.getSnapshot().leadAvailable)
+
   /** The phone link, answered from what a frame puts there with `phone.changed`. */
   readonly phone: ReturnType<typeof createPhoneState> = createPhoneState({
     request: async (method: string) => { if (method === 'phone/pairing') return { url: 'harnessdesk://pair?c=preview', expiresAt: Date.now() + 600_000, addresses: [] } as never; return this.phone.state as never },

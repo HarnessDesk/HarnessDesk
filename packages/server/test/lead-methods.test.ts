@@ -48,6 +48,21 @@ const rig = async (over: { configured?: boolean; service?: Record<string, any>; 
   return { controls, journal, records, storage, notifications, sends, answers, service, call }
 }
 const code = (reason: string) => (error: any) => error.wireCode === reason
+
+test('an unsupported Lead runtime is readable and refuses sends before recording work', async () => {
+  const s = await rig({ configured: true, service: { async status() { return { configured: true, protection: 'synthetic cipher', unavailable: 'runtime' } } } })
+  const before = s.journal.state.seq
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const projection = await s.call('lead/thread/read')
+    assert.equal(projection.settings.unavailable, 'runtime')
+    assert.equal(projection.wayOut, null)
+    await assert.rejects(s.call('lead/thread/send', { idempotencyKey: `refused-${attempt}`, text: 'Inspect' }), code('lead-runtime-unsupported'))
+    await assert.rejects(s.call('lead/resume', { expectedRevision: before }), code('lead-runtime-unsupported'))
+  }
+  assert.equal(s.journal.state.seq, before)
+  assert.equal(s.sends.length, 0)
+  assert.equal(s.journal.state.messages.length, 0)
+})
 const turnText = (turn: any): string => turn.content.map((block: any) => block.text).join('')
 const approvedContractOf = (turn: any): unknown => {
   const line = turnText(turn).split('\n').find(one => one.startsWith('Approved contract: '))

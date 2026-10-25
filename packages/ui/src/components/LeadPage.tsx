@@ -103,6 +103,7 @@ const LeadLimits = ({ disabled }: { readonly disabled: boolean }) => {
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
   const store = useStore(), snapshot = useSnapshot(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
+  const unavailable = state.settings?.unavailable === 'runtime'
   const [goal, setGoal] = useState(initialGoal), [error, setError] = useState<string | null>(null)
   const [confirmStop, setConfirmStop] = useState(false), [stopping, setStopping] = useState(false)
   const stoppingRef = useRef(false)
@@ -154,7 +155,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     return () => { cancelled = true; clearTimeout(timer) }
   }, [active, state.planConsentExpiresAt, state.wayOut, state.thread?.state, store])
   const send = async (text = goal) => {
-    if (inFlight.current || state.requestInFlight || !text.trim()) return
+    if (unavailable || inFlight.current || state.requestInFlight || !text.trim()) return
     inFlight.current = true; setSending(true); setError(null)
     try { await store.lead.send(text.trim(), crypto.randomUUID()); setGoal(current => current === text ? '' : current) }
     catch (error) { refusal(error) }
@@ -235,7 +236,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           setChoosingName(true)
           try { await store.lead.updateSettings({ name }) } catch (error) { refusal(error) } finally { setChoosingName(false) }
         }} />}
-        <LeadOpening jobs={openingJobs} pending={requestPending || state.revision < 0} onStart={text => void send(text)} />
+        <LeadOpening jobs={openingJobs} pending={unavailable || requestPending || state.revision < 0} onStart={text => void send(text)} />
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
         {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{`From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`}</Button> : `From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`}</Text>}
         {entries.map(entry => entry.kind === 'message'
@@ -258,12 +259,13 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     </ConversationThread>
     {active && <ConversationDock ref={dock}>
       <ConversationComposerFrame before={<ComposerNoticeStack>
+          {unavailable && <Banner>{REFUSALS['lead-runtime-unsupported']}</Banner>}
           <LeadAway active={active} state={state} label={label} />
           {goalActive && <LeadSlot slot="lead-run-strip"><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'following' ? `Following #${pr?.number ?? ''}` : repairActive ? `Repairing ${handback.kind === 'checks' ? 'checks' : 'review comments'} · round ${handback.round}` : phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}{phase === 'running' && leadWakeLine(state.presence) ? <Text as="span" role="muted">{` · ${leadWakeLine(state.presence)}`}</Text> : null}</Banner></LeadSlot>}
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
           {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replace('{label}', label)}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
-          {state.wayOut === 'resume' && state.waitReason !== 'lead-predecessor-unavailable' && state.waitReason !== 'lead-predecessor-unverifiable' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
+          {!unavailable && state.wayOut === 'resume' && state.waitReason !== 'lead-predecessor-unavailable' && state.waitReason !== 'lead-predecessor-unverifiable' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
             {state.waitReason ? WAITS[state.waitReason] ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
           </Banner>}
           {state.wayOut === 'decide-plan' && (renewal
@@ -271,7 +273,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
             : !cards.some(card => card.type === 'plan') && <Banner>The plan needs your decision before work continues.</Banner>)}
           <LeadCards {...cardProps} cards={cards} personActions={state.personActions} placement="dock" />
         </ComposerNoticeStack>} form={{ 'aria-label': 'Lead composer', onSubmit: event => { event.preventDefault(); if (!requestPending && goal.trim() && !state.error && state.revision >= 0) void send() } }}>
-              <ComposerText rows={1} ref={input} aria-label="Goal or message" placeholder={`Message ${label}…`} value={goal} onChange={event => setGoal(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!state.error && state.revision >= 0) void send() } }} />
+              <ComposerText disabled={unavailable} rows={1} ref={input} aria-label="Goal or message" placeholder={`Message ${label}…`} value={goal} onChange={event => setGoal(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!state.error && state.revision >= 0) void send() } }} />
               <ComposerTools>
                 <ComposerTrack name="add">
                   <Popover title="Add" fullWidth drop="up" align="left" icons="all" label={<PlusIcon size={14} />}>
@@ -286,7 +288,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
                 </ComposerTrack>
                 <LeadLimits disabled={!!state.error || state.revision < 0} />
                 <ComposerGap /><ComposerTrack name="send">
-                  <ComposerSend type="submit" disabled={requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : goalActive ? 'Send to the running goal' : 'Send'} title={requestPending ? 'Sending…' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>
+                  <ComposerSend type="submit" disabled={unavailable || requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : goalActive ? 'Send to the running goal' : 'Send'} title={requestPending ? 'Sending…' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>
                 </ComposerTrack>
               </ComposerTools>
       </ConversationComposerFrame>

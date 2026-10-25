@@ -18,7 +18,7 @@ const edges = (page: Page) =>
     // its child (`ItemView`'s own root) is what actually sits in the reading
     // column, the same element `conversation-map.spec.ts` reads.
     const prompt = document.querySelector('[data-frame-id="conversation-composer"] [data-live-transcript] [data-part] > *') as HTMLElement | null
-    const conversation = prompt?.closest('[class*="_conversation_"]') as HTMLElement | null
+    const conversation = prompt?.closest('[data-slot="conversation-shell"]') as HTMLElement | null
     const composer = conversation?.querySelector('[data-slot="composer"]') as HTMLElement | null
     if (!prompt) throw new Error('no turn in the live transcript')
     if (!composer) throw new Error('no composer shell in the same conversation')

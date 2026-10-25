@@ -107,6 +107,7 @@ export class LeadControls {
     if (!policy || !budget) throw leadRefusal('lead-unavailable')
     const key = await this.options.service.status('anthropic')
     return parseLeadSettingsProjection({ version: 1, name: this.options.journal.state.name, nameChosen: this.options.journal.state.nameChosen, model: this.options.model,
+      ...(key.unavailable ? { unavailable: key.unavailable } : {}),
       follow: this.options.journal.state.follow, key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
   async #projection(liveActions = true): Promise<LeadWindowProjection> {
@@ -140,7 +141,7 @@ export class LeadControls {
     try { thread = leadWindowThread(state, this.options.project, settings, this.options.now(), [
       ...(this.options.readWorkerApprovals?.() ?? []), ...leadApprovalCards(personActions, state.contract?.digest ?? '')]) }
     catch { this.#failedRevision = state.seq; throw leadRefusal('lead-projection-failed') }
-    const wayOut = this.#wayOut(state)
+    const wayOut = settings.unavailable ? null : this.#wayOut(state)
     const waitReason = state.phase === 'waiting-for-user' && (LEAD_MANAGEMENT_REASONS as readonly (string | null)[]).includes(state.managementReason)
       ? state.managementReason : null
     const running = leadProgress(state), team = leadRunTeam(state)
@@ -208,7 +209,9 @@ export class LeadControls {
     if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) && !newGoal) throw leadRefusal('lead-thread-closed')
     if (this.#inFlight()) throw leadRefusal('lead-request-in-flight')
     let configured: boolean
-    try { configured = (await service.status('anthropic')).configured } catch { throw leadRefusal('lead-protection-unavailable') }
+    const status = await service.status('anthropic').catch(() => { throw leadRefusal('lead-protection-unavailable') })
+    if (status.unavailable) throw leadRefusal('lead-runtime-unsupported')
+    configured = status.configured
     if (!configured) throw leadRefusal('lead-key-missing')
     try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
     if (origin && !idle()) throw leadRefusal('lead-request-in-flight')
@@ -420,6 +423,7 @@ export class LeadControls {
     return this.#projection()
   }) }
   resume(input: { readonly expectedRevision: number }): Promise<LeadWindowProjection> { return this.#queue(async () => {
+    if ((await this.options.service.status('anthropic')).unavailable) throw leadRefusal('lead-runtime-unsupported')
     const parsed = parseLeadResume(input)
     this.#expectRevision(parsed.expectedRevision)
     const reason = this.options.journal.state.managementReason

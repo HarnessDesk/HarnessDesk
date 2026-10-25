@@ -84,7 +84,7 @@
   height: calc(var(--hd-bar-h) + 1px); /* desk: 220px → calc(46px + 1px), tight to the bar itself now the dock is hidden here */
 }
 
-.frame[data-height='header'] [class*='dockArea'] {
+.frame[data-height='header'] [data-slot='conversation-dock'] {
   display: none;
 }
 

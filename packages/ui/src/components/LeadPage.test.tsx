@@ -20,6 +20,20 @@ const modules = import.meta.glob('./LeadPage.tsx', { eager: true }) as Record<st
 const LeadPage = modules['./LeadPage.tsx']?.LeadPage ?? (() => null)
 const clean: (() => void)[] = []
 afterEach(() => { clean.splice(0).forEach(fn => fn()); vi.restoreAllMocks(); decisionHandlers.length = 0 })
+
+it('shows one plain runtime reason and cannot retry an unavailable Lead', async () => {
+  const base = leadProjection()
+  const { store, box, request } = await mount({ ...base, settings: { ...base.settings, unavailable: 'runtime' } } as any)
+  const send = vi.spyOn(store.lead, 'send')
+  expect(box.textContent?.match(/Lead requires Node 25 or newer/g)).toHaveLength(1)
+  expect(box.textContent).toContain('Unavailable')
+  expect(box.querySelector('[role="alert"]')).toBeNull()
+  expect(box.querySelector('textarea')?.disabled).toBe(true)
+  expect(button('Send').disabled).toBe(true)
+  expect(button('Resume')).toBeUndefined()
+  expect(send).not.toHaveBeenCalled()
+  expect(request.mock.calls.filter(([method]) => method === 'lead/thread/read')).toHaveLength(1)
+})
 const mount = async (projection = leadProjection(), loading = false) => {
   const store = new AppStore('ws://localhost:0/'), box = document.createElement('div'); document.body.append(box)
   Object.assign(store.getSnapshot(), previewStore({ leadAvailable: true }).getSnapshot())

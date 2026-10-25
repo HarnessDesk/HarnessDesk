@@ -22,7 +22,7 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
   mkdirSync(bin); mkdirSync(host)
   git(root, 'init', '-q', '-b', 'feature/widgets', checkout)
   git(root, 'init', '-q', '--bare', '-b', 'main', remote)
-  // Fixture commits use the process's existing git identity, as contributor runs do.
+  git(checkout, 'config', 'user.name', 'Jane Doe'); git(checkout, 'config', 'user.email', 'dev@example.com')
   writeFileSync(join(checkout, 'file'), 'widgets'); git(checkout, 'add', '.'); git(checkout, 'commit', '-qm', 'Widgets')
   git(checkout, 'remote', 'add', 'origin', 'https://github.com/acme/widgets.git')
   const statePath = join(root, 'gh.json'), tracePath = join(root, 'calls.ndjson')

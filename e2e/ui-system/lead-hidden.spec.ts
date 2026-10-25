@@ -46,7 +46,7 @@ for (const theme of ['light', 'dark'] as const) test(`the flag-off host has no L
     const sections = page.locator('[aria-label="Main sections"]')
     await expect(sections.getByRole('button', { name: 'Dex', exact: true })).toHaveCount(0)
     const labels = await sections.getByRole('button').allTextContents()
-    expect(labels.map(label => label.trim())).toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    expect(labels.map(label => label.trim())).toEqual(['Teams', 'Flows', 'Agents', 'Customize', 'Dashboard'])
     for (const [label, destination] of destinations) {
       await sections.getByRole('button', { name: label, exact: true }).click()
       const body = page.locator(`[data-page-destination="${destination}"]:visible`)

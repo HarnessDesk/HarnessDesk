@@ -10,7 +10,7 @@ import { LeadBudgets } from '../src/lead/budgets.js'
 
 const key = 'sk-test-not-real-0000'
 const input = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 }
-const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any; seats?: unknown } = {}) => {
+const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { runtimeVersion?: string; resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any; seats?: unknown } = {}) => {
   const home = await mkdtemp('/tmp/hd-ls-')
   t.after(() => rm(home, { recursive: true, force: true }))
   const records: LeadJournalRecord[] = []
@@ -28,6 +28,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { resolve
   const modulePath = new URL('../src/lead/service.js', import.meta.url).href
   const { LeadService } = await import(modulePath)
   const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, broker, model: 'synthetic-model', prices: {},
+    ...(hooks.runtimeVersion === undefined ? {} : { runtimeVersion: hooks.runtimeVersion }),
     messagesTransport: hooks.messagesTransport, ...(hooks.seats === undefined ? {} : { seats: hooks.seats }),
     resolveTool: hooks.resolveTool ?? (async () => { throw new Error('unused') }), freezePlan: async (proposal: unknown) => proposal, readEvidence: async () => { throw new Error('unused') },
     register: () => { events.push('register'); const close = budgets.register(journal); return { admission: {}, close: () => { events.push('unregister'); close() } } },
@@ -47,6 +48,18 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { resolve
   t.after(() => service.close())
   return { service, home, journal, budgets, timers, records, events, bootstrap, options: () => supervisorOptions, process: () => process, spawns: () => spawns, closes: () => closes, stopped: () => stopped, broker }
 }
+
+test('an older desktop runtime reports unavailable without starting or registering a child', async t => {
+  const s = await rig(t, { runtimeVersion: '24.19.0' })
+  await s.service.setEnabled(true)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.equal((await s.service.status('anthropic')).unavailable, 'runtime')
+    await assert.rejects(s.service.send(input), (error: any) => error.wireCode === 'lead-runtime-unsupported')
+  }
+  assert.equal(s.spawns(), 0)
+  assert.equal(s.closes(), 0)
+  assert.deepEqual(s.events, [])
+})
 
 test('two simultaneous sends start one child only after explicit enable', async t => {
   const s = await rig(t)

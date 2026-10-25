@@ -46,7 +46,7 @@ for (const theme of WALL_THEMES) {
     const nav = page.getByRole('navigation', { name: 'Settings navigation' })
     const group = nav.locator('[data-left-group]').first()
     const rows = group.locator('[data-left-row]')
-    await expect(rows).toHaveCount(4)
+    await expect(rows).toHaveCount(5)
     const anatomy = await rows.evaluateAll(nodes => nodes.map(node => {
       const button = node.querySelector('[data-slot="sidebar-menu-button"]')!
       const icon = button.querySelector('[data-slot="sidebar-menu-icon"]')!
@@ -61,13 +61,13 @@ for (const theme of WALL_THEMES) {
     }
     const ink = await group.locator('[data-left-group-text]').boundingBox()
     expect(ink!.x).toBe(anatomy[0]!.iconX)
-    const general = rows.first().getByRole('button')
+    const general = rows.nth(1).getByRole('button')
     await expect(general).toHaveAttribute('aria-current', 'page')
     await general.focus()
     await page.keyboard.press('ArrowDown')
-    await expect(rows.nth(1).getByRole('button')).toBeFocused()
+    await expect(rows.nth(2).getByRole('button')).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(rows.nth(1).getByRole('button')).toHaveAttribute('aria-current', 'page')
+    await expect(rows.nth(2).getByRole('button')).toHaveAttribute('aria-current', 'page')
     await nav.getByRole('searchbox', { name: 'Search settings' }).fill('keyboard')
     await expect(nav.locator('[data-left-group] [data-left-row]')).toHaveCount(1)
     await expect(nav.getByRole('button', { name: 'Keyboard shortcuts', exact: true })).toBeVisible()

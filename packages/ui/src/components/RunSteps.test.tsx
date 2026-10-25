@@ -300,3 +300,12 @@ it('keeps a review’s verdict as its line when the publication only says it sta
     expect(container.textContent?.toLowerCase()).toContain('approve')
   } finally { act(() => root.unmount()); container.remove() }
 })
+
+it('keeps the recorded publication state in the full Timeline', () => {
+  const input = { ...reviewVisits('local'), publicationOn: false }
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<RunSteps timeline input={input} selectedRow={null} onSelect={() => {}} />))
+    expect(container.textContent).toContain('This desk only')
+  } finally { act(() => root.unmount()); container.remove() }
+})

@@ -16,8 +16,11 @@ export type { LeadChildBootstrap } from './child-ipc.js'
 import type { LeadChildBootstrap } from './child-ipc.js'
 /** Three 30-second transport attempts plus two bounded retry waits fit below this watchdog. */
 export const LEAD_SEND_DEADLINE_MS = 180_000
+export const leadChildRuntimeSupported = (version = process.versions.node): boolean => Number(version.split('.')[0]) >= 25
 
 export interface LeadSupervisorOptions {
+  /** Test seam for the Node runtime embedded in the host executable. */
+  readonly runtimeVersion?: string
   readonly bootstrap: (signal: AbortSignal) => Promise<LeadChildBootstrap>
   readonly journal: LeadJournal
   readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
@@ -107,6 +110,7 @@ export class LeadSupervisor {
   constructor(private readonly options: LeadSupervisorOptions) {}
   get live(): boolean { return this.#running !== null && !this.#running.exited }
   ensure(): Promise<void> {
+    if (!leadChildRuntimeSupported(this.options.runtimeVersion)) return Promise.reject(Object.assign(new Error('lead-runtime-unsupported'), { wireCode: 'lead-runtime-unsupported' }))
     if (this.#stopping) return Promise.reject(error('stopping'))
     if (this.#starting) return this.#starting
     if (this.#launching) return Promise.reject(error('bootstrap-active'))
@@ -134,7 +138,9 @@ export class LeadSupervisor {
       // No network grant: only the inherited, connected fd 3 reaches the desk.
       // Residual: process.kill is outside Node's permission model; child code
       // can still signal same-user processes.
-      const args = ['--permission', '--no-addons', '--preserve-symlinks', ...readGrants().map(path => `--allow-fs-read=${path}`),
+      // Explicit denial is also a runtime floor: Node before 25 rejects this
+      // flag rather than starting a child with unrestricted network access.
+      const args = ['--permission', '--no-allow-net', '--no-addons', '--preserve-symlinks', ...readGrants().map(path => `--allow-fs-read=${path}`),
         fileURLToPath(new URL('./child.js', import.meta.url))]
       const socket = await (this.options.connectDesk ?? ((descriptor, signal) => new Promise<Socket>((resolve, reject) => {
         const connection = connect({ path: descriptor.socketPath, signal })

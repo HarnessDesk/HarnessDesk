@@ -47,6 +47,16 @@ const fixture = async (extra: any = {}) => {
 }
 const request = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect desk' }] }], maxTokens: 32 }
 
+test('Node 24 refuses before bootstrap or spawn and repeated attempts stay unavailable', async () => {
+  let bootstraps = 0
+  const f = await fixture({ runtimeVersion: '24.19.0', bootstrap: async () => { bootstraps++; throw new Error('must not bootstrap') } })
+  for (let attempt = 0; attempt < 2; attempt++) await assert.rejects(f.supervisor.ensure(), /lead-runtime-unsupported/)
+  assert.equal(bootstraps, 0)
+  assert.deepEqual(f.counts(), { spawns: 0, starts: 0, exits: 0 })
+  assert.equal(f.supervisor.live, false)
+  await f.supervisor.stop()
+})
+
 test('synthetic key and descriptor use framed stdin only; argv, environment and stderr stay secret-free', async () => {
   const f = await fixture(); const logs: string[] = []
   const stderrWrite = process.stderr.write
@@ -352,6 +362,7 @@ test('the actual child survives a healthy subscription-changed gap', async () =>
 test('the child is granted no network; the desk arrives only as fd 3', async () => {
   const f = await fixture(); await f.supervisor.ensure()
   const [binary, args, options] = f.args()
+  assert.ok(args.includes('--no-allow-net'), 'older runtimes must refuse an unknown deny flag instead of silently granting network')
   const child = spawn(binary, [...args.slice(0, -1), '--eval', "process.stdout.write(String(process.permission.has('net')))"], options)
   let stdout = ''
   child.stdout!.on('data', chunk => { stdout += chunk.toString() })

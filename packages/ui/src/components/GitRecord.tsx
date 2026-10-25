@@ -101,7 +101,7 @@ export const ProjectGitWrites = ({ root }: { readonly root: string }) => {
   const { preferences, save, problem } = usePreferences(), { page } = useRecord(root)
   return <Section title="Git writes" description="Git writes for this project only.">
     {problem && <Note tone="bad">{problem}</Note>}
-    <Rows><Row mark={<RowMark><PushIcon size={16} /></RowMark>} title="Pushes go to" desc="Pinned when you approve the first push. A checkout's remote cannot change it." control={<RowValue>{page?.repository ?? 'Not pinned'}</RowValue>} />
+    <Rows><Row title="Pushes go to" desc="Pinned when you approve the first push. A checkout's remote cannot change it." control={<RowValue>{page?.repository ?? 'Not pinned'}</RowValue>} />
       {preferences && <Row title="Agents' own pushes" control={<NativeSelect aria-label="Agents' own pushes" value={preferences.projects?.[root] ?? 'inherit'} onChange={event => void save({ projects: { ...preferences.projects, [root]: event.target.value as GitWriteProjectMode } })}>
         <option value="inherit">As in Settings ({modes[preferences.steer]})</option><option value="redirect">Always</option><option value="ask">Ask</option><option value="off">Never</option>
       </NativeSelect>} />}</Rows>
