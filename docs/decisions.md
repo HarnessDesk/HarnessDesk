@@ -4151,3 +4151,26 @@ before the host opens its next round. Recovery then retains that authorized
 reopening instead of contesting it as foreign work. Shutdown freezes usage reads
 before their sources disappear; a new host rebuilds those readings before it can
 admit work.
+
+## Account linking reuses the desk's phone identity and belongs to the host
+
+The device grant signs `hd-web-1/link\0<deskId>\0<challenge>` using the existing
+`phone-link/desk-key.json` identity, including when the LAN listener is off.
+There is one desk identity, so pairing and account linking cannot name different
+desks. `HARNESSDESK_CLOUD_URL` enables an optional hello capability; an unset
+value causes no account network or storage work. HTTPS is required except for
+loopback HTTP used by the local fake service.
+
+The host owns challenge, proof and polling, with one grant at a time. The window
+receives only display state. Cancel, shutdown and local expiry abort requests
+and ignore late results; a confirmed approval that is already being saved is
+allowed to finish. The poll secret never crosses the window wire or reaches
+disk. Only the service URL, desk id and linked time are saved atomically in
+`account-link.json`, and a restart checks both service and identity before
+showing Linked. Switching service URLs cannot restore another service's link.
+The shared contract now carries the service's unchanged device-grant schemas;
+the service should import those and the crypto proof helper on its next sync.
+
+Settings › Phone uses the existing settings primitives for all states. Focused
+`preview.html?desk-link=<state>&theme=<light|dark>` fixtures cover idle, waiting,
+linked, denied, expired, error and starting without a running desk or account.

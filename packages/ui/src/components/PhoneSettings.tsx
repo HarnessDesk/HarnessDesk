@@ -1,3 +1,4 @@
+import { AccountLinkSettingsSection } from './AccountLinkSettings'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { PhoneDeviceView, PhoneLinkState, PhonePairing, PhonePendingView, PhoneTier } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, InlineParts, QrCode, Row, Rows, Section, Text } from '../design'
@@ -67,10 +68,13 @@ const usePhone = () => {
 export const PhoneSettingsSection = () => {
   const { store, state, error, busy, pairing, setPairing, run } = usePhone(), active = useDestinationActive()
   useEffect(() => { if (active) void store.phone.refresh().catch(() => {}) }, [active, store])
-  return <PhoneSettings state={state} pairing={pairing} error={error} busy={busy}
+  return <>
+    <AccountLinkSettingsSection />
+    {state.enabled && <PhoneSettings state={state} pairing={pairing} error={error} busy={busy}
     onPair={() => void run(async () => setPairing(await store.phone.pairing()))}
     onAllow={pending => void run(() => store.phone.allow(pending.id))} onDeny={pending => void run(() => store.phone.deny(pending.id))}
-    onRevoke={device => void run(() => store.phone.revoke(device.id))} />
+    onRevoke={device => void run(() => store.phone.revoke(device.id))} />}
+  </>
 }
 
 /** A phone is asking to join. Whatever page is open, the person at the desk is asked once. */

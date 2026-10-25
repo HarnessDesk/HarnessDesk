@@ -2148,3 +2148,18 @@ and Review comment; each defaults on and saves independently to settings.follow.
 Open a goal when is a read-only list of project declarations with opens.lead
 true, using the arm preview's lead.summary. Each opens the project's returned
 trigger-file path. This page neither edits nor arms declarations.
+
+### Linking this desk to an account
+
+Settings › Phone includes **Link to your account** when the host has
+`HARNESSDESK_CLOUD_URL` configured. This destination is available even with the
+local phone listener off. Link asks the host for a short, selectable code; the
+window offers **Open the link page**, **Copy code**, **Cancel**, and a live time
+left. Approval replaces the code with a **Linked** chip and the local date.
+A declined or expired code explains why in one line and offers **Try again**;
+service failures arrive as plain retryable states. Without the cloud URL, no
+account section or capability is exposed.
+
+The window never calls the service. Cancellation ends this desk's polling; it
+does not undo an approval already made on the link page. Account linking alone
+does not establish an outbound phone connection.

@@ -2465,3 +2465,8 @@ is a small linked From line on the goal. Settings Triggers has independent
 Checks failed and Review comment switches under Follow my pull requests, on by
 default. Open a goal when lists only project Lead targets using their preview
 summary; a row opens the returned project trigger file. It cannot edit or arm.
+
+Account linking in Settings › Phone composes `Rows`, `Row`, `Button`, `Chip` and
+`Banner`. Its selectable code uses the foundation's `--hd-title` size and code
+font; status and date stay in the ordinary row scale. The focused preview at
+`preview.html?desk-link` supplies each state in both themes, without account data.

@@ -69,3 +69,22 @@ export type PushPlaintext = z.infer<typeof PushPlaintext>
 /** The custom `hd` member of the APNs payload. */
 export const PushEnvelope = z.object({ v: z.literal(1), kid: z.number().int(), n: Nonce12, c: Base64Url })
 export const APNS_MAX_PAYLOAD_BYTES = 4096
+
+// ---- link a desk to an account (device grant) -------------------------------------------------
+const PollSecret = z.string().min(32).max(64).regex(/^[A-Za-z0-9_-]+$/)
+const UserCode = z.string().min(8).max(16)
+export const StartDeskLinkRequest = z.object({ deskPub: PublicKey, name: Name, challenge: Challenge, sig: Signature })
+export const StartDeskLinkResponse = z.object({
+  userCode: z.string(), pollSecret: PollSecret, verifyUrl: z.string(), expiresAt: UnixSeconds,
+  intervalSeconds: z.number().int().positive(),
+})
+export const PollDeskLinkRequest = z.object({ pollSecret: PollSecret })
+export const PollDeskLinkResponse = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('pending') }),
+  z.object({ status: z.literal('approved'), deskId: DeskId }),
+  z.object({ status: z.literal('denied') }),
+])
+export const DeskLinkCodeRequest = z.object({ userCode: UserCode })
+export const LookupDeskLinkResponse = z.object({ name: Name, deskId: DeskId, expiresAt: UnixSeconds })
+export const ApproveDeskLinkResponse = z.object({ deskId: DeskId, name: Name })
+export const DESK_LINK_POLL_INTERVAL_SECONDS = 3

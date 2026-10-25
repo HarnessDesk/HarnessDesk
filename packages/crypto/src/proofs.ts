@@ -9,3 +9,10 @@ export const webDeskProofMessage = (deskId: string, challenge: string): Bytes =>
 
 export const handshakeDeskMessage = (th: Bytes): Bytes => concat(utf8('hd-e2ee-1/desk\0'), th)
 export const handshakeDeviceMessage = (th: Bytes): Bytes => concat(utf8('hd-e2ee-1/device\0'), th)
+
+/** Device-grant proof: deliberately distinct from a desk session proof. */
+export const deskLinkProofMessage = (deskId: string, challenge: string): Bytes =>
+  concat(utf8('hd-web-1/link\0'), utf8(deskId), utf8('\0'), utf8(challenge))
+
+/** Service-compatible export for its next contract sync. */
+export const webDeskLinkProofMessage = deskLinkProofMessage

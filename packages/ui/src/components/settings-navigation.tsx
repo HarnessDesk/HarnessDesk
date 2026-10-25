@@ -48,7 +48,7 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
     ] },
     { label: 'Access', entries: [
       { id: 'permissions', label: 'Permissions', icon: <ShieldIcon size={16} />, keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked', 'clients', 'command-line', 'answer'] },
-      ...(snapshot.phoneLink ? [{ id: 'phone' as const, label: 'Phone', icon: <MobileIcon size={16} />, keywords: ['pair', 'qr', 'code', 'mobile', 'devices', 'allow', 'remove'] }] : []),
+      ...((snapshot.phoneLink || snapshot.accountLinkAvailable) ? [{ id: 'phone' as const, label: 'Phone', icon: <MobileIcon size={16} />, keywords: ['pair', 'qr', 'code', 'mobile', 'devices', 'allow', 'remove', 'link', 'account'] }] : []),
       { id: 'browser', label: 'Browser', icon: <GlobeIcon size={16} />, keywords: ['pane', 'chrome', 'links', 'window', 'profile', 'cookies', 'logins', 'browsing data'] },
     ] },
   ]

@@ -1,3 +1,4 @@
+import { createAccountLinkState } from './account-link'
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
 import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
@@ -619,6 +620,7 @@ export class AppStore {
 
   readonly transport: Transport
   readonly lead: ReturnType<typeof createLeadState>
+  readonly accountLink: ReturnType<typeof createAccountLinkState>
   readonly phone: ReturnType<typeof createPhoneState>
   #leadCapabilityEpoch = 0
 
@@ -633,6 +635,7 @@ export class AppStore {
       onNotification: (notification) => {
         this.lead.changed(notification)
         this.phone.changed(notification)
+        this.accountLink.changed(notification)
         if (notification.method === 'provenance/changed') {
           const { project, revision, health } = notification.params
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
@@ -959,6 +962,8 @@ export class AppStore {
           this.#patch({ status, leadAvailable: false, captureHealth: new Map(), provenanceRevision: new Map() })
           this.lead.reset()
           this.phone.reset()
+          this.accountLink.reset()
+          this.#patch({ accountLinkAvailable: false })
         } else {
           this.#patch({ status })
           if (previous === 'reconnecting') void this.#refreshLeadAvailability()
@@ -967,6 +972,7 @@ export class AppStore {
       },
     })
     this.lead = createLeadState(this.transport, () => this.#snapshot.leadAvailable)
+    this.accountLink = createAccountLinkState(this.transport)
     this.phone = createPhoneState(this.transport)
     this.phone.subscribe(() => { const phoneLink = this.phone.state.enabled; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
     this.#watchWindowWidth()
@@ -981,14 +987,19 @@ export class AppStore {
 
   // ------------------------------------------------------------------ startup
 
-  /** The host says whether the phone link is on; only then is its state read. */
+  /** Optional destinations are read only after the host advertises them. */
+  #readAccountLink(on: boolean): void {
+    this.#patch({ accountLinkAvailable: on })
+    if (on) void this.accountLink.refresh(); else this.accountLink.reset()
+  }
+
   #readPhoneLink(on: boolean): void { if (on) void this.phone.refresh().catch(() => {}); else this.phone.reset() }
 
   async #refreshLeadAvailability(): Promise<void> {
     const epoch = this.#leadCapabilityEpoch
     try {
       const hello = await this.transport.request('host/hello', { clientVersion: '0.1.0' })
-      if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') { this.#patch({ leadAvailable: hello.capabilities?.lead === true }); this.#readPhoneLink(hello.capabilities?.phone === true) }
+      if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') { this.#patch({ leadAvailable: hello.capabilities?.lead === true }); this.#readPhoneLink(hello.capabilities?.phone === true); this.#readAccountLink(hello.capabilities?.accountLink === true) }
     } catch { /* Remain disabled until the host can prove the capability. */ }
   }
 
@@ -1007,6 +1018,7 @@ export class AppStore {
       leadAvailable: capabilityEpoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open' && hello.capabilities?.lead === true,
     })
     this.#readPhoneLink(hello.capabilities?.phone === true)
+    this.#readAccountLink(capabilityEpoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open' && hello.capabilities?.accountLink === true)
     // The local index does not wait for an agent or its account catalogue.
     const history = this.loadHistory({ reset: true })
     // Preferences first: they may restore the runtime the user last worked

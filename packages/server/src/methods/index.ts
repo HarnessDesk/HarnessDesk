@@ -1,3 +1,4 @@
+import { accountLinkMethods } from './account-link.js'
 import { leadMethods } from './lead.js'
 import { phoneMethods } from './phone.js'
 import { phoneWorkspaceMethods } from './phone-workspace.js'
@@ -61,6 +62,7 @@ export { TERMINAL_CHIP } from './plugins.js'
 export const hostMethods: HostMethodTable = {
   ...clientMethods,
   ...leadMethods,
+  ...accountLinkMethods,
   ...phoneMethods,
   ...phoneWorkspaceMethods,
   ...appMethods,
@@ -102,6 +104,7 @@ export const hostMethods: HostMethodTable = {
 export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   clientMethods,
   leadMethods,
+  accountLinkMethods,
   phoneMethods,
   phoneWorkspaceMethods,
   appMethods,
