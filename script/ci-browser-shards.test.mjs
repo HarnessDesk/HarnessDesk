@@ -232,7 +232,7 @@ test('Lead runs on Node 25 separately from the Node 22 floor jobs', () => {
   }
   const lead = job('lead-e2e')
   assert.match(lead, /^          node-version: 25$/m)
-  assert.match(lead, /^    timeout-minutes: 35$/m)
+  assert.match(lead, /^    timeout-minutes: 40$/m)
   assert.match(lead, /sudo apt-get update && sudo apt-get install --yes zsh/)
   assert.match(lead, /name: Lead end-to-end tests/)
 })

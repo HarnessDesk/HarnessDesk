@@ -270,10 +270,10 @@ jobs:
   lead-e2e:
     name: Lead end-to-end tests
     runs-on: ubuntu-latest
-    # Run 40222763375: the nested suite took 1,018s; the following cases
-    # took 410s through the first E3/E4 case. Allow another E3/E4 (~113s),
-    # F3 (~100s), setup and the supervisor tests: ~29m, plus 6m headroom.
-    timeout-minutes: 35
+    # Run 40234619739: 30.5m total, including 27.6m in lead-e2e. Its two
+    # E3/E4 cases stopped at ~116s; allowing their full 240s ceilings adds
+    # at most 4.2m. Leave 5.3m headroom for setup and runner variance.
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v7

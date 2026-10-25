@@ -426,7 +426,11 @@ test('Stop goal preserves a settled accepted step and its prepared postings', as
 })
 
 for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restart' : 'in one sitting'}: person PR creation, one same-Team repair, green evidence and external merge`, { timeout: 240_000 }, async t => {
-  const rig = await createLeadRig({ publication: true, offlineForge: true, holdWorkers: true, waitMs: 60_000 })
+  const started = Date.now()
+  // Run 40234619739 reached the repair's open acceptance gate, then hit the
+  // 60s publication wait at 115–118s overall. Use the rig's 240s wait budget,
+  // as the two-run repair walk does; the whole case still has a 240s ceiling.
+  const rig = await createLeadRig({ publication: true, offlineForge: true, holdWorkers: true })
   t.after(() => rig.dispose())
   const offline = rig.offline
   assert.ok(offline, 'the rig exposes an offline fake forge and local bare remote')
@@ -436,6 +440,7 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   await rig.waitFor(() => { const last = rig.host.flowsPlane.leadRuns()[0]?.rounds.at(-1); return last?.role === 'accept' && last.state === 'running' }, 'live person gate')
   await rig.waitFor(() => !!rig.pending('result'), 'stable reviewed result after person gate opens')
   await rig.decide(rig.pending('result')!, 'accept-open-pr')
+  t.diagnostic(`initial reviewed PR published after ${Date.now() - started}ms`)
   const initial = structuredClone(rig.journal.state.pr)!, team = rig.journal.state.runs[0]!.teamId
   assert.equal(rig.journal.state.phase, 'following')
   assert.equal((await offline.read()).pulls.length, 1)
@@ -443,7 +448,9 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   await rig.waitFor(() => rig.journal.state.handbacks.length === 1, 'same-Team hand-back')
   const operation = rig.journal.state.handbacks[0]!
   assert.equal(operation.teamId, team); assert.equal(operation.runId, rig.journal.state.runs[0]!.runId)
-  await rig.waitFor(() => rig.journal.state.handbacks[0]?.stage === 'awaiting-ci', 'reviewed host push')
+  const repairStarted = Date.now()
+  try { await rig.waitFor(() => rig.journal.state.handbacks[0]?.stage === 'awaiting-ci', 'reviewed host push') }
+  finally { t.diagnostic(`reviewed host push wait took ${Date.now() - repairStarted}ms; stage=${rig.journal.state.handbacks[0]?.stage}`) }
   if (restart) {
     await rig.interruptAt('host-restart')
     assert.equal(rig.journal.state.handbacks[0]?.stage, 'awaiting-ci', 'restart retains the published head and CI wait')
