@@ -180,8 +180,10 @@ bottom hairline is additional to its content inset.
 | Pane's reading column | reading · 24px | `PaneColumn inset="reading"` | The pane owns the gutter before the reading measure; scrollbar reservation is additional layout space. A floating composer's bottom reserve is clearance, not a surface inset. |
 | Bar and navigation rail | bar · 8px | `--hd-bar-pad`, `--hd-rail-inset` | The bar owns the control-box edge; `--hd-bar-ink` includes the control's own inset for labels. Native window controls may add clearance. |
 
-Floating composer clearance follows the dock's full border-box height,
+Removing the dock clears its root clearance variable. Floating composer clearance follows the dock's full border-box height,
 including padding and borders, so a spacing change keeps the last message clear.
+The observer follows the mounted dock, releasing a detached element and measuring
+its replacement when returning to a conversation.
 
 An approval's outer edge uses the dialog tier in an overlay and the card
 tier when docked beside a composer. Its warning mark hangs before the text
@@ -2384,3 +2386,88 @@ Chats folder pick explains the conflicting opened project in the picker's
 description and a Settings note. Project lists omit managed chats. The composer
 refreshes repository facts on mount before deciding whether to show its worktree
 control; an unread recent-folder entry cannot permanently hide that control.
+
+## Lead is a conversation
+
+Lead and a session share ConversationShell, ConversationThread, ConversationDock,
+ConversationComposerFrame and the same top-bar registration. LeadMessage uses Items;
+assistant decision prose uses the same TranscriptAssistantMessage frame as Items.
+The empty state is ConversationEmptyState with a single LeadAvatar slot and one
+short greeting. Until settings load, the greeting is "Hi, tell me what you want
+done." The chosen name occupies the title slot and composer placeholder.
+The tools slot holds only the settings glyph opening Settings › Lead.
+Active goals outside terminal predecessor waits use ComposerTrack name="send":
+Stop occupies the session's composer corner, with Send inboard when a message is typed.
+
+LeadContract is borderless assistant prose. Its plan uses LeadPlanFlow: an ordered
+Timeline diagram with one node per step, responsible role words, decorative
+connectors and a final Approve to start node. Acceptance checks, allowance/folder
+meta and the separate-approval fine print follow the diagram. Long labels wrap;
+accessible reading order includes each step once. Its result
+uses compact qualified statuses, reason prose and separately attributed spend.
+No internal ids or revision facts render. Decisions use the canonical docked
+ApprovalDialog and its keyboard policy, pending states, proceed actions and
+focusable surface. The thread retains a one-word decided state. Window revision
+and digest fences, the page-wide decision lock and explicit focus return remain.
+Automatic plan arrivals never move composer focus; explicit navigation focuses
+the dock. A visible decision has no duplicate plan banner. When its plan is absent,
+the dock states that a decision is needed without offering an action.
+Refusal, Resume and renewal banners share ComposerNoticeStack with the decision
+controls, using the session's gap above the composer. Renewal's banner states
+only the earlier expiry time, once. An idle dock has
+no empty reading-measure or form-stack wrapper. Unavailable and unverifiable
+predecessor notices explain whether the previous result was not accepted or
+cannot be confirmed, and name the Lead to message to change the plan or stop
+the goal. Their action is Stop goal, opening ConfirmDialog with the consequence
+that files and worktrees are left as they are. Other active goal phases offer
+Stop in the composer's send track. The composer continues with the person's new instructions;
+once a goal is accepted, declined or stopped it accepts a new one. Both waits have synthetic preview scenes in both themes.
+
+The thread ends with at most one quiet line, TurnWorkLive, so a goal that is working
+or that was stopped is never silent. "Planning…" shows while a request runs and no plan
+is on the table; while the goal runs it names the step, of how many, and the runs it
+has started ("Step 1 of 2 · Repair the parser · 1 run", "no runs yet" before the first).
+Both come from the window's `progress` and `requestInFlight`, which the host reads from
+the journal. After the person's Stop, which makes no stopped card, the settled form says
+"This goal was stopped."; a stop the person did not make names its reason in the same line
+("…at its round allowance", "…because HarnessDesk couldn't confirm what the workers spent"). The line is absent while a plan, a result or a wait is for the
+person to answer, beside a card that already says the Lead stopped, and when the window
+cannot trust its projection. Frames `planning`, `running` and `stopped` show it in
+both themes. A plan card says what a step's seats do in role words ("write, then
+review"), never a runtime or a model, and money is shown in whole cents.
+
+Settings › Lead uses canonical Section, Rows, Row, Input and Button patterns,
+ordered Name, Provider key, Allowances, Permissions, Triggers. LeadNameChoice composes the
+existing two-choice control, labelled Lead identity under the Name section.
+A neutral Lead placeholder precedes the stored name. Name changes save immediately; authority widening
+shows a waiting sentence and Open to the conversation decision. The uncontrolled
+password input is emptied before its exclusive request, even when refused.
+There is no settings dialog or inset Rows variant. LeadAvatar is the sole slot
+for future Dex/Lex artwork and uses the shared round identity tile and type tokens.
+
+Lead result summaries include only the assertion kinds in the approved contract,
+on one meta line. Acceptance previews carry passed evidence for the full contract.
+The renewal banner owns the expiry time; the message asks for renewed approval.
+Settings preview bodies shrink with a short viewport and scroll while each group
+stays whole. Only the active conversation mounts a dock; retained drafts survive.
+
+The result dock offers Open changes, Decline, Accept, and Accept and open PR.
+The fourth choice carries the same revision, digest and page-wide pending lock.
+A push result explains its publication effect; branch-ownership prose explains
+an outside push or rewrite and offers Reclaim branch. A hand-back-limit wait
+uses the same LeadContract prose and a short reason. Untrusted summaries and
+findings pass through Markdown's sanitizer.
+
+A followed PR shows its linked number, qualified check and review state, and an
+ownership chip (Your branch or Automatic repairs). Its strip says Following;
+repair wording appears only while the latest hand-back is running. Event origin
+is a small linked From line on the goal. Settings Triggers has independent
+Checks failed and Review comment switches under Follow my pull requests, on by
+default. Open a goal when lists only project Lead targets using their preview
+summary; a row opens the returned project trigger file. It cannot edit or arm.
+
+Account linking in Settings › Phone composes `Rows`, `Row`, `Button`, `Chip` and
+`Banner`. Its selectable code uses `CodeText size="display" spaced`, whose page-title
+step, code font and selection belong to the system. Status, date and inline
+refusal reasons stay in the ordinary row scale. The focused preview at
+`preview.html?desk-link` supplies each state in both themes, without account data.

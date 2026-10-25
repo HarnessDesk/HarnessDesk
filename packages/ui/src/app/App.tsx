@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
+import { useLeadName } from '../components/use-lead-name'
 import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setTraySummary, setWindowTitle } from '../lib/desktop'
 import { sessionLabel, shortLabel } from '../lib/sessions'
 import { describeTray } from '../lib/tray'
@@ -19,6 +20,7 @@ import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { Toaster } from '../design'
 import { Notices } from '../components/Notices'
+import { PhoneAsk } from '../components/PhoneSettings'
 import { CommandPalette } from '../components/CommandPalette'
 import { FolderPicker } from '../components/FolderPicker'
 import { FrontDoor } from '../components/FrontDoor'
@@ -63,6 +65,7 @@ export const App = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
+  const leadName = useLeadName()
   const editorAvailable = effectiveWindowMode('editor', snapshot.workbench) === 'editor'
   const editorSubject = editorAvailable ? fixedSubject(snapshot.workbench.main) : null
   useEffect(() => {
@@ -90,7 +93,7 @@ export const App = () => {
       openCustomizeSkills(store, store.getSnapshot().activeRuntime ?? '')
       return
     }
-    const target=destinationForSettings(section,focus)
+    const target=destinationForSettings(section,focus,store.getSnapshot().leadAvailable)
     openPage(target)
   },[openPage,store])
   const openAgents = useCallback((focus?:string)=>openPage({kind:'agents',id:focus??null}),[openPage])
@@ -232,7 +235,7 @@ export const App = () => {
   // closing the window does not reopen it.
   useEffect(() => {
     if (!snapshot.settingsFor) return
-    openSettingsAt(resolveSection(snapshot.settingsFor), snapshot.settingsFocus)
+    openSettingsAt(resolveSection(snapshot.settingsFor, 'runtimes', snapshot.leadAvailable), snapshot.settingsFocus)
     store.askSettings(null)
   }, [snapshot.settingsFor, snapshot.settingsFocus, store, openSettingsAt])
 
@@ -359,8 +362,8 @@ export const App = () => {
   // conversation's label is the user's whole opening message, so it is
   // shortened here rather than left to overrun the menu.
   useEffect(() => {
-    setWindowTitle(session ? shortLabel(sessionLabel(session.title, session.preview, 'HarnessDesk')) : 'HarnessDesk')
-  }, [session?.title, session?.preview])
+    setWindowTitle(snapshot.workbench.navigation.current.kind === 'lead' ? leadName === 'lex' ? 'Lex' : leadName === 'dex' ? 'Dex' : 'Lead' : session ? shortLabel(sessionLabel(session.title, session.preview, 'HarnessDesk')) : 'HarnessDesk')
+  }, [session?.title, session?.preview, snapshot.workbench.navigation.current.kind, leadName])
 
   // One table decides which chords exist; this dispatches from it, and the
   // Keyboard shortcuts page prints the same rows. Two lists is the
@@ -387,7 +390,7 @@ export const App = () => {
 
   const [leftFilter, setLeftFilter] = useState('')
   const current=snapshot.workbench.navigation.current
-  const pageActive=current.kind!=='work' && isMainPage(current.kind)
+  const pageActive=current.kind!=='work' && isMainPage(current.kind, snapshot.leadAvailable)
   const settingsSection:Section|null=current.kind!=='settings'?null:current.route.kind==='section'?current.route.section
     :current.route.kind==='project'?'workspaces':current.route.kind==='skill'?'skills':'runtimes'
   const renderLeftColumn=()=><Sidebar active
@@ -428,6 +431,7 @@ export const App = () => {
           notices are drawn where they are about — the composer, the strip
           above the panes, the sidebar's foot — never floated over a pane. */}
       <Notices />
+      <PhoneAsk />
       <Toaster theme={theme} />
       {foldersOpen && <FolderPicker onClose={(chosen = false) => {
         setFoldersOpen(false)

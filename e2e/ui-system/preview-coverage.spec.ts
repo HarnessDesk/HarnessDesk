@@ -581,7 +581,7 @@ test.describe('preview coverage', () => {
       for (const component of (await collectCoverage(page)).covered) covered.add(component)
     })
 
-    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor', '?frame-wall=library&frame-detail=skill&frame-name=code-review', '?frame-wall=agents&frame-account-name=dialog']).entries()) test(`coverage page 1: query ${item}`, async () => {
+    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers', '?flows-page=catalogue', '?flows-page=editor', '?frame-wall=library&frame-detail=skill&frame-name=code-review', '?frame-wall=agents&frame-account-name=dialog', '?lead-synthetic=app-shell', '?lead-synthetic=result-person-gate', '?lead-synthetic=settings-configured']).entries()) test(`coverage page 1: query ${item}`, async () => {
       const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') {
@@ -593,6 +593,8 @@ test.describe('preview coverage', () => {
       if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', { name: 'Fill the window', exact: true })).toBeVisible()
       if (query === '?flows-page=catalogue') await expect(page.getByRole('button', { name: 'New Flow', exact: true })).toBeVisible()
       if (query === '?flows-page=editor') await expect(page.getByRole('main', { name: 'Flow editor', exact: true })).toBeVisible()
+      if (query.startsWith('?lead-synthetic=')) await expect(page.locator('h1').filter({ hasText: /^Lead$/ })).toBeVisible()
+      if (query === '?lead-synthetic=settings-configured') await expect(page.getByRole('dialog', { name: 'Lead settings', exact: true })).toBeVisible()
       if (query.includes('frame-detail=skill')) await expect(page.locator('[data-slot="skill-page"]')).toBeVisible()
       await settleCoveragePage(page)
       const result = await collectCoverage(page)

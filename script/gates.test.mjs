@@ -166,6 +166,8 @@ test('single-screen pattern accounting groups the conversation family, not only 
   const conversationMap = path.join(repoRoot, 'packages/ui/src/components/ConversationMap.tsx')
   const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
   assert.equal(screenAreaOf(items), 'conversation')
+  assert.equal(screenAreaOf(path.join(repoRoot, 'packages/ui/src/components/LeadPage.tsx')), 'conversation')
+  assert.equal(screenAreaOf(path.join(repoRoot, 'packages/ui/src/components/LeadMessage.tsx')), 'conversation')
   assert.equal(screenAreaOf(turnWork), 'conversation')
   assert.equal(screenAreaOf(conversationMap), 'conversation')
   // Before #914 these were four separate areas ('items', 'turnwork',
@@ -1643,14 +1645,13 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
-    ['design/ui/timeline.tsx', ['Timeline']],
     ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
     ['design/ui/delta.tsx', ['Delta']],
     ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 20)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 19)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
@@ -2999,7 +3000,8 @@ test('reachability recognizes the typed client call first literal argument', () 
 
 /**
  * The test files that run in invocations of their own: the server's (#1000,
- * #1003), the command line's end-to-end file (#1289), and retention (#1648).
+ * #1003), the command line's end-to-end file (#1289), retention (#1648),
+ * and the server's Lead end-to-end file.
  * Each names its package, its glob, and its step in the gate and in CI.
  */
 const CARVED_OUT = [
@@ -3007,6 +3009,7 @@ const CARVED_OUT = [
   { pkg: 'server', name: 'intake-*.test.js', step: 'intake tests', ciStep: 'Intake tests' },
   { pkg: 'cli', name: 'e2e*.test.js', step: 'cli e2e tests', ciStep: 'CLI end-to-end tests' },
   { pkg: 'server', name: 'host-retention.test.js', step: 'host-retention tests', ciStep: 'Host retention tests', timeout: 120000, job: 'node-tests' },
+  { pkg: 'server', name: 'lead-e2e.test.js', step: 'lead e2e tests', ciStep: 'Lead end-to-end tests' },
 ]
 const carvedOutPaths = (top, dist, tests) => CARVED_OUT.map((one) => `${top}/${one.pkg}/${dist}/${tests}/${one.name}`)
 
@@ -4508,9 +4511,9 @@ test('an arbitrary Tailwind property or an inline style object that writes its o
 })
 
 
-test('timeline geometry exemption excludes its now-shared item and retains only the single-area rail', () => {
+test('the shared Timeline and its items need no single-area geometry exemption', () => {
   const module = path.join(repoRoot, 'packages/ui/src/design/ui/timeline.tsx')
-  assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'room'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineItem', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineAction', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'settings'), false)

@@ -189,6 +189,11 @@ body {
      black until it clears 4.6:1 on its own fill composited over the card, which
      keeps the hue recognisable — the blue is still this blue — and makes the
      text legible. Dark mode moves them the other way, at the foot of the file. */
+  /* The Lead's two characters stand on their own discs: Dex on a pale blue,
+     Lex on a deep navy. They are the character's ground, not a state colour,
+     so they do not change with the theme. */
+  --hd-lead-dex-ground: rgb(227, 235, 251);
+  --hd-lead-lex-ground: rgb(36, 49, 79);
   --hd-tint-blue-fill: rgba(91, 126, 237, 0.14);
   --hd-tint-blue-ink: rgb(69, 99, 198);
   --hd-tint-blue-edge: rgba(91, 126, 237, 0.55);

@@ -196,6 +196,9 @@ refresh that value. A content-box observer missed an 84px padding increase
 without updating the transcript reserve. The Side by side browser contract
 waits for the measured reserve, then checks both scroll position and the final
 answer's visible bounds as the dock grows and shrinks.
+Conditional docks use a callback ref held in state: detaching releases the old
+observer and clears the root clearance variable; mounting a replacement measures
+and observes its border box.
 
 ## Round is someone, square is a thing
 
@@ -4191,3 +4194,203 @@ from agent accounts. Signing out revokes only this desk and its phone links;
 linked-phone removal uses the desk's scoped authority. The Reachable from
 your phone switch stores a local preference; the screen states that phone
 connections are not available in this build. Relay transport is a later step.
+## Lead window controls have bounded consent, requests and retries — 2026-10-18
+
+Plan approval grants 24 hours of consent from the host clock. This bounds how long
+one person click can authorize paid work within the held policy and budget. The
+window projection carries the expiry and stops offering Resume after it lapses.
+A fresh plan decision renews expired consent; Resume cannot extend consent.
+The renewal transition below preserves the approved scope and admitted work.
+
+Each window continuation requests at most 4,096 output tokens. This keeps the
+up-front reservation and one response bounded, including when a provider could
+accept a larger request. Budget admission still decides whether it fits.
+
+The journal retains the newest 4,096 send receipts in admission order. Recent
+retries return the first receipt without appending; an evicted key is a new send.
+Eviction is part of the reducer, so recovery preserves exactly the same window.
+
+A credential update is exclusive, so a key write cannot succeed before another
+category refuses. Policy and budget caps may change together under one revision
+fence. Both changes are validated and their cards checked for combined projection
+fit on the journal queue before either is appended; each widening still has its
+own reviewable card. This supersedes the earlier one-category authority rule.
+
+The supervisor gives a send a 180-second deadline. Three transport attempts of
+30 seconds and two retry waits of at most 30 seconds fit below it. On expiry the
+host kills the child through the existing exit path, records in-flight dispatches
+as uncertain and parks for a person instead of leaving controls behind a paid
+request. The short control journal queue never awaits that request.
+
+
+## Lead consent renewal preserves the approved contract — 2026-10-18
+
+When the host clock reaches plan consent expiry, the journal re-offers the
+approved plan as the next revision of the same card. Its contract, digest,
+original journal position and admitted steps stay unchanged. The renewal event
+is durable and replayable; repeated reads do not produce duplicate offers.
+Terminal, budget-stopped and recovery-blocked threads do not offer renewal.
+
+The window receives `decide-plan`, never an unusable Resume. Only a fresh
+revision-and-digest-bound Approve grants another 24 hours. Renewal preserves
+run identities, consumed rounds, reported spend and any tighter caps applied
+since the original approval. It cannot replay a start or restore an older
+allowance. Stale clicks still refuse. A declined renewal is recorded once for that consent
+expiry and is not immediately re-offered by the next read. The bounded per-card
+revision limit also applies to renewal. When another revision would exceed it,
+or its replacement cannot fit the projection, renewal creates a fresh plan card id
+with the same contract digest and leaves the old card decided. Other renewal
+failures leave the last durable projection readable, including Settings and key
+removal. A full 64-card table blocks renewal and records one durable
+`lead-renewal-blocked` wait, so the banner explains why no decision is offered.
+Repeated reads append nothing further. A terminal phase closes pending renewal cards.
+
+
+New journals keep each card's first journal sequence separately from its local
+revision counter, so replacement preserves its inline position. Checkpoints from
+before this field retain only card order, not exact interleaving with messages;
+their cards share the retained suffix’s last message position (or one when it is
+empty). Stable journal rendering puts the message first, then all saved cards in
+their original order, before every new message. Synthetic positions never extend
+beyond the checkpoint sequence. New writes and full journal replay retain exact
+positions. This supersedes the earlier maximum-plus-index migration, which could
+interleave saved cards with new messages.
+
+Policy saves compare mode and rules structurally, ignoring revision alone. An edit
+that leaves effective authority unchanged is still stored as a tightening; only
+equal values are a no-op. Widening and mixed edits still require a decision card.
+An authority-neutral edit intentionally bumps the policy revision, making a
+pending plan card stale and requiring replanning.
+
+## Lead is a named conversation with settings in Settings — 2026-10-18
+
+Lead uses the session window's shared shell, thread, Items messages, composer,
+empty state and top-bar registration. Its decisions are assistant prose with
+the question and actions in the same docked ApprovalDialog a session uses.
+The old bordered decision cards and settings dialog are retired. All window-only
+authority, revision/digest fences, consent renewal and credential rules remain.
+
+There is one Lead. Its host-journaled name is Dex or Lex, default Dex, with one
+LeadAvatar artwork slot. Choosing a name never widens or tightens authority;
+its system prompt names it without changing its tools or allowances. Name,
+Provider key, Allowances and Permissions live in capability-gated Settings › Lead.
+A widening save links back to the conversation for the person's decision.
+Bounded decision messages retain the chosen state after the dock is dismissed.
+Name-only writes return a closed name receipt without resolving a provider key
+or applying a stale-revision refusal. They grant no fresh thread or authority
+facts; every full read and notification projection still runs the public scan.
+
+The shared floating dock uses the sticky elevation token (10), replacing the
+session's former literal elevation (5). Both conversations now follow that same
+stacking contract. The composer frame is shared, and only the active conversation
+mounts its decision dock. Programmatic decision focus keeps the session's
+half-second typed-through guard; a deliberate pointer press clears it through
+the next focus event or half a second, whichever comes first. Lead's banners
+and decisions share the session's ComposerNoticeStack and composer gap.
+
+Lead is a conversation root for design accounting too. Its component-owned
+message renderer and session Items stay in the same measured screen family.
+
+
+## A person can stop the Lead goal and begin another — 2026-10-18
+
+Stop goal is a revision-fenced window operation. It first records the journal's
+stop latch, then ends the Lead request process and stops its owned Flow runs
+through the existing stop path. It never merges, publishes, pushes or removes
+worktrees. The confirmation states that files and worktrees are left as they are.
+Terminal predecessor waits put this action in their banner; other active phases
+put it beside settings in the top bar.
+
+The next explicit message starts a new logical goal only after cancellation is
+acknowledged, all provider reservations have settled and recovery has no pending
+or contested attempt. The previous goal's full budget ledger remains in the
+checkpoint, including unknown spend; new consent and a new plan are required.
+The bounded checkpoint retains 64 completed goal ledgers and refuses a further
+reset rather than discarding accounting. Old messages and decision receipts stay
+in the conversation. A budget stop on a goal still running cannot be cleared by
+sending a message: the person stops the goal first. From 2026-10-22 any finished
+goal, accepted, declined or stopped for any reason, begins the next one behind
+the same fences. Before, only a cancelled goal could, so a thread whose goal was
+accepted, or stopped at its allowance, refused every message for good.
+
+## A Lead plan that could never be accepted is refused before its card — 2026-10-22
+
+A plan is frozen only after each step's seats are checked the way its start will
+check them: the same held preview a start redeems must hold every seat at its
+role's ceiling, and the reviewer's provider must be readable and different from
+the implementer's. Either failure parks the Lead with its own reason
+(`lead-plan-unseatable`, `lead-plan-not-independent`) and offers no Approve card.
+Before this, a live sitting approved a plan with the same agent on both seats; the
+implementer committed and the review never opened, because the Flow's review
+must be independent and the desk could not show it was. The person had approved
+work that could never reach a result to accept. The refusal crosses the child
+boundary as a code, like an oversized card, so the Lead process stays live.
+
+
+## A Lead plan is a flow in its conversation, and trigger consent stays in the project — 2026-10-24
+
+The approved plan is read in execution order through LeadPlanFlow, composing the
+existing Timeline and its decorative connectors. Each step names responsibility
+in role words, followed by Approve to start. No graph library or parallel plan
+list owns a second reading order. The same pattern is exported, catalogued and
+shown in the design explorer. Acceptance checks and limits remain below it.
+
+The person can Accept and open PR from a reviewed result. The existing card
+decision, revision/digest fence and shared pending lock own that fourth choice.
+Push and branch-ownership requests use the same machinery; their prose states
+why publication or reclaim needs the person. A followed PR keeps its linked
+number, check/review status and ownership chip visible. Repair wording belongs
+only to an active hand-back round. Event origin remains a small linked fact.
+
+Triggers is a Settings Lead section: machine follow preferences have two
+independent switches, both on by default. Project declarations remain files,
+listed only when opens.lead is true and described by lead.summary from preview.
+Opening a row opens the actual returned file; listing it grants no arm or edit
+authority. There is no unsupported messaging-service row.
+
+Publication preflight validates the real person gates without answering them.
+The final journaled decision answers them only after publication completes;
+otherwise the board change could invalidate the very card authorizing the push.
+Writer-queue guards also ignore delayed child result invalidation during
+publication and an old acceptance wait after the goal enters following. Origin
+metadata carries the event action and repository subject; delivery identity stays
+in the private origin key. The offline rig covers these races and ordering.
+
+A delayed child refresh cannot replace or restore the result protected by a
+publication that has started, including completion before its final decision.
+The expected stale offer returns through IPC without ending the management
+child. A new validated hand-back starts a fresh no-progress window; total round
+limits, existing findings and stops remain in force. Person acceptance does not
+consume the repair's chance to produce new evidence before independent review.
+
+Host shutdown preserves a repair already waiting for CI as well as prepared or
+running hand-backs. Its published head and unanswered acceptance round must
+survive restart so a later green observation can offer the reviewed result.
+Preparing a same-Team repair retires the owned run's earlier terminal observation
+before the host opens its next round. Recovery then retains that authorized
+reopening instead of contesting it as foreign work. Shutdown freezes usage reads
+before their sources disappear; a new host rebuilds those readings before it can
+admit work.
+
+## Account linking reuses the desk's phone identity and belongs to the host
+
+The device grant signs `hd-web-1/link\0<deskId>\0<challenge>` using the existing
+`phone-link/desk-key.json` identity, including when the LAN listener is off.
+There is one desk identity, so pairing and account linking cannot name different
+desks. `HARNESSDESK_CLOUD_URL` enables an optional hello capability; an unset
+value causes no account network or storage work. HTTPS is required except for
+loopback HTTP used by the local fake service.
+
+The host owns challenge, proof and polling, with one grant at a time. The window
+receives only display state. Cancel, shutdown and local expiry abort requests
+and ignore late results; a confirmed approval that is already being saved is
+allowed to finish. The poll secret never crosses the window wire or reaches
+disk. Only the service URL, desk id and linked time are saved atomically in
+`account-link.json`, and a restart checks both service and identity before
+showing Linked. Switching service URLs cannot restore another service's link.
+The shared contract now carries the service's unchanged device-grant schemas;
+the service should import those and the crypto proof helper on its next sync.
+
+Settings › Phone uses the existing settings primitives for all states. Focused
+`preview.html?desk-link=<state>&theme=<light|dark>` fixtures cover idle, waiting,
+linked, denied, expired, error and starting without a running desk or account.

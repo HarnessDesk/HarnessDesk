@@ -82,7 +82,8 @@ describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', (
   // and is an illustration on the same terms. FlowGraph draws a Flow's rules
   // as curves with arrowheads computed from the document, the same drawing
   // ShapeGraph is excluded for. FlowCards draws its mini graphs from those same
-  // policies; its nodes and edges are data geometry, not a glyph.
+  // policies; its nodes and edges are data geometry, not a glyph. QrCode draws
+  // the modules of a code from the text it carries, the same kind of drawing.
   // glyphs/ is the vendored animated drawings behind Icons.tsx: `glyph.tsx` is
   // their one frame, and a component never imports from the folder.
   const others = Object.entries(sources).filter(
@@ -92,6 +93,7 @@ describe('the renderer draws icons only through Icons.tsx and BrandIcons.tsx', (
       !/\/ShapeGraph\.tsx$/.test(path) &&
       !/\/design\/patterns\/FlowGraph\.tsx$/.test(path) &&
       !/\/design\/patterns\/FlowCards\.tsx$/.test(path) &&
+      !/\/design\/patterns\/QrCode\.tsx$/.test(path) &&
       !/\/AppearancePreview\.tsx$/.test(path) &&
       !/\/design\/ui\/(spark|chart)\.tsx$/.test(path) &&
       !/(^|\/)glyphs\//.test(path) &&

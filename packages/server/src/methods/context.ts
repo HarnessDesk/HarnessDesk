@@ -143,6 +143,28 @@ export interface HostContext {
   readonly sessionWorktrees: import('../session-worktrees.js').SessionWorktrees
   readonly worktrees: Worktrees
   readonly team: Team
+  /** The phone link's controls; refuses with `phone-link-unavailable` where the link is not running. */
+  readonly accountLink: Pick<import('../account-link.js').AccountLink, 'state' | 'start' | 'cancel' | 'enabled'>
+  readonly phone: Omit<import('../phone-link.js').PhoneLinkControl, 'onChange'>
+  /** Redacted, phone-sized projections of sessions, Teams and spend; what a paired phone may read of the desk's work. */
+  readonly phoneWorkspace: Pick<import('../phone-workspace.js').PhoneWorkspace, 'sessionsList' | 'teamsList' | 'dashboardRead'>
+  /** The phone's snapshot of the work, one conversation, and the one thing it may answer: an approval. */
+  readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'threadRead' | 'approvalDecide'>
+  leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
+  leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
+  leadThreadSend(params: HostParams<'lead/thread/send'>): Promise<HostResult<'lead/thread/send'>>
+  leadCardDecide(params: HostParams<'lead/card/decide'>): Promise<HostResult<'lead/card/decide'>>
+  leadActionPerform(params: HostParams<'lead/action/perform'>): Promise<HostResult<'lead/action/perform'>>
+  leadSettingsRead(): Promise<HostResult<'lead/settings/read'>>
+  leadSettingsUpdate(params: HostParams<'lead/settings/update'>): Promise<HostResult<'lead/settings/update'>>
+  leadStop(params: HostParams<'lead/stop'>): Promise<HostResult<'lead/stop'>>
+  leadResume(params: HostParams<'lead/resume'>): Promise<HostResult<'lead/resume'>>
+  leadSteer(params: HostParams<'lead/steer'>): Promise<HostResult<'lead/steer'>>
+  leadScheduleRead(): Promise<HostResult<'lead/schedule/read'>>
+  leadScheduleUpdate(params: HostParams<'lead/schedule/update'>): Promise<HostResult<'lead/schedule/update'>>
+  leadMemoryRead(): Promise<HostResult<'lead/memory/read'>>
+  leadMemoryUpdate(params: HostParams<'lead/memory/update'>): Promise<HostResult<'lead/memory/update'>>
+  readonly leadStarts?: Pick<import('../lead/budgets.js').LeadBudgets, 'validateStart'>
   readonly flows: Flows
   /** Previews a flow, non-executing, and mints the one token `flow/start-goal` redeems. */
   readonly flowPreviews: FlowPreviews

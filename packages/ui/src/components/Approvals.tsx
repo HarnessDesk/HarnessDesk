@@ -1,3 +1,4 @@
+import { useApprovalKeys } from './use-approval-keys'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type { Approval, ApprovalOption } from '@harnessdesk/protocol'
@@ -6,7 +7,7 @@ import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } fr
 import { wholeFileOf, DiffView } from '../editor'
 import { boardToolPhrase } from '../lib/tool-names'
 import { approvalChoiceOrder } from '../lib/approval-order'
-import { boardToolLabel, boardToolNamedBy, boardToolNote, boardToolPlacement, offersPermanentGrant } from '../lib/board-tool-note'
+import { boardToolLabel, boardToolNamedBy, boardToolNote, boardToolPlacement, offersPermanentGrant, permissionSummary } from '../lib/board-tool-note'
 import { folderShown } from '../lib/projects'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
 import {
@@ -42,7 +43,6 @@ const INTENT_ICON = {
  */
 
 /** Where a key belongs to the field, not to an approval. */
-const EDITABLE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])'
 
 /**
  * How long a key reaching a docked card that took the focus from the composer
@@ -117,7 +117,7 @@ const PermissionBody = ({ approval, hideSummary = false }: {
   hideSummary?: boolean
 }) => (
   <>
-    {!hideSummary && <ApprovalReason className={styles.reason}>{approval.summary}</ApprovalReason>}
+    {!hideSummary && <ApprovalReason className={styles.reason}>{permissionSummary(approval.summary)}</ApprovalReason>}
     {/* Why the agent is asking, when it said. The summary is the tool it wants
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
@@ -286,48 +286,9 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester 
     [answers, approval, key, store],
   )
 
-  // Number keys pick an option; Escape denies. An approval blocks the agent, so
-  // the fastest safe answer should always be one keystroke away.
-  useEffect(() => {
-    // Docked, the card's own focus is the gate (below), not the pane's.
-    if (!approval || (!docked && !focused)) return
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-      if (docked) {
-        const target = event.target
-        // Only from inside the card, and never from a field in it.
-        if (!(target instanceof Node) || !scope.current?.contains(target)) return
-        if (target instanceof Element && target.closest(EDITABLE)) return
-        if (Date.now() < typedThrough.current) return
-      }
-      /* Not for a key something else already spent. This listens on the
-         window, after everything on the document, so a menu open anywhere —
-         the sidebar's account menu, a popover — takes Escape first and says
-         so; on the document, whichever registered first answered, and the
-         Escape that closed a menu also denied the command. A denial cannot
-         be taken back. */
-      if (event.defaultPrevented) return
-      // Not while something covers the card: a sidebar floating over a narrow
-      // window makes the pane inert, and the keys are the sidebar's then —
-      // Escape puts it away rather than denying a command nobody can see, and
-      // a digit typed into its filter is a digit, not an answer.
-      if (scope.current?.closest('[inert]')) return
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        const deny = options.find((option) => option.intent === 'deny') ?? options[options.length - 1]
-        if (deny) choose(deny)
-        return
-      }
-      const index = Number(event.key) - 1
-      if (Number.isInteger(index) && index >= 0 && index < options.length) {
-        event.preventDefault()
-        const option = options[index]
-        if (option) choose(option)
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [approval, choose, docked, focused, options])
+  useApprovalKeys(scope, Boolean(approval && (docked || focused)), docked,
+    options.map((option, index) => ({ shortcut: index + 1, onSelect: () => choose(option) })),
+    () => { const deny = options.find(option => option.intent === 'deny') ?? options.at(-1); if (deny) choose(deny) }, typedThrough)
 
   if (!approval) return null
 

@@ -1,4 +1,17 @@
 import { HarnessDeskAccount } from './harnessdesk-account.js'
+import { AccountLink } from './account-link.js'
+import { LeadAutomaticGoals } from './lead/automatic-goals.js'
+import { LeadHandbacks } from './lead/handback.js'
+import { GitGateway } from './git-gateway/index.js'
+import { LeadPrFollow, type LeadPrFollowOptions } from './lead/pr-follow.js'
+import { leadPublicationPorts } from './lead/pr-publication.js'
+import { LeadPersonActions } from './lead/person-actions.js'
+import { LeadControls, leadRefusal } from './lead/controls.js'
+import { phoneLinkOff } from './phone-link.js'
+import { PhoneWorkspace } from './phone-workspace.js'
+import { PhoneWork } from './phone-work.js'
+import { leadContainsSecret } from './lead/secrets.js'
+import { answerLeadPersonGate, answerLeadResult, validateLeadResult } from './lead/person-decision.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
 import { readKeptTranscriptFile } from './kept-transcript.js'
 import { Storage } from './storage.js'
@@ -9,12 +22,12 @@ import { retainRuntimeNotice } from './runtime-notices.js'
 import { AccountReads } from './account-reads.js'
 import { resumeSeatSession } from './session-resume.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
-import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
-import { createHash, randomBytes } from 'node:crypto'
+import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity, type LeadPresence } from '@harnessdesk/protocol'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
@@ -126,6 +139,16 @@ import { AgentFileRoots } from './agent-file-roots.js'
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
+import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
+import { LeadBudgets } from './lead/budgets.js'
+import { leadStopReachesRun } from './lead/stop.js'
+import { LeadService, type LeadServiceOptions } from './lead/service.js'
+import { LeadAssembly, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { isManagedChatFolder } from './chats.js'
+import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
+import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
+import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
@@ -456,6 +479,10 @@ export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throu
 export type QuestionTimers = Pick<QuestionPort, 'setTimer' | 'clearTimer'>
 
 export interface HostOptions {
+  /** Explicit startup capability; the host never reads an environment flag. */
+  readonly leadEnabled?: boolean
+  /** Replaces the fixed provider destination for the Lead's model requests; tests script it, the app never sets it. */
+  readonly leadMessagesTransport?: MessagesTransport
   /** Public skill source transport and bounds; tests use temporary bare repositories. */
   readonly librarySources?: LibrarySourcesOptions
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
@@ -781,6 +808,18 @@ export class Host {
   readonly #laneStore: LaneStore
   readonly #lanes: LaneAllocator
   readonly #harnessDeskAccount: HarnessDeskAccount
+  #leadService: LeadService | null = null
+  #leadControls: LeadControls | null = null
+  #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
+  #leadPlannerFiles: LeadPlanner | null = null
+  readonly #accountLink: AccountLink
+  #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
+  #phoneWorkspace: PhoneWorkspace | null = null
+  #phoneWork: PhoneWork | null = null
+  #leadAssembly: LeadAssembly | null = null
+  #leadOwnsWorker: ((runtime: string, sessionId: string, includeClosed: boolean) => boolean) | null = null
+  #leadListenersAvailable = true
+  #leadReady = false
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
@@ -823,6 +862,7 @@ export class Host {
    * extension host only needs something that answers the three verbs, and
    * gets it through `forgePlane`.
    */
+  readonly #gitGateway: GitGateway
   readonly #forge: ForgePlane
   /**
    * The flow engine. Holds the runs, opens the round a finished round earns,
@@ -883,6 +923,17 @@ export class Host {
   readonly #goals: GoalPlane
   /** The findings ledger's one writer: every finding event is appended through it, one project at a time. */
   readonly #findings: FindingsPlane
+  /** Host enforcement outlives the child; a missing journal refuses recovered dispatch. */
+  readonly #leadBudgets = new LeadBudgets({
+    now: () => Date.now(),
+    usage: (project, from, to, sessions) => this.#usageOf(project, from, to, sessions),
+    seats: () => this.#evidence.seats.all(),
+    delegation: seat => this.#delegationUncertainRuntimes.has(seat.session.runtime) ? 'unknown' : 'none',
+    runs: () => this.#flows.leadRuns(),
+    member: async project => { try { await this.#confineRoom(project.path); return true } catch { return false } },
+    interruptChecks: goal => this.#flows.interruptChecks(goal),
+    stop: (run, reason) => this.#flows.stopRun(run, reason, 'desk'),
+  })
   /** The closed-round publisher: one operation at a time, journaled in each run's own file. */
   readonly #publications: Publications
   /** Deadlines on questions unattended flow Seats ask. */
@@ -1014,6 +1065,8 @@ export class Host {
   constructor(private readonly options: HostOptions) {
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
+    this.#accountLink = new AccountLink({ home: this.#state.directory, baseUrl: process.env['HARNESSDESK_CLOUD_URL'],
+      changed: state => this.#push({ method: 'account/link/changed', params: state }) })
     this.#runtimeCache = new RuntimeCache(join(this.#state.directory, 'runtime-cache.json'), error => {
       this.#logger.warn('runtime observations could not be saved or read', { error: String(error) })
     })
@@ -1202,6 +1255,8 @@ export class Host {
         frozen: join(this.#state.directory, 'attachments', 'frozen'),
       },
     )
+    this.#gitGateway = new GitGateway({ directory: join(this.#state.directory, 'git-gateway'),
+      ...(this.options.forge?.gh ? { gh: (_cwd, args) => this.options.forge!.gh!(args) } : {}) })
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -1502,6 +1557,7 @@ export class Host {
       seatOf: (id) => this.#evidence.seats.byId(id as SeatId),
       seatsOn: (goal) => this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored),
       digestOf: async (goal, agent) => (await this.#agents.read(agent, this.#goalStore.read(goal).goal.root).catch(() => null))?.digest ?? null,
+      goalSentence: (goal) => { try { return this.#goalStore.read(goal).goal.sentence } catch { return null } },
       order: (seat, text) => this.#orderSeat(seat.session.runtime, seat.session.sessionId, text),
       busy: (seat) => {
         const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
@@ -1535,6 +1591,7 @@ export class Host {
             this.#runtime({ runtime: seat.session.runtime }).info.capabilities.interrupt) await record.live.interrupt()
       },
       laneOf: (seat) => this.#lanes.forSeat(seat.id),
+      holdLeadSeat: async (seat, level) => (await this.#holdSeat(seat.session.runtime, seat.session.sessionId, level)).ceiling.hold === 'held',
       reseat: async (seat) => {
         const live = await this.#teamLive(seat.session.runtime as RuntimeId, seat.session.sessionId)
         await this.#applySeatPicks(live, seat.seat)
@@ -1571,6 +1628,7 @@ export class Host {
        * order, each judged against git now, never the board's folded display
        * projection. The engine builds the subjects and judges them itself.
        */
+      lead: this.#leadBudgets,
       facts: async (goal) => {
         const state = this.#goalState(goal)
         return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root, state.root))
@@ -1720,6 +1778,7 @@ export class Host {
     })
     this.#team.attachFindings(this.#findings)
     this.#publications = new Publications({
+      localOnly: run => this.#flows.isLeadManaged(run),
       journal: (run, step) => this.#flows.withPublicationJournal(run, step),
       runs: () => this.#flows.publicationRuns(),
       run: (run) => {
@@ -2173,6 +2232,15 @@ export class Host {
     })
     this.#intake = new IntakePlane({
       home: this.#state.directory,
+      lead: async operation => {
+        if (!this.options.leadEnabled || !this.#leadReady) return { delivered: false, reason: 'Lead is disabled; this firing waits.' }
+        if (!operation.payload) return { delivered: false, reason: 'The firing payload is unavailable; this firing waits.' }
+        await this.#leadAssembly?.ensure(operation.project)
+        const automatic = this.#leadAutomatic
+        if (!automatic) return { delivered: false, reason: 'Lead is unavailable; this firing waits.' }
+        const { fact, sentence } = operation.payload
+        return automatic.owner.offerTrigger({ project: operation.project, key: `trigger-${operation.key}`, sentence, fact })
+      },
       cipher: options.credentialCipher ?? plainCipher,
       confine: (root) => this.#confineGitRoot(root),
       flowSource: (root, id) => intakeCatalog.resolve(root, id),
@@ -2597,7 +2665,12 @@ export class Host {
     }
     this.#goalWriter = writer
     this.options.startToolGateway?.()
+    if (this.options.leadEnabled === true) await cleanupLeadClientDoors(this.#state.directory).catch(() => {
+      this.#leadListenersAvailable = false
+      this.#logger.warn('Lead listener cleanup is unavailable; ordinary desk startup continues')
+    })
     await this.#state.load()
+    await this.#accountLink.load()
     if (this.#disposed) return
     await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
     if (this.#disposed) return
@@ -2687,6 +2760,9 @@ export class Host {
       this.#logger.error('the flow runs this desk keeps could not be read', {
         error: error instanceof Error ? error.message : String(error),
       })
+    })
+    if (this.options.leadEnabled === true) await this.#leadBudgets.recover().catch((error: unknown) => {
+      this.#logger.warn('Lead recovery cleanup remains pending', { error: error instanceof Error ? error.message : String(error) })
     })
     // After the runs: a finding command a stop left part-way is settled from
     // its run's own journal, before any Seat can ask for another.
@@ -2792,6 +2868,12 @@ export class Host {
     })().catch(resumeFailed)
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
     this.#startIdleReaper()
+    this.#leadReady = this.options.leadEnabled === true
+    if (this.#leadReady) {
+      this.#leadAssembly = this.#assembleLead()
+      this.onDispose(() => this.#leadAssembly?.close())
+      void this.#leadAssembly.restore().catch(() => { this.#logger.warn('Lead could not restore its saved thread') })
+    }
   }
 
   /**
@@ -3303,6 +3385,10 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    const accountLinkClosed = this.#accountLink.close()
+    this.#leadBudgets.stopMetering()
+    // close() latches Lead dispatch synchronously, before ordinary teardown yields.
+    const leadClosed = this.#leadService?.close().catch(() => { this.#logger.warn('Lead shutdown cleanup remains pending') })
     this.#discoveryOnlyRuntimes.clear()
     this.#sessionIndexAbort.abort()
     clearTimeout(this.#removalSweep)
@@ -3369,6 +3455,7 @@ export class Host {
         }),
       ),
     )
+    await leadClosed
     for (const disposer of this.#disposers.splice(0)) {
       await Promise.resolve()
         .then(disposer)
@@ -3389,6 +3476,7 @@ export class Host {
     // Drain existing authority reads before closing their index and repo queue.
     await Promise.all(this.#indexArchiveReads.values())
     await this.#sessionIndexRepos.close()
+    await accountLinkClosed
     await this.#storage.close()
     await this.#sessionWorktrees.settled()
     this.#sessionIndex.close()
@@ -3425,6 +3513,291 @@ export class Host {
        approval of a session was still appending to `audit.ndjson` after
        `dispose()` had resolved. */
     await this.#audit.flush()
+  }
+
+  /** One host-owned supervisor, enabled explicitly by the authenticated Lead
+   * service owner in the next slice step. Construction itself never spawns. */
+  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'>): LeadService {
+    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
+    if (this.#disposed) throw new Error('lead-host-closed')
+    if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')
+    if (!this.#leadReady) throw new Error('lead-host-starting')
+    if (this.#leadService) throw new Error('lead-service-exists')
+    const { journal, project } = options
+    let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
+    this.onDispose(() => budgetOwner.close())
+    this.onDispose(journal.onChange(() => {
+      const id = journal.state.budget!.logicalGoalId
+      if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
+    }))
+    const stopOwned = async (reason: string) => {
+      const stopReason = reason === 'lead-budget-stopped' || reason === 'lead-request-cancelled'
+        ? journal.state.budget?.stop?.reason ?? reason : reason
+      if (reason === 'lead-host-shutdown' && journal.state.handbacks.some(op => op.stage === 'prepared' || op.stage === 'running' || op.stage === 'awaiting-ci')) return
+      const results = await Promise.allSettled(journal.state.runs.map(async run => {
+        const flow = this.#flows.leadRuns().find(flow => flow.id === run.runId)
+        if (!leadStopReachesRun(flow, stopReason)) return
+        this.#flows.interruptChecks(run.teamId)
+        await this.#flows.stopRun(run.runId, reason, 'desk')
+      }))
+      if (results.some(result => result.status === 'rejected')) throw new Error('lead-owned-work-stop-pending')
+    }
+    let childLive = false
+    let owned = new Set<string>()
+    const withdraw = (runId: string) => {
+      if (childLive) void this.#leadService!.ownershipWithdrawn(runId).catch(() => { this.#logger.warn('Lead ownership cleanup remains pending') })
+    }
+    const trackOwned = () => {
+      if (!childLive) return
+      const next = new Set(journal.state.runs.map(run => run.runId)), previous = owned
+      owned = next
+      for (const runId of previous) if (!next.has(runId)) withdraw(runId)
+    }
+    const detach = journal.onChange(trackOwned)
+    this.onDispose(detach)
+    const personActions = new LeadPersonActions(journal, this, this.#evidence, async value => { await this.#leadService!.assertPublic(value) })
+    let leadPresence: LeadPresence | null = null
+    this.#leadService = new LeadService({ ...options,
+      onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
+      readMemory: () => this.#leadPlanner().kept(),
+      onRemember: lines => {
+        for (const line of lines) void this.#leadPlanner().suggest(line, `memory-${randomUUID()}`, Date.now()).catch(() => { this.#logger.warn('Lead memory suggestion was not saved') })
+      },
+      readEvidence: async (runId, read) => ({ ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) }), broker: this.#credentials,
+      resolveTool: async call => {
+        const scope = await options.resolveTool(call)
+        // Derive readiness from host-owned runs and cards again for every journal
+        // decision; the child's own readiness claim grants no authority.
+        const state = journal.state, index = state.steps.findIndex(step => step.id === scope.stepId)
+        const previous = state.steps[index - 1]
+        const owned = previous && state.runs.find(run => run.correlationId === previous.attemptId)
+        if (call.method !== 'flow/start-goal' || !owned) return { ...scope, predecessor: undefined }
+        const { ready, terminal, reason } = leadPredecessorReadiness(state, scope.stepId!, this.#flows.leadRuns(), goal => this.#team.stateFor(goal).intents)
+        return { ...scope, predecessor: { runId: owned.runId, ready, ...(terminal ? { terminal, reason } : {}) } }
+      },
+      register: () => ({ admission: budgetOwner.admission, close() {} }),
+      childStarted: () => {
+        const end = this.#leadBudgets.childStarted(journal)
+        childLive = true; trackOwned()
+        return () => { childLive = false; owned.clear(); end() }
+      },
+      recover: () => this.#leadBudgets.recover(),
+      openDoor: async admission => openLeadClientDoor({ host: this, logger: this.#logger, home: this.#state.directory,
+        hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission }) }),
+      stopOwned,
+    })
+    const ownedWorker = (runtime: string, sessionId: string, includeClosed = false) => {
+      const seat = this.#evidence.seats.all().find(seat => seat.session.runtime === runtime && seat.session.sessionId === sessionId && (includeClosed || !seat.closed))
+      return seat && journal.state.runs.find(run => run.teamId === seat.board)
+    }
+    this.#leadOwnsWorker = (runtime, sessionId, includeClosed) => !!ownedWorker(runtime, sessionId, includeClosed)
+    const decisionEvidence = (runId: string) => options.readEvidence(runId, call => {
+      if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
+      return this.call(call.method, call.params)
+    })
+    const validateResult: LeadPrFollowOptions['validate'] =
+      (card, decision, contract) => validateLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract)
+    const publication = leadPublicationPorts({ journal, gateway: this.#gitGateway, project, forge: this.#forge, seats: () => this.#evidence.seats.all(), evidence: decisionEvidence,
+        signature: () => { const value = this.#storedPluginSettings('git')?.['signature']; return typeof value === 'string' ? value : undefined },
+        publications: async source => {
+          const record = this.registry.get(runtimeId(source.runtime), makeSessionId(source.sessionId))
+          const session = record?.session ?? await this.#transcripts.recover(runtimeId(source.runtime), makeSessionId(source.sessionId))
+          return session?.turns.flatMap(turn => turn.items.flatMap(item => item.type === 'publication' ? [item.reference] : [])) ?? []
+        },
+      })
+    const follow = new LeadPrFollow({ journal, gateway: this.#gitGateway, now: () => Date.now(), validate: validateResult, answer: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract), ...publication })
+    const repairResult = async (op: import('@harnessdesk/protocol').LeadHandback) => {
+      if (this.#disposed) return null
+      await this.#leadBudgets.meter(journal)
+      const state = journal.state, contract = state.contract, run = this.#flows.leadRuns().find(run => run.id === op.runId)
+      const last = run?.rounds.at(-1)
+      if (!contract || !run || run.goal !== op.teamId || !last || (op.stage !== 'withdrawn' && last.n <= op.round) || last.role !== 'accept' ||
+        last.state !== 'running' || !last.cards.length || !last.cards.every(id => this.#team.stateFor(op.teamId).intents.some(card => card.id === id && card.state === 'open'))) return null
+      const evidence = await decisionEvidence(op.runId), budget = leadBudgetProjection(journal.state.budget!, Date.now())
+      const result = evaluateLeadAcceptance(contract, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
+      if (result.status !== 'reviewed' || !leadHandbackTerminal(op) && evidence.revision === op.head || budget.spend !== 'known' || budget.reservedUsdMicros) return null
+      const old = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
+      const card = { version: 1 as const, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1, type: 'result' as const,
+        contractDigest: contract.digest, outcome: 'reviewed' as const, summary: 'CI passed. Fresh checks and independent review are ready for your decision.', assertions: result.assertions, budget }
+      const source = await publication.source(card, contract)
+      if (leadHandbackTerminal(op) && source.head !== journal.state.pr?.head) return null
+      return { source, card }
+    }
+    const repairs = new LeadHandbacks({ journal, now: () => Date.now(),
+      gate: async op => {
+        const run = this.#flows.leadRuns().find(run => run.id === op.runId)
+        return this.#disposed || !run || run.goal !== op.teamId || run.lead?.logicalGoalId !== journal.state.budget?.logicalGoalId ||
+          !await this.#leadBudgets.port.member(project) ? 'lead-project-withdrawn' : null
+      },
+      round: id => (this.#flows.leadRuns().find(run => run.id === id)?.rounds.length ?? 0) + 1,
+      open: async op => (await this.#flows.prepareLeadRepair(op)).n,
+      release: op => this.#flows.releaseLeadRepair(op),
+      ciPassed: (op, head) => this.#evidence.observeLeadCi(project.path, op.teamId, `lead-ci-${head}`, head),
+      reviewed: async op => (await repairResult(op))?.source ?? null,
+      push: (source, op) => follow.pushOwned(source, async () => {
+        const fresh = await repairResult(op)
+        if (!fresh || fresh.source.head !== source.head || journal.state.pr?.branchOwner === 'person') throw new Error('lead-repair-review-changed')
+      }),
+    })
+    let repairRefresh: Promise<void> | null = null
+    const refreshRepairs = (): Promise<void> => repairRefresh ??= (async () => {
+      if (this.#disposed) return
+      await repairs.recover()
+      const op = journal.state.handbacks.at(-1)
+      if (!op || !leadHandbackTerminal(op) || !leadRepairResultReady(journal.state) || journal.state.handbackLimit ||
+        ['accepted', 'declined', 'stopped', 'awaiting-plan'].includes(journal.state.phase) || journal.state.pr?.branchOwner === 'person') return
+      const current = () => {
+        const state = journal.state
+        return state.handbacks.at(-1)?.key === op.key && leadRepairResultReady(state) && !state.handbackLimit &&
+          !['accepted', 'declined', 'stopped', 'awaiting-plan'].includes(state.phase) && state.pr?.branchOwner !== 'person'
+      }
+      const result = await repairResult(op)
+      // Evidence reads yield to observations and new admissions. Recheck both
+      // here and on the writer queue so an older timer cannot resurrect a card.
+      if (!current() || journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))) return
+      if (!result) {
+        if (op.stage !== 'completed' || op.publishedHead !== journal.state.pr?.head) await journal.setManagementPhase('waiting-for-user', 'lead-repair-unverified')
+        return
+      }
+      try {
+        await journal.offerCard(result.card, () => {
+          if (!current() || result.source.head !== journal.state.pr?.head) throw new Error('lead-repair-superseded')
+        })
+      } catch (error) {
+        if (error instanceof Error && error.message === 'lead-repair-superseded') return
+        throw error
+      }
+      if (!current()) return
+      await journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
+    })().finally(() => { repairRefresh = null })
+    const repairTimer = setInterval(() => { void refreshRepairs().catch(() => {}) }, 1000)
+    repairTimer.unref(); this.onDispose(async () => { clearInterval(repairTimer); await repairRefresh?.catch(() => {}) })
+    this.#intake.followPullRequests({ watches: () => follow.watches(), deliver: async (_watch, batch) => {
+      for (const observation of batch.observations ?? []) await follow.observe(observation)
+      await follow.observeFacts(batch.facts)
+      await repairs.observe(batch.facts)
+      await refreshRepairs()
+    } })
+    this.onDispose(journal.onChange(() => { void this.#intake.followingChanged().catch(() => {}) }))
+    // Recovery uses only journaled person authority and freshly verified worker/forge identity.
+    void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
+    this.#leadControls = new LeadControls({ journal,
+      automaticProject: async path => {
+        const root = await this.#confineGitRoot(path)
+        if (!samePath(root, resolve(path)) || !this.#leadAssembly) throw leadRefusal('lead-project-missing')
+        await this.#leadAssembly.rememberProject(root)
+        Object.assign(project, leadProjectOf(root))
+      },
+      service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
+      now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
+      publishResult: (card, decision, contract) => follow.accept(card, decision, contract),
+      reclaimBranch: (card, decision) => follow.reclaim(card, decision),
+      readPersonActions: () => personActions.read(),
+      readPresence: () => leadPresence,
+      // The goal's latest run owns a board; a seat on it that is mid-turn takes the words without a restart.
+      steerWorker: async text => {
+        const board = journal.state.runs.at(-1)?.teamId
+        if (!board) return false
+        for (const seat of this.#evidence.seats.all().filter(seat => seat.board === board && !seat.closed)) {
+          try {
+            await this.call('turn/steer', { runtime: seat.session.runtime as RuntimeId, sessionId: makeSessionId(seat.session.sessionId), input: [{ type: 'text', text: `From the person, through the Lead: ${text}` }] })
+            return true
+          } catch { /* Not in a turn, or gone: try the next seat. */ }
+        }
+        return false
+      },
+      performAction: input => personActions.perform(input),
+      decidePerson: (card, decision, contract) => answerLeadPersonGate({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
+        readEvidence: runId => options.readEvidence(runId, call => {
+          if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
+          return this.call(call.method, call.params)
+        }) }, card, decision, contract),
+      decideResult: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract),
+      stopRequest: () => this.#leadService!.stopGoal(),
+      meterSpend: () => this.#leadBudgets.meter(journal),
+      stopEffects: () => stopOwned('lead-budget-stopped'),
+    })
+    this.onDispose(() => this.#leadControls?.close())
+    const automatic = new LeadAutomaticGoals({ journal, send: (input, origin, root) => this.#leadControls!.send(input, origin, root),
+      enabled: () => this.options.leadEnabled === true && !this.#disposed,
+      quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
+    })
+    this.#leadAutomatic = { project, owner: automatic }
+    // A scheduled task is a message the person wrote ahead of time: it opens a new goal only when the Lead has
+    // nothing open, so it starts at a plan card like any other goal, and quiet hours hold it.
+    const scheduled = async () => {
+      const controls = this.#leadControls, state = journal.state
+      if (!controls || !(canBeginLeadGoal(state) || state.phase === 'draft' && !state.messages.length)) return
+      const planner = this.#leadPlanner(), due = leadDueTask(await planner.readSchedule(), new Date())
+      if (!due) return
+      const key = `schedule-${due.task.id}-${due.slot}`
+      const result = await automatic.offer({ key, ...(due.task.project ? { project: due.task.project } : {}), text: `Scheduled: ${due.task.title}\n${due.task.goal}`,
+        origin: { source: 'schedule', event: key, subject: String(due.slot), url: null } })
+      if (result.delivered) await planner.markRan(due.task.id, Date.now())
+    }
+    const timer = setInterval(() => { void scheduled().catch(() => { this.#logger.warn('A scheduled Lead task could not start') }) }, 60_000)
+    timer.unref?.()
+    this.onDispose(() => clearInterval(timer))
+    return this.#leadService
+  }
+
+  /** The production assembly behind `HARNESSDESK_LEAD=1`: it builds the Lead from this host's own state on first use. */
+  #assembleLead(): LeadAssembly {
+    return new LeadAssembly({ home: this.#state.directory, now: () => Date.now(),
+      workspace: async () => this.#state.state.workspaces.find(one => !isManagedChatFolder(this.#state, one.path))?.path ?? null,
+      readySeats: () => [...this.#runtimes.values()].filter(runtime => leadSeatable(runtime.health())).map(runtime => String(runtime.info.id)),
+      heldPreview: token => this.#flowPreviews.leadHeld(token),
+      seatsHold: async (root, step) => {
+        // A preview that cannot even be taken is a plan that cannot start: the same answer, never a broken Lead.
+        const preview = await this.#flowPreviews.preview(root, leadReviewedResultSource, step.variables, undefined, undefined, {
+          seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])),
+          attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
+        const unfit = leadPreviewUnfit(preview)
+        if (unfit) return unfit
+        // The review must come from another provider than the implementer's, and an unreadable one proves nothing:
+        // the run would start, then stall at review with nothing the Lead could ever accept.
+        const [writer, reviewer] = await Promise.all(['implement', 'review'].map(role => {
+          const seat = step.assignments.find(assignment => assignment.role === role)?.seat
+          return seat ? this.#providerOf(seat.runtime, root) : Promise.resolve(null)
+        }))
+        return writer === null || reviewer === null || writer === reviewer ? 'lead-plan-not-independent' : null
+      },
+      create: async inputs => {
+        const service = this.createLeadService({ ...inputs, ...(this.options.leadMessagesTransport ? { messagesTransport: this.options.leadMessagesTransport } : {}) })
+        await service.setEnabled(true)
+        await service.recoverInterrupted()
+      } })
+  }
+
+  /** The timetable and kept lines live beside the journal and stay readable while no Lead goal is open. */
+  #leadPlanner(): LeadPlanner {
+    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
+    return this.#leadPlannerFiles ??= new LeadPlanner(this.#state.directory)
+  }
+
+  async #leadWindow(): Promise<LeadControls> {
+    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
+    if (!this.#leadControls) await this.#leadAssembly?.ensure()
+    if (!this.#leadControls) throw leadRefusal('lead-unavailable')
+    return this.#leadControls
+  }
+
+  /** The supervisor registers before recovery and unregisters after exit.
+   * No wire field can create this host owner. */
+  registerLead(journal: LeadJournal, project: LeadProject): { admission: LeadAdmission; close: () => void } {
+    if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
+    const close = this.#leadBudgets.register(journal)
+    return { admission: new LeadAdmission({ journal, project, budgets: this.#leadBudgets, previews: this.#flowPreviews,
+      readIntents: goal => this.#team.stateFor(goal).intents,
+      now: () => Date.now(), nextId: () => `lead-start-${randomUUID()}` }), close }
+  }
+
+  /** Live identity and membership for client scope checks. Evidence belongs to
+   * explicit Goal reads, never the authorization/notification queue itself. */
+  clientScopeViews() {
+    const seats = this.#evidence.seats.all()
+    return this.#goalStore.list().map(document => ({ goal: document.goal,
+      board: { id: document.goal.id }, members: goalMembers(document, seats) }))
   }
 
   /** Answers are a live per-desk choice, never a connection's cached grant.
@@ -4416,8 +4789,8 @@ export class Host {
   }
 
   /** Every usage sample the ledger holds for a project in a window, and whether it could read all of it. */
-  async #usageOf(project: string, from: number, to: number): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }> {
-    const detail = await this.#ledgerService.readInsight({ root: project, from, to })
+  async #usageOf(project: string, from: number, to: number, sessions?: readonly { readonly runtime: string; readonly sessionId: string }[]): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }> {
+    const detail = sessions ? await this.#ledgerService.readSessions({ root: project, from, to }, sessions) : await this.#ledgerService.readInsight({ root: project, from, to })
     return { samples: detail.samples, complete: detail.gaps.length === 0 }
   }
 
@@ -4590,6 +4963,32 @@ export class Host {
       team: this.#team,
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
+      // These closures deliberately repeat the service's availability guard.
+      accountLink: this.#accountLink,
+      phone: {
+        state: () => this.#phoneLink?.state() ?? phoneLinkOff,
+        pairing: () => this.#requirePhoneLink().pairing(),
+        allow: (id, tiers) => this.#requirePhoneLink().allow(id, tiers),
+        deny: id => this.#requirePhoneLink().deny(id),
+        revoke: device => this.#requirePhoneLink().revoke(device),
+      },
+      phoneWorkspace: this.#phoneWorkspaceView(),
+      phoneWork: this.#phoneWorkView(),
+      leadWakesRead: async () => (await this.#leadWindow()).readWakes(),
+      leadThreadRead: async () => (await this.#leadWindow()).readThread(),
+      leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
+      leadActionPerform: async params => (await this.#leadWindow()).perform(params),
+      leadCardDecide: async (params) => (await this.#leadWindow()).decide(params),
+      leadSettingsRead: async () => (await this.#leadWindow()).readSettings(),
+      leadSettingsUpdate: async (params) => (await this.#leadWindow()).updateSettings(params),
+      leadStop: async (params) => (await this.#leadWindow()).stop(params),
+      leadResume: async (params) => (await this.#leadWindow()).resume(params),
+      leadSteer: async (params) => (await this.#leadWindow()).steer(params),
+      leadScheduleRead: async () => this.#leadPlanner().readSchedule(),
+      leadScheduleUpdate: async params => this.#leadPlanner().writeSchedule(params.schedule),
+      leadMemoryRead: async () => this.#leadPlanner().readMemory(),
+      leadMemoryUpdate: async params => this.#leadPlanner().writeMemory(params.memory),
+      leadStarts: this.#leadBudgets,
       flowUpdates: this.#flowUpdates,
       authoring: this.#authoring,
       frontDoor: {
@@ -7896,7 +8295,10 @@ export class Host {
     if ((event.type === 'turn/started' || event.type === 'turn/completed') && record) {
       const seated = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime &&
         candidate.session.sessionId === record.session.id && !candidate.closed && !candidate.restored)
-      if (seated?.board) this.#intake.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
+      if (seated?.board) {
+        this.#intake.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
+        this.#leadBudgets.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
+      }
     }
     if (event.type === 'turn/started' && record) {
       // The opened row already owns its Team facts. Promotion publishes it immediately;
@@ -8891,6 +9293,93 @@ export class Host {
     this.#push({ method: 'runtime/healthChanged', params: { runtime, health } })
   }
 
+  /** The LAN phone link starts after the host does; the window learns of every change through `phone/changed`. */
+  /** What a paired phone reads of the desk's work, built on first use from the planes it projects. */
+  #phoneWorkspaceView(): PhoneWorkspace {
+    return this.#phoneWorkspace ??= new PhoneWorkspace({
+      now: () => Date.now(),
+      sessions: {
+        page: (options) => {
+          const page = this.#sessionIndex.phoneList(options)
+          for (const row of page.rows) this.#sessionIndexRepos.read(row.summary.cwd, true)
+          return page
+        },
+        counts: () => this.#sessionIndex.phoneCounts(),
+        touchedSince: (since) => this.#sessionIndex.touchedSince(since),
+        costliestSince: (since, limit) => this.#sessionIndex.costliestSince(since, limit),
+      },
+      live: () => this.registry.all().flatMap((record) => {
+        const id = record.session.id
+        if (!this.#sessionIndex.isOwn(record.runtime, id)) return []
+        const cost = record.session.usage?.cost
+        return [{ runtime: record.runtime, id, running: record.running.size > 0, waiting: record.approvals.size > 0,
+          cost: cost && cost.currency === 'USD' ? cost.amount : null }]
+      }),
+      seatName: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? this.#infoOf(known).presentation.name : null
+      },
+      teams: async () => (await this.#goals.list()).map((view) => {
+        const latest = this.#flows.executionSummaries({ team: view.goal.id, active: false })[0]
+        return {
+          view,
+          execution: latest ? { state: latest.state, role: latest.role } : null,
+          costs: [...view.members, ...(view.pastMembers ?? [])].map((seat) => {
+            const runtime = runtimeId(seat.session.runtime), id = makeSessionId(seat.session.sessionId)
+            const live = this.registry.get(runtime, id)?.session.usage?.cost
+            return live && live.currency === 'USD' ? live.amount : this.#sessionIndex.storedCost(runtime, id)
+          }),
+        }
+      }),
+      reports: () => this.#usageService.reports(),
+      ledger: async (query) => {
+        const ledger = this.#ledgerService
+        // The same first-read rule `usage/ledger` follows: prices load when someone asks for money, and a machine
+        // that never scanned starts its scan rather than answering an empty, wrong-looking report.
+        await ledger.warm()
+        if (ledger.progress.finishedAt === null && !ledger.progress.running) ledger.begin()
+        return ledger.query(query)
+      },
+    })
+  }
+
+  /** The phone's snapshot, conversation and approval answers, built on first use over the same planes. */
+  #phoneWorkView(): PhoneWork {
+    return this.#phoneWork ??= new PhoneWork({
+      workspace: this.#phoneWorkspaceView(),
+      deskName: () => this.#phoneLink?.state().deskName ?? '',
+      home: homedir(),
+      seatName: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? this.#infoOf(known).presentation.name : null
+      },
+      isOwn: (runtime, id) => this.#sessionIndex.isOwn(runtime, id),
+      summary: (runtime, id) => this.#sessionIndex.get(runtime, id),
+      // A conversation this host already holds in full is read as it is; any other is opened the way the window opens it.
+      read: async (runtime, id) => {
+        const held = this.registry.get(runtime, id)
+        return held?.session.itemsLoaded ? held.session : this.call('session/read', { runtime, sessionId: id })
+      },
+      live: (runtime, id) => {
+        const record = this.registry.get(runtime, id)
+        return { running: (record?.running.size ?? 0) > 0, pending: record ? [...record.approvals.values()] : [], cwd: record?.session.cwd ?? null }
+      },
+      respond: async (params) => { await this.call('approval/respond', params) },
+      hasSecret: (text) => leadContainsSecret(text),
+      now: () => Date.now(),
+    })
+  }
+
+  attachPhoneLink(control: import('./phone-link.js').PhoneLinkControl): void {
+    this.#phoneLink = control
+    this.onDispose(control.onChange(() => this.#push({ method: 'phone/changed', params: control.state() })))
+  }
+
+  #requirePhoneLink(): import('./phone-link.js').PhoneLinkControl {
+    if (!this.#phoneLink) throw Object.assign(new Error('phone-link-unavailable'), { wireCode: 'phone-link-unavailable' })
+    return this.#phoneLink
+  }
+
   #push(notification: WireNotification): void {
     // This machine's roster changed — however: the watch noticed, or a method wrote it — so the
     // Agent folders linked into it may have too.
@@ -8915,8 +9404,20 @@ export class Host {
     }
     // What a trigger Goal's waits are made of: named again once the current pass ends.
     if (!this.#disposed) this.#intake?.noticed(notification)
+    if (!this.#disposed && notification.method === 'event' &&
+      (notification.params.event.type === 'approval/requested' || notification.params.event.type === 'approval/resolved')) {
+      const { runtime, event } = notification.params
+      const sessionId = event.type === 'approval/requested' ? event.approval.sessionId : event.sessionId
+      if (this.#leadOwnsWorker?.(String(runtime), String(sessionId), event.type === 'approval/resolved'))
+        void this.#leadControls?.workerApprovalsChanged().catch(() => { this.#logger.warn('Lead worker approval projection is unavailable') })
+    }
     if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {
       this.#provenance.evidenceChanged(this.#team.stateFor(notification.params.room).root)
+      const room = notification.params.room
+      if (this.#leadService && this.#flows.leadRuns().some(run => run.goal === room)) {
+        this.#leadService.evidenceChanged()
+        void this.#leadControls?.workerApprovalsChanged().catch(() => { this.#logger.warn('Lead evidence action projection is unavailable') })
+      }
     }
     if (!this.#disposed && (notification.method === 'session/removed' ||
       (notification.method === 'event' && notification.params.event.type === 'session/started'))) {

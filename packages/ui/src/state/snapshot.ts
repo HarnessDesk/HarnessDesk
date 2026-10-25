@@ -265,6 +265,11 @@ export interface TeamFrameRequest {
 }
 
 export interface AppSnapshot {
+  /** Startup capability proved by the host handshake; absent until then. */
+  readonly leadAvailable: boolean
+  /** The desk was started with the phone link on; the Phone page and its command exist only then. */
+  readonly accountLinkAvailable: boolean
+  readonly phoneLink: boolean
   readonly teamFrameRequests: Readonly<Record<string, TeamFrameRequest>>
   /** Per-project state of local, opt-in commit-to-Seat capture. */
   readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
@@ -854,6 +859,9 @@ export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string
   new Set(closed).add(closedTurnFilesKey(session, turn))
 
 const EMPTY: AppSnapshot = {
+  leadAvailable: false,
+  accountLinkAvailable: false,
+  phoneLink: false,
   teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),

@@ -131,3 +131,12 @@ it('keeps another Agent’s explicit base name available when allocating ordinal
  const seats = teamSeats(view,board,null)
  expect(seats.map(seat=>compactTeamSeatName(seat,seats,view))).toEqual(['Implementer 2','Implementer 3','Implementer 1'])
 })
+
+it('tells seats that read the same apart by the order they were opened, and leaves a unique name whole', async () => {
+ const { numberRepeatedSeatLabels } = await import('./team-seats')
+ const labels = numberRepeatedSeatLabels([
+  { id: 'r2-review', label: 'Code reviewer', openedAt: 40 }, { id: 'r1-write', label: 'Implementer', openedAt: 10 },
+  { id: 'r1-review', label: 'Code reviewer', openedAt: 20 }, { id: 'r3-write', label: 'Implementer', openedAt: 30 }, { id: 'lead', label: 'Dex', openedAt: 5 },
+ ])
+ expect(Object.fromEntries(labels)).toEqual({ 'r1-write': 'Implementer 1', 'r1-review': 'Code reviewer 1', 'r3-write': 'Implementer 2', 'r2-review': 'Code reviewer 2', lead: 'Dex' })
+})

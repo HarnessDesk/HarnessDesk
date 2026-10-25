@@ -1,4 +1,6 @@
+import { createAccountLinkState } from '../state/account-link'
 import { GITHUB_SOURCE, githubFile, githubPlan } from './library-github-fixture'
+import { createPhoneState } from '../state/phone'
 import { FRAME } from '../design/frame'
 import { DOCUMENT_DIFF } from './run-shapes-fixture'
 import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
@@ -936,6 +938,11 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
 
 /** The smallest store the mounted screens call. */
 class PreviewStore {
+  /** The phone link, answered from what a frame puts there with `phone.changed`. */
+  readonly accountLink = createAccountLinkState({ request: async () => this.accountLink.state as never })
+  readonly phone: ReturnType<typeof createPhoneState> = createPhoneState({
+    request: async (method: string) => { if (method === 'phone/pairing') return { url: 'harnessdesk://pair?c=preview', expiresAt: Date.now() + 600_000, addresses: [] } as never; return this.phone.state as never },
+  })
   #snapshot: AppSnapshot
   #teamFrameSerial = 0
   #listeners = new Set<() => void>()
@@ -2423,3 +2430,7 @@ export const Mount = ({ children, with: own }: { children: ReactNode; with?: App
 )
 
 export { Boundary }
+
+// Explicit opt-in synthetic Lead specimens; ordinary previews remain disabled.
+export { LeadFrames, LeadContractSpecimen, LeadAvatarSpecimen } from './frames-lead'
+export { LEAD_SCENES } from './lead-fixture'

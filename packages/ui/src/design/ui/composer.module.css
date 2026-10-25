@@ -1,0 +1,5 @@
+.reading {
+  max-width: var(--hd-column);
+  margin: 0 auto;
+  position: relative;
+}

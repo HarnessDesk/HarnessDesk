@@ -1,3 +1,9 @@
+import type { AccountLinkState } from './account-link.js'
+import type {
+  PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
+  PhoneWorkSnapshot, PhoneWorkThread,
+} from './phone.js'
+import type { LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
@@ -773,6 +779,54 @@ export interface HostMethods {
   'account/renameDesk': { params: { readonly name: string }; result: HarnessDeskAccountStatus }
   'account/setReachable': { params: { readonly reachable: boolean }; result: HarnessDeskAccountStatus }
 
+  'account/link/state': { params: Record<string, never>; result: AccountLinkState }
+  'account/link/start': { params: Record<string, never>; result: AccountLinkState }
+  'account/link/cancel': { params: Record<string, never>; result: AccountLinkState }
+
+  'phone/state': { params: Record<string, never>; result: PhoneLinkState }
+  /** A new single-use pairing code for a phone on the same network. */
+  'phone/pairing': { params: Record<string, never>; result: PhonePairing }
+  'phone/allow': { params: { readonly id: string; readonly tiers?: readonly PhoneTier[] }; result: PhoneLinkState }
+  'phone/deny': { params: { readonly id: string }; result: PhoneLinkState }
+  'phone/revoke': { params: { readonly device: string }; result: PhoneLinkState }
+  /** What a paired phone reads of the person's sessions: redacted rows, counts per state, newest first. */
+  'phone/sessions/list': { params: { readonly state?: PhoneSessionState; readonly limit?: number; readonly cursor?: string }; result: PhoneSessionsList }
+  /** What a paired phone reads of the Teams: stage, progress, workers and cost, no paths or transcripts. */
+  'phone/teams/list': { params: { readonly limit?: number }; result: PhoneTeamsList }
+  /** What a paired phone reads of spend and seats for a range. */
+  'phone/dashboard/read': { params: { readonly range?: PhoneRange }; result: PhoneDashboard }
+  /**
+   * Everything a paired phone's Sessions, Teams and Dashboard tabs draw, in the shapes the phone decodes. Pushed whole
+   * on the `workspace` topic when it changes. Not the window's `workspace/*` file methods: those are folders and files.
+   */
+  'workspace/read': { params: Record<string, never>; result: PhoneWorkSnapshot }
+  /** One session's conversation for the phone: its words scrubbed, no command output, no lines of a change. */
+  'workspace/thread/read': { params: { readonly id: string }; result: PhoneWorkThread }
+  /**
+   * Answers one approval a session is waiting on. `scope: "session"` picks that approval's own session-scoped choice and
+   * nothing wider, and only with `allow: true`. Answers `{}`; the new state arrives on the `workspace` topic.
+   */
+  'workspace/approval/decide': {
+    params: { readonly id: string; readonly session: string; readonly allow: boolean; readonly scope?: 'once' | 'session' }
+    result: Record<string, never>
+  }
+  'lead/wakes/read': { params: Record<string, never>; result: LeadWakeLog }
+  'lead/thread/read': { params: Record<string, never>; result: LeadWindowProjection }
+  'lead/thread/send': { params: LeadThreadSend; result: LeadSendReceipt }
+  'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }
+  'lead/action/perform': { params: LeadActionInput; result: LeadWindowProjection }
+  'lead/settings/read': { params: Record<string, never>; result: LeadWindowProjection }
+  'lead/settings/update': { params: LeadSettingsUpdate; result: LeadWindowProjection | LeadNameReceipt }
+  'lead/stop': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
+  'lead/resume': { params: { readonly expectedRevision: number }; result: LeadWindowProjection }
+  /** Say something to the goal's running worker mid-turn, without restarting it. */
+  'lead/steer': { params: { readonly text: string }; result: LeadWindowProjection }
+  /** The Lead's own timetable: goals it opens when idle, and the hours it opens none. */
+  'lead/schedule/read': { params: Record<string, never>; result: LeadSchedule }
+  'lead/schedule/update': { params: { readonly schedule: LeadSchedule }; result: LeadSchedule }
+  /** What the Lead keeps between goals, the person's lines and its own suggestions. */
+  'lead/memory/read': { params: Record<string, never>; result: LeadMemory }
+  'lead/memory/update': { params: { readonly memory: LeadMemory }; result: LeadMemory }
   'client/hello': {
     params: { readonly client: { readonly name: string; readonly version: string }; readonly protocol: number; readonly pid?: number }
     result: {
@@ -916,6 +970,8 @@ export interface HostMethods {
     result: {
       readonly protocolVersion: number
       readonly hostVersion: string
+      /** Optional host-owned destinations, absent until explicitly enabled at startup. */
+      readonly capabilities?: { readonly lead?: true; readonly phone?: true; readonly accountLink?: true }
       readonly runtimes: readonly RuntimeInfo[]
       /**
        * How this host protects a secret it is given, in words a person can
@@ -2842,6 +2898,9 @@ export interface SeatActivity {
 
 export type WireNotification =
   | { readonly method: 'account/changed'; readonly params: { readonly status: HarnessDeskAccountStatus } }
+  | { readonly method: 'account/link/changed'; readonly params: AccountLinkState }
+  | { readonly method: 'phone/changed'; readonly params: PhoneLinkState }
+  | { readonly method: 'lead/changed'; readonly params: LeadChanged }
   | { method: 'storage/usageChanged'; params: StorageUsage }
   | { readonly method: 'seat/activity'; readonly params: SeatActivity }
   | { method: 'goal/changed'; params: { view: GoalView } }

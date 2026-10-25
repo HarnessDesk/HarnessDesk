@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, type ComponentProps, type RefObject, type ReactNode } from 'react'
+import { forwardRef, useEffect, useState, type ComponentProps, type RefCallback, type RefObject, type ReactNode } from 'react'
 
 /**
  * The inline and bottom inset a scrolling pane's own reading column keeps —
@@ -57,6 +57,9 @@ const VERTICAL: Partial<Record<PaneColumnInset, string>> = {
   canvas: 'var(--hd-space-2)',
 }
 
+/** What a floating composer covers at the column's foot: its height, a shared dock's, and a breath. */
+const CLEAR_COMPOSER = 'calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 16px)'
+
 type PaneColumnCommonProps = Omit<ComponentProps<'div'>, 'inset'>
 
 export type PaneColumnProps =
@@ -93,8 +96,10 @@ export const PaneColumn = forwardRef<HTMLDivElement, PaneColumnProps>(
       data-inset={inset}
       style={{
         padding: clearComposer
-          ? `calc(8px + var(--hd-notice-inset, 0px)) ${INLINE[inset]} calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 16px)`
+          ? `calc(8px + var(--hd-notice-inset, 0px)) ${INLINE[inset]} ${CLEAR_COMPOSER}`
           : page ? `var(--page-top, ${INLINE.reading}) ${INLINE[inset]} ${INLINE.reading}` : `${VERTICAL[inset] ?? '0'} ${INLINE[inset]}`,
+        // Scrolling a turn into view stops above the floating composer, not behind it.
+        ...(clearComposer ? { scrollPaddingBottom: CLEAR_COMPOSER } : {}),
         ...style,
       }}
       {...props}
@@ -124,22 +129,22 @@ export const PaneTabsRow = ({ children, controls }: { readonly children: ReactNo
  * typically the strip holding the bars and the composer together. A screen
  * wires the two refs to its own markup; the observing and the `setProperty`
  * call are this hook's alone. Observe the border box so padding and border
- * changes update the same full height that offsetHeight measures.
+ * changes update the same full height that offsetHeight measures. The callback
+ * ref follows conditional docks: release the previous observer when the dock
+ * leaves, clear the root clearance, then measure and observe the new element when it mounts.
  */
-export const useComposerHeightVar = (root: RefObject<HTMLElement | null>): RefObject<HTMLDivElement | null> => {
-  const dock = useRef<HTMLDivElement>(null)
+export const useComposerHeightVar = (root: RefObject<HTMLElement | null>): RefCallback<HTMLDivElement> => {
+  const [dockElement, setDock] = useState<HTMLDivElement | null>(null)
   useEffect(() => {
-    const dockElement = dock.current
     const rootElement = root.current
     if (!dockElement || !rootElement) return
     const apply = (): void => rootElement.style.setProperty('--composer-h', `${dockElement.offsetHeight}px`)
     apply()
     const observer = new ResizeObserver(apply)
     observer.observe(dockElement, { box: 'border-box' })
-    return () => observer.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  return dock
+    return () => { observer.disconnect(); rootElement.style.removeProperty('--composer-h') }
+  }, [dockElement, root])
+  return setDock
 }
 
 /** A notice in the transcript or composer follows the same capped reading measure. */

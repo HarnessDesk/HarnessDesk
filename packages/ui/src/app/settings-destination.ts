@@ -1,8 +1,8 @@
 import type { RuntimeId } from '@harnessdesk/protocol'
 import { resolveSection } from '../components/Settings'
 import type { PageDestination } from '../state/destinations'
-export const destinationForSettings = (name: string | null | undefined, focus: string | null = null): PageDestination => {
-  const section = resolveSection(name)
+export const destinationForSettings = (name: string | null | undefined, focus: string | null = null, leadAvailable = false): PageDestination => {
+  const section = resolveSection(name, 'runtimes', leadAvailable)
   if (section === 'library' || section === 'skills') return {kind:'library',section:'skill'}
   if (section === 'plugins') return {kind:'plugins',section:'installed',id:null}
   if (section === 'workspaces' && focus === 'triggers') return {kind:'flows',root:null,id:null,origin:null}

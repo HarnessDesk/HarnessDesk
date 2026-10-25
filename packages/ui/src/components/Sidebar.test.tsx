@@ -86,6 +86,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
   }
 
   const store = {
+    lead: { state: { revision: 0, settings: { name: 'dex' } }, subscribe: () => () => {} },
     subscribe: () => () => {},
     refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
@@ -211,6 +212,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
       for (const listener of listeners) listener()
     })
     const store = {
+    lead: { state: { revision: 0, settings: { name: 'dex' } }, subscribe: () => () => {} },
       subscribe: (listener: () => void) => {
         listeners.add(listener)
         return () => listeners.delete(listener)
@@ -553,4 +555,34 @@ it('opens the same folder picker from Projects and the New session menu without 
   expect(open.disabled).toBe(false)
   act(() => open.click())
   expect(choose).toHaveBeenCalledTimes(2)
+})
+
+it('keeps exactly six ordered doors and no Lead trace in the whole disabled sidebar', () => {
+  mount()
+  const group = container.querySelector('[aria-label="Main sections"]')!
+  expect(group.children).toHaveLength(6)
+  expect([...group.querySelectorAll('[data-slot="sidebar-menu-button"]')].map(node => node.getAttribute('aria-label')))
+    .toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+  // The header and other existing regions use unrelated lead/leading style names.
+  for (const node of [group, ...group.querySelectorAll('*')]) {
+    expect(node.textContent).not.toMatch(/lead/i)
+    for (const attr of node.attributes) {
+      if (/^(aria-|data-)|^(title|class)$/.test(attr.name)) expect(`${attr.name}=${attr.value}`).not.toMatch(/lead/i)
+    }
+  }
+  const normalizeIds = (html: string) => html.replace(/(?:_r_|:r)[a-z0-9]+(?:_|:)/gi, 'react-id')
+  const disabled = normalizeIds(container.innerHTML)
+  mount({ leadAvailable: true })
+  const enabled = container.querySelector('[aria-label="Main sections"]')!
+  expect(enabled.children).toHaveLength(7)
+  const lead = enabled.querySelector('[aria-label="Dex"]')!
+  const row = [...enabled.children].find(child => child.contains(lead))!
+  row.remove()
+  expect(normalizeIds(container.innerHTML)).toBe(disabled)
+})
+
+it.each([false, true])('shows the Lead navigation row only for capability=%s', enabled => {
+  mount({ leadAvailable: enabled })
+  const rows = [...container.querySelectorAll('button')]
+  expect(rows.some(row => row.getAttribute('aria-label') === 'Dex')).toBe(enabled)
 })

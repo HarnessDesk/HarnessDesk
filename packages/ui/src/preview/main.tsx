@@ -1,3 +1,5 @@
+import { AccountLinkFrames } from './frames-account-link'
+import { LeadFrames } from './harness'
 import './update-bridge'
 import { HarnessDeskAccountPreview } from './harnessdesk-account-fixture'
 import { Issue1675Frames } from './issue-1675-fixture'
@@ -9,7 +11,7 @@ import { FlowsDestinationFixture } from './flows-destination-fixture'
 import { RepositoryStatesPreview } from './repository-states'
 import { RepositoryMenuRepairsPreview } from './repository-menu-repairs'
 import { WorkspaceRecoveryPreview } from './workspace-recovery'
-import { CurrentPagePreview } from './page-preview'
+import { CurrentPagePreview, PagePreview } from './page-preview'
 import { DashboardDestinationFixture } from './dashboard-destination-fixture'
 import { SettingsPreview as Settings, RuntimesPreview as RuntimesSection, WorkspacesPreview as WorkspacesSection } from './settings-pages'
 import { FRAME } from '../design'
@@ -214,7 +216,7 @@ const sidebarOpenSearchStore = previewStore(sidebarOpenSearchFixture(store.getSn
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
 // The focused finding specimen has no theme dial of its own.
-if (new URLSearchParams(window.location.search).get('findings') === 'seat') {
+if (new URLSearchParams(window.location.search).get('findings') === 'seat' || new URLSearchParams(window.location.search).has('desk-link')) {
   previewMutable.patch({ theme: new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light' })
 }
 /**
@@ -619,6 +621,7 @@ const Preview = () => {
   )
   const [dashboardScope, setDashboardScope] = useState<RuntimeId | null>(null)
   const dashboardStore = useMemo(() => usagePreviewStore(), [])
+  if (new URLSearchParams(window.location.search).has('desk-link')) return <AccountLinkFrames />
   if (new URLSearchParams(window.location.search).has('storage')) return <StorageFrames />
   if (new URLSearchParams(window.location.search).has('history')) return <HistoryFrames />
   if (new URLSearchParams(window.location.search).has('icon-followups')) return <IconFollowupsFrames />
@@ -1229,6 +1232,7 @@ const TablesPreview = () => {
   return <div className="bg-background p-4 text-foreground"><Frame id="tables-family" title="Tables: the family"><div className="p-4"><TablesFamily /></div></Frame></div>
 }
 
+
 const PublicationPreview = () => {
   useTheme()
   return <ReviewPublicationFrames />
@@ -1285,7 +1289,8 @@ createRoot(container).render(
     <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('desk-account') ? <HarnessDeskAccountPreview /> : new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
+        {new URLSearchParams(window.location.search).has('desk-account') ? <HarnessDeskAccountPreview /> : new URLSearchParams(window.location.search).has('lead-synthetic') ? <LeadFrames />
+          : new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
           : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('flows-page')

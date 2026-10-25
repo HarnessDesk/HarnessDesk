@@ -414,6 +414,7 @@ const teamLine = (team: GoalView) => line([team.goal.id, team.activity ?? team.g
 async function open(args: Arguments, desk?: DeskPointer, subscribe?: HostParams<'client/subscribe'>, onTransport?: (transport: ClientTransport) => void): Promise<Client> {
   const pointer = desk ?? await resolveDesk({ home: args.home })
   return connect({
+    rawNotifications: true,
     client: { name: 'harnessdesk', version: '0.1.0' },
     subscribe,
     transport: async () => {

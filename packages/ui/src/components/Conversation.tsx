@@ -22,12 +22,14 @@ import { findPane } from '../state/layout'
 import { shownView, sidebarPlacement } from '../state/workbench'
 import { summonable } from '../panels/views'
 import { toolOf } from '../state/frame-tools'
-import { useTopBar, useTopBarMore, useWorkDetails } from '../panels/top-bar'
+import { useTopBarMore, useWorkDetails } from '../panels/top-bar'
 import { WorkTools } from '../panels/WorkTools'
 import { ConversationDetails } from '../panels/work-details'
 import { handOverToComposer } from '../lib/compose'
 import { dismissOverlays } from '../lib/overlays'
 import { Composer } from './Composer'
+import { useConversationTopBar } from './use-conversation-top-bar'
+import { WindowControls } from './WindowControls'
 import {
   BranchIcon,
   BrainIcon,
@@ -58,7 +60,7 @@ import {
   Chip,
   Dot, Dialog, Field, FormStack, Input, ActionError,
   ConfirmDialog,
-  ComposerDock,
+  ComposerDock, ConversationShell, ConversationThread, ConversationDock,
   ConversationEmptyState,
   InlineParts,
   Menu,
@@ -94,7 +96,6 @@ import { describeLimits } from '../lib/limits'
 import { sessionLabel } from '../lib/sessions'
 import { ledBy } from '../lib/agents'
 import { useSeatAgent } from '../state/seat-agent'
-import { WindowControls } from './WindowControls'
 import { SaveAsAgentDialog } from './SaveAsAgent'
 import styles from './Conversation.module.css'
 
@@ -560,8 +561,7 @@ export const Conversation = ({
   const activeFile = mainContent && key ? editorConversation(snapshot.editorState, `session:${key}`).active : null
   const filePlace = activeFile && session?.cwd && activeFile.startsWith(`${session.cwd}/`)
     ? activeFile.slice(session.cwd.length + 1) : activeFile
-  useTopBar(pane?.paneId ?? '', {
-    lead: <WindowControls />,
+  useConversationTopBar(pane?.paneId ?? '', {
     compact: { lead: <WindowControls history={false} />, more: close => <><WindowControls menu close={close} /><WorkTools menu close={close} draft={!session} /></> },
     place: filePlace ? sanitizeText(filePlace) : <HeaderTitle session={session} />,
     parent: filePlace ? { label: titleOf(session), run: () => store.setWindowMode('conversation') } : undefined,
@@ -581,7 +581,7 @@ export const Conversation = ({
     header && pane !== null)
 
   return (
-    <div className={styles.conversation} ref={conversationRoot}>
+    <ConversationShell ref={conversationRoot}>
       {renaming && <Dialog title="Rename conversation" onClose={() => setRenaming(false)} footer={<>
         <Button disabled={!rename.trim()} onClick={() => void renameSubject()}>Rename</Button>
         <Button variant="quiet" onClick={() => setRenaming(false)}>Cancel</Button>
@@ -601,17 +601,14 @@ export const Conversation = ({
           // In the same column as every other empty state here, clear of the
           // composer. Pane-filling empty states keep the word in place;
           // notice-only restores move the explanation up beside their notice.
-          <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
+          <ConversationThread ref={scroll} onScroll={onScroll}>
             <ConversationEmptyState row>
               <Spinner size="sm" tone="brand" />
               <Text role="prose" ink="muted">Loading transcript…</Text>
             </ConversationEmptyState>
-          </PaneColumn>
+          </ConversationThread>
         ) : session && items.length > 0 ? (
-          <PaneColumn
-            inset="reading"
-            clearComposer
-            className={styles.scroll}
+          <ConversationThread
             ref={scroll}
             onScroll={onScroll}
             onClick={onScrollClick}
@@ -668,7 +665,7 @@ export const Conversation = ({
               )
             })}
             </Page></div>
-          </PaneColumn>
+          </ConversationThread>
         ) : session && session.itemsLoaded && session.updatedAt > session.createdAt ? (
           // An existing conversation whose messages could not be restored —
           // an agent that keeps no serving store, with no host copy either.
@@ -681,13 +678,13 @@ export const Conversation = ({
           // there were none. Nothing failed — nothing has happened yet — so
           // the pitch below is the honest answer, and `updatedAt` moving past
           // `createdAt` is what separates the two.
-          <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
+          <ConversationThread ref={scroll} onScroll={onScroll}>
             {emptyState}
-          </PaneColumn>
+          </ConversationThread>
         ) : (
-          <PaneColumn inset="reading" clearComposer className={styles.scroll} ref={scroll} onScroll={onScroll}>
+          <ConversationThread ref={scroll} onScroll={onScroll}>
             {emptyState}
-          </PaneColumn>
+          </ConversationThread>
         )}
 
         {!pinned && items.length > 0 && (
@@ -707,7 +704,7 @@ export const Conversation = ({
       {/* `ComposerDock`'s `floating` fade: no other pane holds a scrolling
           transcript under a dock that floats over it — the room's own
           composer sits in flow below its stream instead. */}
-      <ComposerDock floating className={styles.dockArea} ref={dockArea}>
+      {snapshot.workbench.navigation.current.kind === 'work' && <ConversationDock ref={dockArea}>
         {/* Stacked by lifetime, shortest first: the jobs strip goes when this
             turn does, the queue happens after it. That order puts the thing
             you can act on nearest the composer and the transcript's own
@@ -729,14 +726,14 @@ export const Conversation = ({
         ) : sessionCannotRun ? (items.length > 0 && <ComposerDock><ReadingMeasure><Text as="div" role="prose" ink="secondary">{unavailableSessionMessage}</Text></ReadingMeasure></ComposerDock>) : (
           <Composer onChooseProject={onChooseProject} />
         )}
-      </ComposerDock>
+      </ConversationDock>}
       </>}
       {removingWorktree && worktree && (
         <RemoveWorktree worktree={worktree} onClose={() => setRemovingWorktree(false)} />
       )}
       {bringingHome && worktree && <BringHome worktree={worktree} onClose={() => setBringingHome(false)} />}
       {creatingBranchRoot && <BranchCreateDialog root={creatingBranchRoot} onDone={() => {}} onClose={() => setCreatingBranchRoot(null)} />}
-    </div>
+    </ConversationShell>
   )
 }
 

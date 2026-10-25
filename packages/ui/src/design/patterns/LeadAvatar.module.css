@@ -1,0 +1,21 @@
+/* One size per place: sidebar 18, a turn 22, the bar 24, the popover 44, the picker 52. */
+.avatar { display: inline-flex; flex: none; align-items: center; justify-content: center; overflow: hidden; border-radius: var(--hd-face-radius); background: var(--hd-lead-dex-ground); box-shadow: inset 0 0 0 var(--hd-space-px) var(--hd-border); }
+.avatar[data-lead='lex'] { background: var(--hd-lead-lex-ground); }
+.avatar:not([data-lead]) { background: var(--hd-muted); }
+.avatar > img { width: 100%; height: 100%; object-fit: contain; object-position: center 55%; }
+.avatar[data-size='navigation'] { width: calc(var(--hd-space-4) + var(--hd-space-0-5)); height: calc(var(--hd-space-4) + var(--hd-space-0-5)); }
+.avatar[data-size='turn'] { width: calc(var(--hd-space-5) + var(--hd-space-0-5)); height: calc(var(--hd-space-5) + var(--hd-space-0-5)); }
+.avatar[data-size='header'] { width: var(--hd-space-6); height: var(--hd-space-6); }
+.avatar[data-size='popover'] { width: calc(var(--hd-space-10) + var(--hd-space-1)); height: calc(var(--hd-space-10) + var(--hd-space-1)); }
+.avatar[data-size='picker'] { width: calc(var(--hd-space-12) + var(--hd-space-1)); height: calc(var(--hd-space-12) + var(--hd-space-1)); }
+.choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--hd-space-3); }
+.choice { display: flex; flex-direction: column; align-items: center; gap: var(--hd-space-2); height: auto; }
+
+/* A Lead line's face column, its status head, a note under the person's line. */
+.turn { display: flex; align-items: flex-start; gap: var(--hd-space-2); }
+.turnFace { flex: none; width: calc(var(--hd-space-5) + var(--hd-space-0-5)); }
+.turnBody { flex: 1; min-width: 0; }
+.identity { display: flex; align-items: center; gap: var(--hd-space-3); }
+.identityName { display: flex; flex-direction: column; min-width: 0; }
+.lineNote { display: flex; justify-content: flex-end; margin-top: var(--hd-space-1); }
+.slot { display: contents; }

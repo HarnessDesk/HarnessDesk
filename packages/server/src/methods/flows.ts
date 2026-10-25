@@ -99,6 +99,10 @@ export const flowMethods = {
        is refused, and nothing here can turn it into an ordinary start. */
     const bound = redeemed.frontDoor
     if (JSON.stringify(bound?.goal ?? null) !== JSON.stringify(params.goal ?? null)) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
+    if (redeemed.lead) {
+      if (!ctx.leadStarts) throw new Error('lead-guard-unavailable')
+      await ctx.leadStarts.validateStart(redeemed.lead)
+    }
     await ctx.workspaces.admitTeamProject(params.root)
     return ctx.flows.startGoal({
       root: params.root,
@@ -106,11 +110,12 @@ export const flowMethods = {
       source: params.source,
       sourcePath: null,
       compiled: redeemed.compiled,
+      ...(redeemed.lead ? { lead: redeemed.lead } : {}),
       attended: redeemed.attended,
       overrides: redeemed.overrides,
       ...(params.vars ? { vars: params.vars } : {}),
       ...(params.continues !== undefined ? { continues: params.continues } : {}),
-      ...(bound ? { requireHeld: true as const } : {}),
+      ...(bound || redeemed.lead ? { requireHeld: true as const } : {}),
       ...(bound?.goal ? { goal: bound.goal } : {}),
       /* Where the run works and what it works on, as the host resolved them
          for the token — the folder its context named, and the commit every
@@ -121,7 +126,7 @@ export const flowMethods = {
         sourceDigest: sourceDigest(params.source),
         commandDigest: sourceDigest(JSON.stringify(redeemed.commands)),
         approvedAt: Date.now(),
-        ...(bound ? { start: 'front-door' as const } : {}),
+        ...(bound || redeemed.lead ? { start: 'front-door' as const } : {}),
       },
     })
   },

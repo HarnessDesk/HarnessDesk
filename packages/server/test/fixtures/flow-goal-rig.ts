@@ -171,6 +171,8 @@ export interface GoalRig {
   onBoardChanged: ((state: TeamState) => void) | null
   /** Every accepted order's text, by Seat id, in order. */
   readonly orderTexts: Map<string, string[]>
+  /** Each Goal's sentence as it was created, as the host's Goal store keeps it. */
+  readonly sentences: Map<string, string>
   /** The lane a Seat gets when it asked for isolation. */
   laneFor: (n: number, seat: SeatRecord) => Lane | null
   dispatch: { ok: true } | { ok: false; reason: string }
@@ -201,7 +203,7 @@ export interface GoalRig {
 
 export const goalRig = async (
   t: { after(fn: () => Promise<void>): void },
-  options: { readonly mutate?: TeamPort['mutate']; readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly reviewTarget?: FlowExecutionPort['reviewTarget']; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly checkoutAt?: FlowExecutionPort['checkoutAt']; readonly dropBase?: (root: string, run: string) => Promise<void>; readonly settleApprovals?: FlowExecutionPort['settleApprovals'] } = {},
+  options: { readonly executionOptions?: object; readonly mutate?: TeamPort['mutate']; readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly reviewTarget?: FlowExecutionPort['reviewTarget']; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly checkoutAt?: FlowExecutionPort['checkoutAt']; readonly dropBase?: (root: string, run: string) => Promise<void>; readonly settleApprovals?: FlowExecutionPort['settleApprovals'] } = {},
 ): Promise<GoalRig> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-goal-'))
   const peers: TeamPeer[] = []
@@ -240,6 +242,7 @@ export const goalRig = async (
     goalSerial: new Serial(), seatAsked: null, strictAsks: [] as boolean[], holdsCeilings: true, reserve: null,
     beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, failOrderTimes: 0, turnsEndLater: false, turnEndDelayMs: 120, comesBackAs: null, busySeats: new Set<string>(), raceReleaseOnce: new Set<string>(), onOrder: null, onReseat: null,
     orderTexts: new Map<string, string[]>(),
+    sentences: new Map<string, string>(),
     origins: new Map<string, GoalOrigin>(),
     triggerGate: null,
     get onBoardChanged() { return boardHook.fn },
@@ -354,6 +357,7 @@ export const goalRig = async (
       const room = await team.createRoom('/repo', input.sentence)
       if (input.origin?.kind === 'flow') rig.goals.set(room.id, input.origin.run)
       rig.events.push(`goal:${input.sentence}`)
+      rig.sentences.set(room.id, input.sentence)
       return { id: room.id }
     },
     reserveGoal: async (input) => {
@@ -376,6 +380,7 @@ export const goalRig = async (
     seatOf: (id) => rig.seats.get(id) ?? null,
     seatsOn: (goal) => [...rig.seats.values()].filter((seat) => seat.board === goal && seat.closed === null),
     digestOf: async (_goal, id) => rig.digests.get(id) ?? `${id}-digest`,
+    goalSentence: (goal) => rig.sentences.get(goal) ?? null,
     openSeat: async (input) => {
       rig.seatAsked?.()
       return rig.goalSerial.run(() => openSeat(input))
@@ -397,6 +402,7 @@ export const goalRig = async (
       else rig.busySeats.delete(String(seat.id))
     },
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,
+    holdLeadSeat: async () => rig.holdsCeilings,
     reseat: async (seat) => { rig.onReseat?.(seat); return rig.comesBackAs ?? seat.seatLabel },
     changed: () => {},
     publicationChanged: (goal: string) => options.publicationChanged?.(goal),
@@ -506,6 +512,7 @@ export const goalRig = async (
   const build = () => {
     const files = new FaultyFiles(join(dir, 'flows-v2'))
     const executions: FlowExecutions = new FlowExecutions(files, team, port, {
+      ...options.executionOptions,
       ...(options.releaseStallMs !== undefined ? { releaseStallMs: options.releaseStallMs } : {}),
       facts: async (goal) => viewsFor(goal),
       triggered: {

@@ -49,6 +49,7 @@ Twenty-two packages make up the repository:
 | `packages/crypto` | The cloud wire's cryptography: keys, handshake and framing, signed tokens, push sealing, test vectors | Zero dependencies (WebCrypto) |
 | `packages/desktop` | Electron shell, Keychain broker, packaging, the command-line launcher | `server`, `claude-acp`, `cursor-acp`, `cli`, `mcp-tools` |
 | `packages/client` | Transport-independent client calls and events; local I/O in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
+| `packages/lead` | Portable Lead contracts and injected management ports | `protocol`, `client`; only the exact child.ts and supervisor.ts entries under its src directory may import their allowlisted Node modules and the client's Node entry; the core has no ambient machine or network authority |
 | `packages/cli` | The `harnessdesk` command line over the client library; the app bundles it and installs a launcher for it, and `docs/cli.md` is its reference, generated from its command table | `client`, `protocol` |
 | `packages/ui` | Renderer: AppStore snapshots, slot layout, panels | `protocol`, `client/views` (browser context only, no `node:*`) |
 | `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools` |
@@ -148,6 +149,36 @@ original error. This uses the control behavior present in the supported
 [0.145.0 server](https://github.com/openai/codex/blob/rust-v0.145.0/codex-rs/app-server/src/command_exec.rs).
 
 ## The host
+
+### Git gateway
+
+`packages/server/src/git-gateway` owns the host's publication executor. Lead
+publication uses its `GitGateway`; other session writers will migrate separately.
+It takes an exact reviewed commit and tree into a private bare mirror under
+`git-gateway/` in host state, then pushes to the repository pinned in the approved
+plan. Worker remotes, configuration and hooks never select the destination or
+credentials. Host git runs with a minimal configuration and a credential helper
+that consults the person's credentials outside the checkout. Durable intents
+precede effects; the append-only `ledger.jsonl` records outcomes and requesters.
+The ledger can attribute a head even when a caller's journal missed its update.
+Recovery adopts a matching remote head only with a successful push recorded for
+the exact repository, branch, SHA and requester. A started caller journal or an
+intent alone cannot prove that Git ran; missing success evidence waits for the
+person. Push-card PR adoption also requires the host's marker on the freshly
+read PR.
+
+The gateway currently clears proxy environment variables and uses its own Git
+configuration. It does not yet fall back to the person's global/system Git
+proxy configuration or desktop proxy settings. A network that requires such a
+proxy can therefore refuse publication and leave it waiting for the person;
+credentials are read separately through the host helper.
+
+PR identity and branch authority are separate. Following applies merged/closed
+observations by repository and number regardless of head. A foreign extension
+releases branch authority while checks, reviews and lifecycle keep following the
+observed head; a rewrite also waits for the person. Neither permits pushes or
+result re-offers until a head-bound reclaim decision restores authority. These
+fields and decisions replay through the Lead journal and checkpoints.
 
 ### Insight reads
 

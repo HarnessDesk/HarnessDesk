@@ -1312,7 +1312,7 @@ export const sidebarPlacement = (state: {
  * find their panes where they left them, not an empty window with a note about
  * a new layout engine. A malformed document costs the layout, never the window.
  */
-export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | null => {
+export const readWorkbench = (raw: unknown, windowHeight = 900, leadAvailable = false): Workbench | null => {
   if (typeof raw !== 'object' || raw === null) return null
   const record = raw as Record<string, unknown>
 
@@ -1349,7 +1349,7 @@ export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | nul
   }
 
   const workbench: Workbench = {
-    navigation: readDestinationHistory(record['navigation'], navigationFor(main).current),
+    navigation: readDestinationHistory(record['navigation'], navigationFor(main).current, leadAvailable),
     frameTools: readToolIntents(record.frameTools), toolOwners, frameSubjects,
     sidebar: readDock('sidebar', record['sidebar'], windowHeight),
     main,

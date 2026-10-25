@@ -26,6 +26,10 @@ export interface FakePull {
   headRepo?: string | null
   baseRepo?: string
   url?: string
+  merged?: boolean
+  checks?: { id: number; head_sha: string; name: string; status: string; conclusion: string | null; completed_at?: string }[]
+  statuses?: { id: number; context: string; state: string; updated_at?: string }[]
+  reviews?: { id: number; commit_id: string; body: string; state: string; submitted_at: string; user: { id: number; login: string } | null }[]
   extra?: Record<string, unknown>
 }
 
@@ -122,6 +126,20 @@ export class FakeForge {
       const rows = this.pulls.filter((one) => state === 'all' || one.state === state).sort((a, b) => b.updated - a.updated)
       return slice(rows).map((one) => this.pullJson(one))
     }
+    if (parts[3] === 'pulls' && parts.length === 5) {
+      const one = this.pulls.find((row) => row.number === Number(parts[4]))
+      if (!one) throw new Error(`missing pull ${path}`)
+      return this.pullJson(one)
+    }
+    if (parts[3] === 'pulls' && parts[5] === 'reviews') {
+      if (parts[6]) return this.pulls.find((row) => row.number === Number(parts[4]))?.reviews?.find((one) => one.id === Number(parts[6]))
+      return slice(this.pulls.find((row) => row.number === Number(parts[4]))?.reviews ?? [])
+    }
+    if (parts[3] === 'commits') {
+      const one = this.pulls.find((row) => row.head === parts[4])
+      if (parts[5] === 'check-runs') return { total_count: one?.checks?.length ?? 0, check_runs: slice(one?.checks ?? []) }
+      if (parts[5] === 'status') return { sha: parts[4], total_count: one?.statuses?.length ?? 0, statuses: slice(one?.statuses ?? []) }
+    }
     if (parts[3] === 'issues' && parts.length === 4) {
       const rows = [...this.issues].sort((a, b) => b.updated - a.updated)
       return slice(rows).map((one) => ({
@@ -154,7 +172,7 @@ export class FakeForge {
 
   pullJson(one: FakePull): Record<string, unknown> {
     return {
-      number: one.number, title: one.title ?? `Change ${one.number}`, body: one.body ?? null, state: one.state,
+      number: one.number, merged: one.merged ?? false, title: one.title ?? `Change ${one.number}`, body: one.body ?? null, state: one.state,
       created_at: iso(one.created), updated_at: iso(one.updated),
       html_url: one.url ?? `https://github.com/${this.repo}/pull/${one.number}`,
       head: { sha: one.head, repo: one.headRepo === null ? null : { full_name: one.headRepo ?? this.repo } },

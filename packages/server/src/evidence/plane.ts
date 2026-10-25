@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { isAbsolute, normalize, join } from 'node:path'
 
 import { factsOfGoal, type BackupFile, type BoardEvidence, type EvidenceRecord, type EvidenceView, type GoalReceiptEvidenceSeat, type Intent, type ProjectChecks, type TeamState, type TriggerFact, type WireNotification } from '@harnessdesk/protocol'
@@ -453,6 +454,17 @@ export class EvidencePlane {
     }
     this.announce(goal)
     return [outcome.id]
+  }
+
+  /** A nonempty, head-bound aggregate observed by the owned PR watcher. One fact per published head. */
+  async observeLeadCi(project: string, goal: string, key: string, head: string): Promise<void> {
+    const firing = createHash('sha256').update(JSON.stringify(['lead-ci', goal, key, head])).digest('hex')
+    const record: EvidenceRecord = { id: mintId(), fact: { kind: 'ci', at: head as import('@harnessdesk/protocol').Sha,
+      checks: [{ name: 'CI passed', state: 'passed', url: null }] }, card: null, checkout: null, seat: null, round: null,
+      observedAt: this.#now(), intake: { firing, part: 'ci', goal } }
+    await this.store.merge(project, 'evidence', [{ type: 'evidence', record }], (_line, here, added) =>
+      [...here, ...added].some(one => one.type === 'evidence' && one.record.intake?.firing === firing && one.record.intake.part === 'ci') ? 'duplicate' : 'add')
+    this.announce(goal)
   }
 
   /** Tells every window a room's evidence moved. Never throws: a fact is kept whether or not a window hears of it. */

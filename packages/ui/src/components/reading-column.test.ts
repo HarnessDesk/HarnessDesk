@@ -1,7 +1,9 @@
 import { expect, it } from 'vitest'
 
-import composerCss from './Composer.module.css?raw'
 import conversationCss from './Conversation.module.css?raw'
+import composerCss from '../design/ui/composer.module.css?raw'
+import shellCss from '../design/patterns/ConversationShell.module.css?raw'
+import shellTsx from '../design/patterns/ConversationShell.tsx?raw'
 import itemsCss from './Items.module.css?raw'
 import roomCss from './TeamRoomPane.module.css?raw'
 import conversationTsx from './Conversation.tsx?raw'
@@ -45,7 +47,7 @@ const rule = (css: string, selector: string): string => {
 const COLUMN: readonly { readonly what: string; readonly css: string; readonly selector: string }[] =
   [
     { what: "the transcript's turns", css: itemsCss, selector: '.item' },
-    { what: "the transcript's composer", css: composerCss, selector: '.shell' },
+    { what: "the transcript's composer", css: composerCss, selector: '.reading' },
     { what: "the room's messages", css: roomCss, selector: '.streamColumn' },
     { what: "the room's composer", css: roomCss, selector: '.composerShell' },
     { what: "the room's live line and alerts", css: roomCss, selector: '.tail' },
@@ -102,7 +104,7 @@ it('the room’s live line and alerts are docked with the composer, inside its i
  * or not there is enough to scroll, so the centre never moves at all.
  */
 it.each([
-  { what: 'the transcript', css: conversationCss, selector: '.scroll' },
+  { what: 'the transcript', css: shellCss, selector: '.thread' },
   { what: 'the room’s chat', css: roomCss, selector: '.stream' },
 ])('$what keeps its column on the pane’s centre line', ({ css, selector }) => {
   expect(rule(css, selector)).toContain('scrollbar-gutter: stable both-edges')
@@ -123,7 +125,8 @@ it('the transcript’s bars are inset by the gutter its stream reserves (inline)
   // Composed, not spelled: the transcript's scroll box asks `PaneColumn` for
   // `reading`, and its bars strip for `bars` — only `bars` needs the gutter
   // compensation asserted below, since it is not itself a scroll box.
-  expect(conversationTsx).toMatch(/<PaneColumn\s[^>]*inset="reading"/)
+  expect(conversationTsx).toContain('<ConversationThread')
+  expect(shellTsx).toMatch(/<PaneColumn\s[^>]*inset="reading"/)
   expect(conversationTsx).toMatch(/<PaneColumn\s[^>]*inset="bars"/)
   expect(paneColumnTsx).toMatch(/bars: 'calc\(var\(--hd-space-6\) \+ var\(--hd-scrollbar-width, 8px\)\)'/)
 })

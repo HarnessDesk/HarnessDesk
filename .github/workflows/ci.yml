@@ -183,7 +183,7 @@ jobs:
       # value); a per-test default on newer Node, where the same run passes.
       # A per-test option can only ever narrow the file-cumulative ceiling
       # here, never widen it. The four flow-host-evidence end-to-end files,
-      # the server's intake test files and the command line's end-to-end file
+      # the server's Lead e2e and intake files and the command line's end-to-end file
       # legitimately need more than this, so they run in their own job below
       # instead of sharing this one. Retention keeps this deadline, but runs
       # alone below so concurrent fixtures cannot consume its workload guard.
@@ -196,7 +196,7 @@ jobs:
       # Still the same glob as before, minus the files the dedicated steps
       # cover, so a package that gains tests is covered here the day it does.
       - name: Node tests
-        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js')"
+        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js' ! -path 'packages/server/dist/test/lead-e2e.test.js')"
       # The same heap/CPU budgets and workload deadline, with no competing
       # server fixtures on this runner while the 20 real Flow runs settle.
       - name: Host retention tests
@@ -225,6 +225,10 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      # The real host/child/Flow suite exceeds the ordinary Node 22 file limit.
+      - name: Lead end-to-end tests
+        run: node --test --test-timeout=600000 "packages/server/dist/test/lead-e2e.test.js"
 
       # The worst of these four files, flow-host-evidence-review.test.ts,
       # has 7 end-to-end cases and took 33s measured with nothing else

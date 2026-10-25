@@ -1,4 +1,17 @@
 import type { FlowSeat } from './flow.js'
+import { isBoolean, isString, optional, shape, ValidationError, type Validator } from './validate.js'
+
+/** A structured seat shared by Flow wire requests and Lead assignments; model ids may contain `/`. */
+export const flowSeatValidator = shape({
+  runtime: (value: unknown, path = '') => {
+    const runtime = isString(value, path)
+    if (runtime.trim() === '') throw new ValidationError(path, 'expected a non-empty string')
+    return runtime
+  },
+  model: optional(isString),
+  effort: optional(isString),
+  thinking: optional(isBoolean),
+}) as Validator<FlowSeat>
 
 /** `cursor=gpt-5.3-codex/xhigh+thinking` — the same grammar the desk's own casts use. */
 export const parseSeat = (spec: string): FlowSeat | string => {

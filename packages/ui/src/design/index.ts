@@ -10,6 +10,13 @@
  *   Patterns     ./patterns — typed HarnessDesk presentation contracts
  *   Screens      product code, which composes these and adds nothing shared
  *
+ * Active goals use ComposerTrack name="send", with Send inboard of Stop when a message is typed.
+ * Stop occupies the session's composer corner and opens the same ConfirmDialog.
+ * Terminal predecessor waits use a Banner with a Stop goal action in ComposerNoticeStack.
+ * Its sentence explains whether the previous result was not accepted or cannot
+ * be confirmed, and names the Lead to message to change the plan or stop the goal.
+ * Stop goal uses ConfirmDialog, explaining that files and worktrees are left as they are.
+ *
  * Changes flow down and never up. A screen may not reach sideways into
  * another screen; that is what `pnpm design:audit` checks.
  *
@@ -221,6 +228,7 @@ export { AgentCard, MemberName, CardBand, CardCrest, CardCrestBody, CardShell, t
 export * from './patterns/DockPanel'
 export { TerminalShellTabs, type TerminalShellTab } from './patterns/TerminalShellTabs'
 export { Checklist, ChecklistItem, type ChecklistState } from './patterns/Checklist'
+export { QrCode } from './patterns/QrCode'
 export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'
 export { PlanCard, type PlanCardProps } from './patterns/PlanCard'
 
@@ -285,3 +293,8 @@ export { LeftColumnExplorerHead, LeftColumnExplorerFoot } from './patterns/LeftC
 export { SelectionAction } from './patterns/SelectionAction'
 
 export { CustomizeTabs, type CustomizeSection } from './patterns/CustomizeTabs'
+export { LeadContract } from './patterns/lead-contract'
+export { LeadPlanFlow } from './patterns/LeadPlanFlow'
+
+export { ConversationShell, ConversationThread, ConversationDock, ConversationComposerFrame, TranscriptAssistantMessage } from './patterns/ConversationShell'
+export { LeadAvatar, LeadIdentity, LeadLineNote, LeadNameChoice, LeadSlot, LeadTurn } from './patterns/LeadAvatar'

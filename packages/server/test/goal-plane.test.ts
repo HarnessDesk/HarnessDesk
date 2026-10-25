@@ -463,6 +463,8 @@ test('the current Run ending makes its Team need a person, while continued histo
     proof.port.executions = () => [{ ...old, state: 'stalled', end }]
     assert.equal((await proof.plane.view('g1')).activity, 'needs-you', `${end.kind} needs a person`)
   }
+  proof.port.executions = () => [{ ...old, state: 'stopped', end: { kind: 'stopped', by: 'desk' } }]
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'a run the desk stopped is not still working')
   const next = { ...old, id: 'next', continues: 'old', state: 'running', end: undefined } as FlowExecution
   const current = proof.store.read('g1')
   await proof.store.save({ ...current, goal: { ...current.goal, revision: 2 },

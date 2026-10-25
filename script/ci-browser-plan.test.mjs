@@ -222,6 +222,16 @@ test('a selection narrows the deal to the named specs and refuses a name that is
   assert.throws(() => selectedSpecs(root, JSON.stringify(['e2e/ui-system/not-a-spec.spec.ts'])), /not specs of e2e\/ui-system: not-a-spec\.spec\.ts/)
 })
 
+test('Lead real-host and flag-off specs are both selectable in each browser matrix', () => {
+  const names = ['lead-hidden.spec.ts', 'lead.spec.ts']
+  const selection = JSON.stringify(names.map(name => `e2e/ui-system/${name}`))
+  assert.deepEqual(selectedSpecs(root, selection), names)
+  for (const matrix of ['full', 'pr']) {
+    const dealt = plan(names, recordedSeconds(root, matrix), 2).flatMap(shard => shard.specs).sort()
+    assert.deepEqual(dealt, names, matrix)
+  }
+})
+
 test('the command line deals a selection across the shards the selection needs, and counts them', () => {
   const selection = JSON.stringify(['e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/rules.spec.ts'])
   assert.equal(withEnv({ UI_SYSTEM_SPECS: selection }, '--count').stdout.trim(), '1')

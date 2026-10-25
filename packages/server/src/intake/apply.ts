@@ -54,6 +54,8 @@ export async function applyAdmission(operation: IntakeOperation, port: IntakeApp
 
 export interface IntakeTargets {
   readonly goals: TriggerGoalPort
+  /** Delivers a plan-only input through the Lead's automatic-goal owner, idempotent on operation.key. */
+  lead?(operation: IntakeOperation): Promise<{ readonly delivered: true } | { readonly delivered: false; readonly reason: string; readonly final?: true }>
   readonly flows: TriggerExecutionPort
   readonly evidence: IntakeObservationPort
   /**
@@ -109,7 +111,7 @@ export class IntakeEffects implements AdmissionEffects {
 
   async ensureGoal(operation: IntakeOperation): Promise<void> {
     // A later firing joins the Goal its group's first firing made: nothing to make.
-    if (operation.mode !== 'start') return
+    if (operation.mode !== 'start' || operation.payload && 'lead' in operation.payload.definition.opens) return
     await this.#targets.goals.ensureTriggerGoal({
       key: operation.key, id: operation.goal,
       input: {
@@ -120,11 +122,13 @@ export class IntakeEffects implements AdmissionEffects {
   }
 
   observe(operation: IntakeOperation): Promise<readonly string[]> {
+    if ('lead' in this.#payload(operation).definition.opens) return Promise.resolve([])
     return this.#targets.evidence.observeTrigger(operation.key, operation.goal, this.#payload(operation).fact)
   }
 
   async ensureRound(operation: IntakeOperation, evidence: readonly string[]): Promise<string | null> {
     const payload = this.#payload(operation)
+    if ('lead' in payload.definition.opens) return null
     // The old head's work stops first: nothing of it is handed a card again once this round exists.
     if (supersedes(operation)) await this.#targets.supersede?.(operation)
     try {
@@ -162,6 +166,10 @@ export class IntakeEffects implements AdmissionEffects {
     const refused = await this.#targets.gate(operation)
     if (typeof refused === 'string') return { released: false, reason: refused }
     if (refused !== null) return { released: false, reason: refused.reason, final: true }
+    if (operation.payload && 'lead' in operation.payload.definition.opens) {
+      const result = await this.#targets.lead?.(operation) ?? { delivered: false, reason: 'Lead is disabled; this firing waits.' }
+      return result.delivered ? { released: true } : { released: false, reason: result.reason, ...(result.final && { final: true }) }
+    }
     await this.#targets.flows.resumeTriggered(operation.run)
     return { released: true }
   }

@@ -1,0 +1,37 @@
+{
+  "name": "@harnessdesk/phone-link",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The desk's side of the phone link: its identity key, the paired-device registry, the encrypted session endpoint, the event ring and the LAN listener.",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./sim": {
+      "types": "./dist/src/sim.d.ts",
+      "default": "./dist/src/sim.js"
+    }
+  },
+  "dependencies": {
+    "@harnessdesk/contract": "workspace:*",
+    "@harnessdesk/crypto": "workspace:*",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
+  },
+  "bin": {
+    "phone-link-dev": "./dist/src/dev.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test dist/test/*.test.js"
+  }
+}

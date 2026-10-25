@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createDefaultHost, loadBuiltinPlugins, loginShellPath, packagedPath, recordCrash, serve, openClientDoor } from '@harnessdesk/server'
+import { createDefaultHost, loadBuiltinPlugins, loginShellPath, packagedPath, recordCrash, serve, openClientDoor, startPhoneLink } from '@harnessdesk/server'
 import electronUpdater from 'electron-updater'
 
 import { createInlineBrowserEngine } from './browser-engine.mjs'
@@ -21,6 +21,7 @@ import { createIntakeNotifier } from './intake-notifications.mjs'
 import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
 import { menuBarItemDecision, readMenuBarPreference, writeMenuBarPreference } from './menu-bar-policy.mjs'
 import { trayMenuTemplate } from './tray-menu.mjs'
+import { leadEnabled } from './lead-feature.mjs'
 
 import { readWindowState, writeWindowState } from './window-state.mjs'
 import { isAppNavigation } from './navigation.mjs'
@@ -105,6 +106,7 @@ let aboutWindow = null
 let tray = null
 let running = null
 let clientDoor = null
+let phoneLink = null
 let host = null
 let logger = null
 let extensions = null
@@ -640,6 +642,7 @@ const watchDownloads = (guestSession, profile) => {
 
 const start = async () => {
   const bootstrap = createDefaultHost({
+    leadEnabled: leadEnabled(process.env),
     stateDir,
     version: app.getVersion(),
     browserEngine,
@@ -686,6 +689,12 @@ const start = async () => {
 
   running = await serve({ host, logger, uiRoot, port: 0 })
   clientDoor = await openClientDoor({ host, logger, home: stateDir, hostVersion: app.getVersion() })
+  // Opt-in while the phone link is tested on this machine: the LAN listener and
+  // the pairing page exist only when the desk is started with it.
+  if (process.env['HARNESSDESK_PHONE_LINK'] === '1') {
+    phoneLink = await startPhoneLink(host, logger, { home: stateDir, port: Number(process.env['HARNESSDESK_PHONE_PORT'] ?? 0),
+      includeLoopback: process.env['HARNESSDESK_PHONE_LOOPBACK'] === '1' })
+  }
   logger.info('desktop shell ready', { url: running.url })
 
   // macOS notifications for the moments worth leaving another app for: a
@@ -926,6 +935,8 @@ app.on('before-quit', async (event) => {
   event.preventDefault()
   const closingDoor = clientDoor
   clientDoor = null
+  const closingPhone = phoneLink
+  phoneLink = null
   const closing = running
   const closingHost = host
   const closingExtensions = extensions
@@ -934,6 +945,7 @@ app.on('before-quit', async (event) => {
   extensions = null
   try {
     await closingDoor?.close()
+    await closingPhone?.close()
     await closing?.close()
     await closingHost?.dispose()
     await closingExtensions?.dispose()

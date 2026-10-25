@@ -123,7 +123,12 @@ export const SideBySide = ({
   const stripRef = useRef<HTMLDivElement>(null)
   /* The dock ref stays mounted even with one tile showing, so the system's
      observer sees it appear, disappear and grow with all its notices. */
-  const composerRef = useComposerHeightVar(gridRef)
+  const measureComposer = useComposerHeightVar(gridRef)
+  const composerRef = useRef<HTMLDivElement>(null)
+  const attachComposer = useCallback((element: HTMLDivElement | null) => {
+    composerRef.current = element
+    measureComposer(element)
+  }, [measureComposer])
   const [width, setWidth] = useState(0)
   const [room, setRoom] = useState({ height: 0, dock: 0, browserTile: 0 })
   const [composing, setComposing] = useState(false)
@@ -426,7 +431,7 @@ export const SideBySide = ({
         {seams.map((seam) => (
           <Separator key={seam.key} orientation={seam.orientation} painted={false} style={seam.style} />
         ))}
-        <ComposerDock floating="bare" ref={composerRef} data-shared-composer="" data-decision={decision ? '' : undefined} hidden={!sharedComposer} className={styles.dock} onFocusCapture={() => setComposing(true)}>
+        <ComposerDock floating="bare" ref={attachComposer} data-shared-composer="" data-decision={decision ? '' : undefined} hidden={!sharedComposer} className={styles.dock} onFocusCapture={() => setComposing(true)}>
           {sharedComposer && composer && (
             <ComposerDock>
               <div className={styles.composer}>{decision}{composer(shown.shown)}</div>

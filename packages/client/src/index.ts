@@ -38,7 +38,7 @@ export interface Client {
   /** Updated to the latest successful handshake after reconnecting. */
   readonly hello: HostResult<'client/hello'>
   call<M extends ClientMethodName>(method: M, params: HostParams<M>, options?: { deadlineMs?: number }): Promise<HostResult<M>>
-  /** Unstable raw wire notifications, buffered in arrival order. */
+  /** Unstable raw wire notifications, buffered only when rawNotifications is enabled. */
   notifications(): AsyncIterable<WireNotification>
   /** Buffered observation stream; consume once. It never delays calls or raw notifications. */
   events(): AsyncIterable<ClientEvent>
@@ -52,6 +52,8 @@ export interface ConnectOptions {
   readonly transport: () => Promise<ClientTransport>
   readonly client: HostParams<'client/hello'>['client']
   readonly subscribe?: HostParams<'client/subscribe'>
+  /** Retain raw wire notifications for a consumer; off by default. */
+  readonly rawNotifications?: boolean
 }
 
 /** Unbounded ordered queues deliberately isolate transport progress from consumers. */
@@ -511,7 +513,7 @@ export async function connect(options: ConnectOptions): Promise<Client> {
     detach = [current.onMessage(message => {
       if (ended || generation !== mine || transport !== current) return
       if ('method' in message) {
-        notifications.push(message)
+        if (options.rawNotifications) notifications.push(message)
         if (message.method === 'host/shutdown') { finish('desk-closed'); return }
         accept(message)
         if (baselineRemaining !== null && baselineRemaining > 0) baselineRemaining--

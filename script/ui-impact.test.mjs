@@ -6,7 +6,7 @@ import { dirname, extname, join, relative } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { IMPORT, SOURCE, suiteGraph, unobservedSpecs, walk } from './ci-imports.mjs'
+import { IMPORT, SOURCE, specsReaching, suiteGraph, unobservedSpecs, walk } from './ci-imports.mjs'
 import { MAP_VERSION, environmentAt, expectedCounts, exportsData, impactedSpecs, mergeRecords, readMap, repoPath, uiExternalImports, uiFiles, uiGlobbers, uiImporters } from './ui-impact.mjs'
 
 const real = fileURLToPath(new URL('../', import.meta.url))
@@ -297,7 +297,7 @@ test('every import of the UI\'s own source names a file in the tree', () => {
 })
 
 test('the modules of the UI that load files by a pattern are the ones the planner knows to ask', () => {
-  assert.deepEqual(uiGlobbers(real), ['packages/ui/src/lib/avatars.ts', 'packages/ui/src/preview/coverage-registry.ts'],
+  assert.deepEqual(uiGlobbers(real), ['packages/ui/src/lib/avatars.ts', 'packages/ui/src/lib/lead-faces.ts', 'packages/ui/src/preview/coverage-registry.ts'],
     'a pattern picks up a file that no importer names; a new one is planned for by adding the file to a spec or to this list')
 })
 
@@ -545,4 +545,10 @@ test('the scan of the suite does not need the build: an import of build output t
     rmSync(root, { recursive: true, force: true })
     rmSync(unresolved, { recursive: true, force: true })
   }
+})
+
+test('the shared Lead host helper reaches both feature-on and flag-off browser contracts', () => {
+  const graph = suiteGraph(real)
+  const reached = specsReaching(graph, [join(real, 'e2e/ui-system/lead-host.ts')])
+  assert.deepEqual(reached.map(file => relative(join(real, 'e2e/ui-system'), file)).sort(), ['lead-hidden.spec.ts', 'lead.spec.ts'])
 })

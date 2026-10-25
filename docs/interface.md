@@ -2090,3 +2090,102 @@ evidence reads Waiting. Stopping closes rounds without finishing their cards:
 those steps read Stopping while their retained turn is live, then Stopped,
 freeze their time at the current Run ending, and carry
 no completion badge, activity, glow or motion.
+
+## Lead
+
+When the host enables Lead, its chosen name, Dex or Lex, opens the conversation
+pane from the sidebar (hover title: Lead). Lead uses the same window shell,
+top bar, thread, Items message renderer, empty-state layout and measured floating
+composer as a session. Its name occupies the session title slot; the settings
+glyph, titled Lead settings, is the only top-bar tool and opens Settings › Lead. There is no
+body heading. A single LeadAvatar slot holds the name's initial until artwork arrives.
+Until settings arrive, the name reads Lead and the greeting says "Hi, tell me what
+you want done." The composer says Message Dex… or Message Lex… and shows initial dollar and round
+allowance chips. Enter sends, Shift+Enter adds a line, and Send waits for the
+host's in-flight request. The Lead remains a host-owned thread, never a Session.
+
+Decision details are assistant Markdown in journal order, without card borders,
+inset rows, revision labels or internal identifiers. Plans show LeadPlanFlow, an ordered flow diagram of steps and responsible roles
+ending in Approve to start, acceptance checks, the allowance and folder,
+and the separate-approval boundary for publishing, merging and deleting. Results
+show qualified check, review, findings and changes status, reasons and separately
+attributed Lead and reported worker spend. Unknown values remain unknown.
+
+The shared ApprovalDialog docks the question and buttons above the composer.
+Plans and widenings offer Approve and Decline; a result offers Open changes,
+Decline, Accept and Accept and open PR. The fourth action sends accept-open-pr
+through the same revision-bound decision. A worker request names its role and what it asks, with Yes once
+and No when those choices are supported. The person answers directly in Lead or
+on a paired phone; Lead cannot answer it. After an approving review, each required
+check without counted evidence offers Run check with its whole command. That
+person's run counts on the Team; a worker's own run stays advisory. Chat replies
+answer neither request. These live actions are bound to the approved contract and
+the current request or reviewed commit, and use the desk's existing approval and
+check paths. Decision clicks still carry the seen revision and digest, share
+one page-wide lock, expose pending state and refuse stale revisions. Decided
+messages retain Approved, Declined or Accepted in the meta style; their controls
+leave the dock. New entries follow until the person scrolls up.
+
+Resume, renewal-blocked and refusal banners share the session's notice stack
+with the decision dock, including its gap above the composer. A visible plan
+decision needs no extra banner. When its plan is absent, a sentence explains the
+needed decision without an action. Explicit navigation focuses
+the approval dock; an arriving plan scrolls without taking composer focus. Expiry
+re-offers the approved plan with only the earlier expiry time in its banner, once,
+and a fresh approval requirement in the message. The host owns renewal; terminal threads
+cannot renew. An accepted predecessor can seed the next step after its run settles;
+an open acceptance can also seed it. A live running or stalled predecessor still
+being reviewed waits for desk activity. A stopped run or a settled result that
+wasn't accepted parks with `lead-predecessor-unavailable`. A binding or reviewed
+revision that cannot be confirmed parks with `lead-predecessor-unverifiable`.
+Both explain what happened and ask the person to message the chosen Lead name
+to change the plan, or stop the goal. Both offer Stop goal through ConfirmDialog,
+which explains that files and worktrees are left as they are. Every other active
+goal phase has Stop in the composer's corner, with Send beside it when a message is typed. Stopping cancels only owned work. A finished goal, whether
+accepted, declined or stopped, leaves the thread ready for a new one. Neither wait offers Resume; sending a message
+continues with those instructions. A revised plan proposed in the refused-start
+turn is retained for approval before the Lead parks.
+Reads back off to 30 seconds, read once more, then wait for changes.
+
+Settings › Lead exists only with the host capability. Its groups are Name,
+Provider key, Allowances, Permissions and Triggers. The chosen name saves immediately and changes
+no authority. The uncontrolled key input is emptied before its exclusive request,
+including refusal; removing a key asks for confirmation. Changed authority groups
+have a trailing Save. Tightening applies immediately; widening creates a decision
+message and shows Waiting for your approval in the conversation with an Open
+button that lands on that decision. Consent expiry remains a settings fact.
+
+The followed PR row opens its pull request and shows number, checks, review and
+a branch-ownership chip. Your branch means automatic repairs are paused. Outside
+pushes and rewritten branches have an ownership card with a short reason and
+Reclaim branch. An explicit push card uses the reviewed result machinery. A
+hand-back limit is a Needs-you wait with a reason in the conversation. Only an
+active repair round says it is repairing; passive following says Following.
+An automatic goal retains its linked From origin line.
+
+An ended repair is judged against the current owned branch head. Green CI and
+matching reviewed evidence can offer its result again; otherwise one Needs-you
+wait explains a failed, withdrawn, abandoned or unverified repair. Missing CI
+runs keep a published repair waiting. Turning following off before dispatch
+withdraws that repair without spending its automatic repair allowance.
+
+Settings › Lead › Triggers has Follow my pull requests switches for Checks failed
+and Review comment; each defaults on and saves independently to settings.follow.
+Open a goal when is a read-only list of project declarations with opens.lead
+true, using the arm preview's lead.summary. Each opens the project's returned
+trigger-file path. This page neither edits nor arms declarations.
+
+### Linking this desk to an account
+
+Settings › Phone includes **Link to your account** when the host has
+`HARNESSDESK_CLOUD_URL` configured. This destination is available even with the
+local phone listener off. Link asks the host for a short, selectable code; the
+window offers **Open the link page**, **Copy code**, **Cancel**, and a live time
+left. Approval replaces the code with a **Linked** chip and the local date.
+A declined or expired code explains why in one line and offers **Try again**;
+service failures arrive as plain retryable states. Without the cloud URL, no
+account section or capability is exposed.
+
+The window never calls the service. Cancellation ends this desk's polling; it
+does not undo an approval already made on the link page. Account linking alone
+does not establish an outbound phone connection.

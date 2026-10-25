@@ -54,6 +54,8 @@ export * from './intake.js'
 export * from './question-wait.js'
 export * from './authoring.js'
 export * from './client-surface.js'
+export * from './lead.js'
+export * from './phone.js'
 export {
   bareToolName, toolWords, wireNameOf, toolSentences, isPlanTool, toolSentence,
   shortestUniquePathLabels, toolsOfPlugin, BOARD_TOOL_PHRASES, boardToolPhrase,
@@ -66,3 +68,5 @@ export { parseSeat, seatSpec } from './flow-seat.js'
 export * from './notices.js'
 
 export { sessionIndexCursorOf, sessionIndexCompare } from './session-index-cursor.js'
+
+export * from './account-link.js'

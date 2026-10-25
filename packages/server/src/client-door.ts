@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import {
   CLIENT_METHODS, CLIENT_PROTOCOL, clientTierFor, parseClientEnvelope, parseClientMessage,
   wireCodeOf, wireDataOf, wireError,
-  type ClientTier, type ClientTopic, type FlowExecutionSummary, type GoalView, type HostParams,
+  type ClientTier, type ClientTopic, type ClientMethodName, type FlowExecutionSummary, type GoalView, type HostParams,
   type HostToClient, type WireNotification,
 } from '@harnessdesk/protocol'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -15,15 +15,40 @@ import type { Host } from './host.js'
 import type { Logger } from './log.js'
 import { sameCanonicalPath, withCanonicalPaths } from './path-identity.js'
 
+export type ClientConnectionRequest = {
+  [M in ClientMethodName]: { readonly id: number; readonly method: M; readonly params: HostParams<M> }
+}[ClientMethodName]
+
+/** Trusted host input only. No hello field can install or modify a policy. */
+export interface ClientConnectionPolicy {
+  readonly onWithdrawn?: (runId: string) => void
+  readonly preview?: (params: HostParams<'flow/preview'>) => Promise<import('@harnessdesk/protocol').FlowPreview>
+  readonly identity: string
+  readonly maximumTiers: readonly ClientTier[]
+  /** Called after wire validation and before host dispatch; null admits the call. */
+  readonly authorize: (request: ClientConnectionRequest) => Promise<string | null>
+}
+
 export interface ClientDoorOptions {
   readonly host: Host
   readonly logger: Logger
   readonly home: string
   readonly directory?: string
   readonly hostVersion: string
+  readonly policy?: ClientConnectionPolicy
+  /** Private listeners return their descriptor to the host without publishing it. */
+  readonly discovery?: false
 }
 export interface ClientDoor {
   readonly socketPath: string
+  readonly descriptor: {
+    readonly home: string
+    readonly pid: number
+    readonly startedAt: number
+    readonly hostVersion: string
+    readonly protocolVersion: number
+    readonly socketPath: string
+  }
   close(): Promise<void>
 }
 
@@ -100,6 +125,15 @@ const viewsInScope = async (host: Host, scope: Subscription['scope']): Promise<r
     (scope?.project === undefined || sameCanonicalPath(view.goal.root, scope.project))))
 }
 
+type ScopeView = Pick<GoalView, 'goal' | 'members'> & { readonly board: Pick<GoalView['board'], 'id'> }
+const scopeViews = async (host: Host, scope: Subscription['scope']): Promise<readonly ScopeView[]> => {
+  const runGoal = scope?.run ? (await host.call('flow/execution', { run: scope.run })).goal : null
+  return withCanonicalPaths(() => host.clientScopeViews().filter(view =>
+    (scope?.team === undefined || view.goal.id === scope.team) &&
+    (runGoal === null || view.goal.id === runGoal) &&
+    (scope?.project === undefined || sameCanonicalPath(view.goal.root, scope.project))))
+}
+
 /** Every active Run and the newest one, whatever its state: a Team's starting state, read before its broadcasts. */
 const activeAndNewest = (runs: readonly FlowExecutionSummary[]): FlowExecutionSummary[] => {
   const newest = runs.reduce<FlowExecutionSummary | null>((found, run) => found === null || run.startedAt > found.startedAt ? run : found, null)
@@ -114,7 +148,7 @@ const approvalKey = (notification: WireNotification): string | null => {
   return null
 }
 
-const inScope = (notification: WireNotification, views: readonly GoalView[], scope: Subscription['scope']): boolean => {
+const inScope = (notification: WireNotification, views: readonly ScopeView[], scope: Subscription['scope']): boolean => {
   switch (notification.method) {
     case 'flow/execution-changed': return views.some(v => v.goal.id === notification.params.execution.goal) &&
       (scope?.run === undefined || notification.params.execution.id === scope.run)
@@ -134,6 +168,50 @@ const inScope = (notification: WireNotification, views: readonly GoalView[], sco
 /** A separate listener over the same envelopes and an explicitly tiered client surface. */
 export const openClientDoor = async (options: ClientDoorOptions, filesystem: ClientDoorFilesystem = fs): Promise<ClientDoor | null> => {
   const logger = options.logger.child('client')
+  const policy = options.policy === undefined ? undefined : Object.freeze({
+    identity: options.policy.identity,
+    preview: options.policy.preview,
+    maximumTiers: Object.freeze([...options.policy.maximumTiers]),
+    authorize: options.policy.authorize,
+    onWithdrawn: options.policy.onWithdrawn,
+  })
+  const allowed = async (request: ClientConnectionRequest): Promise<boolean> => {
+    if (!policy) return true
+    try { return await policy.authorize(request) === null } catch { return false }
+  }
+  const filterAllowed = async <T>(items: readonly T[], request: (item: T) => ClientConnectionRequest): Promise<readonly T[]> => {
+    if (!policy) return items
+    const admitted = await Promise.all(items.map(item => allowed(request(item))))
+    return items.filter((_item, index) => admitted[index])
+  }
+  const goalRequest = (view: ScopeView): ClientConnectionRequest => ({ id: 0, method: 'goal/read', params: { goal: view.goal.id } })
+  const runRequest = (run: Pick<FlowExecutionSummary, 'id'>): ClientConnectionRequest => ({ id: 0, method: 'flow/execution', params: { run: run.id } })
+  const connectionViews = async (scope: Subscription['scope']) => filterAllowed(await viewsInScope(options.host, scope), goalRequest)
+  const observedRuns = new WeakMap<Subscription, { covered: Set<string>; withdrawn: Set<string> }>()
+  const notificationAllowed = async (notification: WireNotification, selection: Subscription): Promise<boolean> => {
+    if (!policy) return true
+    // Scope and item authority are live host facts, including for a baseline
+    // collected before ownership changed. A remembered approval is no exemption.
+    let observed = observedRuns.get(selection)
+    if (!observed) { observed = { covered: new Set(selection.scope?.run ? [selection.scope.run] : []), withdrawn: new Set() }; observedRuns.set(selection, observed) }
+    const withdrawn = (runId: string) => {
+      if (!observed.withdrawn.has(runId)) { observed.withdrawn.add(runId); policy.onWithdrawn?.(runId) }
+    }
+    if (!await allowed({ id: 0, method: 'client/subscribe', params: selection })) {
+      for (const runId of observed.covered) withdrawn(runId)
+      return false
+    }
+    if (notification.method === 'flow/execution-changed' && !await allowed(runRequest(notification.params.execution))) {
+      const runId = notification.params.execution.id
+      if (observed.covered.has(runId)) withdrawn(runId)
+      return false
+    }
+    if (!inScope(notification, await filterAllowed(await scopeViews(options.host, selection.scope), goalRequest), selection.scope)) return false
+    if (notification.method === 'flow/execution-changed') observed.covered.add(notification.params.execution.id)
+    return true
+  }
+  const effectiveTiers = () => options.host.clientTiers().filter(tier => policy === undefined || policy.maximumTiers.includes(tier))
+  const publishDiscovery = options.discovery !== false
   if (process.platform === 'win32') {
     logger.info('client door is not available on this platform')
     return null
@@ -186,7 +264,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
     sockets.handleUpgrade(request, socket, head, ws => {
       sockets.emit('connection', ws, request)
       let hello = false
-      let identity = 'unknown'
+      let identity = policy?.identity ?? 'unknown'
       let statedPid: number | null = null
       let subscription: Subscription = { topics: [] }
       let proposal: { snapshots: WireNotification[] } | null = null
@@ -219,10 +297,14 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           pendingSnapshots.delete(notification)
           if (consumedSnapshots.delete(notification)) return
           if (!hello || !topicsOf(notification).some(t => topics().has(t))) return
+          if (policy) {
+            if (await notificationAllowed(notification, subscription)) send(notification)
+            return
+          }
           const resolved = notification.method === 'event' && notification.params.event.type === 'approval/resolved'
           const key = approvalKey(notification)
           if ((resolved && key !== null && shownApprovals.has(key)) ||
-              inScope(notification, await viewsInScope(options.host, subscription.scope), subscription.scope)) send(notification)
+              inScope(notification, await scopeViews(options.host, subscription.scope), subscription.scope)) send(notification)
         })
       })
       ws.on('message', raw => enqueue(async () => {
@@ -242,11 +324,20 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
         const { id, method } = envelope
         const params = typeof value === 'object' && value !== null && 'params' in value ? value.params : undefined
         tier = clientTierFor(method, params)
-        const refused = clientRefusal(method, hello, options.host.clientTiers(), params)
+        const refused = clientRefusal(method, hello, effectiveTiers(), params)
         if (refused) { refuse(id, method, refused, `Client request refused: ${refused}.`); return }
         let parsed
         try { parsed = parseClientMessage(value) }
         catch (error) { refuse(id, method, 'badRequest', String(error)); return }
+        if (policy) {
+          let denied: string | null
+          try { denied = await policy.authorize(parsed as ClientConnectionRequest) }
+          catch { denied = 'connectionPolicy' }
+          if (denied !== null) { refuse(id, method, denied, `Client request refused: ${denied}.`); return }
+          // Authorization can await host facts; a live desk revocation still wins.
+          const revoked = clientRefusal(method, hello, effectiveTiers(), params)
+          if (revoked) { refuse(id, method, revoked, `Client request refused: ${revoked}.`); return }
+        }
         if (parsed.method === 'client/hello') {
           const params = parsed.params as HostParams<'client/hello'>
           if (params.protocol !== CLIENT_PROTOCOL) {
@@ -259,12 +350,12 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
               id: runtime.id, name: runtime.presentation.name, metered: runtime.capabilities.metered,
               health: await options.host.call('runtime/health', { runtime: runtime.id }),
             })))
-            identity = `${params.client.name}@${params.client.version}`
-            statedPid = params.pid ?? null
+            identity = policy?.identity ?? `${params.client.name}@${params.client.version}`
+            statedPid = policy ? null : params.pid ?? null
             hello = true
             greeted.add(ws)
             send({ id, ok: true, result: { protocolVersion: CLIENT_PROTOCOL, hostVersion: options.hostVersion,
-              desk: { home, pid: process.pid, startedAt }, tiers: options.host.clientTiers(),
+              desk: { home, pid: process.pid, startedAt }, tiers: effectiveTiers(),
               methods: Object.keys(CLIENT_METHODS), runtimes } })
             audit({ kind: 'client/connected', client: identity, statedPid, method, tier: 'read', outcome: 'ok' })
           } catch (error) {
@@ -280,12 +371,13 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             const collecting = proposal = { snapshots: [...pendingSnapshots] }
             const selectedTopics = topics(next)
             const viewsReadAt = collecting.snapshots.length
-            const views = await viewsInScope(options.host, next.scope)
+            const views = await connectionViews(next.scope)
             // A Team's newest Run stays part of that Team's state after it ends, as the window shows it,
             // so a Team scope also starts from that Run; otherwise only active Runs (or the named one) are read.
-            const runs = next.scope?.run ? await options.host.call('flow/executions', { active: false })
+            const availableRuns = next.scope?.run ? await options.host.call('flow/executions', { active: false })
               : next.scope?.team ? activeAndNewest(await options.host.call('flow/executions', { team: next.scope.team, active: false }))
               : await options.host.call('flow/executions', { active: true })
+            const runs = await filterAllowed(availableRuns, runRequest)
             const baseline = new Map<string, WireNotification>()
             const readAt = new Map<string, number>()
             const remember = (notification: WireNotification, sampledAt = viewsReadAt) => {
@@ -328,6 +420,14 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             if (selectedTopics.has('waiting')) for (const notification of options.host.pendingApprovalEvents()) {
               if (inScope(notification, views, next.scope)) approvals.push(notification)
             }
+            if (policy) {
+              for (const [key, notification] of baseline) {
+                if (!await notificationAllowed(notification, next)) baseline.delete(key)
+              }
+              for (let index = approvals.length - 1; index >= 0; index--) {
+                if (!await notificationAllowed(approvals[index]!, next)) approvals.splice(index, 1)
+              }
+            }
             for (const notification of consumed) consumedSnapshots.add(notification)
             subscription = next
             shownApprovals.clear()
@@ -337,8 +437,14 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             for (const notification of baseline.values()) send(notification)
             for (const notification of approvals) send(notification)
           } else {
-            const result = parsed.method === 'team/intent'
+            const result = parsed.method === 'goal/list'
+              ? await filterAllowed(await options.host.call('goal/list', parsed.params as HostParams<'goal/list'>), goalRequest)
+              : parsed.method === 'flow/executions'
+              ? await filterAllowed(await options.host.call('flow/executions', parsed.params as HostParams<'flow/executions'>), runRequest)
+              : parsed.method === 'team/intent'
               ? await options.host.clientIntent(parsed.params as HostParams<'team/intent'>, identity)
+              : parsed.method === 'flow/preview' && policy?.preview
+              ? await policy.preview(parsed.params as HostParams<'flow/preview'>)
               : await options.host.call(parsed.method, parsed.params as never)
             send({ id, ok: true, result })
           }
@@ -364,9 +470,11 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
   try {
     await new Promise<void>((resolve, reject) => { http.once('error', reject); http.listen(paths.socketPath, resolve) })
     await filesystem.chmod(paths.socketPath, 0o600)
-    writingPointer = true
-    await filesystem.writeFile(temporaryPointer, JSON.stringify({ home, pid: process.pid, hostVersion: options.hostVersion, protocolVersion: CLIENT_PROTOCOL, startedAt }), { mode: 0o600, flag: 'wx' })
-    await filesystem.rename(temporaryPointer, paths.pointerPath)
+    if (publishDiscovery) {
+      writingPointer = true
+      await filesystem.writeFile(temporaryPointer, JSON.stringify({ home, pid: process.pid, hostVersion: options.hostVersion, protocolVersion: CLIENT_PROTOCOL, startedAt }), { mode: 0o600, flag: 'wx' })
+      await filesystem.rename(temporaryPointer, paths.pointerPath)
+    }
   } catch (error) {
     await closeListener()
     try { if (writingPointer && (error as NodeJS.ErrnoException).code !== 'EEXIST') await filesystem.rm(temporaryPointer, { force: true }) }
@@ -377,8 +485,14 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
   let cleanup: Promise<void> | null = null
   return {
     socketPath: paths.socketPath,
+    descriptor: Object.freeze({ home, pid: process.pid, startedAt, hostVersion: options.hostVersion,
+      protocolVersion: CLIENT_PROTOCOL, socketPath: paths.socketPath }),
     close: () => cleanup ??= (async () => {
       await closeListener()
+      if (!publishDiscovery) {
+        await filesystem.rm(paths.socketPath, { force: true })
+        return
+      }
       try {
         const pointer = JSON.parse(await filesystem.readFile(paths.pointerPath, 'utf8')) as { pid: number }
         if (pointer.pid === process.pid) {

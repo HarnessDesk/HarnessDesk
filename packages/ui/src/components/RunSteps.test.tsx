@@ -289,3 +289,14 @@ it('keeps a check interrupted by the desk distinct from a finished check on the 
     expect(container.querySelector('[data-row="check-2-2"]')?.getAttribute('data-state')).toBe('done')
   } finally { act(() => root.unmount()) }
 })
+
+it('keeps a review’s verdict as its line when the publication only says it stayed on this desk', () => {
+  const input = { ...reviewVisits('local'), publicationOn: false }
+  expect(runTimeline(input).rows.filter(row => row.kind === 'card').every(row => row.publication?.label === 'This desk only' && !row.publication.needsYou)).toBe(true)
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<RunSteps input={input} selectedRow={null} onSelect={() => {}} recent={3} />))
+    expect(container.textContent).not.toContain('This desk only')
+    expect(container.textContent?.toLowerCase()).toContain('approve')
+  } finally { act(() => root.unmount()); container.remove() }
+})

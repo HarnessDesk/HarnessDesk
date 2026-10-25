@@ -54,6 +54,7 @@ export const DESCRIBED_AS = new Map([
   ['lockfile installs', /\blockfile\b/i],
   ['build', /(?:\bruns|,)\s+the build\b/i],
   ['node tests', /every test suite/i],
+  ['lead e2e tests', /Lead end-to-end test file/i],
   ['flow-host-evidence tests', /flow-host-evidence/i],
   ['host-retention tests', /host-retention/i],
   ['intake tests', /intake test files/i],

@@ -161,6 +161,8 @@ const dequote = (raw: string): string => {
 /** A bare or quoted path segment, dot-separated — `profiles.x`, `model_providers."x y"` — the only header shape this scanner fully understands. */
 const SEGMENT = '(?:[A-Za-z0-9_-]+|"[^"]*"|\'[^\']*\')'
 const HEADER = new RegExp(`^\\[\\s*(${SEGMENT}(?:\\s*\\.\\s*${SEGMENT})*)\\s*\\]$`)
+/** An array-of-tables header, `[[skills.config]]`, which Codex writes itself for each configured skill. */
+const ARRAY_HEADER = new RegExp(`^\\[\\[\\s*(${SEGMENT}(?:\\s*\\.\\s*${SEGMENT})*)\\s*\\]\\]$`)
 /** Matches one segment at a time, in order — used to rebuild a header's dotted path without disturbing a quoted segment's own contents (see `parseLayer`). */
 const SEGMENT_TOKEN = new RegExp(SEGMENT, 'g')
 
@@ -253,6 +255,15 @@ const parseLayer = (text: string): Layer | 'unknown' => {
     const raw = rows[at]!
     const line = stripComment(raw).trim()
     if (!line) continue
+    if (line.startsWith('[[')) {
+      // Each entry is a table of its own. Profiles and providers are never arrays, so one that is stays unknown.
+      const header = ARRAY_HEADER.exec(line)
+      if (!header) return 'unknown'
+      const name = (header[1]!.match(SEGMENT_TOKEN) ?? []).join('.')
+      if (/^(profiles|model_providers)(\.|$)/.test(name)) return 'unknown'
+      current = 'other'
+      continue
+    }
     if (line.startsWith('[')) {
       const header = HEADER.exec(line)
       if (!header) return 'unknown'

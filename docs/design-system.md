@@ -15,6 +15,13 @@ works on the sign-in screen, in a dialog, and in the design explorer alike.
   Patterns     ./patterns — typed HarnessDesk presentation contracts
   Screens      product code, which composes these and adds nothing shared
 
+Active goals use ComposerTrack name="send", with Send inboard of Stop when a message is typed.
+Stop occupies the session's composer corner and opens the same ConfirmDialog.
+Terminal predecessor waits use a Banner with a Stop goal action in ComposerNoticeStack.
+Its sentence explains whether the previous result was not accepted or cannot
+be confirmed, and names the Lead to message to change the plan or stop the goal.
+Stop goal uses ConfirmDialog, explaining that files and worktrees are left as they are.
+
 Changes flow down and never up. A screen may not reach sideways into
 another screen; that is what `pnpm design:audit` checks.
 
@@ -114,6 +121,8 @@ Five hues that identify a thing rather than judge it — which account, which ag
 
 | token | value |
 | --- | --- |
+| `--hd-lead-dex-ground` | `rgb(227, 235, 251)` |
+| `--hd-lead-lex-ground` | `rgb(36, 49, 79)` |
 | `--hd-tint-blue-fill` | `rgba(91, 126, 237, 0.14)` |
 | `--hd-tint-blue-ink` | `rgb(69, 99, 198)` |
 | `--hd-tint-blue-edge` | `rgba(91, 126, 237, 0.55)` |
@@ -1423,6 +1432,36 @@ copying the tenth.
 A live update that removes the opener or disables confirmation can request
 `focusCancel`, moving focus to the keeping verb while the question stays open.
 
+### `ConversationShell`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+The shared session window frame, independent of its transcript source.
+
+### `ConversationThread`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+A transcript keeps the session's reading gutter and measured dock clearance.
+
+### `ConversationDock`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+The same floating composer and approval dock in every conversation.
+
+### `TranscriptAssistantMessage`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+Assistant prose has one rendering frame, shared with Items.
+
+### `ConversationComposerFrame`
+
+`packages/ui/src/design/patterns/ConversationShell.tsx`
+
+One composer frame; notices and attachments keep their existing DOM positions.
+
 ### `CopyButton`
 
 `packages/ui/src/design/patterns/CopyButton.tsx`
@@ -1896,6 +1935,52 @@ minute-by-minute countdowns cannot leave the card holding an older fact.
 
 Works outside a group too; only grouped readings contribute to its card.
 
+### `LeadAvatar`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+The Lead's face on its character's disc. Below 28px an expression does not
+read, so the small places draw the neutral face and the presence word beside
+it says the state; the popover and the picker draw the mood. Never animated.
+
+### `LeadNameChoice`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+Who runs the desk: two picture cards. A name is an immediate preference; this control never grants authority.
+
+### `LeadTurn`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+A Lead line: a face column every line keeps, so the text aligns, and the face itself only on a turn's first line.
+
+### `LeadIdentity`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+Who the Lead is and where it stands, at the head of its status popover.
+
+### `LeadLineNote`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+A note that belongs to the person's line above it, at that line's trailing edge.
+
+### `LeadSlot`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+Names a block for tests and tools without adding a box of its own to the layout it sits in.
+
+### `LeadPlanFlow`
+
+`packages/ui/src/design/patterns/LeadPlanFlow.tsx`
+
+An approved plan's linear flow in reading order. The Timeline owns the
+decorative connectors; role labels describe responsibility without naming
+a runtime. Labels are text, wrap whole, and cannot introduce markup.
+
 ### `LeftColumnTop`
 
 `packages/ui/src/design/patterns/LeftColumn.tsx`
@@ -2057,7 +2142,8 @@ narrow container.
 
 `packages/ui/src/design/patterns/Notices.tsx`
 
-The composer notices, stacked over the composer they are about.
+The composer notices and decision controls, stacked over the composer they
+are about. Sessions and Lead share this gap; an empty stack takes no space.
 
 ### `ComposerTail`
 
@@ -2237,7 +2323,9 @@ carries it, not to a sibling), and `dock` is the element to measure —
 typically the strip holding the bars and the composer together. A screen
 wires the two refs to its own markup; the observing and the `setProperty`
 call are this hook's alone. Observe the border box so padding and border
-changes update the same full height that offsetHeight measures.
+changes update the same full height that offsetHeight measures. The callback
+ref follows conditional docks: release the previous observer when the dock
+leaves, clear the root clearance, then measure and observe the new element when it mounts.
 
 ### `ReadingMeasure`
 
@@ -2658,6 +2746,10 @@ the small corner and in the secondary ink, for one that sits among
 sentences rather than filling a card. `wrap` folds long lines instead of
 scrolling them, for text read as prose rather than aligned as code.
 
+`size="display"` is a selectable one-time code at the page-title step.
+Combine it with `spaced` for a code read on this screen and typed on another
+device. The role owns its size, leading and selection; screens add no type.
+
 ### `Monogram`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -2791,6 +2883,14 @@ A row with nothing to read — no usage reported, a sign-in needed — passes
 and the reset's columns, so it starts where the bars do in the rows above
 rather than straight after its name, and the name column stays one width.
 
+### `LeadContract`
+
+`packages/ui/src/design/patterns/lead-contract.tsx`
+
+A decision's details are ordinary assistant prose; its controls live in the dock.
+Explicit navigation scrolls these details and focuses the dock. An absent plan
+offers only a needed-decision sentence, with no action that cannot reach it.
+
 ## Known drift
 
 The app predates this system. These are the places it has not caught up, counted
@@ -2824,8 +2924,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 4 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
-| `pageMeasureInScreen` | 17 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2038 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `pageMeasureInScreen` | 16 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 2017 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
 ## Screens against the standard
 

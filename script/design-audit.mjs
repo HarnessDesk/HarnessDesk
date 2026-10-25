@@ -1976,6 +1976,7 @@ for (const importer of [...screenSources, ...appSources]) {
  */
 export const NAMED_ROOTS = new Map([
   [path.join(UI_SRC, 'components', 'Conversation.tsx'), 'conversation'],
+  [path.join(UI_SRC, 'components', 'LeadPage.tsx'), 'conversation'],
   [path.join(UI_SRC, 'components', 'Settings.tsx'), 'settings'],
   [path.join(UI_SRC, 'components', 'TeamRoomPane.tsx'), 'room'],
   [path.join(UI_SRC, 'components', 'TeamBoardPane.tsx'), 'room'],
@@ -2306,7 +2307,7 @@ const ICON_MODULES = new Set([
 // The thumbnail draws policy roles, branches and loops from flow-layout, not
 // glyphs. Name its exact module only for SVG admission: FlowCard's controls
 // and appearance remain subject to the ordinary pattern gates.
-const SVG_DATA_GEOMETRY_MODULES = new Set(['design/patterns/FlowCards.tsx'])
+const SVG_DATA_GEOMETRY_MODULES = new Set(['design/patterns/FlowCards.tsx', 'design/patterns/QrCode.tsx'])
 export const allowsInlineSvg = (module) =>
   ICON_MODULES.has(path.basename(module)) || SVG_DATA_GEOMETRY_MODULES.has(module)
 
@@ -4420,13 +4421,6 @@ export const isPatternModule = (module) => /[\\/]design[\\/]patterns[\\/]/.test(
  * any part of that contract changes.
  */
 export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
-  {
-    module: 'design/ui/timeline.tsx',
-    kind: 'data-geometry',
-    exports: ['Timeline'],
-    area: 'room',
-    reason: 'An ordered execution data view: title-centred rings and incoming rail segments encode recorded progress. Existing Button and Text own selection and typography; the timeline introduces no independent control.',
-  },
 
   {
     module: 'design/ui/chart.tsx',

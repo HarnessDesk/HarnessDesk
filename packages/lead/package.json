@@ -1,0 +1,34 @@
+{
+  "name": "@harnessdesk/lead",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Portable Lead contracts and injected management ports.",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./supervisor": {
+      "types": "./dist/src/supervisor.d.ts",
+      "default": "./dist/src/supervisor.js"
+    }
+  },
+  "dependencies": {
+    "@harnessdesk/client": "workspace:*",
+    "@harnessdesk/protocol": "workspace:*",
+    "ws": "^8.22.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test dist/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
+  }
+}

@@ -1,12 +1,3 @@
-.shell {
-  max-width: var(--hd-column);
-  margin: 0 auto;
-}
-
-.anchor {
-  position: relative;
-}
-
 .tiles {
   gap: var(--hd-space-2-5);
 }

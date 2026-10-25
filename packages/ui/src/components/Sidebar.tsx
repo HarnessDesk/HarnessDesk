@@ -1,3 +1,4 @@
+import { LeadSidebarEntry } from './LeadSidebarEntry'
 import { describeStrip, type StripMeter } from '../lib/plan-strip'
 import { SidebarUpdate } from './SidebarUpdate'
 import { LeftColumnModeHead } from '../design'
@@ -100,7 +101,7 @@ export const Sidebar = ({
   settings?: { section: Section; onSection: (section: Section) => void; onBack: () => void }
   listFilter?: { value: string; onChange: (value: string) => void }
   sessionsOwner?: boolean
-  activeDestination?: 'teams' | 'flows' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
+  activeDestination?: 'teams' | 'flows' | 'agents' | 'library' | 'plugins' | 'dashboard' | 'lead' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -175,6 +176,7 @@ export const Sidebar = ({
         menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) { void store.loadWorktrees(); if (snapshot.workspace) void store.refreshWorkspaceGit(snapshot.workspace.path) } },
           content: close => <WorktreeItems close={close} onBrowseFolders={onBrowseFolders} onChoose={() => { store.returnToWork(); setStarting(true) }} /> }} />
       <LeftColumnGroup label="Main sections" heading={false}>
+        {snapshot.leadAvailable && <LeadSidebarEntry selected={activeDestination === 'lead'} />}
         {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
           selected={activeDestination === door.id || (door.id === 'library' && activeDestination === 'plugins')} onClick={door.run}
           title={door.id === 'agents' && agentsBroken ? 'Agents, some unavailable' : door.label}

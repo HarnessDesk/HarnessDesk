@@ -1,10 +1,13 @@
+import { createAccountLinkState } from './account-link'
 import { isChatFolder, readChatsPreferences, recentWorkspace } from '../lib/chats'
 import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
 import { browserProfileSession, isBrowserProfile, sessionBrowserProfile, recommendedOptionValues, refuseOptionValue } from '@harnessdesk/protocol'
+import { createLeadState } from './lead'
+import { createPhoneState } from './phone'
 import { readDiffPrefs } from '../editor'
 import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
 import { filePathInRoot } from '../lib/file-link'
-import { destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
+import { availableDestinationHistory, destinationAvailable, destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
 import { emptyLibraryView, type LibraryViewSection, type LibraryViewState } from './library-views'
 import { FRAME } from '../design/frame'
 import { terminalCwdForSnapshot } from '../lib/terminal-scope'
@@ -618,6 +621,10 @@ export class AppStore {
   }
 
   readonly transport: Transport
+  readonly lead: ReturnType<typeof createLeadState>
+  readonly accountLink: ReturnType<typeof createAccountLinkState>
+  readonly phone: ReturnType<typeof createPhoneState>
+  #leadCapabilityEpoch = 0
 
   constructor(url = transportUrl()) {
     this.drafts = new Drafts(undefined, {
@@ -632,6 +639,9 @@ export class AppStore {
           this.#harnessDeskAccountRevision += 1
           this.#patch({ harnessDeskAccount: notification.params.status })
         }
+        this.lead.changed(notification)
+        this.phone.changed(notification)
+        this.accountLink.changed(notification)
         if (notification.method === 'provenance/changed') {
           const { project, revision, health } = notification.params
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
@@ -952,16 +962,26 @@ export class AppStore {
       onStatus: (status) => {
         const previous = this.#snapshot.status
         if (status !== 'open') {
+          this.#leadCapabilityEpoch += 1
           this.#captureEpoch += 1
           this.#flowGeneration += 1
-          this.#patch({ status, captureHealth: new Map(), provenanceRevision: new Map() })
+          this.#patch({ status, leadAvailable: false, captureHealth: new Map(), provenanceRevision: new Map() })
+          this.lead.reset()
+          this.phone.reset()
+          this.accountLink.reset()
+          this.#patch({ accountLinkAvailable: false })
         } else {
           this.#patch({ status })
+          if (previous === 'reconnecting') void this.#refreshLeadAvailability()
           if (previous !== 'open') void this.loadCaptureHealth().catch(() => {})
           if (previous === 'reconnecting') void this.loadHarnessDeskAccount()
         }
       },
     })
+    this.lead = createLeadState(this.transport, () => this.#snapshot.leadAvailable)
+    this.accountLink = createAccountLinkState(this.transport)
+    this.phone = createPhoneState(this.transport)
+    this.phone.subscribe(() => { const phoneLink = this.phone.state.enabled; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
     this.#watchWindowWidth()
   }
 
@@ -1016,9 +1036,26 @@ export class AppStore {
     await this.#updateHarnessDeskAccount(() => this.transport.request('account/unlinkPhone', { deviceId }))
   }
 
+  /** Optional destinations are read only after the host advertises them. */
+  #readAccountLink(on: boolean): void {
+    this.#patch({ accountLinkAvailable: on })
+    if (on) void this.accountLink.refresh(); else this.accountLink.reset()
+  }
+
+  #readPhoneLink(on: boolean): void { if (on) void this.phone.refresh().catch(() => {}); else this.phone.reset() }
+
+  async #refreshLeadAvailability(): Promise<void> {
+    const epoch = this.#leadCapabilityEpoch
+    try {
+      const hello = await this.transport.request('host/hello', { clientVersion: '0.1.0' })
+      if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') { this.#patch({ leadAvailable: hello.capabilities?.lead === true }); this.#readPhoneLink(hello.capabilities?.phone === true); this.#readAccountLink(hello.capabilities?.accountLink === true) }
+    } catch { /* Remain disabled until the host can prove the capability. */ }
+  }
+
   async connect(): Promise<void> {
     this.transport.connect()
     await this.#waitForOpen()
+    const capabilityEpoch = this.#leadCapabilityEpoch
     const hello = await this.transport.request('host/hello', { clientVersion: '0.1.0' })
     this.#patch({
       runtimes: hello.runtimes,
@@ -1027,7 +1064,10 @@ export class AppStore {
       home: hello.home,
       stateDir: hello.stateDir,
       goalMigrationPending: hello.goalMigrationPending,
+      leadAvailable: capabilityEpoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open' && hello.capabilities?.lead === true,
     })
+    this.#readPhoneLink(hello.capabilities?.phone === true)
+    this.#readAccountLink(capabilityEpoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open' && hello.capabilities?.accountLink === true)
     // The local index does not wait for an agent or its account catalogue.
     const history = this.loadHistory({ reset: true })
     // Preferences first: they may restore the runtime the user last worked
@@ -1350,12 +1390,14 @@ export class AppStore {
   #conversationWorkspaceSource: { navigation: number; path: string | null; workbench: Workbench } | null = null
 
   openDestination(page: PageDestination): void {
+    if (!destinationAvailable(page, this.#snapshot.leadAvailable)) return
     this.#navigationEpoch += 1
     this.#setWorkbench({ ...this.#snapshot.workbench,
       navigation: visitDestination(this.#snapshot.workbench.navigation, page) })
     this.closeFloatingSidebar()
   }
   replaceDestination(page: PageDestination): void {
+    if (!destinationAvailable(page, this.#snapshot.leadAvailable)) return
     this.#navigationEpoch += 1
     this.#setWorkbench({ ...this.#snapshot.workbench,
       navigation: visitDestination(this.#snapshot.workbench.navigation, page, true) })
@@ -4457,7 +4499,7 @@ export class AppStore {
   #restoreLayout(workspace: string | null, selected?: { workspace: WorkspaceEntry; conversation: SessionKey }): void {
     this.#navigationEpoch += 1
     const raw = workspace ? this.#layouts?.[workspace] : null
-    const saved = readWorkbench(raw, this.#snapshot.windowHeight)
+    const saved = readWorkbench(raw, this.#snapshot.windowHeight, this.#snapshot.leadAvailable)
     // Pages belong to the project they were opened for: a browser closed in
     // one workspace must not reappear in the next one.
     this.#closedBrowsers.clear()
@@ -8725,6 +8767,11 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
+    const navigation = availableDestinationHistory(next.workbench.navigation, () => {
+      const view = focusedPane(next.workbench.main).view
+      return destinationOf(view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null })
+    }, next.leadAvailable)
+    if (navigation !== next.workbench.navigation) next.workbench = { ...next.workbench, navigation }
     next.inbox = this.#teamInbox.reconcile(next, this.#snapshot)
     next.foldersGone = roomFoldersGone(next.foldersGone, this.#snapshot.teams, patch.teams)
     if (patch.windowMode !== undefined || patch.workbench !== undefined) {

@@ -1,4 +1,8 @@
 import { harnessDeskAccountMethods } from './account.js'
+import { accountLinkMethods } from './account-link.js'
+import { leadMethods } from './lead.js'
+import { phoneMethods } from './phone.js'
+import { phoneWorkspaceMethods } from './phone-workspace.js'
 import type { HostMethodName, HostParams, HostResult } from '@harnessdesk/protocol'
 
 import { clientMethods } from './client.js'
@@ -58,6 +62,10 @@ export { TERMINAL_CHIP } from './plugins.js'
  */
 export const hostMethods: HostMethodTable = {
   ...clientMethods,
+  ...leadMethods,
+  ...accountLinkMethods,
+  ...phoneMethods,
+  ...phoneWorkspaceMethods,
   ...appMethods,
   ...runtimeMethods,
   ...runtimeExtensionMethods,
@@ -97,6 +105,10 @@ export const hostMethods: HostMethodTable = {
  */
 export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   clientMethods,
+  leadMethods,
+  accountLinkMethods,
+  phoneMethods,
+  phoneWorkspaceMethods,
   appMethods,
   runtimeMethods,
   runtimeExtensionMethods,

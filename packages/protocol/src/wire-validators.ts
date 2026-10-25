@@ -1,3 +1,4 @@
+import { parseLeadActionInput, parseLeadCardDecision, parseLeadEmpty, parseLeadResume, parseLeadSettingsUpdate, parseLeadSteerInput, parseLeadScheduleUpdate, parseLeadMemoryUpdate, parseLeadThreadSend } from './lead.js'
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import { AUTHORING_AGENT_LIMIT, SHAPE_LAYOUT_SIZE_LIMIT, type AgentFieldEdit, type AuthoringTarget, type StartContext, type WritableAuthoringTarget } from './authoring.js'
 import type { ApprovalDecision } from './approval.js'
@@ -34,6 +35,7 @@ import {
 } from './validate.js'
 import type { EditorEvent } from './editor.js'
 import type { FlowPermission, FlowSeat, FlowThen } from './flow.js'
+import { flowSeatValidator } from './flow-seat.js'
 import type { FlowAgentRole, FlowEvidenceGuard, FlowPolicy, FlowPolicyRole, FlowPolicyRule } from './flow-policy.js'
 import type { UserContent } from './items.js'
 import type { LibraryIntent, LibraryPlannedOp } from './library.js'
@@ -179,18 +181,6 @@ const noColonRuntime: Validator<string> = (value, path = '') => {
 }
 const planRuntime = atMost(200, noColonRuntime)
 const planAccount = atMost(256, isFilled)
-
-/**
- * A seat as a map — `{ runtime, model, effort, thinking }` — the shape a seat
- * spec parses to. Checked field by field because it is handed to the seating
- * as it arrives, and a seat's runtime is what names the conversation opened.
- */
-const flowSeatValidator = shape({
-  runtime: isFilled,
-  model: optional(isString),
-  effort: optional(isString),
-  thinking: optional(isBoolean),
-}) as Validator<FlowSeat>
 
 /**
  * The permissions a seating may grant. Keyed by `FlowPermission`, so a fourth
@@ -792,6 +782,7 @@ const triggerSlug: Validator<string> = (value, path = '') => {
 const triggerOpensValidator: Validator<TriggerDefinition['opens']> = (value, path = '') => {
   const record = isObject(value, path)
   const keys = Object.keys(record)
+  if (keys.length === 1 && keys[0] === 'lead' && record['lead'] === true) return { lead: true }
   if (keys.length !== 1 || (keys[0] !== 'flow' && keys[0] !== 'agent')) throw new ValidationError(path, 'expected { flow: id } or { agent: id }')
   const key = keys[0] as 'flow' | 'agent'
   const id = triggerSlug(record[key], `${path}.${key}`)
@@ -800,6 +791,7 @@ const triggerOpensValidator: Validator<TriggerDefinition['opens']> = (value, pat
 const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
   const record = isObject(value, path)
   const kind = record['kind']
+  if (!Array.isArray(record['events']) || record['events'].length === 0 || new Set(record['events']).size !== record['events'].length) throw new ValidationError(`${path}.events`, 'expected a nonempty list without duplicates')
   if (kind === 'schedule') {
     const events = flowWordList(1, literalUnion('tick'))(record['events'], `${path}.events`)
     const everyMinutes = goalInteger(1)(record['everyMinutes'], `${path}.everyMinutes`)
@@ -807,7 +799,7 @@ const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
     return { kind: 'schedule', events: ['tick'] as const, everyMinutes }
   }
   if (kind === 'pull-request') {
-    return { kind: 'pull-request', events: flowWordList(2, literalUnion('opened', 'pushed'))(record['events'], `${path}.events`) }
+    return { kind: 'pull-request', events: flowWordList(4, literalUnion('opened', 'pushed', 'checks-failed', 'review-commented'))(record['events'], `${path}.events`) }
   }
   if (kind === 'issue') {
     return { kind: 'issue', events: flowWordList(3, literalUnion('labelled', 'closed', 'commented'))(record['events'], `${path}.events`) }
@@ -844,6 +836,7 @@ const triggerDefinitionValidator: Validator<TriggerDefinition> = goalShape({
 }) as Validator<TriggerDefinition>
 const triggerDefinitionsValidator: Validator<TriggerDefinition[]> = (value, path = '') => {
   const definitions = arrayOf(triggerDefinitionValidator)(value, path)
+  if (definitions.some(one => 'lead' in one.opens && one.again !== null)) throw new ValidationError(path, 'A Lead trigger drafts a plan for approval and cannot name again.')
   if (definitions.length > 64) throw new ValidationError(path, 'expected at most 64 triggers')
   return definitions
 }
@@ -987,6 +980,7 @@ const planBudgetInputValidator = shape({
   currency: isString,
 })
 
+const phoneTier = literalUnion('read', 'run', 'answer')
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'account/status': shape({}),
   'account/signIn': shape({}),
@@ -1006,6 +1000,35 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   } }),
   'account/setReachable': shape({ reachable: isBoolean }),
 
+  'account/link/state': parseLeadEmpty,
+  'account/link/start': parseLeadEmpty,
+  'account/link/cancel': parseLeadEmpty,
+  'phone/state': parseLeadEmpty,
+  'phone/pairing': parseLeadEmpty,
+  'phone/allow': shape({ id: isString, tiers: optional(arrayOf(phoneTier)) }),
+  'phone/deny': shape({ id: isString }),
+  'phone/revoke': shape({ device: isString }),
+  'phone/sessions/list': shape({ state: optional(literalUnion('running', 'needs-you', 'done', 'archived')), limit: optional(isNumber), cursor: optional(isString) }),
+  'phone/teams/list': shape({ limit: optional(isNumber) }),
+  'phone/dashboard/read': shape({ range: optional(literalUnion('today', '7d', '30d')) }),
+  'workspace/read': parseLeadEmpty,
+  'workspace/thread/read': shape({ id: isString }),
+  'workspace/approval/decide': shape({ id: isString, session: isString, allow: isBoolean, scope: optional(literalUnion('once', 'session')) }),
+  'lead/thread/read': parseLeadEmpty,
+  'lead/thread/send': parseLeadThreadSend,
+  'lead/card/decide': parseLeadCardDecision,
+  'lead/action/perform': parseLeadActionInput,
+  'lead/settings/read': parseLeadEmpty,
+  // This parser admits only dex/lex for name; the owner keeps credentials exclusive.
+  'lead/settings/update': parseLeadSettingsUpdate,
+  'lead/stop': parseLeadResume,
+  'lead/resume': parseLeadResume,
+  'lead/steer': parseLeadSteerInput,
+  'lead/wakes/read': parseLeadEmpty,
+  'lead/schedule/read': parseLeadEmpty,
+  'lead/schedule/update': parseLeadScheduleUpdate,
+  'lead/memory/read': parseLeadEmpty,
+  'lead/memory/update': parseLeadMemoryUpdate,
   'provenance/commits': shape({ root: provenanceRoot, shas: provenanceShas }),
   'provenance/status': shape({ root: provenanceOptionalRoot }),
   'provenance/capture': shape({ root: provenanceRoot, enabled: isBoolean }),

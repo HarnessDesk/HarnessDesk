@@ -899,6 +899,8 @@
   margin-bottom: var(--hd-space-1-5);
 }
 
+/* A group inset in another card inherits that card's surface. */
+
 /* In a dialog the form stack spaces its cards. */
 .rows[data-context='dialog'] {
   margin-bottom: 0;
@@ -1208,6 +1210,12 @@
 
 .monoInherit {
   font-size: inherit;
+}
+
+.monoDisplay {
+  font-size: var(--hd-heading);
+  line-height: var(--hd-line-heading);
+  user-select: text;
 }
 
 .monoBlock {

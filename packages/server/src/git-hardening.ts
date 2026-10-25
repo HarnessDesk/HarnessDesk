@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+const execute = promisify(execFile)
+
 /**
  * The floor for git the host runs on its own in a checkout an agent can write
  * to (#1074): evidence reads, status, the lane a flow cuts, `commit_work`.
@@ -81,3 +83,14 @@ export const automaticMutationConfig = async (cwd: string, args: readonly string
   args.includes('worktree') && args.includes('remove')
     ? [...HARDENED_GIT_CONFIG, ...await gitFiltersOff(cwd, options)]
     : HARDENED_GIT_CONFIG
+/** Read the configured destination without applying url.* rewrite rules. */
+export const rawPushUrl = async (cwd: string, remote: string): Promise<string> => {
+  const read = async (key: string) => {
+    try { return (await execute('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, 'config', '--get-all', key], { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 })).stdout.trim() }
+    catch (error) { if ((error as { code?: number }).code === 1 && !(error as { stderr?: string }).stderr?.trim()) return ''; throw error }
+  }
+  return await read(`remote.${remote}.pushurl`) || await read(`remote.${remote}.url`)
+}
+
+export const githubRepositoryFromUrl = (url: string): string | null =>
+  /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/.exec(url)?.[1] ?? null

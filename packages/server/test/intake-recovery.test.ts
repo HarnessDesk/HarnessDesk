@@ -6,6 +6,9 @@ import { test } from 'node:test'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { git } from './fixtures/flow-host-evidence.js'
 import { child, onDisk, prFact, sha, type CrashAt } from './fixtures/intake-restart.js'
+import { ForgeSource } from '../src/intake/forge.js'
+import { SourceCursors } from '../src/intake/poll.js'
+import { FakeForge, iso } from './fixtures/intake-forge.js'
 import { tempDir } from './scratch.js'
 
 /*
@@ -114,4 +117,40 @@ test('offline Intake recovery refuses a fetch interrupted before its pin was jou
   assert.equal(after.rounds.length, 0)
   assert.equal(count(after.events, 'open:') + count(after.events, 'order:'), 0)
   assert.deepEqual((await journal(home)).operations, [], 'Intake records the refusal instead of retrying forever')
+})
+
+
+test('deferred review authors survive cursor reload and a permission outage', async () => {
+  const at = Date.UTC(2026, 8, 1, 10)
+  const home = tempDir('hd-intake-review-replay-')
+  const forge = new FakeForge()
+  forge.pulls.push({ number: 1, head: sha('a'), state: 'open', created: at - 3_600_000, updated: at - 3_600_000 })
+  const reader = () => new ForgeSource({ run: forge.runner, now: () => at + 60_000 })
+  const signal = new AbortController().signal
+  const baseline = await new ForgeSource({ run: forge.runner, now: () => at }).inventory('/work/project', 'pull-request', 'acme/widgets', signal)
+  forge.pulls[0]!.reviews = [7, 42].map((id) => ({ id, commit_id: sha('a'), body: 'Please fix this.', state: 'COMMENTED', submitted_at: iso(at + 1000), user: { id, login: `reviewer-${id}` } }))
+  forge.permissions.set('reviewer-7', { id: 99, permission: 'write' })
+  forge.permissions.set('reviewer-42', { id: 42, permission: 'write' })
+  const options = { watches: [{ number: 1, checks: false, reviews: true }] }
+  const pending = await reader().poll('/work/project', baseline, signal, options)
+  assert.equal(pending.facts.length, 0)
+  await new SourceCursors(home).commit('pr', pending.next)
+  const loaded = await new SourceCursors(home).read('pr')
+  assert.deepEqual(loaded, pending.next)
+  forge.fail = (path) => path.includes('/permission') ? { exitCode: 1, stderr: 'HTTP 429' } : null
+  await assert.rejects(reader().poll('/work/project', loaded!, signal, options), /rate limit/)
+  assert.deepEqual(await new SourceCursors(home).read('pr'), loaded)
+  forge.fail = null
+  const refused = await reader().poll('/work/project', loaded!, signal, options)
+  assert.equal(refused.facts.length, 0, 'a permission answer naming another numeric id never counts')
+  const verified = await reader().poll('/work/project', refused.next, signal, options)
+  assert.equal(verified.facts.length, 0, 'the body is reread only after permission succeeds')
+  await new SourceCursors(home).commit('pr', verified.next)
+  const bodyPending = await new SourceCursors(home).read('pr')
+  assert.deepEqual(bodyPending, verified.next)
+  const accepted = await reader().poll('/work/project', bodyPending!, signal, options)
+  const replay = await reader().poll('/work/project', bodyPending!, signal, options)
+  assert.equal(accepted.facts.length, 1)
+  assert.equal(accepted.facts[0]?.authorWrites, true)
+  assert.deepEqual(replay.facts, accepted.facts)
 })

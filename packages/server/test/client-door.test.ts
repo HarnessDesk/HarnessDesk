@@ -1057,3 +1057,36 @@ test('a missing card keeps its structured refusal through the client door', asyn
   assert.equal(reply.error.code, 'cardMissing')
   assert.equal(reply.error.message, 'There is no card #999 on this board.')
 })
+
+test('a host-only connection maximum is immutable and intersects live grants after hello', async t => {
+  const { h, home, directory, door, module } = await rig(t)
+  await door.close()
+  const maximum: import('@harnessdesk/protocol').ClientTier[] = ['read']
+  const options = { host: h.host, logger: silent, home, directory, hostVersion: 'test',
+    policy: { identity: 'synthetic-restricted', maximumTiers: maximum, authorize: async () => null } }
+  const restricted = await module.openClientDoor(options)
+  assert.ok(restricted)
+  t.after(() => restricted.close())
+  const peer = await Peer.open(restricted.socketPath)
+  t.after(() => peer.socket.close())
+  assert.deepEqual((await peer.hello()).result.tiers, ['read'])
+  maximum.push('run', 'answer')
+  await h.host.call('app/state/set', { patch: { clientsMayAnswer: true } })
+  assert.deepEqual((await peer.hello()).result.tiers, ['read'])
+  assert.equal((await peer.call('workspace/open', { path: home })).error.code, 'tierNotGranted')
+  assert.equal((await peer.call('goal/list', {})).ok, true)
+  h.host.clientTiers = () => []
+  assert.equal((await peer.call('goal/list', {})).error.code, 'tierNotGranted')
+})
+
+test('a connected outside client cannot call any Lead window control even with answer tier', async t => {
+  const { door } = await rig(t)
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  for (const method of ['lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume']) {
+    const result = await peer.call(method, {})
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'notOnClientSurface')
+  }
+})

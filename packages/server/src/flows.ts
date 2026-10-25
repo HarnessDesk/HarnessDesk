@@ -322,6 +322,14 @@ export class Flows implements TeamFlows {
     await this.#executions?.wakeEvidence(goal)
   }
 
+  prepareLeadRepair(op: { readonly runId: string; readonly teamId: string; readonly key: string; readonly round: number; readonly detail?: string }): Promise<FlowRoundState> {
+    if (!this.#executions) throw new Error('lead-repair-unavailable')
+    return this.#executions.prepareLeadRepair(op)
+  }
+  releaseLeadRepair(op: { readonly runId: string; readonly key: string }): Promise<void> {
+    if (!this.#executions) throw new Error('lead-repair-unavailable')
+    return this.#executions.releaseLeadRepair(op)
+  }
   openRound(run: string, then: FlowThen, cause: { key: string; evidence: readonly string[] }): Promise<FlowRoundState> {
     if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
     return this.#executions.openRound(run, then, cause)
@@ -409,6 +417,12 @@ export class Flows implements TeamFlows {
     if (!this.#executions) throw new Error('There is no flow execution.')
     return this.#executions.previewCheck(run, card)
   }
+
+  /** Host-only ownership facts; never returned by a wire method. */
+  leadRuns(): readonly StoredFlowExecution[] {
+    return (this.#executions?.runs() ?? []).flatMap(run => { const stored = this.#executions!.stored(run.id); return stored?.lead ? [stored] : [] })
+  }
+  isLeadManaged(run: string): boolean { return this.#executions?.stored(run)?.lead !== undefined }
 
   storedRun(run: string): { readonly source: string; readonly vars: Readonly<Record<string, string>>; readonly compiled: CompiledFlow } | null {
     const stored = this.#executions?.stored(run)
