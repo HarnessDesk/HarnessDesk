@@ -632,16 +632,21 @@ test.describe('preview coverage', () => {
     })
 
     for (const query of ['lead-synthetic=first-name', 'lead-synthetic=opening-jobs', 'lead-synthetic=wake-ledger', 'desk-account=pending', 'desk-account=settings']) test(`coverage Lead and account scene: ${query}`, async () => {
-      const page = getPage()
-      await page.goto(`/preview.html?${query}`)
-      await settleCoveragePage(page)
-      for (const component of (await collectCoverage(page)).covered) covered.add(component)
-      if (query === 'desk-account=settings') {
-        await page.getByRole('button', { name: 'Sign out…', exact: true }).click()
-        await expect(page.getByRole('alertdialog', { name: 'Sign out of HarnessDesk?' })).toBeVisible()
+      test.setTimeout(360_000)
+      // These app scenes own timers and subscriptions. Give each its own context
+      // rather than retaining them on the inventory's long-lived page.
+      const page = await getPage().context().browser()!.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' })
+      try {
+        await page.goto(new URL(`/preview.html?${query}`, getPage().url()).href)
+        await settleCoveragePage(page)
         for (const component of (await collectCoverage(page)).covered) covered.add(component)
-        await page.getByRole('button', { name: 'Keep signed in', exact: true }).click()
-      }
+        if (query === 'desk-account=settings') {
+          await page.getByRole('button', { name: 'Sign out…', exact: true }).click()
+          await expect(page.getByRole('alertdialog', { name: 'Sign out of HarnessDesk?' })).toBeVisible()
+          for (const component of (await collectCoverage(page)).covered) covered.add(component)
+          await page.getByRole('button', { name: 'Keep signed in', exact: true }).click()
+        }
+      } finally { await page.context().close() }
     })
 
     test(`coverage page 2`, async () => {
