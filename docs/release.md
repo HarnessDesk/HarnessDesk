@@ -187,7 +187,7 @@ git rev-parse <branch-sha>^{tree}
 git rev-parse origin/main^{tree}
 ```
 
-Equal trees mean the squash merge changed no bytes — what CI is checking and
+Equal trees mean the merge commit changed no bytes — what CI is checking and
 what you're about to build and sign are the same tree.
 
 After the release PR is merged, use its merged result on `main` for all build,

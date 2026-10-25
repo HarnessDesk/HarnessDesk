@@ -140,19 +140,21 @@ occupies the middle slot of the window — the space a conversation would
 otherwise take — because whenever a room is open, it represents the active
 work.
 
-A room has three destinations reachable from its own navigation rail:
-- **Board**: the shared task list, file ownership, and dependencies.
+A Team has three tabs in its header:
+- **Work**: the Run — where it stands, what it has done, and what needs you.
+- **Tasks**: the shared task list, file ownership, and dependencies.
 - **Chat**: the unified chronological channel of inter-agent messages, user
   posts, and board signals.
-- **Members**: each member conversation, openable directly as a column inside
-  the room.
+
+Its members — **Seats** — are listed in the details rail beside it, each
+openable directly as a column inside the Team.
 
 ### Projects and rooms
 
 A project holds as many rooms as your work requires, the same way it holds
 conversations. Each room owns its own board, channel, and roster, reaching its
 assigned members and no one else. Nothing creates a room implicitly: a room
-exists because someone selected *New session → A room* and named it. Being open
+exists because someone chose *New Team…* (⇧⌘N) and started it. Being open
 in a folder is not membership — a conversation joins a room by being added to
 one, and a conversation in no room has no board, which is the right answer for
 work being done alone.
@@ -193,7 +195,7 @@ this, not whether there is an active handle.*
 
 A member leaves a room in only two ways:
 
-1. You remove it explicitly via the member's card (*Take out of the room*),
+1. You remove it explicitly from the Seat's actions menu (*Remove from Team*),
    returning the conversation to the project's loose list.
 2. Its runtime explicitly confirms the conversation no longer exists: the agent
    cannot resume, its ID is unknown, or its directory was deleted. Alternatively,
@@ -308,11 +310,10 @@ Work is added to the board in three ways:
 
 | Flow | Who | How |
 | --- | --- | --- |
-| Quick intent | User | "Add work to the board" input in the header (title only). |
-| Full intent | User | Form beside header input: title, detail, files owned, dependencies, goal, and an initial member to notify. |
+| User intent | User | **New job** in the Tasks header opens "Add work to the board": what needs doing, detail, files it will own, what it waits for, and someone to ask to pick it up. |
 | Agent intent | Agent | `add_intent(title, detail?, files?, depends_on?)` tool call. |
 
-The full form exists because a single-line input in the board header previously
+The dialog exists because a single-line input in the board header previously
 prevented users from specifying `files` and dependencies. File ownership is the
 mechanism that makes concurrent edits in one repository safe, and the person
 adding work is usually the person who knows which directories it touches.
@@ -323,7 +324,7 @@ Selecting a member posts a message into the room naming the job; taking the
 claim remains the agent's choice. Finished work is excluded from dependency
 pickers so tasks do not begin in Waiting unnecessarily.
 
-**Demonstrated.** Three intents typed into the board's own input, each naming
+**Demonstrated** (before the header input became **New job**). Three intents typed into the board's own input, each naming
 the file it belongs to, then claimed by two different agents; and one added
 through the long form owning `src/server.js` and waiting on another, which put
 it in Waiting until that prerequisite finished.
@@ -578,8 +579,9 @@ Every message in the channel tracks an explicit delivery state:
 | `refused` | Undelivered due to policy, loop guard, closed target, or invalid address. | Rose chip with host refusal sentence. |
 | `shown` | The reply produced by an awakened agent, mirrored to the channel. | Appears in channel; never forwarded. |
 
-`held` is configured via **Settings › Plugins › Working together → How new
-conversations take messages**. `queued` occurs when the recipient is actively
+`held` is configured via **Customize › Plugins › Working together → How new
+conversations take messages**, or per Seat with *Accept messages*, *Hold
+messages* and *Refuse messages* in its actions menu. `queued` occurs when the recipient is actively
 executing a turn. If the host restarts while deliveries are in flight, any
 in-memory `queued` row becomes `refused` with an explicit reason rather than
 silently disappearing.
@@ -692,14 +694,15 @@ asked rather than globally intercepted, and this phase does not add a board
 
 ### Board-only mode
 
-Toggling **Board-only** in the room header disables inter-agent messaging.
-Calls to `agent_message` are rejected with *"this board is in board-only mode —
-claims and signals, no messages"*. The attempt is recorded as a refused row in
+Toggling **Board-only** in Chat's **Send to** menu disables inter-agent
+messaging. Calls to `agent_message` are rejected with *"Refused: this board is
+in board-only mode — claims and signals, no messages. The user can turn
+messaging on in Chat’s Send to menu."* The attempt is recorded as a refused row in
 the channel if **Record messages stopped by board-only** is enabled in settings.
 
 ### Configuration settings
 
-Configured in **Settings › Plugins › Working together**:
+Configured in **Customize › Plugins › Working together**:
 
 | Setting | Configuration Key | Function |
 | --- | --- | --- |
@@ -728,7 +731,7 @@ one `team/message` event from Cursor (delivered).
 
 ## 7. The Tool Reference
 
-The team surface provides eleven tools and one composer context chip, delivered
+The team surface provides twenty-one tools and one composer context chip, delivered
 through the projection layer to Codex as dynamic tools and to ACP agents via
 the MCP bridge:
 
@@ -749,6 +752,12 @@ the MCP bridge:
 | `get_team_status` | *(none)* | Returns the room roster: member names, models, runtime types, activity state (working/idle), and held claims. |
 | `agent_message` | `to` (required), `text` (required), `wake?` | Sends a message to a peer by nickname. `wake: false` queues for turn end; `wake: true` steers mid-turn where supported. |
 | `notify_person` | `where` (required: `inbox` or `composer`), `title` (required), `body?`, `task?` | Tells the person something outside the conversation. `inbox` keeps news for later, with `task` offered as "Start as a task"; `composer` asks for a decision on this conversation's own composer. Needs no room. At most five per conversation in ten minutes; the title is cut to 120 characters and the body to 600. The person's Settings › Notifications row "Messages from Agents" decides where it lands — where the Agent asks, the inbox only, or nowhere. |
+| `review_candidates` | `intent` (required) | Lists the observed predecessor revisions the caller may judge for the card it holds — each an id, its exact revision, and what has been observed of it. The only source of a revision to review. |
+| `record_review` | `intent`, `candidate`, `verdict` (required), `against?` | Records a structured judgment of one candidate; `verdict` must be one of the card's accepted answers. This, not the completion's outcome, is what a merge or advance step reads where a review is required. `against` takes full commit ids only. |
+| `raise_finding` | `intent`, `candidate`, `request`, `title`, `body`, `category`, `blocking` (required), `related?`, `anchor?` | Records one finding in the findings ledger. `request` is the caller's own token, so a retry with the same words is the same finding; `category` is `ordinary`, `regression` or `security`. |
+| `repair_finding` | `intent`, `finding`, `request`, `expected`, `note` (required) | Claims a finding repaired at the checkout's committed head; uncommitted changes are refused. The finding stays open and blocking until the reviewer that raised it confirms. |
+| `decide_finding` | `intent`, `candidate`, `finding`, `request`, `expected`, `state`, `note` (required) | Lets the Agent that raised a finding judge it: `repaired` confirms, `open` says it is still wrong, `withdrawn` takes it back with a reason. A confirmed finding never reopens. |
+| `list_findings` | `intent` (required), `filter?` | The Goal's findings for the card held — id, title, state, whether it blocks, its sequence, and which are the caller's own to decide now. `filter` is `all`, `open` or `blocking`; more than 200 is refused rather than cut short. |
 
 **Context chip**:
 - **Team board**: attaches the current board summary (intents, claims, holders)
@@ -887,8 +896,8 @@ change it needs, rather than waiting on something that will not come.
 
 **Budgets, the daily cap, and unattended ceilings.** Each Goal a trigger opens
 reserves its whole USD budget against the machine's daily cap the moment it
-opens; the cap is set in Settings › Workspaces under "Triggers on this Mac,"
-in UTC days, alongside what is reserved and charged today — an unreadable
+opens; the cap is set under "Triggers on this Mac" in Flows › Manage
+triggers…, in UTC days, alongside what is reserved and charged today — an unreadable
 charge reads as unknown, never zero, and unknown or stale spend refuses
 further unattended dispatch rather than guessing. "Pause every trigger" stops
 watching every source and holds the work triggers started — its turns and
@@ -905,7 +914,10 @@ so the Goal reads Needs you and never Running over nothing. A budget reached is 
 stop: recorded, the run stopped and every Seat it lets go interrupted, so no
 turn outlives it; a check stopped part-way is left for a person, never run
 again on its own, so a check round a pause stopped waits for a person after
-resuming. Money here is an observed stop threshold, never an
+resuming. The stop's cleanup — holding the run, interrupting its turns — is
+saved before it starts and retried until it succeeds, across a restart too;
+until it finishes the run keeps saying why it stopped, and a paused Flow does
+not dispatch again until it has. Money here is an observed stop threshold, never an
 invoice: a turn already running can spend past the limit before its meter
 reports and the stop takes effect. Permissions › Ceilings carries a second,
 independent policy for exactly this case — what a Goal a trigger opened does
@@ -986,9 +998,9 @@ In the spirit of honest documentation:
 - **Channel token spend**: the channel does not yet display an estimated token
   spend counter in its footer; per-turn token spend is visible in each member's
   conversation column.
-- **In-UI inbound controls and per-pair mute**: inbound delivery policies
-  (`accept`, `hold`, `refuse`) are configured globally in plugin settings;
-  per-conversation toggles and per-pair mute are not yet exposed on room cards.
+- **Per-pair mute**: inbound delivery policies (`accept`, `hold`, `refuse`)
+  are set globally in plugin settings and per Seat from its actions menu, but
+  muting one pair of members is not yet exposed.
 - **Delegation accounting across all bridges**: Cursor's bridge and DSH's own
   ACP server do not yet implement the delegation extension, so delegated
   subagent token counts cannot be broken out on those runtimes.

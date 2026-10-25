@@ -83,7 +83,7 @@ them in `docs/decisions.md`.
     every one of them enforced by `node script/design-audit.mjs --strict`:
     - Never import another screen's `*.module.css`. If two screens need the
       same thing, it belongs in `design/ui` or a named `design/patterns` contract.
-      Six existing screen families retain exactly eleven additional co-owners,
+      Three existing screen families retain exactly five additional co-owners,
       capped by `STYLESHEET_OWNERS` in `script/design-audit.mjs`. Their
       `@design-owners` comments document membership but cannot authorize another
       importer. Expanding that debt requires changing this rule and the fixed
@@ -101,9 +101,13 @@ them in `docs/decisions.md`.
       varies. Redefining `--hd-*` is that file's entire job.
     - Never hand-roll an overlay. `Dialog` already answers where the buttons
       go, what Escape does, what a click outside does, and where focus
-      returns. Four surfaces are deliberately not dialogs — Approvals, the
-      command palette, Sign in, AppWindow — and that number is a ceiling you
-      may raise on purpose.
+      returns. Approvals, the command palette and Sign in are built from the
+      same canonical dialog components `design` exports. Only `design/ui` and
+      `design/patterns` may compose the low-level parts (`DialogPopup`,
+      `DialogOverlay`, `DialogViewport`, `DialogPortal` and their `AlertDialog`
+      forms) or write `role="dialog"` or `aria-modal`; no screen is exempt
+      (`overlayViolations` in `script/ui-architecture.mjs`). A new kind of
+      overlay is a new pattern there, not a screen of its own.
     - Never draw an icon in place. It belongs in `components/Icons.tsx`, or
       `BrandIcons.tsx` for a brand mark, and is imported from there. A chart,
       a sparkline or an illustration is **not** an icon and does not go there.
@@ -232,7 +236,9 @@ a release.
 Ordinary pull requests run core CI only in the bounded tier: build, typecheck,
 Node tests and end-to-end, UI unit tests, UI tests and gates. Browser shards,
 server-facing browser specs and native smoke run in the full tier: pushes to
-`main`, `batch/` pull requests, `full-ci` pull requests and manual dispatches.
+`main`, pull requests from `development` (the release PR), `batch/` pull requests,
+`full-ci` pull requests, and dispatched runs — manual and the nightly
+(`ciTier` in `script/ci-changes.mjs`).
 Local `check:push` still selects reached and edited specs with the PR geometry
 matrix; the CI summary lists that selection. Required check names stay fixed
 and accept intentional integration skips. The separate `CI tier: full` check

@@ -126,7 +126,7 @@ Set the steps, rules and triggers once, such as who checks, who reviews and what
   </picture>
 
 **See what each skill costs**<br/>
-Open a skill to see who loads it, where it came from and what it costs, then trim the dead weight. [Docs →](docs/interface.md#settings)
+Open a skill from Customize in the sidebar to see who loads it, where it came from and what it costs, then trim the dead weight. [Docs →](docs/interface.md#settings)
 
 </td>
 </tr>
@@ -183,7 +183,7 @@ Script it, or let your agent run it. [Docs →](docs/cli.md)
 
 ## Install
 
-Download the signed, notarized app for macOS 13+, Apple silicon or Intel, from the [latest release](https://github.com/HarnessDesk/HarnessDesk/releases/latest). It updates itself. Then bring an agent you already use: [getting started](docs/getting-started.md) covers each one.
+Download the signed, notarized app for macOS 13+, Apple silicon or Intel, from the [latest release](https://github.com/HarnessDesk/HarnessDesk/releases/latest). It updates itself. Then bring an agent you already use: [getting started](docs/getting-started.md) covers installing and signing in to the main ones, and how to add any other agent from the ACP registry or by its own command.
 
 **Build from source** with Node 22.19+ and pnpm 10:
 

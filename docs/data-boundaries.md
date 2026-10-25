@@ -25,9 +25,9 @@ transcripts rather than inferred from current configuration.
 
 ---
 
-## Local — the default, and today the only one
+## Local — the default, and today the only lane
 
-Nothing leaves. Agent credentials, API keys, vendor sessions, source, terminal
+Your work does not leave. Agent credentials, API keys, vendor sessions, source, terminal
 output, diffs, transcripts, browser state, the audit log, what the desk
 observed — every Seat it kept and every fact it recorded — an Agent's own
 declared skills and MCP servers, a person's local approval of an Agent-local
@@ -46,6 +46,11 @@ environment map, and never anything that was not already visible in the
 checkout the command runs in.
 
 **Retention:** yours. Deleting the folder deletes it.
+
+The app does ask the network a few questions of its own — whether a newer
+build exists, what a model costs, which agents the registry lists. None of
+them carries your work; each one is listed
+[below](#what-the-app-itself-asks-the-network-for).
 
 ### An armed trigger polls the same forge, on its own schedule
 
@@ -90,6 +95,70 @@ as complete.
 
 ---
 
+## What the app itself asks the network for
+
+Local is not the same as offline. Apart from the agents themselves, the forge
+reads above, and what you open yourself — a page in the browser pane, a
+`git fetch` from the Git panel — these are every request the desk makes on its own — read
+from the host's and the shell's network calls on 2026-10-25, not from memory.
+None of them carries source, a prompt, a transcript, a diff, or anything the
+desk observed. Each one fails quietly: an answer that does not come leaves the
+last good copy, or nothing, in its place.
+
+- **App updates.** The packaged app asks its release feed — the project's
+  GitHub releases — 30 seconds after launch, every four hours after that, and
+  whenever you choose **Check for Updates…**. The request is for the feed
+  itself; an update it names is downloaded and installs when you quit.
+  `HARNESSDESK_NO_UPDATE_CHECK=1` in the app's environment turns this off
+  entirely, and `HARNESSDESK_UPDATE_FEED` points it at another feed. A build
+  from source never checks unless it is given a feed.
+  (`packages/desktop/electron/app-updates.mjs`)
+- **Agent update advisories.** For each agent that names its npm package, the
+  host reads that package's `latest` tag from `registry.npmjs.org` — at most
+  once a day per package, remembered in `update-checks.json` in the state
+  directory — so it can say an agent is behind. It sends the package name and
+  nothing else, and installs nothing. The same `HARNESSDESK_NO_UPDATE_CHECK=1`
+  turns it off. (`packages/server/src/updates.ts`,
+  `packages/server/src/bootstrap.ts`)
+- **Model prices.** The usage ledger fetches the public, keyless price
+  catalogue at `models.dev` at most once a day and keeps a copy in the state
+  directory's cache. The request carries no account and no usage.
+  There is no switch for it today; prices you set in `pricing.json` take
+  precedence over the catalogue but do not stop the fetch.
+  (`packages/server/src/ledger/pricing.ts`)
+- **The ACP registry.** When **Add a runtime › Browse more…** lists it, or the
+  desk checks whether an agent added from it has a newer version, the host
+  reads the registry document from `cdn.agentclientprotocol.com`, asking again
+  at most every six hours. Adding a binary entry downloads that agent's archive
+  from the address the registry names; an `npx` or `uvx` entry's runner fetches
+  its package the first time the agent starts. `HARNESSDESK_ACP_REGISTRY_URL`
+  points the host at a registry of your own.
+  (`packages/server/src/acp-registry.ts`)
+- **What an account has left.** For an agent you have added whose vendor
+  publishes the figure only on its own servers, the host asks that vendor —
+  Cursor, Gemini Code Assist, GitHub Copilot, Cline, OpenRouter, DeepSeek —
+  with the credential that agent already holds on this machine, read-only and
+  never refreshed or written back. The credential goes only to the vendor that
+  issued it; what comes back is a quota or a balance, kept on this machine. For
+  Cursor, whose dashboard is the only record of per-request usage, the ledger
+  also reads those events from the same account. A reading is asked for after
+  that agent finishes a turn and when the last one has gone stale; an agent
+  with no credential to read is asked nothing. Removing the agent stops it.
+  (`packages/server/src/usage/`)
+- **A skill from a repository.** Adding or previewing a skill from a GitHub
+  address fetches that one repository over HTTPS with `git`, anonymously —
+  your credential helpers and `.netrc` are cut off — within 64 MB and 60
+  seconds. Only when you ask. (`packages/server/src/library-sources.ts`)
+- **Plugins, on request.** The built-in **web** plugin fetches a page only
+  from hosts you have added to its allowlist, which starts empty; a plugin you
+  install from npm is downloaded when you install it.
+
+**Retention:** the caches and readings above are files in `~/.harnessdesk`,
+and deleting the folder deletes them. What the far end keeps of a request is
+that service's policy, the same as any request your machine makes.
+
+---
+
 ## Vendor clouds — already happening, and not ours to promise about
 
 When you run Codex, your prompt and the context it gathers go to OpenAI. The
@@ -97,6 +166,10 @@ same is true of Claude Code and Anthropic, Cursor and Cursor, and every other
 agent you sign in to. HarnessDesk does not change that, cannot change it, and
 does not pretend to: **you chose that agent, and its vendor's terms govern
 what it does with the work.**
+
+A gateway account you add is the same boundary one step closer: its
+conversation's model requests leave through a loopback process on this machine,
+to the provider you named, with the key you gave it.
 
 What HarnessDesk owes you here is honesty about *which* agent is about to
 receive something — which is why the composer names the agent and the model
@@ -109,7 +182,8 @@ before you send, and why the audit log records which one ran.
 ## Everything else — not built
 
 There is no HarnessDesk server. Nothing syncs, there is no account, and there
-is nowhere for a second copy of your work to be.
+is nowhere for a second copy of your work to be. The update feed above is a
+file on the project's GitHub releases, not a service of ours.
 
 The remaining vision lanes include work that outlives a closed laptop and a
 hosted shared audit trail. Local work started by pull-request triggers already

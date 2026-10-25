@@ -142,7 +142,7 @@ const compositionOf = (breakdown: ContextBreakdown | null | undefined): ContextC
 
 /**
  * Nothing to say until the runtime has said something: a session without
- * usage gets no ring rather than an empty one.
+ * usage has no view, and the control draws its own "No usage yet" ring.
  */
 export const describeContext = (usage: SessionUsage | null | undefined, agentName: string): ContextView | null => {
   if (!usage) return null
