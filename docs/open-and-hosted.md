@@ -4,25 +4,26 @@ HarnessDesk is a desktop app that runs on your machine. A phone can reach it
 from anywhere through a hosted service. This page says which side of that line
 each piece is on, and what the service can and cannot see.
 
-**Status.** The desktop does not connect to the hosted service yet, and
-nothing in the app sends anything to it. What exists today is the wire both
-sides share — the two packages named below — with their tests. Until sign-in
-ships, [data-boundaries.md](data-boundaries.md) stays exactly as written.
+**Status.** Desktop account sign-in, account details, linked-phone removal,
+desk rename and sign-out are implemented. They are optional and do not send
+conversations or files. Desktop phone relay transport and pairing are not
+implemented in this build. [data-boundaries.md](data-boundaries.md) describes
+the account lane separately from local work.
 
 ## The client is open
 
-Everything the desktop will do with the service will be in this repository,
-under the MIT licence. None of it is built yet; this is the intent the wire
-below is shaped for:
+The desktop's service integration is in this repository under the MIT licence:
 
-- **Sign-in.** The app will be a public client: it will sign in through the
-  system browser with PKCE and a `harnessdesk://` redirect, and keep the
-  resulting token in the keychain. It will hold no client secret, because a
-  client that ships to every machine cannot keep one.
-- **The desk's identity.** Each desk will create its own Ed25519 key. Its id is
-  derived from the public key (that derivation is in `packages/crypto`), and
-  pairing a phone will be a QR code that carries that public key, so the phone
-  can check it is talking to the desk it scanned.
+- **Sign-in.** The host proves its desk key and opens a named desk and short
+  code in the system browser. The person signs in there and explicitly links
+  it; the host learns the result by polling with its own secret. The browser
+  session never reaches the desk. `harnessdesk://` only focuses the app.
+- **The desk's identity.** Each desk creates an Ed25519 key; its id is derived
+  from the public key. The existing desktop keystore cipher protects the key,
+  renewable desk token and cached profile in a separate sealed file per cloud
+  origin. There is no
+  plaintext fallback for this account. Future QR pairing uses this identity
+  so a phone can verify the desk it scanned.
 - **Encryption.** The relay connection and push messages will be encrypted on
   the desk, with keys the service never receives.
 
@@ -43,7 +44,9 @@ a token is accepted by every service that trusts its key id.
 The hosted service is closed source and runs three things:
 
 - **Accounts and sign-in.** It issues tokens and checks that a desk owns the
-  key it names.
+  key it names. Account deletion uses that authenticated lane to remove the
+  account and unlink its desks and phones before the desktop clears its local
+  sign-in. It never removes agent credentials or local work.
 - **The relay.** Desk and phone each open an outbound connection to it, and it
   passes their frames to each other.
 - **Push.** It wraps a message the desk has already encrypted in a generic
@@ -85,7 +88,7 @@ every limit, check and expiry is enforced on the server.
 | --- | --- |
 | `packages/contract` | Schemas for the wire — see [architecture.md](architecture.md#the-packages) |
 | `packages/crypto` | The cryptography of the wire, and its test vectors |
-| The desktop's cloud code | Not built yet. It will be one seam in the host, so it can move without touching the rest. The renderer never imports the wire: `pnpm layering` refuses it |
+| The desktop's cloud code | `packages/server/src/harnessdesk-account.ts`, behind `account/*` on the local renderer wire. The renderer never imports the cloud wire: `pnpm layering` refuses it |
 | The hosted service | Not in this repository |
 
 [decisions.md](decisions.md#the-client-is-open-the-hosted-service-is-closed--2026-10-21)

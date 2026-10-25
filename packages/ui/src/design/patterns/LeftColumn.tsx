@@ -1,5 +1,6 @@
 import type { MenuIcons } from '../ui/menu-row'
 import { Popover } from './Popover'
+import { NoticeHost } from '../primitives/Banner'
 import { CaretIcon } from '../../components/Icons'
 import { forwardRef, type ComponentProps, type MouseEvent, type ReactNode } from 'react'
 import { Bar } from '../ui/bar'
@@ -155,15 +156,16 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
     </div>}
   </Bar>
 </div>
-/** A quiet account row closes the column beneath a full-width hairline. */
-export const LeftColumnSeat = ({ menu, notifications, settingsOpen, onSettings }: {
-  menu: ReactNode; notifications?: ReactNode; settingsOpen: boolean; onSettings: () => void
-}) => <Bar inset="rail" size="lg" rule="top" paintedRule><div data-left-seat className={styles.seat}>
+/** A quiet account row closes the column beneath a full-width hairline.
+ * An optional notice above it uses the column's shared inset. */
+export const LeftColumnSeat = ({ above, menu, notifications, settingsOpen, onSettings }: {
+  above?: ReactNode; menu: ReactNode; notifications?: ReactNode; settingsOpen: boolean; onSettings: () => void
+}) => <>{above && <div data-left-seat-above><NoticeHost inset>{above}</NoticeHost></div>}<Bar inset="rail" size="lg" rule="top" paintedRule><div data-left-seat className={styles.seat}>
   <div className={styles.seatMenu}>{menu}</div>
   <div className={`${styles.topActions} hd-no-drag`}>{notifications}</div>
   <Button variant="ghost" size="pattern" className={styles.topButton} aria-label="Settings" title="Settings"
     aria-pressed={settingsOpen} onClick={onSettings}><SettingsIcon size={16} /></Button>
-</div></Bar>
+</div></Bar></>
 export const LeftColumn = ({ top, head, body, footer, active = true }: {
   top: ReactNode; head: ReactNode; body: ReactNode; footer: ReactNode; active?: boolean
 }) => <div data-left-column hidden={!active} inert={!active} className={active ? styles.column : styles.hidden}>

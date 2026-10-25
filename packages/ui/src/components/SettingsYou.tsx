@@ -55,10 +55,9 @@ import {
  * page is its own preview, the way Appearance is — nothing on it needs a
  * sentence saying what it would change.
  *
- * Nothing here signs in and nothing here syncs: there is no HarnessDesk
- * account, and the page does not pretend to one. When there is, this is the
- * page it arrives on — the account brings the same two things, and the head
- * is where it will say whose they are.
+ * These local controls sit beneath the HarnessDesk account settings. They
+ * keep a separate name and face on this Mac for rooms and the signed-out
+ * seat; signing in does not overwrite them.
  *
  * Three ways back, each where you would look for it: clear the field for the
  * name, the first face for the picture, and "Reset to default" for both —
@@ -68,7 +67,7 @@ export const ProfileSection = () => {
   const destinationActive = useDestinationActive()
 
   const store = useStore()
-  const { profile } = useSnapshot()
+  const { profile, harnessDeskAccount } = useSnapshot()
   const stored = profile.name ?? ''
   /* The field keeps its own text until it is let go — Enter, a click
      elsewhere, the window closing. The store tidies a name (trims it, folds
@@ -131,7 +130,7 @@ export const ProfileSection = () => {
 
   return (
     <>
-      <Rows><Row kind="record" face={<Face avatar={profile.avatar} />} title={profileName(live)} desc={"Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."} control={isDefaultProfile(live) ? undefined : (
+      <Rows><Row kind="record" face={<Face avatar={profile.avatar} />} title={profileName(live)} desc={harnessDeskAccount?.status === 'signedIn' ? "Shown beside what you say in a room and in the sidebar when signed out. Kept on this Mac." : "Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."} control={isDefaultProfile(live) ? undefined : (
             <Button variant="outline" onClick={reset}>
               Reset to default
             </Button>
@@ -240,10 +239,9 @@ const FacePicker = ({
 /**
  * This copy of HarnessDesk.
  *
- * There is no HarnessDesk account, so this page does not pretend to one. What
- * it says instead is the thing someone opening it is really asking: where
- * their things are — on this Mac, in one folder, going nowhere — and how to
- * take them along. The backup and support rows are the settings window's,
+ * The local data page remains separate from the HarnessDesk account. It
+ * says where preferences, conversations and work records are — on this
+ * Mac — and how to take them along. The backup and support rows are the settings window's,
  * passed in, so the page that owns the wire also owns the buttons.
  */
 export const GeneralSection = ({ rows }: { rows: ReactNode }) => (

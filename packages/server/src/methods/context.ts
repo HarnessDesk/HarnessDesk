@@ -1,3 +1,4 @@
+import type { HarnessDeskAccount } from '../harnessdesk-account.js'
 import type { ConversationLoadouts } from '@harnessdesk/protocol'
 import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
@@ -107,6 +108,7 @@ export interface HostContext {
   readonly registry: SessionRegistry
   readonly state: StateStore
   readonly logger: Logger
+  readonly harnessDeskAccount: HarnessDeskAccount
   readonly credentials: CredentialBroker
   readonly audit: AuditLog
   readonly loadouts: {

@@ -385,6 +385,7 @@ export class AppStore {
   readonly #editorTouched = new Set<string>()
   /** What each conversation has typed and not sent. See `state/drafts`. */
   readonly drafts: Drafts
+  #harnessDeskAccountRevision = 0
   #captureEpoch = 0
   #captureList = 0
   /**
@@ -627,6 +628,10 @@ export class AppStore {
     this.transport = new Transport(url, {
       onEvent: (runtime, event) => this.#onEvent(runtime, event),
       onNotification: (notification) => {
+        if (notification.method === 'account/changed') {
+          this.#harnessDeskAccountRevision += 1
+          this.#patch({ harnessDeskAccount: notification.params.status })
+        }
         if (notification.method === 'provenance/changed') {
           const { project, revision, health } = notification.params
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
@@ -953,6 +958,7 @@ export class AppStore {
         } else {
           this.#patch({ status })
           if (previous !== 'open') void this.loadCaptureHealth().catch(() => {})
+          if (previous === 'reconnecting') void this.loadHarnessDeskAccount()
         }
       },
     })
@@ -967,6 +973,48 @@ export class AppStore {
   getSnapshot = (): AppSnapshot => this.#snapshot
 
   // ------------------------------------------------------------------ startup
+
+  async #updateHarnessDeskAccount(request: () => Promise<import('@harnessdesk/protocol').HarnessDeskAccountStatus>): Promise<void> {
+    const revision = ++this.#harnessDeskAccountRevision
+    const status = await request()
+    if (revision === this.#harnessDeskAccountRevision) this.#patch({ harnessDeskAccount: status })
+  }
+
+  async loadHarnessDeskAccount(): Promise<void> {
+    // A push or a later action supersedes this read, including its failure.
+    const revision = this.#harnessDeskAccountRevision + 1
+    try {
+      await this.#updateHarnessDeskAccount(() => this.transport.request('account/status', {}))
+    } catch {
+      // A host without account support still opens the local desk.
+      if (revision === this.#harnessDeskAccountRevision) this.#patch({ harnessDeskAccount: null })
+    }
+  }
+
+  async signInToHarnessDesk(): Promise<void> {
+    await this.#updateHarnessDeskAccount(() => this.transport.request('account/signIn', {}))
+  }
+  async openHarnessDeskSignIn(): Promise<void> {
+    await this.#updateHarnessDeskAccount(() => this.transport.request('account/openSignIn', {}))
+  }
+  async cancelHarnessDeskSignIn(): Promise<void> {
+    await this.#updateHarnessDeskAccount(() => this.transport.request('account/cancel', {}))
+  }
+  async signOutOfHarnessDesk(localOnly?: boolean): Promise<void> {
+    await this.#updateHarnessDeskAccount(() => this.transport.request('account/signOut', localOnly ? { localOnly: true } : {}))
+  }
+  async deleteHarnessDeskAccount(): Promise<void> {
+    await this.#updateHarnessDeskAccount(() => this.transport.request('account/delete', {}))
+  }
+  async renameHarnessDesk(name: string): Promise<void> {
+    await this.#updateHarnessDeskAccount(() => this.transport.request('account/renameDesk', { name }))
+  }
+  async setHarnessDeskReachable(reachable: boolean): Promise<void> {
+    await this.#updateHarnessDeskAccount(() => this.transport.request('account/setReachable', { reachable }))
+  }
+  async unlinkHarnessDeskPhone(deviceId: string): Promise<void> {
+    await this.#updateHarnessDeskAccount(() => this.transport.request('account/unlinkPhone', { deviceId }))
+  }
 
   async connect(): Promise<void> {
     this.transport.connect()
@@ -985,6 +1033,8 @@ export class AppStore {
     // Preferences first: they may restore the runtime the user last worked
     // with, and everything below loads for whichever runtime is active.
     await this.loadPreferences()
+    // Cloud account reads must never hold the local desk's startup open.
+    void this.loadHarnessDeskAccount()
     await Promise.all([history, this.refreshRuntime(), this.loadWorkspaces(), this.loadPlugins(), this.loadAccounts()])
     // Goal history is additive to the ordinary conversation path. A damaged
     // migration stays visible as Goal-specific recovery state without making

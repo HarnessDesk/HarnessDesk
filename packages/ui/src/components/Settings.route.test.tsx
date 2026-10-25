@@ -295,15 +295,15 @@ it('keeps Profile callable by route, with no identity in preferences', async () 
   expect(document.body.querySelector('input[aria-label="Your name"]')).not.toBeNull()
 })
 
-it('preference search excludes identity and retains account keywords', async () => {
+it('preference search finds Account and retains account keywords', async () => {
   await mount()
   const search = document.body.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')!
   const find = (value: string) => act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, value)
     search.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  find('picture'); expect(navRow('HarnessDesk')).toBeUndefined()
-  expect(document.body.textContent).toContain('Nothing in settings matches')
+  find('picture'); expect(navRow('Account')).toBeDefined()
+  expect(navRow('HarnessDesk')).toBeUndefined()
   find('permissions'); expect(navRow('Permissions')).toBeDefined()
   find('account'); expect(navRow('HarnessDesk')).toBeUndefined()
   expect(document.body.textContent).not.toContain('Nothing in settings matches')

@@ -48,7 +48,7 @@ test('the Settings middle keeps preference order across agent capabilities', () 
   const groups = settingsGroups(snapshot, runtime)
   expect(groups.map(group => group.label)).toEqual(['Preferences', 'Conversations', 'Runtimes', 'Access'])
   expect(groups.flatMap(group => group.entries.map(entry => entry.id))).toEqual([
-    'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'history', 'storage', 'archive',
+    'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'history', 'storage', 'archive',
     'runtimes', 'models', 'hooks', 'extensions', 'permissions', 'browser',
   ])
   const skills = groups.flatMap(group => group.entries).find(entry => entry.id === 'hooks')!
@@ -84,6 +84,8 @@ test('the reused window rail keyboard handler leaves search editing alone', () =
   const key = (target: HTMLElement, value: string) => act(() => target.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true })))
   row('Back')!.focus()
   key(row('Back')!, 'ArrowDown')
+  expect(document.activeElement).toBe(row('Account'))
+  key(row('Account')!, 'ArrowDown')
   expect(document.activeElement).toBe(row('General'))
   key(row('General')!, 'ArrowDown')
   expect(document.activeElement).toBe(row('Appearance'))

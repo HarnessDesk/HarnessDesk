@@ -32,3 +32,7 @@ packages/ui/dist-e2e/
 # one at a time left `output/pr748-review/` addable, and an `add -A` took
 # 402 of them — screenshots included. The directory is the unit.
 output/
+
+# Local synthetic account rig state and visual evidence.
+/scratch/desktop-sign-in/
+/scratch/desktop-account/

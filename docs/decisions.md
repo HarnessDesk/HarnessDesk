@@ -4168,3 +4168,26 @@ not built; the desktop's cloud code will stay behind one seam so that remains
 possible, and the renderer never imports the wire (`pnpm layering`).
 
 **Rule:** the client holds no service secret and the service trusts nothing the client says.
+
+
+## Desktop account sign-in uses explicit browser approval and host polling — 2026-10-24
+
+The desktop now connects through the shared cloud contract. This supersedes
+this document's earlier PKCE/redirect proposal for the desktop: the host
+signs a challenge with its own Ed25519 key, opens the system browser, and
+shows the same short code as the approval page. The signed-in person must
+approve the named desk. A forwarded URL cannot silently link a desk.
+
+Only the host holds the polling secret, private key and desk session. The
+browser keeps its own session; neither side receives the other's secret.
+After approval the host proves its key again to obtain a renewable desk
+session. An OS `harnessdesk://` launch is only a focus hint and carries no
+account data. The desktop's existing keystore cipher protects keys, tokens
+and cached profile data, with no plaintext development fallback for this
+account. Ordinary local work and agent sign-in remain independent of it.
+
+The seat and Settings › Account show the HarnessDesk identity separately
+from agent accounts. Signing out revokes only this desk and its phone links;
+linked-phone removal uses the desk's scoped authority. The Reachable from
+your phone switch stores a local preference; the screen states that phone
+connections are not available in this build. Relay transport is a later step.

@@ -1064,6 +1064,15 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 `packages/ui/src/design/primitives/Banner.tsx`
 
 Placement owners set the size once for all notices in their slot.
+`inset` keeps a notice off a rail or panel edge by the shared compact inset.
+
+### `Banner`
+
+`packages/ui/src/design/primitives/Banner.tsx`
+
+A notice card with the shared icon, body and action policy.
+`layout="stack"` keeps icon and title together, with full-width copy and
+naturally wrapping actions beneath them; ordinary notices stay inline.
 
 ### `BannerAction`
 
@@ -1904,6 +1913,7 @@ Its compact cells use the shared switcher appearance.
 `packages/ui/src/design/patterns/LeftColumn.tsx`
 
 A quiet account row closes the column beneath a full-width hairline.
+An optional notice above it uses the column's shared inset.
 
 ### `LeftColumnExplorerHead`
 
@@ -2578,6 +2588,11 @@ belongs in the same tile as the agents' marks beside it.
 a face a later build added, a picture it keeps — draws the house mark. It is
 not dropped: keeping what it cannot draw is the profile's job
 (`lib/profile.ts`), so a later build finds it where it left it.
+
+A signed-in account may supply `pictureDataUrl` independently of the local
+avatar. Only host-provided PNG, JPEG or WebP data is displayed; remote
+URLs are refused. Pictures fall back to the house mark when they cannot
+load, without changing the local profile.
 
 ### `Clipped`
 

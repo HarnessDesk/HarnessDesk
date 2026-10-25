@@ -1,3 +1,4 @@
+import { harnessDeskAccountMethods } from './account.js'
 import type { HostMethodName, HostParams, HostResult } from '@harnessdesk/protocol'
 
 import { clientMethods } from './client.js'
@@ -61,6 +62,7 @@ export const hostMethods: HostMethodTable = {
   ...runtimeMethods,
   ...runtimeExtensionMethods,
   ...accountMethods,
+  ...harnessDeskAccountMethods,
   ...credentialMethods,
   ...usageMethods,
   ...insightMethods,
@@ -99,6 +101,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   runtimeMethods,
   runtimeExtensionMethods,
   accountMethods,
+  harnessDeskAccountMethods,
   credentialMethods,
   usageMethods,
   insightMethods,
