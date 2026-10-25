@@ -802,7 +802,7 @@ const PATTERN_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
   'FlowCards': { 'FlowCardGrid': { 'size': ['compact', 'large'] } },
   'Menu': { 'MenuLabel': { 'size': ['default', 'compact'] } },
   'Notices': { 'ComposerTail': { 'variant': ['default', 'plain'] }, 'InboxPanel': { 'size': ['icon-sm', 'icon-xs'] } },
-  'Settings': { 'AccountMark': { 'size': ['sm', 'lg', 'dot', 'row', 'menu'] }, 'Chip': { 'size': ['default', 'sm'], 'variant': ['default', 'outline', 'quiet'] }, 'CodeText': { 'size': ['default', 'inherit'] }, 'Dot': { 'variant': ['default', 'navigation', 'presence'] }, 'Search': { 'size': ['default', 'compact', 'bare'] } },
+  'Settings': { 'AccountMark': { 'size': ['sm', 'lg', 'dot', 'row', 'menu'] }, 'Chip': { 'size': ['default', 'sm'], 'variant': ['default', 'outline', 'quiet'] }, 'CodeText': { 'size': ['default', 'inherit', 'display'] }, 'Dot': { 'variant': ['default', 'navigation', 'presence'] }, 'Search': { 'size': ['default', 'compact', 'bare'] } },
   'ToolBody': { 'ToolProse': { 'variant': ['prose', 'note'] } },
 }
 

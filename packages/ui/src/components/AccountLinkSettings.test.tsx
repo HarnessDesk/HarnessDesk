@@ -22,7 +22,7 @@ it('starts an unlinked desk', () => {
 it('shows a selectable code, browser and copy actions, cancel, and a ticking deadline', () => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-24T12:00:00Z'))
   const r = mount({ status: 'waiting', userCode: 'ABCD-EFGH', verifyUrl: 'https://example.com/link', expiresAt: Date.now() + 61_000 })
-  expect(r.box.textContent).toContain('ABCD-EFGH'); expect(r.box.textContent).toContain('1:01 left'); expect(r.box.querySelector('[data-link-code]')?.className).toContain('select-text')
+  expect(r.box.textContent).toContain('ABCD-EFGH'); expect(r.box.textContent).toContain('1:01 left'); expect(r.box.querySelector('code[data-slot="code-text"]')?.getAttribute('data-size')).toBe('display')
   press(r.box, 'Open the link page'); expect(r.onOpen).toHaveBeenCalledWith('https://example.com/link')
   press(r.box, 'Copy code'); expect(r.onCopy).toHaveBeenCalledWith('ABCD-EFGH')
   press(r.box, 'Cancel'); expect(r.onCancel).toHaveBeenCalledOnce()
@@ -33,7 +33,10 @@ it('shows a linked chip and date', () => {
   expect(r.box.textContent).toContain('Linked'); expect(r.box.querySelector('time')?.getAttribute('datetime')).toBe('2026-10-24T12:00:00.000Z'); expect(r.box.querySelector('button')).toBeNull()
 })
 for (const status of ['denied', 'expired'] as const) it(`explains ${status} and retries`, () => {
-  const r = mount({ status }); expect(r.box.textContent).toContain(status === 'denied' ? 'declined' : 'expired'); press(r.box, 'Try again'); expect(r.onStart).toHaveBeenCalledOnce()
+  const r = mount({ status }), reason = status === 'denied' ? 'The link was declined.' : 'The link code expired.'
+  expect(r.box.querySelector('[data-slot="alert"]')).toBeNull()
+  expect([...r.box.querySelectorAll('[data-slot="row-title"]')].some(n => n.textContent === reason)).toBe(true)
+  press(r.box, 'Try again'); expect(r.onStart).toHaveBeenCalledOnce()
 })
 it('renders plain host errors and disables duplicate starts', () => {
   const r = mount({ status: 'error', reason: 'Too many attempts. Try again later.' }); expect(r.box.textContent).toContain('Too many attempts')

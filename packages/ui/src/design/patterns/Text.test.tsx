@@ -178,3 +178,17 @@ it('takes a weight rung in place of its role\u2019s own, keeping the role\u2019s
   expect(word?.className).toContain('text-xs')
   expect(word?.className).toContain('text-(--hd-foreground)')
 })
+
+
+it('sets a one-time code at the display step and makes it selectable without a screen style', () => {
+  act(() => root.render(<CodeText as="code" size="display" spaced aria-label="Account link code">ABCD-EFGH</CodeText>))
+  const value = container.querySelector<HTMLElement>('[data-slot="code-text"]')!
+  expect(value.tagName).toBe('CODE')
+  expect(value.textContent).toBe('ABCD-EFGH')
+  expect(value.getAttribute('aria-label')).toBe('Account link code')
+  expect(value.dataset['size']).toBe('display')
+  expect(value.hasAttribute('data-spaced')).toBe(true)
+  expect(styles.monoDisplay).toBeTruthy()
+  expect(value.classList.contains(styles.monoDisplay!)).toBe(true)
+  expect(getComputedStyle(value).userSelect).toBe('text')
+})

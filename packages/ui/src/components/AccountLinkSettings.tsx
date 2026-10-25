@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { AccountLinkState } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, Row, Rows } from '../design'
+import { Banner, Button, Chip, CodeText, Row, Rows } from '../design'
 import { openExternal } from '../lib/desktop'
 import { useStore } from '../state/context'
 
@@ -30,13 +30,13 @@ export const AccountLinkSettings = ({ state, onStart, onCancel, onOpen, onCopy }
         ? <Button variant="outline" disabled={state.status === 'starting'} onClick={onStart}>{state.status === 'starting' ? 'Linking…' : retry ? 'Try again' : 'Link'}</Button> : undefined} />
     {state.status === 'starting' && <Row title="Preparing a link code…" control={<Button variant="quiet" onClick={onCancel}>Cancel</Button>} />}
     {state.status === 'waiting' && <>
-      <Row title={<span data-link-code className="select-text font-mono text-(length:--hd-title)">{state.userCode}</span>} desc={left}
+      <Row title={<CodeText as="code" size="display" spaced aria-label="Account link code">{state.userCode}</CodeText>} desc={left}
         control={<Button variant="outline" onClick={() => onCopy(state.userCode)}>Copy code</Button>} />
       <Row title="Approve this code on the link page" control={<Button onClick={() => onOpen(state.verifyUrl)}>Open the link page</Button>} />
       <Row title="Waiting for your approval" control={<Button variant="quiet" onClick={onCancel}>Cancel</Button>} />
     </>}
     {state.status === 'linked' && <Row title="Linked on" control={<time dateTime={new Date(state.linkedAt).toISOString()}>{new Date(state.linkedAt).toLocaleDateString()}</time>} />}
-    {retry && <Row title={<Banner tone="warning">{state.status === 'denied' ? 'The link was declined.' : state.status === 'expired' ? 'The link code expired.' : state.status === 'error' ? state.reason : ''}</Banner>} />}
+    {retry && <Row title={state.status === 'denied' ? 'The link was declined.' : state.status === 'expired' ? 'The link code expired.' : state.status === 'error' ? state.reason : ''} />}
   </Rows>
 }
 
