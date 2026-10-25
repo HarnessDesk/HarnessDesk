@@ -199,7 +199,7 @@ jobs:
       # Still the same glob as before, minus the files the dedicated steps
       # cover, so a package that gains tests is covered here the day it does.
       - name: Node tests
-        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js' ! -path 'packages/server/dist/test/lead-e2e.test.js' ! -path 'packages/lead/dist/test/supervisor.test.js' ! -path 'packages/server/dist/test/lead-service.test.js' ! -path 'packages/server/dist/test/lead-client.test.js')"
+        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js' ! -path 'packages/server/dist/test/lead-e2e.test.js' ! -path 'packages/lead/dist/test/supervisor.test.js' ! -path 'packages/server/dist/test/lead-service.test.js' ! -path 'packages/server/dist/test/lead-client.test.js' ! -path 'packages/server/dist/test/lead-assembly-child.test.js' ! -path 'packages/server/dist/test/lead-repair-host.test.js')"
       # The same heap/CPU budgets and workload deadline, with no competing
       # server fixtures on this runner while the 20 real Flow runs settle.
       - name: Host retention tests
@@ -307,6 +307,13 @@ jobs:
 
       - name: Lead client tests
         run: node --test --test-timeout=120000 "packages/server/dist/test/lead-client.test.js"
+
+      # These cases start a real Lead child; the assembly unit tests stay on Node 22.
+      - name: Lead assembly child tests
+        run: node --test --test-timeout=120000 "packages/server/dist/test/lead-assembly-child.test.js"
+
+      - name: Lead repair host tests
+        run: node --test --test-timeout=120000 "packages/server/dist/test/lead-repair-host.test.js"
 
       - name: Lead end-to-end tests
         run: node --test --test-timeout=600000 "packages/server/dist/test/lead-e2e.test.js"

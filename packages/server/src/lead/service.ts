@@ -308,8 +308,9 @@ export class LeadService {
     return next
   }
   async status(provider: 'anthropic') {
+    // Disabled owners can serve window reads and receipts without a child.
     return { ...await this.options.broker.leadStatus(provider),
-      ...(!leadChildRuntimeSupported(this.options.runtimeVersion) ? { unavailable: 'runtime' as const } : {}) }
+      ...(this.#enabled && !leadChildRuntimeSupported(this.options.runtimeVersion) ? { unavailable: 'runtime' as const } : {}) }
   }
   setEnabled(enabled: boolean): Promise<void> {
     if (this.#closed) return Promise.reject(new Error('lead-closed'))

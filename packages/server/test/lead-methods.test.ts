@@ -335,6 +335,7 @@ test('the real HostContext connects window reads and idempotent sends to its Lea
     createSupervisor: () => ({ live: false, ensure: async () => { spawns++ }, send: async () => { throw new Error('unused') }, stop: async () => {}, ownershipWithdrawn() {} }) })
   const settings = await host.call('lead/settings/read', {})
   assert.deepEqual(settings.settings.key, { configured: false, protection: 'unavailable' })
+  assert.equal(settings.settings.unavailable, undefined, 'the disabled service must not gate window receipts on the child runtime')
   await assert.rejects(host.call('lead/thread/send', { idempotencyKey: 'prekey-host', text: 'No append' }), code('lead-key-missing'))
   t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: true, protection: 'synthetic cipher' }))
   t.mock.method(host.credentials, 'resolveLead', async () => key)

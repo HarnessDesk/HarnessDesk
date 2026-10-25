@@ -51,6 +51,8 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { runtime
 
 test('an older desktop runtime reports unavailable without starting or registering a child', async t => {
   const s = await rig(t, { runtimeVersion: '24.19.0' })
+  assert.equal((await s.service.status('anthropic')).unavailable, undefined, 'a disabled service does not require the child runtime')
+  await assert.rejects(s.service.send(input), /lead-disabled/)
   await s.service.setEnabled(true)
   for (let attempt = 0; attempt < 2; attempt++) {
     assert.equal((await s.service.status('anthropic')).unavailable, 'runtime')
@@ -59,6 +61,9 @@ test('an older desktop runtime reports unavailable without starting or registeri
   assert.equal(s.spawns(), 0)
   assert.equal(s.closes(), 0)
   assert.deepEqual(s.events, [])
+  await s.service.setEnabled(false)
+  assert.equal((await s.service.status('anthropic')).unavailable, undefined)
+  await assert.rejects(s.service.send(input), /lead-disabled/)
 })
 
 test('two simultaneous sends start one child only after explicit enable', async t => {

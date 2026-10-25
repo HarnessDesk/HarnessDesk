@@ -57,6 +57,8 @@ export const DESCRIBED_AS = new Map([
   ['lead supervisor tests', /Lead supervisor, service and client tests/i],
   ['lead service tests', /Lead supervisor, service and client tests/i],
   ['lead client tests', /Lead supervisor, service and client tests/i],
+  ['lead assembly child tests', /Lead assembly child and host repair tests/i],
+  ['lead repair host tests', /Lead assembly child and host repair tests/i],
   ['lead e2e tests', /Lead end-to-end test file/i],
   ['flow-host-evidence tests', /flow-host-evidence/i],
   ['host-retention tests', /host-retention/i],

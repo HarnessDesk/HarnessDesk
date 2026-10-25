@@ -92,7 +92,7 @@ step('node tests', () =>
     // packages once left one out. It matches what was built rather than what
     // exists, which is why `build:node` ends by pruning dist of every output
     // whose source is gone (script/prune-dist.mjs).
-    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js' ! -path 'packages/server/dist/test/lead-e2e.test.js' ! -path 'packages/lead/dist/test/supervisor.test.js' ! -path 'packages/server/dist/test/lead-service.test.js' ! -path 'packages/server/dist/test/lead-client.test.js')",
+    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js' ! -path 'packages/server/dist/test/lead-e2e.test.js' ! -path 'packages/lead/dist/test/supervisor.test.js' ! -path 'packages/server/dist/test/lead-service.test.js' ! -path 'packages/server/dist/test/lead-client.test.js' ! -path 'packages/server/dist/test/lead-assembly-child.test.js' ! -path 'packages/server/dist/test/lead-repair-host.test.js')",
   ]),
   // What it reads is what the build writes: over the dist a failed build left, it ran and printed ok (#208).
   { needs: 'build' },
@@ -114,6 +114,14 @@ step('lead service tests', () =>
 )
 step('lead client tests', () =>
   run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/lead-client.test.js']),
+  { needs: 'build' },
+)
+step('lead assembly child tests', () =>
+  run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/lead-assembly-child.test.js']),
+  { needs: 'build' },
+)
+step('lead repair host tests', () =>
+  run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/lead-repair-host.test.js']),
   { needs: 'build' },
 )
 step('lead e2e tests', () =>
