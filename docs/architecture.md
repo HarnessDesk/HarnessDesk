@@ -148,6 +148,36 @@ original error. This uses the control behavior present in the supported
 
 ## The host
 
+### Git gateway
+
+`packages/server/src/git-gateway` owns the host's publication executor. Lead
+publication uses its `GitGateway`; other session writers will migrate separately.
+It takes an exact reviewed commit and tree into a private bare mirror under
+`git-gateway/` in host state, then pushes to the repository pinned in the approved
+plan. Worker remotes, configuration and hooks never select the destination or
+credentials. Host git runs with a minimal configuration and a credential helper
+that consults the person's credentials outside the checkout. Durable intents
+precede effects; the append-only `ledger.jsonl` records outcomes and requesters.
+The ledger can attribute a head even when a caller's journal missed its update.
+Recovery adopts a matching remote head only with a successful push recorded for
+the exact repository, branch, SHA and requester. A started caller journal or an
+intent alone cannot prove that Git ran; missing success evidence waits for the
+person. Push-card PR adoption also requires the host's marker on the freshly
+read PR.
+
+The gateway currently clears proxy environment variables and uses its own Git
+configuration. It does not yet fall back to the person's global/system Git
+proxy configuration or desktop proxy settings. A network that requires such a
+proxy can therefore refuse publication and leave it waiting for the person;
+credentials are read separately through the host helper.
+
+PR identity and branch authority are separate. Following applies merged/closed
+observations by repository and number regardless of head. A foreign extension
+releases branch authority while checks, reviews and lifecycle keep following the
+observed head; a rewrite also waits for the person. Neither permits pushes or
+result re-offers until a head-bound reclaim decision restores authority. These
+fields and decisions replay through the Lead journal and checkpoints.
+
 ### Insight reads
 
 Insight is a host-owned, pull-only plane over the ledger's agent-owned source

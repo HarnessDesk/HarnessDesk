@@ -1,10 +1,15 @@
+import { LeadAutomaticGoals } from './lead/automatic-goals.js'
+import { LeadHandbacks } from './lead/handback.js'
+import { GitGateway } from './git-gateway/index.js'
+import { LeadPrFollow, type LeadPrFollowOptions } from './lead/pr-follow.js'
+import { leadPublicationPorts } from './lead/pr-publication.js'
 import { LeadPersonActions } from './lead/person-actions.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
 import { phoneLinkOff } from './phone-link.js'
 import { PhoneWorkspace } from './phone-workspace.js'
 import { PhoneWork } from './phone-work.js'
 import { leadContainsSecret } from './lead/secrets.js'
-import { answerLeadPersonGate, answerLeadResult } from './lead/person-decision.js'
+import { answerLeadPersonGate, answerLeadResult, validateLeadResult } from './lead/person-decision.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
 import { readKeptTranscriptFile } from './kept-transcript.js'
 import { Storage } from './storage.js'
@@ -20,7 +25,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
@@ -134,11 +139,11 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { LeadAssembly, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { LeadAssembly, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, canBeginLeadGoal, leadReviewedResultSource, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
-import { LeadPlanner, leadDueTask } from './lead/planner.js'
+import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
@@ -794,6 +799,7 @@ export class Host {
   readonly #lanes: LaneAllocator
   #leadService: LeadService | null = null
   #leadControls: LeadControls | null = null
+  #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
   #leadPlannerFiles: LeadPlanner | null = null
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
   #phoneWorkspace: PhoneWorkspace | null = null
@@ -844,6 +850,7 @@ export class Host {
    * extension host only needs something that answers the three verbs, and
    * gets it through `forgePlane`.
    */
+  readonly #gitGateway: GitGateway
   readonly #forge: ForgePlane
   /**
    * The flow engine. Holds the runs, opens the round a finished round earns,
@@ -1223,6 +1230,8 @@ export class Host {
         frozen: join(this.#state.directory, 'attachments', 'frozen'),
       },
     )
+    this.#gitGateway = new GitGateway({ directory: join(this.#state.directory, 'git-gateway'),
+      ...(this.options.forge?.gh ? { gh: (_cwd, args) => this.options.forge!.gh!(args) } : {}) })
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -2193,6 +2202,15 @@ export class Host {
     })
     this.#intake = new IntakePlane({
       home: this.#state.directory,
+      lead: async operation => {
+        if (!this.options.leadEnabled || !this.#leadReady) return { delivered: false, reason: 'Lead is disabled; this firing waits.' }
+        if (!operation.payload) return { delivered: false, reason: 'The firing payload is unavailable; this firing waits.' }
+        await this.#leadAssembly?.ensure(operation.project)
+        const automatic = this.#leadAutomatic
+        if (!automatic) return { delivered: false, reason: 'Lead is unavailable; this firing waits.' }
+        const { fact, sentence } = operation.payload
+        return automatic.owner.offerTrigger({ project: operation.project, key: `trigger-${operation.key}`, sentence, fact })
+      },
       cipher: options.credentialCipher ?? plainCipher,
       confine: (root) => this.#confineGitRoot(root),
       flowSource: (root, id) => intakeCatalog.resolve(root, id),
@@ -2825,7 +2843,11 @@ export class Host {
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
     this.#startIdleReaper()
     this.#leadReady = this.options.leadEnabled === true
-    if (this.#leadReady) { this.#leadAssembly = this.#assembleLead(); this.onDispose(() => this.#leadAssembly?.close()) }
+    if (this.#leadReady) {
+      this.#leadAssembly = this.#assembleLead()
+      this.onDispose(() => this.#leadAssembly?.close())
+      void this.#leadAssembly.restore().catch(() => { this.#logger.warn('Lead could not restore its saved thread') })
+    }
   }
 
   /**
@@ -3337,6 +3359,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#leadBudgets.stopMetering()
     // close() latches Lead dispatch synchronously, before ordinary teardown yields.
     const leadClosed = this.#leadService?.close().catch(() => { this.#logger.warn('Lead shutdown cleanup remains pending') })
     this.#discoveryOnlyRuntimes.clear()
@@ -3472,9 +3495,16 @@ export class Host {
     if (!this.#leadReady) throw new Error('lead-host-starting')
     if (this.#leadService) throw new Error('lead-service-exists')
     const { journal, project } = options
+    let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
+    this.onDispose(() => budgetOwner.close())
+    this.onDispose(journal.onChange(() => {
+      const id = journal.state.budget!.logicalGoalId
+      if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
+    }))
     const stopOwned = async (reason: string) => {
       const stopReason = reason === 'lead-budget-stopped' || reason === 'lead-request-cancelled'
         ? journal.state.budget?.stop?.reason ?? reason : reason
+      if (reason === 'lead-host-shutdown' && journal.state.handbacks.some(op => op.stage === 'prepared' || op.stage === 'running' || op.stage === 'awaiting-ci')) return
       const results = await Promise.allSettled(journal.state.runs.map(async run => {
         const flow = this.#flows.leadRuns().find(flow => flow.id === run.runId)
         if (!leadStopReachesRun(flow, stopReason)) return
@@ -3516,7 +3546,7 @@ export class Host {
         const { ready, terminal, reason } = leadPredecessorReadiness(state, scope.stepId!, this.#flows.leadRuns(), goal => this.#team.stateFor(goal).intents)
         return { ...scope, predecessor: { runId: owned.runId, ready, ...(terminal ? { terminal, reason } : {}) } }
       },
-      register: () => this.registerLead(journal, project),
+      register: () => ({ admission: budgetOwner.admission, close() {} }),
       childStarted: () => {
         const end = this.#leadBudgets.childStarted(journal)
         childLive = true; trackOwned()
@@ -3532,8 +3562,107 @@ export class Host {
       return seat && journal.state.runs.find(run => run.teamId === seat.board)
     }
     this.#leadOwnsWorker = (runtime, sessionId, includeClosed) => !!ownedWorker(runtime, sessionId, includeClosed)
-    this.#leadControls = new LeadControls({ journal, service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
+    const decisionEvidence = (runId: string) => options.readEvidence(runId, call => {
+      if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
+      return this.call(call.method, call.params)
+    })
+    const validateResult: LeadPrFollowOptions['validate'] =
+      (card, decision, contract) => validateLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract)
+    const publication = leadPublicationPorts({ journal, gateway: this.#gitGateway, project, forge: this.#forge, seats: () => this.#evidence.seats.all(), evidence: decisionEvidence,
+        signature: () => { const value = this.#storedPluginSettings('git')?.['signature']; return typeof value === 'string' ? value : undefined },
+        publications: async source => {
+          const record = this.registry.get(runtimeId(source.runtime), makeSessionId(source.sessionId))
+          const session = record?.session ?? await this.#transcripts.recover(runtimeId(source.runtime), makeSessionId(source.sessionId))
+          return session?.turns.flatMap(turn => turn.items.flatMap(item => item.type === 'publication' ? [item.reference] : [])) ?? []
+        },
+      })
+    const follow = new LeadPrFollow({ journal, gateway: this.#gitGateway, now: () => Date.now(), validate: validateResult, answer: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract), ...publication })
+    const repairResult = async (op: import('@harnessdesk/protocol').LeadHandback) => {
+      if (this.#disposed) return null
+      await this.#leadBudgets.meter(journal)
+      const state = journal.state, contract = state.contract, run = this.#flows.leadRuns().find(run => run.id === op.runId)
+      const last = run?.rounds.at(-1)
+      if (!contract || !run || run.goal !== op.teamId || !last || (op.stage !== 'withdrawn' && last.n <= op.round) || last.role !== 'accept' ||
+        last.state !== 'running' || !last.cards.length || !last.cards.every(id => this.#team.stateFor(op.teamId).intents.some(card => card.id === id && card.state === 'open'))) return null
+      const evidence = await decisionEvidence(op.runId), budget = leadBudgetProjection(journal.state.budget!, Date.now())
+      const result = evaluateLeadAcceptance(contract, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
+      if (result.status !== 'reviewed' || !leadHandbackTerminal(op) && evidence.revision === op.head || budget.spend !== 'known' || budget.reservedUsdMicros) return null
+      const old = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
+      const card = { version: 1 as const, id: `result-${contract.revision}`, revision: (old?.revision ?? 0) + 1, type: 'result' as const,
+        contractDigest: contract.digest, outcome: 'reviewed' as const, summary: 'CI passed. Fresh checks and independent review are ready for your decision.', assertions: result.assertions, budget }
+      const source = await publication.source(card, contract)
+      if (leadHandbackTerminal(op) && source.head !== journal.state.pr?.head) return null
+      return { source, card }
+    }
+    const repairs = new LeadHandbacks({ journal, now: () => Date.now(),
+      gate: async op => {
+        const run = this.#flows.leadRuns().find(run => run.id === op.runId)
+        return this.#disposed || !run || run.goal !== op.teamId || run.lead?.logicalGoalId !== journal.state.budget?.logicalGoalId ||
+          !await this.#leadBudgets.port.member(project) ? 'lead-project-withdrawn' : null
+      },
+      round: id => (this.#flows.leadRuns().find(run => run.id === id)?.rounds.length ?? 0) + 1,
+      open: async op => (await this.#flows.prepareLeadRepair(op)).n,
+      release: op => this.#flows.releaseLeadRepair(op),
+      ciPassed: (op, head) => this.#evidence.observeLeadCi(project.path, op.teamId, `lead-ci-${head}`, head),
+      reviewed: async op => (await repairResult(op))?.source ?? null,
+      push: (source, op) => follow.pushOwned(source, async () => {
+        const fresh = await repairResult(op)
+        if (!fresh || fresh.source.head !== source.head || journal.state.pr?.branchOwner === 'person') throw new Error('lead-repair-review-changed')
+      }),
+    })
+    let repairRefresh: Promise<void> | null = null
+    const refreshRepairs = (): Promise<void> => repairRefresh ??= (async () => {
+      if (this.#disposed) return
+      await repairs.recover()
+      const op = journal.state.handbacks.at(-1)
+      if (!op || !leadHandbackTerminal(op) || !leadRepairResultReady(journal.state) || journal.state.handbackLimit ||
+        ['accepted', 'declined', 'stopped', 'awaiting-plan'].includes(journal.state.phase) || journal.state.pr?.branchOwner === 'person') return
+      const current = () => {
+        const state = journal.state
+        return state.handbacks.at(-1)?.key === op.key && leadRepairResultReady(state) && !state.handbackLimit &&
+          !['accepted', 'declined', 'stopped', 'awaiting-plan'].includes(state.phase) && state.pr?.branchOwner !== 'person'
+      }
+      const result = await repairResult(op)
+      // Evidence reads yield to observations and new admissions. Recheck both
+      // here and on the writer queue so an older timer cannot resurrect a card.
+      if (!current() || journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))) return
+      if (!result) {
+        if (op.stage !== 'completed' || op.publishedHead !== journal.state.pr?.head) await journal.setManagementPhase('waiting-for-user', 'lead-repair-unverified')
+        return
+      }
+      try {
+        await journal.offerCard(result.card, () => {
+          if (!current() || result.source.head !== journal.state.pr?.head) throw new Error('lead-repair-superseded')
+        })
+      } catch (error) {
+        if (error instanceof Error && error.message === 'lead-repair-superseded') return
+        throw error
+      }
+      if (!current()) return
+      await journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
+    })().finally(() => { repairRefresh = null })
+    const repairTimer = setInterval(() => { void refreshRepairs().catch(() => {}) }, 1000)
+    repairTimer.unref(); this.onDispose(async () => { clearInterval(repairTimer); await repairRefresh?.catch(() => {}) })
+    this.#intake.followPullRequests({ watches: () => follow.watches(), deliver: async (_watch, batch) => {
+      for (const observation of batch.observations ?? []) await follow.observe(observation)
+      await follow.observeFacts(batch.facts)
+      await repairs.observe(batch.facts)
+      await refreshRepairs()
+    } })
+    this.onDispose(journal.onChange(() => { void this.#intake.followingChanged().catch(() => {}) }))
+    // Recovery uses only journaled person authority and freshly verified worker/forge identity.
+    void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
+    this.#leadControls = new LeadControls({ journal,
+      automaticProject: async path => {
+        const root = await this.#confineGitRoot(path)
+        if (!samePath(root, resolve(path)) || !this.#leadAssembly) throw leadRefusal('lead-project-missing')
+        await this.#leadAssembly.rememberProject(root)
+        Object.assign(project, leadProjectOf(root))
+      },
+      service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
+      publishResult: (card, decision, contract) => follow.accept(card, decision, contract),
+      reclaimBranch: (card, decision) => follow.reclaim(card, decision),
       readPersonActions: () => personActions.read(),
       readPresence: () => leadPresence,
       // The goal's latest run owns a board; a seat on it that is mid-turn takes the words without a restart.
@@ -3554,16 +3683,17 @@ export class Host {
           if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
           return this.call(call.method, call.params)
         }) }, card, decision, contract),
-      decideResult: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
-        readEvidence: runId => options.readEvidence(runId, call => {
-          if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
-          return this.call(call.method, call.params)
-        }) }, card, decision, contract),
+      decideResult: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract),
       stopRequest: () => this.#leadService!.stopGoal(),
       meterSpend: () => this.#leadBudgets.meter(journal),
       stopEffects: () => stopOwned('lead-budget-stopped'),
     })
     this.onDispose(() => this.#leadControls?.close())
+    const automatic = new LeadAutomaticGoals({ journal, send: (input, origin, root) => this.#leadControls!.send(input, origin, root),
+      enabled: () => this.options.leadEnabled === true && !this.#disposed,
+      quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
+    })
+    this.#leadAutomatic = { project, owner: automatic }
     // A scheduled task is a message the person wrote ahead of time: it opens a new goal only when the Lead has
     // nothing open, so it starts at a plan card like any other goal, and quiet hours hold it.
     const scheduled = async () => {
@@ -3571,8 +3701,10 @@ export class Host {
       if (!controls || !(canBeginLeadGoal(state) || state.phase === 'draft' && !state.messages.length)) return
       const planner = this.#leadPlanner(), due = leadDueTask(await planner.readSchedule(), new Date())
       if (!due) return
-      await planner.markRan(due.task.id, Date.now())
-      await controls.send({ idempotencyKey: `schedule-${due.task.id}-${due.slot}`, text: `Scheduled: ${due.task.title}\n${due.task.goal}` })
+      const key = `schedule-${due.task.id}-${due.slot}`
+      const result = await automatic.offer({ key, text: `Scheduled: ${due.task.title}\n${due.task.goal}`,
+        origin: { source: 'schedule', event: key, subject: String(due.slot), url: null } })
+      if (result.delivered) await planner.markRan(due.task.id, Date.now())
     }
     const timer = setInterval(() => { void scheduled().catch(() => { this.#logger.warn('A scheduled Lead task could not start') }) }, 60_000)
     timer.unref?.()

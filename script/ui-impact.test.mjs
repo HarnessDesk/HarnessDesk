@@ -297,7 +297,7 @@ test('every import of the UI\'s own source names a file in the tree', () => {
 })
 
 test('the modules of the UI that load files by a pattern are the ones the planner knows to ask', () => {
-  assert.deepEqual(uiGlobbers(real), ['packages/ui/src/lib/avatars.ts', 'packages/ui/src/preview/coverage-registry.ts'],
+  assert.deepEqual(uiGlobbers(real), ['packages/ui/src/lib/avatars.ts', 'packages/ui/src/lib/lead-faces.ts', 'packages/ui/src/preview/coverage-registry.ts'],
     'a pattern picks up a file that no importer names; a new one is planned for by adding the file to a spec or to this list')
 })
 

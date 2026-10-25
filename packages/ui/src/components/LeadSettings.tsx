@@ -7,6 +7,7 @@ import { useDestinationActive } from '../panels/destination-page'
 import { leadRefusalText } from './lead-refusals'
 import { formatLeadConsentTime } from './lead-consent-time'
 import { PERMISSION_LABELS } from './lead-permission-labels'
+import { LeadTriggerSettings } from './LeadTriggerSettings'
 import { LeadPlanSettingsSection } from './LeadPlanSettings'
 
 const modes = { plan: 0, default: 1, manage: 2 }
@@ -108,5 +109,6 @@ export const LeadSettingsSection = () => {
   return state.settings ? <><LeadSettings settings={state.settings} expiry={state.planConsentExpiresAt} cards={state.thread?.cards}
     error={error} onError={error => setError(leadRefusalText(error))} update={value => { setError(null); return store.lead.updateSettings(value) }}
     onOpen={focus => store.openDestination({ kind: 'lead', focus })} />
+    <LeadTriggerSettings follow={state.settings.follow} root={state.thread?.project?.path ?? null} update={value => store.lead.updateSettings(value)} onError={error => setError(leadRefusalText(error))} />
     <LeadPlanSettingsSection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} cards={state.thread?.cards} /></> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null
 }

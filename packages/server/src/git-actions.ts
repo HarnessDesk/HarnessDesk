@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
+import { HARDENED_GIT_CONFIG } from './git-hardening.js'
 import { concluding } from './git.js'
 import { withGitMutation } from './git-mutation.js'
 import { isRevisionName, isSha } from './git-revision.js'

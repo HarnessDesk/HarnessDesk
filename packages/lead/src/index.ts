@@ -3,10 +3,10 @@ export type { LeadCancellation, LeadDeskPort, LeadMessagesPort, LeadPersistenceP
 export { decideLeadPermission, compareLeadPolicyAuthority, proposeLeadPolicyChange, applyLeadPolicyDecision } from './permissions.js'
 export type { LeadPermissionEffect, LeadPermissionFloor, LeadPermissionCall, LeadPermissionDecision, LeadPermissionRequest, LeadPermissionContext,
   LeadAuthorityChange, LeadPolicyProposal, LeadPolicyChange } from './permissions.js'
-export { LEAD_JOURNAL_BYTES, summarizeLeadArguments, parseLeadJournalRecord, prepareLeadJournalRecord, parseLeadRunIdentity, LeadJournal, createLeadJournal } from './journal.js'
-export type { LeadJournalEvent, LeadJournalRecord, LeadJournalStorage, LeadRunIdentity, LeadRunObservation, LeadArgumentSummary,
+export { LEAD_JOURNAL_BYTES, summarizeLeadArguments, parseLeadOwnedPush, parseLeadPublicationSource, parseLeadPublicationOperation, parseLeadJournalRecord, prepareLeadJournalRecord, parseLeadRunIdentity, LeadJournal, createLeadJournal } from './journal.js'
+export type { LeadJournalEvent, LeadJournalRecord, LeadJournalStorage, LeadRunIdentity, LeadRunObservation, LeadOwnedPush, LeadPublicationSource, LeadPublicationOperation, LeadArgumentSummary,
   LeadAttemptOutcome, LeadToolAttempt, LeadDispatch, LeadDispatchResult, LeadRecoveryAction } from './journal.js'
-export { canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, initialLeadState, reduceLeadRecord, replayLeadJournal } from './state.js'
+export { canOfferAutomaticLeadGoal, leadHandbackTerminal, leadRepairResultReady, leadWorkerDispatchBlockedByOpenPr, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, initialLeadState, reduceLeadRecord, replayLeadJournal } from './state.js'
 export type { LeadState, LeadStepState, LeadAttemptState } from './state.js'
 
 export type { LeadJournalSecurity } from './journal-security.js'
@@ -24,7 +24,7 @@ export { LEAD_QUIET, LEAD_REMEMBER, isLeadQuiet, leadRememberLines } from './ins
 export type { LeadLoop, LeadLoopOptions, LeadLoopState, LeadLoopClock } from './loop.js'
 export { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay } from './tools.js'
 export type { LeadTools, LeadToolsOptions, LeadResolvedTool } from './tools.js'
-export { evaluateLeadAcceptance } from './acceptance.js'
+export { evaluateLeadAcceptance, leadPublicationEvidenceRevision } from './acceptance.js'
 export type { LeadAcceptanceEvidence, LeadAcceptanceResult } from './acceptance.js'
 export { LEAD_REVIEWED_RESULT, leadReviewedResultSource } from './recipes/reviewed-result.js'
 export { leadInstructions, leadContinuation, leadObservation, parseLeadSeatChoices, LEAD_SEATS_PER_ROLE } from './instructions.js'

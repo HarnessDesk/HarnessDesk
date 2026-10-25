@@ -198,6 +198,11 @@ export const SKIP_NOT_COLLABORATOR = 'Only comments by people who can write to t
  * vouched for. Null lets it fire; anything else is why it is skipped.
  */
 export const commentRefusal = (definition: TriggerDefinition, fact: TriggerFact, account: string): string | null => {
+  if (fact.action === 'review-commented') {
+    if (fact.desk === true) return SKIP_DESK
+    if (typeof fact.author !== 'string') return SKIP_AUTHOR_UNREAD
+    return fact.authorWrites === true ? null : fact.authorWrites === false ? SKIP_NOT_COLLABORATOR : SKIP_WRITES_UNREAD
+  }
   if (fact.source !== 'issue' || fact.action !== 'commented') return null
   if (fact.desk === true) return SKIP_DESK
   const from = definition.from ?? 'me'
@@ -222,9 +227,9 @@ export const faultWaiting = (reason: string): string =>
 export const faultSetAside = (reason: string): string =>
   `A firing could not be finished after ${FAULT_ATTEMPTS} tries (${reason}), so it was set aside for you and will not run on its own. Nothing else of this project waits on it.`
 
-/** The token `again` compares: a pull request's head, an issue event's own immutable id, nothing for a schedule. */
+/** `again` compares changed PR heads, or the distinct check/review/issue event; nothing for a schedule. */
 const comparison = (fact: TriggerFact): string | null =>
-  fact.source === 'pull-request' ? fact.head : fact.source === 'issue' ? fact.event : null
+  fact.source === 'pull-request' ? (fact.action === 'checks-failed' || fact.action === 'review-commented' ? fact.event : fact.head) : fact.source === 'issue' ? fact.event : null
 
 /** What a firing's history row keeps of its fact: validated scalars, never prose. */
 const historyOf = (fact: TriggerFact): Pick<IntakeFiring, 'source' | 'subject' | 'head' | 'repository'> => ({

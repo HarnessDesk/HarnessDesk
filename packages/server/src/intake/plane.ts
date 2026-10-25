@@ -1,3 +1,5 @@
+import type { HostPullWatch } from './poll.js'
+import type { PollBatch } from './forge.js'
 import { createHash } from 'node:crypto'
 import { open, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -20,7 +22,7 @@ import { Admission, AGAIN_MISSING, SKIP_CHANGED, type AdmissionOptions, type Goa
 import { IntakeEffects, type IntakeObservationPort, type TriggerExecutionPort, type TriggerGoalPort } from './apply.js'
 import { AttentionOutbox, type AttentionInput } from './attention.js'
 import { BudgetWatch, TriggerBudgets, utcDay, type BudgetVerdict } from './budget.js'
-import { TriggerClosures, TriggerConsent, type ArmBinding, type ArmedTrigger, type TriggerClosure } from './consent.js'
+import { consentMatches, TriggerClosures, TriggerConsent, type ArmBinding, type ArmedTrigger, type TriggerClosure } from './consent.js'
 import { usdMicros } from './definition.js'
 import { ForgeSource } from './forge.js'
 import { goalWaits, type HostWaits } from './waits.js'
@@ -61,6 +63,13 @@ const DESK_POSTS_FILE = 'triggers-desk-posts.json'
 /** The comment ids the desk remembers posting, per repository: the newest, never more. */
 const DESK_POSTS_LIMIT = 5000
 const ISSUE_COMMENT = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/(?:issues|pull)\/[1-9][0-9]{0,15}#issuecomment-([1-9][0-9]{0,18})$/
+const PR_REVIEW = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pull\/[1-9][0-9]{0,15}#pullrequestreview-([1-9][0-9]{0,18})$/
+const postId = (url: string): { repository: string; id: string } | null => {
+  const comment = ISSUE_COMMENT.exec(url)
+  if (comment) return { repository: comment[1]!, id: comment[2]! }
+  const review = PR_REVIEW.exec(url)
+  return review ? { repository: review[1]!, id: `review:${review[2]}` } : null
+}
 const METER_MS = 30_000
 const SKIP_WINDOW_MS = 5 * 60_000
 const SUBJECT = /^[1-9][0-9]{0,15}$/
@@ -87,6 +96,7 @@ export interface IntakeHostPort {
   preview(root: string, source: string, againRole?: string | null): Promise<FlowPreview>
   /** Each attachment one Agent resolves to now, as its identity (`TriggerClosureReads.attachments`). */
   attachments?(root: string, agent: string): Promise<readonly string[]>
+  lead?(operation: IntakeOperation): Promise<{ readonly delivered: true } | { readonly delivered: false; readonly reason: string; readonly final?: true }>
   readonly goals: TriggerGoalPort & {
     lifecycle(goal: string): GoalLifecycle
     claim(goal: string, claim: () => void): Promise<boolean>
@@ -193,13 +203,22 @@ export class IntakePlane {
   #deskPostsUnreadable: string | null = null
   readonly #deskSerial = new Serial()
   /** What each source read learned of its arms, by the read: gone with it. */
+  #following: { watches(): readonly HostPullWatch[]; deliver(watch: HostPullWatch, batch: PollBatch): Promise<void> } | null = null
+
+  followPullRequests(port: { watches(): readonly HostPullWatch[]; deliver(watch: HostPullWatch, batch: PollBatch): Promise<void> }): void {
+    this.#following = port
+    void this.followingChanged().catch(() => {})
+  }
+  async followingChanged(): Promise<void> {
+    if (!this.#closed && this.#dispatchReady && !this.#prefs.paused && this.#problem === null) await this.#monitor.refresh()
+  }
   readonly #batches = new WeakMap<object, Map<string, Promise<ArmBinding | null>>>()
 
   constructor(port: IntakeHostPort) {
     this.#port = port
     this.#timers = port.timers ?? realTimers
     this.#store = new IntakeStore(port.home)
-    this.#forge = new ForgeSource({ ...(port.gh ? { run: port.gh } : {}), now: () => port.now() })
+    this.#forge = new ForgeSource({ ...(port.gh ? { run: port.gh } : {}), now: () => port.now(), posted: (fact) => this.#postedHere(fact) })
     const closures = this.#closures = new TriggerClosures({
       flowSource: (root, id) => port.flowSource(root, id),
       preview: (root, source, againRole) => port.preview(root, source, againRole),
@@ -217,6 +236,8 @@ export class IntakePlane {
     })
     this.#monitor = new IntakeMonitor({
       armed: () => this.#consent.armed(),
+      watches: () => this.#following?.watches() ?? [],
+      deliver: (watch, batch) => this.#following?.deliver(watch, batch) ?? Promise.resolve(),
       sources: intakeSources(this.#forge),
       cursors: new SourceCursors(port.home),
       offer: async (arm, fact, batch) => { await this.#offer(arm, fact, batch) },
@@ -257,12 +278,21 @@ export class IntakePlane {
       now: () => port.now(),
       lifecycle: (goal) => port.goals.lifecycle(goal),
       claim: (goal, claim) => port.goals.claim(goal, claim),
-      reserve: (snapshot, operation, definition) => this.#budgets.reserve(snapshot, operation, definition),
+      reserve: (snapshot, operation, definition) => 'lead' in definition.opens ? { snapshot } : this.#budgets.reserve(snapshot, operation, definition),
     }, new IntakeEffects({
       goals: port.goals,
+      lead: operation => port.lead?.(operation) ?? Promise.resolve({ delivered: false, reason: 'Lead is disabled; this firing waits.' }),
       flows: port.flows,
       evidence: port.evidence,
       gate: async (operation) => {
+        if (operation.payload && 'lead' in operation.payload.definition.opens) {
+          if (this.#closed || this.#prefs.paused || !this.#dispatchReady) return 'Triggers are paused; this firing waits.'
+          try {
+            const binding = await this.#consent.binding(operation.project, operation.trigger)
+            if (!binding || !consentMatches(operation.payload.binding, binding)) return { reason: 'This trigger changed since it was armed; arm it again.', final: true }
+          } catch { return 'The trigger arm could not be read; this firing waits.' }
+          return null
+        }
         const run = port.flows.execution(operation.run)
         if (!run) return 'This firing’s run is missing, so nothing of it was sent.'
         const verdict = this.#budgets.check(run)
@@ -427,7 +457,7 @@ export class IntakePlane {
   async #offer(arm: ArmedTrigger, fact: TriggerFact, batch?: object): Promise<OfferAnswer> {
     if (this.#closed) throw new Error('The desk is closing.')
     // A comment whose id the desk recorded posting is the desk's own, marker or not: it never fires.
-    if (fact.action === 'commented' && fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
+    if ((fact.action === 'commented' || fact.action === 'review-commented') && fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
     const answer = await this.#admission.offer(arm, fact, batch ? { binding: () => this.#bindingOnce(batch, arm) } : {})
     this.#changed(arm.project)
     if (answer.outcome === 'fired') await this.#syncTimers()
@@ -470,7 +500,7 @@ export class IntakePlane {
       if (isMap(parsed) && parsed['version'] === 1 && isMap(parsed['comments'])) {
         // Whatever reads is kept; an entry that does not is dropped from memory, never from the file on its own.
         for (const [repository, ids] of Object.entries(parsed['comments'])) {
-          if (REPO.test(repository) && Array.isArray(ids)) posts.set(repository, ids.filter((one): one is string => typeof one === 'string' && /^[1-9][0-9]{0,18}$/.test(one)).slice(-DESK_POSTS_LIMIT))
+          if (REPO.test(repository) && Array.isArray(ids)) posts.set(repository, ids.filter((one): one is string => typeof one === 'string' && /^(?:review:)?[1-9][0-9]{0,18}$/.test(one)).slice(-DESK_POSTS_LIMIT))
         }
       } else {
         this.#deskPostsUnreadable = 'it is not a record this desk wrote'
@@ -482,28 +512,27 @@ export class IntakePlane {
   }
 
   async #postedHere(fact: TriggerFact): Promise<boolean> {
-    const match = ISSUE_COMMENT.exec(fact.url ?? '')
-    if (!match || match[1] !== fact.repository) return false
-    return (await this.#readDeskPosts()).get(match[1]!)?.includes(match[2]!) ?? false
+    const match = postId(fact.url ?? '')
+    if (!match || match.repository !== fact.repository) return false
+    return (await this.#readDeskPosts()).get(match.repository)?.includes(match.id) ?? false
   }
 
   /**
-   * The desk posted a comment to the forge (a tool's `issue_comment`,
-   * `pr_comment`): its id is recorded, and kept across a restart, so the
+   * The desk posted a comment or PR review to the forge: its id is recorded, and kept across a restart, so the
    * comment never fires a trigger even if its marker were lost. Reads and
    * writes one small file; a desk with no trigger still records, for the
    * trigger armed tomorrow over the same issue.
    */
   deskPosted(reference: ForgeReference): Promise<void> {
-    const match = reference.kind === 'comment' ? ISSUE_COMMENT.exec(reference.url) : null
-    if (!match || match[1] !== reference.repo) return Promise.resolve()
+    const match = reference.kind === 'comment' || reference.kind === 'review' ? postId(reference.url) : null
+    if (!match || match.repository !== reference.repo) return Promise.resolve()
     return this.#deskSerial.run(async () => {
       const posts = await this.#readDeskPosts()
       // A record this desk cannot read is never overwritten with one id: kept for a person, and the marker guards meanwhile.
       if (this.#deskPostsUnreadable) return
-      const ids = posts.get(match[1]!) ?? []
-      if (ids.includes(match[2]!)) return
-      posts.set(match[1]!, [...ids, match[2]!].slice(-DESK_POSTS_LIMIT))
+      const ids = posts.get(match.repository) ?? []
+      if (ids.includes(match.id)) return
+      posts.set(match.repository, [...ids, match.id].slice(-DESK_POSTS_LIMIT))
       await atomicJson(join(this.#port.home, DESK_POSTS_FILE), { version: 1, comments: Object.fromEntries(posts) })
     })
   }
@@ -577,7 +606,7 @@ export class IntakePlane {
       return `Its Seats could not be read now (${error instanceof Error ? error.message : String(error)}), so nothing was sent. It starts on its own once they can.`
     }
     if (closure.availability.length === 0) return null
-    const seat = closure.preview.seats.find((one) => one.plan.blocked === null && one.plan.winner === null)
+    const seat = closure.preview?.seats.find((one) => one.plan.blocked === null && one.plan.winner === null)
     const who = seat ? `“${seat.agent}”` : 'its Agent'
     /* Every candidate passed over for a reason that does not lift on its own
        — this Mac refuses an unattended seat whose ceiling is only asked, or

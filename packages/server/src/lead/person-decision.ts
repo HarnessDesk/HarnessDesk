@@ -1,4 +1,4 @@
-import { LEAD_REVIEWED_RESULT, leadReviewedResultSource, evaluateLeadAcceptance, leadPlanRuns, leadBudgetProjection, type LeadAcceptanceEvidence, type LeadJournal } from '@harnessdesk/lead'
+import { LEAD_REVIEWED_RESULT, leadReviewedResultSource, evaluateLeadAcceptance, leadRepairResultReady, leadPlanRuns, leadBudgetProjection, type LeadAcceptanceEvidence, type LeadJournal } from '@harnessdesk/lead'
 import type { LeadAcceptanceContract, LeadAssertionResult, LeadCard, LeadCardDecision, LeadProject } from '@harnessdesk/protocol'
 import { flowRevision } from '../flow-execution.js'
 import type { Flows } from '../flows.js'
@@ -22,7 +22,7 @@ const prepareLeadPersonGate = async (options: PersonDecisionOptions, card: Extra
   if (card.kind !== 'person' || !card.personCardId || !/^[1-9][0-9]*$/.test(card.personCardId)) throw leadRefusal('lead-worker-approval')
   const id = Number(card.personCardId), owned = options.journal.state.runs.find(run => run.runId === card.runId)
   if (!owned || !Number.isSafeInteger(id)) throw leadRefusal('lead-gate-changed')
-  const outcome = decision.choice === 'accept' ? 'accepted' : 'declined'
+  const outcome = ['accept', 'accept-open-pr'].includes(decision.choice) ? 'accepted' : 'declined'
   const check = () => {
     const state = options.journal.state, execution = options.flows.executionOf(owned.runId), board = options.team.stateFor(owned.teamId)
     const stored = options.flows.storedRun(owned.runId)
@@ -46,7 +46,8 @@ const prepareLeadPersonGate = async (options: PersonDecisionOptions, card: Extra
   check()
   const evidence = await options.readEvidence(owned.runId)
   const result = evaluateLeadAcceptance(contract, evidence, { now: options.now(), freshnessMs: 60000, revision: options.journal.state.seq })
-  if (evidence.runId !== card.runId || result.status !== 'reviewed' || compareAssertions && leadAssertionFacts(result.assertions) !== leadAssertionFacts(card.assertions))
+  if (evidence.runId !== card.runId || options.journal.state.handbacks.length > 0 && evidence.revision !== options.journal.state.pr?.head ||
+    result.status !== 'reviewed' || compareAssertions && leadAssertionFacts(result.assertions) !== leadAssertionFacts(card.assertions))
     throw leadRefusal('lead-gate-changed')
   check()
   return { assertions: result.assertions, check, async answer() {
@@ -63,18 +64,18 @@ export const answerLeadPersonGate = async (options: PersonDecisionOptions, card:
   await (await prepareLeadPersonGate(options, card, decision, contract)).answer()
 }
 /** A terminal Lead result is still a collection of real person gates, never summary authority. */
-export const answerLeadResult = async (options: PersonDecisionOptions, card: Extract<LeadCard, { type: 'result' }>,
-  decision: LeadCardDecision, contract: LeadAcceptanceContract): Promise<void> => {
+const prepareLeadResult = async (options: PersonDecisionOptions, card: Extract<LeadCard, { type: 'result' }>,
+  decision: LeadCardDecision, contract: LeadAcceptanceContract) => {
   const state = options.journal.state, budget = state.budget && leadBudgetProjection(state.budget, options.now())
   const accounting = (value: typeof budget) => value && JSON.stringify({ caps: value.caps, lead: value.leadUsdMicros,
     workers: value.workerUsdMicros, reserved: value.reservedUsdMicros, spend: value.spend, stop: value.stop })
   const runs = leadPlanRuns(state)
-  if (!runs.length || !state.steps.every(step => step.state === 'started') || !budget || accounting(budget) !== accounting(card.budget))
+  if (!leadRepairResultReady(state) || !runs.length || !state.steps.every(step => step.state === 'started') || !budget || accounting(budget) !== accounting(card.budget))
     throw leadRefusal('lead-gate-changed')
   const gates: Awaited<ReturnType<typeof prepareLeadPersonGate>>[] = []
   for (const run of runs) {
     const execution = options.flows.executionOf(run.runId), board = options.team.stateFor(run.teamId)
-    const candidates = board.intents.filter(intent => execution?.rounds.some(round => round.cards.includes(intent.id)) &&
+    const candidates = board.intents.filter(intent => (execution?.rounds.filter(round => round.role === 'accept').at(-1) ?? execution?.rounds.at(-1))?.cards.includes(intent.id) &&
       options.flows.personCard(run.teamId, intent) && ['open', 'claimed', 'done'].includes(intent.state))
     if (candidates.length !== 1) throw leadRefusal('lead-gate-changed')
     gates.push(await prepareLeadPersonGate(options, { version: 1, id: card.id, revision: card.revision, contractDigest: card.contractDigest,
@@ -86,5 +87,12 @@ export const answerLeadResult = async (options: PersonDecisionOptions, card: Ext
   })
   if (leadAssertionFacts(combined) !== leadAssertionFacts(card.assertions)) throw leadRefusal('lead-gate-changed')
   for (const gate of gates) gate.check()
-  for (const gate of gates) await gate.answer()
+  return async () => { for (const gate of gates) await gate.answer() }
+}
+/** Publication preflight reads the gates without answering them or changing the board. */
+export const validateLeadResult = async (options: PersonDecisionOptions, card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract): Promise<void> => {
+  await prepareLeadResult(options, card, decision, contract)
+}
+export const answerLeadResult = async (options: PersonDecisionOptions, card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract): Promise<void> => {
+  await (await prepareLeadResult(options, card, decision, contract))()
 }

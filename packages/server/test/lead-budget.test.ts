@@ -23,6 +23,26 @@ const journal = async () => {
   return value
 }
 
+test('host shutdown freezes in-flight usage reads before their sources disappear', async t => {
+  const s = await leadRig(t); await s.start(); await s.observe(0)
+  let entered!: () => void, finish!: () => void
+  const reading = new Promise<void>(resolve => { entered = resolve })
+  const release = new Promise<void>(resolve => { finish = resolve })
+  Object.assign(s.budgets.port, { seats: () => [...s.rig.seats.values()], delegation: () => 'none', usage: async () => {
+    entered(); await release; return { complete: false, samples: [] }
+  } })
+  const pending = s.budgets.meter(s.journal)
+  await reading
+  try { (s.budgets as any).stopMetering() } finally { finish() }
+  await pending
+  assert.equal(s.journal.state.budget!.stop, null)
+  assert.equal(leadBudgetProjection(s.journal.state.budget!, 100).spend, 'known')
+  assert.equal((await s.budgets.gate(s.rig.flows.leadRuns()[0]!)).ok, false, 'a closing host cannot admit more work')
+  const fresh = new LeadBudgets({ ...s.budgets.port, usage: async () => ({ complete: true, samples: [] }) })
+  await fresh.meter(s.journal)
+  assert.equal(leadBudgetProjection(s.journal.state.budget!, 100).spend, 'known', 'a new host rebuilds the reading from its sources')
+})
+
 test('host recovery refuses to run while a registered Lead child is live', async t => {
   const s = await leadRig(t)
   const before = structuredClone(s.records)
@@ -497,4 +517,25 @@ test('an incomplete reading after every run has ended leaves spend unknown witho
   await s.budgets.meter(s.journal)
   assert.equal(s.journal.state.budget!.stop, null, 'no worker can spend any more, so nothing needs stopping')
   assert.notEqual(leadBudgetProjection(s.journal.state.budget!, 10_000_000).spend, 'known', 'and the Lead still may not spend on a guess')
+})
+
+test('following refuses worker dispatch at the host budget gate without admitting another round', async t => {
+  const s = await leadRig(t)
+  await s.start()
+  const state = s.journal.state, before = state.budget?.rounds.length
+  t.mock.getter(s.journal, 'state', () => ({ ...state, phase: 'following' as const, pr: { repository: 'acme/widgets', number: 7,
+    head: 'a'.repeat(40), branch: 'worker', state: 'open' as const, check: null, at: 100 } }))
+  const run = s.budgets.port.runs().at(-1)!
+  assert.deepEqual(await s.budgets.gate(run), { ok: false, reason: 'lead-budget-stopped' })
+  assert.equal(s.journal.state.budget?.rounds.length, before)
+})
+
+for (const phase of ['running', 'waiting-for-user'] as const) test(`an open PR fences the host worker gate even in ${phase}`, async t => {
+  const s = await leadRig(t); await s.start()
+  const state = s.journal.state, before = state.budget?.rounds.length
+  t.mock.getter(s.journal, 'state', () => ({ ...state, phase, pr: { repository: 'acme/widgets', number: 7,
+    head: 'a'.repeat(40), branch: 'worker', state: 'open' as const, check: null, at: 100 } }))
+  const run = s.budgets.port.runs().at(-1)!
+  assert.deepEqual(await s.budgets.gate(run), { ok: false, reason: 'lead-budget-stopped' })
+  assert.equal(s.journal.state.budget?.rounds.length, before)
 })

@@ -266,3 +266,20 @@ test('a Lead plan may name a runtime stopped while idle, never one that cannot s
   assert.equal(leadSeatable({ state: 'starting' }), true)
   assert.equal(leadSeatable({ state: 'unavailable' }), false)
 })
+
+test('restoring an existing Lead starts its host owners without creating a fresh thread or provider request', async () => {
+  const home = tempDir('hd-lead-restore-'), project = tempDir('hd-lead-project-')
+  let created = 0
+  const options = { home, now: () => 100, workspace: async () => project, readySeats: () => [], heldPreview: () => null,
+    async create() { created++ } }
+  const fresh = new LeadAssembly(options)
+  assert.equal(typeof (fresh as any).restore, 'function')
+  await (fresh as any).restore()
+  assert.equal(created, 0)
+  await fresh.ensure(); await fresh.close()
+  assert.equal(created, 1)
+  const restored = new LeadAssembly({ ...options, workspace: async () => null })
+  await (restored as any).restore()
+  assert.equal(created, 2)
+  await restored.close()
+})

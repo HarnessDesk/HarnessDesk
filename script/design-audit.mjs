@@ -4421,13 +4421,6 @@ export const isPatternModule = (module) => /[\\/]design[\\/]patterns[\\/]/.test(
  * any part of that contract changes.
  */
 export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
-  {
-    module: 'design/ui/timeline.tsx',
-    kind: 'data-geometry',
-    exports: ['Timeline'],
-    area: 'room',
-    reason: 'An ordered execution data view: title-centred rings and incoming rail segments encode recorded progress. Existing Button and Text own selection and typography; the timeline introduces no independent control.',
-  },
 
   {
     module: 'design/ui/chart.tsx',

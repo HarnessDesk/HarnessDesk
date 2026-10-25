@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { decideLeadPermission, leadBudgetProjection, leadReviewedResultSource, type LeadJournal } from '@harnessdesk/lead'
+import { decideLeadPermission, leadBudgetProjection, leadWorkerDispatchBlockedByOpenPr, leadReviewedResultSource, type LeadJournal } from '@harnessdesk/lead'
 import { LEAD_LIMITS, type LeadBudgetEvent, type LeadProject, type SeatRecord } from '@harnessdesk/protocol'
 import { attributeSample, goalSpend, meterSample, meterTurn, openMeter } from '../intake/spend.js'
 import { seatWindowOf } from '../insight/attribution.js'
@@ -40,7 +40,15 @@ export class LeadBudgets implements FlowLeadGuard {
   readonly #pending = new Map<string, { journal: LeadJournal; stepId: string; params: unknown; project: LeadProject }>()
   readonly #children = new Map<LeadJournal, () => void>()
   #recovering = false
+  #meteringStopped = false
   constructor(readonly port: LeadBudgetPort) {}
+  /** Shutdown removes usage sources before every asynchronous observer exits.
+   * Freeze readings first; a new host reconstructs them before admission. */
+  stopMetering(): void {
+    this.#meteringStopped = true
+    for (const cancel of this.#freshening.values()) cancel()
+    this.#freshening.clear()
+  }
   register(journal: LeadJournal): () => void {
     const id = journal.state.budget?.logicalGoalId
     if (!id || this.#journals.has(id)) throw new Error('lead-budget-owner')
@@ -92,6 +100,15 @@ export class LeadBudgets implements FlowLeadGuard {
     if (this.#journals.get(journal.state.budget!.logicalGoalId) !== journal || this.#pending.has(startId)) throw new Error('lead-budget-owner')
     this.#pending.set(startId, { journal, stepId, params: structuredClone(params), project: structuredClone(project) })
   }
+  async prepareRepair(run: StoredFlowExecution, key: string, round: number): Promise<void> {
+    const journal = this.#journal(run), state = journal.state, op = state.handbacks.at(-1)
+    await this.meter(journal)
+    if (!op || op.key !== key || op.round !== round || op.runId !== run.id || op.teamId !== run.goal || op.stage !== 'prepared' || !state.follow[op.kind] ||
+      state.pr?.state !== 'open' || state.pr.branchOwner === 'person' || state.handbackLimit || state.recoveryBlocked ||
+      !state.consent || state.consent.expiresAt <= this.port.now() || state.consent.renewalCardRevision !== undefined || state.phase !== 'running' ||
+      !await this.port.member(state.contract!.project) || leadBudgetProjection(journal.state.budget!, this.port.now()).spend !== 'known' || journal.state.budget?.stop)
+      throw new Error('lead-repair-not-approved')
+  }
   async validateStart(binding: FlowLeadBinding): Promise<void> {
     const pending = this.#pending.get(binding.startId), journal = this.#journals.get(binding.logicalGoalId)
     if (!journal || pending?.journal !== journal) throw new Error('lead-start-not-approved')
@@ -100,7 +117,7 @@ export class LeadBudgets implements FlowLeadGuard {
     if (!contract || contract.digest !== binding.contractDigest || !step || admitted?.state !== 'admitted' ||
       !attempt || attempt.correlationId !== binding.startId || attempt.phase !== 'started' || !attempt.dispatched || attempt.method !== 'flow/start-goal' ||
       state.runs.some(run => run.correlationId === binding.startId) ||
-      state.recoveryBlocked || ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
+      state.recoveryBlocked || leadWorkerDispatchBlockedByOpenPr(state) || ['stopped', 'accepted', 'declined', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) ||
       !await this.port.member(contract.project)) throw new Error('lead-start-not-approved')
     const current = journal.state
     const decision = decideLeadPermission({ method: 'flow/start-goal', params: pending.params, project: pending.project, runId: null, start: step },
@@ -131,6 +148,7 @@ export class LeadBudgets implements FlowLeadGuard {
     this.#pending.delete(lead.startId)
   }
   async gate(run: StoredFlowExecution): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }> {
+    if (this.#meteringStopped) return { ok: false, reason: 'lead-host-shutdown' }
     try {
       const journal = this.#journal(run), state = journal.state
       if (!state.runs.some(item => item.runId === run.id && item.teamId === run.goal) || !state.budget!.executionIds.includes(run.id)) throw new Error('lead-run-unowned')
@@ -138,7 +156,8 @@ export class LeadBudgets implements FlowLeadGuard {
       await this.#refresh(run, journal)
       // Read again after membership awaits: a latch may have landed meanwhile.
       const current = journal.state, budget = leadBudgetProjection(current.budget!, this.port.now())
-      if (budget.stop || ['stopped', 'accepted', 'declined'].includes(current.phase) || current.recoveryBlocked) throw new Error('lead-budget-stopped')
+      if (budget.stop || leadWorkerDispatchBlockedByOpenPr(current, run.id) || ['stopped', 'accepted', 'declined'].includes(current.phase) || current.recoveryBlocked) throw new Error('lead-budget-stopped')
+      if (current.pr?.state === 'open' && (!current.consent || current.consent.expiresAt <= this.port.now() || current.phase !== 'running' || current.consent.renewalCardRevision !== undefined)) throw new Error('lead-repair-consent')
       // A brand-new execution has no worker turn to meter. Once work exists,
       // missing or stale attribution stops it rather than inferring zero.
       const worked = this.port.runs().some(one => one.lead?.logicalGoalId === run.lead!.logicalGoalId && one.operations.some(op => op.kind === 'turn' && op.state === 'finished'))
@@ -152,6 +171,7 @@ export class LeadBudgets implements FlowLeadGuard {
   /** A Lead request needs a current reading: a finished run is metered again rather than left to go stale.
    * It takes the journal itself, because the request comes before the child that registers it. */
   async meter(journal: LeadJournal): Promise<void> {
+    if (this.#meteringStopped) return
     const id = journal.state.budget?.logicalGoalId
     const runs = id ? this.port.runs().filter(one => one.lead?.logicalGoalId === id) : []
     // An explicit request also refreshes settled-run bindings. Do this here,
@@ -173,7 +193,7 @@ export class LeadBudgets implements FlowLeadGuard {
   /** Rebuild meters from the host-created Seats' full usage windows. The
    * durable aggregate only moves upwards; a restart needs no guessed baseline. */
   #refresh(run: StoredFlowExecution, journal: LeadJournal): Promise<void> {
-    if (!this.port.usage || !this.port.seats || journal.state.budget!.stop) return Promise.resolve()
+    if (this.#meteringStopped || !this.port.usage || !this.port.seats || journal.state.budget!.stop) return Promise.resolve()
     const id = run.lead!.logicalGoalId, active = this.#metering.get(id)
     if (active) return active
     const task = (async () => {
@@ -195,6 +215,7 @@ export class LeadBudgets implements FlowLeadGuard {
     try { read = await this.port.usage!(journal.state.contract!.project.path, seats.length ? Math.min(...seats.map(seat => seat.openedAt)) : now, now,
       seats.map(seat => ({ runtime: String(seat.session.runtime), sessionId: String(seat.session.sessionId) }))) }
     catch { read = { samples: [], complete: false } }
+    if (this.#meteringStopped) return false
     const raced = seats.some(seat => { const turn = this.#turns.get(seat.id); return (turn?.started ?? 0) > now || (turn?.ended ?? 0) > now })
     if (raced && !last) return true
     const windows = seats.map(seatWindowOf)
@@ -283,7 +304,7 @@ export class LeadBudgets implements FlowLeadGuard {
   #freshen(id: string, journal: LeadJournal): void {
     this.#freshening.get(id)?.(); this.#freshening.delete(id)
     const state = journal.state, budget = state.budget
-    if (!budget || budget.stop || !state.runs.length || ['stopped', 'accepted', 'declined'].includes(state.phase)) return
+    if (this.#meteringStopped || !budget || budget.stop || !state.runs.length || ['stopped', 'accepted', 'declined', 'following'].includes(state.phase)) return
     const observed = budget.observation?.at
     const delay = observed === undefined ? budget.freshnessMs / 4 : Math.max(0, observed + budget.freshnessMs * 3 / 4 - this.port.now())
     const schedule = this.port.schedule ?? ((callback: () => void, ms: number) => {

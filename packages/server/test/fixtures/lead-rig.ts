@@ -17,11 +17,13 @@ import { ExtensionKernel, setTeamEngine } from '@harnessdesk/cordis-host'
 import { teamPlugin } from '@harnessdesk/plugins'
 import { Host, Logger, StateStore } from '../../src/index.js'
 import { LeadFileJournal } from '../../src/lead/journal.js'
-import { freezeLeadPlan } from '../../src/lead/assembly.js'
+import { freezeLeadPlan, leadProjectOf } from '../../src/lead/assembly.js'
 import { GatedRegistry } from '../../src/ceilings/gate.js'
 import { GoalStore } from '../../src/goals/store.js'
 import { LEAD_RIG_KEY, leadMessagesServer } from './lead-messages-server.js'
 import type { LeadService } from '../../src/lead/service.js'
+import { GitGateway } from '../../src/git-gateway/index.js'
+import { LeadAssembly } from '../../src/lead/assembly.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..')
 const model = 'fixture-model'
@@ -39,6 +41,13 @@ class RigRuntime extends CodexRuntime {
 }
 export interface LeadRigOptions {
   readonly enabled?: boolean
+  /** Offline host-publication fixture: one run, pinned demo repository and distinct repair commits. */
+  readonly publication?: boolean
+  /** Full offline forge walks: only explicit person creation and reviewed owned pushes. */
+  readonly offlineForge?: boolean
+  readonly waitMs?: number
+  readonly reviewAvailable?: () => boolean
+  readonly forgeGh?: (args: readonly string[]) => Promise<{ stdout: string; stderr: string; exitCode: number }>
   readonly scenario?: 'happy' | 'interrupted' | 'worker-approval' | 'forbidden'
   readonly manualChecks?: boolean
   readonly holdWorkers?: boolean
@@ -60,6 +69,7 @@ export interface LeadRigOptions {
 export async function createLeadRig(options: LeadRigOptions = {}) {
   const scratch = await realpath(await mkdtemp(join(process.platform === 'darwin' ? '/tmp' : tmpdir(), 'hd-lrig-')))
   const home = join(scratch, 'home'), project = { id: 'synthetic-project', path: join(scratch, 'project') }
+  if (options.offlineForge) Object.assign(project, leadProjectOf(project.path))
   const previousHome = process.env['HARNESSDESK_HOME'], previousPath = process.env['PATH']
   process.env['HARNESSDESK_HOME'] = home
   const logger = new Logger('lead-rig', { level: 'error', console: false })
@@ -74,6 +84,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
   let disposed = false, workerMicros = 0, failGate = false, failedGate = false
   const checkStarts = new Set<string>()
   let evidenceFailure: Error | undefined
+  let latestEvidence: LeadAcceptanceEvidence | null = null
   let currentStep = '', preview: { token: string; source: string; expiresAt: number } | undefined
   let deskSocketPath = ''
   let supervisorOptions!: LeadSupervisorOptions
@@ -83,14 +94,38 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
   let restoreGoalSave: (() => void) | undefined
   let restoreUsage: (() => void) | undefined
   let workerSample: UsageSample | undefined
+  const restoreFakes: (() => void)[] = []
+  let forgeClock = Date.now(), personPublication = false, hostStarts = 0
+  const forgeState = join(home, 'fake-forge.json'), remote = join(scratch, 'remote.git')
+  const forgeCalls: string[][] = []
+  const allowedPushes: { sha: string; previousSha: string | null }[] = []
+  const readForge = async (): Promise<any> => JSON.parse(await readFile(forgeState, 'utf8'))
+  const writeForge = (value: unknown) => writeFile(forgeState, JSON.stringify(value))
+  const fakeGh = async (args: readonly string[]) => {
+    forgeCalls.push([...args])
+    const mutation = args.some(arg => ['create', 'merge', 'delete', 'edit', 'comment', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(arg))
+    if (mutation && !(args[0] === 'pr' && args[1] === 'create' && personPublication)) {
+      forbidden.push(`forge:${args.join(' ')}`); throw new Error('unexpected rig forge write')
+    }
+    if (args[0] === 'api' && args[1] === 'user' && args.includes('--jq')) return { stdout: 'jane-doe', stderr: '', exitCode: 0 }
+    const state = await readForge()
+    if (args[0] === 'pr' && args[1] === 'create') {
+      const branch = args[args.indexOf('--head') + 1]!
+      state.publicationHead = git(remote, 'rev-parse', `refs/heads/${branch}`)
+      await writeForge(state)
+    }
+    try { return { stdout: execFileSync(process.execPath, [join(root, 'packages/server/test/fixtures/fake-gh.mjs'), ...args],
+      { cwd: scratch, encoding: 'utf8', env: { ...process.env, FAKE_GH_STATE: forgeState }, stdio: ['ignore', 'pipe', 'pipe'] }), stderr: '', exitCode: 0 } }
+    catch (error) { const failure = error as { stdout?: string; stderr?: string; status?: number }; return { stdout: String(failure.stdout ?? ''), stderr: String(failure.stderr ?? ''), exitCode: failure.status ?? 1 } }
+  }
   const enabled = options.enabled !== false
   const gitBinary = execFileSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).trim()
   const git = (cwd: string, ...args: string[]) => execFileSync(gitBinary, args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
   const waitFor = async (predicate: () => boolean | Promise<boolean>, label = 'rig state') => {
-    const until = Date.now() + 240_000
+    const until = Date.now() + (options.waitMs ?? 240_000)
     while (!await predicate()) {
       if (evidenceFailure && /spawnSync ps.*EPERM/.test(evidenceFailure.message)) throw evidenceFailure
-      if (Date.now() >= until) throw new Error(`Timed out waiting for ${label}; phase=${journal?.state.phase}; reason=${journal?.state.managementReason}; evidence=${evidenceFailure?.message ?? 'none'}`)
+      if (Date.now() >= until) throw new Error(`Timed out waiting for ${label}; phase=${journal?.state.phase}; reason=${journal?.state.managementReason}; evidence=${evidenceFailure?.message ?? 'none'}; pr=${JSON.stringify(journal?.state.pr)}; handbacks=${JSON.stringify(journal?.state.handbacks.map(op => ({ stage: op.stage, head: op.head, publishedHead: op.publishedHead })))}; rounds=${JSON.stringify(host?.flowsPlane.leadRuns().map(run => ({ state: run.state, reason: run.reason, rounds: run.rounds.map(round => ({ n: round.n, role: round.role, state: round.state, cards: round.cards.map(id => { const card = host.teamPlane.stateFor(run.goal).intents.find(card => card.id === id); return { id, state: card?.state, title: card?.title } }) })) })))}`)
       await sleep(25)
     }
   }
@@ -102,7 +137,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     journal.state.cards.find((card): card is Extract<LeadCard, { type: T }> => card.type === type && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
   const personGates = () => journal.state.runs.flatMap(run => host.teamPlane.stateFor(run.teamId).intents.filter(card => card.role === 'accept'))
   const worktrees = () => [...new Set(host.flowsPlane.leadRuns().flatMap(run => Object.values(run.seatPlans ?? {}).flatMap(plan => plan.handed.map(checkout => checkout.cwd))))]
-  const releaseWorkers = async () => { for (const marker of ['write', 'repair', 'review']) await writeFile(join(gates, marker), '') }
+  const releaseWorkers = async () => { for (const marker of ['write', 'repair', 'review', 'followRepair']) await writeFile(join(gates, marker), '') }
   const restoreEnvironment = () => {
     if (previousHome === undefined) delete process.env['HARNESSDESK_HOME']; else process.env['HARNESSDESK_HOME'] = previousHome
     if (previousPath === undefined) delete process.env['PATH']; else process.env['PATH'] = previousPath
@@ -113,7 +148,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     for (const id of ['rig-writer', 'rig-reviewer']) await chmod(join(home, id, 'sessions'), 0o700).catch(() => {})
     restoreGoalSave?.(); restoreUsage?.()
     try { await host?.dispose(); await extensions?.dispose(); setTeamEngine(null); await storage?.close(); await provider?.close(); for (const socket of bridgeSockets) socket.destroy(); await Promise.all(bridgeServers.map(server => new Promise<void>(resolve => server.close(() => resolve())))) }
-    finally { restoreEnvironment(); await rm(scratch, { recursive: true, force: true, maxRetries: 5 }) }
+    finally { restoreFakes.reverse().forEach(restore => restore()); restoreEnvironment(); await rm(scratch, { recursive: true, force: true, maxRetries: 5 }) }
   }
   try {
     await mkdir(home, { recursive: true }); await mkdir(project.path); await mkdir(gates)
@@ -129,6 +164,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     execFileSync(gitBinary, ['fast-import', '--quiet'], { cwd: project.path, input: Buffer.concat([
       Buffer.from(`commit refs/heads/main\nauthor Jane Doe <dev@example.com> 1700000000 +0000\ncommitter Jane Doe <dev@example.com> 1700000000 +0000\ndata 16\nSynthetic source\nM 100644 inline .harnessdesk/checks.yml\ndata ${seed.length}\n`), seed, Buffer.from('\n\n')]), stdio: ['pipe', 'pipe', 'pipe'] })
     git(project.path, 'checkout', 'main')
+    if (options.publication) git(project.path, 'remote', 'add', 'origin', 'https://github.com/acme/widgets.git')
     await writeFile(passes, JSON.stringify({ passes: {}, done: [] }))
     const bin = join(home, 'bin'); await mkdir(bin)
     // Observe Git effects routed through PATH, including host-internal calls.
@@ -140,12 +176,46 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     // mktemp owns a unique file even after PID reuse and under concurrent reads.
     await writeFile(wrapper, `#!/bin/sh\nlog=$(mktemp ${quote(gitLog)}/call.XXXXXXXX) || exit 1\nprintf '%s\\0' "$@" > "$log"\nexec ${quote(gitBinary)} "$@"\n`)
     await chmod(wrapper, 0o755); process.env['PATH'] = `${bin}:${previousPath ?? ''}`
+    if (options.offlineForge) {
+      assert.ok(options.publication, 'offline forge requires a publication plan')
+      git(scratch, 'init', '--bare', remote)
+      await writeForge({ repo: 'acme/widgets', view: { nameWithOwner: 'acme/widgets', url: 'https://github.com/acme/widgets', defaultBranchRef: { name: 'main' } }, user: { id: 7, login: 'jane-doe' }, pulls: [], issues: [] })
+      // Capture the audit wrapper in the gateway's fixed environment too.
+      const gateway = new GitGateway({ directory: join(home, 'offline-gateway'), localRemote: repository => { assert.equal(repository, 'acme/widgets'); return remote }, gh: (_cwd, args) => fakeGh(args) })
+      // Only transport destinations differ. The gateway's object transfer,
+      // reviewed commit guards, private mirror and durable ledger stay real.
+      for (const name of ['inspectCheckout', 'push', 'repository', 'remoteHead', 'attribute', 'isAncestor', 'hasSucceededPush', 'findPullRequest', 'createPullRequest'] as const) {
+        const original = GitGateway.prototype[name] as (...args: any[]) => any
+        ;(GitGateway.prototype as any)[name] = async (...args: any[]) => {
+          if (name === 'push') {
+            const input = args[0]
+            assert.equal(input.requester.kind, 'lead-goal')
+            assert.equal(input.requester.id, journal.state.budget!.logicalGoalId)
+            assert.equal(input.sha, latestEvidence?.revision, 'only the currently reviewed commit may be pushed')
+            if (input.previousSha === null) assert.ok(personPublication, 'initial push requires the person decision')
+            else {
+              assert.equal(journal.state.pr?.branchOwner, 'lead')
+              assert.ok(journal.state.handbacks.some(op => op.stage === 'running' && op.head === input.previousSha), 'an active same-Team repair authorizes the owned update')
+            }
+            const result = await original.apply(gateway, args)
+            allowedPushes.push({ sha: input.sha, previousSha: input.previousSha }); return result
+          }
+          return original.apply(gateway, args)
+        }
+        restoreFakes.push(() => { (GitGateway.prototype as any)[name] = original })
+      }
+      // This rig already assembled a journal, a fake provider and fake Seats.
+      // The production lazy assembler must not create a second Lead owner.
+      const ensure = LeadAssembly.prototype.ensure
+      LeadAssembly.prototype.ensure = async () => {}
+      restoreFakes.push(() => { LeadAssembly.prototype.ensure = ensure })
+    }
     const assignments = [
       { role: 'implement', agent: 'implementer', seat: { runtime: 'rig-writer', model: 'gpt-5.5' }, ceiling: 'edit' },
       { role: 'review', agent: 'code-reviewer', seat: { runtime: 'rig-reviewer', model: 'gpt-5.5' }, ceiling: 'read' },
     ]
-    const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1,
-      steps: (options.manualChecks ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments })),
+    const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1, ...(options.publication ? { publicationRepository: 'acme/widgets' } : {}),
+      steps: (options.manualChecks || options.publication ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments })),
       assertions: [{ id: 'unit', kind: 'check', description: 'Required check passes' }, { id: 'review', kind: 'review', description: 'Independent review approves' },
         { id: 'blockers', kind: 'blocking-findings', description: 'No unresolved blockers' }], caps: { usdMicros: 10_000_000, rounds: 20 } })
     const seats = Object.fromEntries(assignments.map(one => [one.role, [one.seat]]))
@@ -200,11 +270,13 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       requests: [], pending: false, transport: { async send() { throw new Error('disabled provider') } }, release() {}, interrupt() {}, async close() {},
     }
     const setupHost = async () => {
+      const restoring = hostStarts++ > 0
       extensions = new ExtensionKernel()
       host = new Host({ extensions, logger, state: new StateStore(join(home, 'state.json')), leadEnabled: enabled,
         catalogRefreshMs: 0, libraryHome: join(home, 'person'),
-        evidence: { gh: async args => { if (args.some(arg => ['create', 'merge', 'delete', 'edit', 'comment', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(arg))) forbidden.push(`forge:${args.join(' ')}`); return { stdout: '', stderr: 'No forge in Lead rig', exitCode: 1 } } },
-        forge: { gh: async args => { if (args.some(arg => ['create', 'merge', 'delete', 'edit', 'comment', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(arg))) forbidden.push(`forge:${args.join(' ')}`); return { stdout: '', stderr: 'No forge in Lead rig', exitCode: 1 } } },
+        ...(options.offlineForge ? { intake: { gh: async (...args: Parameters<NonNullable<NonNullable<import('../../src/host.js').HostOptions['intake']>['gh']>>) => ({ ...await fakeGh(args[0]), timedOut: false, overflow: false }), now: () => forgeClock, monotonic: () => forgeClock, timers: { every() { return 0 }, clear() {} }, usage: async () => ({ samples: [], complete: true }) } } : {}),
+        evidence: { gh: options.offlineForge ? fakeGh : options.forgeGh ?? (async args => { if (args.some(arg => ['create', 'merge', 'delete', 'edit', 'comment', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(arg))) forbidden.push(`forge:${args.join(' ')}`); return { stdout: '', stderr: 'No forge in Lead rig', exitCode: 1 } }) },
+        forge: { gh: options.offlineForge ? fakeGh : options.forgeGh ?? (async args => { if (args.some(arg => ['create', 'merge', 'delete', 'edit', 'comment', 'POST', 'PATCH', 'PUT', 'DELETE'].includes(arg))) forbidden.push(`forge:${args.join(' ')}`); return { stdout: '', stderr: 'No forge in Lead rig', exitCode: 1 } }) },
         trashPath: async path => { forbidden.push(`delete:${path}`); throw new Error('No deletion in Lead rig') },
       })
       // Fake only the key broker boundary. It never reaches safeStorage or a real key store.
@@ -232,7 +304,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         }
       })
       setTeamEngine(host.teamPlane); await extensions!.load(teamPlugin)
-      await host.start()
+      if (!restoring) await host.start()
       for (const [id, providerName] of [['rig-writer', 'synthetic-writer'], ['rig-reviewer', 'synthetic-reviewer']] as const) {
         const codexHome = join(home, id); await mkdir(codexHome, { recursive: true })
         const runtime = new RigRuntime({ id: id as RuntimeId, name: id === 'rig-writer' ? 'Scripted writer' : 'Scripted reviewer', codexHome,
@@ -240,19 +312,24 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
           capabilities: new GatedRegistry(extensions!, () => host.ceilingGate),
           env: { FAKE_CODEX_PROCESS_CALLS: workerLog, FAKE_CODEX_FLOW: JSON.stringify({ state: passes, gates, approvalLog: workerLog, passPerRun: true, approvalBeforeWork: options.scenario === 'worker-approval', steps: {
             write: { kind: 'write', title: 'Implement the approved goal', outcomes: ['committed'], file: 'retry.txt', contents: 'Incomplete retry status list\n' },
-            repair: { kind: 'write', title: 'Repair the blocking findings and rerun required checks', outcomes: ['committed'], file: 'retry.txt', contents: 'Complete retry status list\n' },
-            review: { kind: 'review', title: 'Check and review the committed result', outcomes: ['request-changes', 'approve'] },
+            repair: { kind: 'write', title: 'Repair the blocking findings and rerun required checks', outcomes: ['committed'], file: 'retry.txt', contents: options.publication ? 'Complete retry status list {{intent}}\n' : 'Complete retry status list\n' },
+            ...(options.publication ? { followRepair: { kind: 'write', title: 'Repair the followed pull request', outcomes: ['committed'], file: 'retry.txt', contents: 'Followed retry status list {{intent}}\n' } } : {}),
+            review: { kind: 'review', title: 'Check and review the committed result', outcomes: options.publication ? ['approve'] : ['request-changes', 'approve'] },
           } }) },
         }, providerName)
         // The priced-source variant starts its synthetic runtime before the
         // host observes it: no predecessor epoch exists whose delegation is lost.
         // Ordinary/eager fixtures still prove zero worker processes pre-consent.
-        if (options.workerSpend) await runtime.start()
+        if (options.workerSpend || restoring) await runtime.start()
         host.register(runtime)
         // Even an empty source is explicit and confined to this rig's synthetic home.
         const usage = join(codexHome, 'sessions'); await mkdir(usage, { recursive: true })
         host.bindUsage(id as RuntimeId, { corpus: 'codex', root: usage })
       }
+      // Restore fake runtimes and their isolated usage sources before startup
+      // recovers saved Seats. Recovery must not read an unbound source or
+      // replace an already observed runtime epoch with the fixture runtime.
+      if (restoring) await host.start()
       await host.call('workspace/open', { path: project.path })
       if (!enabled) return
       storage = await LeadFileJournal.open(home, 'synthetic-thread', { canaries: [LEAD_RIG_KEY] })
@@ -273,7 +350,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         // The synthetic person authorizes the declared local command through the same window call.
         // Its real check runner writes revision-qualified evidence, never a fixture assertion.
         const implementation = board.board.intents.filter(card => cardIds.has(card.id) && card.role === 'implement' && card.state === 'done').at(-1)
-        if (!options.manualChecks && revision && implementation && !checkStarts.has(`${runId}:${revision}`) && !evidence.cards.flatMap(card => card.facts).some(one => one.record.fact.kind === 'check' && one.record.fact.at === revision)) {
+        if (!options.manualChecks && !options.publication && revision && implementation && !checkStarts.has(`${runId}:${revision}`) && !evidence.cards.flatMap(card => card.facts).some(one => one.record.fact.kind === 'check' && one.record.fact.at === revision)) {
           const checks = await host.call('evidence/checks', { project: project.path })
           const check = checks.checks.find(one => one.name === 'verify')
           if (check && checks.at) {
@@ -290,11 +367,13 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         // These facts were re-read and verified fresh at this revision now.
         // Use that read time so multi-step rig runtime cannot age a valid fact.
         const readAt = Date.now()
-        return { project, runId, contractDigest: journal.state.contract!.digest, revision, observedAt: Date.now(), complete: true,
+        return latestEvidence = { project, runId, contractDigest: journal.state.contract!.digest, revision, observedAt: Date.now(), complete: true,
           spendComplete: leadBudgetProjection(journal.state.budget!, Date.now()).spend === 'known',
-          checks: facts.flatMap(record => record.fact.kind === 'check' && record.fact.at === revision ? [{ assertionId: 'unit', id: record.id, revision: record.fact.at, observedAt: readAt,
+          // Publication tests fake only normalized check inputs; review receipts,
+          // exact checkout identity, host acceptance and gateway effects stay real.
+          checks: options.publication && revision ? [{ assertionId: 'unit', id: `fixture-check-${revision}`, revision, observedAt: readAt, exit: 0, timedOut: false, dirty: false, counted: true }] : facts.flatMap(record => record.fact.kind === 'check' && record.fact.at === revision ? [{ assertionId: 'unit', id: record.id, revision: record.fact.at, observedAt: readAt,
             exit: record.fact.exit, timedOut: record.fact.timedOut, dirty: record.fact.dirty, counted: record.fact.counted === true }] : []),
-          reviews: facts.flatMap(record => record.fact.kind === 'review' && record.fact.at === revision ? [{ assertionId: 'review', id: record.id,
+          reviews: facts.flatMap(record => options.reviewAvailable?.() !== false && record.fact.kind === 'review' && record.fact.at === revision ? [{ assertionId: 'review', id: record.id,
             revision: record.fact.at, observedAt: readAt, verdict: record.fact.verdict, complete: true }] : []),
           findingsComplete: !findings.embargoed, findings: findings.blocking ? [{ id: `${runId}:blocking`, revision, blocking: true, resolved: false }] : [], diffs: [],
         }
@@ -366,9 +445,11 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     }
     const decide = async (card: LeadCard, choice: LeadCardDecision['choice']) => {
       if (card.type === 'stopped') throw new Error('stopped cards have no decision')
-      return host.call('lead/card/decide', {
+      if (options.offlineForge && choice === 'accept-open-pr') personPublication = true
+      try { return await host.call('lead/card/decide', {
       version: 1, cardId: card.id, cardType: card.type, expectedRevision: card.revision, contractDigest: card.contractDigest, choice,
-    }) }
+      }) } finally { personPublication = false }
+    }
     const sendGoal = () => host.call('lead/thread/send', { idempotencyKey: `goal-${journal.state.seq}`, text: task })
     const settle = async () => { await host.flowsPlane.flush(); await sleep(150); await host.flowsPlane.flush() }
     const assertAccounting = async () => {
@@ -392,10 +473,67 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     const assertNoForbiddenEffects = async () => {
       const logged = await Promise.all((await readdir(gitLog)).map(async name => (await readFile(join(gitLog, name), 'utf8')).split('\0').slice(0, -1)))
       const effects = logged.filter(args => args.includes('push') || args.includes('merge') || args.includes('worktree') && args.includes('remove') || args.includes('branch') && args.some(one => ['-d', '-D', '--delete'].includes(one)))
-      assert.deepEqual([...forbidden, ...effects.map(one => one.join(' '))], [], 'zero merges, publishes, deletions, forge writes and pushes')
+      const pushes = effects.filter(args => args.includes('push'))
+      assert.deepEqual([...forbidden, ...effects.filter(args => !args.includes('push')).map(one => one.join(' '))], [], 'zero merges, deletions and unexpected forge publications')
+      assert.equal(pushes.length, allowedPushes.length, 'every push is explicitly allowed and recorded by the host gateway')
+      for (const args of pushes) {
+        assert.ok(!args.some(arg => arg === '--force' || arg === '-f' || arg.startsWith('+')), 'zero force pushes')
+        const refspec = args.find(arg => allowedPushes.some(push => arg.startsWith(`${push.sha}:refs/heads/`)))
+        assert.ok(refspec, 'exact reviewed head refspec')
+        const allowed = allowedPushes.find(push => refspec.startsWith(`${push.sha}:`))!
+        // A lease is compare-and-swap, not permission to rewrite history.
+        assert.ok(args.includes(`--force-with-lease=${refspec.split(':')[1]}:${allowed.previousSha ?? ''}`))
+        if (allowed.previousSha) git(remote, 'merge-base', '--is-ancestor', allowed.previousSha, allowed.sha)
+
+      }
+      const creates = forgeCalls.filter(args => args[0] === 'pr' && args[1] === 'create')
+      assert.ok(creates.length <= 1, 'at most the one person-authorized PR creation')
     }
     return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service },
-      provider, children, calls, windowNotifications, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
+      provider, children, calls, windowNotifications, get latestEvidence() { return latestEvidence }, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
+      offline: options.offlineForge ? {
+        read: readForge,
+        async pushes() { return (await readFile(join(home, 'offline-gateway/ledger.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line)).filter(row => row.op === 'push' && row.outcome === 'succeeded') },
+        async poll() {
+          forgeClock += 61_000
+          const state = await readForge()
+          for (const pull of state.pulls) {
+            if (pull.branch) { const head = git(remote, 'rev-parse', `refs/heads/${pull.branch}`); if (head !== pull.head) pull.checks = [{ id: 3, head_sha: head, name: 'verify', status: 'queued', conclusion: null }]; pull.head = head }
+          }
+          await writeForge(state); await host.intakePlane.tick()
+        },
+        async failChecks() {
+          await host.intakePlane.followingChanged()
+          await host.intakePlane.tick() // Inventory the watched PR before the synthetic failure arrives.
+          forgeClock = Math.max(forgeClock, Date.now()) + 1000
+          const state = await readForge(), pull = state.pulls[0]
+          pull.checks = [{ id: 1, head_sha: pull.head, name: 'verify', status: 'completed', conclusion: 'failure', completed_at: new Date(forgeClock).toISOString() }]
+          await writeForge(state)
+        },
+        async passChecks() {
+          forgeClock = Math.max(forgeClock, Date.now()) + 1000
+          const state = await readForge(), pull = state.pulls[0]
+          pull.head = journal.state.pr!.head
+          pull.checks = [{ id: 2, head_sha: pull.head, name: 'verify', status: 'completed', conclusion: 'success', completed_at: new Date(forgeClock).toISOString() }]
+          await writeForge(state)
+        },
+        async mergeExternally() { const state = await readForge(); state.pulls[0].state = 'closed'; state.pulls[0].merged = true; await writeForge(state) },
+        async armTrigger() {
+          const path = join(project.path, '.harnessdesk/triggers.yml')
+          await writeFile(path, '- id: lead-pr\n  on: pull-request\n  opens: { lead: true }\n')
+          git(project.path, 'add', '.harnessdesk/triggers.yml')
+          git(project.path, '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-m', 'Add synthetic Lead trigger')
+          const preview = await host.call('trigger/preview', { root: project.path, id: 'lead-pr' })
+          assert.deepEqual(preview.problems, []); assert.ok(preview.lead); assert.ok(preview.token)
+          await host.call('trigger/arm', { root: project.path, id: 'lead-pr', token: preview.token })
+        },
+        async openPull() {
+          forgeClock += 1000
+          const state = await readForge()
+          state.pulls.push({ number: 12, head: git(project.path, 'rev-parse', 'HEAD'), title: 'Repair the retry check', state: 'open', created: forgeClock, updated: forgeClock })
+          await writeForge(state)
+        },
+      } : undefined,
       async probeExpiredConsent() {
         await sendGoal(); await waitFor(() => provider.pending, 'held planning request')
         const socket = new WebSocket(`ws+unix://${deskSocketPath}:/client`)
@@ -505,6 +643,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         }
         failGate = true
       },
+      get gateSaveFailed() { return failedGate },
       async interruptAt(kind: 'child-crash' | 'host-restart' | 'connection-gap') {
         if (kind === 'child-crash') { children.at(-1)!.kill('SIGKILL'); await waitFor(() => children.at(-1)?.exitCode !== null || children.at(-1)?.signalCode !== null, 'child exit') }
         else if (kind === 'connection-gap') {

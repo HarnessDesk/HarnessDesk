@@ -4105,3 +4105,49 @@ implementer committed and the review never opened, because the Flow's review
 must be independent and the desk could not show it was. The person had approved
 work that could never reach a result to accept. The refusal crosses the child
 boundary as a code, like an oversized card, so the Lead process stays live.
+
+
+## A Lead plan is a flow in its conversation, and trigger consent stays in the project — 2026-10-24
+
+The approved plan is read in execution order through LeadPlanFlow, composing the
+existing Timeline and its decorative connectors. Each step names responsibility
+in role words, followed by Approve to start. No graph library or parallel plan
+list owns a second reading order. The same pattern is exported, catalogued and
+shown in the design explorer. Acceptance checks and limits remain below it.
+
+The person can Accept and open PR from a reviewed result. The existing card
+decision, revision/digest fence and shared pending lock own that fourth choice.
+Push and branch-ownership requests use the same machinery; their prose states
+why publication or reclaim needs the person. A followed PR keeps its linked
+number, check/review status and ownership chip visible. Repair wording belongs
+only to an active hand-back round. Event origin remains a small linked fact.
+
+Triggers is a Settings Lead section: machine follow preferences have two
+independent switches, both on by default. Project declarations remain files,
+listed only when opens.lead is true and described by lead.summary from preview.
+Opening a row opens the actual returned file; listing it grants no arm or edit
+authority. There is no unsupported messaging-service row.
+
+Publication preflight validates the real person gates without answering them.
+The final journaled decision answers them only after publication completes;
+otherwise the board change could invalidate the very card authorizing the push.
+Writer-queue guards also ignore delayed child result invalidation during
+publication and an old acceptance wait after the goal enters following. Origin
+metadata carries the event action and repository subject; delivery identity stays
+in the private origin key. The offline rig covers these races and ordering.
+
+A delayed child refresh cannot replace or restore the result protected by a
+publication that has started, including completion before its final decision.
+The expected stale offer returns through IPC without ending the management
+child. A new validated hand-back starts a fresh no-progress window; total round
+limits, existing findings and stops remain in force. Person acceptance does not
+consume the repair's chance to produce new evidence before independent review.
+
+Host shutdown preserves a repair already waiting for CI as well as prepared or
+running hand-backs. Its published head and unanswered acceptance round must
+survive restart so a later green observation can offer the reviewed result.
+Preparing a same-Team repair retires the owned run's earlier terminal observation
+before the host opens its next round. Recovery then retains that authorized
+reopening instead of contesting it as foreign work. Shutdown freezes usage reads
+before their sources disappear; a new host rebuilds those readings before it can
+admit work.

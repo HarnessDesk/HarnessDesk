@@ -616,6 +616,22 @@ test('restore compares the stored card facts with the current result signature',
   await loop.close()
 })
 
+test('terminal repair readiness never re-offers evidence for an older owned head', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  const read = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(s.journal), 'state')!.get!
+  const head = 'b'.repeat(40)
+  Object.defineProperty(s.journal, 'state', { configurable: true, get: () => ({ ...read.call(s.journal),
+    handbacks: [{ stage: 'abandoned' }], ciPassed: [head],
+    pr: { head, branchOwner: 'lead', state: 'open', check: { head, state: 'passed', total: 1 } } }) })
+  try {
+    await s.journal.invalidateResults()
+    await loop.refresh()
+    assert.equal(liveResults(s).length, 0)
+  } finally { Reflect.deleteProperty(s.journal, 'state'); await loop.close() }
+})
+
 test('a gap during an approved start keeps a continuation for resync without restarting', async () => {
   let release!: (value: any) => void
   const s = await fixture([() => new Promise(resolve => { release = resolve }), message()])
@@ -979,6 +995,25 @@ test('an oversized host result parks with the typed admission reason', async () 
     assert.equal(loop.state.phase, 'waiting-for-user')
     assert.equal(loop.state.reason, 'lead-card-too-large')
     assert.equal(s.journal.state.managementReason, 'lead-card-too-large')
+    assert.equal(s.journal.state.cards.some(card => card.type === 'result'), false)
+  } finally { await loop.close() }
+})
+
+
+test('a stale result offer discards the old refresh without parking the Lead', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const offer = s.journal.offerCard.bind(s.journal)
+  s.journal.offerCard = async (card: any) => {
+    if (card.type === 'result') throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
+    return offer(card)
+  }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.notEqual(loop.state.reason, 'lead-observations-unavailable')
+    assert.notEqual(loop.state.reason, 'lead-card-stale')
+    assert.notEqual(s.journal.state.managementReason, 'lead-card-stale')
     assert.equal(s.journal.state.cards.some(card => card.type === 'result'), false)
   } finally { await loop.close() }
 })
@@ -1433,5 +1468,83 @@ test('prose after a resume that no plan preceded is a question for the person, n
     assert.equal(s.journal.state.phase, 'running')
     assert.equal(s.journal.state.managementReason, null)
     assert.deepEqual(said(s), ['What should the repair change?'])
+  } finally { await loop.close() }
+})
+
+test('following is passive across refresh and desk activity without restoring a result or calling a provider', async () => {
+  const s = await fixture(), state: any = { ...s.journal.state, phase: 'following', pr: {
+    repository: 'acme/widgets', number: 7, head: 'a'.repeat(40), branch: 'worker', state: 'open', check: null, at: 100 } }
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  await loop.start()
+  for (let i = 0; i < 4; i++) {
+    s.emit({ type: 'notice', team: null, text: 'Desk activity' })
+    await s.drain(); await s.tick(); await loop.refresh(); await loop.idle()
+  }
+  assert.equal(journal.state.phase, 'following')
+  assert.equal(s.fake.requests.length, 0)
+  assert.equal(s.calls.some(call => call.method === 'flow/start-goal'), false)
+  assert.equal(journal.state.cards.some(card => card.type === 'result'), false)
+  await loop.close()
+})
+
+test('a chat push proposal uses the existing output path and rebuilds its approval from fresh reviewed evidence', async () => {
+  let proposed: any
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }),
+    async () => message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', cards: [proposed] }) }])])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const first = exported('createLeadLoop')(s.options)
+  await first.request(input)
+  const card = s.journal.state.cards.find(card => card.type === 'result')!
+  proposed = { ...card, publication: 'push', assertions: [], summary: 'Untrusted proposed summary' }
+  await first.close()
+  const state: any = { ...s.journal.state, phase: 'following', decidedCards: [...s.journal.state.decidedCards, `${card.id}:${card.revision}`],
+    pr: { repository: 'acme/widgets', number: 7, branch: 'worker', head: 'a'.repeat(40), state: 'open', check: null, at: 100 } }
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  try {
+    await loop.request({ ...input, messages: [{ role: 'user', content: [{ type: 'text', text: 'Push the reviewed work' }] }] })
+    const push = journal.state.cards.find(card => card.type === 'result' && card.publication === 'push')
+    assert.ok(push && push.type === 'result')
+    assert.equal(push.summary, 'Push the reviewed branch and open its pull request.')
+    assert.equal((push as any).publicationSource?.reviewedHead, 'head-1')
+    assert.equal(typeof (push as any).publicationSource?.evidenceRevision, 'string')
+    assert.equal(push.assertions.length, contract.assertions.length)
+    assert.ok(push.assertions.every(assertion => assertion.status === 'passed'))
+    assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
+    assert.equal(s.fake.requests.length, 2)
+  } finally { await loop.close() }
+})
+
+test('an open PR stays passive after a request failure and Resume', async () => {
+  const s = await fixture([message([tool('late', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve()
+  const state: any = { ...s.journal.state, phase: 'following', pr: {
+    repository: 'acme/widgets', number: 7, head: 'a'.repeat(40), branch: 'worker', state: 'open', check: null, at: 100 } }
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  await journal.resume()
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  try {
+    await loop.request(input)
+    assert.equal(s.calls.some(call => call.method === 'flow/start-goal'), false)
+  } finally { await loop.close() }
+})
+
+test('a released branch never re-offers a result on green refresh while Needs-you', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message()])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const first = exported('createLeadLoop')(s.options); await first.request(input); await first.close()
+  const result = s.journal.state.cards.find(card => card.type === 'result')!
+  const state: any = { ...s.journal.state, phase: 'waiting-for-user', managementReason: 'lead-pr-branch-rewritten',
+    decidedCards: [...s.journal.state.decidedCards, `${result.id}:${result.revision}`],
+    pr: { repository: 'acme/widgets', number: 7, branch: 'worker', head: 'a'.repeat(40), observedHead: 'b'.repeat(40), branchOwner: 'person', state: 'open', check: null, at: 100 } }
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  try {
+    await loop.refresh()
+    assert.equal(journal.state.cards.find(card => card.type === 'result')?.revision, result.revision)
+    assert.ok(journal.state.decidedCards.includes(`${result.id}:${result.revision}`))
+    assert.equal(journal.state.managementReason, 'lead-pr-branch-rewritten')
   } finally { await loop.close() }
 })

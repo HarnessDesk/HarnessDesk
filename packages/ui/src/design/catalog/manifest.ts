@@ -170,7 +170,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'QrCode', 'FlowExample', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
-  'LeadAvatar', 'ConversationShell', 'lead-contract', 'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
+  'LeadAvatar', 'ConversationShell', 'lead-contract', 'LeadPlanFlow', 'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
   'SettingsRowMenu', 'HeaderStatusGroup', 'SelectionAction',
 ])
 
@@ -183,6 +183,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   LeadAvatar: ['default'],
   ConversationShell: ['default'],
   'lead-contract': ['default'],
+  LeadPlanFlow: ['default'],
   CommandPalette: ['default'],
   SignInRail: ['default'],
   DashboardBands: ['light', 'dark'],
@@ -319,6 +320,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   LeadAvatar: ['default'],
   ConversationShell: ['default'],
   'lead-contract': ['default', 'loading'],
+  LeadPlanFlow: ['default'],
   CommandPalette: ['default'],
   SignInRail: ['default'],
   DashboardBands: ['default', 'empty', 'unknown', 'long-title'],
@@ -488,6 +490,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   'LeadAvatar': 'packages/ui/src/components/LeadPage.tsx',
   'ConversationShell': 'packages/ui/src/components/Conversation.tsx',
   'lead-contract': 'packages/ui/src/components/LeadCards.tsx',
+  LeadPlanFlow: 'packages/ui/src/components/LeadCards.tsx',
   SignInRail: 'packages/ui/src/components/SignIn.tsx',
   DashboardBands: 'packages/ui/src/components/Usage.tsx',
   LibraryMatrix: 'packages/ui/src/components/Library.tsx',
@@ -564,6 +567,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   'LeadAvatar': 'packages/ui/src/preview/frames-lead.tsx',
   'ConversationShell': 'packages/ui/src/preview/frames-lead.tsx',
   'lead-contract': 'packages/ui/src/preview/frames-lead.tsx',
+  LeadPlanFlow: 'packages/ui/src/preview/frames-lead.tsx',
   BoardCard: 'packages/ui/src/design/explorer/board-card-example.tsx',
   CommandPalette: 'packages/ui/src/preview/frames-transcript.tsx',
   SignInRail: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -722,7 +726,8 @@ const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
 
 const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'lead-contract': ['LeadContract'],
-  'LeadAvatar': ['LeadAvatar', 'LeadNameChoice'],
+  LeadPlanFlow: ['LeadPlanFlow'],
+  'LeadAvatar': ['LeadAvatar', 'LeadNameChoice', 'LeadIdentity', 'LeadLineNote', 'LeadSlot', 'LeadTurn'],
   'ConversationShell': ['ConversationShell', 'ConversationThread', 'ConversationDock', 'ConversationComposerFrame', 'TranscriptAssistantMessage'],
   'ActionError': ['ActionError'],
   'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],
@@ -927,6 +932,7 @@ export const CANONICAL_UI_MODULES = [
 export const CANONICAL_PATTERN_MODULES = [
   ['LeadAvatar', 'lead-avatar', 'The chosen Lead character on its disc, one size per place'],
   ['ConversationShell', 'conversation', 'The session and Lead share their window, transcript and floating composer dock'],
+  ['LeadPlanFlow', 'lead-plan-flow', 'Ordered plan steps and responsible roles on the shared timeline, ending in approval'],
   ['lead-contract', 'lead-contract', 'Lead decision prose in the shared transcript, with docked session approvals'],
   ['CommandPalette', 'conversation', 'Fixed search surface, title-led results and a keyboard-hint footer'],
   ['DashboardBands', 'dashboard-bands', 'Recorded plan, spend and activity readings through canonical page blocks'],

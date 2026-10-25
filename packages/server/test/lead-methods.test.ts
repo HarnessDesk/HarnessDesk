@@ -609,6 +609,35 @@ test('a partial gate with the opposite outcome refuses retry', async () => {
   await assert.rejects(g.answerLeadResult(g.options, g.card, g.click, g.c), code('lead-gate-changed'))
   assert.equal(g.answers(), 0)
 })
+test('a failed second gate save keeps its result retryable after an intermediate child invalidation', async () => {
+  const g = await gateRig(true), { LeadControls } = await controlsModule()
+  await g.journal.offerCard(g.card)
+  let invalidation: Promise<void> | undefined, fail = true
+  const answer = g.options.team.intentAction
+  g.options.team.intentAction = async (...args: any[]) => {
+    if (args[0] === 'team-2' && fail) {
+      // The first gate's board notification lets the child invalidate its old
+      // snapshot while the host is still saving the remaining person gate.
+      invalidation = g.journal.invalidateResults()
+      throw Object.assign(new Error('board save failed'), { wireCode: 'lead-gate-save-failed' })
+    }
+    return answer(...args)
+  }
+  const controls = new LeadControls({ journal: g.journal, service: g.service, project, model: 'fixture-model', now: () => 100,
+    nextId: () => 'unused', push() {}, decidePerson: async () => {},
+    decideResult: () => g.answerLeadResult(g.options, g.card, g.click, g.c) })
+  try {
+    await assert.rejects(controls.decide(g.click), code('lead-gate-save-failed'))
+    await invalidation
+    await g.journal.invalidateResults()
+    assert.equal(g.journal.state.decidedCards.includes('result:1'), false)
+    await assert.rejects(controls.decide({ ...g.click, expectedRevision: 2 }), code('lead-card-stale'))
+    fail = false
+    await controls.decide(g.click)
+    assert.equal(g.answers(), 2)
+    await assert.rejects(controls.decide(g.click), code('lead-card-decided'))
+  } finally { controls.close(); await controls.idle() }
+})
 for (const guard of ['execution', 'ownership', 'step-flow', 'step-revision', 'recipe-source'] as const) test(`person gate refuses changed ${guard} before answering`, async () => {
   const g = await gateRig()
   const { leadReviewedResultSource, LEAD_REVIEWED_RESULT } = await import('@harnessdesk/lead')
@@ -1693,4 +1722,49 @@ test('a steer reaches the running worker without a restart, and one no worker ta
   await assert.rejects(s.controls.steer({ text: 'And add a test.' }), code('lead-steer-unavailable'))
   assert.equal((await s.controls.readThread()).steers.length, 1)
   s.controls.close()
+})
+
+test('follow preferences persist without credentials or permission widening and reject combined authority writes', async () => {
+  const s = await rig()
+  const follow = { checks: false, reviews: true }
+  const result = await s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, follow })
+  assert.deepEqual(result.settings.follow, follow)
+  assert.deepEqual((await createLeadJournal(s.storage)).state.follow, follow)
+  assert.equal(s.journal.state.cards.length, 0)
+  for (const extra of [{ credential: { provider: 'anthropic', key: null } }, { policy }, { caps: contract.caps }])
+    await assert.rejects(s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, follow, ...extra }), code('lead-settings-combination'))
+  s.controls.close()
+})
+
+test('accept-open-pr and a push result use host publication after stale-card refusal', async () => {
+  const published: any[] = []
+  const s = await rig({ controls: { publishResult: async (...args: any[]) => { published.push(args) } } })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  const result: any = { version: 1, id: 'result-push', revision: 1, type: 'result', publication: 'push', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Push the reviewed work', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) }
+  await s.journal.offerCard(result)
+  const click: any = { version: 1, cardId: result.id, cardType: 'result', expectedRevision: 0, contractDigest: contract.digest, choice: 'accept-open-pr' }
+  await assert.rejects(s.controls.decide(click), code('lead-card-stale'))
+  assert.equal(published.length, 0)
+  await s.controls.decide({ ...click, expectedRevision: 1 })
+  assert.equal(published.length, 1)
+  assert.equal(s.answers.length, 0, 'publication owns the live gate check; no bare effect runs in beforeDecision')
+  s.controls.close()
+})
+
+test('declining a push card only dismisses it without answering the worker result gate', async () => {
+  const s = await rig(); await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  await s.journal.offerCard({ version: 1, id: 'push', revision: 1, type: 'result', publication: 'push', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Push reviewed work', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) })
+  await s.call('lead/card/decide', { version: 1, cardId: 'push', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'decline' })
+  assert.equal(s.answers.length, 0)
+  assert.equal(s.journal.state.phase, 'running')
+})
+
+test('a stale publication source preserves the lead-card-stale refusal code', async () => {
+  const s = await rig({ controls: { publishResult: async () => { throw new Error('lead-card-stale') } } })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  await s.journal.offerCard({ version: 1, id: 'push', revision: 1, type: 'result', publication: 'push', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Push reviewed work', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) })
+  await assert.rejects(s.call('lead/card/decide', { version: 1, cardId: 'push', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }), code('lead-card-stale'))
 })

@@ -2079,15 +2079,16 @@ allowance chips. Enter sends, Shift+Enter adds a line, and Send waits for the
 host's in-flight request. The Lead remains a host-owned thread, never a Session.
 
 Decision details are assistant Markdown in journal order, without card borders,
-inset rows, revision labels or internal identifiers. Plans show numbered steps,
-worker presentation names and models, acceptance checks, the allowance and folder,
+inset rows, revision labels or internal identifiers. Plans show LeadPlanFlow, an ordered flow diagram of steps and responsible roles
+ending in Approve to start, acceptance checks, the allowance and folder,
 and the separate-approval boundary for publishing, merging and deleting. Results
 show qualified check, review, findings and changes status, reasons and separately
 attributed Lead and reported worker spend. Unknown values remain unknown.
 
 The shared ApprovalDialog docks the question and buttons above the composer.
 Plans and widenings offer Approve and Decline; a result offers Open changes,
-Accept and Decline. A worker request names its role and what it asks, with Yes once
+Decline, Accept and Accept and open PR. The fourth action sends accept-open-pr
+through the same revision-bound decision. A worker request names its role and what it asks, with Yes once
 and No when those choices are supported. The person answers directly in Lead or
 on a paired phone; Lead cannot answer it. After an approving review, each required
 check without counted evidence offers Run check with its whole command. That
@@ -2121,9 +2122,29 @@ turn is retained for approval before the Lead parks.
 Reads back off to 30 seconds, read once more, then wait for changes.
 
 Settings › Lead exists only with the host capability. Its groups are Name,
-Provider key, Allowances and Permissions. Dex/Lex saves immediately and changes
+Provider key, Allowances, Permissions and Triggers. The chosen name saves immediately and changes
 no authority. The uncontrolled key input is emptied before its exclusive request,
 including refusal; removing a key asks for confirmation. Changed authority groups
 have a trailing Save. Tightening applies immediately; widening creates a decision
 message and shows Waiting for your approval in the conversation with an Open
 button that lands on that decision. Consent expiry remains a settings fact.
+
+The followed PR row opens its pull request and shows number, checks, review and
+a branch-ownership chip. Your branch means automatic repairs are paused. Outside
+pushes and rewritten branches have an ownership card with a short reason and
+Reclaim branch. An explicit push card uses the reviewed result machinery. A
+hand-back limit is a Needs-you wait with a reason in the conversation. Only an
+active repair round says it is repairing; passive following says Following.
+An automatic goal retains its linked From origin line.
+
+An ended repair is judged against the current owned branch head. Green CI and
+matching reviewed evidence can offer its result again; otherwise one Needs-you
+wait explains a failed, withdrawn, abandoned or unverified repair. Missing CI
+runs keep a published repair waiting. Turning following off before dispatch
+withdraws that repair without spending its automatic repair allowance.
+
+Settings › Lead › Triggers has Follow my pull requests switches for Checks failed
+and Review comment; each defaults on and saves independently to settings.follow.
+Open a goal when is a read-only list of project declarations with opens.lead
+true, using the arm preview's lead.summary. Each opens the project's returned
+trigger-file path. This page neither edits nor arms declarations.

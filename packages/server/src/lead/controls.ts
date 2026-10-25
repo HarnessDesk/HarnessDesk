@@ -1,10 +1,10 @@
 import {
   LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
-  parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
+  parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -16,6 +16,7 @@ export const leadRefusal = (wireCode: LeadControlRefusal): Error & { wireCode: L
 interface LeadControlsOptions {
   readonly journal: LeadJournal
   readonly service: Pick<LeadService, 'status' | 'setKey' | 'deleteKey' | 'send' | 'assertPublic'>
+  readonly automaticProject?: (path: string) => Promise<void>
   readonly project: LeadProject
   readonly model: string
   readonly now: () => number
@@ -28,6 +29,8 @@ interface LeadControlsOptions {
   /** Host revalidates the live Flow, card and evidence on the journal's decision queue. */
   readonly decidePerson: (card: Extract<LeadCard, { type: 'waiting' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly decideResult: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
+  readonly publishResult?: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
+  readonly reclaimBranch?: (card: Extract<LeadCard, { type: 'branch-ownership' }>, decision: LeadCardDecision) => Promise<void>
   readonly stopRequest?: () => Promise<void>
   /** Reads the workers' spend again; a Lead request is refused while that spend is not known. */
   readonly meterSpend?: () => Promise<void>
@@ -101,7 +104,7 @@ export class LeadControls {
     if (!policy || !budget) throw leadRefusal('lead-unavailable')
     const key = await this.options.service.status('anthropic')
     return parseLeadSettingsProjection({ version: 1, name: this.options.journal.state.name, model: this.options.model,
-      key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
+      follow: this.options.journal.state.follow, key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
   async #projection(): Promise<LeadWindowProjection> {
     // Renewal is opportunistic. A refusal must leave reads and key removal usable.
@@ -109,7 +112,7 @@ export class LeadControls {
       admitLeadCard(this.options.journal.state, card, this.options.project, this.options.model)) } catch { /* Keep the last durable projection readable. */ }
     const settings = await this.#settings(), state = this.options.journal.state
     // Settings reads may yield to a journal write. Retry from one coherent revision.
-    if (settings.name !== state.name || settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps)) return this.#projection()
+    if (settings.name !== state.name || settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps) || JSON.stringify(settings.follow) !== JSON.stringify(state.follow)) return this.#projection()
     if (this.#failedRevision === state.seq) throw leadRefusal('lead-projection-failed')
     let thread: ReturnType<typeof leadWindowThread>
     const personActions = await this.options.readPersonActions?.() ?? []
@@ -137,7 +140,7 @@ export class LeadControls {
     return this.#requestInFlight
   }
   #resumable(state: LeadState): boolean {
-    if (['stopped', 'accepted', 'declined'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked || this.#inFlight()) return false
+    if (['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked || this.#inFlight()) return false
     const cards = state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))
     return !cards.some(card => card.type === 'plan' || card.type === 'result' || card.type === 'waiting' && card.kind === 'person') &&
       (!state.consent || state.consent.expiresAt > this.options.now()) &&
@@ -169,11 +172,14 @@ export class LeadControls {
     void this.#notify(true)
     return this.#projection()
   }) }
-  send(value: LeadThreadSend) { return this.#queue(async () => {
+  send(value: LeadThreadSend, automaticOrigin?: LeadOrigin, automaticProject?: string) { return this.#queue(async () => {
     const input = parseLeadThreadSend(value), { journal, service } = this.options
     if (leadContainsSecret(input)) throw leadRefusal('lead-secret-refused')
     const previous = journal.state.sends.find(send => send.key === input.idempotencyKey)
     if (previous) return { messageId: previous.messageId, revision: previous.revision }
+    const origin = automaticOrigin ? parseLeadOrigin(automaticOrigin) : null
+    const idle = () => canOfferAutomaticLeadGoal(journal.state, input.idempotencyKey)
+    if (origin && !idle()) throw leadRefusal('lead-request-in-flight')
     const newGoal = canBeginLeadGoal(journal.state)
     if (journal.state.budget?.stop && journal.state.budget.stop.reason !== 'cancelled' && !newGoal) throw leadRefusal('lead-budget-stopped')
     if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) && !newGoal) throw leadRefusal('lead-thread-closed')
@@ -182,6 +188,7 @@ export class LeadControls {
     try { configured = (await service.status('anthropic')).configured } catch { throw leadRefusal('lead-protection-unavailable') }
     if (!configured) throw leadRefusal('lead-key-missing')
     try { await service.assertPublic(input) } catch (error) { this.#publicFailure(error) }
+    if (origin && !idle()) throw leadRefusal('lead-request-in-flight')
     // Record terminal host observations before the new message, so an earlier
     // request cannot become permission to replace work when it later settles.
     if (!newGoal && journal.state.steps.length && journal.state.steps.every(step => step.state === 'started')) {
@@ -193,6 +200,14 @@ export class LeadControls {
       await this.options.stopRequest?.()
       if (this.#continuation) await this.#continuation
       await journal.beginGoal(this.options.nextId(), this.options.now())
+    }
+    if (origin && automaticProject && automaticProject !== this.options.project.path) {
+      if (!this.options.automaticProject) throw leadRefusal('lead-project-missing')
+      await this.options.automaticProject(automaticProject)
+    }
+    if (origin) {
+      if (journal.state.origin && JSON.stringify(journal.state.origin) !== JSON.stringify(origin)) throw leadRefusal('lead-request-in-flight')
+      if (!journal.state.origin) await journal.setOrigin(origin, input.idempotencyKey)
     }
     const resume = !newGoal && this.#resumable(journal.state)
     if (journal.state.phase === 'waiting-for-user' && (journal.state.recoveryBlocked ||
@@ -288,7 +303,7 @@ export class LeadControls {
         const contract = journal.state.contract
         if (!contract || contract.digest !== card.contractDigest) throw leadRefusal('lead-card-stale')
         if (card.type === 'waiting') await this.options.decidePerson(card, decision, contract)
-        else await this.options.decideResult(card, decision, contract)
+        else if (!(card.publication === 'push' && decision.choice === 'decline')) await this.options.decideResult(card, decision, contract)
       } : undefined, committed)
     if (card.type === 'plan' && decision.choice === 'approve') await this.#commitRequest(commit)
     else {
@@ -298,15 +313,22 @@ export class LeadControls {
       const budget = journal.state.budget, observed = budget?.observation?.at
       if (card.type !== 'plan' && budget && (observed === undefined || this.options.now() - observed > budget.freshnessMs / 2))
         try { await this.options.meterSpend?.() } catch { /* The decision refuses while spend stays unknown. */ }
-      await commit()
+      if (card.type === 'branch-ownership' && decision.choice === 'reclaim-branch') {
+        if (!this.options.reclaimBranch) throw leadRefusal('lead-operation-refused')
+        try { await this.options.reclaimBranch(card, decision) } catch { throw leadRefusal('lead-card-stale') }
+      } else if (card.type === 'result' && (decision.choice === 'accept-open-pr' || card.publication === 'push' && decision.choice === 'accept')) {
+        if (!this.options.publishResult || !journal.state.contract) throw leadRefusal('lead-operation-refused')
+        try { await this.options.publishResult(card, decision, journal.state.contract) }
+        catch (error) { throw leadRefusal(error instanceof Error && error.message === 'lead-card-stale' ? 'lead-card-stale' : 'lead-operation-refused') }
+      } else await commit()
     }
     return this.#projection()
   }) }
   updateSettings(value: LeadSettingsUpdate): Promise<LeadWindowProjection | LeadNameReceipt> { return this.#queue(async () => {
     const input = parseLeadSettingsUpdate(value), { journal, service } = this.options
     // Credentials stay exclusive; combined authority changes are preflighted together.
-    if (input.name !== undefined && (input.policy !== undefined || input.caps !== undefined)) throw leadRefusal('lead-settings-combination')
-    if (input.credential ? input.name !== undefined || input.policy !== undefined || input.caps !== undefined : input.name === undefined && !input.policy && !input.caps) throw leadRefusal('lead-settings-combination')
+    if (input.name !== undefined && (input.policy !== undefined || input.caps !== undefined || input.follow !== undefined)) throw leadRefusal('lead-settings-combination')
+    if (input.credential ? input.name !== undefined || input.policy !== undefined || input.caps !== undefined || input.follow !== undefined : input.name === undefined && !input.policy && !input.caps && !input.follow) throw leadRefusal('lead-settings-combination')
     if (input.name !== undefined) {
       // This closed choice has no authority or untrusted prose. Acknowledge the
       // write without resolving a key; every later full projection still scans.
@@ -314,6 +336,11 @@ export class LeadControls {
       return parseLeadNameReceipt({ version: 1, revision: journal.state.seq, settings: { name: journal.state.name } })
     }
     this.#expectRevision(input.expectedRevision)
+    if (input.follow && (input.policy || input.caps)) throw leadRefusal('lead-settings-combination')
+    if (input.follow) {
+      await journal.settingsChanged(undefined, input.follow)
+      return this.#projection()
+    }
     if (input.credential) {
       const { provider, key } = input.credential
       if (key === null) await service.deleteKey(provider)

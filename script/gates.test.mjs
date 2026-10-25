@@ -1645,14 +1645,13 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
-    ['design/ui/timeline.tsx', ['Timeline']],
     ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
     ['design/ui/delta.tsx', ['Delta']],
     ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 20)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 19)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
@@ -4512,9 +4511,9 @@ test('an arbitrary Tailwind property or an inline style object that writes its o
 })
 
 
-test('timeline geometry exemption excludes its now-shared item and retains only the single-area rail', () => {
+test('the shared Timeline and its items need no single-area geometry exemption', () => {
   const module = path.join(repoRoot, 'packages/ui/src/design/ui/timeline.tsx')
-  assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'room'), true)
+  assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineItem', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineAction', 'room'), false)
   assert.equal(isSingleAreaPrimitiveExempt(module, 'Timeline', 'settings'), false)

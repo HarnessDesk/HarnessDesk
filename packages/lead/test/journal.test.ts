@@ -45,6 +45,62 @@ const prepare = async (storage: ReturnType<typeof memory>) => {
   return journal
 }
 
+test('refreshes with no outstanding result do not keep journaling invalidations', async () => {
+  const journal = await prepare(memory()), seq = journal.state.seq
+  await journal.invalidateResults(); await journal.invalidateResults()
+  assert.equal(journal.state.seq, seq)
+  await journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget!, 100) })
+  await journal.invalidateResults()
+  const invalidated = journal.state.seq
+  await journal.invalidateResults(); await journal.invalidateResults()
+  assert.equal(journal.state.seq, invalidated)
+})
+
+test('a failed person save protects its exact result until fresh retry validation refuses it', async () => {
+  const journal = await prepare(memory())
+  const card = { version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget!, 100) }
+  await journal.offerCard(card)
+  const decision = { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }
+  await assert.rejects(journal.decideCard(decision, null, undefined, async () => {
+    throw Object.assign(new Error('save refused'), { wireCode: 'lead-gate-save-failed' })
+  }))
+  await journal.invalidateResults()
+  assert.equal(journal.state.decidedCards.includes('result:1'), false)
+  await assert.rejects(journal.offerCard({ ...card, revision: 2 }), { wireCode: 'lead-card-stale' })
+  await assert.rejects(journal.decideCard(decision, null, undefined, async () => {
+    throw Object.assign(new Error('gate changed'), { wireCode: 'lead-gate-changed' })
+  }))
+  assert.equal(journal.state.decidedCards.includes('result:1'), true)
+  await journal.offerCard({ ...card, revision: 2 })
+  assert.equal(journal.state.cards.find((value: any) => value.id === card.id)!.revision, 2)
+})
+
+test('publication attention releases a failed second person save for a fresh result', async () => {
+  const journal = await prepare(memory())
+  const card = { version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget!, 100) }
+  await journal.offerCard(card)
+  const decision = { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' }
+  const source = { repository: 'acme/widgets', cwd: '/workspace/demo', branch: 'worker', head: 'b'.repeat(40), remote: 'origin', remoteUrl: '/tmp/remote.git', defaultBranch: 'main', runId: 'run', teamId: 'team', runtime: 'fixture', sessionId: 'worker' }
+  const op = { id: 'publication', source, decision, at: 100, stage: 'push-prepared', effectStarted: false }
+  await journal.publication(op)
+  await journal.publication({ ...op, stage: 'pushed' })
+  await journal.publication({ ...op, stage: 'completed' }, { repository: source.repository, number: 7, branch: source.branch, head: source.head, branchOwner: 'lead', state: 'open', at: 100, check: null })
+  await assert.rejects(journal.decideCard(decision, null, undefined, async () => {
+    throw Object.assign(new Error('second gate save refused'), { wireCode: 'lead-gate-save-failed' })
+  }))
+  await journal.publicationNeedsYou(op.id)
+  assert.equal(journal.state.managementReason, 'lead-publication-needs-you')
+  assert.equal(journal.state.decidedCards.includes('result:1'), true)
+  await journal.offerCard({ ...card, revision: 2 })
+  let saved = false
+  await journal.decideCard({ ...decision, expectedRevision: 2, choice: 'accept' }, null, undefined, async () => { saved = true })
+  assert.equal(saved, true)
+  assert.equal(journal.state.phase, 'following')
+})
+
 test('crash after successful start before recording response never starts a second Flow', async () => {
   const storage = memory(), journal = await prepare(storage)
   let starts = 0
@@ -1785,4 +1841,76 @@ test('a management-stopped start keeps its refusal instead of predecessor readin
     predecessor: { runId: 'run-1', ready: false } }, async () => { throw new Error('must not dispatch') })
   assert.equal(result.decision.reason, 'Management is stopped pending recovery or user action')
   assert.equal(result.outcome, 'denied')
+})
+
+test('publication intents bind the live result click and checkpoint migration defaults only absent follow state', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  const card = { version: 1, id: 'result-pr', revision: 1, type: 'result', outcome: 'reviewed', contractDigest: contract.digest,
+    summary: 'Reviewed work', assertions: [], budget: { ...context.budget, reservedUsdMicros: 0 } }
+  await journal.offerCard(card)
+  const operation = { id: 'publish-1', at: 100, stage: 'push-prepared', source: {
+    repository: 'acme/widgets', cwd: '/workspace/demo-worker', branch: 'worker', head: 'a'.repeat(40), remote: 'origin',
+    remoteUrl: 'https://github.com/acme/widgets.git', defaultBranch: 'main', runId: 'run-1', teamId: 'team-1', runtime: 'fixture', sessionId: 'worker-1' },
+    decision: { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' } }
+  await assert.rejects(journal.publication({ ...operation, decision: { ...operation.decision, expectedRevision: 2 } }))
+  await assert.rejects(journal.decideCard(operation.decision))
+  await journal.publication(operation)
+  assert.deepEqual((await open(storage)).state.publication, operation)
+  const checkpoint: any = lead.leadCheckpoint(journal.state, 'b'.repeat(64))
+  assert.deepEqual(lead.parseLeadCheckpoint(JSON.parse(JSON.stringify(checkpoint))).state.publication, operation)
+  delete checkpoint.state.follow; delete checkpoint.state.pr; delete checkpoint.state.publication
+  assert.deepEqual(lead.parseLeadCheckpoint(checkpoint).state.follow, { checks: true, reviews: true })
+  checkpoint.state.follow = null
+  assert.throws(() => lead.parseLeadCheckpoint(checkpoint))
+})
+
+test('only Needs-you operations with proven absence of effects may be superseded', async () => {
+  for (const started of [false, true]) {
+    const storage = memory(), journal = await prepare(storage)
+    const card = { version: 1, id: 'result-pr', revision: 1, type: 'result', outcome: 'reviewed', contractDigest: contract.digest,
+      summary: 'Reviewed work', assertions: [], budget: { ...context.budget, reservedUsdMicros: 0 } }
+    await journal.offerCard(card)
+    let op = { id: 'publish-1', at: 100, stage: 'push-prepared', effectStarted: false, source: {
+      repository: 'acme/widgets', cwd: '/workspace/demo-worker', branch: 'worker', head: 'a'.repeat(40), remote: 'origin',
+      remoteUrl: 'https://github.com/acme/widgets.git', defaultBranch: 'main', runId: 'run-1', teamId: 'team-1', runtime: 'fixture', sessionId: 'worker-1' },
+      decision: { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' } }
+    await journal.publication(op)
+    if (started) { op = { ...op, stage: 'push-started', effectStarted: true }; await journal.publication(op) }
+    op = { ...op, stage: 'needs-you' }; await journal.publication(op)
+    if (started) await assert.rejects(journal.publication({ ...op, stage: 'superseded' }))
+    else { await journal.invalidateResults(); assert.equal(journal.state.publication.stage, 'superseded') }
+    assert.deepEqual((await open(storage)).state, journal.state)
+    assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint(journal.state, 'b'.repeat(64))).state, journal.state)
+  }
+})
+
+test('push-started cannot claim the absence of an external effect in either journal operation', () => {
+  const source = { repository: 'acme/widgets', cwd: '/workspace/demo-worker', branch: 'worker', head: 'a'.repeat(40), remote: 'origin',
+    remoteUrl: 'https://github.com/acme/widgets.git', defaultBranch: 'main', runId: 'run-1', teamId: 'team-1', runtime: 'fixture', sessionId: 'worker-1' }
+  for (const effectStarted of [false, undefined]) {
+    assert.throws(() => lead.parseLeadOwnedPush({ source, number: 7, previousHead: 'b'.repeat(40), at: 100, stage: 'push-started', effectStarted }))
+    assert.throws(() => lead.parseLeadPublicationOperation({ source, id: 'publish-1', at: 100, stage: 'push-started', effectStarted,
+      decision: { version: 1, cardId: 'result', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' } }))
+  }
+})
+
+test('a failed person save retains its exact retry through replay and checkpoint recovery', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  const card = { version: 1, id: 'retry', revision: 1, type: 'result', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget!, 100) }
+  await journal.offerCard(card)
+  const decision = { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }
+  await assert.rejects(journal.decideCard(decision, null, undefined, async () => {
+    throw Object.assign(new Error('save refused'), { wireCode: 'lead-gate-save-failed' })
+  }))
+  const replay = await open(storage)
+  const state = lead.parseLeadCheckpoint(lead.leadCheckpoint(replay.state, 'b'.repeat(64))).state
+  const checkpoint = new lead.LeadJournal(storage, [], {}, state)
+  for (const recovered of [replay, checkpoint]) {
+    await recovered.invalidateResults()
+    assert.equal(recovered.state.decidedCards.includes('retry:1'), false)
+    await assert.rejects(recovered.offerCard({ ...card, revision: 2 }), { wireCode: 'lead-card-stale' })
+  }
+  await replay.decideCard(decision, null, undefined, async () => {})
+  assert.equal(replay.state.phase, 'accepted')
 })

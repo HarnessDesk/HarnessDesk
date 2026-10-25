@@ -6,9 +6,9 @@ import { classifyLeadRuns, createLeadWakeGate, type LeadRunReading, type LeadWak
 import { createLeadMessages } from './messages.js'
 import type { LeadMessagesOptions, LeadMessagesRequest, LeadMessagesResult, MessagesTurn } from './messages-types.js'
 import { createLeadTools, LEAD_TOPICS, leadWorkerApprovalRelay, type LeadResolvedTool } from './tools.js'
-import { evaluateLeadAcceptance, type LeadAcceptanceEvidence, type LeadAcceptanceResult } from './acceptance.js'
+import { evaluateLeadAcceptance, leadPublicationEvidenceRevision, type LeadAcceptanceEvidence, type LeadAcceptanceResult } from './acceptance.js'
 import { leadBudgetProjection } from './budget.js'
-import { leadPlanRuns } from './state.js'
+import { leadRepairResultReady, leadPlanRuns } from './state.js'
 import type { LeadDeskPort } from './ports.js'
 import type { LeadPermissionCall } from './permissions.js'
 
@@ -73,6 +73,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let tail: Promise<unknown> = Promise.resolve(), iterator: AsyncIterator<ClientEvent> | null = null
   let pump: Promise<void> | null = null, active: AbortController | null = null
   let history: readonly MessagesTurn[] | null = null, requestTemplate: LeadMessagesRequest | null = null
+  let publicationSources: { runId: string; reviewedHead: string; evidenceRevision: string }[] = []
   let lastResultSignature: string | null = null
   let noProgressTurns = 0, waitingForResume = false
   const gate = createLeadWakeGate(options.stuckMs)
@@ -113,6 +114,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     return result.value
   }
   const invalidate = async () => {
+    if (journal.state.publication && !['completed', 'superseded'].includes(journal.state.publication.stage) && !(journal.state.publication.stage === 'needs-you' && journal.state.publication.effectStarted === false)) return
     if (lastResultSignature !== null || journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`)))
       await journal.invalidateResults()
     acceptance = []
@@ -135,10 +137,12 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       const state = journal.state, contract = state.contract
       relays = (next.waiting ?? []).filter(item => item.kind === 'approval' && item.team !== null && state.teams.includes(item.team)).map(leadWorkerApprovalRelay)
       const evaluated: typeof acceptance = []
+      const sources: typeof publicationSources = []
       const actions: LeadAction[] = []
       for (const run of leadPlanRuns(state)) {
         await read({ method: 'flow/execution', params: { run: run.runId } })
         const facts = structuredClone(await options.readEvidence(run.runId, read))
+        sources.push({ runId: run.runId, reviewedHead: facts.revision, evidenceRevision: leadPublicationEvidenceRevision(facts) })
         actions.push(...facts.personActions ?? [])
         if (closed || generation !== expected) return
         if (!contract || facts.runId !== run.runId || facts.contractDigest !== contract.digest ||
@@ -153,11 +157,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       }
       if (closed || generation !== expected) return
       personActions = actions
+      publicationSources = sources
       const budget = journal.state.budget && leadBudgetProjection(journal.state.budget!, clock.now())
       const reviewed = contract && state.steps.every(step => step.state === 'started') && evaluated.length > 0 &&
+        (!state.handbacks.length || sources.every(source => source.reviewedHead === journal.state.pr?.head)) &&
         evaluated.every(item => item.result.status === 'reviewed') && budget?.spend === 'known' && budget.reservedUsdMicros === 0
-      if (!reviewed) await invalidate()
-      else if (!terminal(journal.state.phase)) {
+      if (!reviewed || !leadRepairResultReady(journal.state)) await invalidate()
+      else if (journal.state.pr?.branchOwner !== 'person' && !terminal(journal.state.phase) && journal.state.phase !== 'following' && (!journal.state.publication || ['completed', 'superseded'].includes(journal.state.publication.stage) || journal.state.publication.stage === 'needs-you' && journal.state.publication.effectStarted === false)) {
         const assertions: LeadAssertionResult[] = contract.assertions.map(assertion => {
           const facts = evaluated.map(item => item.result.assertions.find(result => result.assertionId === assertion.id)!)
           return { ...facts[0]!, evidence: facts.flatMap(fact => fact.evidence) }
@@ -176,6 +182,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
             type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Fresh checks and review are ready for your decision.', assertions, budget: budget! }) }
           catch (error) {
             lastResultSignature = null
+            if ((error as { wireCode?: unknown })?.wireCode === 'lead-card-stale') return
             if ((error as { wireCode?: unknown })?.wireCode === 'lead-card-too-large') { await waitForUser('lead-card-too-large'); return }
             if ((journal.state.cardRevisions[`result-${contract.revision}`] ?? 0) >= 32)
               await waitForUser('lead-result-revisions-exhausted')
@@ -198,7 +205,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       if (generation === expected && !closed) {
         synchronized = true
         if (['lead-connection-gap', 'lead-observations-unavailable'].includes(reason ?? '')) reason = null
-        if ((continuationPending || dirty) && history && requestTemplate && !blocked() && journal.state.phase !== 'awaiting-plan') schedule(false)
+        if ((continuationPending || dirty) && history && requestTemplate && !blocked() && !['awaiting-plan', 'following'].includes(journal.state.phase)) schedule(false)
       }
     } catch {
       synchronized = false; snapshot = empty(); relays = []; personActions = []
@@ -270,6 +277,22 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     // Model-proposed result/waiting cards are summaries only. The loop constructs
     // actionable cards from fresh reads, and never offers a worker approval card.
     await refresh()
+    // A model can request a push card through its existing result proposal output.
+    // Copy only the intent; the actionable card is rebuilt from fresh host evidence.
+    if (journal.state.pr?.branchOwner !== 'person' && result.proposals?.cards.some(card => card.type === 'result' && card.publication === 'push')) {
+      const state = journal.state, contract = state.contract
+      const evaluated = acceptance
+      const budget = state.budget && leadBudgetProjection(state.budget, clock.now())
+      if (contract && publicationSources.length === 1 && state.steps.every(step => step.state === 'started') && evaluated.length && evaluated.every(item => item.result.status === 'reviewed') &&
+        budget?.spend === 'known' && !budget.stop && budget.reservedUsdMicros === 0) {
+        const assertions = contract.assertions.map(assertion => {
+          const rows = evaluated.map(item => item.result.assertions.find(result => result.assertionId === assertion.id)!)
+          return { ...rows[0]!, evidence: rows.flatMap(row => row.evidence) }
+        })
+        await journal.offerCard({ version: 1, id: nextId(), revision: 1, type: 'result', publication: 'push', publicationSource: publicationSources[0]!, outcome: 'reviewed',
+          contractDigest: contract.digest, summary: 'Push the reviewed branch and open its pull request.', assertions, budget })
+      }
+    }
     if (result.reason === 'lead-predecessor-unavailable' || result.reason === 'lead-predecessor-unverifiable') { await waitForUser(result.reason); return result }
     const waitForDesk = !!result.deskActivityTools?.length
     // A tool told to wait for desk activity is owed the next change, whatever the gate makes of it.
@@ -296,11 +319,11 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   }
   const schedule = (activity = true) => {
     dirty ||= activity
-    if (cancelBatch || closed) return
+    if (cancelBatch || closed || journal.state.phase === 'following') return
     cancelBatch = clock.schedule(() => {
       cancelBatch = null
       void queue(async () => {
-        if (closed) return
+        if (closed || journal.state.phase === 'following') return
         const activity = dirty, continueTools = continuationPending
         dirty = false; continuationPending = false
         await refresh()

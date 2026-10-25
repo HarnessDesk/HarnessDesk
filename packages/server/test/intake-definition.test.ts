@@ -369,3 +369,18 @@ ${extra}`)
 `)
   assert.match(texts(pr), /\[0\]\.from: Only an issue trigger that reads comments/)
 })
+
+
+test('PR follow events are explicit opt-ins, separate from the omitted defaults', () => {
+  const read = (events: string) => parseTriggers(`- id: follow
+  on: pull-request
+${events}  opens: { flow: review-pr }
+`)
+  assert.deepEqual(read('').definitions[0]?.on.events, ['opened', 'pushed'])
+  const explicit = read('  events: [checks-failed, review-commented]\n')
+  assert.deepEqual(explicit.problems, [])
+  assert.deepEqual(explicit.definitions[0]?.on.events, ['checks-failed', 'review-commented'])
+  for (const events of ['checks-failed, checks-failed', 'review-commented, unknown']) {
+    assert.equal(read(`  events: [${events}]\n`).definitions.length, 0)
+  }
+})

@@ -5,7 +5,11 @@ import type { FlowPreview, LeadAcceptanceContract, LeadPermissionPolicy, LeadPro
 import { createLeadJournal, leadBudgetProjection, LEAD_MESSAGES_DEFAULTS, parseLeadSeatChoices,
   type LeadAcceptanceEvidence, type LeadJournal, type LeadPermissionCall, type LeadResolvedTool, type LeadSeatChoices, type MessagesPrice } from '@harnessdesk/lead'
 import { readChecksAt } from '../evidence/checks-file.js'
+import { atomicJson } from '../goals/store.js'
 import { LeadFileJournal } from './journal.js'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { rawPushUrl, githubRepositoryFromUrl, HARDENED_GIT_CONFIG } from '../git-hardening.js'
 import { leadRefusal } from './controls.js'
 
 /** Price per million tokens in micro-dollars, per model the Lead may be set to. An unlisted model is
@@ -22,8 +26,17 @@ const FRESHNESS_MS = 60_000
 const PROJECT_FILE = 'project.json'
 
 /** The digest every plan is frozen with: sha256 of its canonical JSON, the way the approval cards name it. */
-export const freezeLeadPlan = async (value: LeadAcceptanceContract): Promise<LeadAcceptanceContract> =>
-  ({ ...value, digest: createHash('sha256').update(JSON.stringify(value)).digest('hex') })
+export const freezeLeadPlan = async (value: LeadAcceptanceContract): Promise<LeadAcceptanceContract> => {
+  let publicationRepository: string | null = null
+  try {
+    const { stdout } = await promisify(execFile)('git', ['-C', value.project.path, ...HARDENED_GIT_CONFIG, 'remote'], { timeout: 20_000 })
+    const remotes = stdout.trim().split('\n').filter(Boolean)
+    const remote = remotes.includes('origin') ? 'origin' : remotes.length === 1 ? remotes[0]! : ''
+    if (remote) publicationRepository = githubRepositoryFromUrl(await rawPushUrl(value.project.path, remote))
+  } catch { /* A local-only plan grants no publication destination. */ }
+  const pinned = { ...value, publicationRepository }
+  return { ...pinned, digest: createHash('sha256').update(JSON.stringify(pinned)).digest('hex') }
+}
 
 /** A project's identity is its path, so a restart names the same project without storing anything else. */
 export const leadProjectOf = (path: string): LeadProject => ({ id: `project-${createHash('sha256').update(path).digest('hex').slice(0, 16)}`, path })
@@ -120,9 +133,23 @@ export class LeadAssembly {
   #storage: LeadFileJournal | null = null
   constructor(private readonly options: LeadAssemblyOptions) {}
 
-  ensure(): Promise<void> {
-    this.#built ??= this.#build().catch((error: unknown) => { this.#built = null; throw error })
+  ensure(project?: string): Promise<void> {
+    this.#built ??= this.#build(project).catch((error: unknown) => { this.#built = null; throw error })
     return this.#built
+  }
+
+  /** Only the host's serialized idle automatic entry changes this before drafting a new goal. */
+  async rememberProject(path: string): Promise<void> {
+    if (!isAbsolute(path)) throw new Error('lead-project-missing')
+    await mkdir(join(this.options.home, 'lead'), { recursive: true, mode: 0o700 })
+    await atomicJson(join(this.options.home, 'lead', PROJECT_FILE), { version: 1, path })
+  }
+
+  /** A persisted thread restores its host watches at boot, without a provider request or a new goal. */
+  async restore(): Promise<void> {
+    try { await readFile(join(this.options.home, 'lead', PROJECT_FILE), 'utf8') }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error }
+    await this.ensure()
   }
 
   /** Releases the journal's lease once the host has closed the service; a restart reopens the same thread. */
@@ -133,11 +160,11 @@ export class LeadAssembly {
     await storage?.close()
   }
 
-  async #project(): Promise<LeadProject> {
+  async #project(preferred?: string): Promise<LeadProject> {
     const file = join(this.options.home, 'lead', PROJECT_FILE)
     const remembered = await readFile(file, 'utf8').then(text => JSON.parse(text) as { path?: unknown }, () => null)
     if (remembered && typeof remembered.path === 'string' && isAbsolute(remembered.path)) return leadProjectOf(remembered.path)
-    const path = await this.options.workspace()
+    const path = preferred ?? await this.options.workspace()
     if (!path) throw leadRefusal('lead-project-missing')
     await mkdir(join(this.options.home, 'lead'), { recursive: true, mode: 0o700 })
     const temporary = `${file}.${process.pid}.tmp`
@@ -146,9 +173,9 @@ export class LeadAssembly {
     return leadProjectOf(path)
   }
 
-  async #build(): Promise<void> {
+  async #build(preferred?: string): Promise<void> {
     const { options } = this
-    const project = await this.#project()
+    const project = await this.#project(preferred)
     const storage = await LeadFileJournal.open(options.home, LEAD_THREAD)
     this.#storage = storage
     const journal = await createLeadJournal(storage)

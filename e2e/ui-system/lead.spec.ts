@@ -16,20 +16,28 @@ for (const theme of ['light', 'dark'] as const) {
       await sendLeadGoal(page)
       const plan = page.locator('[data-lead-decision-type="plan"]')
       await expect(plan.getByRole('button', { name: 'Approve', exact: true })).toBeVisible({ timeout: 30_000 })
+      await expect(page.locator('[data-slot="lead-plan-flow"]')).toContainText('Approve to start')
       expect((await rig.host.call('goal/list', {})).length).toBe(0)
       await plan.getByRole('button', { name: 'Approve', exact: true }).click()
       await rig.waitFor(() => rig.journal.state.phase === 'running', 'approved work starts')
       await rig.releaseWorkers()
       const result = page.locator('[data-lead-decision-type="result"]')
       await expect(result.getByRole('button', { name: 'Accept', exact: true })).toBeVisible({ timeout: 240_000 })
+      await expect(result.getByRole('button', { name: 'Accept and open PR', exact: true })).toBeVisible()
       expect(rig.journal.state.runs.length).toBe(2)
+      await rig.waitFor(() => rig.journal.state.runs.every(owned => {
+        const round = rig.host.flowsPlane.leadRuns().find(run => run.id === owned.runId)?.rounds.at(-1)
+        return round?.role === 'accept' && round.state === 'running'
+      }) && !!rig.pending('result'), 'both real person gates and their stable reviewed result')
       // Capture the actual decision response: a refused click must fail here,
       // rather than spending the rig's acceptance wait on an unchanged phase.
       await page.evaluate(() => {
         const store = (window as any).__hdStore, request = store.transport.request.bind(store.transport)
         ;(window as any).__leadDecisionOutcome = null
+        ;(window as any).__leadDecisionStarted = false
         store.transport.request = async (method: string, params: unknown) => {
           if (method !== 'lead/card/decide') return request(method, params)
+          ;(window as any).__leadDecisionStarted = true
           try { const result = await request(method, params); (window as any).__leadDecisionOutcome = { accepted: result.thread?.state === 'accepted' }; return result }
           catch (error) { (window as any).__leadDecisionOutcome = { error: (error as any).wireCode ?? (error as any).code ?? 'untyped' }; throw error }
           finally { store.transport.request = request }
@@ -37,7 +45,10 @@ for (const theme of ['light', 'dark'] as const) {
       })
       await expect(result.getByRole('button', { name: 'Accept', exact: true })).toBeEnabled()
       await result.getByRole('button', { name: 'Accept', exact: true }).click()
-      await page.waitForFunction(() => (window as any).__leadDecisionOutcome !== null, null, { timeout: 10_000 })
+      await page.waitForFunction(() => (window as any).__leadDecisionStarted, null, { timeout: 10_000 })
+      // Acceptance revalidates and saves both real person gates; allow the
+      // local host's complete decision, rather than only its former preflight.
+      await page.waitForFunction(() => (window as any).__leadDecisionOutcome !== null, null, { timeout: 60_000 })
       expect(await page.evaluate(() => (window as any).__leadDecisionOutcome)).toEqual({ accepted: true })
       await rig.waitFor(() => rig.journal.state.phase === 'accepted', 'human result acceptance')
       await expect(result).toHaveCount(0)
@@ -104,6 +115,16 @@ for (const theme of ['light', 'dark'] as const) {
       const lead = page.locator('[data-page-destination="lead"]')
       await page.getByRole('button', { name: 'Lead settings', exact: true }).click()
       const settings = page.locator('[data-page-destination="settings"]')
+      const checks = settings.getByRole('switch', { name: 'Checks failed', exact: true })
+      const reviews = settings.getByRole('switch', { name: 'Review comment', exact: true })
+      await expect(checks).toBeChecked(); await expect(reviews).toBeChecked()
+      await checks.click()
+      await expect.poll(() => rig.journal.state.follow.checks).toBe(false)
+      expect(rig.journal.state.follow.reviews).toBe(true)
+      await page.reload()
+      await page.waitForFunction(() => (window as any).__hdReady !== undefined)
+      await page.evaluate(() => (window as any).__hdReady)
+      await expect(checks).not.toBeChecked(); await expect(reviews).toBeChecked()
       await settings.getByLabel('Permission mode', { exact: true }).selectOption('plan')
       await settings.getByRole('button', { name: 'Save permissions', exact: true }).click()
       await expect.poll(() => rig.journal.state.policy?.mode).toBe('plan')

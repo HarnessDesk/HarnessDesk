@@ -54,6 +54,8 @@ export interface LeadAcceptanceContract {
   /** Host-computed SHA-256 of the frozen approval scope; validation checks its spelling, not its authenticity. */
   readonly digest: string
   readonly goal: string
+  /** Host-pinned destination, captured when the approval plan is frozen. */
+  readonly publicationRepository?: string | null
   readonly project: LeadProject
   readonly policyRevision: LeadRevision
   /** Array order is execution order. */
@@ -138,9 +140,10 @@ interface LeadCardBase {
 }
 export type LeadCard = (LeadCardBase & { readonly contractDigest: string } & (
   | { readonly type: 'plan'; readonly contract: LeadAcceptanceContract }
+  | { readonly type: 'branch-ownership'; readonly repository: string; readonly number: number; readonly observedHead: string; readonly summary: string }
   | { readonly type: 'waiting'; readonly kind: 'person' | 'worker-approval'; readonly runId: string;
       readonly personCardId: string | null; readonly summary: string; readonly assertions: readonly LeadAssertionResult[] }
-  | { readonly type: 'result'; readonly outcome: 'reviewed' | 'accepted' | 'declined'; readonly summary: string;
+  | { readonly type: 'result'; readonly publication?: 'push'; readonly publicationSource?: { readonly runId: string; readonly reviewedHead: string; readonly evidenceRevision: string }; readonly outcome: 'reviewed' | 'accepted' | 'declined'; readonly summary: string;
       readonly assertions: readonly LeadAssertionResult[]; readonly budget: LeadBudgetState }
 )) | (LeadCardBase & { readonly type: 'stopped'; readonly contractDigest: string | null;
   readonly reason: LeadStopReason; readonly summary: string; readonly budget: LeadBudgetState }
@@ -157,7 +160,7 @@ export type LeadCard = (LeadCardBase & { readonly contractDigest: string } & (
 /** Private recipe choices: person/result acceptance maps accept/decline to accepted/declined. */
 export const LEAD_CARD_CHOICES = {
   plan: ['approve', 'decline'], 'permission-change': ['approve', 'decline'], 'budget-change': ['approve', 'decline'],
-  waiting: ['accept', 'decline'], result: ['accept', 'decline'], stopped: [],
+  'branch-ownership': ['reclaim-branch', 'decline'], waiting: ['accept', 'decline'], result: ['accept', 'accept-open-pr', 'decline'], stopped: [],
 } as const
 /** Authenticated window input only. Never a child command or a worker approval answer. */
 export interface LeadCardDecision {
@@ -166,7 +169,7 @@ export interface LeadCardDecision {
   readonly cardType: Exclude<LeadCard['type'], 'stopped'>
   readonly expectedRevision: LeadRevision
   readonly contractDigest: string | null
-  readonly choice: 'approve' | 'decline' | 'accept'
+  readonly choice: 'approve' | 'decline' | 'accept' | 'accept-open-pr' | 'reclaim-branch'
 }
 export interface LeadMessage {
   readonly version: 1
@@ -176,11 +179,12 @@ export interface LeadMessage {
   /** Untrusted prose; rendering still requires the transcript sanitizer. */
   readonly text: string
 }
-export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'accepted' | 'declined' | 'stopped'
+export type LeadThreadState = 'draft' | 'planning' | 'awaiting-plan' | 'running' | 'waiting-for-user' | 'following' | 'accepted' | 'declined' | 'stopped'
 export const LEAD_MANAGEMENT_REASONS = [
   'lead-predecessor-unavailable', 'lead-predecessor-unverifiable', 'lead-renewal-blocked',
   'lead-disabled', 'lead-key-changed', 'lead-host-shutdown', 'lead-child-exited', 'lead-ownership-withdrawn',
-  'lead-result-awaiting-person', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
+  'lead-result-awaiting-person', 'lead-handback-limit', 'lead-handback-pending', 'lead-publication-needs-you', 'lead-pr-head-changed', 'lead-pr-branch-rewritten', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
+  'lead-repair-failed', 'lead-repair-withdrawn', 'lead-repair-abandoned', 'lead-repair-unverified', 'lead-repair-recovery-failed',
   'lead-card-too-large', 'lead-send-deadline', 'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
   'lead-run-not-started', 'lead-budget-unknown', 'lead-plan-unseatable', 'lead-plan-not-independent',
 ] as const
@@ -202,9 +206,22 @@ export interface LeadThread {
   readonly cardPositions?: Readonly<Record<string, number>>
   readonly contract?: LeadAcceptanceContract | null
   readonly budget?: LeadBudgetState | null
+  readonly origin?: LeadOrigin | null
+  readonly handback?: LeadHandback | null
+  readonly pr?: LeadPullRequest | null
 }
 export type LeadName = 'dex' | 'lex'
 export interface LeadDecisionMessage { readonly card: LeadCard; readonly choice: LeadCardDecision['choice']; readonly position: number }
+export interface LeadFollowPreferences { readonly checks: boolean; readonly reviews: boolean }
+export interface LeadPullRequest {
+  readonly repository: string; readonly number: number; readonly branch: string; readonly head: string
+  readonly branchOwner?: 'lead' | 'person'
+  readonly branchChange?: 'fast-forward' | 'rewrite'
+  readonly releaseReason?: string
+  readonly observedHead?: string
+  readonly review?: import('./intake.js').TriggerReview | null
+  readonly state: 'open' | 'merged' | 'closed'; readonly check: import('./intake.js').TriggerCheck | null; readonly at: number
+}
 export interface LeadSettingsProjection {
   readonly name: LeadName
   readonly version: 1
@@ -212,6 +229,7 @@ export interface LeadSettingsProjection {
   readonly key: { readonly configured: boolean; readonly protection: 'encrypted' | 'unavailable' }
   readonly policy: LeadPermissionPolicy
   readonly caps: LeadCaps
+  readonly follow?: LeadFollowPreferences
 }
 export interface LeadHostProjection {
   readonly version: 1
@@ -294,7 +312,15 @@ export interface LeadSettingsUpdate {
   readonly expectedRevision: LeadRevision
   readonly policy?: LeadPermissionPolicy
   readonly caps?: LeadCaps
+  readonly follow?: LeadFollowPreferences
   readonly credential?: { readonly provider: 'anthropic'; readonly key: string | null }
+}
+/** Host-journaled automatic input; external prose never grants worker authority. */
+export interface LeadOrigin { readonly source: 'pull-request' | 'issue' | 'schedule'; readonly event: string; readonly subject: string; readonly url: string | null }
+export interface LeadHandback {
+  readonly key: string; readonly event: string; readonly kind: 'checks' | 'reviews'; readonly head: string
+  readonly runId: string; readonly teamId: string; readonly round: number; readonly at: number
+  readonly stage: 'prepared' | 'running' | 'awaiting-ci' | 'completed' | 'failed' | 'abandoned' | 'withdrawn'; readonly publishedHead: string | null; readonly detail?: string
 }
 export interface LeadThreadSend { readonly idempotencyKey: string; readonly text: string }
 /** Stable first result, retained across retries and journal recovery. */
@@ -412,10 +438,16 @@ const step: Validator<LeadPlanStep> = object({
   assignments: list(assignment, LEAD_LIMITS.assignments, 1, assignment => assignment.role),
 })
 const assertion: Validator<LeadAssertion> = object({ id, kind: literalUnion('check', 'review', 'blocking-findings', 'diff'), description: prose })
-export const parseLeadAcceptanceContract: Validator<LeadAcceptanceContract> = object({
-  version, revision, digest, goal: prose, project, policyRevision: revision,
+const acceptanceContractParser: Validator<LeadAcceptanceContract> = object({
+  version, revision, digest, goal: prose, project, policyRevision: revision, publicationRepository: optional(nullable(opaque)),
   steps: list(step, LEAD_LIMITS.steps, 1, step => step.id), assertions: list(assertion, LEAD_LIMITS.assertions, 1, assertion => assertion.id), caps: parseLeadCaps,
 })
+export const parseLeadAcceptanceContract: Validator<LeadAcceptanceContract> = (value, path = '') => {
+  const parsed = acceptanceContractParser(value, path)
+  if (parsed.publicationRepository === undefined) { const { publicationRepository: _, ...rest } = parsed; return rest }
+  if (parsed.publicationRepository !== null && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parsed.publicationRepository)) return fail(path, 'expected repository')
+  return parsed
+}
 const evidence: Validator<LeadEvidenceReference> = object({ kind: literalUnion('check', 'review', 'finding', 'diff', 'spend'), id, revision: opaque })
 export const parseLeadAssertionResult: Validator<LeadAssertionResult> = object({
   assertionId: id, status: literalUnion('pending', 'passed', 'failed', 'unknown'), revision,
@@ -492,13 +524,14 @@ export const parseLeadBudgetEvent: Validator<LeadBudgetEvent> = (value, path = '
 const cardBase = { version, id, revision, contractDigest: digest }
 type CardOf<T extends LeadCard['type']> = Extract<LeadCard, { type: T }>
 const card = tag<LeadCard>({
+  'branch-ownership': object<CardOf<'branch-ownership'>>({ ...cardBase, type: literalUnion('branch-ownership'), repository: opaque, number: integer(1), observedHead: opaque, summary: content }),
   plan: object<CardOf<'plan'>>({ ...cardBase, type: literalUnion('plan'), contract: parseLeadAcceptanceContract }),
   'permission-change': object<CardOf<'permission-change'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('permission-change'), previous: parseLeadPermissionPolicy, proposed: parseLeadPermissionPolicy }),
   'budget-change': object<CardOf<'budget-change'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('budget-change'), logicalGoalId: id,
     previous: object({ revision, caps: parseLeadCaps }), proposed: parseLeadCaps }),
   waiting: object<CardOf<'waiting'>>({ ...cardBase, type: literalUnion('waiting'), kind: literalUnion('person', 'worker-approval'), runId: id,
     personCardId: nullable(id), summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions, 0, result => result.assertionId) }),
-  result: object<CardOf<'result'>>({ ...cardBase, type: literalUnion('result'), outcome: literalUnion('reviewed', 'accepted', 'declined'),
+  result: object<CardOf<'result'>>({ ...cardBase, type: literalUnion('result'), publication: optional(literalUnion('push')), publicationSource: optional(object({ runId: id, reviewedHead: opaque, evidenceRevision: content })), outcome: literalUnion('reviewed', 'accepted', 'declined'),
     summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions, 0, result => result.assertionId), budget: parseLeadBudgetState }),
   stopped: object<CardOf<'stopped'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('stopped'), reason: stopReason, summary: content, budget: parseLeadBudgetState }),
 })
@@ -513,11 +546,15 @@ export const parseLeadCard: Validator<LeadCard> = (value, path = '') => {
   if (parsed.type === 'permission-change' && parsed.proposed.revision <= parsed.previous.revision) fail(path, 'policy proposal must advance its revision')
   if (parsed.type === 'budget-change' && parsed.proposed.usdMicros <= parsed.previous.caps.usdMicros && parsed.proposed.rounds <= parsed.previous.caps.rounds)
     fail(path, 'budget proposal must increase an allowance')
+  if (parsed.type === 'result') {
+    const { publication, publicationSource, ...rest } = parsed
+    return { ...rest, ...(publication === undefined ? {} : { publication }), ...(publicationSource === undefined ? {} : { publicationSource }) }
+  }
   return parsed
 }
 const decision: Validator<LeadCardDecision> = object({
-  version, cardId: id, cardType: literalUnion('plan', 'permission-change', 'budget-change', 'waiting', 'result'),
-  expectedRevision: revision, contractDigest: nullable(digest), choice: literalUnion('approve', 'decline', 'accept'),
+  version, cardId: id, cardType: literalUnion('plan', 'permission-change', 'budget-change', 'waiting', 'result', 'branch-ownership'),
+  expectedRevision: revision, contractDigest: nullable(digest), choice: literalUnion('approve', 'decline', 'accept', 'accept-open-pr', 'reclaim-branch'),
 })
 export const parseLeadCardDecision: Validator<LeadCardDecision> = (value, path = '') => {
   const parsed = decision(value, path)
@@ -541,14 +578,36 @@ const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path 
   if (entries.length > LEAD_LIMITS.cards) fail(path, 'too many card positions')
   return Object.fromEntries(entries.map(([key, value]) => [id(key, path), integer(1)(value, path)]))
 }
-export const parseLeadThread: Validator<LeadThread> = object({
-  version, id, revision, state: literalUnion('draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'),
+export const parseLeadOrigin: Validator<LeadOrigin> = object({ source: literalUnion('pull-request', 'issue', 'schedule'), event: id, subject: opaque, url: nullable(content) })
+const handbackParser: Validator<LeadHandback> = object({ key: id, event: id, kind: literalUnion('checks', 'reviews'), head: opaque,
+  runId: id, teamId: id, round: integer(1), at: integer(), stage: literalUnion('prepared', 'running', 'awaiting-ci', 'completed', 'failed', 'abandoned', 'withdrawn'), publishedHead: nullable(opaque), detail: optional(boundedText(8000, false, proseControls)) })
+export const parseLeadHandback: Validator<LeadHandback> = (value, path = '') => Object.fromEntries(Object.entries(handbackParser(value, path)).filter(([, item]) => item !== undefined)) as unknown as LeadHandback
+export const parseLeadFollowPreferences: Validator<LeadFollowPreferences> = object({ checks: isBoolean, reviews: isBoolean })
+const pullRequestParser: Validator<LeadPullRequest> = object({
+  review: optional(nullable(object({ id: integer(1), head: opaque, state: literalUnion('commented', 'changes-requested', 'approved') }))),
+  branchOwner: optional(literalUnion('lead', 'person')), branchChange: optional(literalUnion('fast-forward', 'rewrite')), releaseReason: optional(content),
+  observedHead: optional(opaque),
+  repository: (value, path = '') => typeof value === 'string' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value) ? value : fail(path, 'expected repository'),
+  number: integer(1), branch: opaque, head: (value, path = '') => typeof value === 'string' && /^[a-f0-9]{40,64}$/.test(value) ? value : fail(path, 'expected commit'),
+  state: literalUnion('open', 'merged', 'closed'), at: integer(), check: nullable(object({ head: opaque, state: literalUnion('absent', 'pending', 'passed', 'failed'), total: integer() })),
+})
+export const parseLeadPullRequest: Validator<LeadPullRequest> = (value, path = '') => {
+  const parsed = pullRequestParser(value, path)
+  if (parsed.check && parsed.check.head !== (parsed.observedHead ?? parsed.head) || parsed.review && parsed.review.head !== (parsed.observedHead ?? parsed.head)) return fail(path, 'PR status is for another head')
+  return Object.fromEntries(Object.entries(parsed).filter(([, item]) => item !== undefined)) as unknown as LeadPullRequest
+}
+const threadParser: Validator<LeadThread> = object({
+  version, id, revision, state: literalUnion('draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'following', 'accepted', 'declined', 'stopped'),
   // One current snapshot per card. Revisions belong to each card, so different cards may
   // share revision 1; the state machine must compare old/new revisions when replacing a card.
-  project: nullable(project), olderMessages: integer(), cardPositions: optional(cardPositions), decisions: optional(list(object({ card: parseLeadCard, choice: literalUnion('approve', 'accept', 'decline'), position: revision }), 64)),
-  contract: optional(nullable(parseLeadAcceptanceContract)), budget: optional(nullable(parseLeadBudgetState)),
+  project: nullable(project), olderMessages: integer(), cardPositions: optional(cardPositions), decisions: optional(list(object({ card: parseLeadCard, choice: literalUnion('approve', 'accept', 'accept-open-pr', 'decline'), position: revision }), 64)),
+  contract: optional(nullable(parseLeadAcceptanceContract)), budget: optional(nullable(parseLeadBudgetState)), pr: optional(nullable(parseLeadPullRequest)), origin: optional(nullable(parseLeadOrigin)), handback: optional(nullable(parseLeadHandback)),
   messages: list(parseLeadMessage, LEAD_LIMITS.messages, 0, message => message.id), cards: list(parseLeadCard, LEAD_LIMITS.cards, 0, card => card.id),
 })
+export const parseLeadThread: Validator<LeadThread> = (value, path = '') => {
+  const parsed = threadParser(value, path)
+  return Object.fromEntries(Object.entries(parsed).filter(([key, item]) => !['pr', 'origin', 'handback'].includes(key) || item !== undefined)) as unknown as LeadThread
+}
 /** Keep the largest newest suffix within the thread's UTF-8 JSON budget, without mutating
  * the source or dropping cards. Journal readers first hydrate at most LEAD_LIMITS.messages
  * newest messages, with olderMessages accounting for the rest. This helper adds byte-based
@@ -590,7 +649,7 @@ export const migrateLeadThread: Validator<LeadThread> = (value, path = '') => {
 }
 export const parseLeadSettingsProjection: Validator<LeadSettingsProjection> = object({
   version, name: literalUnion('dex', 'lex'), model: opaque, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
-  policy: parseLeadPermissionPolicy, caps: parseLeadCaps,
+  policy: parseLeadPermissionPolicy, caps: parseLeadCaps, follow: (value, path) => value === undefined ? { checks: true, reviews: true } : parseLeadFollowPreferences(value, path),
 })
 export const parseLeadHostProjection: Validator<LeadHostProjection> = object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection,
@@ -615,7 +674,7 @@ export const nextLeadRevision = (current: LeadRevision): LeadRevision => {
 export const parseLeadThreadSend: Validator<LeadThreadSend> = object({ idempotencyKey: id, text: prose })
 export const parseLeadResume: Validator<{ readonly expectedRevision: number }> = object({ expectedRevision: revision })
 export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
-  expectedRevision: revision, name: optional(literalUnion('dex', 'lex')), policy: optional(parseLeadPermissionPolicy), caps: optional(parseLeadCaps),
+  follow: optional(parseLeadFollowPreferences), expectedRevision: revision, name: optional(literalUnion('dex', 'lex')), policy: optional(parseLeadPermissionPolicy), caps: optional(parseLeadCaps),
   credential: optional(object({ provider: (value, path = '') => value === 'anthropic' ? 'anthropic' : fail(path, 'expected Lead credential provider'), key: nullable(text(4096)) })),
 })
 export const parseLeadEmpty: Validator<Record<string, never>> = object({})

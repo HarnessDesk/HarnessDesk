@@ -971,3 +971,12 @@ test('preview results may repeat field names in distinct objects and preserve th
   assert.equal(requests.length, 1)
   assert.equal(JSON.parse(requests[0].body).messages.at(-1).content[0].content, content)
 })
+
+test('a host-journaled repair resumes without starting or waiting for a management child', async t => {
+  const s = await rig(t), state = s.journal.state
+  t.mock.getter(s.journal, 'state', () => ({ ...state, phase: 'running' as const, handbacks: [{ stage: 'prepared' }] as any }))
+  await s.service.setEnabled(true)
+  await s.service.recoverInterrupted()
+  assert.equal(s.records.some(record => record.type === 'management'), false)
+  assert.equal(s.spawns(), 0)
+})

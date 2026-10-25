@@ -7,7 +7,7 @@ import { Serial } from '../goals/assignments.js'
 import { atomicJson } from '../goals/store.js'
 import type { ArmedTrigger } from './consent.js'
 import { acceptsFact } from './definition.js'
-import { ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor } from './forge.js'
+import { pullStatesOf, ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor, type PullWatch } from './forge.js'
 import { dueSlots, scheduleInventory } from './schedule.js'
 
 /**
@@ -45,12 +45,15 @@ const CURSOR_FILE = 'triggers-cursors.json'
 const CURSOR_LIMIT = 16 * 1024 * 1024
 
 /** One watched source: a project, a source kind and, for the forge, the repository its arms bound. */
+export interface HostPullWatch extends PullWatch { readonly project: string; readonly repository: string; readonly number: number; readonly head: string }
+
 export interface SourceGroup {
   readonly key: string
   readonly project: string
   readonly source: TriggerSource
   readonly repository: string | null
   readonly arms: readonly ArmedTrigger[]
+  readonly watches?: readonly HostPullWatch[]
 }
 
 export const groupKeyOf = (project: string, source: TriggerSource, repository: string | null): string =>
@@ -83,6 +86,9 @@ export const intakeSources = (forge: ForgeSource): IntakeSources => ({
     group.source === 'schedule' ? dueSlots(group.project, group.arms, cursor, now) : forge.poll(group.project, cursor, signal, {
       // Asked only when an arm on this source lets collaborators' comments fire it.
       permissions: group.arms.some((arm) => arm.definition.from === 'collaborators'),
+      watches: [...(group.watches ?? []), ...group.arms.flatMap((arm) => arm.definition.on.kind !== 'pull-request' ? [] : [{
+        since: arm.baseline, checks: arm.definition.on.events.includes('checks-failed'), reviews: arm.definition.on.events.includes('review-commented'),
+      }]).filter((watch) => watch.checks || watch.reviews)],
     }),
 })
 
@@ -99,7 +105,11 @@ const cursorOf = (value: unknown): SourceCursor | null => {
     if (!isMap(entry) || !(entry['head'] === null || typeof entry['head'] === 'string') || typeof entry['event'] !== 'string') return null
     clean[key] = { head: entry['head'] as string | null, event: entry['event'] }
   }
+  const pulls = value['pulls'] === undefined ? undefined : pullStatesOf(value['pulls'])
+  if (pulls === null || (value['pullNext'] !== undefined && (!Number.isSafeInteger(value['pullNext']) || (value['pullNext'] as number) < 0))) return null
   return {
+    ...(pulls === undefined ? {} : { pulls }),
+    ...(value['pullNext'] === undefined ? {} : { pullNext: value['pullNext'] as number }),
     version: 1, source: value['source'] as TriggerSource, repository: repository as string | null,
     baseline: baseline as number, observedThrough: observedThrough as number, continuation: continuation as string | null, subjects: clean,
   }
@@ -199,6 +209,9 @@ interface GroupState {
 export interface IntakeMonitorOptions {
   /** Every verified arm on this machine: `TriggerConsent.armed`. */
   readonly armed: () => Promise<readonly ArmedTrigger[]>
+  readonly watches?: () => readonly HostPullWatch[]
+  /** Delivery completes durably before the source cursor advances. Ownership and preferences are reread. */
+  readonly deliver?: (watch: HostPullWatch, batch: PollBatch) => Promise<void>
   readonly sources: IntakeSources
   readonly cursors: SourceCursors
   /**
@@ -301,7 +314,7 @@ export class IntakeMonitor {
 
   /** Re-reads the arms and starts or stops the timer to match; call after an arm or disarm. */
   async refresh(): Promise<void> {
-    const want = !this.#closed && !this.#paused && (await this.#options.armed()).length > 0
+    const want = !this.#closed && !this.#paused && ((await this.#options.armed()).length > 0 || (this.#options.watches?.().length ?? 0) > 0)
     if (want && this.#timer === null) this.#timer = this.#timers.every(() => { void this.tick(this.#options.wall()).catch(() => {}) }, TIMER_MS)
     if (!want && this.#timer !== null) {
       this.#timers.clear(this.#timer)
@@ -341,6 +354,10 @@ export class IntakeMonitor {
       const group = groupOf(arm)
       const existing = groups.get(group.key)
       groups.set(group.key, { ...group, arms: [...(existing?.arms ?? []), arm] })
+    }
+    for (const watch of this.#options.watches?.() ?? []) {
+      const key = groupKeyOf(watch.project, 'pull-request', watch.repository), old = groups.get(key)
+      groups.set(key, { key, project: watch.project, source: 'pull-request', repository: watch.repository, arms: old?.arms ?? [], watches: [...old?.watches ?? [], watch] })
     }
     const launched: Promise<void>[] = []
     for (const group of [...groups.values()].sort((a, b) => a.key.localeCompare(b.key))) {
@@ -402,6 +419,13 @@ export class IntakeMonitor {
             throw new UnansweredError(error instanceof Error ? error.message : String(error))
           }
         }
+      }
+      for (const watch of group.watches ?? []) {
+        const current = this.#options.watches?.().find(one => JSON.stringify(one) === JSON.stringify(watch))
+        if (!current) continue
+        if (signal.aborted) return
+        try { await this.#options.deliver?.(current, batch) }
+        catch (error) { throw new UnansweredError(error instanceof Error ? error.message : String(error)) }
       }
       if (signal.aborted) return
       await this.#options.cursors.commit(group.key, batch.next)

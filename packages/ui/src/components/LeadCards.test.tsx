@@ -211,3 +211,45 @@ it('shows request-specific person actions and keeps them out of plan decisions',
   expect(perform).toHaveBeenCalledWith({ id: 'check', contractDigest: leadContract.digest, choice: 'run' })
   expect(decide).not.toHaveBeenCalled()
 })
+
+
+it('offers a reclaim choice bound to the observed branch head', async () => {
+  const card = { version: 1, id: 'reclaim-7', revision: 1, type: 'branch-ownership', contractDigest: leadContract.digest,
+    repository: 'acme/widgets', number: 7, observedHead: 'b'.repeat(40), summary: 'The branch was updated by another writer.' } as any
+  const { box, decide } = mount([card])
+  expect(box.textContent).toContain('Reclaim branch')
+  await act(async () => { handlers.at(-1)?.onApprove?.() })
+  expect(decide).toHaveBeenCalledWith(expect.objectContaining({ cardId: card.id, choice: 'reclaim-branch', expectedRevision: 1 }))
+})
+
+it('offers four result actions and binds publication to the reviewed revision under the shared pending lock', async () => {
+  let done!: () => void
+  const decide = vi.fn(() => new Promise<void>(resolve => { done = resolve }))
+  const { box } = mount([leadResult], decide)
+  expect([...box.querySelectorAll('[data-lead-decision] button')].map(node => node.textContent?.replace(/\d/g, '').trim())).toEqual(['Open changes', 'Decline', 'Accept', 'Accept and open PR'])
+  await act(async () => button(box, 'Accept and open PR').click())
+  expect(decide).toHaveBeenCalledWith(expect.objectContaining({ choice: 'accept-open-pr', expectedRevision: leadResult.revision, contractDigest: leadResult.contractDigest }))
+  await act(async () => button(box, 'Accept').click())
+  expect(decide).toHaveBeenCalledTimes(1)
+  await act(async () => done())
+})
+
+it('renders the explicit push card through its reviewed-result decision and describes the effect', async () => {
+  const { box, decide } = mount([{ ...leadResult, publication: 'push' }])
+  expect(box.textContent).toContain('Push the reviewed changes and open a pull request.')
+  await act(async () => button(box, 'Accept and open PR').click())
+  expect(decide).toHaveBeenCalledWith(expect.objectContaining({ choice: 'accept-open-pr' }))
+})
+
+it('uses the server branch summary once without appending a second reclaim instruction', () => {
+  const card: LeadCard = { version: 1, id: 'branch', revision: 1, type: 'branch-ownership', contractDigest: leadContract.digest,
+    repository: 'acme/widgets', number: 7, observedHead: 'a'.repeat(40), summary: 'Automatic repairs are paused. Reclaim it to continue.' }
+  const { box } = mount([card])
+  expect(box.querySelector('[data-lead-decision]')?.textContent).not.toContain('Reclaim aaaaaaaaaaaa')
+  expect(box.querySelector('[data-lead-decision]')?.textContent).toContain(card.summary)
+})
+it('omits the project separator when an allowance has no matching scope', () => {
+  const format = (modules['./LeadCards.tsx'] as any).leadAllowance
+  expect(format).toBeTypeOf('function')
+  expect(format(leadBudget.caps)).toBe('Up to $5.00 · 4 rounds')
+})

@@ -4,10 +4,11 @@ import { AlertIcon } from './Icons'
 import { useApprovalKeys } from './use-approval-keys'
 
 /** Lead decisions use the session's docked approval surface and keyboard policy. */
-export const LeadDecision = ({ id, type, title, pending, onApprove, onDecline, approveLabel = 'Approve', link, focusRef, detail }: {
+export const LeadDecision = ({ id, type, title, pending, onApprove, onDecline, onOpenPr, approveLabel = 'Approve', link, focusRef, detail }: {
+  readonly onOpenPr?: () => void
   readonly detail?: string
   readonly id: string; readonly type?: string; readonly title: string; readonly pending: boolean
-  readonly onApprove?: () => void; readonly onDecline?: () => void; readonly approveLabel?: 'Approve' | 'Accept'
+  readonly onApprove?: () => void; readonly onDecline?: () => void; readonly approveLabel?: 'Approve' | 'Accept' | 'Reclaim branch'
   readonly link?: { readonly label: string; readonly run: () => void }
   readonly focusRef?: (node: HTMLElement | null) => void
 }) => {
@@ -16,6 +17,7 @@ export const LeadDecision = ({ id, type, title, pending, onApprove, onDecline, a
     ...(link ? [{ id: 'open', label: link.label, shortcut: 1, placement: 'safe' as const, onSelect: link.run }] : []),
     ...(onDecline ? [{ id: 'decline', label: 'Decline', shortcut: link ? 2 : 1, placement: 'safe' as const, disabled: pending, pending, onSelect: onDecline }] : []),
     ...(onApprove ? [{ id: 'approve', label: approveLabel, shortcut: link ? 3 : 2, placement: 'proceed' as const, disabled: pending, pending, onSelect: onApprove }] : []),
+    ...(onOpenPr ? [{ id: 'open-pr', label: 'Accept and open PR', shortcut: 4, placement: 'proceed' as const, disabled: pending, pending, onSelect: onOpenPr }] : []),
   ]
   useApprovalKeys(scope, true, true, actions, pending ? undefined : onDecline, typedThrough)
   return <div onFocusCapture={event => {

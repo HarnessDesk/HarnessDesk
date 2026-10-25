@@ -293,6 +293,7 @@ export { LeftColumnExplorerHead, LeftColumnExplorerFoot } from './patterns/LeftC
 export { SelectionAction } from './patterns/SelectionAction'
 
 export { LeadContract } from './patterns/lead-contract'
+export { LeadPlanFlow } from './patterns/LeadPlanFlow'
 
 export { ConversationShell, ConversationThread, ConversationDock, ConversationComposerFrame, TranscriptAssistantMessage } from './patterns/ConversationShell'
 export { LeadAvatar, LeadIdentity, LeadLineNote, LeadNameChoice, LeadSlot, LeadTurn } from './patterns/LeadAvatar'

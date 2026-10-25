@@ -174,18 +174,16 @@ test('host Stop effects reach only running and stalled owned runs, preserving pr
   t.mock.method(host.flowsPlane, 'interruptChecks', (team: string) => { interrupted.push(team) })
   t.mock.method(host.flowsPlane, 'stopRun', async (run: string) => { stopped.push(run); flows.find(flow => flow.id === run)!.state = 'stopped'; if (run === postings.run) postings.state = 'skipped' })
   t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: false, protection: 'synthetic cipher' }))
-  const registration = host.registerLead(journal, { id: 'demo', path: '/workspace/demo' })
   const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
     resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
     readEvidence: async () => { throw new Error('unused') },
-    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => { registration.close() }, ownershipWithdrawn() {} }) })
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
   try {
     await host.call('lead/stop', { expectedRevision: journal.state.seq })
     assert.deepEqual(stopped, ['owned-running', 'owned-stalled'])
     assert.deepEqual(interrupted, ['team-running', 'team-stalled'])
     assert.equal(JSON.stringify(postings), before)
   } finally {
-    registration.close()
     if (descriptor) Object.defineProperty(journal, 'state', descriptor)
     else Reflect.deleteProperty(journal, 'state')
     assert.deepEqual(Object.getOwnPropertyDescriptor(journal, 'state'), descriptor, 'restore the exact state descriptor')
@@ -197,6 +195,7 @@ test('host Stop effects reach only running and stalled owned runs, preserving pr
 test('child crash finishes a stopped owned run after its earlier cleanup failed', async t => {
   const { host } = rig(t, true); await host.start()
   const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'crash-cleanup', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
   const descriptor = Object.getOwnPropertyDescriptor(journal, 'state')
   const state = journal.state
   Object.defineProperty(journal, 'state', { configurable: true, get: () => ({ ...state,
@@ -231,4 +230,50 @@ test('child crash finishes a stopped owned run after its earlier cleanup failed'
     assert.deepEqual(Object.getOwnPropertyDescriptor(journal, 'state'), descriptor, 'restore the exact state descriptor')
     await service.close()
   }
+})
+
+test('host shutdown preserves the owned acceptance round while a published repair awaits CI', async t => {
+  const { host } = rig(t, true); await host.start()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'awaiting-ci-shutdown', caps: { usdMicros: 100, rounds: 3 }, freshnessMs: 1000 })
+  const descriptor = Object.getOwnPropertyDescriptor(journal, 'state'), state = journal.state
+  Object.defineProperty(journal, 'state', { configurable: true, get: () => ({ ...state, phase: 'following',
+    handbacks: [{ stage: 'awaiting-ci' }], runs: [{ runId: 'owned-run', teamId: 'owned-team', correlationId: 'owned-start' }] }) })
+  const stopped = t.mock.method(host.flowsPlane, 'stopRun', async () => {})
+  t.mock.method(host.flowsPlane, 'leadRuns', () => [{ id: 'owned-run', state: 'running' }] as any)
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: options => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => { await options.onExit?.('lead-host-shutdown') }, ownershipWithdrawn() {} }) })
+  try {
+    await service.close()
+    assert.equal(stopped.mock.calls.length, 0, 'CI wait and its real person gate survive host restart')
+  } finally {
+    if (descriptor) Object.defineProperty(journal, 'state', descriptor)
+    else Reflect.deleteProperty(journal, 'state')
+    await service.close()
+  }
+})
+
+for (const windows of [false, true]) test(`automatic project admission accepts ${windows ? 'Windows casing' : 'a trailing slash'} through the host root guard`, async t => {
+  const read = LeadControls.prototype.readThread
+  let automaticProject: ((path: string) => Promise<void>) | undefined
+  t.mock.method(LeadControls.prototype, 'readThread', function(this: LeadControls) {
+    automaticProject = (this as any).options.automaticProject
+    return read.call(this)
+  })
+  const { createLeadRig } = await import('./fixtures/lead-rig.js')
+  const fixture = await createLeadRig({ holdPlanning: true })
+  t.after(() => fixture.dispose())
+  await fixture.host.call('lead/thread/read', {})
+  assert.ok(automaticProject)
+  if (windows) {
+    // Confine the real folder first; emulate only the comparison platform.
+    const { samePath } = await import('../src/worktree.js')
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      assert.equal(samePath(fixture.project.path, fixture.project.path.toUpperCase() + '/'), true)
+    } finally { Object.defineProperty(process, 'platform', descriptor) }
+  } else await automaticProject(fixture.project.path + '/')
 })

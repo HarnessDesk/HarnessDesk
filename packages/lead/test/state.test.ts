@@ -265,3 +265,52 @@ test('canBeginLeadGoal shares every recovery and accounting fence with new-goal 
     assert.throws(() => lead.reduceLeadRecord(blocked, event), /lead-journal-transition/)
   }
 })
+
+
+test('following owns the logical goal, prohibits plan replacement and keeps Stop available', () => {
+  const state = { ...initialLeadState(), phase: 'following', pr: { repository: 'acme/widgets', number: 7,
+    head: 'a'.repeat(40), branch: 'worker', state: 'open', check: null, at: 100 } } as any
+  assert.equal(lead.canBeginLeadGoal(state), false)
+  assert.equal(lead.canReplaceLeadPlan(state), false)
+  const stopped = reduceLeadRecord(state, { version: 1, seq: 1, type: 'stop' })
+  assert.equal(stopped.phase, 'stopped')
+  assert.deepEqual((stopped as any).pr, state.pr)
+  assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint({ ...state, seq: 1 }, 'b'.repeat(64))).state.pr, state.pr)
+})
+
+test('an open owned PR fences mutation dispatch after a failed request and Resume', () => {
+  let state = replayLeadJournal(records(prefix()))
+  state = { ...state, phase: 'following', pr: { repository: 'acme/widgets', number: 7, head: 'a'.repeat(40), branch: 'worker', state: 'open', check: null, at: 100 } }
+  const apply = (event: object) => { state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, ...event }) }
+  apply({ type: 'management', phase: 'waiting-for-user', reason: 'lead-request-failed' })
+  apply({ type: 'resume' })
+  apply({ type: 'attempt', id: 'late', correlationId: 'late', method: 'flow/start-goal', action: null, arguments: summarizeLeadArguments({}),
+    kind: 'mutation', stepId: 'first', policyRevision: 1, projectPolicyRevision: null, contractRevision: 1 })
+  apply({ type: 'decision', id: 'late', effect: 'allow', reason: 'policy', rule: null })
+  assert.throws(() => apply({ type: 'dispatch-start', id: 'late', dispatched: true }), /lead-journal-transition/)
+})
+
+test('declining a push card dismisses it and preserves the previous phase', () => {
+  for (const phase of ['running', 'following', 'waiting-for-user'] as const) {
+    let state = replayLeadJournal(records(prefix()))
+    const card = { version: 1, id: 'push', revision: 1, type: 'result', publication: 'push', contractDigest: contract.digest, outcome: 'reviewed',
+      summary: 'Push reviewed fixture', assertions: [], budget: { version: 1, revision: 1, caps: contract.caps, leadUsdMicros: 0, workerUsdMicros: 0,
+        reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known', stop: null } }
+    state = reduceLeadRecord({ ...state, phase }, { version: 1, seq: state.seq + 1, type: 'card', card })
+    const next = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'card-decision', expiresAt: null,
+      decision: { version: 1, cardId: 'push', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'decline' } })
+    assert.equal(next.phase, phase)
+    assert.ok(next.decidedCards.includes('push:1'))
+  }
+})
+
+test('direct journal observations retain foreign heads without losing owned head or lifecycle', () => {
+  for (const lifecycle of ['open', 'merged', 'closed'] as const) {
+    const state = { ...initialLeadState(), phase: 'following', pr: { repository: 'acme/widgets', number: 7,
+      head: 'a'.repeat(40), branch: 'worker', state: 'open', check: null, at: 100 } } as any
+    const next = reduceLeadRecord(state, { version: 1, seq: 1, type: 'pr-observed', pr: { ...state.pr, head: 'b'.repeat(40), state: lifecycle, at: 101 } })
+    assert.equal(next.pr?.head, state.pr.head)
+    assert.equal(next.pr?.observedHead, 'b'.repeat(40))
+    assert.equal(next.phase, lifecycle === 'open' ? 'waiting-for-user' : lifecycle === 'merged' ? 'accepted' : 'declined')
+  }
+})

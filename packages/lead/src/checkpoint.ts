@@ -1,5 +1,5 @@
-import { parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
-import { parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
+import { parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
+import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
 import { initialLeadState, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
 
@@ -25,18 +25,30 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // preserved at the retained suffix boundary. Stable ordering puts all saved
   // cards after that message and before the next journal write.
   const namedSource = threadSource && { ...threadSource, completedBudgets: Object.hasOwn(threadSource, 'completedBudgets') ? threadSource.completedBudgets : [], name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
-  const source = namedSource && !Object.hasOwn(namedSource, 'cardPositions')
-    ? { ...namedSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : namedSource
+  const followSource = namedSource && { ...namedSource, follow: Object.hasOwn(namedSource, 'follow') ? namedSource.follow : { checks: true, reviews: true }, pr: Object.hasOwn(namedSource, 'pr') ? namedSource.pr : null, publication: Object.hasOwn(namedSource, 'publication') ? namedSource.publication : null, ownedPush: Object.hasOwn(namedSource, 'ownedPush') ? namedSource.ownedPush : null }
+  const repairSource = followSource && { ...followSource, goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
+  const source = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
+    ? { ...repairSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : repairSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
+  assert(Number.isSafeInteger(source.goalStartedSeq) && source.goalStartedSeq >= 0 && source.goalStartedSeq <= source.seq)
+  if (source.origin !== null) parseLeadOrigin(source.origin)
+  assert(source.originKey === null || typeof source.originKey === 'string' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(source.originKey))
+  assert(Array.isArray(source.handbacks) && source.handbacks.length <= 64 && new Set(source.handbacks.map(op => op.key)).size === source.handbacks.length)
+  source.handbacks.forEach(op => parseLeadHandback(op))
+  assert(typeof source.handbackLimit === 'boolean' && Array.isArray(source.ciPassed) && source.ciPassed.length <= 64 && source.ciPassed.every(head => /^[a-f0-9]{40,64}$/.test(head)))
+  parseLeadFollowPreferences(source.follow)
+  if (source.pr !== null) parseLeadPullRequest(source.pr)
+  if (source.publication !== null) parseLeadPublicationOperation(source.publication)
+  if (source.ownedPush !== null) parseLeadOwnedPush(source.ownedPush)
   assert(source.name === 'dex' || source.name === 'lex')
   assert(Array.isArray(source.decisionMessages) && source.decisionMessages.length <= 64)
   for (const message of source.decisionMessages) {
     assert(Object.keys(message).sort().join() === ['card', 'choice', 'position'].sort().join())
     parseLeadCard(message.card)
-    assert(['approve', 'accept', 'decline'].includes(message.choice) && Number.isSafeInteger(message.position) && message.position > 0 && message.position <= source.seq)
+    assert(['approve', 'accept', 'accept-open-pr', 'decline'].includes(message.choice) && Number.isSafeInteger(message.position) && message.position > 0 && message.position <= source.seq)
   }
   assert(Number.isSafeInteger(source.seq) && source.seq > 0 && source.seq === checkpoint.seq)
-  assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'accepted', 'declined', 'stopped'].includes(source.phase))
+  assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'following', 'accepted', 'declined', 'stopped'].includes(source.phase))
   parseLeadJournalRecord({ version: 1, seq: 1, type: 'management', phase: 'waiting-for-user', reason: source.managementReason })
   assert(Array.isArray(source.messages) && source.messages.length <= 256 && Number.isSafeInteger(source.olderMessages) && source.olderMessages >= 0)
   const messages = source.messages.map(message => parseLeadMessage(message))
@@ -65,6 +77,13 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   for (const card of cards) assert(Number.isSafeInteger(source.cardPositions[card.id]) && source.cardPositions[card.id]! > 0 && source.cardPositions[card.id]! <= Math.max(source.seq, Math.max(0, ...messages.map(message => message.revision)) + cards.length))
   assert(source.cardRevisions && Object.keys(source.cardRevisions).length === cards.length)
   for (const card of cards) assert(Number.isInteger(source.cardRevisions[card.id]) && source.cardRevisions[card.id]! >= 1 && source.cardRevisions[card.id]! <= 32)
+  if (source.retryResult !== null) {
+    const retry = source.retryResult
+    assert(Object.keys(retry).sort().join() === ['id', 'revision', 'digest', 'goal'].sort().join())
+    assert(retry.goal === (source.budget?.logicalGoalId ?? null) && retry.digest === source.contract?.digest &&
+      source.cards.some(card => card.type === 'result' && card.id === retry.id && card.revision === retry.revision && card.contractDigest === retry.digest) &&
+      !source.decidedCards.includes(`${retry.id}:${retry.revision}`))
+  }
   assert(Array.isArray(source.decidedCards) && source.decidedCards.length <= 2048 && source.decidedCards.every(key => typeof key === 'string' && key.length <= 300))
   assert(Array.isArray(source.steps) && source.steps.length <= 64)
   const steps = source.steps.map(step => {

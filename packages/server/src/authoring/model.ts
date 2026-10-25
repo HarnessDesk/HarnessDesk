@@ -319,7 +319,7 @@ const slugOrQuoted = (text: string): string => (/^[a-z0-9][a-z0-9_-]{0,63}$/.tes
 const list = (values: readonly string[]): string => `[${values.map(slugOrQuoted).join(', ')}]`
 
 const triggerLines = (definition: TriggerDefinition): string[] => {
-  if (definition.again !== null && definition.on.kind === 'schedule') {
+  if (definition.again !== null && ('lead' in definition.opens || definition.on.kind === 'schedule')) {
     throw new Error('Each schedule slot opens its own Goal, so again has nothing to continue. Remove again from this schedule.')
   }
   if (definition.again !== null && (definition.again.title !== AGAIN_TITLE || (definition.again.detail ?? null) !== null)) {
@@ -329,7 +329,7 @@ const triggerLines = (definition: TriggerDefinition): string[] => {
   if (definition.on.kind === 'schedule') lines.push(`  every: ${String(definition.on.everyMinutes)}`)
   if (definition.label) lines.push(`  label: [${definition.label.map((label) => JSON.stringify(label)).join(', ')}]`)
   if (definition.from) lines.push(`  from: ${definition.from}`)
-  lines.push('flow' in definition.opens ? `  opens: { flow: ${slugOrQuoted(definition.opens.flow)} }` : `  opens: { agent: ${slugOrQuoted(definition.opens.agent)} }`)
+  lines.push('lead' in definition.opens ? '  opens: { lead: true }' : 'flow' in definition.opens ? `  opens: { flow: ${slugOrQuoted(definition.opens.flow)} }` : `  opens: { agent: ${slugOrQuoted(definition.opens.agent)} }`)
   lines.push(`  goal: ${list(definition.goal)}`)
   if (definition.again) lines.push(`  again: { role: ${slugOrQuoted(definition.again.role)} }`)
   lines.push(`  dedupe: ${list(definition.dedupe)}`, `  concurrency: ${String(definition.concurrency)}`)
@@ -369,7 +369,7 @@ export function writeTriggers(definitions: readonly TriggerDefinition[]): string
 export function draftTrigger(id: string, source: TriggerSource, opens: TriggerDefinition['opens']): TriggerDefinition {
   const lines = [`- id: ${slugOrQuoted(id)}`, `  on: ${source}`]
   if (source === 'schedule') lines.push('  every: 60')
-  lines.push('flow' in opens ? `  opens: { flow: ${slugOrQuoted(opens.flow)} }` : `  opens: { agent: ${slugOrQuoted(opens.agent)} }`)
+  lines.push('lead' in opens ? '  opens: { lead: true }' : 'flow' in opens ? `  opens: { flow: ${slugOrQuoted(opens.flow)} }` : `  opens: { agent: ${slugOrQuoted(opens.agent)} }`)
   const parsed = parseTriggers(`${lines.join('\n')}\n`)
   if (parsed.problems.length > 0) {
     const first = parsed.problems[0]!

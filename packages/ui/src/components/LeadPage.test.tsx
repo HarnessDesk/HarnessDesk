@@ -307,7 +307,7 @@ it('names the key row once and puts the allowance note on its dollar row', async
 it('uses unconstrained Lead settings groups and trailing Save rows', async () => {
   await mount(); await act(async () => button('Settings').click())
   const groups = [...document.querySelectorAll('[data-slot="rows"]')]
-  expect(groups).toHaveLength(3)
+  expect(groups).toHaveLength(4)
   for (const group of groups) {
     expect(group.parentElement?.getAttribute('data-slot')).toBe('section')
     expect(group.parentElement?.hasAttribute('data-sizing')).toBe(false)
@@ -462,4 +462,62 @@ it('puts a steer where it was said, not after everything that followed', async (
   const text = box.textContent ?? ''
   expect(text.indexOf('Keep the public API unchanged.')).toBeGreaterThan(text.indexOf('Repair the failing check'))
   expect(text.indexOf('Keep the public API unchanged.')).toBeLessThan(text.indexOf('Step two is done.'))
+})
+
+it('explains a foreign PR head while the goal needs the person', async () => {
+  const base = leadProjection(), { box } = await mount({ ...base, wayOut: 'resume', waitReason: 'lead-pr-head-changed',
+    thread: { ...base.thread, state: 'waiting-for-user', cards: [] } })
+  expect(box.textContent).toContain('The pull request head changed outside this goal. Inspect the pull request before continuing.')
+})
+
+it('shows checks and reviews on the observed head while the person owns the branch', async () => {
+  const base = leadProjection(), head = 'b'.repeat(40)
+  const { box } = await mount({ ...base, thread: { ...base.thread!, state: 'following', pr: { repository: 'acme/widgets', number: 7,
+    branch: 'worker', head: 'a'.repeat(40), observedHead: head, branchOwner: 'person', state: 'open',
+    check: { head, state: 'passed', total: 1 }, review: { id: 1, head, state: 'approved' }, at: 100 } } })
+  expect(box.textContent).toContain('Checks passed')
+  expect(box.textContent).toContain('Review approved')
+  expect(box.textContent).toContain('Your branch')
+  expect(box.querySelector('[data-slot="lead-pr-status"] button')?.getAttribute('title')).toBe(head)
+})
+
+it('links the followed PR with check, review and ownership chips and limits working text to the active repair', async () => {
+  const base = leadProjection(), pr = { repository: 'acme/widgets', number: 12, branch: 'repair', head: 'a'.repeat(40), branchOwner: 'person' as const, state: 'open' as const, check: null, review: null, at: 1 }
+  const { box, update } = await mount({ ...base, thread: { ...base.thread, state: 'following', pr, origin: { source: 'pull-request', event: 'checks-failed', subject: 'acme/widgets#12', url: 'https://github.com/acme/widgets/pull/12' } } })
+  const row = box.querySelector('[data-slot="lead-pr-status"]')!
+  expect(row.textContent).toContain('#12'); expect(row.textContent).toContain('Checks not confirmed'); expect(row.textContent).toContain('Review not confirmed')
+  expect(row.querySelector('[data-slot="chip"]')?.textContent).toBe('Your branch')
+  expect(row.querySelector('button,a')).not.toBeNull()
+  expect(box.textContent).toContain('From: checks failed on acme/widgets#12')
+  expect(box.querySelector('[data-slot="lead-run-strip"]')?.textContent).toContain('Following #12')
+  const handback = { key: 'repair', event: 'checks-failed', kind: 'checks' as const, head: pr.head, runId: 'run', teamId: 'team', round: 2, at: 1, stage: 'running' as const, publishedHead: null }
+  await update({ thread: { ...base.thread, state: 'running', pr: { ...pr, branchOwner: 'lead' }, handback } })
+  expect(liveLine(box)?.textContent).toBe('Repairing checks · round 2')
+  await update({ thread: { ...base.thread, state: 'following', pr, handback: { ...handback, stage: 'completed' } } })
+  expect(box.textContent).not.toContain('Repairing checks')
+})
+
+it.each([
+  ['lead-repair-failed', 'Checks failed on the repaired branch.'],
+  ['lead-repair-withdrawn', 'The repair was withdrawn when following was turned off.'],
+  ['lead-repair-abandoned', 'The repair ended after the branch changed.'],
+  ['lead-repair-unverified', 'CI passed, but the current branch has no matching reviewed result.'],
+] as const)('explains the durable %s wait', async (waitReason, text) => {
+  const base = leadProjection()
+  const { box } = await mount({ ...base, thread: { ...base.thread!, state: 'waiting-for-user', cards: [] }, wayOut: 'resume', waitReason })
+  expect(box.textContent).toContain(text)
+  expect(box.querySelector('[data-lead-decision]')).toBeNull()
+})
+
+it('uses one hand-back limit sentence in the thread and dock', async () => {
+  const base = leadProjection(), { box } = await mount({ ...base, waitReason: 'lead-handback-limit', wayOut: 'resume', thread: { ...base.thread, state: 'waiting-for-user', messages: [goalMessage], cards: [] } })
+  expect(box.querySelector('[data-lead-card="handback-limit"]')).not.toBeNull()
+  const sentence = 'Automatic repairs reached their limit. Inspect the pull request before continuing.'
+  expect(box.textContent?.match(/Automatic repairs reached their limit\./g)).toHaveLength(2)
+  expect(box.textContent?.split(sentence)).toHaveLength(3)
+})
+it('explains a repair recovery refusal separately from publication', async () => {
+  const base = leadProjection(), { box } = await mount({ ...base, waitReason: 'lead-repair-recovery-failed' as any, wayOut: 'resume', thread: { ...base.thread, state: 'waiting-for-user', messages: [goalMessage], cards: [] } })
+  expect(box.textContent).toContain('The repair could not be recovered.')
+  expect(box.textContent).not.toContain('could not be published')
 })

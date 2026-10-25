@@ -1,13 +1,15 @@
 import {
-  parseLeadMessage, parseLeadThreadSend, type LeadName, type LeadMessage, type LeadSendReceipt,
+  parseLeadOrigin, parseLeadHandback, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_MANAGEMENT_REASONS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
 import { compareLeadPolicyAuthority, sameLeadPolicyValues, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, assertPlanApprovable, type LeadState } from './state.js'
+import { reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
+
+const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
 
 export const LEAD_JOURNAL_BYTES = 1_048_576
 export interface LeadRunIdentity { readonly correlationId: string; readonly runId: string; readonly teamId: string }
@@ -19,14 +21,62 @@ export interface LeadArgumentSummary {
 }
 interface Base { readonly version: 1; readonly seq: number }
 export type LeadAttemptOutcome = 'succeeded' | 'failed' | 'denied' | 'asked' | 'malformed' | 'uncertain' | 'interrupted'
+/** Identity frozen from host-owned worker evidence, never model output. */
+export interface LeadPublicationSource {
+  readonly repository: string; readonly cwd: string; readonly branch: string; readonly head: string
+  readonly remote: string; readonly remoteUrl: string; readonly defaultBranch: string
+  readonly runId: string; readonly teamId: string; readonly runtime: string; readonly sessionId: string
+}
+export interface LeadPublicationOperation {
+  readonly id: string; readonly decision: LeadCardDecision; readonly source: LeadPublicationSource; readonly at: number
+  readonly effectStarted?: boolean
+  readonly stage: 'push-prepared' | 'push-started' | 'superseded' | 'pushed' | 'create-prepared' | 'completed' | 'needs-you'
+}
+export interface LeadOwnedPush {
+  readonly source: LeadPublicationSource; readonly number: number; readonly previousHead: string; readonly at: number
+  readonly effectStarted?: boolean
+  readonly stage: 'prepared' | 'push-started' | 'superseded' | 'completed' | 'needs-you'
+}
+const effectBoundary = (source: Record<string, unknown>): { readonly effectStarted?: boolean } => {
+  if (source.stage === 'push-started' && source.effectStarted !== true || source.stage === 'superseded' && source.effectStarted !== false)
+    throw new Error('lead-publication-effect-boundary')
+  return source.effectStarted === undefined ? {} : { effectStarted: boolean(source.effectStarted) }
+}
+export const parseLeadOwnedPush = (value: unknown): LeadOwnedPush => {
+  const source = object(value, ['source', 'number', 'previousHead', 'at', 'stage', ...(Object.hasOwn(value as object, 'effectStarted') ? ['effectStarted'] : [])])
+  if (typeof source.previousHead !== 'string' || !/^[a-f0-9]{40,64}$/.test(source.previousHead)) throw new Error('lead-owned-push-head')
+  return { source: parseLeadPublicationSource(source.source), number: integer(source.number, 1), previousHead: source.previousHead,
+    at: integer(source.at), ...effectBoundary(source), stage: choice(source.stage, ['prepared', 'push-started', 'superseded', 'completed', 'needs-you']) }
+}
+export const parseLeadPublicationSource = (value: unknown): LeadPublicationSource => {
+  const source = object(value, ['repository', 'cwd', 'branch', 'head', 'remote', 'remoteUrl', 'defaultBranch', 'runId', 'teamId', 'runtime', 'sessionId'])
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value !== 'string' || !value || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value)) throw new Error('lead-publication-source')
+    if (['branch', 'defaultBranch', 'remote'].includes(key) && (value.startsWith('-') || value.includes('..') || /[~^:?*\[\]\\\s]/.test(value))) throw new Error('lead-publication-branch')
+  }
+  if (!/^[a-f0-9]{40,64}$/.test(String(source.head)) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(source.repository))) throw new Error('lead-publication-identity')
+  return source as unknown as LeadPublicationSource
+}
+export const parseLeadPublicationOperation = (value: unknown): LeadPublicationOperation => {
+  const source = object(value, ['id', 'decision', 'source', 'at', 'stage', ...(Object.hasOwn(value as object, 'effectStarted') ? ['effectStarted'] : [])])
+  return { id: identifier(source.id), decision: parseLeadCardDecision(source.decision), source: parseLeadPublicationSource(source.source), at: integer(source.at),
+    ...effectBoundary(source), stage: choice(source.stage, ['push-prepared', 'push-started', 'superseded', 'pushed', 'create-prepared', 'completed', 'needs-you']) }
+}
 export type LeadJournalEvent =
   | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user'; readonly reason?: string | null }
   | { readonly type: 'invalidate-results' | 'resume' }
   | { readonly type: 'new-goal'; readonly id: string; readonly now: number }
-  | { readonly type: 'settings-changed'; readonly name?: LeadName }
+  | { readonly type: 'settings-changed'; readonly name?: LeadName; readonly follow?: LeadFollowPreferences }
+  | { readonly type: 'publication'; readonly operation: LeadPublicationOperation; readonly pr: LeadPullRequest | null }
+  | { readonly type: 'pr-observed'; readonly pr: LeadPullRequest }
+  | { readonly type: 'owned-push'; readonly operation: LeadOwnedPush }
+  | { readonly type: 'handback'; readonly operation: LeadHandback }
+  | { readonly type: 'handback-limit' }
+  | { readonly type: 'ci-passed'; readonly head: string }
+  | { readonly type: 'origin'; readonly origin: LeadOrigin; readonly key?: string }
   | { readonly type: 'message'; readonly idempotencyKey: string | null; readonly message: LeadMessage }
   | { readonly type: 'renew-plan'; readonly now: number; readonly cardId?: string }
-  | { readonly type: 'restore-result'; readonly id: string; readonly revision: number }
+  | { readonly type: 'restore-result' | 'retry-result'; readonly id: string; readonly revision: number }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
@@ -121,8 +171,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    'new-goal': ['id', 'now'],
-    'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': Object.hasOwn(source, 'name') ? ['name'] : [], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
+    'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
+    'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -131,13 +181,20 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   object(source, ['version', 'seq', 'type', ...keys[type]!])
   let event: LeadJournalEvent
   switch (type) {
+    case 'handback': event = { type, operation: parseLeadHandback(source.operation) }; break
+    case 'handback-limit': event = { type }; break
+    case 'ci-passed': event = { type, head: identifier(source.head) }; break
+    case 'origin': event = { type, origin: parseLeadOrigin(source.origin), ...(Object.hasOwn(source, 'key') ? { key: identifier(source.key) } : {}) }; break
     case 'new-goal': event = { type, id: identifier(source.id), now: integer(source.now, 0) }; break
     case 'management': event = { type, phase: choice(source.phase, ['planning', 'waiting-for-user']), ...(Object.hasOwn(source, 'reason') ? { reason: source.reason === null ? null : choice(source.reason, LEAD_MANAGEMENT_REASONS) } : {}) }; break
     case 'message': event = { type, idempotencyKey: nullable(source.idempotencyKey, identifier), message: parseLeadMessage(source.message) }; break
-    case 'settings-changed': event = { type, ...(Object.hasOwn(source, 'name') ? { name: choice(source.name, ['dex', 'lex'] as const) } : {}) }; break
+    case 'settings-changed': event = { type, ...(Object.hasOwn(source, 'name') ? { name: choice(source.name, ['dex', 'lex'] as const) } : {}), ...(Object.hasOwn(source, 'follow') ? { follow: parseLeadFollowPreferences(source.follow) } : {}) }; break
+    case 'publication': event = { type, operation: parseLeadPublicationOperation(source.operation), pr: nullable(source.pr, parseLeadPullRequest) }; break
+    case 'owned-push': event = { type, operation: parseLeadOwnedPush(source.operation) }; break
+    case 'pr-observed': event = { type, pr: parseLeadPullRequest(source.pr) }; break
     case 'invalidate-results': case 'resume': event = { type }; break
     case 'renew-plan': event = { type, now: integer(source.now, 0), ...(Object.hasOwn(source, 'cardId') ? { cardId: identifier(source.cardId) } : {}) }; break
-    case 'restore-result': event = { type, id: identifier(source.id), revision: integer(source.revision, 1) }; break
+    case 'retry-result': case 'restore-result': event = { type, id: identifier(source.id), revision: integer(source.revision, 1) }; break
     case 'start-resolution': {
       const identity = nullable(source.identity, parseLeadRunIdentity), goalId = nullable(source.goalId, identifier)
       if ((identity === null) !== (goalId === null)) throw new Error('lead-journal-start-resolution')
@@ -261,6 +318,9 @@ export class LeadJournal {
     for (const listener of this.#listeners) { try { listener() } catch { /* Observers cannot undo a durable write. */ } }
   }
   setManagementPhase(phase: 'planning' | 'waiting-for-user', reason: string | null = null): Promise<void> { return this.#queue(async () => {
+    // A child refresh may finish after the person's publication decision.
+    // That old acceptance wait cannot take passive following back over.
+    if (reason === 'lead-result-awaiting-person' && this.#state.phase === 'following') return
     if (this.#state.phase === phase && this.#state.managementReason === reason) return
     await this.#append({ type: 'management', phase, reason })
   }) }
@@ -277,7 +337,24 @@ export class LeadJournal {
   #expectRevision(expected?: number): void {
     if (expected !== undefined && expected !== this.#state.seq) throw Object.assign(new Error('lead-revision-stale'), { wireCode: 'lead-revision-stale' })
   }
-  settingsChanged(name?: LeadName): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }) })) }
+  settingsChanged(name?: LeadName, follow?: LeadFollowPreferences): Promise<void> { return this.#queue(() => this.#append({ type: 'settings-changed', ...(name === undefined ? {} : { name }), ...(follow === undefined ? {} : { follow }) })) }
+  publication(operation: LeadPublicationOperation, pr: LeadPullRequest | null = null): Promise<void> { return this.#queue(() => this.#append({ type: 'publication', operation, pr })) }
+  /** Host-only exit after an external publication succeeded but its final
+   * person-gate answer refused. The child cannot release this decision fence. */
+  publicationNeedsYou(id: string): Promise<void> { return this.#queue(async () => {
+    const op = this.#state.publication
+    if (!op || op.id !== id || op.stage !== 'completed' || ['accepted', 'declined', 'stopped', 'following'].includes(this.#state.phase)) return
+    const card = this.#state.cards.find(card => card.id === op.decision.cardId)
+    if (!card || card.revision !== op.decision.expectedRevision || card.contractDigest !== op.decision.contractDigest || this.#state.decidedCards.includes(`${card.id}:${card.revision}`)) return
+    await this.#append({ type: 'invalidate-results' })
+    await this.#append({ type: 'management', phase: 'waiting-for-user', reason: 'lead-publication-needs-you' })
+  }) }
+  handback(operation: LeadHandback): Promise<void> { return this.#queue(() => this.#append({ type: 'handback', operation })) }
+  handbackLimit(): Promise<void> { return this.#queue(async () => { if (!this.#state.handbackLimit) await this.#append({ type: 'handback-limit' }) }) }
+  ciPassed(head: string): Promise<void> { return this.#queue(async () => { if (!this.#state.ciPassed.includes(head)) await this.#append({ type: 'ci-passed', head }) }) }
+  setOrigin(origin: LeadOrigin, key?: string): Promise<void> { return this.#queue(() => this.#append({ type: 'origin', origin, ...(key ? { key } : {}) })) }
+  ownedPush(operation: LeadOwnedPush): Promise<void> { return this.#queue(() => this.#append({ type: 'owned-push', operation })) }
+  observePr(pr: LeadPullRequest): Promise<void> { return this.#queue(() => this.#append({ type: 'pr-observed', pr })) }
   appendMessage(idempotencyKey: string, text: string, committed?: () => void): Promise<LeadSendReceipt> {
     const input = parseLeadThreadSend({ idempotencyKey, text })
     return this.#queue(async () => {
@@ -332,13 +409,32 @@ export class LeadJournal {
       for (const event of events) await this.#append(event)
     }, stopEffects)
   }
-  restoreResult(id: string, revision: number): Promise<void> { return this.#queue(() => this.#append({ type: 'restore-result', id, revision })) }
+  #resultFenced(): boolean {
+    const op = this.#state.publication
+    const retry = this.#state.retryResult
+    return !!(retry && retry.goal === (this.#state.budget?.logicalGoalId ?? null) && retry.digest === this.#state.contract?.digest &&
+      !['accepted', 'declined', 'stopped'].includes(this.#state.phase) && !this.#state.decidedCards.includes(`${retry.id}:${retry.revision}`) && this.#state.cards.some(card => card.id === retry.id && card.revision === retry.revision)) ||
+      this.#state.phase === 'following' || !!(op && op.stage !== 'superseded' && !(op.stage === 'needs-you' && op.effectStarted === false) &&
+      !this.#state.decidedCards.includes(`${op.decision.cardId}:${op.decision.expectedRevision}`) &&
+      this.#state.cards.some(card => card.id === op.decision.cardId && card.revision === op.decision.expectedRevision && card.contractDigest === op.decision.contractDigest))
+  }
+  restoreResult(id: string, revision: number): Promise<void> { return this.#queue(async () => {
+    if (this.#resultFenced()) return
+    await this.#append({ type: 'restore-result', id, revision })
+  }) }
   /** Call only after acquiring exclusive ownership, before sending any requests. */
   recoverUnsettledRequests(): Promise<void> { return this.#queue(async () => {
     for (const request of this.#state.budget?.requests ?? []) if (!request.uncertain)
       await this.#append({ type: 'budget', event: { version: 1, type: 'uncertain', now: this.#state.budget!.now, requestId: request.reservation.requestId } })
   }) }
-  invalidateResults(): Promise<void> { return this.#queue(() => this.#append({ type: 'invalidate-results' })) }
+  invalidateResults(): Promise<void> { return this.#queue(async () => {
+    const op = this.#state.publication
+    // Recheck on the writer queue: the child's snapshot predates this RPC.
+    if (this.#resultFenced()) return
+    if (op?.stage === 'needs-you' && op.effectStarted === false) await this.#append({ type: 'publication', operation: { ...op, stage: 'superseded' }, pr: null })
+    if (!this.#state.cards.some(card => card.type === 'result' && !this.#state.decidedCards.includes(`${card.id}:${card.revision}`))) return
+    await this.#append({ type: 'invalidate-results' })
+  }) }
   /** Host-only bookkeeping from a fresh owned execution read. Unlike crash
    * recovery this observes a completed start while the management child lives;
    * it cannot discover a new run, resolve an uncertain start or authorize work. */
@@ -347,6 +443,9 @@ export class LeadJournal {
     const attempt = run && this.#state.attempts.get(run.correlationId)
     if (!run || attempt?.method !== 'flow/start-goal' || attempt.outcome !== 'succeeded' || attempt.resolutionPending || attempt.contested)
       throw new Error('lead-run-unowned')
+    // Repair preparation meters the old settled Flow before opening its held
+    // round. That earlier snapshot cannot retire the journaled reopening.
+    if (this.#state.handbacks.some(op => op.runId === runId && op.stage === 'prepared')) return
     const rows = attempt.evidence === null ? [] : parseLeadRunEvidence(attempt.evidence)
     const previous = rows.find(row => row.runId === runId)
     if (previous && (previous.teamId !== run.teamId || previous.firstRoundId !== firstRoundId)) throw new Error('lead-run-evidence-conflict')
@@ -354,6 +453,12 @@ export class LeadJournal {
   }) }
   setPolicy(policy: LeadPermissionPolicy): Promise<void> { return this.#queue(() => this.#append({ type: 'policy', policy })) }
   offerCard(card: LeadCard, admit?: (card: LeadCard) => void): Promise<LeadCard> { return this.#queue(async () => {
+    // A prepared, effect-free intent may still be superseded. Once publication
+    // starts, only the host's final decision can release its exact result.
+    const op = this.#state.publication
+    const personPush = card.type === 'result' && card.publication === 'push' && card.publicationSource && this.#state.phase === 'following'
+    if (card.type === 'result' && this.#resultFenced() && !personPush && !(this.#state.phase !== 'following' && op?.stage === 'push-prepared' && op.effectStarted === false))
+      throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
     const revisions = new Map(this.#state.cards.map(card => [card.id, card.revision]))
     admit?.(card)
     await this.#append({ type: 'card', card })
@@ -365,7 +470,7 @@ export class LeadJournal {
   renewPlan(now: number, admit?: (card: LeadCard) => void): Promise<void> { return this.#queue(async () => {
     const state = this.#state
     if (!state.consent || state.consent.renewalCardRevision !== undefined || state.consent.expiresAt > now || state.budget?.stop || state.recoveryBlocked ||
-      ['stopped', 'accepted', 'declined'].includes(state.phase) || hasPendingLeadPlan(state)) return
+      ['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || hasPendingLeadPlan(state)) return
     const old = [...state.cards].reverse().find(card => card.type === 'plan' && card.contractDigest === state.contract?.digest &&
       JSON.stringify(card.contract) === JSON.stringify(state.contract) && state.decidedCards.includes(`${card.id}:${card.revision}`))
     if (!old) return
@@ -402,7 +507,15 @@ export class LeadJournal {
         throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
       // Validate the immutable card and reducer transition before any human side effect.
       reduceLeadRecord(this.#state, { version: 1, seq: this.#state.seq + 1, type: 'card-decision', decision, expiresAt })
-      await beforeDecision?.()
+      try { await beforeDecision?.() }
+      catch (error) {
+        if (card.type === 'result' && (error as { wireCode?: unknown })?.wireCode === 'lead-gate-save-failed')
+          await this.#append({ type: 'retry-result', id: card.id, revision: card.revision })
+        else if (this.#state.retryResult?.id === card.id && this.#state.retryResult.revision === card.revision) {
+          await this.#append({ type: 'invalidate-results' })
+        }
+        throw error
+      }
       await this.#append({ type: 'card-decision', decision, expiresAt }, committed)
     }, stopEffects)
   }
@@ -504,7 +617,7 @@ export class LeadJournal {
       const step = this.#state.steps.find(step => step.id === stepId)
       const cancellation = method === 'flow/execution/stop' || method === 'team/intent' && action === 'abandon'
       // Status reads remain available after Stop so the final report can observe desk state.
-      if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined'].includes(this.#state.phase) || hasPendingLeadPlan(this.#state) ||
+      if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined'].includes(this.#state.phase) || leadWorkerDispatchBlockedByOpenPr(this.#state) || hasPendingLeadPlan(this.#state) ||
         this.#state.recoveryBlocked || [...this.#state.attempts.values()].some(attempt => attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.phase === 'started' && attempt.dispatched))))
         decision = refusal('start', 'Management is stopped pending recovery or user action')
       if (method === 'flow/start-goal' && (!step || step.state !== 'pending' || request.start?.id !== step.id ||

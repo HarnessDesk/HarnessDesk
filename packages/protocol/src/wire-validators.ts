@@ -781,6 +781,7 @@ const triggerSlug: Validator<string> = (value, path = '') => {
 const triggerOpensValidator: Validator<TriggerDefinition['opens']> = (value, path = '') => {
   const record = isObject(value, path)
   const keys = Object.keys(record)
+  if (keys.length === 1 && keys[0] === 'lead' && record['lead'] === true) return { lead: true }
   if (keys.length !== 1 || (keys[0] !== 'flow' && keys[0] !== 'agent')) throw new ValidationError(path, 'expected { flow: id } or { agent: id }')
   const key = keys[0] as 'flow' | 'agent'
   const id = triggerSlug(record[key], `${path}.${key}`)
@@ -789,6 +790,7 @@ const triggerOpensValidator: Validator<TriggerDefinition['opens']> = (value, pat
 const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
   const record = isObject(value, path)
   const kind = record['kind']
+  if (!Array.isArray(record['events']) || record['events'].length === 0 || new Set(record['events']).size !== record['events'].length) throw new ValidationError(`${path}.events`, 'expected a nonempty list without duplicates')
   if (kind === 'schedule') {
     const events = flowWordList(1, literalUnion('tick'))(record['events'], `${path}.events`)
     const everyMinutes = goalInteger(1)(record['everyMinutes'], `${path}.everyMinutes`)
@@ -796,7 +798,7 @@ const triggerOnValidator: Validator<TriggerOn> = (value, path = '') => {
     return { kind: 'schedule', events: ['tick'] as const, everyMinutes }
   }
   if (kind === 'pull-request') {
-    return { kind: 'pull-request', events: flowWordList(2, literalUnion('opened', 'pushed'))(record['events'], `${path}.events`) }
+    return { kind: 'pull-request', events: flowWordList(4, literalUnion('opened', 'pushed', 'checks-failed', 'review-commented'))(record['events'], `${path}.events`) }
   }
   if (kind === 'issue') {
     return { kind: 'issue', events: flowWordList(3, literalUnion('labelled', 'closed', 'commented'))(record['events'], `${path}.events`) }
@@ -833,6 +835,7 @@ const triggerDefinitionValidator: Validator<TriggerDefinition> = goalShape({
 }) as Validator<TriggerDefinition>
 const triggerDefinitionsValidator: Validator<TriggerDefinition[]> = (value, path = '') => {
   const definitions = arrayOf(triggerDefinitionValidator)(value, path)
+  if (definitions.some(one => 'lead' in one.opens && one.again !== null)) throw new ValidationError(path, 'A Lead trigger drafts a plan for approval and cannot name again.')
   if (definitions.length > 64) throw new ValidationError(path, 'expected at most 64 triggers')
   return definitions
 }

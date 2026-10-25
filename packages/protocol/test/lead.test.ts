@@ -40,7 +40,7 @@ const cards = [
 ].map((card, index) => ({ ...card, id: `card-${index + 1}` }))
 const thread = { cardPositions: undefined, contract: undefined, budget: undefined, decisions: undefined, version: 1, id: 'thread-1', revision: 2, state: 'awaiting-plan', project: contract.project,
   olderMessages: 0, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'user', text: 'Repair the check' }], cards }
-const settings = { version: 1, name: 'dex', model: 'model-demo', key: { configured: true, protection: 'encrypted' }, policy, caps }
+const settings = { follow: { checks: true, reviews: true }, version: 1, name: 'dex', model: 'model-demo', key: { configured: true, protection: 'encrypted' }, policy, caps }
 
 test('Lead assignments round-trip structured Flow seats including slash model ids and optional effort', () => {
   for (const seat of [
@@ -468,10 +468,45 @@ test('a window projection says where a running goal stands, and refuses a readin
   const projection = { version: 1, revision: 2, thread: { ...thread, state: 'running' }, settings, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null }
   const progressOf = (value: unknown) => (parse(value) as { progress?: unknown }).progress
   for (const progress of [{ step: 2, steps: 3, runs: 1 }, { step: 1, steps: 1, runs: 0 }, { step: 64, steps: 64, runs: 64 }])
-    assert.deepEqual(progressOf({ ...projection, progress }), progress)
+    assert.deepEqual(progressOf({ ...projection, progress }), { ...progress, since: undefined })
   assert.equal(progressOf(projection), undefined)
   assert.equal(progressOf({ ...projection, progress: null }), undefined)
   for (const progress of [{ step: 0, steps: 1, runs: 0 }, { step: 2, steps: 1, runs: 0 }, { step: 1, steps: 65, runs: 0 }, { step: 1, steps: 1, runs: -1 },
     { step: 1.5, steps: 2, runs: 0 }, { step: 1, steps: 1 }, { step: 1, steps: 1, runs: 0, title: 'Implement and review' }, 'Step 1 of 1'])
     assert.throws(() => parse({ ...projection, progress }), protocol.ValidationError)
+})
+
+
+test('only a pending reviewed result permits accept-open-pr, including a push result variant', () => {
+  const result = { ...cards[3]!, publication: 'push' }
+  const click = { version: 1, cardId: result.id, cardType: 'result', expectedRevision: result.revision,
+    contractDigest: digest, choice: 'accept-open-pr' }
+  assert.deepEqual(protocol.parseLeadCardDecisionFor(click, result), click)
+  for (const card of cards.filter(card => card.type !== 'result'))
+    assert.throws(() => protocol.parseLeadCardDecisionFor({ ...click, cardId: card.id, cardType: card.type }, card))
+  assert.throws(() => protocol.parseLeadCardDecisionFor(click, { ...result, outcome: 'accepted' }))
+  const decided = protocol.parseLeadThread({ ...thread, state: 'following', cards: [],
+    decisions: [{ card: result, choice: 'accept-open-pr', position: 1 }] })
+  assert.equal(decided.state, 'following')
+})
+
+test('follow preferences are closed booleans and older settings default to on', () => {
+  const { follow: _follow, ...legacy } = settings
+  const parsed = protocol.parseLeadSettingsProjection(legacy) as any
+  assert.deepEqual(parsed.follow, { checks: true, reviews: true })
+  assert.deepEqual(protocol.parseLeadSettingsUpdate({ expectedRevision: 1, follow: { checks: false, reviews: true } }).follow,
+    { checks: false, reviews: true })
+  assert.throws(() => protocol.parseLeadSettingsUpdate({ expectedRevision: 1, follow: { checks: 'yes', reviews: true } }))
+})
+
+test('automatic origin and repair projection are bounded data and never decision authority', () => {
+  const origin = { source: 'pull-request', event: 'event-1', subject: '7', url: 'https://github.com/acme/widgets/pull/7' }
+  assert.deepEqual(protocol.parseLeadOrigin(origin), origin)
+  assert.throws(() => protocol.parseLeadOrigin({ ...origin, command: 'start' }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadOrigin({ ...origin, subject: 'x'.repeat(5000) }), protocol.ValidationError)
+  const handback = { key: 'repair-1', event: 'event-1', kind: 'checks', head: 'a'.repeat(40), runId: 'run-1', teamId: 'team-1', round: 4, at: 100,
+    stage: 'prepared', publishedHead: null }
+  assert.deepEqual(protocol.parseLeadHandback(handback), handback)
+  assert.throws(() => protocol.parseLeadHandback({ ...handback, round: 0 }), protocol.ValidationError)
+  assert.throws(() => protocol.parseLeadHandback({ ...handback, approved: true }), protocol.ValidationError)
 })
