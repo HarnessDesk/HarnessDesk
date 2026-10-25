@@ -3,6 +3,7 @@ import type { LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetSta
 import { Button, CodeText, Row, LeadContract, LeadPlanFlow, Text } from '../design'
 import { folderName } from '../lib/projects'
 import { LeadDecision } from './LeadDecision'
+import { LEAD_HANDBACK_LIMIT, LEAD_REPAIR_RECOVERY_FAILED } from './lead-wait-copy'
 import { PERMISSION_LABELS } from './lead-permission-labels'
 import { Markdown } from './Markdown'
 
@@ -21,6 +22,8 @@ export const leadDollars = (micros: number) => {
   const text = cents.format(micros / 1000000)
   return micros > 0 && text === '$0.00' ? 'less than $0.01' : text
 }
+export const leadAllowance = (caps: { readonly usdMicros: number; readonly rounds: number }, project?: string): string =>
+  `Up to ${leadDollars(caps.usdMicros)} · ${caps.rounds} rounds${project ? ` · ${folderName(project)}` : ''}`
 const policyMode = { plan: 'Plan', default: 'Default', manage: 'Manage' }
 const ruleWords = (rule: { effect: string; method: keyof typeof PERMISSION_LABELS; action: string | null; project: string | null } | undefined) => rule ? `${rule.effect} · ${PERMISSION_LABELS[rule.method]} · ${rule.action ?? 'All actions'} · ${rule.project ?? 'Approved project'}` : 'No rule'
 
@@ -29,7 +32,7 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
   readonly personActions?: readonly LeadAction[]; readonly onPerform?: (input: LeadActionInput) => Promise<unknown>
   readonly decisionLock?: MutableRefObject<boolean>; readonly decisionPending?: string | null
   readonly setDecisionPending?: (id: string | null) => void; readonly expiry?: number | null
-  readonly waitReason?: 'lead-handback-limit'
+  readonly waitReason?: 'lead-handback-limit' | 'lead-repair-recovery-failed'
   readonly focusCard?: string | null
   readonly cards: readonly LeadCard[]; readonly decisions?: readonly LeadDecisionMessage[]
   readonly contract?: LeadAcceptanceContract | null; readonly budget?: LeadBudgetState | null
@@ -61,7 +64,7 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
   }
   const active = cards.find(card => card.id === focusCard && card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed')) ?? [...cards].reverse().find(card => card.type === 'branch-ownership') ?? [...cards].reverse().find(card => card.type === 'plan') ?? cards.find(card => card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed'))
   const plans = new Map([...cards, ...decisions.map(({ card }) => card)].flatMap(card => card.type === 'plan' ? [[card.contractDigest, card.contract] as const] : []))
-  return <>{placement !== 'dock' && waitReason === 'lead-handback-limit' && <LeadContract cardType="waiting" cardId="handback-limit" summary="Automatic repairs reached their limit. Inspect the pull request before continuing." />}{[...cards.map(card => ({ card, choice: undefined as LeadCardDecision['choice'] | undefined })), ...decisions.map(({ card, choice }) => ({ card, choice }))].map(({ card, choice }) => {
+  return <>{placement !== 'dock' && waitReason && <LeadContract cardType="waiting" cardId={waitReason === 'lead-handback-limit' ? 'handback-limit' : 'repair-recovery-failed'} summary={waitReason === 'lead-handback-limit' ? LEAD_HANDBACK_LIMIT : LEAD_REPAIR_RECOVERY_FAILED} />}{[...cards.map(card => ({ card, choice: undefined as LeadCardDecision['choice'] | undefined })), ...decisions.map(({ card, choice }) => ({ card, choice }))].map(({ card, choice }) => {
     const worker = card.type === 'waiting' && card.kind === 'worker-approval'
     const person = card.type === 'waiting' && !worker || card.type === 'result' && card.outcome === 'reviewed'
     const approval = card.type === 'plan' || card.type === 'permission-change' || card.type === 'budget-change'
@@ -80,7 +83,7 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
       {placement !== 'dock' && <LeadContract cardId={card.id} cardType={card.type} summary={summary} state={state} focusRef={ref}>
         {card.type === 'plan' && <><LeadPlanFlow steps={card.contract.steps} /><Markdown text={`Done when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`} /></>}
         {card.type === 'result' && card.publication === 'push' && <Text as="p" role="meta">Push the reviewed changes and open a pull request.</Text>}
-        {caps && <><Text as="p" role="meta">Up to {leadDollars(caps.usdMicros)} · {caps.rounds} rounds · {scope ? folderName(scope.project.path) : ''}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}
+        {caps && <><Text as="p" role="meta">{leadAllowance(caps, scope?.project.path)}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}
         {(card.type === 'waiting' && !worker || card.type === 'result') && <>
           <Text as="p" role="meta">{(['check', 'review', 'blocking-findings', 'diff'] as const).flatMap(kind => {
             const expected = scope?.assertions.filter(assertion => assertion.kind === kind) ?? []
@@ -95,7 +98,7 @@ export const LeadCards = ({ cards, personActions = [], onPerform, decisions = []
           {spend && <Text as="p" role="meta">I spent {leadDollars(spend.leadUsdMicros)}{spend.spend === 'known' && <> · workers reported {leadDollars(spend.workerUsdMicros)}</>}.</Text>}
         </>}
       </LeadContract>}
-      {placement !== 'thread' && !state && active === card && !personActions.some(action => action.id === card.id) && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'branch-ownership' ? `${summary}\n\nReclaim ${card.observedHead.slice(0, 12)} to allow further reviewed updates.` : card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'branch-ownership' ? 'Resume automatic repairs on this branch?' : card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}
+      {placement !== 'thread' && !state && active === card && !personActions.some(action => action.id === card.id) && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'branch-ownership' || card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'branch-ownership' ? 'Resume automatic repairs on this branch?' : card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}
         approveLabel={card.type === 'branch-ownership' ? 'Reclaim branch' : person ? 'Accept' : 'Approve'} onApprove={person || approval || card.type === 'branch-ownership' ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, card.type === 'branch-ownership' ? 'reclaim-branch' : person ? 'accept' : 'approve') } : undefined}
         onOpenPr={card.type === 'result' && card.outcome === 'reviewed' ? () => { void decide(card, 'accept-open-pr') } : undefined}
         onDecline={person || approval || card.type === 'branch-ownership' ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, 'decline') } : undefined}

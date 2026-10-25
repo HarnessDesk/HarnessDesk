@@ -254,3 +254,26 @@ test('host shutdown preserves the owned acceptance round while a published repai
     await service.close()
   }
 })
+
+for (const windows of [false, true]) test(`automatic project admission accepts ${windows ? 'Windows casing' : 'a trailing slash'} through the host root guard`, async t => {
+  const read = LeadControls.prototype.readThread
+  let automaticProject: ((path: string) => Promise<void>) | undefined
+  t.mock.method(LeadControls.prototype, 'readThread', function(this: LeadControls) {
+    automaticProject = (this as any).options.automaticProject
+    return read.call(this)
+  })
+  const { createLeadRig } = await import('./fixtures/lead-rig.js')
+  const fixture = await createLeadRig({ holdPlanning: true })
+  t.after(() => fixture.dispose())
+  await fixture.host.call('lead/thread/read', {})
+  assert.ok(automaticProject)
+  if (windows) {
+    // Confine the real folder first; emulate only the comparison platform.
+    const { samePath } = await import('../src/worktree.js')
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' })
+      assert.equal(samePath(fixture.project.path, fixture.project.path.toUpperCase() + '/'), true)
+    } finally { Object.defineProperty(process, 'platform', descriptor) }
+  } else await automaticProject(fixture.project.path + '/')
+})

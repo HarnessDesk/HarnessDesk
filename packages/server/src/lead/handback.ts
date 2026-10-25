@@ -66,7 +66,7 @@ export class LeadHandbacks {
     try { await this.#recoverCurrent() }
     catch (error) {
       if (!(error instanceof Error) || error.message !== 'lead-journal-transition') throw error
-      await this.port.journal.setManagementPhase('waiting-for-user', 'lead-publication-needs-you')
+      await this.port.journal.setManagementPhase('waiting-for-user', 'lead-repair-recovery-failed')
     }
   }
   async #terminal(op: LeadHandback): Promise<void> {
@@ -77,7 +77,7 @@ export class LeadHandbacks {
     if (pr.check?.head === pr.head && pr.check.state === 'passed' && pr.check.total > 0) {
       await this.port.ciPassed?.(op, pr.head)
       await journal.ciPassed(pr.head)
-    } else if (op.stage !== 'completed') {
+    } else if (op.stage !== 'completed' && pr.check?.head === pr.head && pr.check.state === 'failed' && pr.check.total > 0) {
       await journal.setManagementPhase('waiting-for-user', `lead-repair-${op.stage}`)
     }
   }

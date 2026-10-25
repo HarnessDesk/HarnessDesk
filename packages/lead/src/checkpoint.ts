@@ -26,7 +26,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // cards after that message and before the next journal write.
   const namedSource = threadSource && { ...threadSource, completedBudgets: Object.hasOwn(threadSource, 'completedBudgets') ? threadSource.completedBudgets : [], name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
   const followSource = namedSource && { ...namedSource, follow: Object.hasOwn(namedSource, 'follow') ? namedSource.follow : { checks: true, reviews: true }, pr: Object.hasOwn(namedSource, 'pr') ? namedSource.pr : null, publication: Object.hasOwn(namedSource, 'publication') ? namedSource.publication : null, ownedPush: Object.hasOwn(namedSource, 'ownedPush') ? namedSource.ownedPush : null }
-  const repairSource = followSource && { ...followSource, goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
+  const repairSource = followSource && { ...followSource, goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
   const source = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
     ? { ...repairSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : repairSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
@@ -77,6 +77,13 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   for (const card of cards) assert(Number.isSafeInteger(source.cardPositions[card.id]) && source.cardPositions[card.id]! > 0 && source.cardPositions[card.id]! <= Math.max(source.seq, Math.max(0, ...messages.map(message => message.revision)) + cards.length))
   assert(source.cardRevisions && Object.keys(source.cardRevisions).length === cards.length)
   for (const card of cards) assert(Number.isInteger(source.cardRevisions[card.id]) && source.cardRevisions[card.id]! >= 1 && source.cardRevisions[card.id]! <= 32)
+  if (source.retryResult !== null) {
+    const retry = source.retryResult
+    assert(Object.keys(retry).sort().join() === ['id', 'revision', 'digest', 'goal'].sort().join())
+    assert(retry.goal === (source.budget?.logicalGoalId ?? null) && retry.digest === source.contract?.digest &&
+      source.cards.some(card => card.type === 'result' && card.id === retry.id && card.revision === retry.revision && card.contractDigest === retry.digest) &&
+      !source.decidedCards.includes(`${retry.id}:${retry.revision}`))
+  }
   assert(Array.isArray(source.decidedCards) && source.decidedCards.length <= 2048 && source.decidedCards.every(key => typeof key === 'string' && key.length <= 300))
   assert(Array.isArray(source.steps) && source.steps.length <= 64)
   const steps = source.steps.map(step => {

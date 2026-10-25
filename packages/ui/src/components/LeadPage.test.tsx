@@ -508,3 +508,16 @@ it.each([
   expect(box.textContent).toContain(text)
   expect(box.querySelector('[data-lead-decision]')).toBeNull()
 })
+
+it('uses one hand-back limit sentence in the thread and dock', async () => {
+  const base = leadProjection(), { box } = await mount({ ...base, waitReason: 'lead-handback-limit', wayOut: 'resume', thread: { ...base.thread, state: 'waiting-for-user', messages: [goalMessage], cards: [] } })
+  expect(box.querySelector('[data-lead-card="handback-limit"]')).not.toBeNull()
+  const sentence = 'Automatic repairs reached their limit. Inspect the pull request before continuing.'
+  expect(box.textContent?.match(/Automatic repairs reached their limit\./g)).toHaveLength(2)
+  expect(box.textContent?.split(sentence)).toHaveLength(3)
+})
+it('explains a repair recovery refusal separately from publication', async () => {
+  const base = leadProjection(), { box } = await mount({ ...base, waitReason: 'lead-repair-recovery-failed' as any, wayOut: 'resume', thread: { ...base.thread, state: 'waiting-for-user', messages: [goalMessage], cards: [] } })
+  expect(box.textContent).toContain('The repair could not be recovered.')
+  expect(box.textContent).not.toContain('could not be published')
+})

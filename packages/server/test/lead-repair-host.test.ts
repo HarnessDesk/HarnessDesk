@@ -130,6 +130,19 @@ for (const accepted of [false, true]) test(`host repairs validate and recover pu
     assert.equal(rig.journal.state.managementReason, 'lead-repair-unverified', 'the next host timer preserves the actionable wait')
     return
   }
+  // Withdraw before opening a new round while the last reviewed result is still
+  // at its person gate. Both delivery and the 1s host poll must agree on E4.
+  const withdrawn = { ...rig.journal.state.handbacks[0]!, key: 'withdrawn-review', event: 'withdrawn-review', kind: 'reviews' as const,
+    head: h2, round: rig.host.flowsPlane.leadRuns()[0]!.rounds.at(-1)!.n + 1, at: Date.now(), stage: 'prepared' as const, publishedHead: null }
+  await rig.journal.handback(withdrawn)
+  await rig.journal.settingsChanged(undefined, { checks: true, reviews: false })
+  await following.deliver(watch(), { facts: [], observations: [] } as any)
+  assert.equal(rig.journal.state.handbacks.at(-1)!.stage, 'withdrawn')
+  assert.ok(rig.pending('result'), 'withdrawn-green re-offers the existing reviewed head through refreshRepairs')
+  await new Promise(resolve => setTimeout(resolve, 1200))
+  assert.ok(rig.pending('result'), 'the timer never changes withdrawal into a false unverified wait')
+  assert.notEqual(rig.journal.state.managementReason, 'lead-repair-unverified')
+  await rig.journal.settingsChanged(undefined, { checks: true, reviews: true })
   // Hold the next worker in its turn while the person extends and releases the branch.
   const repairGate = join(rig.home, 'worker-gates', 'followRepair')
   await unlink(repairGate)
@@ -158,5 +171,10 @@ for (const accepted of [false, true]) test(`host repairs validate and recover pu
   assert.equal((await pushes()).length, 2, 'no repair push after release')
   assert.equal(git(remote, 'rev-parse', `refs/heads/${branch}`), foreign)
   assert.equal(rig.pending('result'), undefined, 'E4 never re-offers while the person owns the branch')
+  const reclaim = rig.pending('branch-ownership')!
+  await rig.journal.decideCard({ version: 1, cardId: reclaim.id, cardType: 'branch-ownership', expectedRevision: reclaim.revision, contractDigest: reclaim.contractDigest, choice: 'reclaim-branch' })
+  await following.deliver(watch(), { facts: [], observations: [{ repository: 'acme/widgets', number: 7, head: foreign, state: 'open', check: { head: foreign, state: 'passed', total: 1 }, at: Date.now() }] } as any)
+  assert.equal(rig.journal.state.managementReason, 'lead-repair-unverified', 'reclaim-green reaches a real host action when the current head has no reviewed result')
+  assert.equal(rig.journal.state.phase, 'waiting-for-user')
   assert.equal(owned.teamId, run.goal)
 })

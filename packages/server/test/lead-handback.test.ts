@@ -309,28 +309,13 @@ test('checks turned off still park a failed repaired head with one durable reaso
   await s.owner.recover(); await s.owner.recover()
   assert.equal(s.journal.state.seq, seq)
 })
-test('reclaim followed by green CI on the current owned head releases terminal repair readiness', async t => {
-  const s = await setup(t), reclaimed = 'c'.repeat(40)
-  await s.owner.observe([s.fact])
-  await s.journal.observePr({ ...s.journal.state.pr!, branchOwner: 'person', observedHead: reclaimed, branchChange: 'fast-forward' })
-  const card: any = { version: 1, id: 'reclaim', revision: 1, type: 'branch-ownership', contractDigest: s.contract.digest,
-    repository: 'acme/widgets', number: 7, observedHead: reclaimed, summary: 'Reclaim the branch.' }
-  await s.journal.offerCard(card)
-  await s.journal.decideCard({ version: 1, cardId: card.id, cardType: card.type, expectedRevision: 1, contractDigest: s.contract.digest, choice: 'reclaim-branch' } as any)
-  await s.journal.observePr({ ...s.journal.state.pr!, check: { head: reclaimed, state: 'passed', total: 1 } })
-  await s.owner.recover()
-  assert.deepEqual(s.journal.state.ciPassed, [reclaimed])
-  assert.equal(leadRepairResultReady(s.journal.state), true)
-  assert.equal(s.journal.state.phase, 'running')
-  assert.deepEqual((await createLeadJournal(s.storage)).state, s.journal.state)
-})
-test('withdrawal with no other kind of event becomes a durable Needs-you wait', async t => {
+test('withdrawal waits passively for a current-head CI result', async t => {
   const s = await setup(t); s.eligible(false); await s.owner.observe([s.fact])
   await s.journal.settingsChanged(undefined, { checks: false, reviews: true })
   await s.owner.recover(); await s.owner.recover()
   assert.equal(s.journal.state.handbacks[0]!.stage, 'withdrawn')
-  assert.equal(s.journal.state.phase, 'waiting-for-user')
-  assert.equal(s.journal.state.managementReason, 'lead-repair-withdrawn')
+  assert.equal(s.journal.state.phase, 'following')
+  assert.equal(s.journal.state.managementReason, null)
   const seq = s.journal.state.seq
   await s.owner.recover(); assert.equal(s.journal.state.seq, seq)
 })
@@ -388,7 +373,7 @@ test('a recovery journal-transition refusal parks once rather than throwing each
   s.options.push = async () => { throw new Error('lead-journal-transition') }
   await s.owner.recover()
   assert.equal(s.journal.state.phase, 'waiting-for-user')
-  assert.equal(s.journal.state.managementReason, 'lead-publication-needs-you')
+  assert.equal(s.journal.state.managementReason, 'lead-repair-recovery-failed')
   const seq = s.journal.state.seq
   await s.owner.recover(); await s.owner.recover()
   assert.equal(s.journal.state.seq, seq)
@@ -430,4 +415,27 @@ test('green CI after reclaim keeps an accepted completed repair following', asyn
   await s.owner.recover()
   assert.equal(s.journal.state.handbacks.at(-1)!.stage, 'completed')
   assert.equal(s.journal.state.phase, 'following')
+})
+
+test('a first repair admission preserves an unrelated child-exit wait', async t => {
+  const s = await setup(t)
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-child-exited')
+  await s.owner.observe([s.fact])
+  assert.equal(s.journal.state.managementReason, 'lead-child-exited')
+  assert.equal(s.journal.state.phase, 'waiting-for-user')
+  assert.equal(s.journal.state.handbacks.at(-1)!.stage, 'prepared')
+  assert.equal(s.calls.length, 0)
+})
+for (const check of [null, { state: 'pending', total: 1 }, { state: 'absent', total: 0 }]) test(`reclaim waits for CI instead of parking on ${check?.state ?? 'missing'} checks`, async t => {
+  const s = await setup(t), reclaimed = 'c'.repeat(40)
+  await s.owner.observe([s.fact])
+  await s.journal.observePr({ ...s.journal.state.pr!, branchOwner: 'person', observedHead: reclaimed, branchChange: 'fast-forward' })
+  const card: any = { version: 1, id: 'reclaim-pending', revision: 1, type: 'branch-ownership', contractDigest: s.contract.digest,
+    repository: 'acme/widgets', number: 7, observedHead: reclaimed, summary: 'Reclaim the branch.' }
+  await s.journal.offerCard(card)
+  await s.journal.decideCard({ version: 1, cardId: card.id, cardType: card.type, expectedRevision: 1, contractDigest: s.contract.digest, choice: 'reclaim-branch' })
+  await s.journal.observePr({ ...s.journal.state.pr!, check: check ? { ...check, head: reclaimed } as any : null })
+  await s.owner.recover()
+  assert.equal(s.journal.state.phase, 'following')
+  assert.equal(s.journal.state.managementReason, null)
 })

@@ -240,3 +240,16 @@ it('renders the explicit push card through its reviewed-result decision and desc
   await act(async () => button(box, 'Accept and open PR').click())
   expect(decide).toHaveBeenCalledWith(expect.objectContaining({ choice: 'accept-open-pr' }))
 })
+
+it('uses the server branch summary once without appending a second reclaim instruction', () => {
+  const card: LeadCard = { version: 1, id: 'branch', revision: 1, type: 'branch-ownership', contractDigest: leadContract.digest,
+    repository: 'acme/widgets', number: 7, observedHead: 'a'.repeat(40), summary: 'Automatic repairs are paused. Reclaim it to continue.' }
+  const { box } = mount([card])
+  expect(box.querySelector('[data-lead-decision]')?.textContent).not.toContain('Reclaim aaaaaaaaaaaa')
+  expect(box.querySelector('[data-lead-decision]')?.textContent).toContain(card.summary)
+})
+it('omits the project separator when an allowance has no matching scope', () => {
+  const format = (modules['./LeadCards.tsx'] as any).leadAllowance
+  expect(format).toBeTypeOf('function')
+  expect(format(leadBudget.caps)).toBe('Up to $5.00 · 4 rounds')
+})

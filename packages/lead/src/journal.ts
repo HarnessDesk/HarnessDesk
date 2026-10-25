@@ -76,7 +76,7 @@ export type LeadJournalEvent =
   | { readonly type: 'origin'; readonly origin: LeadOrigin; readonly key?: string }
   | { readonly type: 'message'; readonly idempotencyKey: string | null; readonly message: LeadMessage }
   | { readonly type: 'renew-plan'; readonly now: number; readonly cardId?: string }
-  | { readonly type: 'restore-result'; readonly id: string; readonly revision: number }
+  | { readonly type: 'restore-result' | 'retry-result'; readonly id: string; readonly revision: number }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
@@ -172,7 +172,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
     'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
-    'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
+    'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
@@ -194,7 +194,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'pr-observed': event = { type, pr: parseLeadPullRequest(source.pr) }; break
     case 'invalidate-results': case 'resume': event = { type }; break
     case 'renew-plan': event = { type, now: integer(source.now, 0), ...(Object.hasOwn(source, 'cardId') ? { cardId: identifier(source.cardId) } : {}) }; break
-    case 'restore-result': event = { type, id: identifier(source.id), revision: integer(source.revision, 1) }; break
+    case 'retry-result': case 'restore-result': event = { type, id: identifier(source.id), revision: integer(source.revision, 1) }; break
     case 'start-resolution': {
       const identity = nullable(source.identity, parseLeadRunIdentity), goalId = nullable(source.goalId, identifier)
       if ((identity === null) !== (goalId === null)) throw new Error('lead-journal-start-resolution')
@@ -276,10 +276,6 @@ export class LeadJournal {
   #tail: Promise<unknown> = Promise.resolve()
   #failed = false
   #stopEffectFailure: { readonly reason: 'stop-effects-failed'; readonly stopSeq: number } | null = null
-  // A partially saved person decision remains owned by the host. Child reads
-  // can observe the intermediate boards; only a freshly validated retry can
-  // complete it, or release its exact result when the gates have changed.
-  #retryResult: { readonly id: string; readonly revision: number; readonly digest: string; readonly goal: string | null } | null = null
   private readonly security: LeadJournalSecurity
   constructor(private readonly storage: LeadJournalStorage, records: readonly LeadJournalRecord[], security: LeadJournalSecurity = {}, checkpoint: LeadState | null = null) {
     this.security = mergeLeadJournalSecurity(storage.journalSecurity?.() ?? {}, security)
@@ -317,7 +313,6 @@ export class LeadJournal {
     try { await this.storage.append(record) }
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
     this.#state = next
-    if (record.type === 'invalidate-results') this.#retryResult = null
     // The window marks paid work pending at this durable boundary, before projections observe it.
     committed?.()
     for (const listener of this.#listeners) { try { listener() } catch { /* Observers cannot undo a durable write. */ } }
@@ -416,7 +411,7 @@ export class LeadJournal {
   }
   #resultFenced(): boolean {
     const op = this.#state.publication
-    const retry = this.#retryResult
+    const retry = this.#state.retryResult
     return !!(retry && retry.goal === (this.#state.budget?.logicalGoalId ?? null) && retry.digest === this.#state.contract?.digest &&
       !['accepted', 'declined', 'stopped'].includes(this.#state.phase) && !this.#state.decidedCards.includes(`${retry.id}:${retry.revision}`) && this.#state.cards.some(card => card.id === retry.id && card.revision === retry.revision)) ||
       this.#state.phase === 'following' || !!(op && op.stage !== 'superseded' && !(op.stage === 'needs-you' && op.effectStarted === false) &&
@@ -515,15 +510,13 @@ export class LeadJournal {
       try { await beforeDecision?.() }
       catch (error) {
         if (card.type === 'result' && (error as { wireCode?: unknown })?.wireCode === 'lead-gate-save-failed')
-          this.#retryResult = { id: card.id, revision: card.revision, digest: card.contractDigest, goal: this.#state.budget?.logicalGoalId ?? null }
-        else if (this.#retryResult?.id === card.id && this.#retryResult.revision === card.revision) {
-          this.#retryResult = null
+          await this.#append({ type: 'retry-result', id: card.id, revision: card.revision })
+        else if (this.#state.retryResult?.id === card.id && this.#state.retryResult.revision === card.revision) {
           await this.#append({ type: 'invalidate-results' })
         }
         throw error
       }
       await this.#append({ type: 'card-decision', decision, expiresAt }, committed)
-      if (this.#retryResult?.id === card.id && this.#retryResult.revision === card.revision) this.#retryResult = null
     }, stopEffects)
   }
   /** Caller must await durable admission before sending a paid request or opening a round. */

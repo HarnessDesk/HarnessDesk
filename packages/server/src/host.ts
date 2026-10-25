@@ -25,7 +25,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
@@ -3582,7 +3582,7 @@ export class Host {
       await this.#leadBudgets.meter(journal)
       const state = journal.state, contract = state.contract, run = this.#flows.leadRuns().find(run => run.id === op.runId)
       const last = run?.rounds.at(-1)
-      if (!contract || !run || run.goal !== op.teamId || !last || last.n <= op.round || last.role !== 'accept' ||
+      if (!contract || !run || run.goal !== op.teamId || !last || (op.stage !== 'withdrawn' && last.n <= op.round) || last.role !== 'accept' ||
         last.state !== 'running' || !last.cards.length || !last.cards.every(id => this.#team.stateFor(op.teamId).intents.some(card => card.id === id && card.state === 'open'))) return null
       const evidence = await decisionEvidence(op.runId), budget = leadBudgetProjection(journal.state.budget!, Date.now())
       const result = evaluateLeadAcceptance(contract, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
@@ -3617,13 +3617,28 @@ export class Host {
       const op = journal.state.handbacks.at(-1)
       if (!op || !leadHandbackTerminal(op) || !leadRepairResultReady(journal.state) || journal.state.handbackLimit ||
         ['accepted', 'declined', 'stopped', 'awaiting-plan'].includes(journal.state.phase) || journal.state.pr?.branchOwner === 'person') return
+      const current = () => {
+        const state = journal.state
+        return state.handbacks.at(-1)?.key === op.key && leadRepairResultReady(state) && !state.handbackLimit &&
+          !['accepted', 'declined', 'stopped', 'awaiting-plan'].includes(state.phase) && state.pr?.branchOwner !== 'person'
+      }
       const result = await repairResult(op)
-      if (journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))) return
+      // Evidence reads yield to observations and new admissions. Recheck both
+      // here and on the writer queue so an older timer cannot resurrect a card.
+      if (!current() || journal.state.cards.some(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))) return
       if (!result) {
         if (op.stage !== 'completed' || op.publishedHead !== journal.state.pr?.head) await journal.setManagementPhase('waiting-for-user', 'lead-repair-unverified')
         return
       }
-      await journal.offerCard(result.card)
+      try {
+        await journal.offerCard(result.card, () => {
+          if (!current() || result.source.head !== journal.state.pr?.head) throw new Error('lead-repair-superseded')
+        })
+      } catch (error) {
+        if (error instanceof Error && error.message === 'lead-repair-superseded') return
+        throw error
+      }
+      if (!current()) return
       await journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
     })().finally(() => { repairRefresh = null })
     const repairTimer = setInterval(() => { void refreshRepairs().catch(() => {}) }, 1000)
@@ -3640,9 +3655,9 @@ export class Host {
     this.#leadControls = new LeadControls({ journal,
       automaticProject: async path => {
         const root = await this.#confineGitRoot(path)
-        if (root !== path || !this.#leadAssembly) throw leadRefusal('lead-project-missing')
-        await this.#leadAssembly.rememberProject(path)
-        Object.assign(project, leadProjectOf(path))
+        if (!samePath(root, resolve(path)) || !this.#leadAssembly) throw leadRefusal('lead-project-missing')
+        await this.#leadAssembly.rememberProject(root)
+        Object.assign(project, leadProjectOf(root))
       },
       service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),

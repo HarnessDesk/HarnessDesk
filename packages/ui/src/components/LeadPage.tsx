@@ -8,6 +8,7 @@ import { useDestinationPage, useDestinationActive } from '../panels/destination-
 import { useSnapshot, useStore } from '../state/context'
 import { LeadMessage } from './LeadMessage'
 import { LeadCards, leadDollars } from './LeadCards'
+import { LEAD_HANDBACK_LIMIT, LEAD_REPAIR_RECOVERY_FAILED } from './lead-wait-copy'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
 import { AtIcon, FolderIcon, PlusIcon, RouteIcon, SendIcon, SettingsIcon } from './Icons'
@@ -25,7 +26,8 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-ownership-withdrawn': 'The Lead no longer owns its previous run.',
   'lead-pr-branch-rewritten': 'The branch was rewritten outside this goal. Reclaim the branch to resume automatic repairs.',
   'lead-pr-head-changed': 'The pull request head changed outside this goal. Inspect the pull request before continuing.',
-  'lead-handback-limit': 'Automatic repairs reached their limit. Inspect the work before continuing.',
+  'lead-handback-limit': LEAD_HANDBACK_LIMIT,
+  'lead-repair-recovery-failed': LEAD_REPAIR_RECOVERY_FAILED,
   'lead-handback-pending': 'A repair is already running. The next event is waiting.',
   'lead-repair-failed': 'Checks failed on the repaired branch. Inspect the pull request before continuing.',
   'lead-repair-withdrawn': 'The repair was withdrawn when following was turned off. Inspect the pull request before continuing.',
@@ -233,7 +235,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           <Text role="meta">{pr.state === 'merged' ? 'Merged' : pr.state === 'closed' ? 'Closed' : `Checks ${pr.check?.state ?? 'not confirmed'} · Review ${pr.review?.state?.replace(/-/g, ' ') ?? 'not confirmed'}`}</Text>
           <Chip tone="neutral">{pr.branchOwner === 'person' ? 'Your branch' : 'Automatic repairs'}</Chip>
         </InlineParts></div>}
-        {state.waitReason === 'lead-handback-limit' && <LeadCards {...cardProps} cards={[]} waitReason={state.waitReason} placement="thread" />}
+        {(state.waitReason === 'lead-handback-limit' || state.waitReason === 'lead-repair-recovery-failed') && <LeadCards {...cardProps} cards={[]} waitReason={state.waitReason} placement="thread" />}
         {live}
       </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
     </ConversationThread>

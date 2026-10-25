@@ -1893,3 +1893,24 @@ test('push-started cannot claim the absence of an external effect in either jour
       decision: { version: 1, cardId: 'result', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' } }))
   }
 })
+
+test('a failed person save retains its exact retry through replay and checkpoint recovery', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  const card = { version: 1, id: 'retry', revision: 1, type: 'result', contractDigest: contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget!, 100) }
+  await journal.offerCard(card)
+  const decision = { version: 1, cardId: card.id, cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' }
+  await assert.rejects(journal.decideCard(decision, null, undefined, async () => {
+    throw Object.assign(new Error('save refused'), { wireCode: 'lead-gate-save-failed' })
+  }))
+  const replay = await open(storage)
+  const state = lead.parseLeadCheckpoint(lead.leadCheckpoint(replay.state, 'b'.repeat(64))).state
+  const checkpoint = new lead.LeadJournal(storage, [], {}, state)
+  for (const recovered of [replay, checkpoint]) {
+    await recovered.invalidateResults()
+    assert.equal(recovered.state.decidedCards.includes('retry:1'), false)
+    await assert.rejects(recovered.offerCard({ ...card, revision: 2 }), { wireCode: 'lead-card-stale' })
+  }
+  await replay.decideCard(decision, null, undefined, async () => {})
+  assert.equal(replay.state.phase, 'accepted')
+})

@@ -43,6 +43,8 @@ export interface LeadState {
   readonly contract: LeadAcceptanceContract | null
   readonly consent: { readonly contractDigest: string; readonly contractRevision: number; readonly policyRevision: number; readonly expiresAt: number; readonly renewalCardRevision?: number } | null
   readonly cards: readonly LeadCard[]
+  /** Host-owned partial person save; replay and checkpoints retain its exact fence. */
+  readonly retryResult: { readonly id: string; readonly revision: number; readonly digest: string; readonly goal: string | null } | null
   readonly decidedCards: readonly string[]
   readonly steps: readonly LeadStepState[]
   readonly attempts: ReadonlyMap<string, LeadAttemptState>
@@ -53,7 +55,7 @@ export interface LeadState {
   readonly runs: readonly LeadRunIdentity[]
 }
 export const initialLeadState = (): LeadState => ({ origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
-  cards: [], decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
+  cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-journal-transition') }
 const cardKey = (card: { id: string; revision: number }) => `${card.id}:${card.revision}`
 
@@ -186,8 +188,10 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         ensure(transitions[previous.stage].includes(op.stage))
         ensure(previous.publishedHead === null || previous.publishedHead === op.publishedHead)
       }
-      const preserveWait = !!previous && state.phase === 'waiting-for-user' && !state.managementReason?.startsWith('lead-repair-')
-      state = { ...state, handbacks: [...state.handbacks.filter(item => item.key !== op.key), op], phase: hasPendingLeadPlan(state) ? 'awaiting-plan' : preserveWait ? state.phase : op.stage === 'awaiting-ci' ? 'following' : 'running', managementReason: preserveWait ? state.managementReason : null,
+      const preserveWait = state.phase === 'waiting-for-user' && state.managementReason !== 'lead-result-awaiting-person' && !state.managementReason?.startsWith('lead-repair-')
+      const handbacks = [...state.handbacks.filter(item => item.key !== op.key), op]
+      const following = op.stage === 'awaiting-ci' || op.stage === 'withdrawn' && !leadRepairResultReady({ ...state, handbacks })
+      state = { ...state, handbacks, phase: hasPendingLeadPlan(state) ? 'awaiting-plan' : preserveWait ? state.phase : following ? 'following' : 'running', managementReason: preserveWait ? state.managementReason : null,
         decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'result').map(cardKey)])] }
       break
     }
@@ -321,13 +325,18 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         cardRevisions: { ...state.cardRevisions, [card.id]: (state.cardRevisions[card.id] ?? 0) + 1 } }
       break
     }
+    case 'retry-result': {
+      const card = state.cards.find(card => card.id === event.id && card.revision === event.revision && card.type === 'result')
+      ensure(card && card.contractDigest === state.contract?.digest && !state.decidedCards.includes(cardKey(card)))
+      state = { ...state, retryResult: { id: event.id, revision: event.revision, digest: card!.contractDigest!, goal: state.budget?.logicalGoalId ?? null } }; break
+    }
     case 'restore-result': {
       const card = state.cards.find(card => card.id === event.id && card.revision === event.revision && card.type === 'result')
       ensure(card && card.contractDigest === state.contract?.digest && !['stopped', 'accepted', 'declined'].includes(state.phase))
       state = { ...state, decidedCards: state.decidedCards.filter(key => key !== cardKey(card!)) }; break
     }
     case 'invalidate-results':
-      state = { ...state, decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'result').map(cardKey)])] }; break
+      state = { ...state, retryResult: null, decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'result').map(cardKey)])] }; break
 
     case 'budget': {
       if (['reserve', 'start'].includes(event.event.type)) ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
@@ -378,6 +387,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       break
     }
     case 'card-decision': {
+      if (state.retryResult?.id === event.decision.cardId && state.retryResult.revision === event.decision.expectedRevision) state = { ...state, retryResult: null }
       const card = state.cards.find(card => card.id === event.decision.cardId)
       ensure(card && !state.decidedCards.includes(cardKey(card)))
       const decision = parseLeadCardDecisionFor(event.decision, card)
@@ -598,6 +608,10 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     state = { ...state, decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'plan' &&
       card.contractDigest === state.consent?.contractDigest && card.revision === state.consent?.renewalCardRevision).map(cardKey)])] }
   }
+  const retry = state.retryResult
+  if (retry && (retry.goal !== (state.budget?.logicalGoalId ?? null) || retry.digest !== state.contract?.digest ||
+    state.decidedCards.includes(`${retry.id}:${retry.revision}`) || !state.cards.some(card => card.id === retry.id && card.revision === retry.revision)))
+    state = { ...state, retryResult: null }
   return state
 }
 export const replayLeadJournal = (records: readonly LeadJournalRecord[]): LeadState => records.reduce(reduceLeadRecord, initialLeadState())
