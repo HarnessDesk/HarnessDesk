@@ -54,7 +54,7 @@ export const HarnessDeskSignOut = ({ onClose }: { onClose: () => void }) => {
   return <ConfirmDialog title="Sign out of HarnessDesk?" confirmLabel="Sign out" cancelLabel="Keep signed in" tone="destructive"
     busy={busy} onCancel={onClose} onConfirm={() => signOut()}
     alternative={localOnlyAvailable ? { label: 'Sign out on this desk only', onClick: () => signOut(true) } : undefined}>
-    This desk will no longer be reachable from your phone. Your agent accounts stay signed in.
+    This desk will no longer be reachable through your HarnessDesk account. Your agent accounts stay signed in.
     {error && <ActionError>{error}</ActionError>}
     {localOnlyAvailable && <Note>Signing out on this desk only removes its local sign-in. This desk stays linked to your account until you unlink it from another device.</Note>}
   </ConfirmDialog>
@@ -73,7 +73,7 @@ const HarnessDeskDeleteAccount = ({ onClose }: { onClose: () => void }) => {
 /** The Account page owns the HarnessDesk identity, desk and account-linked phones. */
 export const HarnessDeskAccountSection = () => {
   const store = useStore()
-  const { harnessDeskAccount: status, sidebarCollapsed } = useSnapshot()
+  const { harnessDeskAccount: status, sidebarCollapsed, phoneLink } = useSnapshot()
   const { busy, error, run } = useHarnessDeskAccountAction()
   const [signOut, setSignOut] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -93,7 +93,7 @@ export const HarnessDeskAccountSection = () => {
       <SectionHead level="label" name="This desk" />
       <Rows>
         <Row title="Name" desc="How your phone lists this desk" control={<><RowValue>{status.desk.name}</RowValue><Button variant="outline" disabled={busy} onClick={() => { setName(status.desk.name); setRenaming(true) }}>Rename</Button></>} />
-        <Row title="Reachable from your phone" desc="Save your preference for phone access. Phone connections are not available in this build."
+        <Row title="Reachable from your phone" desc="Save your preference for account-based phone access. Connections through your account are not available in this build."
           control={<Switch aria-label="Reachable from your phone" checked={status.desk.reachable} disabled={busy} onCheckedChange={reachable => void run(() => store.setHarnessDeskReachable(reachable))} />} />
       </Rows>
       <SectionHead level="label" name="Linked phones" />
@@ -104,8 +104,8 @@ export const HarnessDeskAccountSection = () => {
       <Note>Sign in on your phone with the same account to add another.</Note>
     </>}
     <SectionHead level="label" name="Without an account" />
-    <Rows><Row mark={<MobileIcon size={16} />} title="Pair a phone with a code" desc="Not available in this build"
-      control={<Button variant="outline" disabled>Show code</Button>} /></Rows>
+    <Rows><Row mark={<MobileIcon size={16} />} title="Pair a phone with a code" desc={phoneLink ? 'Pair on the same network from Phone settings.' : 'Not available in this build'}
+      control={<Button variant="outline" disabled={!phoneLink} onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'phone', focus: null } })}>{phoneLink ? 'Phone settings' : 'Show code'}</Button>} /></Rows>
     {signedIn && <><SectionHead level="label" name="HarnessDesk account" />
       <Rows><Row title="Delete account" control={<Button variant="destructive" disabled={busy} onClick={() => setDeleting(true)}>Delete account…</Button>} /></Rows></>}
     {signOut && <HarnessDeskSignOut onClose={() => setSignOut(false)} />}

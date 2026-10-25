@@ -888,7 +888,7 @@ test('host screens nested and JSON-encoded tool results before provider transpor
 test('Flow token fields retain value screening and other token fields remain private', async t => {
   const requests: unknown[] = []
   const s = await providerRig(t, async request => { requests.push(request); return { status: 429, body: '{}' } })
-  const token = '11111111-1111-4111-8111-111111111111'
+  const token = '11111111-1111-4111-8111-111111111111' // hd-secrets-ok: synthetic offline provider credential
   const cases = [
     { name: 'flow_preview', input: {}, result: { token: key } },
     { name: 'flow_preview', input: {}, result: { token: 'ghp_' + 'a'.repeat(36) } },
@@ -915,7 +915,7 @@ test('Flow token fields retain value screening and other token fields remain pri
 })
 
 test('a Flow token equal to the resolved key never reaches provider transport', async t => {
-  const token = '22222222-2222-4222-8222-222222222222', requests: unknown[] = []
+  const token = '22222222-2222-4222-8222-222222222222', requests: unknown[] = [] // hd-secrets-ok: synthetic offline provider credential
   const s = await providerRig(t, async request => { requests.push(request); return { status: 429, body: '{}' } }, { resolveLead: async () => token })
   for (const name of ['flow_preview', 'flow_start_goal']) {
     const body = providerBody({ messages: [
@@ -932,7 +932,7 @@ test('a Flow token equal to the resolved key never reaches provider transport', 
 test('preview-result duplicate fields refuse before provider transport', async t => {
   const requests: unknown[] = []
   const s = await providerRig(t, async request => { requests.push(request); return { status: 429, body: '{}' } })
-  const token = '11111111-1111-4111-8111-111111111111'
+  const token = '11111111-1111-4111-8111-111111111111' // hd-secrets-ok: synthetic offline provider credential
   const encodedKey = [...key].map(char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')).join('')
   const cases = [
     ['token', `{"token":${JSON.stringify(key)},"token":"${token}"}`],
@@ -959,7 +959,7 @@ test('preview-result duplicate fields refuse before provider transport', async t
 test('preview results may repeat field names in distinct objects and preserve their original content', async t => {
   const requests: any[] = []
   const s = await providerRig(t, async request => { requests.push(request); return { status: 429, body: '{}' } })
-  const content = JSON.stringify({ token: '11111111-1111-4111-8111-111111111111',
+  const content = JSON.stringify({ token: '11111111-1111-4111-8111-111111111111', // hd-secrets-ok: synthetic offline provider credential
     items: [{ title: 'First', text: 'A quoted key: "title": {}' }, { title: 'Second', text: 'Ready' }] })
   const body = providerBody({ messages: [
     { role: 'user', content: [{ type: 'text', text: 'Preview approved work' }] },

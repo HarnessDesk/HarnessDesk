@@ -40,13 +40,14 @@ them into one protocol would give up both properties.
 
 ## The packages
 
-Twenty-two packages make up the repository:
+Twenty-four packages make up the repository:
 
 | Package | Role | Allowed imports |
 | --- | --- | --- |
 | `packages/protocol` | Domain vocabulary, wire methods, validators | Zero dependencies |
 | `packages/contract` | Schemas for the cloud wire: ids, tokens, pairing offers, relay frames, the account API. See [open-and-hosted.md](open-and-hosted.md) | `zod` |
 | `packages/crypto` | The cloud wire's cryptography: keys, handshake and framing, signed tokens, push sealing, test vectors | Zero dependencies (WebCrypto) |
+| `packages/phone-link` | Desk identity, phone enrollment and encrypted LAN sessions | `contract`, `crypto`, `ws`, Node built-ins |
 | `packages/desktop` | Electron shell, Keychain broker, packaging, the command-line launcher | `server`, `claude-acp`, `cursor-acp`, `cli`, `mcp-tools` |
 | `packages/client` | Transport-independent client calls and events; local I/O in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
 | `packages/lead` | Portable Lead contracts and injected management ports | `protocol`, `client`; only the exact child.ts and supervisor.ts entries under its src directory may import their allowlisted Node modules and the client's Node entry; the core has no ambient machine or network authority |

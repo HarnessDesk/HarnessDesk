@@ -1435,10 +1435,6 @@ export const DetailMark = ({ children, className, shape = 'square', badge }: { c
  * the small corner and in the secondary ink, for one that sits among
  * sentences rather than filling a card. `wrap` folds long lines instead of
  * scrolling them, for text read as prose rather than aligned as code.
- *
- * `size="display"` is a selectable one-time code at the page-title step.
- * Combine it with `spaced` for a code read on this screen and typed on another
- * device. The role owns its size, leading and selection; screens add no type.
  */
 export const CodeText = ({
   as = 'span',
@@ -1452,7 +1448,7 @@ export const CodeText = ({
   ...props
 }: HTMLAttributes<HTMLElement> & {
   as?: 'span' | 'code' | 'pre'
-  size?: 'default' | 'inherit' | 'display'
+  size?: 'default' | 'inherit'
   block?: boolean
   /** A block's own plate; only a `block` takes one. */
   ground?: 'none' | 'muted'
@@ -1469,7 +1465,7 @@ export const CodeText = ({
   ...(block && ground !== 'none' ? { 'data-ground': ground } : {}),
   ...((block || as === 'pre') && wrap ? { 'data-wrap': '' } : {}),
   ...(spaced ? { 'data-spaced': '' } : {}),
-  className: cx(styles.mono, size === 'inherit' && styles.monoInherit, size === 'display' && styles.monoDisplay, block && styles.monoBlock, className),
+  className: cx(styles.mono, size === 'inherit' && styles.monoInherit, block && styles.monoBlock, className),
 }, children)
 
 /** Initials inside a row's neutral mark. They identify the thing without becoming its name. */

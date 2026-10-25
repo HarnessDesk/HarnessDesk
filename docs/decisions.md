@@ -4188,8 +4188,10 @@ account. Ordinary local work and agent sign-in remain independent of it.
 The seat and Settings › Account show the HarnessDesk identity separately
 from agent accounts. Signing out revokes only this desk and its phone links;
 linked-phone removal uses the desk's scoped authority. The Reachable from
-your phone switch stores a local preference; the screen states that phone
-connections are not available in this build. Relay transport is a later step.
+your phone switch stores a local preference; the screen states that connections
+through the account are not available in this build. Relay transport is a later
+step. LAN pairing remains separately capability-gated in Phone settings.
+
 ## Lead window controls have bounded consent, requests and retries — 2026-10-18
 
 Plan approval grants 24 hours of consent from the host clock. This bounds how long

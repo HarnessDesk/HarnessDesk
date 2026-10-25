@@ -537,13 +537,13 @@ also removes that warning from the tooltip for the same occurrence or kind.
 
 **Settings › Account** shows the HarnessDesk identity and a separate sign-out
 action; **This desk** contains its name, Rename and **Reachable from your
-phone**. Reachability currently saves a preference and says phone connections
-are unavailable in this build. **Linked phones** lists each phone and its last
-seen time; Unlink confirms before removing access. Sign in on a phone with the
-same account to add another. **Without an account** retains **Pair a phone with
-a code**, disabled with **Not available in this build** while code pairing is
-not implemented. Account status comes from the host, independently of runtime
-accounts; credentials stay out of the renderer. Account pictures are bounded
+phone**. Reachability currently saves a preference and says connections through
+your account are unavailable in this build. **Linked phones** lists each phone
+and its last seen time; Unlink confirms before removing access. Sign in on a phone with the
+same account to add another. **Without an account** offers **Pair a phone with
+a code** through **Phone settings** when the host advertises LAN pairing. It
+stays disabled with **Not available in this build** when that capability is off.
+Account status comes from the host, independently of runtime accounts; credentials stay out of the renderer. Account pictures are bounded
 raster data supplied by the host; the renderer never loads the account’s
 remote picture URL, and the app’s image content policy stays unchanged.
 

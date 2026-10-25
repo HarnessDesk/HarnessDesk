@@ -16,23 +16,24 @@ const account: HarnessDeskAccountStatus = {
   desk: { name: 'Jane’s MacBook Pro', reachable: true },
   phones: [{ deviceId: 'AAAAAAAAAAAAAAAAAAAAAA', name: 'iPhone', lastSeenAt: null }],
 }
-const mount = (status = account, sidebarCollapsed = false) => {
+const mount = (status = account, sidebarCollapsed = false, phoneLink = false) => {
+  const openDestination = vi.fn()
   const setHarnessDeskReachable = vi.fn(async () => {})
   const unlinkHarnessDeskPhone = vi.fn(async () => {})
   const renameHarnessDesk = vi.fn(async () => {})
   const signInToHarnessDesk = vi.fn(async () => {})
   const signOutOfHarnessDesk = vi.fn(async () => {})
-  let snapshot = { ...emptySnapshot(), harnessDeskAccount: status, sidebarCollapsed }
+  let snapshot = { ...emptySnapshot(), harnessDeskAccount: status, sidebarCollapsed, phoneLink }
   const listeners = new Set<() => void>()
   const deleteHarnessDeskAccount = vi.fn(async () => {
     snapshot = { ...snapshot, harnessDeskAccount: { status: 'signedOut', desk: { ...status.desk, reachable: false }, phones: [] } }
     for (const listener of listeners) listener()
   })
   const store = { subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, getSnapshot: () => snapshot,
-    setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk, deleteHarnessDeskAccount,
+    setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk, deleteHarnessDeskAccount, openDestination,
   } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><HarnessDeskAccountSection /></StoreProvider>))
-  return { setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk, deleteHarnessDeskAccount, store }
+  return { setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk, deleteHarnessDeskAccount, openDestination, store }
 }
 const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === name)!
 it('shows the account, desk and linked phones; keeps unavailable code pairing honest', () => {
@@ -189,4 +190,18 @@ it.each(['not a URL', 'javascript:alert(1)', 'file:///tmp/link'])('uses a generi
   mount({ status: 'pending', desk: account.desk, phones: [], pending: { userCode: 'ABCD-EFGH', verifyUrl, expiresAt: Math.floor(Date.now() / 1000) + 60 } }, true)
   expect(container.textContent).toContain('Sign in using your browser.')
   expect(container.textContent).not.toContain('app.harnessdesk.app')
+})
+
+it('opens the existing LAN Phone settings when local pairing is available', async () => {
+  const { openDestination } = mount(account, false, true)
+  expect(container.textContent).toContain('Connections through your account are not available in this build.')
+  expect(button('Phone settings').disabled).toBe(false)
+  await act(async () => button('Phone settings').click())
+  expect(openDestination).toHaveBeenCalledExactlyOnceWith({ kind: 'settings', route: { kind: 'section', section: 'phone', focus: null } })
+})
+
+it('describes account sign-out separately from LAN pairing', () => {
+  mount(account, false, true)
+  act(() => button('Sign out…').click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('This desk will no longer be reachable through your HarnessDesk account.')
 })

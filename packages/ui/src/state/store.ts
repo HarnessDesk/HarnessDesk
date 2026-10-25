@@ -388,6 +388,7 @@ export class AppStore {
   /** What each conversation has typed and not sent. See `state/drafts`. */
   readonly drafts: Drafts
   #harnessDeskAccountRevision = 0
+  #harnessDeskAccountRequested = false
   #captureEpoch = 0
   #captureList = 0
   /**
@@ -634,6 +635,7 @@ export class AppStore {
       onEvent: (runtime, event) => this.#onEvent(runtime, event),
       onNotification: (notification) => {
         if (notification.method === 'account/changed') {
+          this.#harnessDeskAccountRequested = true
           this.#harnessDeskAccountRevision += 1
           this.#patch({ harnessDeskAccount: notification.params.status })
         }
@@ -969,7 +971,7 @@ export class AppStore {
           this.#patch({ status })
           if (previous === 'reconnecting') void this.#refreshLeadAvailability()
           if (previous !== 'open') void this.loadCaptureHealth().catch(() => {})
-          if (previous === 'reconnecting') void this.loadHarnessDeskAccount()
+          if (previous === 'reconnecting' && this.#harnessDeskAccountRequested) void this.loadHarnessDeskAccount()
         }
       },
     })
@@ -989,6 +991,7 @@ export class AppStore {
   // ------------------------------------------------------------------ startup
 
   async #updateHarnessDeskAccount(request: () => Promise<import('@harnessdesk/protocol').HarnessDeskAccountStatus>): Promise<void> {
+    this.#harnessDeskAccountRequested = true
     const revision = ++this.#harnessDeskAccountRevision
     const status = await request()
     if (revision === this.#harnessDeskAccountRevision) this.#patch({ harnessDeskAccount: status })

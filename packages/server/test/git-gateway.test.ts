@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { whichOnPath } from '../src/installs/which.js'
 import { execFile, execFileSync, spawn } from 'node:child_process'
 import { mkdtempSync, writeFileSync, existsSync, readFileSync, chmodSync, realpathSync, mkdirSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -418,7 +419,7 @@ test('accepted pushes survive verification loss or ambiguous push exit without o
   for (const fault of ['verify-once', 'verify-offline', 'push-exit', 'push-signal']) {
     const f = await fixture(), bin = join(f.root, 'bin'), marker = join(f.root, 'accepted'), failed = join(f.root, 'verification-failed')
     const { mkdirSync } = await import('node:fs'); mkdirSync(bin)
-    const realGit = execFileSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).trim()
+    const realGit = whichOnPath('git')!
     writeFileSync(join(bin, 'git'), `#!${process.execPath}\nconst {spawnSync}=require('node:child_process'),fs=require('node:fs');
 const args=process.argv.slice(2), accepted=${JSON.stringify(marker)}, failed=${JSON.stringify(failed)};
 if(args.includes('ls-remote')&&fs.existsSync(accepted)&&${JSON.stringify(fault)}.startsWith('verify')&&(${JSON.stringify(fault)}==='verify-offline'||!fs.existsSync(failed))){fs.writeFileSync(failed,'yes');process.exit(1)}
@@ -451,7 +452,7 @@ process.exit(result.status??1);\n`, { mode: 0o755 })
 test('packaged credential helper runs as Node during an HTTPS-shaped push', async t => {
   const f = await fixture(), bin = join(f.root, 'bin'), marker = join(f.root, 'node-helper')
   mkdirSync(bin)
-  const node = process.execPath, realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim()
+  const node = process.execPath, realGit = whichOnPath('git')!
   const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`
   const electron = join(bin, 'fake-electron'), config = join(f.root, 'person.config')
   writeFileSync(electron, `#!/bin/sh\n[ "$ELECTRON_RUN_AS_NODE" = 1 ] || exit 77\nprintf node > ${quote(marker)}\nexec ${quote(node)} "$@"\n`, { mode: 0o755 })

@@ -30,7 +30,7 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
   writeFileSync(statePath, JSON.stringify(state))
   copyFileSync(fileURLToPath(new URL('../../test/fixtures/fake-gh.mjs', import.meta.url)), join(bin, 'gh')); chmodSync(join(bin, 'gh'), 0o755)
   const prior = { PATH: process.env.PATH, FAKE_GH_STATE: process.env.FAKE_GH_STATE, FAKE_GH_TRACE: process.env.FAKE_GH_TRACE, GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN, GIT_ASKPASS: process.env.GIT_ASKPASS, GIT_CONFIG_COUNT: process.env.GIT_CONFIG_COUNT, GIT_CONFIG_KEY_0: process.env.GIT_CONFIG_KEY_0, GIT_CONFIG_VALUE_0: process.env.GIT_CONFIG_VALUE_0 }
-  process.env.GH_TOKEN = 'ghp_placeholder_host_credential'; delete process.env.GITHUB_TOKEN
+  process.env.GH_TOKEN = 'ghp_placeholder_host_credential'; delete process.env.GITHUB_TOKEN // hd-secrets-ok: synthetic offline provider credential
   Object.assign(process.env, { GIT_ASKPASS: '/fixture/host-askpass', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'credential.helper', GIT_CONFIG_VALUE_0: '!false' })
   Object.assign(process.env, { PATH: `${bin}:${process.env.PATH}`, FAKE_GH_STATE: statePath, FAKE_GH_TRACE: tracePath })
   t.after(() => { for (const [key, value] of Object.entries(prior)) { if (value === undefined) delete process.env[key]; else process.env[key] = value } rmSync(root, { recursive: true, force: true }) })

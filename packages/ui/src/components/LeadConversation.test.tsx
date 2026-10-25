@@ -42,7 +42,7 @@ const mount = async (page: 'lead' | 'settings' | 'session' = 'lead', available =
     const [destination, setDestination] = useState<PageDestination>(page === 'settings' ? { kind: 'settings', route: { kind: 'section', section: 'lead' as any, focus: null } } : { kind: 'lead' })
     navigate = setDestination
     return <TopBarProvider><TopBarOutlet owner="test" fallback={{ place: '', more: () => null }} />
-      <Sidebar activeDestination="lead" onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />
+      <Sidebar activeDestination="lead" onOpenSettings={() => {}} onOpenLibrary={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />
       <DestinationPageScope owner="test" active>{page === 'session' ? <Conversation header={false} composer={false} onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /> : destination.kind === 'settings' ? <Settings route={destination.route} onRoute={route => setDestination({ kind: 'settings', route })} onSignIn={() => {}} /> : <LeadPage focus={destination.kind === 'lead' ? destination.focus : null} />}</DestinationPageScope>
     </TopBarProvider>
   }

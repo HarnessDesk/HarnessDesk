@@ -408,6 +408,12 @@ const object = <T>(fields: { [K in keyof T]: Validator<T[K]> }): Validator<T> =>
   for (const key of Object.keys(fields) as (keyof T & string)[]) out[key] = fields[key](source[key], path ? `${path}.${key}` : key)
   return out as T
 }
+/** New optional projection fields preserve absence across older journal versions. */
+const omitUnset = <T>(parse: Validator<T>, keys: readonly (keyof T & string)[]): Validator<T> => (value, path = '') => {
+  const parsed = parse(value, path)
+  for (const key of keys) if (parsed[key] === undefined) Reflect.deleteProperty(parsed as object, key)
+  return parsed
+}
 const tag = <T>(branches: Readonly<Record<string, Validator<T>>>): Validator<T> => (value, path = '') => {
   const source = isObject(value, path)
   if (typeof source.type !== 'string' || !Object.hasOwn(branches, source.type)) return fail(path, 'unknown Lead message type')
@@ -604,7 +610,7 @@ export const leadProactiveReport = (value: LeadProactive, evidenceAt: number, la
     caveat: 'I could not verify this against the latest desk read.',
   }
 }
-export const parseLeadMessage: Validator<LeadMessage> = object({ version, id, revision, proactive: optional(parseLeadProactive), role: literalUnion('user', 'assistant', 'system'), text: content })
+export const parseLeadMessage: Validator<LeadMessage> = omitUnset(object<LeadMessage>({ version, id, revision, proactive: optional(parseLeadProactive), role: literalUnion('user', 'assistant', 'system'), text: content }), ['proactive'])
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {
   const entries = Object.entries(isObject(value, path))
   if (entries.length > LEAD_LIMITS.cards) fail(path, 'too many card positions')
@@ -679,10 +685,10 @@ export const migrateLeadThread: Validator<LeadThread> = (value, path = '') => {
     default: return fail(path, 'unsupported Lead migration version')
   }
 }
-export const parseLeadSettingsProjection: Validator<LeadSettingsProjection> = object({
+export const parseLeadSettingsProjection: Validator<LeadSettingsProjection> = omitUnset(object<LeadSettingsProjection>({
   version, name: literalUnion('dex', 'lex'), nameChosen: optional(isBoolean), model: opaque, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
   policy: parseLeadPermissionPolicy, caps: parseLeadCaps, follow: (value, path) => value === undefined ? { checks: true, reviews: true } : parseLeadFollowPreferences(value, path),
-})
+}), ['nameChosen'])
 export const parseLeadHostProjection: Validator<LeadHostProjection> = object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection,
 })
@@ -710,7 +716,7 @@ export const parseLeadSettingsUpdate: Validator<LeadSettingsUpdate> = object({
   credential: optional(object({ provider: (value, path = '') => value === 'anthropic' ? 'anthropic' : fail(path, 'expected Lead credential provider'), key: nullable(text(4096)) })),
 })
 export const parseLeadEmpty: Validator<Record<string, never>> = object({})
-export const parseLeadNameReceipt: Validator<LeadNameReceipt> = object({ version, revision, settings: object({ name: literalUnion('dex', 'lex'), nameChosen: optional(isBoolean) }) })
+export const parseLeadNameReceipt: Validator<LeadNameReceipt> = object({ version, revision, settings: omitUnset(object<LeadNameReceipt['settings']>({ name: literalUnion('dex', 'lex'), nameChosen: optional(isBoolean) }), ['nameChosen']) })
 
 const parseLeadProgress: Validator<LeadProgress> = (value, path = '') => {
   const parsed = object<LeadProgress>({ step: integer(1, LEAD_LIMITS.steps), steps: integer(1, LEAD_LIMITS.steps), runs: integer(), since: optional(integer(0, Number.MAX_SAFE_INTEGER)) })(value, path)

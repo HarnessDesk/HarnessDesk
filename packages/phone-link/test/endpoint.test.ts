@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { b64u, fromB64u, generateSigningIdentity, startPhoneHandshake } from '@harnessdesk/crypto'
+import { b64u, fromB64u, generateSigningIdentity, handshakeDeviceMessage, handshakeEnrollMessage, startPhoneHandshake } from '@harnessdesk/crypto'
 import { DeviceRegistry, EventRing, loadOrCreateDeskIdentity, PhoneEndpoint } from '../src/index.js'
 
 const rig = async (t: { after(fn: () => Promise<void>): void }) => {
@@ -38,7 +38,7 @@ test('application frames during desktop confirmation close the session and canno
   await s.endpoint.receive(handshake.hello)
   const session = await handshake.finish(s.frames.shift()! as Uint8Array<ArrayBuffer>)
   const offer = s.registry.issueOffer(1000, Date.now())
-  const enrolling = s.endpoint.receive(await session.sealJson({ t: 'enroll', secret: b64u(offer.secret), devicePub: b64u(phone.pub), name: 'Demo phone' }))
+  const enrolling = s.endpoint.receive(await session.sealJson({ t: 'enroll', secret: b64u(offer.secret), devicePub: b64u(phone.pub), name: 'Demo phone', sig: b64u(await phone.sign(handshakeEnrollMessage(session.th))) }))
   for (let i = 0; !s.waiting() && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 1))
   assert.equal(s.waiting(), true)
   const received = s.endpoint.receive(await session.sealJson({ t: 'req', id: '1', method: 'read', params: {} }))
@@ -48,3 +48,26 @@ test('application frames during desktop confirmation close the session and canno
   assert.deepEqual(s.registry.list(), [])
   assert.deepEqual(s.calls, [])
 })
+
+for (const proof of ['wrong-key', 'auth-domain', 'other-handshake'] as const) {
+  test(`enrollment refuses a ${proof} proof before consuming the pairing offer`, async t => {
+    const s = await rig(t), phone = await generateSigningIdentity()
+    const handshake = await startPhoneHandshake(fromB64u(s.identity.pub))
+    await s.endpoint.receive(handshake.hello)
+    const session = await handshake.finish(s.frames.shift()! as Uint8Array<ArrayBuffer>)
+    const other = await generateSigningIdentity()
+    const message = proof === 'auth-domain' ? handshakeDeviceMessage(session.th)
+      : handshakeEnrollMessage(proof === 'other-handshake' ? new Uint8Array(32) : session.th)
+    const sig = b64u(await (proof === 'wrong-key' ? other : phone).sign(message))
+    const offer = s.registry.issueOffer(1000, Date.now())
+    const receiving = s.endpoint.receive(await session.sealJson({
+      t: 'enroll', secret: b64u(offer.secret), devicePub: b64u(phone.pub), name: 'Demo phone', sig,
+    }))
+    for (let i = 0; !s.endpoint.closed && !s.waiting() && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 1))
+    assert.equal(s.endpoint.closed, true)
+    assert.equal(s.waiting(), false)
+    await receiving
+    assert.deepEqual(s.registry.list(), [])
+    assert.ok(s.registry.takeOffer(b64u(offer.secret), Date.now()))
+  })
+}

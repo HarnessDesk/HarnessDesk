@@ -242,12 +242,14 @@ it('renders the explicit push card through its reviewed-result decision and desc
   expect(decide).toHaveBeenCalledWith(expect.objectContaining({ choice: 'accept-open-pr' }))
 })
 
-it('uses the server branch summary once without appending a second reclaim instruction', () => {
+it('shows the shared outside-head notice once instead of a second reclaim decision', () => {
   const card: LeadCard = { version: 1, id: 'branch', revision: 1, type: 'branch-ownership', contractDigest: leadContract.digest,
     repository: 'acme/widgets', number: 7, observedHead: 'a'.repeat(40), summary: 'Automatic repairs are paused. Reclaim it to continue.' }
   const { box } = mount([card])
-  expect(box.querySelector('[data-lead-decision]')?.textContent).not.toContain('Reclaim aaaaaaaaaaaa')
-  expect(box.querySelector('[data-lead-decision]')?.textContent).toContain(card.summary)
+  expect(box.querySelector('[data-lead-decision]')).toBeNull()
+  expect(box.textContent).toContain('outside HarnessDesk')
+  expect(box.textContent).toContain('Its head is now aaaaaaa')
+  expect([...box.querySelectorAll('button')].filter(node => node.textContent === 'Take the branch back')).toHaveLength(1)
 })
 it('omits the project separator when an allowance has no matching scope', () => {
   const format = (modules['./LeadCards.tsx'] as any).leadAllowance

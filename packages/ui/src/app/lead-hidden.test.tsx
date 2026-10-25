@@ -19,7 +19,7 @@ const mount = async (store: AppStore, sidebar = false) => {
   const box = document.createElement('div'); document.body.append(box)
   const root = createRoot(box)
   mounted.push(() => { act(() => root.unmount()); box.remove() })
-  await act(async () => root.render(<StoreProvider store={store}>{sidebar ? <Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenTeams={() => {}} onOpenAgents={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} /> : null}<MainPages onSignIn={() => {}} onNewTeam={() => {}} libraryImportIntent={0} /></StoreProvider>))
+  await act(async () => root.render(<StoreProvider store={store}>{sidebar ? <Sidebar onOpenSettings={() => {}} onOpenLibrary={() => {}} onOpenTeams={() => {}} onOpenAgents={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} /> : null}<MainPages onSignIn={() => {}} onNewTeam={() => {}} libraryImportIntent={0} /></StoreProvider>))
   return box
 }
 

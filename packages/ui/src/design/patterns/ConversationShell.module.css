@@ -15,7 +15,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  bottom: var(--shared-composer-h, 0px);
+  bottom: var(--shared-composer-h, 0px); /* desk: shared conversation dock clears the cross-tile composer; shared height defaults to zero */
   z-index: var(--hd-z-sticky);
   display: flex;
   flex-direction: column;

@@ -79,9 +79,10 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
   const runOf = (one: typeof normalized[number]) => {
     const row = primary(one)
     if (row?.kind === 'check' && row.attention) return { ...one.run, line: row.status ?? one.run.line }
-    // The verdict stays the line unless the publication needs the person: "This desk only" says where a review
-    // went, not what it found, and it used to take the place of "Approve" once the Run ended.
-    return row?.pick ? { ...one.run, line: 'Picked' } : row?.publication?.needsYou ? { ...one.run, line: row.publication.label } : one.run
+    // A review kept on this desk keeps its verdict. A posted review still names
+    // its recorded destination, and an uncertain posting keeps its warning.
+    const posted = input.findingRun?.rounds.some(round => round.round === one.round.n && round.state === 'posted')
+    return row?.pick ? { ...one.run, line: 'Picked' } : row?.publication && (row.publication.needsYou || posted) ? { ...one.run, line: row.publication.label } : one.run
   }
   const select = (one: typeof normalized[number]) => timeline ? primary(one)?.id ?? `round-${one.round.n}` : `round-${one.round.n}`
   const roundFacts = (n: number) => {

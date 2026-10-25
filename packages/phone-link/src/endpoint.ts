@@ -1,6 +1,6 @@
 import { FirstPhoneMessage, PhoneToDesk, CloseCode } from '@harnessdesk/contract'
 import {
-  E2eeError, HELLO_LENGTH, FRAME_HELLO, acceptHandshake, b64u, fromB64u, generatePushKey, handshakeDeviceMessage,
+  E2eeError, HELLO_LENGTH, FRAME_HELLO, acceptHandshake, b64u, fromB64u, generatePushKey, handshakeDeviceMessage, handshakeEnrollMessage,
   idFromPub, verifyEd25519, type Session,
 } from '@harnessdesk/crypto'
 import type { DeskIdentity } from './identity.js'
@@ -143,6 +143,9 @@ export class PhoneEndpoint {
       return
     }
     const devicePub = fromB64u(parsed.data.devicePub)
+    const proven = await verifyEd25519(devicePub, fromB64u(parsed.data.sig), handshakeEnrollMessage(th))
+    if (this.closed) return
+    if (!proven) return this.#refuse(CloseCode.UNAUTHORIZED, 'bad enrollment signature')
     if (!registry.takeOffer(parsed.data.secret, this.deps.now())) return this.#refuse(CloseCode.UNAUTHORIZED, 'pairing code not accepted')
     if (registry.full) return this.#refuse(CloseCode.UNAUTHORIZED, 'this desk has the most phones it allows')
     const deviceId = await idFromPub(devicePub)

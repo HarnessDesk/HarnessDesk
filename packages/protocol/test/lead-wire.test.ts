@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { CLIENT_METHODS, knownMethods, parseClientMessage } from '../src/index.js'
 
-const names = ['lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/schedule/read', 'lead/schedule/update']
+const names = ['lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/schedule/read', 'lead/schedule/update']
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
 test('the closed Lead window controls validate and none is on the client surface', () => {
   assert.deepEqual(knownMethods.filter(name => name.startsWith('lead/')).sort(), [...names].sort())
   for (const name of names) assert.equal(Object.hasOwn(CLIENT_METHODS, name), false)
-  for (const name of ['lead/thread/read', 'lead/settings/read']) assert.doesNotThrow(() => request(name, {}))
+  for (const name of ['lead/wakes/read', 'lead/thread/read', 'lead/settings/read']) assert.doesNotThrow(() => request(name, {}))
   assert.doesNotThrow(() => request('lead/thread/send', { idempotencyKey: 'send-1', text: 'Inspect the check' }))
   assert.doesNotThrow(() => request('lead/resume', { expectedRevision: 0 }))
   assert.doesNotThrow(() => request('lead/stop', { expectedRevision: 0 }))

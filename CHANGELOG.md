@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Sign in to your HarnessDesk account from Settings.** Approve the named desk in your browser, then manage its name, linked phones, sign-out and account deletion separately from agent accounts.
+
+- **The Lead plans and follows work from its own conversation.** Review its plan and allowances, steer its workers, and follow reviewed pull requests and automatic repair requests.
+
+- **Pair a phone on the local network.** Allow each phone at the desk, choose its access, and remove it from Phone settings.
+
 - **Git writes have one recorded path.** Approve pushes and steer an agent's own push through HarnessDesk, with a pinned project repository, PR and project Git records, and global or project preferences. Heads written elsewhere appear as Outside and name no one.
 
 ## 0.6.1 — 2026-10-23

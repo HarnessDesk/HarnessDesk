@@ -557,12 +557,12 @@ it('opens the same folder picker from Projects and the New session menu without 
   expect(choose).toHaveBeenCalledTimes(2)
 })
 
-it('keeps exactly six ordered doors and no Lead trace in the whole disabled sidebar', () => {
+it('keeps exactly five ordered doors and no Lead trace in the whole disabled sidebar', () => {
   mount()
   const group = container.querySelector('[aria-label="Main sections"]')!
-  expect(group.children).toHaveLength(6)
+  expect(group.children).toHaveLength(5)
   expect([...group.querySelectorAll('[data-slot="sidebar-menu-button"]')].map(node => node.getAttribute('aria-label')))
-    .toEqual(['Teams', 'Flows', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    .toEqual(['Teams', 'Flows', 'Agents', 'Customize', 'Dashboard'])
   // The header and other existing regions use unrelated lead/leading style names.
   for (const node of [group, ...group.querySelectorAll('*')]) {
     expect(node.textContent).not.toMatch(/lead/i)
@@ -574,7 +574,7 @@ it('keeps exactly six ordered doors and no Lead trace in the whole disabled side
   const disabled = normalizeIds(container.innerHTML)
   mount({ leadAvailable: true })
   const enabled = container.querySelector('[aria-label="Main sections"]')!
-  expect(enabled.children).toHaveLength(7)
+  expect(enabled.children).toHaveLength(6)
   const lead = enabled.querySelector('[aria-label="Dex"]')!
   const row = [...enabled.children].find(child => child.contains(lead))!
   row.remove()

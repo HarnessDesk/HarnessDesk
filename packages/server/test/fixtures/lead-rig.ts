@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { whichOnPath } from '../../src/installs/which.js'
 import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { connect as connectSocket, createServer as createSocketServer, type Server as SocketServer, type Socket } from 'node:net'
@@ -22,7 +23,7 @@ import { GatedRegistry } from '../../src/ceilings/gate.js'
 import { GoalStore } from '../../src/goals/store.js'
 import { LEAD_RIG_KEY, leadMessagesServer } from './lead-messages-server.js'
 import type { LeadService } from '../../src/lead/service.js'
-import { GitGateway } from '../../src/git-gateway/index.js'
+import { GitGateway, GitRecord } from '../../src/git-gateway/index.js'
 import { LeadAssembly } from '../../src/lead/assembly.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..')
@@ -119,7 +120,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     catch (error) { const failure = error as { stdout?: string; stderr?: string; status?: number }; return { stdout: String(failure.stdout ?? ''), stderr: String(failure.stderr ?? ''), exitCode: failure.status ?? 1 } }
   }
   const enabled = options.enabled !== false
-  const gitBinary = execFileSync('/usr/bin/which', ['git'], { encoding: 'utf8' }).trim()
+  const gitBinary = whichOnPath('git')!
   const git = (cwd: string, ...args: string[]) => execFileSync(gitBinary, args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
   const waitFor = async (predicate: () => boolean | Promise<boolean>, label = 'rig state') => {
     const until = Date.now() + (options.waitMs ?? 240_000)
@@ -493,7 +494,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       provider, children, calls, windowNotifications, get latestEvidence() { return latestEvidence }, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
       offline: options.offlineForge ? {
         read: readForge,
-        async pushes() { return (await readFile(join(home, 'offline-gateway/ledger.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line)).filter(row => row.op === 'push' && row.outcome === 'succeeded') },
+        async pushes() { return (await new GitRecord(join(home, 'offline-gateway')).list({ repository: 'acme/widgets', limit: 1000 })).filter(row => row.op === 'push' && row.outcome === 'ok') },
         async poll() {
           forgeClock += 61_000
           const state = await readForge()

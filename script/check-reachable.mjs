@@ -55,6 +55,8 @@ const CALLERS = ['packages/ui/src', 'packages/desktop/electron', 'packages/clien
  * true, and those are worse than no claim at all.
  */
 const UNREACHED = {
+  'git/record/attribute':
+    'the raw attribution lookup is the pull half of the attribution already carried by git/record/list; the window reads those complete rows',
   'phone/sessions/list':
     'a paired phone is the caller, over the phone link: its allowlist is `PHONE_POLICY`, and the iOS app is outside the directories searched',
   'phone/teams/list':

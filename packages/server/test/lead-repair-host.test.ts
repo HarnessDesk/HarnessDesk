@@ -38,7 +38,7 @@ for (const accepted of [false, true]) test(`host repairs validate and recover pu
   })
   let following!: Parameters<IntakePlane['followPullRequests']>[0]
   t.mock.method(IntakePlane.prototype, 'followPullRequests', (port: Parameters<IntakePlane['followPullRequests']>[0]) => { following = port })
-  const rig = await createLeadRig({ publication: true, waitMs: 60_000, forgeGh, reviewAvailable: () => reviewAvailable })
+  const rig = await createLeadRig({ publication: true, waitMs: 120_000, forgeGh, reviewAvailable: () => reviewAvailable })
   t.after(() => rig.dispose())
   t.diagnostic('host fixture ready')
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
@@ -98,7 +98,7 @@ for (const accepted of [false, true]) test(`host repairs validate and recover pu
   crash = false
   await rig.waitFor(() => rig.journal.state.handbacks[0]?.stage === 'awaiting-ci', 'crash adoption through host refreshRepairs')
   assert.ok(adopted > 0, 'gateway hasSucceededPush proves recovery')
-  const pushes = async () => (await readFile(join(dir, 'gateway', 'ledger.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line)).filter(row => row.op === 'push' && row.outcome === 'succeeded')
+  const pushes = async () => (await gateway.record({ repository: 'acme/widgets', limit: 1000 })).filter(row => row.op === 'push' && row.outcome === 'ok')
   assert.equal((await pushes()).length, 2, 'one initial push and exactly one repair push')
   assert.equal(rig.pending('result'), undefined, 'E4 waits for CI')
   if (!accepted) {

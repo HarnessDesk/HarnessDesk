@@ -76,7 +76,9 @@ function usePreferences() {
   useEffect(() => {
     if (!active) return
     let live = true, generation = 0
-    const refresh = () => { const revision = ++generation; void store.transport.request('app/state/get', {}).then(value => { if (live && generation === revision) { setPreferences(read(value?.['gitWrites'])); setProblem(null) } }, error => { if (live && generation === revision) setProblem(String(error)) }) }
+    const refresh = () => {
+      if (!store.transport?.request) { setProblem('Git write preferences are unavailable.'); return }
+      const revision = ++generation; void store.transport.request('app/state/get', {}).then(value => { if (live && generation === revision) { setPreferences(read(value?.['gitWrites'])); setProblem(null) } }, error => { if (live && generation === revision) setProblem(String(error)) }) }
     refresh(); window.addEventListener('focus', refresh)
     return () => { live = false; window.removeEventListener('focus', refresh) }
   }, [store, active])

@@ -66,6 +66,8 @@ it('does not replace a pushed sign-in with an older status read', async () => {
 
 it('refreshes the HarnessDesk account after the socket reconnects', async () => {
   const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockResolvedValue({ status: 'signedOut', desk: { name: 'Demo desk', reachable: false }, phones: [] } as never)
+  await store.loadHarnessDeskAccount()
   const load = vi.spyOn(store, 'loadHarnessDeskAccount').mockResolvedValue()
   vi.spyOn(store, 'loadCaptureHealth').mockResolvedValue()
   const handlers = (store.transport as unknown as { handlers: { onStatus: (value: string) => void } }).handlers
@@ -88,4 +90,13 @@ it('opens the local desk without waiting for a cloud account status read', async
   for (let pass = 0; pass < 20; pass += 1) await Promise.resolve()
   expect(cloud).toHaveBeenCalledOnce()
   expect(opened).toBe(true)
+})
+
+it('does not read cloud account state on reconnect before that state has been requested', () => {
+  const store = new AppStore('ws://localhost:0/')
+  const load = vi.spyOn(store, 'loadHarnessDeskAccount').mockResolvedValue()
+  vi.spyOn(store, 'loadCaptureHealth').mockResolvedValue()
+  const handlers = (store.transport as unknown as { handlers: { onStatus: (value: string) => void } }).handlers
+  handlers.onStatus('reconnecting'); handlers.onStatus('open')
+  expect(load).not.toHaveBeenCalled()
 })

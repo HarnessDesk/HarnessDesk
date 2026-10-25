@@ -1,6 +1,6 @@
 import { decodePairingOffer, type PairingOffer } from '@harnessdesk/contract'
 import {
-  b64u, fromB64u, generateSigningIdentity, handshakeDeviceMessage, idFromPub, startPhoneHandshake, utf8,
+  b64u, fromB64u, generateSigningIdentity, handshakeDeviceMessage, handshakeEnrollMessage, idFromPub, startPhoneHandshake, utf8,
   type Session, type SigningIdentity,
 } from '@harnessdesk/crypto'
 import WebSocket from 'ws'
@@ -14,6 +14,7 @@ export class PhoneSim {
   #frames: Uint8Array<ArrayBuffer>[] = []
   #frameWaiters: (() => void)[] = []
   #socket: WebSocket | null = null
+  #receiving: Promise<void> = Promise.resolve()
 
   private constructor(readonly key: SigningIdentity, readonly id: string, readonly offer: PairingOffer | null) {}
 
@@ -33,11 +34,18 @@ export class PhoneSim {
     socket.on('message', data => {
       const frame = new Uint8Array(data as Buffer) as Uint8Array<ArrayBuffer>
       if (this.session === null) { this.#frames.push(frame); this.#frameWaiters.splice(0).forEach(f => f()); return }
-      void this.session.openJson(frame as Uint8Array<ArrayBuffer>).then(message => {
+      this.#receiving = this.#receiving.then(async () => {
+        const message = await this.session!.openJson(frame as Uint8Array<ArrayBuffer>)
         this.inbox.push(message); this.#waiters.splice(0).forEach(f => f())
       })
     })
-    socket.on('close', (code, reason) => { this.closed = { code, reason: reason.toString() }; this.#waiters.splice(0).forEach(f => f()); this.#frameWaiters.splice(0).forEach(f => f()) })
+    socket.on('close', (code, reason) => {
+      // A final encrypted refusal arrives before close but may still be decrypting.
+      void this.#receiving.finally(() => {
+        this.closed = { code, reason: reason.toString() }
+        this.#waiters.splice(0).forEach(f => f()); this.#frameWaiters.splice(0).forEach(f => f())
+      })
+    })
     await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject) })
     const handshake = await startPhoneHandshake(fromB64u(deskPub))
     socket.send(handshake.hello)
@@ -55,7 +63,8 @@ export class PhoneSim {
   sendRaw(bytes: Uint8Array): void { this.#socket!.send(bytes) }
 
   async enroll(secret: string, name = 'Test phone'): Promise<void> {
-    await this.send({ t: 'enroll', secret, devicePub: this.pub, name })
+    const sig = b64u(await this.key.sign(handshakeEnrollMessage(this.session!.th)))
+    await this.send({ t: 'enroll', secret, devicePub: this.pub, name, sig })
   }
 
   async auth(): Promise<void> {

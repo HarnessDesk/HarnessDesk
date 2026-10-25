@@ -45,6 +45,8 @@ test('shared dock clearance declares its Conversation and approval geometry', (t
     ['packages/ui/src/components/Conversation.module.css', (css) => css
       .replace(/bottom: var\(--shared-composer-h, 0px\);[^\n]*/, 'bottom: 0;')
       .replace(/bottom: calc\(var\(--composer-h, 150px\) \+ var\(--shared-composer-h, 0px\) \+ 14px\);[^\n]*/, 'bottom: calc(var(--composer-h, 150px) + 14px);')],
+    ['packages/ui/src/design/patterns/ConversationShell.module.css', (css) => css
+      .replace(/bottom: var\(--shared-composer-h, 0px\);[^\n]*/, 'bottom: 0;')],
     ['packages/ui/src/design/patterns/ApprovalDialog.module.css', (css) => css
       .replace(/max-height: min\(72vh, 720px, 100%\);[^\n]*/, 'max-height: min(72vh, 720px);')],
   ].map(([file, before]) => ({ file, before, css: fs.readFileSync(path.join(repo, file), 'utf8') }))
