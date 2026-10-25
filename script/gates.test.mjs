@@ -3016,7 +3016,10 @@ const CARVED_OUT = [
   { pkg: 'server', name: 'intake-*.test.js', step: 'intake tests', ciStep: 'Intake tests' },
   { pkg: 'cli', name: 'e2e*.test.js', step: 'cli e2e tests', ciStep: 'CLI end-to-end tests' },
   { pkg: 'server', name: 'host-retention.test.js', step: 'host-retention tests', ciStep: 'Host retention tests', timeout: 120000, job: 'node-tests' },
-  { pkg: 'server', name: 'lead-e2e.test.js', step: 'lead e2e tests', ciStep: 'Lead end-to-end tests' },
+  { pkg: 'server', name: 'lead-e2e.test.js', step: 'lead e2e tests', ciStep: 'Lead end-to-end tests', job: 'lead-e2e' },
+  { pkg: 'lead', name: 'supervisor.test.js', step: 'lead supervisor tests', ciStep: 'Lead supervisor tests', timeout: 120000, job: 'lead-e2e' },
+  { pkg: 'server', name: 'lead-service.test.js', step: 'lead service tests', ciStep: 'Lead service tests', timeout: 120000, job: 'lead-e2e' },
+  { pkg: 'server', name: 'lead-client.test.js', step: 'lead client tests', ciStep: 'Lead client tests', timeout: 120000, job: 'lead-e2e' },
 ]
 const carvedOutPaths = (top, dist, tests) => CARVED_OUT.map((one) => `${top}/${one.pkg}/${dist}/${tests}/${one.name}`)
 

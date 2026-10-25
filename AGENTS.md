@@ -215,7 +215,8 @@ timeout than the rest (Node 22 caps `--test-timeout` per
 file, cumulatively, where these legitimately run long; it is a per-test
 default on newer Node),
 the host-retention test file alone at the ordinary timeout (its heap and CPU
-workload runs without competing server fixtures), the UI typecheck,
+workload runs without competing server fixtures), the Lead supervisor, service
+and client tests separately, the UI typecheck,
 the layering rule, the half-applied-fixes check, the tracked-secrets scan, the reachable-methods check, the
 third-party notices check, the design-system gates, the UI-system architecture gate, interface drift, the
 command-line reference check, the recorded-claims link, the doc-paths check, the gate-against-CI check below,

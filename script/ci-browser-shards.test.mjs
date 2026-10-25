@@ -224,12 +224,25 @@ test('only heavy UI jobs are conditional; required check names stay conclusive',
   }
 })
 
-const GATE_PARTS = [['node-tests', 'NODE_TESTS_RESULT'], ['node-e2e', 'NODE_E2E_RESULT'], ['ui-tests', 'UI_TESTS_RESULT'], ['gates', 'GATES_RESULT']]
+test('Lead runs on Node 25 separately from the Node 22 floor jobs', () => {
+  for (const part of ['node-tests', 'node-e2e']) {
+    assert.match(job(part), /^          node-version: 22$/m)
+    assert.doesNotMatch(job(part), /name: Lead end-to-end tests/)
+    assert.match(job(part), /sudo apt-get update && sudo apt-get install --yes zsh/)
+  }
+  const lead = job('lead-e2e')
+  assert.match(lead, /^          node-version: 25$/m)
+  assert.match(lead, /^    timeout-minutes: 35$/m)
+  assert.match(lead, /sudo apt-get update && sudo apt-get install --yes zsh/)
+  assert.match(lead, /name: Lead end-to-end tests/)
+})
+
+const GATE_PARTS = [['node-tests', 'NODE_TESTS_RESULT'], ['node-e2e', 'NODE_E2E_RESULT'], ['lead-e2e', 'LEAD_E2E_RESULT'], ['ui-tests', 'UI_TESTS_RESULT'], ['gates', 'GATES_RESULT']]
 
 test('the gate check waits for every part of the gate and packaging waits for it', () => {
   const gate = job('verify')
   assert.match(gate, /^    name: Build, typecheck, test$/m)
-  assert.match(gate, /^    needs: \[node-tests, node-e2e, ui-tests, gates\]$/m)
+  assert.match(gate, /^    needs: \[node-tests, node-e2e, lead-e2e, ui-tests, gates\]$/m)
   assert.match(gate, /^    runs-on: ubuntu-latest$/m)
   for (const [part, key] of GATE_PARTS) {
     assert.ok(gate.includes(`${key}: \${{ needs.${part}.result }}`), key)

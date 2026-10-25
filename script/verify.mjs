@@ -92,7 +92,7 @@ step('node tests', () =>
     // packages once left one out. It matches what was built rather than what
     // exists, which is why `build:node` ends by pruning dist of every output
     // whose source is gone (script/prune-dist.mjs).
-    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js' ! -path 'packages/server/dist/test/lead-e2e.test.js')",
+    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js' ! -path 'packages/server/dist/test/lead-e2e.test.js' ! -path 'packages/lead/dist/test/supervisor.test.js' ! -path 'packages/server/dist/test/lead-service.test.js' ! -path 'packages/server/dist/test/lead-client.test.js')",
   ]),
   // What it reads is what the build writes: over the dist a failed build left, it ran and printed ok (#208).
   { needs: 'build' },
@@ -103,8 +103,21 @@ step('host-retention tests', () =>
   run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/host-retention.test.js']),
   { needs: 'build' },
 )
+// The supervisor and service/client fixtures require the Node 25 runtime gate.
+step('lead supervisor tests', () =>
+  run('node', ['--test', '--test-timeout=120000', 'packages/lead/dist/test/supervisor.test.js']),
+  { needs: 'build' },
+)
+step('lead service tests', () =>
+  run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/lead-service.test.js']),
+  { needs: 'build' },
+)
+step('lead client tests', () =>
+  run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/lead-client.test.js']),
+  { needs: 'build' },
+)
 step('lead e2e tests', () =>
-  // The real host/child/Flow suite exceeds 120s cumulatively on Node 22.
+  // The real host/child/Flow suite requires Node 25 and its own run.
   run('node', ['--test', '--test-timeout=600000', 'packages/server/dist/test/lead-e2e.test.js']),
   { needs: 'build' },
 )

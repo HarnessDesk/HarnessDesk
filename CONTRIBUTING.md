@@ -69,7 +69,7 @@ timeout than the rest (Node 22 caps
 `--test-timeout` per file, cumulatively, where these legitimately run long; it
 is a per-test default on newer Node), the host-retention test file alone at the
 ordinary timeout (its heap and CPU workload runs without competing server
-fixtures), the UI typecheck, the layering rules, the half-applied-fixes check, a tracked-secrets scan, the
+fixtures), the Lead supervisor, service and client tests separately, the UI typecheck, the layering rules, the half-applied-fixes check, a tracked-secrets scan, the
 reachable-methods check, the third-party notices check, the design-system
 gates, the UI-system architecture gate, interface drift, the command-line reference check, the recorded-claims link, the doc-paths check, the
 check that holds this gate and CI to one list, Codex protocol drift, and the
@@ -79,8 +79,9 @@ also runs selected browser integration and native smoke checks. A passing
 local gate does not replace those CI results.
 
 On pull requests, “Build, typecheck, test” always runs. It stands for the whole
-gate and is green only when each of four jobs that run side by side is: the
-Node tests, the Node end-to-end tests, the UI tests, and the checks.
+gate and is green only when each of five jobs that run side by side is: the
+Node tests and Node end-to-end tests on Node 22, the Lead end-to-end and
+supervisor/service/client tests on Node 25, the UI tests, and the checks.
 
 Browser integration has two tiers. Ordinary pull requests use the **bounded**
 tier, as do pushes to `development`. A push to `main`, a pull request whose
