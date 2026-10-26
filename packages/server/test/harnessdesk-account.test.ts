@@ -79,7 +79,7 @@ async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: bo
     throw new Error('unexpected fake route')
   }
   const service = new HarnessDeskAccount({ state, readPicture: options.readPicture, cipher: options.plain ? undefined : cipher, cloudUrl: 'https://cloud.example.com', fetch: request, openExternal: async (url: string) => { opened.push(url) }, changed: (status: unknown) => changes.push(status), now: () => now, setTimer: (fn: () => Promise<void>) => { timers.push(fn); return fn }, clearTimer: () => {} })
-  return { service, loseDeleteReply: (failure: 'offline' | 500) => { lostDeleteReply = failure }, fault: (path: string, status: number | 'offline') => faults.set('/v1' + path, status), wrongDesk: () => { pollDeskId = 'B'.repeat(21) + 'A' }, setPictureUrl: (url: string | undefined) => { options.pictureUrl = url }, setNow: (value: number) => { now = value }, state, request, cipher, opened, changes, calls, dir, timers, holdRequest: (path: string) => { waitPath = path; requestWait = new Promise<void>(r => { releasePath = r }); return () => releasePath!() }, approve: () => { approved = true }, deny: () => { denied = true }, refuse: () => { refuse = true }, holdPoll: () => { pollWait = new Promise<void>(r => { deferPoll = r }); return () => deferPoll!() } }
+  return { service, clearFault: (path: string) => faults.delete('/v1' + path), loseDeleteReply: (failure: 'offline' | 500) => { lostDeleteReply = failure }, fault: (path: string, status: number | 'offline') => faults.set('/v1' + path, status), wrongDesk: () => { pollDeskId = 'B'.repeat(21) + 'A' }, setPictureUrl: (url: string | undefined) => { options.pictureUrl = url }, setNow: (value: number) => { now = value }, state, request, cipher, opened, changes, calls, dir, timers, holdRequest: (path: string) => { waitPath = path; requestWait = new Promise<void>(r => { releasePath = r }); return () => releasePath!() }, approve: () => { approved = true }, deny: () => { denied = true }, refuse: () => { refuse = true }, holdPoll: () => { pollWait = new Promise<void>(r => { deferPoll = r }); return () => deferPoll!() } }
 }
 
 test('browser sign-in shows matching code, proves key, polls, and persists only encrypted secrets', async () => {
@@ -116,6 +116,19 @@ test('account keys never use the standalone plaintext credential fallback', asyn
   const r = await rig({ plain: true })
   await assert.rejects(r.service.signIn(), /secure|encrypted|keychain/i)
   assert.equal(r.calls.length, 0); r.service.close()
+})
+for (const path of ['/desk/challenge', '/desk-link/start']) test(`sign-in explains service unavailability at ${path} and can retry`, async () => {
+  const r = await rig()
+  try {
+    r.fault(path, 503)
+    await assert.rejects(r.service.signIn(), { message: 'The HarnessDesk account service is unavailable. Try again later.' })
+    assert.equal((await r.service.status()).status, 'signedOut')
+    assert.equal(r.opened.length, 0)
+    assert.equal(r.timers.length, 0)
+    r.clearFault(path)
+    assert.equal((await r.service.signIn()).status, 'pending')
+    assert.equal(r.opened.length, 1)
+  } finally { r.service.close() }
 })
 test('rename, reachable preference, unlink, and sign out use this desk scope', async () => {
   const r = await rig(); await r.service.signIn(); r.approve(); await r.timers.shift()!()

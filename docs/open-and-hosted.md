@@ -43,6 +43,28 @@ The desktop integration and wire are in this repository under the MIT licence.
 Its fixed test vectors describe the bytes an implementation must reproduce.
 The hosted service and phone application are outside this repository.
 
+Building and launching the desktop does not configure the hosted account
+service. By default, account sign-in uses `https://app.harnessdesk.app`;
+`HARNESSDESK_CLOUD_URL` selects another HTTPS origin for a development launch.
+Each origin has its own encrypted desk identity. Use the intended environment
+explicitly; the desktop does not fall back to a different service on failure.
+
+For local development against the staging account service, run
+`pnpm app:staging`. It uses a separate `~/.harnessdesk-staging` desk by
+default, with an Electron profile under that desk, so an already-running
+production app cannot intercept the launch.
+An explicit `HARNESSDESK_HOME` overrides that staging desk directory. To
+choose another service, set `HARNESSDESK_CLOUD_URL` explicitly when running
+`pnpm app`. Ordinary `pnpm app` and packaged builds keep the production default.
+
+An HTTP 503 from `POST /v1/desk/challenge` means the service is unavailable.
+If its response says the service is not configured, the hosted environment
+needs its own database binding and signing/challenge secrets initialized by
+the service operator. A working static sign-in page does not establish that
+the account API is ready. Sign-in reports service errors separately from
+a request that could not reach the service; rebuilding or deleting local
+credentials cannot repair missing hosted configuration.
+
 The account service receives the public key, desk name and signed proofs used
 for registration and renewal, then the authenticated account operations listed
 in [the request inventory](data-boundaries.md#harnessdesk-account--only-after-you-choose-sign-in).

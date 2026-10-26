@@ -51,6 +51,7 @@
     "dev": "pnpm run build && pnpm --filter @harnessdesk/desktop run dev",
     "serve": "pnpm run build && node packages/server/dist/src/bin.js",
     "app": "pnpm run build && pnpm --filter @harnessdesk/desktop run start",
+    "app:staging": "pnpm run build && HARNESSDESK_HOME=\"${HARNESSDESK_HOME:-$HOME/.harnessdesk-staging}\" HARNESSDESK_CLOUD_URL=https://app-staging.harnessdesk.app pnpm --filter @harnessdesk/desktop run start --user-data-dir=\"${HARNESSDESK_HOME:-$HOME/.harnessdesk-staging}/electron\"",
     "dist": "pnpm run build && pnpm --filter @harnessdesk/desktop run dist",
     "codex:protocol": "node script/generate-codex-protocol.mjs",
     "codex:drift": "node script/generate-codex-protocol.mjs --check",
