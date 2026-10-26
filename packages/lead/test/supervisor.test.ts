@@ -138,7 +138,9 @@ for (const layout of ['nested', 'hoisted', 'ancestor-hoisted'] as const) test(`t
   await cp(wsRoot, join(dependencies, 'ws'), { recursive: true })
   const unrelated = join(modules, 'unrelated/private.txt')
   await mkdir(dirname(unrelated), { recursive: true }); await writeFile(unrelated, 'private fixture')
-  const { leadChildArgs } = await import(pathToFileURL(join(leadRoot, 'dist/src/runtime.js')).href)
+  const { leadChildArgs, probeLeadRuntime: probeLayout } = await import(pathToFileURL(join(leadRoot, 'dist/src/supervisor.js')).href)
+  // The probe runs this layout's real child entry, so passing it proves the module graph loads under the grants.
+  assert.deepEqual(await probeLayout(hostLeadRuntime()), { supported: true })
   const args = leadChildArgs()
   const options = { encoding: 'utf8' as const, env: leadChildEnv(), timeout: 10_000 }
   const loaded = spawnSync(process.execPath, args, { ...options, input: frame({ version: 1, type: 'shutdown' }) })

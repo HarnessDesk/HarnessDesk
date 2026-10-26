@@ -280,8 +280,7 @@ try {
   if (!leadModule) throw new Error('this build does not carry the Lead supervisor under app.asar.unpacked')
   const probeScript = join(home, 'lead-probe.mjs')
   writeFileSync(probeScript, [
-    `const { probeLeadRuntime } = await import(${JSON.stringify(pathToFileURL(leadModule).href)})`,
-    `const { leadChildArgs, leadChildEnv } = await import(${JSON.stringify(new URL('./runtime.js', pathToFileURL(leadModule)).href)})`,
+    `const { probeLeadRuntime, leadChildArgs, leadChildEnv } = await import(${JSON.stringify(pathToFileURL(leadModule).href)})`,
     `const { encodeLeadFrame } = await import(${JSON.stringify(new URL('./child-ipc.js', pathToFileURL(leadModule)).href)})`,
     "const { spawnSync } = await import('node:child_process')",
     `const own = await probeLeadRuntime({ binary: process.execPath, version: process.versions.node, electron: true, label: "this app's runtime" })`,

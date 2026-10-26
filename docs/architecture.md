@@ -831,9 +831,12 @@ An association needs a locally observed diff fact, a matching checkout and a com
 
 The optional Lead child runs with `--permission --no-allow-net --no-addons
 --preserve-symlinks` and read grants for its own packages. Which binary runs it
-is decided by a capability probe (`packages/lead/src/runtime.ts`): each
-candidate is started with exactly those flags and environment and tries a
-loopback TCP connect to a listener the host owns. A refusal by the permission
+is decided by a capability probe (`probeLeadRuntime` in
+`packages/lead/src/supervisor.ts`): each candidate starts the real child entry
+with exactly those flags and environment, in probe mode, so it loads the
+child's whole module graph and then tries a loopback TCP connect to a listener
+the host owns. The probe code lives in the two Lead entries the layering rule
+already allows process and network authority; it adds no third. A refusal by the permission
 model (`ERR_ACCESS_DENIED`) passes; a connect that goes through, a rejected
 flag, a crash, a version other than the one claimed, or no answer within ten
 seconds fails, with a short reason. The result is cached per binary path and

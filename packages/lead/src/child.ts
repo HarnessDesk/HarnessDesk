@@ -15,7 +15,7 @@ import { leadBudgetProjection } from './budget.js'
 import { parseLeadSeatChoices } from './instructions.js'
 import { createLeadTools, type LeadResolvedTool } from './tools.js'
 import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js'
-import { LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
+import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
 
 const denied = () => new Error('lead-child-operation-failed')
 /** The socket the host connected, asked for once over the IPC channel and received as a handle; the channel
@@ -248,9 +248,24 @@ export const runLeadChild = (options: ChildOptions = {}) => {
   output.once('error', fail)
   return { close }
 }
+/** The supervisor's capability probe: with its whole module graph loaded under the Lead's flags, the child reports
+ * what a loopback connect to the prober's port gets. A permission model that blocks the network refuses it with
+ * ERR_ACCESS_DENIED before any packet leaves. */
+const answerLeadProbe = (port: number) => {
+  const report = (outcome: string) => {
+    process.stdout.write(`${LEAD_PROBE_PREFIX}${JSON.stringify({ version: process.version, outcome })}\n`, () => process.exit(0))
+  }
+  try {
+    const socket = new Socket()
+    socket.once('connect', () => { socket.destroy(); report('connected') })
+    socket.once('error', (error: NodeJS.ErrnoException) => report(error.code ?? 'error'))
+    socket.connect({ host: '127.0.0.1', port })
+  } catch (error) { report((error as NodeJS.ErrnoException).code ?? 'error') }
+}
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // Never let an unhandled provider/runtime stack expose its key on stderr.
   process.on('uncaughtException', () => process.exit(1))
   process.on('unhandledRejection', () => process.exit(1))
-  runLeadChild()
+  if (process.argv[2] === 'probe') answerLeadProbe(Number(process.argv[3]))
+  else runLeadChild()
 }
