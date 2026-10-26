@@ -35,7 +35,11 @@ class CloudUnreachableError extends Error {
   constructor(message = 'HarnessDesk could not reach your account. Try again.') { super(message) }
 }
 class CloudError extends Error {
-  constructor(readonly status: number) { super('HarnessDesk could not reach your account. Try again.') }
+  constructor(readonly status: number) {
+    super(status >= 500
+      ? 'The HarnessDesk account service is unavailable. Try again later.'
+      : 'HarnessDesk could not reach your account. Try again.')
+  }
 }
 
 /** Host-only account lifecycle. Nothing here depends on a runtime or gives a secret to a renderer. */

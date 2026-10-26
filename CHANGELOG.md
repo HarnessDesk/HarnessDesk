@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Account sign-in says when the service is unavailable.** A server failure now explains that the account service is unavailable and asks you to try later, instead of reporting that the desk could not reach your account.
+
 - **Sign in to your HarnessDesk account from Settings.** Approve the named desk in your browser, then manage its name, linked phones, sign-out and account deletion separately from agent accounts.
 
 - **The optional Lead plans and follows work from its own conversation.** Enable it on a Node 25+ host to review plans and allowances, steer workers, and follow reviewed pull requests and repair requests. The current desktop shows it as unavailable when enabled on its older embedded runtime.
