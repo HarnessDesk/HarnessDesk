@@ -64,7 +64,7 @@ export interface LeadRigOptions {
   /** The sentence the scripted plan reply opens with; a walk can add a line for the person to keep. */
   readonly planText?: string
 }
-/** Synthetic services around the actual host, fd-3 child, client door and Flow.
+/** Synthetic services around the actual host, permission-restricted child, client door and Flow.
  * Each instance owns its temp home and restores its environment before removal.
  * This is intentionally serial: the host's extension plane and environment are process-owned. */
 export async function createLeadRig(options: LeadRigOptions = {}) {
@@ -418,7 +418,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
               const socket = connectSocket({ path: socketPath, signal }); socket.once('connect', () => resolve(socket)); socket.once('error', reject)
             })
           }, spawn: (binary, args, spawnOptions) => {
-          assert.ok(args.includes('--permission')); assert.equal(spawnOptions.stdio.length, 4, 'desk socket inherited as fd 3')
+          assert.ok(args.includes('--permission')); assert.deepEqual(spawnOptions.stdio, ['pipe', 'pipe', 'pipe', 'ipc'], 'the desk socket crosses the IPC channel as a handle')
           const child = spawn(binary, [...args], spawnOptions) as ChildProcessWithoutNullStreams; children.push(child); return child
         } })
           const send = supervisor.send.bind(supervisor)
@@ -651,7 +651,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       async interruptAt(kind: 'child-crash' | 'host-restart' | 'connection-gap') {
         if (kind === 'child-crash') { children.at(-1)!.kill('SIGKILL'); await waitFor(() => children.at(-1)?.exitCode !== null || children.at(-1)?.signalCode !== null, 'child exit') }
         else if (kind === 'connection-gap') {
-          // Close the real fd-3 connection, not a synthetic loop event.
+          // Close the real desk connection the child was handed, not a synthetic loop event.
           for (const socket of bridgeSockets) socket.destroy(); await waitFor(() => children.at(-1)?.exitCode !== null || children.at(-1)?.signalCode !== null, 'connection exit')
         } else {
           await host.dispose(); await extensions!.dispose(); setTeamEngine(null); await storage!.close(); storage = undefined; await setupHost()

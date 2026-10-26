@@ -284,7 +284,7 @@ test('Node package selection excludes CI end-to-end files and runs dependants on
   })
 })
 
-test('Node package selection leaves the dedicated Node 25 Lead files to CI', async () => {
+test('Node package selection leaves the dedicated Node 26 Lead files to CI', async () => {
   await fixture(async (directory, put) => {
     put('packages/server/test/lead-e2e.test.ts', '')
     put('packages/server/test/lead-service.test.ts', '')

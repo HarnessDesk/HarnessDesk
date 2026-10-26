@@ -103,7 +103,7 @@ step('host-retention tests', () =>
   run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/host-retention.test.js']),
   { needs: 'build' },
 )
-// The supervisor and service/client fixtures require the Node 25 runtime gate.
+// The supervisor and service/client fixtures require a runtime that passes the Lead probe (Node 26).
 step('lead supervisor tests', () =>
   run('node', ['--test', '--test-timeout=120000', 'packages/lead/dist/test/supervisor.test.js']),
   { needs: 'build' },
@@ -125,7 +125,7 @@ step('lead repair host tests', () =>
   { needs: 'build' },
 )
 step('lead e2e tests', () =>
-  // The real host/child/Flow suite requires Node 25 and its own run.
+  // The real host/child/Flow suite requires Node 26 and its own run.
   run('node', ['--test', '--test-timeout=600000', 'packages/server/dist/test/lead-e2e.test.js']),
   { needs: 'build' },
 )

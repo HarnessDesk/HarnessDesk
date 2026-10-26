@@ -524,7 +524,7 @@ test('valid execute with id 2 first kills the child without admitting an attempt
   } finally { await f.supervisor.stop(); await sent }
 })
 
-test('permission-restricted actual child round-trips the desk on fd 3 and Messages through provider-send', async t => {
+test('permission-restricted actual child round-trips the desk on a handed-over socket and Messages through provider-send', async t => {
   const { fixture: managementFixture, project } = await import('./fixtures/loop.js')
   const { message } = await import('./fixtures/fake-messages.js')
   const management = await managementFixture()
