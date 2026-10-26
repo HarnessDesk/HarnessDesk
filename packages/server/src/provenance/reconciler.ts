@@ -34,7 +34,9 @@ export interface Subject {
 export type Ranges = Pick<WorkerCheckpoint, 'rangeKeys' | 'rangePending'>
 
 /** The journal itself is failing, which no range is to blame for. */
-const journalFailure = (error: unknown): boolean => (error as Error).message.startsWith('provenance-')
+const journalFailure = (error: unknown): boolean => error instanceof Error &&
+  error.message.startsWith('provenance-') &&
+  !['provenance-line-limit', 'provenance-invalid-record'].includes(error.message)
 
 /**
  * One project's reconcile pass: turn what the journal observed, with the facts

@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdir, open, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { exportProvenance, importProvenance, ProvenanceBackups } from '../src/provenance/backup.js'
-import { JOURNAL_BYTE_LIMIT, ProvenanceJournal } from '../src/provenance/journal.js'
+import { ProvenanceJournal, ProvenanceJournalChangedError, ProvenanceJournalLimitError } from '../src/provenance/journal.js'
 import { tempDir } from './scratch.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 
@@ -22,6 +21,24 @@ const setup = () => {
       return journal
     },
   }
+}
+
+const refusedJournal = (error: Error = new ProvenanceJournalLimitError()) => {
+  const journal = new ProvenanceJournal('unused.ndjson')
+  journal.read = async () => { throw error }
+  return journal
+}
+
+const historicalEntry = (id: string, reason = 'history-gap') => ({
+  kind: 'gap' as const, value: { id, reason, from: null, to: 1 },
+})
+
+const journalWithEntries = (entries: readonly ReturnType<typeof historicalEntry>[]) => {
+  const journal = new ProvenanceJournal('unused.ndjson')
+  journal.read = async () => ({
+    entries: entries.map((entry, seq) => ({ seq: seq + 1, ...entry })), broken: false, generation: 0,
+  })
+  return journal
 }
 
 test('backup round-trips ranges as restored history and leaves cursors and preferences behind', async () => {
@@ -87,10 +104,7 @@ test('the host backup owner serializes imports and preserves project discovery a
 
 test('backup reports a refused oversized project and still exports healthy projects', async () => {
   const folder = tempDir('provenance-backup-limit-')
-  const file = join(folder, 'large.ndjson')
-  const handle = await open(file, 'w')
-  try { await handle.truncate(JOURNAL_BYTE_LIMIT + 1) } finally { await handle.close() }
-  const large = new ProvenanceJournal(file)
+  const large = refusedJournal()
   const healthy = new ProvenanceJournal(join(folder, 'healthy.ndjson'))
   const value = { id: 'healthy', reason: 'history-gap', from: null, to: 1 }
   await healthy.append('gap', value)
@@ -102,15 +116,11 @@ test('backup reports a refused oversized project and still exports healthy proje
     version: 1, omittedProjects: [{ project: '/work/large', reason: 'journal-limit-exceeded' }],
     projects: [{ project: '/work/healthy', entries: [{ kind: 'gap', value }] }],
   })
-  assert.equal((await stat(file)).size, JOURNAL_BYTE_LIMIT + 1)
 })
 
 test('restore refuses oversized project entries and continues with later projects', async () => {
   const folder = tempDir('provenance-restore-limit-')
-  const file = join(folder, 'large.ndjson')
-  const handle = await open(file, 'w')
-  try { await handle.truncate(JOURNAL_BYTE_LIMIT + 1) } finally { await handle.close() }
-  const large = new ProvenanceJournal(file)
+  const large = refusedJournal()
   const healthy = new ProvenanceJournal(join(folder, 'healthy.ndjson'))
   const entry = { kind: 'gap', value: { id: 'history', reason: 'history-gap', from: null, to: 1 } }
   assert.deepEqual(await importProvenance({
@@ -121,16 +131,11 @@ test('restore refuses oversized project entries and continues with later project
     { project: '/work/healthy', entries: [entry] },
   ] }), { restored: 1, duplicate: 0, refused: 2 })
   assert.equal((await healthy.read()).entries.length, 1)
-  assert.equal((await stat(file)).size, JOURNAL_BYTE_LIMIT + 1)
 })
 
-test('entries refused for an oversized project still count toward the restore budget', async () => {
+test('entries refused for an oversized project leave the restore budget for later healthy projects', async () => {
   const folder = tempDir('provenance-restore-count-')
-  const file = join(folder, 'large.ndjson')
-  await mkdir(folder, { recursive: true })
-  const handle = await open(file, 'w')
-  try { await handle.truncate(JOURNAL_BYTE_LIMIT + 1) } finally { await handle.close() }
-  const large = new ProvenanceJournal(file)
+  const large = refusedJournal()
   const healthy = new ProvenanceJournal(join(folder, 'healthy.ndjson'))
   const entry = { kind: 'gap', value: { id: 'history', reason: 'history-gap', from: null, to: 1 } }
   assert.deepEqual(await importProvenance({
@@ -139,6 +144,91 @@ test('entries refused for an oversized project still count toward the restore bu
   }, { version: 1, projects: [
     { project: '/work/large', entries: Array(50000).fill(null) },
     { project: '/work/healthy', entries: [entry] },
-  ] }), { restored: 0, duplicate: 0, refused: 50001 })
-  assert.equal((await healthy.read()).entries.length, 0)
+  ] }), { restored: 1, duplicate: 0, refused: 50000 })
+  assert.equal((await healthy.read()).entries.length, 1)
+})
+
+test('backup and restore propagate changed-journal errors without classifying them as size refusals', async () => {
+  const error = new ProvenanceJournalChangedError()
+  const journal = refusedJournal(error)
+  const port = { projects: async () => ['/work/project'], journal: () => journal }
+  await assert.rejects(exportProvenance(port), cause => cause === error)
+  await assert.rejects(importProvenance(port, { version: 1, projects: [{
+    project: '/work/project', entries: [historicalEntry('history')],
+  }] }), cause => cause === error)
+})
+
+test('backup serializes each historical observation once while accounting for its byte budget', async t => {
+  const journals = new Map(Array.from({ length: 6 }, (_, index) => [
+    `/work/project-${index}`, journalWithEntries([historicalEntry(`linear-${index}`)]),
+  ]))
+  const stringify = JSON.stringify
+  let observations = 0
+  const serializations = t.mock.method(JSON, 'stringify', (value: unknown) => {
+    const serialized = stringify(value)
+    observations += serialized?.match(/"id":"linear-\d+"/g)?.length ?? 0
+    return serialized
+  })
+  const backup = await exportProvenance({
+    projects: async () => [...journals.keys()], journal: project => journals.get(project)!,
+  })
+  serializations.mock.restore()
+  assert.equal(backup.projects.length, 6)
+  assert.equal(observations, 6)
+})
+
+test('backup byte budget includes wrapper punctuation and omitted projects exactly', async () => {
+  const limit = 10 * 1024 * 1024
+  for (const omitted of [false, true]) for (const extraByte of [0, 1]) {
+    const entries = Array.from({ length: 2600 }, (_, index) => historicalEntry(`boundary-${index}`, '界"\\'))
+    const project = '/work/healthy-界-"\\'
+    const nextProject = '/work/healthy-next-界-"\\'
+    const excluded = '/work/omitted-界-"\\'
+    const nextExcluded = '/work/omitted-next-界-"\\'
+    const expected = {
+      version: 1 as const,
+      projects: [{ project, entries: entries.slice(0, 1300) }, { project: nextProject, entries: entries.slice(1300) }],
+      ...(omitted ? { omittedProjects: [excluded, nextExcluded].map(root => ({
+        project: root, reason: 'journal-limit-exceeded' as const,
+      })) } : {}),
+    }
+    let padding = limit + extraByte - Buffer.byteLength(JSON.stringify(expected))
+    for (const entry of entries) {
+      const length = Math.min(padding, 4096 - entry.value.reason.length)
+      entry.value.reason += 'x'.repeat(length)
+      padding -= length
+    }
+    assert.equal(padding, 0)
+    assert.equal(Buffer.byteLength(JSON.stringify(expected)), limit + extraByte)
+    const healthy = new Map(expected.projects.map(saved => [saved.project, journalWithEntries(saved.entries)]))
+    const refused = refusedJournal()
+    const port = {
+      projects: async () => omitted ? [project, excluded, nextProject, nextExcluded] : [project, nextProject],
+      journal: (root: string) => healthy.get(root) ?? refused,
+    }
+    if (extraByte) await assert.rejects(exportProvenance(port), /provenance-backup-limit/)
+    else assert.deepEqual(await exportProvenance(port), expected)
+  }
+})
+
+test('backup preserves the combined project bound and the observation bound', async () => {
+  const healthy = journalWithEntries([historicalEntry('history')])
+  const refused = refusedJournal()
+  const projects = Array.from({ length: 100 }, (_, index) => `/work/${index}`)
+  const port = {
+    projects: async () => projects,
+    journal: (project: string) => Number(project.slice('/work/'.length)) % 2 ? refused : healthy,
+  }
+  const backup = await exportProvenance(port)
+  assert.equal(backup.projects.length, 50)
+  assert.equal(backup.omittedProjects?.length, 50)
+  projects.push('/work/100')
+  await assert.rejects(exportProvenance(port), /provenance-backup-limit/)
+
+  const entries = Array.from({ length: 50000 }, (_, index) => historicalEntry(`row-${index}`, 'gap'))
+  const large = journalWithEntries(entries)
+  const rows = { projects: async () => ['/work/history'], journal: () => large }
+  assert.equal((await exportProvenance(rows)).projects[0]?.entries.length, 50000)
+  entries.push(historicalEntry('row-50000', 'gap'))
+  await assert.rejects(exportProvenance(rows), /provenance-backup-limit/)
 })

@@ -1565,14 +1565,22 @@ Before decoding an oversized journal, a bounded streaming pass validates its
 records and removes only superseded checkpoint cursors into a temporary file.
 Replacement happens only after complete validation and only if the retained
 history fits the budget. Historical observations are never pruned. Append-time
-compaction also makes room for new observations when obsolete cursors permit it.
+compaction makes room only when the incoming record or complete checkpoint
+would exceed the budget and obsolete cursors can free enough space. The complete
+checkpoint is sized before any part is written, so compaction never renumbers
+part IDs in flight. Near-limit appends that still fit do no forced compaction.
 External file growth is not overwritten by compaction of an older in-memory view.
+A changed file has a separate refusal and reload guidance; it is never described
+as a size limit or exported as a size-refused project. Damage and filesystem
+failures keep their storage failure semantics. Parsing and replacement each use
+one shared path, including the source identity check immediately before rename.
 
 If retained observations still exceed the budget, capture stops for that project
 and its original history stays in place. Capture can be turned off; Retry tries
 recovery again. Backup reports size-refused projects in `omittedProjects` while
-including healthy projects; restore counts refused entries and continues to the
-remaining projects. This is a per-journal input bound, not an aggregate heap
+including healthy projects; restore counts refused entries without spending
+the admission budget available to the remaining projects. Export tracks exact
+serialized bytes incrementally, including omission metadata and JSON framing. This is a per-journal input bound, not an aggregate heap
 guarantee or a history retention policy.
 
 ## Passive provenance starts at the project and Seat window

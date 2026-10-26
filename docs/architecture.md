@@ -827,7 +827,9 @@ Each provenance journal has a 64 MiB replay and append budget. Before decoding
 an oversized journal, bounded streaming recovery can remove obsolete checkpoint
 cursors; it replaces the file only after validating the complete history and
 confirming the retained output fits. Append-time compaction can recover space
-too. If retained observations still exceed the budget, only that project's
+when the whole incoming transaction needs space. External file changes have a
+separate reload refusal; damage and filesystem failures remain storage errors.
+If retained observations still exceed the budget, only that project's
 capture stops. Saved observations are preserved, capture controls remain usable,
 and backups explicitly report refused projects while including healthy ones
 ([why](decisions.md#provenance-journals-recover-within-a-bounded-storage-budget)).

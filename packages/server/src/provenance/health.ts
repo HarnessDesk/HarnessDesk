@@ -20,6 +20,7 @@ const messages = {
   evidence: ['Some local evidence records could not be read.', 'Repair the local evidence and retry capture.'],
   limit: ['Capture reached its background work limit.', 'Keep the project open; inspect the named limit if it persists.'],
   journalLimit: ["This project's saved capture history reached its storage limit.", 'Saved observations were kept. Retry capture to remove obsolete checkpoints; if the history still exceeds the limit, keep capture off for this project.'],
+  journalChanged: ['Saved capture history changed outside this capture session.', 'Saved observations were kept. Retry capture to reload the current history.'],
   off: ['Capture is off on this machine.', 'Turn capture on.'],
   external: ["This repository's metadata is outside the captured project.", 'Open its main checkout, or use a checkout with local metadata.'],
   storage: ['Capture could not save its observations.', 'Repair the local state file or its permissions, then retry capture.'],
@@ -29,7 +30,7 @@ const messages = {
 export const captureHealth = (input: HealthInput): CaptureHealth => {
   const { fatal, issues, ...base } = input
   const key: keyof typeof messages = !input.enabled && !issues.includes('preference-invalid') ? 'off'
-    : fatal ? issues.includes('external-metadata') ? 'external' : issues.includes('folder-unavailable') ? 'missing' : issues.includes('journal-limit-exceeded') ? 'journalLimit' : 'storage'
+    : fatal ? issues.includes('external-metadata') ? 'external' : issues.includes('folder-unavailable') ? 'missing' : issues.includes('journal-changed') ? 'journalChanged' : issues.includes('journal-limit-exceeded') ? 'journalLimit' : 'storage'
     : issues.includes('limit-exceeded') ? 'limit'
     : input.gaps > 0 || issues.includes('history-gap') ? 'history'
     : issues.includes('evidence-skipped') ? 'evidence'

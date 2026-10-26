@@ -24,27 +24,34 @@ export const exportProvenance = async (port: BackupPort): Promise<ProvenanceBack
   const projects: { project: string; entries: unknown[] }[] = []
   const omittedProjects: { project: string; reason: 'journal-limit-exceeded' }[] = []
   let count = 0
+  // The fixed wrapper includes both project-array brackets; each item is measured once.
+  let bytes = '{"version":1,"projects":[]}'.length
   for (const project of await port.projects()) {
     let read
     try { read = await port.journal(project).read() } catch (error) {
       if (!(error instanceof ProvenanceJournalLimitError)) throw error
-      omittedProjects.push({ project, reason: 'journal-limit-exceeded' })
+      const omitted = { project, reason: 'journal-limit-exceeded' as const }
+      omittedProjects.push(omitted)
       if (projects.length + omittedProjects.length > 100) throw new Error('provenance-backup-limit')
+      bytes += Buffer.byteLength(JSON.stringify(omitted)) +
+        (omittedProjects.length === 1 ? ',"omittedProjects":[]'.length : 1)
+      if (bytes > BYTES) throw new Error('provenance-backup-limit')
       continue
     }
     if (read.broken) throw new Error('provenance-journal-damaged')
     const entries = read.entries.filter((entry) => historical.has(entry.kind))
       .map(({ kind, value }) => ({ kind, value }))
     if (!entries.length) continue
-    projects.push({ project, entries })
+    const saved = { project, entries }
+    projects.push(saved)
     count += entries.length
-    if (projects.length + omittedProjects.length > 100 || count > 50000 || Buffer.byteLength(JSON.stringify(projects)) > BYTES) {
+    if (projects.length + omittedProjects.length > 100 || count > 50000) {
       throw new Error('provenance-backup-limit')
     }
+    bytes += Buffer.byteLength(JSON.stringify(saved)) + (projects.length > 1 ? 1 : 0)
+    if (bytes > BYTES) throw new Error('provenance-backup-limit')
   }
-  const backup: ProvenanceBackup = { version: 1, projects, ...(omittedProjects.length ? { omittedProjects } : {}) }
-  if (Buffer.byteLength(JSON.stringify(backup)) > BYTES) throw new Error('provenance-backup-limit')
-  return backup
+  return { version: 1, projects, ...(omittedProjects.length ? { omittedProjects } : {}) }
 }
 
 /** The plane serializes imports with its project lifecycle; the journal deduplicates writes. */
@@ -70,7 +77,6 @@ export const importProvenance = async (
     let read
     try { read = await journal.read() } catch (error) {
       if (!(error instanceof ProvenanceJournalLimitError)) throw error
-      count += project.entries.length
       report.refused += project.entries.length
       continue
     }

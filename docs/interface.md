@@ -1574,7 +1574,9 @@ The next step confirms that observations were kept and offers Retry; capture
 can be turned off if recovery cannot make room. The desktop never deletes
 observations to make it fit. Backup files report size-refused projects in
 `omittedProjects`; healthy projects are still included, and restore continues
-past refused projects.
+past refused projects. An externally changed history instead asks the user to
+Retry capture to reload it. Damaged or unwritable histories retain storage repair
+guidance; neither is described as a storage-size limit.
 
 ## Goals and retained lanes
 

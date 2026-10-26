@@ -12,7 +12,7 @@ import { sameCanonicalPath } from '../path-identity.js'
 import { exportProvenance, importProvenance } from './backup.js'
 import { admitProject, gitReader, oid, releaseProject, sweepViews, type GitReader, type ReaderOptions, type RepoHandle } from './git.js'
 import { captureHealth } from './health.js'
-import { digest, object, ProvenanceJournal, ProvenanceJournalLimitError, readCheckpoint, type JournalEntry } from './journal.js'
+import { digest, object, ProvenanceJournal, ProvenanceJournalChangedError, ProvenanceJournalLimitError, readCheckpoint, type JournalEntry } from './journal.js'
 import { RefObserver, type WorkerCheckpoint } from './observer.js'
 import { ProvenancePreferences } from './preferences.js'
 import {
@@ -52,6 +52,9 @@ interface Project {
   observed: Set<string>
   excluded: Set<string>
 }
+const journalProblem = (error: unknown): string => error instanceof ProvenanceJournalChangedError ? 'journal-changed'
+  : error instanceof ProvenanceJournalLimitError ? 'journal-limit-exceeded' : 'storage-failed'
+
 const reasons = new Set<ProvenanceReason>([
   'not-observed', 'capture-off', 'capture-stopped', 'catching-up', 'no-seat-evidence',
   'ambiguous-patch', 'empty-change', 'changed-patch', 'missing-object', 'history-gap',
@@ -314,7 +317,7 @@ export class ProvenancePlane {
         outsideWindow: (sha) => { state.pending.delete(sha); state.excluded.add(sha) },
         changed: () => {
           void this.#load(state).then(() => { state.catchingUp = false; this.#publish(state) })
-            .catch((error) => this.#problem(state, 'stopped', error instanceof ProvenanceJournalLimitError ? 'journal-limit-exceeded' : 'storage-failed'))
+            .catch((error) => this.#problem(state, 'stopped', journalProblem(error)))
         },
         problem: (kind, reason) => this.#problem(state, kind, reason),
         reconcile: (entries, checkpoint, signal) => this.#reconcile(state, entries, checkpoint, git, signal),
@@ -327,7 +330,7 @@ export class ProvenancePlane {
         await this.#release(state.handle)
         state.handle = null
       }
-      this.#problem(state, 'stopped', error instanceof ProvenanceJournalLimitError ? 'journal-limit-exceeded' : 'storage-failed')
+      this.#problem(state, 'stopped', journalProblem(error))
     }
   }
 
@@ -410,8 +413,8 @@ export class ProvenancePlane {
         })
         await this.#load(state)
       } catch (error) {
-        if (!(error instanceof ProvenanceJournalLimitError)) throw error
-        this.#problem(state, 'stopped', 'journal-limit-exceeded')
+        // The preference is durable even when its optional gap record cannot be saved.
+        this.#problem(state, 'stopped', journalProblem(error))
         return state.health
       }
       if (enabled && !this.#closed && this.#roots.includes(root)) {
@@ -493,8 +496,8 @@ export class ProvenancePlane {
       }, raw)
       for (const state of this.#projects.values()) {
         try { await this.#load(state) } catch (error) {
-          if (!(error instanceof ProvenanceJournalLimitError)) throw error
-          this.#problem(state, 'stopped', 'journal-limit-exceeded')
+          if (!(error instanceof ProvenanceJournalLimitError) && !(error instanceof ProvenanceJournalChangedError)) throw error
+          this.#problem(state, 'stopped', journalProblem(error))
         }
         this.#publish(state)
       }
