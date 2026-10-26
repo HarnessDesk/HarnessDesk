@@ -403,11 +403,17 @@ export class ProvenancePlane {
       state.pending.clear()
       state.excluded.clear()
       state.catchingUp = enabled
-      await state.journal.append('gap', {
-        id: digest(['toggle', enabled, Date.now(), ++this.#revision]), reason: 'capture-toggle',
-        from: state.health.checkedAt, to: Date.now(),
-      })
-      await this.#load(state)
+      try {
+        await state.journal.append('gap', {
+          id: digest(['toggle', enabled, Date.now(), ++this.#revision]), reason: 'capture-toggle',
+          from: state.health.checkedAt, to: Date.now(),
+        })
+        await this.#load(state)
+      } catch (error) {
+        if (!(error instanceof ProvenanceJournalLimitError)) throw error
+        this.#problem(state, 'stopped', 'journal-limit-exceeded')
+        return state.health
+      }
       if (enabled && !this.#closed && this.#roots.includes(root)) {
         try {
           state.handle = await this.#admit(root, this.#roots)
@@ -486,7 +492,10 @@ export class ProvenancePlane {
         prepare: (project) => this.#prepare(project),
       }, raw)
       for (const state of this.#projects.values()) {
-        await this.#load(state)
+        try { await this.#load(state) } catch (error) {
+          if (!(error instanceof ProvenanceJournalLimitError)) throw error
+          this.#problem(state, 'stopped', 'journal-limit-exceeded')
+        }
         this.#publish(state)
       }
       return report

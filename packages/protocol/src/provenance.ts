@@ -52,6 +52,11 @@ export interface ProvenanceSeatDetail {
 
 /** Historical observations only. A backup never activates local capture. */
 export interface ProvenanceBackup {
+  /** Saved histories excluded from this backup because replay exceeded its safe budget. */
+  readonly omittedProjects?: readonly {
+    readonly project: string
+    readonly reason: 'journal-limit-exceeded'
+  }[]
   readonly version: 1
   readonly projects: readonly {
     readonly project: string

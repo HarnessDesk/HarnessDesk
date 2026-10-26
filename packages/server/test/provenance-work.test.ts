@@ -9,7 +9,7 @@ import type { EvidenceRecord, SeatRecord } from '@harnessdesk/protocol'
 import type { EvidencePlane } from '../src/evidence/plane.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { admitProject, gitReader, type GitReader, type ReaderOptions } from '../src/provenance/git.js'
-import { ProvenanceJournal, type JournalEntry } from '../src/provenance/journal.js'
+import { ProvenanceJournal, ProvenanceJournalLimitError, type JournalEntry } from '../src/provenance/journal.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
 import { rangeCandidates, type CommitObservation, type LinkObservation, type RangeCandidate } from '../src/provenance/reconcile.js'
 import { Reconciler, type Ranges, type Subject } from '../src/provenance/reconciler.js'
@@ -350,4 +350,21 @@ test('waking capture over an unchanged journal starts no Git process and checks 
   assert.ok(scans >= 3)
   assert.equal(checks - verified, scans, 'and each checked the metadata once')
   // Each scan still moved `checkedAt` (the loop above waited for that), though none wrote a checkpoint.
+})
+
+
+test('a fact-range journal refusal escapes reconciliation instead of becoming a history gap', async (t) => {
+  const repo = await makeRepo()
+  const base = await repo.commitTree(null, { one: 'base\n' }, 'base')
+  const next = await repo.commitTree(base, { one: 'changed\n' }, 'next')
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  const reader = gitReader(handle)
+  t.after(() => reader.close())
+  const journal = memoryJournal()
+  journal.append = async () => { throw new ProvenanceJournalLimitError() }
+  const fact: EvidenceRecord = { id: 'fact', seat: 'seat-a', checkout: { cwd: repo.dir, branch: 'topic' }, observedAt: 10,
+    fact: { kind: 'diff', files: 1, added: 1, removed: 0, from: base, to: next } }
+  await assert.rejects(new Reconciler(() => {}).run(
+    subject(repo, handle, journal, [fact], [seat(repo, 'seat-a')]), [], NOTHING, reader, signal(),
+  ), ProvenanceJournalLimitError)
 })

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
+import { mkdir, open, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { exportProvenance, importProvenance, ProvenanceBackups } from '../src/provenance/backup.js'
-import { ProvenanceJournal } from '../src/provenance/journal.js'
+import { JOURNAL_BYTE_LIMIT, ProvenanceJournal } from '../src/provenance/journal.js'
 import { tempDir } from './scratch.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 
@@ -81,4 +82,63 @@ test('the host backup owner serializes imports and preserves project discovery a
   const reopened = new ProvenanceBackups(store)
   assert.equal((await reopened.backup()).projects[0]?.project, '/work/project')
   await reopened.close()
+})
+
+
+test('backup reports a refused oversized project and still exports healthy projects', async () => {
+  const folder = tempDir('provenance-backup-limit-')
+  const file = join(folder, 'large.ndjson')
+  const handle = await open(file, 'w')
+  try { await handle.truncate(JOURNAL_BYTE_LIMIT + 1) } finally { await handle.close() }
+  const large = new ProvenanceJournal(file)
+  const healthy = new ProvenanceJournal(join(folder, 'healthy.ndjson'))
+  const value = { id: 'healthy', reason: 'history-gap', from: null, to: 1 }
+  await healthy.append('gap', value)
+  const backup = await exportProvenance({
+    projects: async () => ['/work/large', '/work/healthy'],
+    journal: (project) => project === '/work/large' ? large : healthy,
+  })
+  assert.deepEqual(backup, {
+    version: 1, omittedProjects: [{ project: '/work/large', reason: 'journal-limit-exceeded' }],
+    projects: [{ project: '/work/healthy', entries: [{ kind: 'gap', value }] }],
+  })
+  assert.equal((await stat(file)).size, JOURNAL_BYTE_LIMIT + 1)
+})
+
+test('restore refuses oversized project entries and continues with later projects', async () => {
+  const folder = tempDir('provenance-restore-limit-')
+  const file = join(folder, 'large.ndjson')
+  const handle = await open(file, 'w')
+  try { await handle.truncate(JOURNAL_BYTE_LIMIT + 1) } finally { await handle.close() }
+  const large = new ProvenanceJournal(file)
+  const healthy = new ProvenanceJournal(join(folder, 'healthy.ndjson'))
+  const entry = { kind: 'gap', value: { id: 'history', reason: 'history-gap', from: null, to: 1 } }
+  assert.deepEqual(await importProvenance({
+    projects: async () => ['/work/large', '/work/healthy'],
+    journal: (project) => project === '/work/large' ? large : healthy,
+  }, { version: 1, projects: [
+    { project: '/work/large', entries: [entry, entry] },
+    { project: '/work/healthy', entries: [entry] },
+  ] }), { restored: 1, duplicate: 0, refused: 2 })
+  assert.equal((await healthy.read()).entries.length, 1)
+  assert.equal((await stat(file)).size, JOURNAL_BYTE_LIMIT + 1)
+})
+
+test('entries refused for an oversized project still count toward the restore budget', async () => {
+  const folder = tempDir('provenance-restore-count-')
+  const file = join(folder, 'large.ndjson')
+  await mkdir(folder, { recursive: true })
+  const handle = await open(file, 'w')
+  try { await handle.truncate(JOURNAL_BYTE_LIMIT + 1) } finally { await handle.close() }
+  const large = new ProvenanceJournal(file)
+  const healthy = new ProvenanceJournal(join(folder, 'healthy.ndjson'))
+  const entry = { kind: 'gap', value: { id: 'history', reason: 'history-gap', from: null, to: 1 } }
+  assert.deepEqual(await importProvenance({
+    projects: async () => ['/work/large', '/work/healthy'],
+    journal: (project) => project === '/work/large' ? large : healthy,
+  }, { version: 1, projects: [
+    { project: '/work/large', entries: Array(50000).fill(null) },
+    { project: '/work/healthy', entries: [entry] },
+  ] }), { restored: 0, duplicate: 0, refused: 50001 })
+  assert.equal((await healthy.read()).entries.length, 0)
 })

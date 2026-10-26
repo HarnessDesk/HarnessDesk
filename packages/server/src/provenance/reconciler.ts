@@ -143,8 +143,9 @@ export class Reconciler {
             }
           }
           if (source) sources.push(source)
-        } catch {
+        } catch (error) {
           signal.throwIfAborted()
+          if (journalFailure(error)) throw error
           gap = true
         }
       }

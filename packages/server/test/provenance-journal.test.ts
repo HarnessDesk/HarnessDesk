@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import fs from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -41,17 +43,128 @@ test('a loaded journal refuses an append that would grow its durable file beyond
   const file = join(tempDir('journal-growth-'), 'provenance.ndjson')
   const journal = new ProvenanceJournal(file)
   await journal.append('gap', gap())
+  const originalSize = (await fs.stat(file)).size
   const handle = await fs.open(file, 'r+')
   try { await handle.truncate(64 * 1024 * 1024) } finally { await handle.close() }
   await assert.rejects(journal.append('gap', gap('later')), /provenance-journal-limit/)
   assert.equal((await fs.stat(file)).size, 64 * 1024 * 1024)
   assert.equal((await journal.read({ copy: 'shallow' })).entries.length, 1)
+  assert.equal(await journal.compact(true), false)
+  assert.equal((await fs.stat(file)).size, 64 * 1024 * 1024)
+  await fs.truncate(file, originalSize)
+  await journal.append('gap', gap('recovered'))
+  assert.equal((await journal.read()).entries.length, 2, 'a size refusal does not latch an I/O failure')
+})
+
+test('oversized cursor history compacts in a bounded pass and retains the latest checkpoint', async () => {
+  const file = join(tempDir('journal-stream-compact-'), 'provenance.ndjson')
+  const values: { kind: JournalEntry['kind']; value: unknown }[] = [
+    { kind: 'gap', value: gap('preserved') },
+    ...Array.from({ length: 6000 }, (_, at) => ({ kind: 'cursor' as const, value: { id: `old-${at}`, type: 'part', bytes: 'x'.repeat(12000) } })),
+    { kind: 'cursor', value: { id: 'live-part', type: 'part', bytes: JSON.stringify(checkpoint()) } },
+    { kind: 'cursor', value: { id: 'live-manifest', type: 'checkpoint', parts: [6002], hash: digest(checkpoint()) } },
+  ]
+  const handle = await fs.open(file, 'w')
+  try {
+    for (let at = 0; at < values.length; at++) {
+      const body = { version: 1, seq: at + 1, ...values[at]! }
+      await handle.write(`${JSON.stringify({ ...body, checksum: digest(body) })}\n`)
+    }
+  } finally { await handle.close() }
+  assert.ok((await fs.stat(file)).size > 64 * 1024 * 1024)
+  const journal = new ProvenanceJournal(file, { compactOnOpen: true })
+  const read = await journal.read()
+  assert.equal(read.broken, false)
+  assert.equal(read.entries.length, 3)
+  assert.deepEqual(readCheckpoint(read.entries), checkpoint())
+  assert.deepEqual(read.entries[0]?.value, gap('preserved'))
+  assert.ok((await fs.stat(file)).size < 4096)
+})
+
+test('append compacts obsolete loaded cursors near the budget before writing more history', async () => {
+  const file = join(tempDir('journal-append-compact-'), 'provenance.ndjson')
+  const handle = await fs.open(file, 'w')
+  let size = 0
+  let seq = 0
+  try {
+    while (size < 64 * 1024 * 1024 - 512 * 1024) {
+      const body = { version: 1, seq: ++seq, kind: 'cursor', value: { id: `orphan-${seq}`, type: 'part', bytes: 'x'.repeat(12000) } }
+      const bytes = `${JSON.stringify({ ...body, checksum: digest(body) })}\n`
+      await handle.write(bytes)
+      size += Buffer.byteLength(bytes)
+    }
+  } finally { await handle.close() }
+  const journal = new ProvenanceJournal(file)
+  await journal.append('gap', gap('after-compaction'))
+  assert.ok((await fs.stat(file)).size < 4096)
+  assert.deepEqual((await journal.read()).entries.map((entry) => entry.value), [gap('after-compaction')])
+})
+
+for (const refusal of ['historical', 'invalid-checkpoint']) test(`streaming recovery preserves an oversized ${refusal} journal`, async () => {
+  const file = join(tempDir('journal-recovery-refusal-'), 'provenance.ndjson')
+  const handle = await fs.open(file, 'w')
+  let size = 0
+  let seq = 0
+  const write = async (kind: JournalEntry['kind'], value: unknown) => {
+    const body = { version: 1, seq: ++seq, kind, value }
+    const bytes = `${JSON.stringify({ ...body, checksum: digest(body) })}\n`
+    await handle.write(bytes)
+    size += Buffer.byteLength(bytes)
+  }
+  try {
+    while (size <= 64 * 1024 * 1024) {
+      if (refusal === 'historical') await write('range', {
+        id: `range-${seq}`, from: 'a'.repeat(40), to: 'b'.repeat(40), commits: [],
+        patch: { stable: '', exact: '', files: [] }, seats: Array(14).fill('x'.repeat(4096)), ambiguous: false, at: 1,
+      })
+      else await write('cursor', { id: `part-${seq}`, type: 'part', bytes: 'x'.repeat(12000) })
+    }
+    if (refusal === 'invalid-checkpoint') {
+      await write('cursor', { id: 'latest', type: 'checkpoint', parts: [1], hash: digest(checkpoint()) })
+    }
+  } finally { await handle.close() }
+  const hash = async () => {
+    const value = createHash('sha256')
+    for await (const bytes of createReadStream(file)) value.update(bytes)
+    return value.digest('hex')
+  }
+  const before = await hash()
+  await assert.rejects(new ProvenanceJournal(file, { compactOnOpen: true }).read(), /provenance-journal-limit/)
+  assert.equal(await hash(), before)
+  assert.deepEqual(await fs.readdir(join(file, '..')), ['provenance.ndjson'])
+})
+
+test('compaction preserves an external append made while the replacement is being written', async (t) => {
+  const file = join(tempDir('journal-compaction-race-'), 'provenance.ndjson')
+  const journal = new ProvenanceJournal(file)
+  await journal.append('gap', gap('local'))
+  await journal.append('cursor', { id: 'orphan', type: 'part', bytes: '{}' })
+  const original = await fs.readFile(file)
+  const body = { version: 1, seq: 3, kind: 'gap', value: gap('external') }
+  const external = Buffer.from(`${JSON.stringify({ ...body, checksum: digest(body) })}\n`)
+  const open = fs.open
+  let injected = false
+  const mock = t.mock.method(fs, 'open', async (...args: Parameters<typeof fs.open>) => {
+    const handle = await open(...args)
+    if (String(args[0]).includes('.compact-') && !injected) {
+      injected = true
+      await fs.appendFile(file, external)
+    }
+    return handle
+  })
+  try {
+    await assert.rejects(journal.compact(true), /provenance-journal-limit/)
+  } finally { mock.mock.restore() }
+  assert.equal(injected, true)
+  assert.deepEqual(await fs.readFile(file), Buffer.concat([original, external]))
+  assert.deepEqual(await fs.readdir(join(file, '..')), ['provenance.ndjson'])
+  assert.equal((await new ProvenanceJournal(file).read()).entries.length, 3)
 })
 
 test('a journal memory limit is reported as stopped capture with preserved history', () => {
   const status = health({ fatal: true, issues: ['journal-limit-exceeded'] })
   assert.equal(status.state, 'stopped')
-  assert.equal(status.reason, "This project's saved capture history is too large to load safely.")
+  assert.equal(status.reason, "This project's saved capture history reached its storage limit.")
   assert.match(status.nextStep, /saved observations were kept/i)
 })
 

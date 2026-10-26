@@ -162,9 +162,16 @@ test('an oversized capture history stops only that project and leaves account st
       if (status[0]?.state === 'stopped') break
       await delay(20)
     }
-    assert.equal(status[0]?.reason, "This project's saved capture history is too large to load safely.")
+    assert.equal(status[0]?.reason, "This project's saved capture history reached its storage limit.")
     assert.match(status[0]!.nextStep, /saved observations were kept/i)
     assert.equal((await host.call('account/status', {})).status, 'signedOut')
+    const off = await host.call('provenance/capture', { root: repo.dir, enabled: false })
+    assert.equal(off.enabled, false)
+    assert.equal(off.reason, 'Capture is off on this machine.')
+    assert.equal((await host.call('provenance/status', { root: repo.dir }))[0]?.enabled, false)
+    const on = await host.call('provenance/capture', { root: repo.dir, enabled: true })
+    assert.equal(on.enabled, true)
+    assert.equal(on.state, 'stopped')
     assert.equal((await stat(file)).size, JOURNAL_BYTE_LIMIT + 1)
   } finally { await host.dispose() }
 })
@@ -256,4 +263,30 @@ test('relative provenance roots are refused by the wire and direct host calls', 
   await assert.rejects(host.call('provenance/retry', { root }), /not an absolute path/)
   await assert.rejects(host.call('provenance/seat', { root, seat: 'missing' }), /not an absolute path/)
   await assert.equal((await host.call('provenance/status', { root: linked }))[0]?.enabled, true)
+})
+
+
+test('restore reloads healthy projects after a size-refused project', async (t) => {
+  const first = await makeRepo()
+  const second = await makeRepo()
+  const store = new EvidenceStore(join(first.stateDir, 'evidence'))
+  const folder = store.folderOf(first.dir)
+  await mkdir(folder, { recursive: true })
+  const file = await open(join(folder, 'provenance.ndjson'), 'w')
+  try { await file.truncate(JOURNAL_BYTE_LIMIT + 1) } finally { await file.close() }
+  const plane = new ProvenancePlane({
+    evidence: { store, seats: { byId: () => null } } as unknown as EvidencePlane,
+    stateDir: first.stateDir, projects: () => [first.dir, second.dir], push: () => {}, log: () => {},
+  })
+  t.after(() => plane.close())
+  await plane.start()
+  const deadline = Date.now() + 10000
+  while ((await plane.status()).length < 2) {
+    assert.ok(Date.now() < deadline)
+    await delay(20)
+  }
+  const before = (await plane.status(second.dir))[0]!.revision
+  assert.deepEqual(await plane.restore({ version: 1, projects: [] }), { restored: 0, duplicate: 0, refused: 0 })
+  assert.ok((await plane.status(second.dir))[0]!.revision > before)
+  assert.equal((await plane.status(first.dir))[0]!.state, 'stopped')
 })

@@ -1556,17 +1556,26 @@ The private view capture reads through is a folder in the state directory. Whoev
 
 **The rule:** capture does bounded work, and none when nothing it reads has changed; it keeps only what Git cannot contradict and writes only what is new; and a view it makes is removed by whoever made it, or by the next start.
 
-## Passive provenance starts at the project and Seat window
+## Provenance journals recover within a bounded storage budget
 
-Provenance replay and appends also have a 64 MiB journal budget. Line-bounded
+Provenance replay and appends have a 64 MiB journal budget. Line-bounded
 streaming still retained every decoded historical observation: a multi-gigabyte
-journal could exhaust the desktop heap while checksumming or serializing an
-otherwise small record. The journal now refuses oversized replay before
-decoding, checks for growth during streaming, and refuses an append that would
-cross the budget. Capture stops for that project, with the original history
-left in place. Normal local work continues. This is a safe refusal, not a
-retention policy: no observation is pruned or silently replaced by a partial
-history, and retries cannot append onto an unread prefix.
+journal could exhaust the desktop heap during checksum or serialization.
+Before decoding an oversized journal, a bounded streaming pass validates its
+records and removes only superseded checkpoint cursors into a temporary file.
+Replacement happens only after complete validation and only if the retained
+history fits the budget. Historical observations are never pruned. Append-time
+compaction also makes room for new observations when obsolete cursors permit it.
+External file growth is not overwritten by compaction of an older in-memory view.
+
+If retained observations still exceed the budget, capture stops for that project
+and its original history stays in place. Capture can be turned off; Retry tries
+recovery again. Backup reports size-refused projects in `omittedProjects` while
+including healthy projects; restore counts refused entries and continues to the
+remaining projects. This is a per-journal input bound, not an aggregate heap
+guarantee or a history retention policy.
+
+## Passive provenance starts at the project and Seat window
 
 Capture walks back to the earlier of the project's first capture opening and
 its earliest local Seat opening, minus one day for clock skew. The opening and

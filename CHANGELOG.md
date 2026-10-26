@@ -7,7 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **A large saved attribution history no longer crashes the desktop.** Capture pauses for a project whose history exceeds its background budget, keeping the saved observations and leaving sign-in and normal conversations available.
+- **A large saved attribution history no longer crashes the desktop.** Obsolete checkpoints are removed within a bounded recovery pass. If retained history still exceeds the budget, capture pauses for that project, keeping its observations and leaving sign-in, capture controls and normal conversations available. Backups report omitted histories and continue with healthy projects.
 
 - **Account sign-in says when the service is unavailable.** A server failure now explains that the account service is unavailable and asks you to try later, instead of reporting that the desk could not reach your account.
 
