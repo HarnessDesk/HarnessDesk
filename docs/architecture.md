@@ -843,7 +843,11 @@ The desktop offers two candidates, in order (`packages/desktop/electron/lead-run
 its own Electron runtime, run as Node, and a Node 26 LTS shipped in
 `Contents/Resources/lead-node` for this child alone. The bundled binary is
 downloaded at pack time from nodejs.org, checked against a pinned SHA-256, and
-signed with the app. A standalone host offers only itself. With no candidate
+signed with the app. The child's read grants cover only its named dependency
+packages, both in package-local `node_modules` and enclosing directories where
+packaging hoists them. The packaged smoke also starts the real restricted child
+and asks it to shut down, checking dependency loading beyond the network probe.
+A standalone host offers only itself. With no candidate
 passing, the settings projection carries `unavailable: runtime` and
 `unavailableReason`; the UI shows both, disables the composer and Send, and
 refuses Restart, and the host logs the reason once. The supervisor never

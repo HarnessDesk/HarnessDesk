@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** A Node executable that could run the Lead's child. */
@@ -36,16 +36,26 @@ export const leadChildEnv = (source: NodeJS.ProcessEnv = process.env, electron =
  * home, journal, credential directory, generic node_modules or write grant. */
 const readGrants = (): readonly string[] => {
   const leadDist = dirname(dirname(fileURLToPath(import.meta.url))), leadRoot = dirname(leadDist)
-  // --preserve-symlinks keeps dependency reads at these exact package paths,
-  // including pnpm's links, without needing a repository-wide node_modules grant.
-  const client = join(leadRoot, 'node_modules/@harnessdesk/client')
-  const protocol = join(leadRoot, 'node_modules/@harnessdesk/protocol')
+  // Keep the lexical paths --preserve-symlinks uses, including pnpm's links.
+  // electron-builder hoists dependencies beside @harnessdesk/lead rather than
+  // keeping its package-local node_modules. Search the enclosing dependency
+  // directories too, granting only the named packages, never node_modules itself.
+  const dependencyRoots = [join(leadRoot, 'node_modules')]
+  for (let parent = dirname(leadRoot); parent !== dirname(parent); parent = dirname(parent)) {
+    if (basename(parent) === 'node_modules') dependencyRoots.push(parent)
+  }
   return [
     leadDist, join(leadRoot, 'package.json'), // This child's compiled implementation and package format.
-    join(client, 'dist'), join(client, 'package.json'), // Public desk client implementation and package format.
-    join(protocol, 'dist'), join(protocol, 'package.json'), // Portable vocabulary and wire validators.
-    join(client, 'node_modules/@harnessdesk/protocol'), // The client's exact protocol dependency link.
-    join(leadRoot, 'node_modules/ws'), // Only the WebSocket dependency and its own relative modules.
+    ...dependencyRoots.flatMap(root => {
+      const client = join(root, '@harnessdesk/client'), protocol = join(root, '@harnessdesk/protocol')
+      const clientProtocol = join(client, 'node_modules/@harnessdesk/protocol')
+      return [
+        join(client, 'dist'), join(client, 'package.json'), // Public desk client.
+        join(protocol, 'dist'), join(protocol, 'package.json'), // Portable vocabulary and wire validators.
+        join(clientProtocol, 'dist'), join(clientProtocol, 'package.json'), // The client's own dependency link.
+        join(root, 'ws'), // Only the WebSocket dependency and its own relative modules.
+      ]
+    }),
   ]
 }
 /** The Lead child's flags, then its entry. No network grant: only the connected socket the host hands over reaches the desk.

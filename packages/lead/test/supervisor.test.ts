@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { spawn, spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createLeadJournal } from '../src/journal.js'
 import { cachedLeadRuntimeProbe, chooseLeadRuntime, hostLeadRuntime, leadChildEnv, probeLeadRuntime, type LeadRuntime } from '../src/supervisor.js'
 import { CLIENT_METHODS } from '@harnessdesk/protocol'
@@ -116,6 +116,53 @@ test('runtime permission grants refuse spawning and opening an unrelated file', 
   } })
   try { diagnostics = await f.supervisor.send(request); assert.deepEqual(diagnostics, { status: 'completed', text: 'spawn:ERR_ACCESS_DENIED;read:ERR_ACCESS_DENIED' }) }
   finally { await f.supervisor.stop() }
+})
+
+for (const layout of ['nested', 'hoisted', 'ancestor-hoisted'] as const) test(`the restricted child loads ${layout} dependencies without reading neighbouring files`, async t => {
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-lead-layout-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const modules = join(scratch, 'node_modules')
+  const leadRoot = join(modules, layout === 'ancestor-hoisted' ? '@harnessdesk/server/node_modules/@harnessdesk/lead' : '@harnessdesk/lead')
+  const dependencies = layout === 'nested' ? join(leadRoot, 'node_modules') : modules
+  const ownRoot = fileURLToPath(new URL('../..', import.meta.url))
+  await mkdir(leadRoot, { recursive: true })
+  await cp(join(ownRoot, 'dist/src'), join(leadRoot, 'dist/src'), { recursive: true })
+  await cp(join(ownRoot, 'package.json'), join(leadRoot, 'package.json'))
+  for (const name of ['client', 'protocol']) {
+    const source = join(ownRoot, `node_modules/@harnessdesk/${name}`), target = join(dependencies, `@harnessdesk/${name}`)
+    await mkdir(target, { recursive: true })
+    await cp(join(source, 'dist'), join(target, 'dist'), { recursive: true })
+    await cp(join(source, 'package.json'), join(target, 'package.json'))
+  }
+  const wsRoot = dirname(fileURLToPath(import.meta.resolve('ws/package.json')))
+  await cp(wsRoot, join(dependencies, 'ws'), { recursive: true })
+  const unrelated = join(modules, 'unrelated/private.txt')
+  await mkdir(dirname(unrelated), { recursive: true }); await writeFile(unrelated, 'private fixture')
+  const { leadChildArgs } = await import(pathToFileURL(join(leadRoot, 'dist/src/runtime.js')).href)
+  const args = leadChildArgs()
+  const options = { encoding: 'utf8' as const, env: leadChildEnv(), timeout: 10_000 }
+  const loaded = spawnSync(process.execPath, args, { ...options, input: frame({ version: 1, type: 'shutdown' }) })
+  assert.equal(loaded.status, 0, `the real child must load before it can handle shutdown: ${loaded.stderr}`)
+  const probe = join(leadRoot, 'dist/src/layout-permissions.js')
+  await writeFile(probe, `import './child.js';
+    import { readFileSync } from 'node:fs';
+    import { spawnSync } from 'node:child_process';
+    import { connect } from 'node:net';
+    const denied = operation => { try { operation(); return 'allowed' } catch (error) { return error.code } };
+    const network = await new Promise(resolve => {
+      try { const socket = connect({ host: '127.0.0.1', port: 1 });
+        socket.once('error', error => resolve(error.code));
+        socket.once('connect', () => { socket.destroy(); resolve('allowed') });
+      } catch (error) { resolve(error.code) }
+    });
+    console.log(JSON.stringify({
+      read: denied(() => readFileSync(${JSON.stringify(unrelated)})),
+      spawn: denied(() => spawnSync(process.execPath, ['--version'])),
+      network,
+    }));`)
+  const restricted = spawnSync(process.execPath, [...args.slice(0, -1), probe], options)
+  assert.equal(restricted.status, 0, restricted.stderr)
+  assert.deepEqual(JSON.parse(restricted.stdout), { read: 'ERR_ACCESS_DENIED', spawn: 'ERR_ACCESS_DENIED', network: 'ERR_ACCESS_DENIED' })
 })
 
 const dispatchFixture = async (extra: any = {}) => {

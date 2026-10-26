@@ -19,7 +19,8 @@
  *
  * Last, the Node bundled for the Lead's child: it must be there, executable,
  * signed with the app's identity, and pass the Lead's capability probe run by
- * the probe code this build carries.
+ * the probe code this build carries. The real restricted child must also load
+ * its packaged dependencies and handle shutdown, without a provider request.
  *
  *   pnpm --filter @harnessdesk/desktop run pack
  *   pnpm --filter @harnessdesk/desktop run smoke   # [path/to/HarnessDesk.app]
@@ -280,8 +281,13 @@ try {
   const probeScript = join(home, 'lead-probe.mjs')
   writeFileSync(probeScript, [
     `const { probeLeadRuntime } = await import(${JSON.stringify(pathToFileURL(leadModule).href)})`,
+    `const { leadChildArgs, leadChildEnv } = await import(${JSON.stringify(new URL('./runtime.js', pathToFileURL(leadModule)).href)})`,
+    `const { encodeLeadFrame } = await import(${JSON.stringify(new URL('./child-ipc.js', pathToFileURL(leadModule)).href)})`,
+    "const { spawnSync } = await import('node:child_process')",
     `const own = await probeLeadRuntime({ binary: process.execPath, version: process.versions.node, electron: true, label: "this app's runtime" })`,
     `const bundled = await probeLeadRuntime({ binary: ${JSON.stringify(leadNode)}, version: ${JSON.stringify(LEAD_NODE.version)}, electron: false, label: 'the bundled runtime' })`,
+    `const loaded = spawnSync(${JSON.stringify(leadNode)}, leadChildArgs(), { env: leadChildEnv(process.env, false), encoding: 'utf8', timeout: 10_000, input: Buffer.from(encodeLeadFrame({ version: 1, type: 'shutdown' })) })`,
+    "if (loaded.status !== 0) throw new Error(`the bundled Lead child could not load its dependencies or handle shutdown: ${(loaded.stderr || loaded.error?.message || `exit ${loaded.status}`).slice(-1500)}`)",
     'process.stdout.write(JSON.stringify({ own, bundled, node: process.versions.node }))',
   ].join('\n'))
   // A freshly signed binary's first launch can wait on Gatekeeper; give it the app's own allowance.
@@ -291,6 +297,7 @@ try {
   console.log(`smoke: this app's runtime (Node ${verdict.node}) ${verdict.own.supported ? 'passes the Lead probe — the bundled Node is not needed' : `fails the Lead probe: ${verdict.own.reason}`}`)
   if (!verdict.bundled.supported) throw new Error(`the bundled Node fails the Lead probe: ${verdict.bundled.reason}`)
   console.log(`smoke: ok — the bundled Node ${LEAD_NODE.version} passes the Lead probe`)
+  console.log('smoke: ok — the restricted Lead child loads its packaged dependencies and handles shutdown')
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 } finally {
