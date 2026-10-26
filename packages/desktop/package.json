@@ -46,6 +46,7 @@
     "directories": {
       "output": "release"
     },
+    "beforePack": "./script/fetch-lead-node.mjs",
     "files": [
       "electron/**/*.mjs",
       "electron/**/*.cjs",
@@ -70,6 +71,14 @@
       {
         "from": "../../assets/brand/faces/384",
         "to": "faces/384"
+      },
+      {
+        "from": ".lead-node/${arch}",
+        "to": "lead-node",
+        "filter": [
+          "bin/node",
+          "LICENSE"
+        ]
       }
     ],
     "asarUnpack": [
@@ -97,6 +106,9 @@
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "binaries": [
+        "Contents/Resources/lead-node/bin/node"
+      ],
       "notarize": false,
       "gatekeeperAssess": false,
       "extendInfo": {

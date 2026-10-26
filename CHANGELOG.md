@@ -9,7 +9,9 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Sign in to your HarnessDesk account from Settings.** Approve the named desk in your browser, then manage its name, linked phones, sign-out and account deletion separately from agent accounts.
 
-- **The optional Lead plans and follows work from its own conversation.** Enable it on a Node 25+ host to review plans and allowances, steer workers, and follow reviewed pull requests and repair requests. The current desktop shows it as unavailable when enabled on its older embedded runtime.
+- **The optional Lead plans and follows work from its own conversation.** Enable it to review plans and allowances, steer workers, and follow reviewed pull requests and repair requests.
+
+- **Lead runs in the desktop app.** The app carries a Node 26 LTS for the Lead's restricted process and uses it when its own runtime cannot block that process's network. Where no runtime can, Lead says why it is unavailable.
 
 - **Pair a phone on the local network without an account link.** With local phone access enabled, Settings › Phone shows a code to scan; allow each phone at the desk and remove it from the same page.
 

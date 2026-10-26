@@ -150,6 +150,7 @@ import { LeadAssembly, leadProjectOf, leadPreviewUnfit, leadSeatable } from './l
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
@@ -488,6 +489,9 @@ export interface HostOptions {
   readonly leadEnabled?: boolean
   /** Replaces the fixed provider destination for the Lead's model requests; tests script it, the app never sets it. */
   readonly leadMessagesTransport?: MessagesTransport
+  /** The runtimes the Lead's child may run on, in order; the first to pass the capability probe is used.
+   * Absent is this host's own runtime. The desktop app adds the Node it bundles for the Lead alone. */
+  readonly leadRuntimes?: readonly LeadRuntime[]
   /** Public skill source transport and bounds; tests use temporary bare repositories. */
   readonly librarySources?: LibrarySourcesOptions
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
@@ -3605,6 +3609,8 @@ export class Host {
     const personActions = new LeadPersonActions(journal, this, this.#evidence, async value => { await this.#leadService!.assertPublic(value) })
     let leadPresence: LeadPresence | null = null
     this.#leadService = new LeadService({ ...options,
+      ...(this.options.leadRuntimes ? { runtimes: this.options.leadRuntimes } : {}),
+      onRuntimeUnavailable: reason => this.#logger.warn('Lead runtime unavailable', { reason }),
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
       readMemory: () => this.#leadPlanner().kept(),
       onRemember: lines => {

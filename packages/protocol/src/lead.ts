@@ -12,6 +12,8 @@ export const LEAD_LIMITS = {
   steps: 64, assignments: 64, assertions: 128, evidence: 128,
   rules: 128, variables: 64, messages: 256, cards: 64, rounds: 100,
   ipcBytes: 1_048_576,
+  /** Why no runtime passed the Lead's capability probe, for the person's window. */
+  unavailableReasonChars: 400,
   /** One million USD per field; even three attributed totals fit safely in an integer. */
   maxUsdMicros: 1_000_000_000_000,
 } as const
@@ -232,6 +234,8 @@ export interface LeadPullRequest {
 }
 export interface LeadSettingsProjection {
   readonly unavailable?: 'runtime'
+  /** Why no runtime passed the capability probe; present only with `unavailable`. */
+  readonly unavailableReason?: string
   readonly nameChosen?: boolean
   readonly name: LeadName
   readonly version: 1
@@ -687,10 +691,10 @@ export const migrateLeadThread: Validator<LeadThread> = (value, path = '') => {
   }
 }
 export const parseLeadSettingsProjection: Validator<LeadSettingsProjection> = omitUnset(object<LeadSettingsProjection>({
-  unavailable: optional(literalUnion('runtime')),
+  unavailable: optional(literalUnion('runtime')), unavailableReason: optional(text(LEAD_LIMITS.unavailableReasonChars)),
   version, name: literalUnion('dex', 'lex'), nameChosen: optional(isBoolean), model: opaque, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
   policy: parseLeadPermissionPolicy, caps: parseLeadCaps, follow: (value, path) => value === undefined ? { checks: true, reviews: true } : parseLeadFollowPreferences(value, path),
-}), ['nameChosen', 'unavailable'])
+}), ['nameChosen', 'unavailable', 'unavailableReason'])
 export const parseLeadHostProjection: Validator<LeadHostProjection> = object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection,
 })

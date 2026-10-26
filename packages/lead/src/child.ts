@@ -18,10 +18,24 @@ import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js
 import { LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
 
 const denied = () => new Error('lead-child-operation-failed')
+/** The socket the host connected, asked for once over the IPC channel and received as a handle; the channel
+ * then closes. Node 26 refuses `new Socket({ fd: 3 })` without a network grant, and accepts a passed handle. */
+const receiveDeskSocket = () => new Promise<Socket>((resolve, reject) => {
+  if (!process.send || !process.connected) { reject(denied()); return }
+  const timer = setTimeout(() => { done(); reject(denied()) }, 5000)
+  const done = () => { clearTimeout(timer); process.off('message', received); if (process.connected) process.disconnect?.() }
+  const received = (message: unknown, handle: unknown) => {
+    done()
+    if (handle instanceof Socket && (message as { type?: unknown } | null)?.type === 'desk') resolve(handle)
+    else { if (handle instanceof Socket) handle.destroy(); reject(denied()) }
+  }
+  process.on('message', received)
+  process.send({ type: 'desk' })
+})
 /** No path, discovery or fresh connect exists in the child. ws performs its
- * HTTP upgrade over the socket the host connected and passed as fd 3. */
+ * HTTP upgrade over the socket the host connected and handed over. */
 const inheritedDeskTransport = async (): Promise<ClientTransport> => {
-  const socket = new Socket({ fd: 3, readable: true, writable: true })
+  const socket = await receiveDeskSocket()
   const ws = new DeskWebSocket('ws://lead.invalid/client', { createConnection: () => socket, handshakeTimeout: 5000 })
   await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', () => reject(denied())) })
   const messages = new Set<(message: HostToClient) => void>(), closes = new Set<() => void>()

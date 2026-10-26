@@ -107,7 +107,7 @@ export class LeadControls {
     if (!policy || !budget) throw leadRefusal('lead-unavailable')
     const key = await this.options.service.status('anthropic')
     return parseLeadSettingsProjection({ version: 1, name: this.options.journal.state.name, nameChosen: this.options.journal.state.nameChosen, model: this.options.model,
-      ...(key.unavailable ? { unavailable: key.unavailable } : {}),
+      ...(key.unavailable ? { unavailable: key.unavailable, ...(key.unavailableReason ? { unavailableReason: key.unavailableReason } : {}) } : {}),
       follow: this.options.journal.state.follow, key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
   }
   async #projection(liveActions = true): Promise<LeadWindowProjection> {

@@ -1,7 +1,5 @@
 import { spawn as spawnProcess, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { connect, type Socket } from 'node:net'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, parseLeadCard, parseLeadMessage, parseLeadProactive,
   type LeadBudgetEvent, type LeadCard, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy, type LeadPresence, parseLeadPresence } from '@harnessdesk/protocol'
 import type { DeskPointer } from '@harnessdesk/client/node'
@@ -11,16 +9,23 @@ import type { LeadResolvedTool } from './tools.js'
 import type { LeadAcceptanceEvidence } from './acceptance.js'
 import type { LeadMessagesRequest, LeadMessagesResult, MessagesPrice, MessagesHttpResponse } from './messages-types.js'
 import { LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadRpcOperation } from './child-ipc.js'
+import { chooseLeadRuntime, hostLeadRuntime, leadChildArgs, leadChildEnv, type LeadRuntime, type LeadRuntimeChoice, type LeadRuntimeProber } from './runtime.js'
 
 export type { LeadChildBootstrap } from './child-ipc.js'
 import type { LeadChildBootstrap } from './child-ipc.js'
 /** Three 30-second transport attempts plus two bounded retry waits fit below this watchdog. */
 export const LEAD_SEND_DEADLINE_MS = 180_000
-export const leadChildRuntimeSupported = (version = process.versions.node): boolean => Number(version.split('.')[0]) >= 25
+export { cachedLeadRuntimeProbe, chooseLeadRuntime, hostLeadRuntime, leadChildEnv, probeLeadRuntime, LEAD_PROBE_TIMEOUT_MS } from './runtime.js'
+export type { LeadRuntime, LeadRuntimeChoice, LeadRuntimeProbe, LeadRuntimeProber } from './runtime.js'
+
+/** Thrown when no candidate runtime passes the probe; `reason` says why, for the person and the log. */
+export const leadRuntimeUnsupported = (reason: string) => Object.assign(new Error('lead-runtime-unsupported'), { wireCode: 'lead-runtime-unsupported' as const, reason })
 
 export interface LeadSupervisorOptions {
-  /** Test seam for the Node runtime embedded in the host executable. */
-  readonly runtimeVersion?: string
+  /** The runtimes the child may run on, in order of preference; absent is this host's own. */
+  readonly runtimes?: readonly LeadRuntime[]
+  /** Test seam for the capability probe; absent is the real, cached one. */
+  readonly probeRuntime?: LeadRuntimeProber
   readonly bootstrap: (signal: AbortSignal) => Promise<LeadChildBootstrap>
   readonly journal: LeadJournal
   readonly resolveTool: (call: LeadPermissionCall) => Promise<LeadResolvedTool>
@@ -41,7 +46,7 @@ export interface LeadSupervisorOptions {
   readonly startupMs?: number
   readonly shutdownMs?: number
   /** Test injection retains the exact production argv/environment construction. */
-  readonly spawn?: (binary: string, args: readonly string[], options: { env: Record<string, string>; stdio: ['pipe', 'pipe', 'pipe', Socket] | ['pipe', 'pipe', 'pipe']; windowsHide: boolean }) => ChildProcessWithoutNullStreams
+  readonly spawn?: (binary: string, args: readonly string[], options: { env: Record<string, string>; stdio: ['pipe', 'pipe', 'pipe', 'ipc'] | ['pipe', 'pipe', 'pipe']; windowsHide: boolean }) => ChildProcessWithoutNullStreams
 }
 type Deferred = { resolve(value: unknown): void; reject(error: Error): void }
 interface Running {
@@ -63,16 +68,6 @@ interface Running {
   markReady(): void
 }
 const error = (code: string) => new Error(`lead-child-${code}`)
-/** The child's whole environment. Locale and TLS trust use OS defaults. In particular NODE_OPTIONS, PATH,
- * vendor keys, home-directory markers and proxy variables never cross. Inside the desktop app the host is
- * Electron, so `process.execPath` is the Electron binary: without ELECTRON_RUN_AS_NODE it starts a second app
- * instead of running child.js, and the Lead's child exits before its first request. */
-export const leadChildEnv = (source: NodeJS.ProcessEnv = process.env, versions: NodeJS.ProcessVersions = process.versions): Record<string, string> => {
-  const env: Record<string, string> = {}
-  for (const name of ['LANG', 'LC_ALL', 'TZ']) if (source[name]) env[name] = source[name]!
-  if (versions['electron']) env['ELECTRON_RUN_AS_NODE'] = '1'
-  return env
-}
 const callFrom = (value: unknown): LeadPermissionCall => {
   const source = ipcObject(value, ['method', 'params'])
   const parsed = parseClientMessage({ id: 1, method: source.method, params: source.params })
@@ -81,22 +76,6 @@ const callFrom = (value: unknown): LeadPermissionCall => {
 const write = (running: Running, message: Omit<LeadIpcMessage, 'version'>) => {
   if (running.exited || running.poisoned) throw error('exited')
   running.child.stdin.write(encodeLeadFrame({ version: 1, ...message }))
-}
-/** Read the exact package trees needed by the ESM/client loader. No repository,
- * home, journal, credential directory, generic node_modules or write grant. */
-const readGrants = (): readonly string[] => {
-  const leadDist = dirname(dirname(fileURLToPath(import.meta.url))), leadRoot = dirname(leadDist)
-  // --preserve-symlinks keeps dependency reads at these exact package paths,
-  // including pnpm's links, without needing a repository-wide node_modules grant.
-  const client = join(leadRoot, 'node_modules/@harnessdesk/client')
-  const protocol = join(leadRoot, 'node_modules/@harnessdesk/protocol')
-  return [
-    leadDist, join(leadRoot, 'package.json'), // This child's compiled implementation and package format.
-    join(client, 'dist'), join(client, 'package.json'), // Public desk client implementation and package format.
-    join(protocol, 'dist'), join(protocol, 'package.json'), // Portable vocabulary and wire validators.
-    join(client, 'node_modules/@harnessdesk/protocol'), // The client's exact protocol dependency link.
-    join(leadRoot, 'node_modules/ws'), // Only the WebSocket dependency and its own relative modules.
-  ]
 }
 /** Owns one pid. The host-only key is never written to child input or a field; no IPC
  * payload, provider error, stderr chunk or process error is ever logged. */
@@ -109,20 +88,28 @@ export class LeadSupervisor {
   #generation = 0
   constructor(private readonly options: LeadSupervisorOptions) {}
   get live(): boolean { return this.#running !== null && !this.#running.exited }
-  ensure(): Promise<void> {
-    if (!leadChildRuntimeSupported(this.options.runtimeVersion)) return Promise.reject(Object.assign(new Error('lead-runtime-unsupported'), { wireCode: 'lead-runtime-unsupported' }))
+  /** The runtime the child would start on, or why there is none. Probing is cached per binary and version. */
+  runtime(): Promise<LeadRuntimeChoice> {
+    return chooseLeadRuntime(this.options.runtimes ?? [hostLeadRuntime()], this.options.probeRuntime)
+  }
+  async ensure(): Promise<void> {
+    const choice = await this.runtime()
+    if (!choice.runtime) throw leadRuntimeUnsupported(choice.reason)
+    return this.#ensure(choice.runtime)
+  }
+  #ensure(runtime: LeadRuntime): Promise<void> {
     if (this.#stopping) return Promise.reject(error('stopping'))
     if (this.#starting) return this.#starting
     if (this.#launching) return Promise.reject(error('bootstrap-active'))
     if (this.live) return Promise.resolve()
-    if (this.#running) return this.#running.done.then(() => this.ensure())
+    if (this.#running) return this.#running.done.then(() => this.#ensure(runtime))
     const generation = this.#generation
-    const work = this.#start(generation)
+    const work = this.#start(generation, runtime)
     this.#starting = work
     void work.finally(() => { if (this.#starting === work) this.#starting = null }).catch(() => {})
     return work
   }
-  async #start(generation: number): Promise<void> {
+  async #start(generation: number, runtime: LeadRuntime): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined
     const controller = new AbortController(); this.#startAbort = controller
     const deadline = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => {
@@ -134,14 +121,10 @@ export class LeadSupervisor {
       const config = await this.options.bootstrap(controller.signal)
       if (generation !== this.#generation || this.#stopping) throw error('stopping')
       ipcText(config.key, 8192)
-      const env = leadChildEnv()
-      // No network grant: only the inherited, connected fd 3 reaches the desk.
-      // Residual: process.kill is outside Node's permission model; child code
-      // can still signal same-user processes.
-      // Explicit denial is also a runtime floor: Node before 25 rejects this
-      // flag rather than starting a child with unrestricted network access.
-      const args = ['--permission', '--no-allow-net', '--no-addons', '--preserve-symlinks', ...readGrants().map(path => `--allow-fs-read=${path}`),
-        fileURLToPath(new URL('./child.js', import.meta.url))]
+      const env = leadChildEnv(process.env, runtime.electron)
+      // The same flags the probe passed with: a runtime whose permission model does
+      // not block the network never gets here (runtime.ts).
+      const args = leadChildArgs()
       const socket = await (this.options.connectDesk ?? ((descriptor, signal) => new Promise<Socket>((resolve, reject) => {
         const connection = connect({ path: descriptor.socketPath, signal })
         connection.once('connect', () => resolve(connection))
@@ -150,10 +133,10 @@ export class LeadSupervisor {
       let child: ChildProcessWithoutNullStreams
       try {
         if (generation !== this.#generation || this.#stopping) throw error('stopping')
-        child = (this.options.spawn ?? spawnProcess)(process.execPath, args, { env,
-          stdio: socket ? ['pipe', 'pipe', 'pipe', socket] : ['pipe', 'pipe', 'pipe'], windowsHide: true }) as ChildProcessWithoutNullStreams
-      } catch { throw error('spawn-failed') }
-      finally { socket?.destroy() }
+        child = (this.options.spawn ?? spawnProcess)(runtime.binary, args, { env,
+          stdio: socket ? ['pipe', 'pipe', 'pipe', 'ipc'] : ['pipe', 'pipe', 'pipe'], windowsHide: true }) as ChildProcessWithoutNullStreams
+      } catch { socket?.destroy(); throw error('spawn-failed') }
+      if (socket) this.#handDesk(child, socket)
       let finish!: () => void, markReady!: () => void, failReady!: (error: Error) => void
       const done = new Promise<void>(resolve => { finish = resolve })
       const ready = new Promise<void>((resolve, reject) => { markReady = resolve; failReady = reject })
@@ -194,6 +177,17 @@ export class LeadSupervisor {
       if (this.#startAbort === controller) this.#startAbort = null
     }).catch(() => {})
     try { await Promise.race([launched, deadline]) } finally { if (timer) clearTimeout(timer) }
+  }
+  /** The connected desk socket crosses as a handle on the IPC channel, once, when the child asks; then the
+   * channel closes. Under --permission without a network grant, Node 26 refuses a socket the child builds on
+   * an inherited fd above 2, and accepts one handed over this way. Anything else on the channel ends the child. */
+  #handDesk(child: ChildProcessWithoutNullStreams, socket: Socket): void {
+    const close = () => { socket.destroy(); if (child.connected) child.disconnect() }
+    child.once('exit', close)
+    child.once('message', (message: unknown) => {
+      if (!message || typeof message !== 'object' || (message as { type?: unknown }).type !== 'desk') { close(); child.kill('SIGKILL'); return }
+      try { child.send({ type: 'desk' }, socket, { keepOpen: false }, close) } catch { close() }
+    })
   }
   #receive(running: Running, message: LeadIpcMessage): void {
     if (running.poisoned || running.exited) throw error('protocol')

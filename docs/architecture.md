@@ -827,18 +827,35 @@ Capture does bounded work, and none when nothing it reads has changed. The reade
 
 An association needs a locally observed diff fact, a matching checkout and a compatible Seat lifetime. Reconciliation adds links to immutable original observations; it does not move checks or reviews to a rewritten commit. Capture preferences belong to this machine, default to on, and are shared by a project's linked checkouts.
 
-## Lead child runtime floor
+## Lead child runtime
 
-The optional Lead child requires Node 25 or newer and runs with
-`--permission --no-allow-net`. Older hosts, including the current desktop's Node 24.19,
-report Lead as unavailable before starting it; the desk stays usable.
-CI jobs that exercise the child or its permission probe use Node 25.
+The optional Lead child runs with `--permission --no-allow-net --no-addons
+--preserve-symlinks` and read grants for its own packages. Which binary runs it
+is decided by a capability probe (`packages/lead/src/runtime.ts`): each
+candidate is started with exactly those flags and environment and tries a
+loopback TCP connect to a listener the host owns. A refusal by the permission
+model (`ERR_ACCESS_DENIED`) passes; a connect that goes through, a rejected
+flag, a crash, a version other than the one claimed, or no answer within ten
+seconds fails, with a short reason. The result is cached per binary path and
+version for the host's lifetime.
+
+The desktop offers two candidates, in order (`packages/desktop/electron/lead-runtime.mjs`):
+its own Electron runtime, run as Node, and a Node 26 LTS shipped in
+`Contents/Resources/lead-node` for this child alone. The bundled binary is
+downloaded at pack time from nodejs.org, checked against a pinned SHA-256, and
+signed with the app. A standalone host offers only itself. With no candidate
+passing, the settings projection carries `unavailable: runtime` and
+`unavailableReason`; the UI shows both, disables the composer and Send, and
+refuses Restart, and the host logs the reason once. The supervisor never
+starts an unrestricted child instead.
+
+The desk reaches the child as one connected socket. The child asks for it over
+a Node IPC channel, receives it as a handle, and both sides close the channel:
+Node 26 refuses a socket built on an inherited descriptor above 2 without a
+network grant. CI jobs that exercise the child or its permission probe use
+Node 26.
 
 Lead is off by default and enabled at startup with `HARNESSDESK_LEAD=1`.
-On the desktop's unsupported runtime its settings projection carries
-`unavailable: runtime`; the UI explains the floor, disables the composer and
-Send, and refuses Restart. The supervisor checks the floor before spawning;
-no unrestricted child replaces it.
 
 ## Independent LAN phone pairing
 
