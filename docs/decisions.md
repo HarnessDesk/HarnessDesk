@@ -1558,6 +1558,16 @@ The private view capture reads through is a folder in the state directory. Whoev
 
 ## Passive provenance starts at the project and Seat window
 
+Provenance replay and appends also have a 64 MiB journal budget. Line-bounded
+streaming still retained every decoded historical observation: a multi-gigabyte
+journal could exhaust the desktop heap while checksumming or serializing an
+otherwise small record. The journal now refuses oversized replay before
+decoding, checks for growth during streaming, and refuses an append that would
+cross the budget. Capture stops for that project, with the original history
+left in place. Normal local work continues. This is a safe refusal, not a
+retention policy: no observation is pruned or silently replaced by a partial
+history, and retries cannot append onto an unread prefix.
+
 Capture walks back to the earlier of the project's first capture opening and
 its earliest local Seat opening, minus one day for clock skew. The opening and
 floor survive in the checkpoint. Older desks recover the opening from their

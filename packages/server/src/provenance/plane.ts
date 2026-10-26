@@ -12,7 +12,7 @@ import { sameCanonicalPath } from '../path-identity.js'
 import { exportProvenance, importProvenance } from './backup.js'
 import { admitProject, gitReader, oid, releaseProject, sweepViews, type GitReader, type ReaderOptions, type RepoHandle } from './git.js'
 import { captureHealth } from './health.js'
-import { digest, object, ProvenanceJournal, readCheckpoint, type JournalEntry } from './journal.js'
+import { digest, object, ProvenanceJournal, ProvenanceJournalLimitError, readCheckpoint, type JournalEntry } from './journal.js'
 import { RefObserver, type WorkerCheckpoint } from './observer.js'
 import { ProvenancePreferences } from './preferences.js'
 import {
@@ -314,7 +314,7 @@ export class ProvenancePlane {
         outsideWindow: (sha) => { state.pending.delete(sha); state.excluded.add(sha) },
         changed: () => {
           void this.#load(state).then(() => { state.catchingUp = false; this.#publish(state) })
-            .catch(() => this.#problem(state, 'stopped', 'storage-failed'))
+            .catch((error) => this.#problem(state, 'stopped', error instanceof ProvenanceJournalLimitError ? 'journal-limit-exceeded' : 'storage-failed'))
         },
         problem: (kind, reason) => this.#problem(state, kind, reason),
         reconcile: (entries, checkpoint, signal) => this.#reconcile(state, entries, checkpoint, git, signal),
@@ -322,12 +322,12 @@ export class ProvenancePlane {
       state.observer = observer
       await observer.start(state.handle, checkpoint)
       if (this.#closed) await this.#stop(state)
-    } catch {
+    } catch (error) {
       if (!state.observer) {
         await this.#release(state.handle)
         state.handle = null
       }
-      this.#problem(state, 'stopped', 'storage-failed')
+      this.#problem(state, 'stopped', error instanceof ProvenanceJournalLimitError ? 'journal-limit-exceeded' : 'storage-failed')
     }
   }
 

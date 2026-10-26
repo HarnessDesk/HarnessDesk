@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, open, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -11,6 +11,7 @@ import { EvidenceStore } from '../src/evidence/store.js'
 import type { HostContext } from '../src/methods/context.js'
 import { provenanceMethods } from '../src/methods/provenance.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
+import { JOURNAL_BYTE_LIMIT } from '../src/provenance/journal.js'
 import { makeRepo } from './fixtures/provenance-repo.js'
 import { Host, serve } from '../src/index.js'
 import { Logger } from '../src/log.js'
@@ -139,6 +140,33 @@ test('Host.call reaches the real built provenance context without starting a run
   } finally {
     await host.dispose()
   }
+})
+
+test('an oversized capture history stops only that project and leaves account status usable', async () => {
+  const repo = await makeRepo()
+  const store = new EvidenceStore(join(repo.stateDir, 'evidence'))
+  const folder = store.folderOf(repo.dir)
+  await mkdir(folder, { recursive: true })
+  const file = join(folder, 'provenance.ndjson')
+  const handle = await open(file, 'w')
+  try { await handle.truncate(JOURNAL_BYTE_LIMIT + 1) } finally { await handle.close() }
+  const host = new Host({ state: new StateStore(join(repo.stateDir, 'state.json')),
+    logger: new Logger('test', { level: 'error', console: false }), catalogRefreshMs: 0 })
+  try {
+    await host.start()
+    await host.call('workspace/open', { path: repo.dir })
+    const deadline = Date.now() + 10_000
+    let status: readonly CaptureHealth[] = []
+    while (Date.now() < deadline) {
+      status = await host.call('provenance/status', { root: repo.dir }).catch(() => [])
+      if (status[0]?.state === 'stopped') break
+      await delay(20)
+    }
+    assert.equal(status[0]?.reason, "This project's saved capture history is too large to load safely.")
+    assert.match(status[0]!.nextStep, /saved observations were kept/i)
+    assert.equal((await host.call('account/status', {})).status, 'signedOut')
+    assert.equal((await stat(file)).size, JOURNAL_BYTE_LIMIT + 1)
+  } finally { await host.dispose() }
 })
 
 test('a linked-only workspace captures through its canonical project controls', async () => {

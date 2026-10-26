@@ -131,7 +131,7 @@ export class RefObserver {
     this.#queue = new Coalesced((signal) => this.#scan(signal), (error) => {
       const reason = (error as Error).message
       options.problem(reason.startsWith('provenance-') ? 'stopped' : 'degraded',
-        reason.includes('limit') ? 'limit-exceeded' : reason.startsWith('provenance-') ? 'storage-failed' : 'history-gap')
+        reason.includes('journal-limit') ? 'journal-limit-exceeded' : reason.includes('limit') ? 'limit-exceeded' : reason.startsWith('provenance-') ? 'storage-failed' : 'history-gap')
     })
   }
 

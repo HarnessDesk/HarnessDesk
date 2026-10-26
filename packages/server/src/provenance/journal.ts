@@ -29,6 +29,11 @@ export interface JournalReadOptions {
   readonly slices?: SliceOptions
 }
 export const JOURNAL_LIMIT = 64 * 1024
+/** Replay retains decoded observations; a line limit alone does not bound that heap. */
+export const JOURNAL_BYTE_LIMIT = 64 * 1024 * 1024
+export class ProvenanceJournalLimitError extends Error {
+  constructor() { super('provenance-journal-limit'); this.name = 'ProvenanceJournalLimitError' }
+}
 export const digest = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex')
 export const object = (value: unknown): value is Record<string, unknown> =>
@@ -140,8 +145,15 @@ export class ProvenanceJournal {
     const cursors = new Map<number, JournalEntry>()
     const positions = new Map<number, { position: number; length: number }>()
     let position = 0
+    let consumed = 0
     try {
+      // Refuse before decoding or compacting a history that cannot fit the
+      // background budget. Its original bytes remain available for repair.
+      if ((await fs.stat(this.#file)).size > JOURNAL_BYTE_LIMIT) throw new ProvenanceJournalLimitError()
       for await (const bytes of createReadStream(this.#file, { highWaterMark: 16 * 1024 })) {
+        consumed += bytes.length
+        // A file may grow after stat; enforce the same bound while reading.
+        if (consumed > JOURNAL_BYTE_LIMIT) throw new ProvenanceJournalLimitError()
         pending = Buffer.concat([pending, bytes as Buffer])
         let end: number
         while ((end = pending.indexOf(10)) >= 0) {
@@ -186,6 +198,11 @@ export class ProvenanceJournal {
       }
       if (pending.length) throw new Error('journal-torn-tail')
     } catch (error) {
+      if (error instanceof ProvenanceJournalLimitError) {
+        this.#entries = []
+        this.#ids.clear()
+        throw error
+      }
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.#broken = true
     }
     if (this.#compactOnOpen) {
@@ -252,6 +269,7 @@ export class ProvenanceJournal {
       await fs.mkdir(dirname(this.#file), { recursive: true, mode: 0o700 })
       const file = await fs.open(this.#file, 'a', 0o600)
       try {
+        if ((await file.stat()).size + bytes.length > JOURNAL_BYTE_LIMIT) throw new ProvenanceJournalLimitError()
         if ((await file.write(bytes)).bytesWritten !== bytes.length) throw new Error('provenance-short-write')
         await file.sync()
       } finally {

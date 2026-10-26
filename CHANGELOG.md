@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A large saved attribution history no longer crashes the desktop.** Capture pauses for a project whose history exceeds its background budget, keeping the saved observations and leaving sign-in and normal conversations available.
+
 - **Account sign-in says when the service is unavailable.** A server failure now explains that the account service is unavailable and asks you to try later, instead of reporting that the desk could not reach your account.
 
 - **Source builds can sign in against staging.** `pnpm app:staging` launches a separate local desk with the staging account service selected explicitly.

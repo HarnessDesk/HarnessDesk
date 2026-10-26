@@ -18,6 +18,43 @@ const health = (over: Partial<HealthInput> = {}) => captureHealth({
   checkedAt: 10, lastCapturedAt: 9, pending: 0, gaps: 0, revision: 1, ...over,
 })
 
+test('an oversized journal is refused before replay or compaction without changing its bytes', async () => {
+  const file = join(tempDir('journal-size-'), 'provenance.ndjson')
+  await new ProvenanceJournal(file).append('gap', gap())
+  const prefix = await fs.readFile(file)
+  const handle = await fs.open(file, 'r+')
+  try { await handle.truncate(64 * 1024 * 1024 + 1) } finally { await handle.close() }
+  const journal = new ProvenanceJournal(file, { compactOnOpen: true })
+  await assert.rejects(journal.read(), /provenance-journal-limit/)
+  await assert.rejects(journal.append('gap', gap('later')), /provenance-journal-limit/)
+  await assert.rejects(journal.compact(true), /provenance-journal-limit/)
+  assert.equal((await fs.stat(file)).size, 64 * 1024 * 1024 + 1)
+  const reader = await fs.open(file, 'r')
+  try {
+    const bytes = Buffer.alloc(prefix.length)
+    await reader.read(bytes, 0, bytes.length, 0)
+    assert.deepEqual(bytes, prefix)
+  } finally { await reader.close() }
+})
+
+test('a loaded journal refuses an append that would grow its durable file beyond the budget', async () => {
+  const file = join(tempDir('journal-growth-'), 'provenance.ndjson')
+  const journal = new ProvenanceJournal(file)
+  await journal.append('gap', gap())
+  const handle = await fs.open(file, 'r+')
+  try { await handle.truncate(64 * 1024 * 1024) } finally { await handle.close() }
+  await assert.rejects(journal.append('gap', gap('later')), /provenance-journal-limit/)
+  assert.equal((await fs.stat(file)).size, 64 * 1024 * 1024)
+  assert.equal((await journal.read({ copy: 'shallow' })).entries.length, 1)
+})
+
+test('a journal memory limit is reported as stopped capture with preserved history', () => {
+  const status = health({ fatal: true, issues: ['journal-limit-exceeded'] })
+  assert.equal(status.state, 'stopped')
+  assert.equal(status.reason, "This project's saved capture history is too large to load safely.")
+  assert.match(status.nextStep, /saved observations were kept/i)
+})
+
 test('serialized observations and chunked checkpoints replay in durable prefix order', async () => {
   const file = join(tempDir('journal-'), 'provenance.ndjson')
   const journal = new ProvenanceJournal(file)

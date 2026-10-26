@@ -1567,6 +1567,12 @@ History shows an associated Agent's recorded name beside its runtime's mark. A c
 
 Workspaces › a project › Provenance controls capture on this machine. It starts on and shows healthy, degraded or stopped capture with the host's reason and next step. The setting changes on screen after it is saved; Retry does not turn capture on. Stopped or degraded capture appears in the project's menu, with Retry while capture is on or Turn on while it is off. Only stopped capture adds a quiet Capture stopped chip to the project row; hover or focus makes room for its actions. A plain conversation and its header are unchanged.
 
+A saved capture history over 64 MiB stops that project's capture before
+replay. The reason says the history is too large to load safely; the next
+step confirms that saved observations were kept and local work can continue.
+Retry preserves the same refusal until the journal fits the budget. The
+desktop never deletes observations to make it fit.
+
 ## Goals and retained lanes
 
 Projects list active Goals alongside loose conversations; completed work stays
