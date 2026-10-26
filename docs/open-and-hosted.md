@@ -49,11 +49,19 @@ service. By default, account sign-in uses `https://app.harnessdesk.app`;
 Each origin has its own encrypted desk identity. Use the intended environment
 explicitly; the desktop does not fall back to a different service on failure.
 
+For local development against the staging account service, run
+`pnpm app:staging`. It uses a separate `~/.harnessdesk-staging` desk by
+default, with an Electron profile under that desk, so an already-running
+production app cannot intercept the launch.
+An explicit `HARNESSDESK_HOME` overrides that staging desk directory. To
+choose another service, set `HARNESSDESK_CLOUD_URL` explicitly when running
+`pnpm app`. Ordinary `pnpm app` and packaged builds keep the production default.
+
 An HTTP 503 from `POST /v1/desk/challenge` means the service is unavailable.
 If its response says the service is not configured, the hosted environment
 needs its own database binding and signing/challenge secrets initialized by
 the service operator. A working static sign-in page does not establish that
-the account API is ready. The desktop reports service errors separately from
+the account API is ready. Sign-in reports service errors separately from
 a request that could not reach the service; rebuilding or deleting local
 credentials cannot repair missing hosted configuration.
 
