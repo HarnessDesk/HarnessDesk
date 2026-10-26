@@ -2173,10 +2173,11 @@ no completion badge, activity, glow or motion.
 ## Lead
 
 Lead is off by default; `HARNESSDESK_LEAD=1` enables it at startup. Its child
-requires Node 25+. The current desktop's older embedded runtime reports Lead
-unavailable when enabled: a banner explains the requirement, the composer and
-Send are disabled, and Restart has the same reason. Ordinary sessions and
-Settings remain usable.
+needs a runtime whose permission model blocks the network; the desktop app
+carries one. Where no runtime passes the host's probe, Lead reports unavailable:
+a banner explains the requirement and gives the probe's reason, the composer and
+Send are disabled, and Restart is refused. Ordinary sessions and Settings
+remain usable.
 
 When the host enables Lead, its chosen name, Dex or Lex, opens the conversation
 pane from the sidebar (hover title: Lead). Lead uses the same window shell,

@@ -4473,15 +4473,47 @@ writes are not replayed blindly; recovered pushes require the matching remote
 head and a recorded successful outcome before the Lead can adopt them.
 
 
-## Lead checks its child runtime before it starts — 2026-10-25
+## Lead probes its child runtime, and the desktop bundles a Node LTS for it — 2026-10-26
 
-Lead's restricted child uses Node's explicit network denial and requires
-Node 25+. Its supervisor refuses an older host before spawn; the settings
-projection reports `unavailable: runtime` and the conversation disables sending
-and restarting with the same reason. The current desktop embeds an older
-runtime, so enabling Lead there displays that state. CI exercises the child
-and its permission probe with Node 25. The package's Node 22.19 floor remains
-unchanged and other CI jobs exercise Node 22.
+Lead's restricted child runs with `--permission --no-allow-net` and must never
+start with network access. Which runtime runs it is decided by a capability
+probe, not a version number: each candidate is started with the Lead's exact
+flags and environment and tries a loopback TCP connect. Only a refusal by the
+permission model (`ERR_ACCESS_DENIED`) passes; a connect that goes through, a
+rejected flag, a crash, a mismatched version or a timeout fails with a short
+reason, which the settings projection carries as `unavailableReason`, the
+conversation shows, and the host logs once. Results are cached per binary path
+and version.
+
+**Why a probe.** A major-version check says what a release promised, not what
+this binary does: Electron's Node, a distribution's build and a future release
+can each differ from upstream at the same major. The probe asks the one
+question the Lead depends on, network blocked by the permission model, of the
+binary that will run it, and its answer is also the reason shown when it fails.
+
+**Why a bundled LTS.** On the desktop the child ran under Electron's own Node
+(`ELECTRON_RUN_AS_NODE`), and Electron 42 ships Node 24, which rejects
+`--no-allow-net`. The app therefore carries an exact Node 26 release for this
+child alone, fetched from nodejs.org at pack time, checked against a SHA-256
+pinned in `packages/desktop/electron/lead-runtime.mjs`, and signed with the app.
+Electron's own runtime is still probed first; the bundled copy is used only
+when it fails, and goes away once the minimum supported Electron passes. Node 26
+becomes LTS on 2026-10-28 and is supported until 2029-04, which covers the
+releases the app will ship before Electron's Node catches up.
+
+**Why not Node 25.** It has reached end of life. Bundling or testing on it would
+pin the app to a runtime that receives no further fixes.
+
+**The desk handoff.** Node 26 refuses a socket built on an inherited descriptor
+above 2 without a network grant, so the desk no longer arrives as fd 3: the
+child asks over a Node IPC channel, receives the connected socket as a handle,
+and both sides close the channel. Anything else on that channel ends the child.
+
+CI exercises the child and its probe with Node 26. The package's Node 22.19
+floor remains unchanged and other CI jobs exercise Node 22.
+
+**Rule:** gate the Lead's child on the probe's answer for the binary that will
+run it, never on a version number; never start it on a runtime that failed.
 
 ## Account identity and LAN phone pairing have separate lifetimes — 2026-10-25
 

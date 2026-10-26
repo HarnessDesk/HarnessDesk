@@ -17,9 +17,10 @@ and requires pairing again. No HarnessDesk account link is needed. The
 account's Reachable from your phone switch only stores a preference in this
 build; it does not establish a relay connection.
 
-Lead is separately enabled at startup with `HARNESSDESK_LEAD=1`. It requires
-Node 25+ for its child process. On the current desktop's older embedded
-runtime, an enabled Lead shows an unavailable reason and disables sending.
+Lead is separately enabled at startup with `HARNESSDESK_LEAD=1`. Its child
+process needs a runtime whose permission model blocks the network: the desktop
+app carries one, and a standalone host needs Node 26. Where none passes, an
+enabled Lead shows the reason it is unavailable and disables sending.
 A compatible host offers plan approval, allowances, worker questions and
 required checks in the Lead conversation. Ordinary sessions remain available.
 

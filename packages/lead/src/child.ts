@@ -15,13 +15,27 @@ import { leadBudgetProjection } from './budget.js'
 import { parseLeadSeatChoices } from './instructions.js'
 import { createLeadTools, type LeadResolvedTool } from './tools.js'
 import type { LeadMessagesRequest, MessagesTransport } from './messages-types.js'
-import { LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
+import { LEAD_PROBE_PREFIX, LeadFrameDecoder, encodeLeadFrame, ipcObject, ipcText, type LeadIpcMessage, type LeadJournalPort, type LeadRpcOperation } from './child-ipc.js'
 
 const denied = () => new Error('lead-child-operation-failed')
+/** The socket the host connected, asked for once over the IPC channel and received as a handle; the channel
+ * then closes. Node 26 refuses `new Socket({ fd: 3 })` without a network grant, and accepts a passed handle. */
+const receiveDeskSocket = () => new Promise<Socket>((resolve, reject) => {
+  if (!process.send || !process.connected) { reject(denied()); return }
+  const timer = setTimeout(() => { done(); reject(denied()) }, 5000)
+  const done = () => { clearTimeout(timer); process.off('message', received); if (process.connected) process.disconnect?.() }
+  const received = (message: unknown, handle: unknown) => {
+    done()
+    if (handle instanceof Socket && (message as { type?: unknown } | null)?.type === 'desk') resolve(handle)
+    else { if (handle instanceof Socket) handle.destroy(); reject(denied()) }
+  }
+  process.on('message', received)
+  process.send({ type: 'desk' })
+})
 /** No path, discovery or fresh connect exists in the child. ws performs its
- * HTTP upgrade over the socket the host connected and passed as fd 3. */
+ * HTTP upgrade over the socket the host connected and handed over. */
 const inheritedDeskTransport = async (): Promise<ClientTransport> => {
-  const socket = new Socket({ fd: 3, readable: true, writable: true })
+  const socket = await receiveDeskSocket()
   const ws = new DeskWebSocket('ws://lead.invalid/client', { createConnection: () => socket, handshakeTimeout: 5000 })
   await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', () => reject(denied())) })
   const messages = new Set<(message: HostToClient) => void>(), closes = new Set<() => void>()
@@ -234,9 +248,24 @@ export const runLeadChild = (options: ChildOptions = {}) => {
   output.once('error', fail)
   return { close }
 }
+/** The supervisor's capability probe: with its whole module graph loaded under the Lead's flags, the child reports
+ * what a loopback connect to the prober's port gets. A permission model that blocks the network refuses it with
+ * ERR_ACCESS_DENIED before any packet leaves. */
+const answerLeadProbe = (port: number) => {
+  const report = (outcome: string) => {
+    process.stdout.write(`${LEAD_PROBE_PREFIX}${JSON.stringify({ version: process.version, outcome })}\n`, () => process.exit(0))
+  }
+  try {
+    const socket = new Socket()
+    socket.once('connect', () => { socket.destroy(); report('connected') })
+    socket.once('error', (error: NodeJS.ErrnoException) => report(error.code ?? 'error'))
+    socket.connect({ host: '127.0.0.1', port })
+  } catch (error) { report((error as NodeJS.ErrnoException).code ?? 'error') }
+}
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // Never let an unhandled provider/runtime stack expose its key on stderr.
   process.on('uncaughtException', () => process.exit(1))
   process.on('unhandledRejection', () => process.exit(1))
-  runLeadChild()
+  if (process.argv[2] === 'probe') answerLeadProbe(Number(process.argv[3]))
+  else runLeadChild()
 }

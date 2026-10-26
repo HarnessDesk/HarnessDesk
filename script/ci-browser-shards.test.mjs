@@ -224,14 +224,14 @@ test('only heavy UI jobs are conditional; required check names stay conclusive',
   }
 })
 
-test('Lead runs on Node 25 separately from the Node 22 floor jobs', () => {
+test('Lead runs on Node 26 separately from the Node 22 floor jobs', () => {
   for (const part of ['node-tests', 'node-e2e']) {
     assert.match(job(part), /^          node-version: 22$/m)
     assert.doesNotMatch(job(part), /name: Lead end-to-end tests/)
     assert.match(job(part), /sudo apt-get update && sudo apt-get install --yes zsh/)
   }
   const lead = job('lead-e2e')
-  assert.match(lead, /^          node-version: 25$/m)
+  assert.match(lead, /^          node-version: 26$/m)
   assert.match(lead, /^    timeout-minutes: 40$/m)
   assert.match(lead, /sudo apt-get update && sudo apt-get install --yes zsh/)
   assert.match(lead, /name: Lead end-to-end tests/)

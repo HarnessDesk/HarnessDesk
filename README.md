@@ -194,10 +194,11 @@ Settings › Permissions controls Git write steering and its project overrides;
 the Git record shows gateway writes and observed outside heads.
 
 Lead is an optional conversation for planning work, approving its allowances
-and following workers, checks and reviews. It requires a host running Node 25+
-and the startup opt-in `HARNESSDESK_LEAD=1`. The current desktop embeds an older
-runtime and shows Lead as unavailable when enabled; ordinary sessions remain
-usable. See [the interface](docs/interface.md#lead).
+and following workers, checks and reviews. It needs the startup opt-in
+`HARNESSDESK_LEAD=1` and a runtime whose permission model blocks the network for
+its child: a standalone host on Node 26, or the desktop app, which carries one.
+Where no runtime passes, Lead shows as unavailable with the reason; ordinary
+sessions remain usable. See [the interface](docs/interface.md#lead).
 
 ## Install
 

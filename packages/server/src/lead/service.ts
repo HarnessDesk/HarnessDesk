@@ -1,7 +1,7 @@
-import type { LeadAcceptanceContract, LeadPermissionPolicy, LeadProject, LeadControlRefusal, LeadPresence } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type LeadControlRefusal, type LeadPresence } from '@harnessdesk/protocol'
 import type { LeadAcceptanceEvidence, LeadJournal, LeadMessagesRequest, LeadMessagesResult, LeadPermissionCall, LeadResolvedTool, LeadSeatChoices, MessagesPrice, MessagesUsage, MessagesTransport, MessagesHttpResponse } from '@harnessdesk/lead'
 import { LEAD_MESSAGES_DEFAULTS, leadRememberLines, parseLeadMessagesBody } from '@harnessdesk/lead'
-import { LeadSupervisor, leadChildRuntimeSupported, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
+import { LeadSupervisor, chooseLeadRuntime, hostLeadRuntime, type LeadRuntime, type LeadRuntimeProber, type LeadSupervisorOptions } from '@harnessdesk/lead/supervisor'
 import type { CredentialBroker } from '../credentials.js'
 import type { ClientDoor } from '../client-door.js'
 import type { LeadAdmission } from './admission.js'
@@ -21,8 +21,12 @@ export interface LeadProcess {
   evidenceChanged?(): void
 }
 export interface LeadServiceOptions {
-  /** Test seam for the Node runtime embedded in the host executable. */
-  readonly runtimeVersion?: string
+  /** The runtimes the child may run on, in order of preference; absent is this host's own. */
+  readonly runtimes?: readonly LeadRuntime[]
+  /** Test seam for the capability probe; absent is the real, cached one. */
+  readonly probeRuntime?: LeadRuntimeProber
+  /** Told once, the first time no runtime passes the probe, so the host can log why. */
+  readonly onRuntimeUnavailable?: (reason: string) => void
   readonly journal: LeadJournal
   readonly project: LeadProject
   readonly broker: Pick<CredentialBroker, 'leadStatus' | 'resolveLead' | 'storeLead' | 'deleteLead'>
@@ -68,6 +72,7 @@ export class LeadService {
   // ambiguity with a later retry's usage or an unprocessed response.
   readonly #providerUsage = new Map<string, MessagesUsage | null>()
   #cleanupFailed = false
+  #runtimeReported = false
   #tail: Promise<unknown> = Promise.resolve()
   #registration: ReturnType<LeadServiceOptions['register']> | null = null
   #door: ClientDoor | null = null
@@ -76,7 +81,8 @@ export class LeadService {
   #exiting: Promise<void> | null = null
   constructor(private readonly options: LeadServiceOptions) {
     this.#supervisor = (options.createSupervisor ?? (settings => new LeadSupervisor(settings)))({
-      ...(options.runtimeVersion === undefined ? {} : { runtimeVersion: options.runtimeVersion }),
+      ...(options.runtimes === undefined ? {} : { runtimes: options.runtimes }),
+      ...(options.probeRuntime === undefined ? {} : { probeRuntime: options.probeRuntime }),
       journal: options.journal,
       bootstrap: async (signal?: AbortSignal) => {
         this.#assertOpen()
@@ -307,10 +313,18 @@ export class LeadService {
     this.#publicScans = next.catch(() => {})
     return next
   }
+  /** Why no runtime can run the child, or null when one can. The probe behind it is cached. */
+  async #runtimeUnavailable(): Promise<string | null> {
+    const choice = await chooseLeadRuntime(this.options.runtimes ?? [hostLeadRuntime()], this.options.probeRuntime)
+    if (choice.runtime) return null
+    if (!this.#runtimeReported) { this.#runtimeReported = true; this.options.onRuntimeUnavailable?.(choice.reason) }
+    return choice.reason
+  }
   async status(provider: 'anthropic') {
     // Disabled owners can serve window reads and receipts without a child.
-    return { ...await this.options.broker.leadStatus(provider),
-      ...(this.#enabled && !leadChildRuntimeSupported(this.options.runtimeVersion) ? { unavailable: 'runtime' as const } : {}) }
+    const status = await this.options.broker.leadStatus(provider)
+    const reason = this.#enabled ? await this.#runtimeUnavailable() : null
+    return { ...status, ...(reason === null ? {} : { unavailable: 'runtime' as const, unavailableReason: reason.slice(0, LEAD_LIMITS.unavailableReasonChars) }) }
   }
   setEnabled(enabled: boolean): Promise<void> {
     if (this.#closed) return Promise.reject(new Error('lead-closed'))
@@ -324,7 +338,7 @@ export class LeadService {
   }
   async send(input: LeadMessagesRequest): Promise<LeadMessagesResult> {
     this.#assertOpen()
-    if (!leadChildRuntimeSupported(this.options.runtimeVersion)) throw publicRefusal('lead-runtime-unsupported')
+    if (await this.#runtimeUnavailable() !== null) throw publicRefusal('lead-runtime-unsupported')
     const generation = this.#generation
     await this.#queue(async () => {
       this.#assertOpen()

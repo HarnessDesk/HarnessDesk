@@ -252,3 +252,41 @@ test('the packaged smoke runs the bundled command line on the app’s own runtim
   assert.match(smoke, /HARNESSDESK_CLIENT_DIR/, 'a door directory of its own, never the shared one')
   assert.match(smoke, /'status',\s*'--json'/, 'a read that needs a live desk')
 })
+
+/**
+ * The Node bundled for the Lead's child.
+ *
+ * Electron 42's own Node 24 rejects the Lead's `--no-allow-net`, so a packaged
+ * app carries a Node 26 LTS for that one child (`electron/lead-runtime.mjs`).
+ * Nothing in a dev run exercises its packaging, so it is pinned here: fetched
+ * and checksummed before electron-builder copies resources, copied out of the
+ * archive to `Contents/Resources/lead-node`, and signed with the app.
+ * `smoke-packaged.mjs` checks the built artifact itself.
+ */
+test('the Lead Node is fetched before packing, copied as a resource and signed with the app', async () => {
+  const { LEAD_NODE_RESOURCE } = await import('../electron/lead-runtime.mjs')
+  const hook = await import('./fetch-lead-node.mjs')
+  assert.equal(manifest.build.beforePack, './script/fetch-lead-node.mjs', 'electron-builder runs the checksummed fetch before it copies extraResources')
+  assert.equal(typeof hook.beforePack, 'function', 'electron-builder calls the named beforePack export')
+  const resource = (manifest.build.extraResources ?? []).find((entry) => typeof entry === 'object' && entry.to === 'lead-node')
+  assert.deepEqual(resource, { from: '.lead-node/${arch}', to: 'lead-node', filter: ['bin/node', 'LICENSE'] },
+    'each architecture packs its own verified binary, and only the binary and its licence')
+  assert.equal(LEAD_NODE_RESOURCE, 'lead-node/bin/node')
+  assert.ok((manifest.build.mac.binaries ?? []).includes(`Contents/Resources/${LEAD_NODE_RESOURCE}`),
+    'build.mac.binaries names the Lead Node, so it is signed with the app rather than left to a bundle walk')
+  const inherit = readFileSync(new URL(`../${manifest.build.mac.entitlementsInherit}`, import.meta.url), 'utf8')
+  assert.match(inherit, /com\.apple\.security\.cs\.allow-jit/, 'binaries other than the app take entitlementsInherit; V8 needs JIT under the hardened runtime')
+  const included = (manifest.build.files ?? []).filter((glob) => !glob.startsWith('!'))
+  assert.equal(included.some((glob) => matchesGlob('.lead-node/arm64/bin/node', glob)), false, 'the binary is a resource beside the archive, never inside app.asar')
+  const ignored = readFileSync(new URL('../../../.gitignore', import.meta.url), 'utf8')
+  assert.match(ignored, /^packages\/desktop\/\.lead-node\/$/m, 'the download is never committed')
+})
+
+test('the packaged smoke proves the Lead Node is there, executable, signed with the app, and passes the probe', () => {
+  assert.match(smoke, /LEAD_NODE_RESOURCE/, 'the path the app runs it from')
+  assert.match(smoke, /mode & 0o111/, 'executable')
+  assert.match(smoke, /'--verify', '--strict'/, 'validly signed')
+  assert.match(smoke, /TeamIdentifier/, 'by the same identity as the app')
+  assert.match(smoke, /probeLeadRuntime/, 'the probe this build carries')
+  assert.match(smoke, /the bundled Node fails the Lead probe/, 'a failing probe fails the smoke')
+})

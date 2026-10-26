@@ -203,6 +203,8 @@ export interface BootstrapOptions {
   readonly leadEnabled?: boolean
   /** Test seam: a scripted provider for the Lead's model requests. */
   readonly leadMessagesTransport?: HostOptions['leadMessagesTransport']
+  /** The desktop shell's candidates for the Lead's child, in order; absent is this host's own runtime. */
+  readonly leadRuntimes?: HostOptions['leadRuntimes']
   /** Injectable selection and filesystem probes for the opt-in macOS workaround. */
   readonly developerTools?: DeveloperToolsOptions
   readonly logLevel?: 'debug' | 'info' | 'warn' | 'error'
@@ -592,6 +594,7 @@ export const createDefaultHost = (
   const host: Host = new Host({
     leadEnabled: options.leadEnabled === true,
     ...(options.leadMessagesTransport ? { leadMessagesTransport: options.leadMessagesTransport } : {}),
+    ...(options.leadRuntimes ? { leadRuntimes: options.leadRuntimes } : {}),
     logger,
     accounts,
     agents,

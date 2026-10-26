@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { spawn, spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createLeadJournal } from '../src/journal.js'
-import { leadChildEnv } from '../src/supervisor.js'
+import { cachedLeadRuntimeProbe, chooseLeadRuntime, hostLeadRuntime, leadChildEnv, probeLeadRuntime, type LeadRuntime } from '../src/supervisor.js'
 import { CLIENT_METHODS } from '@harnessdesk/protocol'
 
 const secret = 'sk-test-not-real-0000' // hd-secrets-ok: synthetic test credential
@@ -47,10 +49,16 @@ const fixture = async (extra: any = {}) => {
 }
 const request = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect desk' }] }], maxTokens: 32 }
 
-test('Node 24 refuses before bootstrap or spawn and repeated attempts stay unavailable', async () => {
-  let bootstraps = 0
-  const f = await fixture({ runtimeVersion: '24.19.0', bootstrap: async () => { bootstraps++; throw new Error('must not bootstrap') } })
-  for (let attempt = 0; attempt < 2; attempt++) await assert.rejects(f.supervisor.ensure(), /lead-runtime-unsupported/)
+test('a runtime that fails the probe refuses before bootstrap or spawn and repeated attempts stay unavailable', async () => {
+  let bootstraps = 0, probes = 0
+  const f = await fixture({ probeRuntime: async () => { probes++; return { supported: false, reason: 'rejected the Lead flags (exit 9)' } },
+    runtimes: [{ binary: '/demo/node', version: '24.19.0', electron: true, label: "this app's runtime" }],
+    bootstrap: async () => { bootstraps++; throw new Error('must not bootstrap') } })
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(f.supervisor.ensure(), (error: any) => error.message === 'lead-runtime-unsupported' && error.wireCode === 'lead-runtime-unsupported'
+      && error.reason === "this app's runtime (Node 24.19.0) rejected the Lead flags (exit 9)")
+  }
+  assert.equal(probes, 2, 'the supervisor asks its prober each time; caching is the prober\'s job')
   assert.equal(bootstraps, 0)
   assert.deepEqual(f.counts(), { spawns: 0, starts: 0, exits: 0 })
   assert.equal(f.supervisor.live, false)
@@ -108,6 +116,55 @@ test('runtime permission grants refuse spawning and opening an unrelated file', 
   } })
   try { diagnostics = await f.supervisor.send(request); assert.deepEqual(diagnostics, { status: 'completed', text: 'spawn:ERR_ACCESS_DENIED;read:ERR_ACCESS_DENIED' }) }
   finally { await f.supervisor.stop() }
+})
+
+for (const layout of ['nested', 'hoisted', 'ancestor-hoisted'] as const) test(`the restricted child loads ${layout} dependencies without reading neighbouring files`, async t => {
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-lead-layout-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const modules = join(scratch, 'node_modules')
+  const leadRoot = join(modules, layout === 'ancestor-hoisted' ? '@harnessdesk/server/node_modules/@harnessdesk/lead' : '@harnessdesk/lead')
+  const dependencies = layout === 'nested' ? join(leadRoot, 'node_modules') : modules
+  const ownRoot = fileURLToPath(new URL('../..', import.meta.url))
+  await mkdir(leadRoot, { recursive: true })
+  await cp(join(ownRoot, 'dist/src'), join(leadRoot, 'dist/src'), { recursive: true })
+  await cp(join(ownRoot, 'package.json'), join(leadRoot, 'package.json'))
+  for (const name of ['client', 'protocol']) {
+    const source = join(ownRoot, `node_modules/@harnessdesk/${name}`), target = join(dependencies, `@harnessdesk/${name}`)
+    await mkdir(target, { recursive: true })
+    await cp(join(source, 'dist'), join(target, 'dist'), { recursive: true })
+    await cp(join(source, 'package.json'), join(target, 'package.json'))
+  }
+  const wsRoot = dirname(fileURLToPath(import.meta.resolve('ws/package.json')))
+  await cp(wsRoot, join(dependencies, 'ws'), { recursive: true })
+  const unrelated = join(modules, 'unrelated/private.txt')
+  await mkdir(dirname(unrelated), { recursive: true }); await writeFile(unrelated, 'private fixture')
+  const { leadChildArgs, probeLeadRuntime: probeLayout } = await import(pathToFileURL(join(leadRoot, 'dist/src/supervisor.js')).href)
+  // The probe runs this layout's real child entry, so passing it proves the module graph loads under the grants.
+  assert.deepEqual(await probeLayout(hostLeadRuntime()), { supported: true })
+  const args = leadChildArgs()
+  const options = { encoding: 'utf8' as const, env: leadChildEnv(), timeout: 10_000 }
+  const loaded = spawnSync(process.execPath, args, { ...options, input: frame({ version: 1, type: 'shutdown' }) })
+  assert.equal(loaded.status, 0, `the real child must load before it can handle shutdown: ${loaded.stderr}`)
+  const probe = join(leadRoot, 'dist/src/layout-permissions.js')
+  await writeFile(probe, `import './child.js';
+    import { readFileSync } from 'node:fs';
+    import { spawnSync } from 'node:child_process';
+    import { connect } from 'node:net';
+    const denied = operation => { try { operation(); return 'allowed' } catch (error) { return error.code } };
+    const network = await new Promise(resolve => {
+      try { const socket = connect({ host: '127.0.0.1', port: 1 });
+        socket.once('error', error => resolve(error.code));
+        socket.once('connect', () => { socket.destroy(); resolve('allowed') });
+      } catch (error) { resolve(error.code) }
+    });
+    console.log(JSON.stringify({
+      read: denied(() => readFileSync(${JSON.stringify(unrelated)})),
+      spawn: denied(() => spawnSync(process.execPath, ['--version'])),
+      network,
+    }));`)
+  const restricted = spawnSync(process.execPath, [...args.slice(0, -1), probe], options)
+  assert.equal(restricted.status, 0, restricted.stderr)
+  assert.deepEqual(JSON.parse(restricted.stdout), { read: 'ERR_ACCESS_DENIED', spawn: 'ERR_ACCESS_DENIED', network: 'ERR_ACCESS_DENIED' })
 })
 
 const dispatchFixture = async (extra: any = {}) => {
@@ -359,7 +416,7 @@ test('the actual child survives a healthy subscription-changed gap', async () =>
   finally { await f.supervisor.stop(); await runtime.close() }
 })
 
-test('the child is granted no network; the desk arrives only as fd 3', async () => {
+test('the child is granted no network; the desk arrives only as the socket the host hands over', async () => {
   const f = await fixture(); await f.supervisor.ensure()
   const [binary, args, options] = f.args()
   assert.ok(args.includes('--no-allow-net'), 'older runtimes must refuse an unknown deny flag instead of silently granting network')
@@ -516,7 +573,7 @@ test('valid execute with id 2 first kills the child without admitting an attempt
   } finally { await f.supervisor.stop(); await sent }
 })
 
-test('permission-restricted actual child round-trips the desk on fd 3 and Messages through provider-send', async t => {
+test('permission-restricted actual child round-trips the desk on a handed-over socket and Messages through provider-send', async t => {
   const { fixture: managementFixture, project } = await import('./fixtures/loop.js')
   const { message } = await import('./fixtures/fake-messages.js')
   const management = await managementFixture()
@@ -928,7 +985,122 @@ test('the actual child leaves a reply the host refuses in its answer, and waits 
 
 test('the child runs as Node inside the desktop app, and nothing else crosses', () => {
   const source = { LANG: 'en_US.UTF-8', NODE_OPTIONS: '--inspect', PATH: '/usr/bin', LEAD_TEST_SECRET: secret }
-  assert.deepEqual(leadChildEnv(source, { ...process.versions, electron: '42.11.10' }), { LANG: 'en_US.UTF-8', ELECTRON_RUN_AS_NODE: '1' })
-  const node: NodeJS.ProcessVersions = { ...process.versions }; delete node['electron']
-  assert.deepEqual(leadChildEnv(source, node), { LANG: 'en_US.UTF-8' })
+  assert.deepEqual(leadChildEnv(source, true), { LANG: 'en_US.UTF-8', ELECTRON_RUN_AS_NODE: '1' })
+  assert.deepEqual(leadChildEnv(source, false), { LANG: 'en_US.UTF-8' })
+})
+
+/** A scripted stand-in for a Node binary: `body` is the shell it runs instead. */
+const fakeRuntime = async (t: { after(fn: () => Promise<void>): void }, body: string, version = process.versions.node): Promise<LeadRuntime> => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-lead-runtime-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const binary = join(dir, 'node')
+  await writeFile(binary, `#!/bin/sh\n${body}\n`); await chmod(binary, 0o755)
+  return { binary, version, electron: false, label: 'the test runtime' }
+}
+const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`
+
+test('the probe passes the Node this suite runs on: its permission model refuses a loopback connect', async () => {
+  assert.deepEqual(await probeLeadRuntime(hostLeadRuntime()), { supported: true })
+})
+
+test('the probe reports a runtime that ignores --permission as unsupported, saying the network was not blocked', async t => {
+  // Drops every flag, then runs the probe entry on this Node with no permission model at all.
+  const runtime = await fakeRuntime(t, `while [ $# -gt 0 ]; do case "$1" in --*) shift;; *) break;; esac; done\nexec ${shellQuote(process.execPath)} "$@"`)
+  assert.deepEqual(await probeLeadRuntime(runtime), { supported: false, reason: 'network not blocked by the permission model (loopback connect succeeded)' })
+})
+
+test('the probe reports a runtime that rejects the Lead flags as unsupported', async t => {
+  const runtime = await fakeRuntime(t, `echo "node: bad option: --no-allow-net" >&2\nexit 9`)
+  assert.deepEqual(await probeLeadRuntime(runtime), { supported: false, reason: 'rejected the Lead flags (exit 9)' })
+})
+
+test('the probe reports a runtime that crashes before answering as unsupported', async t => {
+  const runtime = await fakeRuntime(t, 'kill -SEGV $$')
+  assert.deepEqual(await probeLeadRuntime(runtime), { supported: false, reason: 'exited on SIGSEGV before the probe ran' })
+})
+
+test('the probe reports a runtime that never answers as unsupported once its deadline passes', async t => {
+  const runtime = await fakeRuntime(t, 'exec /bin/sleep 30')
+  const started = Date.now()
+  assert.deepEqual(await probeLeadRuntime(runtime, { timeoutMs: 300 }), { supported: false, reason: 'the probe gave no answer within 0.3s' })
+  assert.ok(Date.now() - started < 5000, 'the deadline, not the stand-in, ends the probe')
+})
+
+test('the probe reports a missing binary, and a binary that is not the version it claims, as unsupported', async t => {
+  assert.deepEqual(await probeLeadRuntime({ binary: join(tmpdir(), 'hd-lead-no-such-node'), version: '26.0.0', electron: false, label: 'missing' }),
+    { supported: false, reason: 'could not start (ENOENT)' })
+  const runtime = await fakeRuntime(t, `exec ${shellQuote(process.execPath)} "$@"`, '99.0.0')
+  assert.deepEqual(await probeLeadRuntime(runtime), { supported: false, reason: `reported ${process.version}, expected v99.0.0` })
+})
+
+test('a probe runs once per binary and version, shared by concurrent callers', async t => {
+  const runtime = await fakeRuntime(t, `echo probed >> "$0.count"\nexit 9`)
+  const [first, second] = await Promise.all([cachedLeadRuntimeProbe(runtime), cachedLeadRuntimeProbe(runtime)])
+  assert.deepEqual(first, second)
+  assert.deepEqual(await cachedLeadRuntimeProbe(runtime), first)
+  const { readFile } = await import('node:fs/promises')
+  assert.equal((await readFile(`${runtime.binary}.count`, 'utf8')).trim().split('\n').length, 1)
+  await cachedLeadRuntimeProbe({ ...runtime, version: '99.0.0' })
+  assert.equal((await readFile(`${runtime.binary}.count`, 'utf8')).trim().split('\n').length, 2, 'another version is another probe')
+})
+
+test('the first runtime that passes is chosen, in order; when none does, every reason is kept', async () => {
+  const own: LeadRuntime = { binary: '/demo/electron', version: '24.19.0', electron: true, label: "this app's runtime" }
+  const bundled: LeadRuntime = { binary: '/demo/lead-node/bin/node', version: '26.12.1', electron: false, label: 'the bundled runtime' }
+  const asked: string[] = []
+  const passes = (binary: string) => async (runtime: LeadRuntime) => { asked.push(runtime.binary); return runtime.binary === binary ? { supported: true } as const : { supported: false, reason: 'rejected the Lead flags (exit 9)' } as const }
+  assert.deepEqual(await chooseLeadRuntime([own, bundled], passes(own.binary)), { runtime: own })
+  assert.deepEqual(asked, [own.binary], 'a passing runtime of its own means the bundled one is never probed')
+  asked.length = 0
+  assert.deepEqual(await chooseLeadRuntime([own, bundled], passes(bundled.binary)), { runtime: bundled })
+  assert.deepEqual(asked, [own.binary, bundled.binary])
+  assert.deepEqual(await chooseLeadRuntime([own, bundled], passes('/demo/none')), { runtime: null,
+    reason: "this app's runtime (Node 24.19.0) rejected the Lead flags (exit 9); the bundled runtime (Node 26.12.1) rejected the Lead flags (exit 9)" })
+})
+
+test('the desk socket crosses the IPC channel once, when asked; anything else on the channel ends the child', async t => {
+  const directory = await mkdtemp('/tmp/hd-lead-hand-'), socketPath = `${directory}/desk.sock`
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const { createServer: createNetServer, connect: connectNet } = await import('node:net')
+  const server = createNetServer(peer => peer.on('error', () => {}))
+  await new Promise<void>(resolve => server.listen(socketPath, resolve))
+  t.after(() => new Promise<void>(resolve => server.close(() => resolve())))
+  for (const first of [{ type: 'desk' }, { type: 'something-else' }]) {
+    const socket = connectNet(socketPath); await new Promise(resolve => socket.once('connect', resolve))
+    const child = fake(), sent: any[] = [], kills: unknown[] = []
+    child.connected = true; child.disconnect = () => { child.connected = false }
+    child.send = (message: unknown, handle: unknown, _options: unknown, callback: () => void) => { sent.push([message, handle]); queueMicrotask(callback); return true }
+    const kill = child.kill; child.kill = (signal?: unknown) => { kills.push(signal); return kill() }
+    const f = await fixture({ connectDesk: async () => socket, spawn: (_binary: string, _args: string[], options: any) => { assert.deepEqual(options.stdio, ['pipe', 'pipe', 'pipe', 'ipc']); return child } })
+    try {
+      await f.supervisor.ensure()
+      assert.equal(socket.destroyed, false, 'the host keeps the desk until the child asks')
+      child.emit('message', first)
+      await new Promise(resolve => setImmediate(resolve))
+      if (first.type === 'desk') {
+        assert.deepEqual(sent, [[{ type: 'desk' }, socket]])
+        child.emit('message', { type: 'desk' })
+        assert.equal(sent.length, 1, 'one handoff only')
+        assert.deepEqual(kills, [])
+      } else {
+        assert.deepEqual(sent, [])
+        assert.deepEqual(kills, ['SIGKILL'])
+      }
+      assert.equal(socket.destroyed, true, 'the host keeps no copy of the desk')
+      assert.equal(child.connected, false, 'the channel closes after the handoff')
+    } finally { await f.supervisor.stop(); socket.destroy() }
+  }
+})
+
+test('the supervisor starts the child on the chosen runtime, with that runtime\'s environment', async () => {
+  const own: LeadRuntime = { binary: '/demo/electron', version: '24.19.0', electron: true, label: "this app's runtime" }
+  const bundled: LeadRuntime = { binary: '/demo/lead-node/bin/node', version: '26.12.1', electron: false, label: 'the bundled runtime' }
+  const f = await fixture({ runtimes: [own, bundled], probeRuntime: async (runtime: LeadRuntime) => runtime === bundled ? { supported: true } : { supported: false, reason: 'rejected the Lead flags (exit 9)' } })
+  try {
+    await f.supervisor.ensure()
+    const [binary, args, options] = f.args()
+    assert.equal(binary, bundled.binary)
+    assert.ok(args.includes('--permission') && args.includes('--no-allow-net'))
+    assert.equal(options.env['ELECTRON_RUN_AS_NODE'], undefined, 'a plain Node needs no Electron switch')
+  } finally { await f.supervisor.stop() }
 })

@@ -23,9 +23,11 @@ afterEach(() => { clean.splice(0).forEach(fn => fn()); vi.restoreAllMocks(); dec
 
 it('shows one plain runtime reason and cannot retry an unavailable Lead', async () => {
   const base = leadProjection()
-  const { store, box, request } = await mount({ ...base, settings: { ...base.settings, unavailable: 'runtime' } } as any)
+  const reason = "this app's runtime (Node 24.19.0) rejected the Lead flags (exit 9)"
+  const { store, box, request } = await mount({ ...base, settings: { ...base.settings, unavailable: 'runtime', unavailableReason: reason } } as any)
   const send = vi.spyOn(store.lead, 'send')
-  expect(box.textContent?.match(/Lead requires Node 25 or newer/g)).toHaveLength(1)
+  expect(box.textContent?.match(/Lead can't start here/g)).toHaveLength(1)
+  expect(box.textContent?.match(/rejected the Lead flags \(exit 9\)/g)).toHaveLength(1)
   expect(box.textContent).toContain('Unavailable')
   expect(box.querySelector('[role="alert"]')).toBeNull()
   expect(box.querySelector('textarea')?.disabled).toBe(true)

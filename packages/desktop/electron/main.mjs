@@ -22,6 +22,7 @@ import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
 import { menuBarItemDecision, readMenuBarPreference, writeMenuBarPreference } from './menu-bar-policy.mjs'
 import { trayMenuTemplate } from './tray-menu.mjs'
 import { leadEnabled } from './lead-feature.mjs'
+import { leadRuntimes } from './lead-runtime.mjs'
 
 import { readWindowState, writeWindowState } from './window-state.mjs'
 import { isAppNavigation } from './navigation.mjs'
@@ -643,6 +644,8 @@ const watchDownloads = (guestSession, profile) => {
 const start = async () => {
   const bootstrap = createDefaultHost({
     leadEnabled: leadEnabled(process.env),
+    // This app's own runtime when it passes the Lead's capability probe, else the Node bundled for the Lead alone.
+    leadRuntimes: leadRuntimes({ execPath: process.execPath, versions: process.versions, resourcesPath: process.resourcesPath, packaged: app.isPackaged }),
     stateDir,
     version: app.getVersion(),
     browserEngine,

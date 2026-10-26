@@ -259,7 +259,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     </ConversationThread>
     {active && <ConversationDock ref={dock}>
       <ConversationComposerFrame before={<ComposerNoticeStack>
-          {unavailable && <Banner>{REFUSALS['lead-runtime-unsupported']}</Banner>}
+          {unavailable && <Banner>{REFUSALS['lead-runtime-unsupported']}{state.settings?.unavailableReason ? <Text as="span" role="muted">{` ${state.settings.unavailableReason.charAt(0).toUpperCase()}${state.settings.unavailableReason.slice(1)}.`}</Text> : null}</Banner>}
           <LeadAway active={active} state={state} label={label} />
           {goalActive && <LeadSlot slot="lead-run-strip"><Banner mark={<LeadAvatar name={name} size="turn" />} actions={stopAction}>{phase === 'following' ? `Following #${pr?.number ?? ''}` : repairActive ? `Repairing ${handback.kind === 'checks' ? 'checks' : 'review comments'} · round ${handback.round}` : phase === 'running' ? `${label} is running 1 goal` : phase === 'awaiting-plan' ? 'A plan is waiting for you' : phase === 'waiting-for-user' ? `${label} is waiting for you` : `${label} is planning`}{state.progress?.since !== undefined ? ` · ${leadElapsed(now - state.progress.since)}` : ''}{phase === 'running' && leadWakeLine(state.presence) ? <Text as="span" role="muted">{` · ${leadWakeLine(state.presence)}`}</Text> : null}</Banner></LeadSlot>}
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}

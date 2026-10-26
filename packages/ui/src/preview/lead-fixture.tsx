@@ -62,7 +62,7 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
     thread.messages = [...thread.messages, { version: 1, id: 'reply', revision: 2, role: 'assistant', text: 'The approved Flow is running. I will read its checks and review before asking you to accept.' }]
   }
   if (scene === 'proactive' || scene === 'away-digest') thread.messages = [{ version: 1, id: 'proactive', revision: 2, role: 'assistant', text: 'The review is ready.\nChecks still need you.\nOpen changes', proactive: { finding: 'The review is ready.', caveat: 'Checks still need you.', ask: 'Open changes', action: 'changes' } }]
-  if (scene === 'runtime-unavailable') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, unavailable: 'runtime' } } }
+  if (scene === 'runtime-unavailable') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, unavailable: 'runtime', unavailableReason: "this app's runtime (Node 24.19.0) rejected the Lead flags (exit 9)" } } }
   if (scene === 'first-name') { thread.messages = []; projection = { ...projection, settings: { ...base.settings, nameChosen: false } } }
   if (scene === 'missing-plan') projection = { ...projection, wayOut: 'decide-plan' }
   if (scene === 'predecessor-unavailable' || scene === 'predecessor-unverifiable') { thread.state = 'waiting-for-user'; projection = { ...projection, wayOut: null, waitReason: `lead-${scene}` } }

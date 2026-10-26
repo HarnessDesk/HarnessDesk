@@ -257,10 +257,13 @@ renderer. Every network request and its payload is documented in
 current. The Git plugin receives `ctx.forge`; publication uses the pinned host
 engine and records its outcome. Lead uses that same engine.
 
-Lead is enabled at startup with `HARNESSDESK_LEAD=1` and its child requires
-Node 25+. The current desktop's embedded runtime is below that floor, so an
-enabled Lead reports unavailable and refuses sends. CI runs the child and
-permission probes on Node 25; the package floor stays Node 22.19. Linux fixture
+Lead is enabled at startup with `HARNESSDESK_LEAD=1`. Its child runs on the
+first candidate runtime that passes a capability probe: the Lead's own flags,
+and a loopback connect the permission model must refuse. The desktop offers
+its Electron runtime, then a Node 26 LTS it bundles for the Lead alone; with
+none passing, an enabled Lead reports unavailable, with the probe's reason, and
+refuses sends. CI runs the child and permission probes on Node 26; the package
+floor stays Node 22.19. Linux fixture
 jobs install zsh, which their scripted process and profile tests invoke.
 Local phone access is independently enabled with `HARNESSDESK_PHONE_LINK=1`.
 Settings › Phone pairs through a local code and desktop approval without an

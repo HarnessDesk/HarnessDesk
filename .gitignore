@@ -6,6 +6,8 @@ dist/
 .env.local
 packages/desktop/release/
 packages/desktop/vendor/
+# The Node bundled for the Lead child, fetched and checksummed at pack time.
+packages/desktop/.lead-node/
 packages/ui/dist/
 coverage/
 *.log

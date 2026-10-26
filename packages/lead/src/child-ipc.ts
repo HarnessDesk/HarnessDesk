@@ -23,6 +23,8 @@ export type LeadChildConfig = Omit<LeadChildBootstrap, 'key' | 'descriptor'>
 export type LeadJournalPort = Pick<LeadJournal, 'state' | 'execute' | 'updateBudget' | 'setManagementPhase' |
   'recordWake' | 'invalidateResults' | 'offerCard' | 'restoreResult' | 'recoverUnsettledRequests' | 'appendReply'>
 export const LEAD_FRAME_BYTES = 1_048_576
+/** Prefixes the child's one probe line: what `node:net` said to a loopback connect under the Lead's own flags. */
+export const LEAD_PROBE_PREFIX = 'lead-probe '
 export const LEAD_RPC_OPERATIONS = ['recordWake', 'execute', 'updateBudget', 'setManagementPhase', 'invalidateResults', 'offerCard',
   'restoreResult', 'recoverUnsettledRequests', 'appendReply', 'resolveTool', 'freezePlan', 'readEvidence', 'provider-send'] as const
 export type LeadRpcOperation = typeof LEAD_RPC_OPERATIONS[number]

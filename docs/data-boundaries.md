@@ -91,7 +91,9 @@ LAN lane. Account sign-out and deletion do not remove this separate registry.
 ### Optional Lead provider requests
 
 Lead requires the startup opt-in `HARNESSDESK_LEAD=1`, a configured provider key
-and Node 25+ for its restricted child. Its host sends model requests containing
+and a runtime whose permission model blocks the network for its restricted
+child. The desktop app's bundled Node is downloaded from nodejs.org when the app
+is built, never by the installed app. Its host sends model requests containing
 the project root, system instructions, conversation, approved contract and tool
 results to the configured provider transport. Provider credentials stay in the
 host; the child asks through a bounded provider-send port. Workers retain their

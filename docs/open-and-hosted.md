@@ -22,8 +22,8 @@ local connection and needs no account link.
   `phone-link/`, independently of the account identity. Removing a phone ends
   its connection and requires a new pairing.
 - **Lead.** `HARNESSDESK_LEAD=1` enables the optional planning conversation.
-  Its child requires Node 25+. The current desktop embeds an older runtime and
-  reports Lead unavailable when enabled. A compatible host keeps its journal
+  Its child needs a runtime whose permission model blocks the network; the
+  desktop app carries one, and a standalone host needs Node 26. A host keeps its journal
   locally, sends bounded provider requests and manages local worker Flows.
 - **Git publication.** The host pins the repository and publishes through the
   shared gateway. The local Git record retains approvals and outcomes; Git

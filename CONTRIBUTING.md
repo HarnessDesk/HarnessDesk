@@ -21,8 +21,9 @@ pnpm serve      # or headless, against a browser
 registering ACP agents, and troubleshooting.
 
 The package floor remains Node 22.19. Lead's child and its permission probes
-require Node 25+; run the complete local gate with that runtime. CI jobs that
-exercise the child use Node 25; build, UI and gate jobs also exercise Node 22.
+need a Node whose permission model blocks the network (Node 26 LTS); run the
+complete local gate with that runtime. CI jobs that exercise the child use
+Node 26; build, UI and gate jobs also exercise Node 22.
 Linux Node fixture jobs install zsh because the fake agents and shell-profile
 contracts execute `/bin/zsh`. These tests use scripted agents and local remotes.
 
@@ -82,7 +83,7 @@ local gate does not replace those CI results.
 
 On pull requests, “Build, typecheck, test” always runs. It stands for the whole
 gate and is green only when each of five jobs that run side by side is: the
-Node tests and Node end-to-end tests on Node 22, the Lead tests on Node 25,
+Node tests and Node end-to-end tests on Node 22, the Lead tests on Node 26,
 the UI tests, and the checks.
 
 Browser integration has two tiers. Ordinary pull requests use the **bounded**

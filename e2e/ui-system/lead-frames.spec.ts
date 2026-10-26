@@ -42,7 +42,8 @@ for (const theme of ['light', 'dark']) test(`Lead plan and four-action result wr
 for (const theme of ['light', 'dark']) test(`an unavailable Lead has one runtime reason and no retry in ${theme}`, async ({ page }, info) => {
   await page.goto(`/preview.html?lead-synthetic=runtime-unavailable&theme=${theme}`)
   const frame = page.locator('[data-frame-id="lead-runtime-unavailable"]')
-  await expect(frame.getByText('Lead requires Node 25 or newer. This desk uses an older runtime.', { exact: true })).toHaveCount(1)
+  await expect(frame.getByText("Lead can't start here: no runtime on this desk keeps its network blocked by the permission model.")).toHaveCount(1)
+  await expect(frame.getByText("This app's runtime (Node 24.19.0) rejected the Lead flags (exit 9).", { exact: true })).toHaveCount(1)
   await expect(frame.getByRole('textbox', { name: 'Goal or message' })).toBeDisabled()
   await expect(frame.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
   await expect(frame.getByRole('alert')).toHaveCount(0)

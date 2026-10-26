@@ -10,7 +10,7 @@ import { LeadBudgets } from '../src/lead/budgets.js'
 
 const key = 'sk-test-not-real-0000'
 const input = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 }
-const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { runtimeVersion?: string; resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any; seats?: unknown } = {}) => {
+const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { probeRuntime?: (runtime: any) => Promise<any>; onRuntimeUnavailable?: (reason: string) => void; resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any; seats?: unknown } = {}) => {
   const home = await mkdtemp('/tmp/hd-ls-')
   t.after(() => rm(home, { recursive: true, force: true }))
   const records: LeadJournalRecord[] = []
@@ -28,7 +28,8 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { runtime
   const modulePath = new URL('../src/lead/service.js', import.meta.url).href
   const { LeadService } = await import(modulePath)
   const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, broker, model: 'synthetic-model', prices: {},
-    ...(hooks.runtimeVersion === undefined ? {} : { runtimeVersion: hooks.runtimeVersion }),
+    ...(hooks.probeRuntime === undefined ? {} : { probeRuntime: hooks.probeRuntime, runtimes: [{ binary: '/demo/electron', version: '24.19.0', electron: true, label: "this app's runtime" }] }),
+    ...(hooks.onRuntimeUnavailable === undefined ? {} : { onRuntimeUnavailable: hooks.onRuntimeUnavailable }),
     messagesTransport: hooks.messagesTransport, ...(hooks.seats === undefined ? {} : { seats: hooks.seats }),
     resolveTool: hooks.resolveTool ?? (async () => { throw new Error('unused') }), freezePlan: async (proposal: unknown) => proposal, readEvidence: async () => { throw new Error('unused') },
     register: () => { events.push('register'); const close = budgets.register(journal); return { admission: {}, close: () => { events.push('unregister'); close() } } },
@@ -49,15 +50,21 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { runtime
   return { service, home, journal, budgets, timers, records, events, bootstrap, options: () => supervisorOptions, process: () => process, spawns: () => spawns, closes: () => closes, stopped: () => stopped, broker }
 }
 
-test('an older desktop runtime reports unavailable without starting or registering a child', async t => {
-  const s = await rig(t, { runtimeVersion: '24.19.0' })
+test('a runtime that fails the probe reports unavailable, with its reason, without starting or registering a child', async t => {
+  const logged: string[] = []
+  let probes = 0
+  const s = await rig(t, { probeRuntime: async () => { probes++; return { supported: false, reason: 'rejected the Lead flags (exit 9)' } }, onRuntimeUnavailable: reason => logged.push(reason) })
   assert.equal((await s.service.status('anthropic')).unavailable, undefined, 'a disabled service does not require the child runtime')
+  assert.equal(probes, 0, 'a disabled service does not probe')
   await assert.rejects(s.service.send(input), /lead-disabled/)
   await s.service.setEnabled(true)
   for (let attempt = 0; attempt < 2; attempt++) {
-    assert.equal((await s.service.status('anthropic')).unavailable, 'runtime')
+    const status = await s.service.status('anthropic')
+    assert.equal(status.unavailable, 'runtime')
+    assert.equal(status.unavailableReason, "this app's runtime (Node 24.19.0) rejected the Lead flags (exit 9)")
     await assert.rejects(s.service.send(input), (error: any) => error.wireCode === 'lead-runtime-unsupported')
   }
+  assert.deepEqual(logged, ["this app's runtime (Node 24.19.0) rejected the Lead flags (exit 9)"], 'the host is told once, not on every read')
   assert.equal(s.spawns(), 0)
   assert.equal(s.closes(), 0)
   assert.deepEqual(s.events, [])
