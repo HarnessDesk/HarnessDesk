@@ -30,7 +30,7 @@ const messages = {
 export const captureHealth = (input: HealthInput): CaptureHealth => {
   const { fatal, issues, ...base } = input
   const key: keyof typeof messages = !input.enabled && !issues.includes('preference-invalid') ? 'off'
-    : fatal ? issues.includes('external-metadata') ? 'external' : issues.includes('folder-unavailable') ? 'missing' : issues.includes('journal-changed') ? 'journalChanged' : issues.includes('journal-limit-exceeded') ? 'journalLimit' : 'storage'
+    : fatal ? issues.includes('external-metadata') ? 'external' : issues.includes('folder-unavailable') ? 'missing' : issues.includes('storage-failed') ? 'storage' : issues.includes('journal-changed') ? 'journalChanged' : issues.includes('journal-limit-exceeded') ? 'journalLimit' : 'storage'
     : issues.includes('limit-exceeded') ? 'limit'
     : input.gaps > 0 || issues.includes('history-gap') ? 'history'
     : issues.includes('evidence-skipped') ? 'evidence'

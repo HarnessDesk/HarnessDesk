@@ -232,3 +232,26 @@ test('backup preserves the combined project bound and the observation bound', as
   entries.push(historicalEntry('row-50000', 'gap'))
   await assert.rejects(exportProvenance(rows), /provenance-backup-limit/)
 })
+
+
+for (const failure of ['limit', 'changed']) test(`restore stops retrying a project after an append ${failure} refusal`, async (t) => {
+  const folder = tempDir('provenance-restore-append-refusal-')
+  const refused = new ProvenanceJournal(join(folder, 'refused.ndjson'))
+  const healthy = new ProvenanceJournal(join(folder, 'healthy.ndjson'))
+  let attempts = 0
+  t.mock.method(refused, 'append', async () => {
+    attempts += 1
+    throw failure === 'limit' ? new ProvenanceJournalLimitError() : new ProvenanceJournalChangedError()
+  })
+  const entry = historicalEntry('restored')
+  const report = await importProvenance({
+    projects: async () => ['/work/refused', '/work/healthy'],
+    journal: project => project === '/work/refused' ? refused : healthy,
+  }, { version: 1, projects: [
+    { project: '/work/refused', entries: Array(50000).fill(entry) },
+    { project: '/work/healthy', entries: [entry] },
+  ] })
+  assert.deepEqual(report, { restored: 1, duplicate: 0, refused: 50000 })
+  assert.equal(attempts, 1, 'a journal-wide refusal skips the remaining project records')
+  assert.equal((await healthy.read()).entries.length, 1)
+})

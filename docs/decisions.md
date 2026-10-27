@@ -1579,7 +1579,9 @@ If retained observations still exceed the budget, capture stops for that project
 and its original history stays in place. Capture can be turned off; Retry tries
 recovery again. Backup reports size-refused projects in `omittedProjects` while
 including healthy projects; restore counts refused entries without spending
-the admission budget available to the remaining projects. Export tracks exact
+the admission budget available to the remaining projects. A limit or changed-file
+refusal during an append skips the rest of that project immediately, avoiding
+repeated compaction attempts while other projects wait. Export tracks exact
 serialized bytes incrementally, including omission metadata and JSON framing. This is a per-journal input bound, not an aggregate heap
 guarantee or a history retention policy.
 

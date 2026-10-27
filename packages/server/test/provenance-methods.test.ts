@@ -342,3 +342,11 @@ for (const failure of ['changed', 'storage']) test(`host capture controls publis
   assert.equal(on.reason, reason)
   assert.equal((await host.call('account/status', {})).status, 'signedOut')
 })
+
+
+test('a storage failure takes health precedence over journal limit or changed guidance', () => {
+  for (const journalIssue of ['journal-limit-exceeded', 'journal-changed']) {
+    const status = captureHealth({ ...health, enabled: true, fatal: true, issues: [journalIssue, 'storage-failed'] })
+    assert.equal(status.reason, 'Capture could not save its observations.')
+  }
+})

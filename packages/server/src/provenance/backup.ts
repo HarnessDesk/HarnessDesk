@@ -3,7 +3,7 @@ import { isAbsolute, join, normalize } from 'node:path'
 
 import type { ProvenanceBackup } from '@harnessdesk/protocol'
 
-import { digest, JOURNAL_LIMIT, object, ProvenanceJournal, ProvenanceJournalLimitError, validValue, type JournalKind } from './journal.js'
+import { digest, JOURNAL_LIMIT, object, ProvenanceJournal, ProvenanceJournalChangedError, ProvenanceJournalLimitError, validValue, type JournalKind } from './journal.js'
 
 export interface BackupPort {
   prepare?(project: string): Promise<void>
@@ -81,7 +81,8 @@ export const importProvenance = async (
       continue
     }
     const ids = new Set(read.entries.map((entry) => `${entry.kind}:${(entry.value as { id: string }).id}`))
-    for (const entry of project.entries) {
+    for (let index = 0; index < project.entries.length; index += 1) {
+      const entry = project.entries[index]
       if (++count > 50000 || read.broken || !object(entry) || !historical.has(entry.kind as JournalKind) ||
         !validValue(entry.kind as JournalKind, entry.value) || Buffer.byteLength(JSON.stringify(entry)) > JOURNAL_LIMIT - 512) {
         report.refused += 1
@@ -100,7 +101,14 @@ export const importProvenance = async (
         await journal.append(kind, { id, restoredAt: now, data })
         ids.add(`${kind}:${id}`)
         report.restored += 1
-      } catch {
+      } catch (error) {
+        if (error instanceof ProvenanceJournalLimitError || error instanceof ProvenanceJournalChangedError) {
+          // A journal-wide refusal cannot be repaired by the next backup row.
+          // Keep the admission budget for healthy projects, too.
+          count -= 1
+          report.refused += project.entries.length - index
+          break
+        }
         report.refused += 1
       }
     }
