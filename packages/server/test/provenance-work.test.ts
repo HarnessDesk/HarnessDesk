@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { rename } from 'node:fs/promises'
+import fs, { rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { setImmediate as tick, setTimeout as delay } from 'node:timers/promises'
@@ -9,7 +9,7 @@ import type { EvidenceRecord, SeatRecord } from '@harnessdesk/protocol'
 import type { EvidencePlane } from '../src/evidence/plane.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { admitProject, gitReader, type GitReader, type ReaderOptions } from '../src/provenance/git.js'
-import { ProvenanceJournal, type JournalEntry } from '../src/provenance/journal.js'
+import { ProvenanceJournal, ProvenanceJournalLimitError, type JournalEntry } from '../src/provenance/journal.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
 import { rangeCandidates, type CommitObservation, type LinkObservation, type RangeCandidate } from '../src/provenance/reconcile.js'
 import { Reconciler, type Ranges, type Subject } from '../src/provenance/reconciler.js'
@@ -350,4 +350,36 @@ test('waking capture over an unchanged journal starts no Git process and checks 
   assert.ok(scans >= 3)
   assert.equal(checks - verified, scans, 'and each checked the metadata once')
   // Each scan still moved `checkedAt` (the loop above waited for that), though none wrote a checkpoint.
+})
+
+
+for (const failure of ['budget', 'line', 'invalid', 'ENOSPC', 'EACCES']) test(`a fact-range ${failure} refusal distinguishes storage from record admission`, async (t) => {
+  const repo = await makeRepo()
+  const base = await repo.commitTree(null, { one: 'base\n' }, 'base')
+  const next = await repo.commitTree(base, { one: 'changed\n' }, 'next')
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  const reader = gitReader(handle)
+  t.after(() => reader.close())
+  const journal = failure.startsWith('E') ? new ProvenanceJournal(join(repo.stateDir, 'refused.ndjson')) : memoryJournal()
+  if (failure.startsWith('E')) {
+    const original = fs.open
+    t.mock.method(fs, 'open', async (...args: Parameters<typeof fs.open>) => {
+      if (args[0] === join(repo.stateDir, 'refused.ndjson') && args[1] === 'a') {
+        throw Object.assign(new Error('Fixture storage failure'), { code: failure })
+      }
+      return original(...args)
+    })
+  } else journal.append = async () => { throw failure === 'budget' ? new ProvenanceJournalLimitError() : new Error(`provenance-${failure === 'line' ? 'line-limit' : 'invalid-record'}`) }
+  const fact: EvidenceRecord = { id: 'fact', seat: 'seat-a', checkout: { cwd: repo.dir, branch: 'topic' }, observedAt: 10,
+    fact: { kind: 'diff', files: 1, added: 1, removed: 0, from: base, to: next } }
+  const problems: string[] = []
+  const run = new Reconciler((_kind, reason) => problems.push(reason)).run(
+    subject(repo, handle, journal, [fact], [seat(repo, 'seat-a')]), [], NOTHING, reader, signal(),
+  )
+  if (failure === 'budget') await assert.rejects(run, ProvenanceJournalLimitError)
+  else if (failure.startsWith('E')) await assert.rejects(run, /provenance-write-failed/)
+  else {
+    await run
+    assert.ok(problems.includes('history-gap'))
+  }
 })

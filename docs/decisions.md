@@ -1556,6 +1556,35 @@ The private view capture reads through is a folder in the state directory. Whoev
 
 **The rule:** capture does bounded work, and none when nothing it reads has changed; it keeps only what Git cannot contradict and writes only what is new; and a view it makes is removed by whoever made it, or by the next start.
 
+## Provenance journals recover within a bounded storage budget
+
+Provenance replay and appends have a 64 MiB journal budget. Line-bounded
+streaming still retained every decoded historical observation: a multi-gigabyte
+journal could exhaust the desktop heap during checksum or serialization.
+Before decoding an oversized journal, a bounded streaming pass validates its
+records and removes only superseded checkpoint cursors into a temporary file.
+Replacement happens only after complete validation and only if the retained
+history fits the budget. Historical observations are never pruned. Append-time
+compaction makes room only when the incoming record or complete checkpoint
+would exceed the budget and obsolete cursors can free enough space. The complete
+checkpoint is sized before any part is written, so compaction never renumbers
+part IDs in flight. Near-limit appends that still fit do no forced compaction.
+External file growth is not overwritten by compaction of an older in-memory view.
+A changed file has a separate refusal and reload guidance; it is never described
+as a size limit or exported as a size-refused project. Damage and filesystem
+failures keep their storage failure semantics. Parsing and replacement each use
+one shared path, including the source identity check immediately before rename.
+
+If retained observations still exceed the budget, capture stops for that project
+and its original history stays in place. Capture can be turned off; Retry tries
+recovery again. Backup reports size-refused projects in `omittedProjects` while
+including healthy projects; restore counts refused entries without spending
+the admission budget available to the remaining projects. A limit or changed-file
+refusal during an append skips the rest of that project immediately, avoiding
+repeated compaction attempts while other projects wait. Export tracks exact
+serialized bytes incrementally, including omission metadata and JSON framing. This is a per-journal input bound, not an aggregate heap
+guarantee or a history retention policy.
+
 ## Passive provenance starts at the project and Seat window
 
 Capture walks back to the earlier of the project's first capture opening and

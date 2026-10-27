@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { createReadStream } from 'node:fs'
+import { createReadStream, type Stats } from 'node:fs'
 import fs from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { WorkSlices, type SliceOptions } from './slices.js'
@@ -29,6 +29,20 @@ export interface JournalReadOptions {
   readonly slices?: SliceOptions
 }
 export const JOURNAL_LIMIT = 64 * 1024
+/** Replay retains decoded observations; a line limit alone does not bound that heap. */
+export const JOURNAL_BYTE_LIMIT = 64 * 1024 * 1024
+export class ProvenanceJournalLimitError extends Error {
+  constructor() { super('provenance-journal-limit'); this.name = 'ProvenanceJournalLimitError' }
+}
+export class ProvenanceJournalChangedError extends Error {
+  constructor() { super('provenance-journal-changed'); this.name = 'ProvenanceJournalChangedError' }
+}
+export class ProvenanceJournalStorageError extends Error {
+  constructor(cause: unknown) {
+    super('provenance-write-failed', { cause })
+    this.name = 'ProvenanceJournalStorageError'
+  }
+}
 export const digest = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex')
 export const object = (value: unknown): value is Record<string, unknown> =>
@@ -109,10 +123,129 @@ export const validValue = (kind: JournalKind, value: unknown, prefix = Infinity)
 const kinds = new Set<JournalKind>(['ref', 'commit', 'range', 'link', 'cursor', 'gap'])
 const keyOf = (kind: JournalKind, value: unknown) => `${kind}:${(value as { id: string }).id}`
 
+const normalizeStorageError = (error: unknown): Error =>
+  error instanceof Error && error.message.startsWith('provenance-')
+    ? error : new ProvenanceJournalStorageError(error)
+
+const serializeEntry = ({ seq, kind, value }: JournalEntry): Buffer => {
+  const body = { version: 1, seq, kind, value }
+  return Buffer.from(`${JSON.stringify({ ...body, checksum: digest(body) })}\n`)
+}
+const sameFile = (before: Stats, after: Stats): boolean =>
+  before.size === after.size && before.mtimeMs === after.mtimeMs &&
+  before.ctimeMs === after.ctimeMs && before.ino === after.ino && before.dev === after.dev
+interface StreamEntry {
+  readonly entry: JournalEntry
+  readonly position: number
+  readonly length: number
+  readonly consumed: number
+}
+
+/** One validator serves ordinary replay and bounded historical recovery. */
+async function* streamEntries(file: string, slices: WorkSlices, limit = Infinity): AsyncGenerator<StreamEntry> {
+  let pending = Buffer.alloc(0)
+  let sequence = 0
+  let position = 0
+  let consumed = 0
+  for await (const chunk of createReadStream(file, { highWaterMark: 16 * 1024 })) {
+    consumed += chunk.length
+    if (consumed > limit) throw new ProvenanceJournalLimitError()
+    pending = Buffer.concat([pending, chunk as Buffer])
+    let end: number
+    while ((end = pending.indexOf(10)) >= 0) {
+      const length = end + 1
+      if (length > JOURNAL_LIMIT) throw new Error('journal-line-limit')
+      const raw = pending.subarray(0, end)
+      const text = raw.toString('utf8')
+      const line: unknown = JSON.parse(text)
+      if (!Buffer.from(text).equals(raw) || !object(line)) throw new Error('journal-shape')
+      const { version, seq, kind, value, checksum } = line
+      if (version !== 1 || seq !== sequence + 1 || !kinds.has(kind as JournalKind) ||
+        !validValue(kind as JournalKind, value, sequence) || checksum !== digest({ version, seq, kind, value })) {
+        throw new Error('journal-damaged')
+      }
+      sequence += 1
+      yield { entry: { seq: sequence, kind: kind as JournalKind, value }, position, length, consumed }
+      position += length
+      pending = pending.subarray(length)
+      await slices.step()
+    }
+    if (pending.length >= JOURNAL_LIMIT) throw new Error('journal-line-limit')
+  }
+  if (pending.length) throw new Error('journal-torn-tail')
+}
+
+const liveCursors = (manifest: JournalEntry | undefined): ReadonlySet<number> =>
+  new Set(manifest ? [manifest.seq, ...(manifest.value as { parts: number[] }).parts] : [])
+
+/** Renumber only retained cursors; historical rows never need a sequence map. */
+async function* compactEntries(
+  source: AsyncIterable<JournalEntry> | Iterable<JournalEntry>, manifest: JournalEntry | undefined, slices: WorkSlices,
+): AsyncGenerator<JournalEntry> {
+  const keep = liveCursors(manifest)
+  const sequence = new Map<number, number>()
+  let count = 0
+  for await (const entry of source) {
+    await slices.step()
+    if (entry.kind === 'cursor' && !keep.has(entry.seq)) continue
+    const seq = ++count
+    if (entry.kind === 'cursor') sequence.set(entry.seq, seq)
+    const value = entry.seq === manifest?.seq
+      ? { ...(entry.value as object), parts: (entry.value as { parts: number[] }).parts.map((part) => sequence.get(part)) }
+      : entry.value
+    yield { seq, kind: entry.kind, value }
+  }
+}
+
+/** Both recovery paths share the atomic rewrite and source-change fence. */
+async function rewriteJournal(file: string, before: Stats, source: AsyncIterable<JournalEntry>): Promise<number> {
+  const temporary = `${file}.compact-${randomUUID()}`
+  const cursors: JournalEntry[] = []
+  let written = 0
+  try {
+    const output = await fs.open(temporary, 'wx', 0o600)
+    try {
+      for await (const entry of source) {
+        const bytes = serializeEntry(entry)
+        written += bytes.length
+        if (written > JOURNAL_BYTE_LIMIT) throw new ProvenanceJournalLimitError()
+        if (entry.kind === 'cursor') cursors.push(entry)
+        if ((await output.write(bytes)).bytesWritten !== bytes.length) throw new Error('provenance-short-write')
+      }
+      readCheckpoint(cursors)
+      await output.sync()
+    } finally { await output.close() }
+    if (!sameFile(before, await fs.stat(file))) throw new ProvenanceJournalChangedError()
+    await fs.rename(temporary, file)
+    return written
+  } finally { await fs.rm(temporary, { force: true }).catch(() => {}) }
+}
+
+/** Only obsolete cursors may be removed; history never gets pruned to fit. */
+async function compactOversized(file: string, slices: WorkSlices): Promise<void> {
+  const before = await fs.stat(file)
+  let manifest: JournalEntry | undefined
+  let historicalBytes = 0
+  let historicalCount = 0
+  for await (const { entry } of streamEntries(file, slices)) {
+    if (entry.kind !== 'cursor') {
+      // The full envelope with histories alone is a lower bound on retained
+      // bytes. Obsolete cursors must not inflate its sequence digit count.
+      historicalBytes += serializeEntry({ ...entry, seq: ++historicalCount }).length
+      if (historicalBytes > JOURNAL_BYTE_LIMIT) throw new ProvenanceJournalLimitError()
+    } else if ((entry.value as { type: string }).type === 'checkpoint') manifest = entry
+  }
+  const source = async function* () {
+    for await (const { entry } of streamEntries(file, slices)) yield entry
+  }
+  await rewriteJournal(file, before, compactEntries(source(), manifest, slices))
+}
+
 export class ProvenanceJournal {
   readonly #file: string
   #entries: JournalEntry[] = []
   #ids = new Map<string, number>()
+  #durableBytes = 0
   #sequence = 0
   #generation = 0
   readonly #compactOnOpen: boolean
@@ -132,60 +265,46 @@ export class ProvenanceJournal {
   }
 
   async #stream(options?: SliceOptions): Promise<void> {
-    let pending = Buffer.alloc(0)
     const slices = new WorkSlices(options)
-    // On open, keep historical observations and only the checkpoint in force
-    // in memory. Offsets let a later manifest reuse an earlier part without
-    // retaining all superseded checkpoint bytes in the heap.
+    // Retain historical observations and the checkpoint in force. Offsets let
+    // later manifests reuse earlier parts without keeping superseded bytes.
     const cursors = new Map<number, JournalEntry>()
     const positions = new Map<number, { position: number; length: number }>()
-    let position = 0
     try {
-      for await (const bytes of createReadStream(this.#file, { highWaterMark: 16 * 1024 })) {
-        pending = Buffer.concat([pending, bytes as Buffer])
-        let end: number
-        while ((end = pending.indexOf(10)) >= 0) {
-          if (end + 1 > JOURNAL_LIMIT) throw new Error('journal-line-limit')
-          const raw = pending.subarray(0, end)
-          const line: unknown = JSON.parse(raw.toString('utf8'))
-          if (!Buffer.from(raw.toString('utf8')).equals(raw) || !object(line)) throw new Error('journal-shape')
-          const { version, seq, kind, value, checksum } = line
-          if (version !== 1 || seq !== this.#sequence + 1 || !kinds.has(kind as JournalKind) ||
-            !validValue(kind as JournalKind, value, this.#sequence) ||
-            checksum !== digest({ version, seq, kind, value })) throw new Error('journal-damaged')
-          const entry = { seq, kind, value } as JournalEntry
-          this.#sequence = entry.seq
-          if (this.#compactOnOpen && entry.kind === 'cursor') {
-            positions.set(entry.seq, { position, length: end + 1 })
-            cursors.set(entry.seq, entry)
-            if ((value as { type: string }).type === 'checkpoint') {
-              const keep = new Set([entry.seq, ...(value as { parts: number[] }).parts])
-              for (const seq of keep) {
-                if (cursors.has(seq)) continue
-                const offset = positions.get(seq)
-                if (!offset) throw new Error('provenance-invalid-checkpoint')
-                const file = await fs.open(this.#file, 'r')
-                try {
-                  const bytes = Buffer.alloc(offset.length)
-                  if ((await file.read(bytes, 0, bytes.length, offset.position)).bytesRead !== bytes.length) throw new Error('journal-short-read')
-                  const body = JSON.parse(bytes.toString('utf8')) as JournalEntry
-                  cursors.set(seq, { seq: body.seq, kind: body.kind, value: body.value })
-                } finally { await file.close() }
-              }
-              for (const seq of cursors.keys()) if (!keep.has(seq)) cursors.delete(seq)
+      if ((await fs.stat(this.#file)).size > JOURNAL_BYTE_LIMIT) await compactOversized(this.#file, slices)
+      for await (const { entry, position, length, consumed } of streamEntries(this.#file, slices, JOURNAL_BYTE_LIMIT)) {
+        this.#sequence = entry.seq
+        this.#durableBytes = consumed
+        if (this.#compactOnOpen && entry.kind === 'cursor') {
+          positions.set(entry.seq, { position, length })
+          cursors.set(entry.seq, entry)
+          if ((entry.value as { type: string }).type === 'checkpoint') {
+            const keep = liveCursors(entry)
+            for (const seq of keep) {
+              if (cursors.has(seq)) continue
+              const offset = positions.get(seq)
+              if (!offset) throw new Error('provenance-invalid-checkpoint')
+              const file = await fs.open(this.#file, 'r')
+              try {
+                const bytes = Buffer.alloc(offset.length)
+                if ((await file.read(bytes, 0, bytes.length, offset.position)).bytesRead !== bytes.length) throw new Error('journal-short-read')
+                const body = JSON.parse(bytes.toString('utf8')) as JournalEntry
+                cursors.set(seq, { seq: body.seq, kind: body.kind, value: body.value })
+              } finally { await file.close() }
             }
-          } else {
-            this.#entries.push(entry)
-            this.#ids.set(keyOf(entry.kind, value), entry.seq)
+            for (const seq of cursors.keys()) if (!keep.has(seq)) cursors.delete(seq)
           }
-          position += end + 1
-          pending = pending.subarray(end + 1)
-          await slices.step()
+        } else {
+          this.#entries.push(entry)
+          this.#ids.set(keyOf(entry.kind, entry.value), entry.seq)
         }
-        if (pending.length >= JOURNAL_LIMIT) throw new Error('journal-line-limit')
       }
-      if (pending.length) throw new Error('journal-torn-tail')
     } catch (error) {
+      if (error instanceof ProvenanceJournalLimitError || error instanceof ProvenanceJournalChangedError) {
+        this.#entries = []
+        this.#ids.clear()
+        throw error
+      }
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.#broken = true
     }
     if (this.#compactOnOpen) {
@@ -195,9 +314,13 @@ export class ProvenanceJournal {
         try {
           await this.#compactLoaded(true)
         } catch (error) {
-          // Replay has already validated and retained the original history.
-          // Report this replacement failure once, without poisoning later
-          // reads/appends or replaying into the populated arrays again.
+          if (error instanceof ProvenanceJournalChangedError || error instanceof ProvenanceJournalLimitError) {
+            this.#entries = []
+            this.#ids.clear()
+            throw error
+          }
+          // Replay retained the original history. A replacement failure must
+          // not replay into those arrays or poison later reads and retries.
           this.#load = Promise.resolve()
           throw error
         }
@@ -230,10 +353,55 @@ export class ProvenanceJournal {
     const saved = structuredClone(value)
     const next = this.#tail.then(async () => {
       await this.#loadOnce()
-      return this.#appendLoaded(kind, saved)
+      return this.#transaction((append) => append(kind, saved))
     })
     this.#tail = next.then(() => {}, () => {})
     return next
+  }
+
+  /** Plan the actual sequence ids and serialized bytes without writing parts. */
+  async #plan<T>(
+    operation: (append: (kind: JournalKind, value: unknown) => Promise<number>) => Promise<T>,
+    sequence = this.#sequence, ids: ReadonlyMap<string, number> = this.#ids,
+  ): Promise<{ entries: JournalEntry[]; bytes: number; result: T }> {
+    const entries: JournalEntry[] = []
+    const staged = new Map<string, number>()
+    const slices = new WorkSlices()
+    let bytes = 0
+    const result = await operation(async (kind, value) => {
+      await slices.step()
+      if (!validValue(kind, value, sequence)) throw new Error('provenance-invalid-record')
+      const key = keyOf(kind, value)
+      const existing = staged.get(key) ?? ids.get(key)
+      if (existing !== undefined) return existing
+      const entry = { seq: ++sequence, kind, value }
+      const length = serializeEntry(entry).length
+      if (length > JOURNAL_LIMIT) throw new Error('provenance-line-limit')
+      bytes += length
+      entries.push(entry)
+      staged.set(key, sequence)
+      return sequence
+    })
+    return { entries, bytes, result }
+  }
+
+  async #transaction<T>(operation: (append: (kind: JournalKind, value: unknown) => Promise<number>) => Promise<T>): Promise<T> {
+    if (this.#broken) throw new Error('provenance-journal-damaged')
+    if (this.#failed) throw this.#failed
+    let plan = await this.#plan(operation)
+    if (this.#durableBytes + plan.bytes > JOURNAL_BYTE_LIMIT) {
+      // A transaction is admitted whole. Renumber only before assigning its
+      // durable part ids, and refuse before touching the source if it cannot fit.
+      const compacted = await this.#compactLoaded(true, async (entries, bytes) => {
+        const ids = new Map(entries.map((entry) => [keyOf(entry.kind, entry.value), entry.seq]))
+        const candidate = await this.#plan(operation, entries.length, ids)
+        if (bytes + candidate.bytes > JOURNAL_BYTE_LIMIT) throw new ProvenanceJournalLimitError()
+      })
+      if (!compacted) throw new ProvenanceJournalLimitError()
+      plan = await this.#plan(operation)
+    }
+    for (const entry of plan.entries) await this.#appendLoaded(entry.kind, entry.value)
+    return plan.result
   }
 
   async #appendLoaded(kind: JournalKind, saved: unknown): Promise<number> {
@@ -245,26 +413,32 @@ export class ProvenanceJournal {
     const key = keyOf(kind, saved)
     const existing = this.#ids.get(key)
     if (existing !== undefined) return existing
-    const body = { version: 1, seq: this.#sequence + 1, kind, value: saved }
-    const bytes = Buffer.from(`${JSON.stringify({ ...body, checksum: digest(body) })}\n`)
+    const entry = { seq: this.#sequence + 1, kind, value: saved }
+    const bytes = serializeEntry(entry)
     if (bytes.length > JOURNAL_LIMIT) throw new Error('provenance-line-limit')
     try {
       await fs.mkdir(dirname(this.#file), { recursive: true, mode: 0o700 })
       const file = await fs.open(this.#file, 'a', 0o600)
       try {
+        const size = (await file.stat()).size
+        if (size !== this.#durableBytes) throw new ProvenanceJournalChangedError()
+        if (size + bytes.length > JOURNAL_BYTE_LIMIT) throw new ProvenanceJournalLimitError()
         if ((await file.write(bytes)).bytesWritten !== bytes.length) throw new Error('provenance-short-write')
         await file.sync()
       } finally {
         await file.close()
       }
     } catch (error) {
-      this.#failed = error instanceof Error ? error : new Error('provenance-write-failed')
+      // A refused size check wrote nothing and can be recovered by compaction.
+      if (error instanceof ProvenanceJournalLimitError || error instanceof ProvenanceJournalChangedError) throw error
+      this.#failed = normalizeStorageError(error)
       throw this.#failed
     }
-    this.#entries.push({ seq: body.seq, kind, value: saved })
-    this.#sequence = body.seq
-    this.#ids.set(key, body.seq)
-    return body.seq
+    this.#durableBytes += bytes.length
+    this.#entries.push(entry)
+    this.#sequence = entry.seq
+    this.#ids.set(key, entry.seq)
+    return entry.seq
   }
 
   /** Parts, manifest and replacement share one queue slot, including concurrent callers. */
@@ -272,7 +446,7 @@ export class ProvenanceJournal {
     const saved = structuredClone(value)
     const next = this.#tail.then(async () => {
       await this.#loadOnce()
-      await checkpointParts((kind, value) => this.#appendLoaded(kind, value), saved)
+      await this.#transaction((append) => checkpointParts(append, saved))
       await this.#compactLoaded(false)
     })
     this.#tail = next.then(() => {}, () => {})
@@ -289,59 +463,52 @@ export class ProvenanceJournal {
     return next
   }
 
-  async #compactLoaded(force: boolean): Promise<boolean> {
-    if (this.#broken) throw new Error('provenance-journal-damaged')
-    if (this.#failed) throw this.#failed
-    const manifest = this.#entries.findLast((entry) => entry.kind === 'cursor' &&
-      object(entry.value) && entry.value.type === 'checkpoint')
-    // Live: every ref, commit, range, link (including older decision ids used
-    // by amend proofs), gap and restored record is read by reconcile or backup.
-    // Only the latest complete checkpoint and its parts remain live cursors.
-    // Orphan parts and superseded manifests/parts have no reader.
-    const keep = new Set(manifest ? [manifest.seq, ...(manifest.value as { parts: number[] }).parts] : [])
-    const retained: JournalEntry[] = []
-    const slices = new WorkSlices()
-    let obsolete = 0
-    let bytes = 0
-    for (const entry of this.#entries) {
-      await slices.step()
-      if (entry.kind !== 'cursor' || keep.has(entry.seq)) retained.push(entry)
-      else { obsolete += 1; bytes += Buffer.byteLength(JSON.stringify(entry.value)) }
-    }
-    // Sparse sequences mean opening replay removed cursors only in memory.
-    // Until rename succeeds, that replacement remains due, including retries.
-    const sparse = this.#sequence > this.#entries.length
-    if (!obsolete && !sparse) return false
-    if (!force && !sparse && obsolete * 2 <= this.#entries.length && bytes < 32 * 1024 * 1024) return false
-    // Validate before writing anything; a bad latest manifest must not erase
-    // the original bytes or fall back to a superseded decision checkpoint.
-    readCheckpoint(this.#entries)
-    const sequence = new Map(retained.map((entry, at) => [entry.seq, at + 1]))
-    const entries: JournalEntry[] = []
-    const temporary = `${this.#file}.compact-${randomUUID()}`
+  async #compactLoaded(
+    force: boolean, reserve?: (entries: readonly JournalEntry[], bytes: number) => Promise<void>,
+  ): Promise<boolean> {
     try {
-      const file = await fs.open(temporary, 'wx', 0o600)
-      try {
-        for (const entry of retained) {
-          await slices.step()
-          const value = entry === manifest ? { ...(entry.value as object), parts: (entry.value as { parts: number[] }).parts.map((seq) => sequence.get(seq)!) } : entry.value
-          const saved = { seq: entries.length + 1, kind: entry.kind, value }
-          const body = { version: 1, ...saved }
-          const bytes = Buffer.from(`${JSON.stringify({ ...body, checksum: digest(body) })}\n`)
-          if ((await file.write(bytes)).bytesWritten !== bytes.length) throw new Error('provenance-short-write')
-          entries.push(saved)
+      if (this.#broken) throw new Error('provenance-journal-damaged')
+      if (this.#failed) throw this.#failed
+      const manifest = this.#entries.findLast((entry) => entry.kind === 'cursor' &&
+        object(entry.value) && entry.value.type === 'checkpoint')
+      // Every historical observation is live. Only superseded checkpoint parts
+      // and manifests are disposable; amend proofs may still use older decisions.
+      const keep = liveCursors(manifest)
+      const slices = new WorkSlices()
+      let obsolete = 0
+      let bytes = 0
+      for (const entry of this.#entries) {
+        await slices.step()
+        if (entry.kind === 'cursor' && !keep.has(entry.seq)) {
+          obsolete += 1
+          bytes += Buffer.byteLength(JSON.stringify(entry.value))
         }
-        await file.sync()
-      } finally { await file.close() }
-      await fs.rename(temporary, this.#file)
+      }
+      // Sparse replay has already discarded cursors in memory; replacement is
+      // still due until its rename succeeds, including after a failed attempt.
+      const sparse = this.#sequence > this.#entries.length
+      if (!obsolete && !sparse) return false
+      if (!force && !sparse && obsolete * 2 <= this.#entries.length && bytes < 32 * 1024 * 1024) return false
+      const before = await fs.stat(this.#file)
+      if (before.size !== this.#durableBytes) throw new ProvenanceJournalChangedError()
+      readCheckpoint(this.#entries)
+      const entries: JournalEntry[] = []
+      let written = 0
+      for await (const entry of compactEntries(this.#entries, manifest, slices)) {
+        entries.push(entry)
+        written += serializeEntry(entry).length
+      }
+      await reserve?.(entries, written)
+      const source = async function* () {
+        for (const entry of entries) { await slices.step(); yield entry }
+      }
+      this.#durableBytes = await rewriteJournal(this.#file, before, source())
       this.#entries = entries
       this.#sequence = entries.length
       this.#ids = new Map(entries.map((entry) => [keyOf(entry.kind, entry.value), entry.seq]))
       this.#generation += 1
-    } finally {
-      await fs.rm(temporary, { force: true }).catch(() => {})
-    }
-    return true
+      return true
+    } catch (error) { throw normalizeStorageError(error) }
   }
 
   async flush(): Promise<void> {
