@@ -2278,3 +2278,5 @@ and Review comment; each defaults on and saves independently to settings.follow.
 Open a goal when is a read-only list of project declarations with opens.lead
 true, using the arm preview's lead.summary. Each opens the project's returned
 trigger-file path. This page neither edits nor arms declarations.
+
+A phone start uses the selected runtime’s saved new-session choices after validating them against the current adapter. Replies use the ordinary turn queue while an agent is busy. If creation succeeds but the first message cannot be confirmed, the response retains the session id and a warning; the phone opens that conversation with the draft instead of starting another session on retry.

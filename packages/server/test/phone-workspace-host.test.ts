@@ -220,3 +220,66 @@ test('the host lets a phone answer an approval through the window’s own path, 
   await host.call('workspace/approval/decide', { id: 'ap-once', session: id, allow: true })
   assert.deepEqual(await allowed, { type: 'option', optionId: 'opt-0' })
 })
+
+
+test('phone replies queue behind a running turn', { timeout: 10000 }, async t => {
+  const { host, runtime } = await desk(t)
+  runtime.refusesWhileBusy = true
+  const messages: string[] = []
+  let finishQueued!: () => void
+  const queued = new Promise<void>(resolve => { finishQueued = resolve })
+  runtime.onSend = (live, text) => {
+    messages.push(text)
+    if (text === 'Second') { live.finish(); finishQueued() }
+  }
+  const created = await host.call('workspace/session/start', { text: 'First' })
+  await host.call('workspace/session/send', { id: created.id, text: 'Second' })
+  assert.deepEqual(messages, ['First'])
+  const record = host.registry.get(runtime.info.id, sessionId(created.id.split(':').slice(1).join(':')))!
+  assert.equal(record.queue.messages.length, 1)
+  runtime.sessions.get(record.session.id)!.finish()
+  await queued
+  assert.deepEqual(messages, ['First', 'Second'])
+})
+
+test('phone starts honor saved runtime options and refuse obsolete saved choices', async t => {
+  const { host, runtime, state } = await desk(t)
+  await state.setPreferences({ draftValues: { [runtime.info.id]: { model: 'fake-2', tone: 'cheerful', uppercase: true } } })
+  await host.call('workspace/session/start', { text: 'Saved settings' })
+  assert.deepEqual(runtime.lastCreateOptions?.options, { model: 'fake-2', tone: 'cheerful', uppercase: true })
+  const count = runtime.sessions.size
+  await state.setPreferences({ draftValues: { [runtime.info.id]: { model: 'gone' } } })
+  await assert.rejects(host.call('workspace/session/start', { text: 'Refuse stale defaults' }), /saved|option|model/i)
+  assert.equal(runtime.sessions.size, count)
+})
+
+test('phone project names follow repository metadata while live cwd alone grants no project', async t => {
+  const { host, runtime, root, state } = await desk(t)
+  const repository = join(root, 'acme-api'), admitted = join(repository, 'packages', 'web')
+  await mkdir(admitted, { recursive: true })
+  await state.touchWorkspace({ path: admitted, name: 'web', lastOpenedAt: 1 })
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.putRepo(admitted, { repo: { root: repository, worktree: false }, exists: true, checkedAt: Date.now() })
+  index.close()
+  await host.call('workspace/session/start', { text: 'Use displayed repository', project: 'acme-api' })
+  assert.equal(runtime.lastCreateOptions?.cwd, admitted)
+  await host.call('session/create', { runtime: runtime.info.id, options: { cwd: join(root, 'unadmitted-seat') } })
+  await assert.rejects(host.call('workspace/session/start', { text: 'No', project: 'unadmitted-seat' }), /not available/i)
+})
+
+test('phone stop on an idle indexed session does not reopen an agent handle', async t => {
+  const { host, runtime } = await desk(t)
+  assert.equal(runtime.sessions.size, 0)
+  assert.deepEqual(await host.call('workspace/stop', { id: `${runtime.info.id}:priced` }), {})
+  assert.equal(runtime.sessions.size, 0)
+})
+
+
+test('phone reply opens a cold indexed session before entering the ordinary queue', async t => {
+  const { host, runtime, root } = await desk(t)
+  runtime.minted.set('priced', join(root, 'acme-api'))
+  const messages: string[] = []
+  runtime.onSend = (live, text) => { messages.push(text); live.finish() }
+  await host.call('workspace/session/send', { id: `${runtime.info.id}:priced`, text: 'Reply to the older session' })
+  assert.deepEqual(messages, ['Reply to the older session'])
+})

@@ -1,5 +1,5 @@
 import {
-  runtimeId, sessionId as makeSessionId, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
+  findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
 } from '@harnessdesk/protocol'
 import { assessApproval, buildThread, type PhoneApprovalTurn, type ThreadContext } from './phone-thread.js'
@@ -28,9 +28,12 @@ export interface PhoneWorkPorts {
   readonly defaultRuntime: () => RuntimeId | null
   /** Admitted project roots, with no caller-supplied path. */
   readonly projectRoots: () => readonly string[]
+  readonly projectName?: (root: string) => string | null
   readonly canInterrupt: (runtime: RuntimeId) => boolean
+  readonly newSessionValues: (runtime: RuntimeId, cwd?: string) => Promise<Readonly<Record<string, OptionValue>>>
   readonly create: (params: HostParams<'session/create'>) => Promise<HostResult<'session/create'>>
   readonly send: (params: HostParams<'turn/send'>) => Promise<void>
+  readonly queue: (params: HostParams<'turn/queue'>) => Promise<void>
   readonly interrupt: (params: HostParams<'turn/interrupt'>) => Promise<void>
   /** Whether a piece of text could hold a secret. */
   readonly hasSecret: (text: string) => boolean
@@ -51,6 +54,42 @@ const DECISION_TTL = 24 * 60 * 60 * 1000
 export class PhoneWorkRefusal extends Error {}
 
 const refuse = (message: string): never => { throw new PhoneWorkRefusal(message) }
+
+/** Saved desk picks and current adapter recommendations, validated before allocation. */
+export async function phoneSessionValues(
+  runtime: RuntimeId, cwd: string | undefined, preferences: Readonly<Record<string, unknown>>,
+  resolve: (params: HostParams<'runtime/sessionDefaults'>) => Promise<readonly ConfigOption[]>,
+): Promise<Readonly<Record<string, OptionValue>>> {
+  const drafts = preferences['draftValues']
+  const raw = drafts && typeof drafts === 'object' && !Array.isArray(drafts)
+    ? (drafts as Record<string, unknown>)[runtime] : undefined
+  if (raw !== undefined && (!raw || typeof raw !== 'object' || Array.isArray(raw))) {
+    return refuse('Saved new-session choices need attention in Settings on the desk.')
+  }
+  const saved: Record<string, OptionValue> = {}
+  for (const [id, value] of Object.entries(raw ?? {})) {
+    if (typeof value !== 'string' && typeof value !== 'boolean') return refuse('Saved new-session choices need attention in Settings on the desk.')
+    saved[id] = value
+  }
+  let values = saved
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const options = await resolve({ runtime, ...(cwd ? { cwd } : {}), ...(Object.keys(values).length ? { values } : {}) })
+    for (const [id, value] of Object.entries(values)) {
+      const option = findOption(options, id)
+      if (!option || refuseOptionValue(option, value) || option.currentValue !== value) {
+        return refuse('Saved new-session choices need attention in Settings on the desk.')
+      }
+    }
+    const recommended = recommendedOptionValues(options)
+    if (options.some(option => option.category === '_profile' && Boolean(saved[option.id]) && !option.disabled)) {
+      for (const option of options) if (option.category === 'model') delete recommended[option.id]
+    }
+    const next = { ...recommended, ...saved }
+    if (Object.keys(next).length === Object.keys(values).length && Object.entries(next).every(([id, value]) => values[id] === value)) return values
+    values = next
+  }
+  return refuse('New-session choices changed while starting. Try again on the desk.')
+}
 
 /**
  * A failure from the desk, said to the phone without whatever the desk's own error carried: a message from a
@@ -115,32 +154,40 @@ export class PhoneWork {
     return this.#ports.workspace.workSessions(params)
   }
 
-  async sessionStart(params: HostParams<'workspace/session/start'>): Promise<{ id: string }> {
+  async sessionStart(params: HostParams<'workspace/session/start'>): Promise<HostResult<'workspace/session/start'>> {
     const runtime = this.#ports.defaultRuntime()
     if (runtime === null) return refuse('No agent is available to start a session.')
     let cwd: string | undefined
     if (params.project !== undefined) {
-      const matches = [...new Set(this.#ports.projectRoots())].filter(root => folderName(root) === params.project)
+      const matches = [...new Set(this.#ports.projectRoots())].filter(root => (this.#ports.projectName?.(root) ?? folderName(root)) === params.project)
       if (matches.length === 0) return refuse('That project is not available on this desk.')
       if (matches.length > 1) return refuse('More than one project has that name. Start it on the desk.')
       cwd = matches[0]!
     }
     return guarded(async () => {
-      const session = await this.#ports.create({ runtime, options: cwd === undefined ? {} : { cwd } })
-      await this.#ports.send({ runtime, sessionId: session.id, input: [{ type: 'text', text: params.text }] })
-      return { id: `${runtime}:${session.id}` }
+      const values = await this.#ports.newSessionValues(runtime, cwd)
+      const session = await this.#ports.create({ runtime, options: { ...(cwd ? { cwd } : {}), ...(Object.keys(values).length ? { options: values } : {}) } })
+      const id = `${runtime}:${session.id}`
+      try { await this.#ports.send({ runtime, sessionId: session.id, input: [{ type: 'text', text: params.text }] }) }
+      catch {
+        // The runtime may have accepted the prompt before losing its reply.
+        // Keep its identity and history; the phone opens it with the draft.
+        return { id, problem: 'The session was created, but its first message could not be confirmed. Check the conversation before sending again.' }
+      }
+      return { id }
     })
   }
 
   async sessionSend(params: HostParams<'workspace/session/send'>): Promise<Record<string, never>> {
     const { runtime, session } = this.#target(params.id)
-    await guarded(() => this.#ports.send({ runtime, sessionId: session, input: [{ type: 'text', text: params.text }] }))
+    await guarded(() => this.#ports.queue({ runtime, sessionId: session, input: [{ type: 'text', text: params.text }] }))
     return {}
   }
 
   async stop(params: HostParams<'workspace/stop'>): Promise<Record<string, never>> {
     const { runtime, session } = this.#target(params.id)
     if (!this.#ports.canInterrupt(runtime)) return refuse('This agent cannot stop a session from the phone.')
+    if (!this.#ports.live(runtime, session).running) return {}
     await guarded(() => this.#ports.interrupt({ runtime, sessionId: session }))
     return {}
   }
@@ -228,17 +275,20 @@ export class WorkspaceFeed {
     if (this.#disposed) return
     if (this.#building) { this.#again = true; return }
     this.#building = true
+    let invalidated = false
     try {
       if (!this.#options.listening()) return
-      const invalidated = this.#invalidated
+      invalidated = this.#invalidated
       this.#invalidated = false
       const snapshot = await this.#options.build()
       const text = JSON.stringify(snapshot)
       if ((invalidated || text !== this.#last) && !this.#disposed && this.#options.listening()) {
-        this.#last = text
         this.#options.publish(snapshot)
+        this.#last = text
       }
     } catch (error) {
+      this.#invalidated ||= invalidated
+      this.#again = true
       this.#options.onError?.(error)
     } finally {
       this.#building = false

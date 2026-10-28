@@ -43,7 +43,7 @@ const rig = (over: Partial<PhoneWorkPorts> = {}): Rig => {
     read: async () => current,
     live: () => ({ running, pending, cwd: CWD }),
     defaultRuntime: () => RT, projectRoots: () => [], canInterrupt: () => true,
-    create: async () => session([]), send: async () => {}, interrupt: async () => {},
+    newSessionValues: async () => ({}), create: async () => session([]), send: async () => {}, queue: async () => {}, interrupt: async () => {},
     respond: async params => { responded.push(params); pending = pending.filter(one => one.id !== params.approvalId) },
     hasSecret: text => /sk-[A-Za-z0-9]{10,}/.test(text),
     now: () => 1_000,
@@ -357,4 +357,32 @@ test('the change feed publishes a snapshot only when it differs, only while a ph
   version = 3
   feed.poke(); await settle()
   assert.equal(published.length, 2)
+})
+
+
+test('a failed first send returns the created session instead of losing its identity', async () => {
+  const { work } = rig({ send: async () => { throw new Error('Synthetic first-send refusal') } })
+  const result = await work.sessionStart({ text: 'Keep this draft' })
+  assert.equal(result.id, `${RT}:${SID}`)
+  assert.match((result as { problem?: string }).problem ?? '', /created.*first message|first message.*confirm/i)
+})
+
+test('an invalidated workspace feed retries a failed build and republishes an identical snapshot', async t => {
+  let fail = false, builds = 0
+  const published: PhoneWorkSnapshot[] = []
+  const snapshot = { deskName: 'Same', items: [], models: [], flows: [], commands: [], capabilities: {} as never, threads: [] }
+  const feed = new WorkspaceFeed({ delayMs: 5, listening: () => true, build: async () => {
+    builds++
+    if (fail) { fail = false; throw new Error('Transient snapshot read failure') }
+    return snapshot
+  }, publish: value => { published.push(value) } })
+  t.after(() => feed.dispose())
+  feed.poke()
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.equal(published.length, 1)
+  fail = true
+  feed.poke(true)
+  await new Promise(resolve => setTimeout(resolve, 80))
+  assert.equal(published.length, 2)
+  assert.ok(builds >= 3)
 })

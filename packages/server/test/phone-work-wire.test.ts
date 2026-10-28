@@ -51,7 +51,7 @@ const leaks = (value: unknown): string[] => {
  */
 const door = async () => {
   const home = await mkdtemp(join(tmpdir(), 'hd-phone-wire-'))
-  const state = { title: 'Fix the importer', pending: [asked()], builds: 0, responded: [] as any[], actions: [] as any[] }
+  const state = { title: 'Fix the importer', pending: [asked()], builds: 0, running: false, responded: [] as any[], actions: [] as any[] }
   const items = (): PhoneWorkItem[] => [{ id: KEY, kind: 'session', title: state.title, phase: 'running', line: 'Working', updatedAt: 1 }]
   const work = new PhoneWork({
     workspace: { workItems: async () => { state.builds++; return items() }, workUsage: async () => undefined, workSessions: () => ({ items: items(), nextCursor: null }) },
@@ -61,11 +61,11 @@ const door = async () => {
     isOwn: (runtime, id) => runtime === RT && id === SID,
     summary: () => null,
     read: async () => conversation,
-    live: () => ({ running: false, pending: state.pending, cwd: CWD }),
+    live: () => ({ running: state.running, pending: state.pending, cwd: CWD }),
     defaultRuntime: () => RT, projectRoots: () => [CWD], canInterrupt: () => true,
-    create: async params => { state.actions.push(['create', params]); return conversation },
-    send: async params => { state.actions.push(['send', params]) },
-    interrupt: async params => { state.actions.push(['stop', params]) },
+    newSessionValues: async () => ({}), queue: async params => { state.actions.push(['send', params]); state.running = true }, create: async params => { state.actions.push(['create', params]); return conversation },
+    send: async params => { state.actions.push(['send', params]); state.running = true },
+    interrupt: async params => { state.actions.push(['stop', params]); state.running = false },
     respond: async params => { state.responded.push(params); state.pending = state.pending.filter(one => one.id !== params.approvalId) },
     hasSecret: () => false,
     now: () => 1_000,

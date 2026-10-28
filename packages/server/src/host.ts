@@ -12,7 +12,8 @@ import { LeadPersonActions } from './lead/person-actions.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
 import { phoneLinkOff } from './phone-link.js'
 import { PhoneWorkspace } from './phone-workspace.js'
-import { PhoneWork } from './phone-work.js'
+import { PhoneWork, phoneSessionValues } from './phone-work.js'
+import { folderName } from './phone-redact.js'
 import { leadContainsSecret } from './lead/secrets.js'
 import { answerLeadPersonGate, answerLeadResult, validateLeadResult } from './lead/person-decision.js'
 import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
@@ -9507,10 +9508,20 @@ export class Host {
         const preferred = this.#state.state.preferences['activeRuntime']
         return ((typeof preferred === 'string' ? this.#runtimes.get(preferred) : undefined) ?? this.#runtimes.values().next().value)?.info.id ?? null
       },
-      projectRoots: () => this.#openRoots(),
+      projectRoots: () => this.#state.state.workspaces.map(workspace => workspace.path),
+      projectName: root => folderName(this.#sessionIndex.repo(root)?.repo?.root ?? root),
       canInterrupt: runtime => this.#runtimes.get(runtime)?.info.capabilities.interrupt === true,
+      newSessionValues: async (runtime, cwd) => {
+        await this.#ensureStarted(this.#runtime({ runtime }))
+        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params))
+      },
       create: params => this.call('session/create', params),
       send: async params => { await this.call('turn/send', params) },
+      queue: async params => {
+        if (!this.registry.get(params.runtime, params.sessionId)) await this.call('session/read', { runtime: params.runtime, sessionId: params.sessionId })
+        if (!this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('That is not a session this desk can show.')
+        await this.call('turn/queue', params)
+      },
       interrupt: async params => { await this.call('turn/interrupt', params) },
       hasSecret: (text) => leadContainsSecret(text),
       now: () => Date.now(),

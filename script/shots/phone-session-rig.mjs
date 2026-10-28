@@ -41,7 +41,7 @@ export async function createPhoneSessionRig() {
   index.close()
   const logger = new Logger('phone-session-rig', { level: 'error', console: false })
   const state = new StateStore(join(home, 'state.json'))
-  await state.setPreferences({ activeRuntime: runtime.info.id })
+  await state.setPreferences({ activeRuntime: runtime.info.id, chatsFolder: join(home, 'chats') })
   const host = new Host({ state, logger, catalogRefreshMs: 0, builtinAgents: join(home, 'agents'), libraryHome: join(home, 'person') })
   host.register(runtime)
   const receipts = []
@@ -75,6 +75,7 @@ export async function createPhoneSessionRig() {
   }
   runtime.onSend = (session, text) => {
     void session.setTitle(text.slice(0, 60))
+    if (text === 'PHONE_REFUSE_FIRST_SEND') { session.finish(); throw new Error('Synthetic first-send refusal') }
     if (text.includes('PHONE_APPROVAL')) {
       void session.askPermission(approvalId('phone-fixture-approval'), 'Run the synthetic session check').then(() => finish(session, 'Approval answered.'))
     } else if (!text.includes('PHONE_HOLD')) {
@@ -83,9 +84,18 @@ export async function createPhoneSessionRig() {
     }
   }
   await host.start()
+  const archivedID = sessionId('archive-010')
+  host.registry.upsert(await runtime.readSession(archivedID), null).approvals.set('archived-pending', {
+    id: approvalId('archived-pending'), sessionId: archivedID, requestedAt: Date.now(), type: 'command',
+    command: 'Run archived synthetic check', cwd: project, actions: [], options: [
+      { id: 'deny', label: 'Deny', intent: 'deny' },
+      { id: 'once', label: 'Allow once', intent: 'approve' },
+      { id: 'session', label: 'Allow this tool for the session', intent: 'approveAlways', grant: 'session-tool' },
+    ],
+  })
   await host.call('workspace/open', { path: project })
   const server = await serve({ host, logger, uiRoot: join(root, 'packages/ui/dist') })
-  const phone = await startPhoneLink(host, logger, { home, name: 'Synthetic phone desk', includeLoopback: true })
+  const phone = await startPhoneLink(host, logger, { home, name: 'Synthetic phone desk', host: '127.0.0.1', includeLoopback: true })
   phone.control.onChange(() => {
     for (const request of phone.control.state().pending) phone.control.allow(request.id)
   })

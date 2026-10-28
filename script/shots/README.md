@@ -254,3 +254,5 @@ done
 ```
 
 Every page passes `audit.mjs` before capture; read every coalesced frame before committing, as for the race.
+
+The native session rig binds its phone listener to loopback and keeps new chat folders inside its disposable state. `PHONE_REFUSE_FIRST_SEND` preserves a created session with an unconfirmed-message warning. Archived fixture 010 retains a pending approval for read-only UI verification.
