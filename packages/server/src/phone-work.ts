@@ -23,7 +23,7 @@ export interface PhoneWorkPorts {
   readonly summary: (runtime: RuntimeId, id: SessionId) => SessionSummary | null
   readonly read: (runtime: RuntimeId, id: SessionId) => Promise<Session>
   /** What this host holds of a conversation right now. */
-  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly pending: readonly Approval[]; readonly cwd: string | null }
+  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly pending: readonly Approval[]; readonly cwd: string | null; readonly queued?: number }
   readonly respond: (params: HostParams<'approval/respond'>) => Promise<void>
   readonly defaultRuntime: () => RuntimeId | null
   /** Admitted project roots, with no caller-supplied path. */
@@ -33,7 +33,7 @@ export interface PhoneWorkPorts {
   readonly newSessionValues: (runtime: RuntimeId, cwd?: string) => Promise<Readonly<Record<string, OptionValue>>>
   readonly create: (params: HostParams<'session/create'>) => Promise<HostResult<'session/create'>>
   readonly send: (params: HostParams<'turn/send'>) => Promise<void>
-  readonly queue: (params: HostParams<'turn/queue'>) => Promise<void>
+  readonly queue: (params: HostParams<'turn/queue'>) => Promise<HostResult<'turn/queue'>>
   readonly interrupt: (params: HostParams<'turn/interrupt'>) => Promise<void>
   /** Whether a piece of text could hold a secret. */
   readonly hasSecret: (text: string) => boolean
@@ -71,20 +71,41 @@ export async function phoneSessionValues(
     if (typeof value !== 'string' && typeof value !== 'boolean') return refuse('Saved new-session choices need attention in Settings on the desk.')
     saved[id] = value
   }
-  let values = saved
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const options = await resolve({ runtime, ...(cwd ? { cwd } : {}), ...(Object.keys(values).length ? { values } : {}) })
+  const read = (values: Readonly<Record<string, OptionValue>>) => resolve({ runtime,
+    ...(cwd ? { cwd } : {}), ...(Object.keys(values).length ? { values } : {}) })
+  const selector = (option: ConfigOption) => option.category === 'model' || option.category === '_profile'
+  const validate = (values: Readonly<Record<string, OptionValue>>, options: readonly ConfigOption[], applied = false) => {
     for (const [id, value] of Object.entries(values)) {
       const option = findOption(options, id)
-      if (!option || refuseOptionValue(option, value) || option.currentValue !== value) {
-        return refuse('Saved new-session choices need attention in Settings on the desk.')
+      if (!option || refuseOptionValue(option, value) || (applied && option.currentValue !== value)) {
+        refuse('Saved new-session choices need attention in Settings on the desk.')
       }
     }
-    const recommended = recommendedOptionValues(options)
-    if (options.some(option => option.category === '_profile' && Boolean(saved[option.id]) && !option.disabled)) {
-      for (const option of options) if (option.category === 'model') delete recommended[option.id]
-    }
-    const next = { ...recommended, ...saved }
+  }
+  const base = await read({})
+  const savedSelectors = Object.fromEntries(Object.entries(saved).filter(([id]) => base.some(option => option.id === id && selector(option))))
+  validate(savedSelectors, base)
+  const selectors = Object.fromEntries(Object.entries(recommendedOptionValues(base))
+    .filter(([id]) => base.some(option => option.id === id && selector(option))))
+  // A saved profile owns its model, just as it does in the desktop composer.
+  if (base.some(option => option.category === '_profile' && Boolean(saved[option.id]) && !option.disabled)) {
+    for (const option of base) if (option.category === 'model') delete selectors[option.id]
+  }
+  Object.assign(selectors, savedSelectors)
+  const declared = Object.keys(selectors).length ? await read(selectors) : base
+  validate(selectors, declared, true)
+  const dependentSaved = Object.fromEntries(Object.entries(saved).filter(([id]) => !(id in savedSelectors)))
+  validate(dependentSaved, declared)
+  const dependentRecommendations = (options: readonly ConfigOption[]) => Object.fromEntries(
+    Object.entries(recommendedOptionValues(options)).filter(([id]) => !options.some(option => option.id === id && selector(option))))
+  // Recommendations dependent on a model/profile are read only after those
+  // selectors resolve. An old model's effort must never ride a new model.
+  let values = { ...selectors, ...dependentRecommendations(declared), ...dependentSaved }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (Object.keys(values).length === 0) return values
+    const options = await read(values)
+    validate(values, options, true)
+    const next = { ...selectors, ...dependentRecommendations(options), ...dependentSaved }
     if (Object.keys(next).length === Object.keys(values).length && Object.entries(next).every(([id, value]) => values[id] === value)) return values
     values = next
   }
@@ -178,18 +199,18 @@ export class PhoneWork {
     })
   }
 
-  async sessionSend(params: HostParams<'workspace/session/send'>): Promise<Record<string, never>> {
+  async sessionSend(params: HostParams<'workspace/session/send'>): Promise<HostResult<'workspace/session/send'>> {
     const { runtime, session } = this.#target(params.id)
-    await guarded(() => this.#ports.queue({ runtime, sessionId: session, input: [{ type: 'text', text: params.text }] }))
-    return {}
+    const result = await guarded(() => this.#ports.queue({ runtime, sessionId: session, input: [{ type: 'text', text: params.text }] }))
+    return result.sent ? {} : { queued: true }
   }
 
-  async stop(params: HostParams<'workspace/stop'>): Promise<Record<string, never>> {
+  async stop(params: HostParams<'workspace/stop'>): Promise<HostResult<'workspace/stop'>> {
     const { runtime, session } = this.#target(params.id)
     if (!this.#ports.canInterrupt(runtime)) return refuse('This agent cannot stop a session from the phone.')
-    if (!this.#ports.live(runtime, session).running) return {}
+    if (!this.#ports.live(runtime, session).running) return this.#ports.live(runtime, session).queued ? { queued: true } : {}
     await guarded(() => this.#ports.interrupt({ runtime, sessionId: session }))
-    return {}
+    return this.#ports.live(runtime, session).queued ? { queued: true } : {}
   }
 
   /**

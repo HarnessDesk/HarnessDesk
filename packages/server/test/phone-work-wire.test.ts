@@ -63,7 +63,7 @@ const door = async () => {
     read: async () => conversation,
     live: () => ({ running: state.running, pending: state.pending, cwd: CWD }),
     defaultRuntime: () => RT, projectRoots: () => [CWD], canInterrupt: () => true,
-    newSessionValues: async () => ({}), queue: async params => { state.actions.push(['send', params]); state.running = true }, create: async params => { state.actions.push(['create', params]); return conversation },
+    newSessionValues: async () => ({}), queue: async params => { state.actions.push(['send', params]); state.running = true; return { queuedId: null, sent: true } }, create: async params => { state.actions.push(['create', params]); return conversation },
     send: async params => { state.actions.push(['send', params]); state.running = true },
     interrupt: async params => { state.actions.push(['stop', params]); state.running = false },
     respond: async params => { state.responded.push(params); state.pending = state.pending.filter(one => one.id !== params.approvalId) },

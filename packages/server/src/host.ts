@@ -9501,7 +9501,7 @@ export class Host {
       },
       live: (runtime, id) => {
         const record = this.registry.get(runtime, id)
-        return { running: (record?.running.size ?? 0) > 0, pending: record ? [...record.approvals.values()] : [], cwd: record?.session.cwd ?? null }
+        return { running: (record?.running.size ?? 0) > 0, pending: record ? [...record.approvals.values()] : [], cwd: record?.session.cwd ?? null, queued: record?.queue.messages.length ?? 0 }
       },
       respond: async (params) => { await this.call('approval/respond', params) },
       defaultRuntime: () => {
@@ -9520,7 +9520,10 @@ export class Host {
       queue: async params => {
         if (!this.registry.get(params.runtime, params.sessionId)) await this.call('session/read', { runtime: params.runtime, sessionId: params.sessionId })
         if (!this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('That is not a session this desk can show.')
-        await this.call('turn/queue', params)
+        if (this.registry.get(params.runtime, params.sessionId)?.queue.status === 'paused') {
+          throw new Error('Earlier replies are paused. Continue them on the desk before replying.')
+        }
+        return this.call('turn/queue', params)
       },
       interrupt: async params => { await this.call('turn/interrupt', params) },
       hasSecret: (text) => leadContainsSecret(text),

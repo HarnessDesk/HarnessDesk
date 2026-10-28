@@ -283,3 +283,20 @@ test('phone reply opens a cold indexed session before entering the ordinary queu
   await host.call('workspace/session/send', { id: `${runtime.info.id}:priced`, text: 'Reply to the older session' })
   assert.deepEqual(messages, ['Reply to the older session'])
 })
+
+
+test('phone replies refuse a paused queue after interruption or failure without appending another message', async t => {
+  for (const end of ['stop', 'failure']) {
+    const { host, runtime } = await desk(t)
+    const created = await host.call('workspace/session/start', { text: 'First' })
+    const id = sessionId(created.id.split(':').slice(1).join(':'))
+    assert.deepEqual(await host.call('workspace/session/send', { id: created.id, text: 'Queued reply' }), { queued: true })
+    if (end === 'stop') assert.deepEqual(await host.call('workspace/stop', { id: created.id }), { queued: true })
+    else runtime.sessions.get(id)!.fail('Synthetic runtime failure')
+    const record = host.registry.get(runtime.info.id, id)!
+    assert.equal(record.queue.status, 'paused')
+    const count = record.queue.messages.length
+    await assert.rejects(host.call('workspace/session/send', { id: created.id, text: 'Keep this new draft' }), /paused.*desk/i)
+    assert.equal(record.queue.messages.length, count)
+  }
+})

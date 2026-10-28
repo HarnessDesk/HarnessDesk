@@ -804,8 +804,8 @@ export interface HostMethods {
   }
   /** Start with the desk's ordinary runtime and settings; a project is a displayed, admitted name. */
   'workspace/session/start': { params: { readonly text: string; readonly project?: string }; result: { readonly id: string; readonly problem?: string } }
-  'workspace/session/send': { params: { readonly id: string; readonly text: string }; result: Record<string, never> }
-  'workspace/stop': { params: { readonly id: string }; result: Record<string, never> }
+  'workspace/session/send': { params: { readonly id: string; readonly text: string }; result: { readonly queued?: boolean } }
+  'workspace/stop': { params: { readonly id: string }; result: { readonly queued?: boolean } }
   /** One session's conversation for the phone: its words scrubbed, no command output, no lines of a change. */
   'workspace/thread/read': { params: { readonly id: string }; result: PhoneWorkThread }
   /**

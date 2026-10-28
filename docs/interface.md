@@ -2280,3 +2280,5 @@ true, using the arm preview's lead.summary. Each opens the project's returned
 trigger-file path. This page neither edits nor arms declarations.
 
 A phone start uses the selected runtime’s saved new-session choices after validating them against the current adapter. Replies use the ordinary turn queue while an agent is busy. If creation succeeds but the first message cannot be confirmed, the response retains the session id and a warning; the phone opens that conversation with the draft instead of starting another session on retry.
+
+Queued phone replies are acknowledged as waiting. If Stop or a failed turn pauses the queue, further phone replies refuse before enqueueing and keep their drafts, with an instruction to continue on the desk. Stop reports any replies still waiting. Model and profile selectors resolve before dependent saved choices and recommendations.
