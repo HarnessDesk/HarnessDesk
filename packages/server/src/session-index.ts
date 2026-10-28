@@ -241,10 +241,10 @@ export class SessionIndex {
       AND updated_at >= ?`).get(since) as unknown as { n: number }).n
   }
 
-  /** Whether this is one of the person's own open conversations, as the phone lists them. */
-  isOwn(runtime: RuntimeId, id: SessionId): boolean {
+  /** Whether this is one of the person's own conversations; archives are admitted only for explicit reads. */
+  isOwn(runtime: RuntimeId, id: SessionId, includeArchived = false): boolean {
     return this.#db.prepare(`SELECT 1 AS own FROM sessions WHERE runtime=? AND id=? AND origin='desk' AND removed_at IS NULL AND team_id IS NULL
-      AND archived=0`).get(runtime, id) !== undefined
+      AND (archived=0 OR (?=1 AND archived=1))`).get(runtime, id, includeArchived ? 1 : 0) !== undefined
   }
 
   /** Dollars the desk stored for one conversation (a Team's seat included); null when it priced none. */

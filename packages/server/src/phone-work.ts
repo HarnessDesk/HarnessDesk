@@ -1,5 +1,5 @@
 import {
-  runtimeId, sessionId as makeSessionId, type Approval, type HostParams, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
+  runtimeId, sessionId as makeSessionId, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
 } from '@harnessdesk/protocol'
 import { assessApproval, buildThread, type PhoneApprovalTurn, type ThreadContext } from './phone-thread.js'
@@ -7,25 +7,31 @@ import { folderName, scrub } from './phone-redact.js'
 import type { PhoneWorkspace } from './phone-workspace.js'
 
 /**
- * The phone's own view of the desk: one snapshot of the work, one conversation, and the single thing a phone may do
- * to it so far, which is to answer an approval. It composes the projections in `phone-workspace.ts` and
- * `phone-thread.ts` and owns nothing of the desk's: every read goes through a port and every answer is the window's
- * own `approval/respond`, so a held ceiling or a stopped question is honoured the same way.
+ * The phone's view of the desk and its ordinary session controls. It composes the projections in
+ * `phone-workspace.ts` and `phone-thread.ts` and owns nothing of the desk's: narrow ports dispatch the window's
+ * existing methods, so permissions, held ceilings, lifecycle and approval rules remain the host's.
  */
 
 export interface PhoneWorkPorts {
-  readonly workspace: Pick<PhoneWorkspace, 'workItems' | 'workUsage'>
+  readonly workspace: Pick<PhoneWorkspace, 'workItems' | 'workUsage' | 'workSessions'>
   /** What the desk is called to the phone that paired with it. */
   readonly deskName: () => string
   readonly home: string | null
   readonly seatName: (runtime: RuntimeId) => string | null
-  /** One of the person's own open conversations, as the sessions list shows them. */
-  readonly isOwn: (runtime: RuntimeId, id: SessionId) => boolean
+  /** Index membership; archives are readable only when explicitly requested. */
+  readonly isOwn: (runtime: RuntimeId, id: SessionId, includeArchived?: boolean) => boolean
   readonly summary: (runtime: RuntimeId, id: SessionId) => SessionSummary | null
   readonly read: (runtime: RuntimeId, id: SessionId) => Promise<Session>
   /** What this host holds of a conversation right now. */
   readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly pending: readonly Approval[]; readonly cwd: string | null }
   readonly respond: (params: HostParams<'approval/respond'>) => Promise<void>
+  readonly defaultRuntime: () => RuntimeId | null
+  /** Admitted project roots, with no caller-supplied path. */
+  readonly projectRoots: () => readonly string[]
+  readonly canInterrupt: (runtime: RuntimeId) => boolean
+  readonly create: (params: HostParams<'session/create'>) => Promise<HostResult<'session/create'>>
+  readonly send: (params: HostParams<'turn/send'>) => Promise<void>
+  readonly interrupt: (params: HostParams<'turn/interrupt'>) => Promise<void>
   /** Whether a piece of text could hold a secret. */
   readonly hasSecret: (text: string) => boolean
   readonly now: () => number
@@ -33,7 +39,7 @@ export interface PhoneWorkPorts {
 
 /** The controls the desk honours for a phone so far. The rest are left false, and the phone leaves them out. */
 const CAPABILITIES: PhoneWorkCapabilities = {
-  startSession: false, startTeam: false, reply: false, stop: false, delete: false, chooseModel: false,
+  startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false,
   choosePermissions: false, attach: false, undo: false, decide: true,
 }
 
@@ -81,16 +87,16 @@ export class PhoneWork {
   }
 
   /** "<agent>:<session>" to a conversation of the person's own that this desk can show. */
-  #target(id: string): { runtime: RuntimeId; session: SessionId; key: string } {
+  #target(id: string, includeArchived = false): { runtime: RuntimeId; session: SessionId; key: string } {
     const at = id.indexOf(':')
     if (at <= 0 || at === id.length - 1 || id.length > 300) return refuse('That is not a session this desk can show.')
     const runtime = runtimeId(id.slice(0, at)), session = makeSessionId(id.slice(at + 1))
-    if (this.#ports.seatName(runtime) === null || !this.#ports.isOwn(runtime, session)) return refuse('That is not a session this desk can show.')
+    if (this.#ports.seatName(runtime) === null || !this.#ports.isOwn(runtime, session, includeArchived)) return refuse('That is not a session this desk can show.')
     return { runtime, session, key: `${runtime}:${session}` }
   }
 
   async threadRead(params: { id: string }): Promise<PhoneWorkThread> {
-    const { runtime, session, key } = this.#target(params.id)
+    const { runtime, session, key } = this.#target(params.id, true)
     const read = await guarded(() => this.#ports.read(runtime, session))
     const live = this.#ports.live(runtime, session)
     const summary = this.#ports.summary(runtime, session)
@@ -103,6 +109,40 @@ export class PhoneWork {
       id: key, session: read, running: live.running, pending: live.pending,
       project: summary?.repo ? folderName(summary.repo.root) : null, title: summary?.title, decided,
     }, this.#context(runtime))
+  }
+
+  sessionsList(params: HostParams<'workspace/sessions/list'>): HostResult<'workspace/sessions/list'> {
+    return this.#ports.workspace.workSessions(params)
+  }
+
+  async sessionStart(params: HostParams<'workspace/session/start'>): Promise<{ id: string }> {
+    const runtime = this.#ports.defaultRuntime()
+    if (runtime === null) return refuse('No agent is available to start a session.')
+    let cwd: string | undefined
+    if (params.project !== undefined) {
+      const matches = [...new Set(this.#ports.projectRoots())].filter(root => folderName(root) === params.project)
+      if (matches.length === 0) return refuse('That project is not available on this desk.')
+      if (matches.length > 1) return refuse('More than one project has that name. Start it on the desk.')
+      cwd = matches[0]!
+    }
+    return guarded(async () => {
+      const session = await this.#ports.create({ runtime, options: cwd === undefined ? {} : { cwd } })
+      await this.#ports.send({ runtime, sessionId: session.id, input: [{ type: 'text', text: params.text }] })
+      return { id: `${runtime}:${session.id}` }
+    })
+  }
+
+  async sessionSend(params: HostParams<'workspace/session/send'>): Promise<Record<string, never>> {
+    const { runtime, session } = this.#target(params.id)
+    await guarded(() => this.#ports.send({ runtime, sessionId: session, input: [{ type: 'text', text: params.text }] }))
+    return {}
+  }
+
+  async stop(params: HostParams<'workspace/stop'>): Promise<Record<string, never>> {
+    const { runtime, session } = this.#target(params.id)
+    if (!this.#ports.canInterrupt(runtime)) return refuse('This agent cannot stop a session from the phone.')
+    await guarded(() => this.#ports.interrupt({ runtime, sessionId: session }))
+    return {}
   }
 
   /**
@@ -171,12 +211,14 @@ export class WorkspaceFeed {
   #building = false
   #again = false
   #last: string | null = null
+  #invalidated = false
   #disposed = false
 
   constructor(options: WorkspaceFeedOptions) { this.#options = options }
 
   /** Something that shows in the snapshot may have changed. */
-  poke(): void {
+  poke(invalidate = false): void {
+    if (invalidate) this.#invalidated = true
     if (this.#disposed || this.#timer || !this.#options.listening()) return
     this.#timer = setTimeout(() => { this.#timer = null; void this.#run() }, this.#options.delayMs ?? 1000)
     this.#timer.unref?.()
@@ -188,9 +230,11 @@ export class WorkspaceFeed {
     this.#building = true
     try {
       if (!this.#options.listening()) return
+      const invalidated = this.#invalidated
+      this.#invalidated = false
       const snapshot = await this.#options.build()
       const text = JSON.stringify(snapshot)
-      if (text !== this.#last && !this.#disposed && this.#options.listening()) {
+      if ((invalidated || text !== this.#last) && !this.#disposed && this.#options.listening()) {
         this.#last = text
         this.#options.publish(snapshot)
       }

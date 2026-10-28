@@ -34,7 +34,7 @@ const rig = (over: Partial<PhoneWorkPorts> = {}): Rig => {
   let current = session([])
   let running = false
   const ports: PhoneWorkPorts = {
-    workspace: { workItems: async () => [], workUsage: async () => undefined },
+    workspace: { workItems: async () => [], workUsage: async () => undefined, workSessions: () => ({ items: [], nextCursor: null }) },
     deskName: () => 'Studio Mac',
     home: HOME,
     seatName: runtime => runtime === RT ? 'Agent A' : null,
@@ -42,6 +42,8 @@ const rig = (over: Partial<PhoneWorkPorts> = {}): Rig => {
     summary: () => null,
     read: async () => current,
     live: () => ({ running, pending, cwd: CWD }),
+    defaultRuntime: () => RT, projectRoots: () => [], canInterrupt: () => true,
+    create: async () => session([]), send: async () => {}, interrupt: async () => {},
     respond: async params => { responded.push(params); pending = pending.filter(one => one.id !== params.approvalId) },
     hasSecret: text => /sk-[A-Za-z0-9]{10,}/.test(text),
     now: () => 1_000,
@@ -133,11 +135,11 @@ test('the snapshot says what the desk honours, in micro-dollars, with usage left
   const empty = await rig().work.snapshot()
   assert.deepEqual(empty, {
     deskName: 'Studio Mac', items: [], models: [], flows: [], commands: [], threads: [],
-    capabilities: { startSession: false, startTeam: false, reply: false, stop: false, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true },
+    capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true },
   })
   assert.ok(!('usage' in empty))
   const usage = { spentToday: { micros: 1_250_000 } } as never
-  const withUsage = await rig({ workspace: { workItems: async () => [], workUsage: async () => usage } }).work.snapshot()
+  const withUsage = await rig({ workspace: { workItems: async () => [], workUsage: async () => usage, workSessions: () => ({ items: [], nextCursor: null }) } }).work.snapshot()
   assert.deepEqual(withUsage.usage, usage)
   const named = await rig({ deskName: () => `Jane at dev@example.com ${HOME}/x` }).work.snapshot()
   assert.ok(!/@|\/home/.test(named.deskName), named.deskName)

@@ -22,10 +22,10 @@ export interface PhoneLinkControl {
 /**
  * What a paired phone may ask this desk for, and hear from it. The Lead is the phone's job: read the thread, write
  * to it, stop and resume it, and decide a card. Beside it the phone may read three projections of the work (sessions,
- * Teams, spend) and nothing it could change. Settings, transcripts and everything else stay behind the window.
+ * Teams, spend), inspect a redacted conversation and control ordinary sessions with the desk's existing authority.
  *
  * The `workspace/…` names are the ones the phone ships with: the same work as one snapshot, a conversation, and the
- * answer to an approval. They share a prefix with the window's folder and file methods and nothing else; the window's
+ * session controls and approval answers. They share a prefix with the window's folder and file methods; the window's
  * `workspace/recent`, `workspace/readFile` and the rest stay `notOnPhoneSurface`.
  */
 export const PHONE_POLICY: PhonePolicy = {
@@ -37,6 +37,10 @@ export const PHONE_POLICY: PhonePolicy = {
     'phone/teams/list': 'read',
     'phone/dashboard/read': 'read',
     'workspace/read': 'read',
+    'workspace/sessions/list': 'read',
+    'workspace/session/start': 'run',
+    'workspace/session/send': 'run',
+    'workspace/stop': 'run',
     'workspace/thread/read': 'read',
     'workspace/approval/decide': 'answer',
     'lead/thread/send': 'run',
@@ -104,6 +108,9 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
   })
   const detach = host.addBroadcaster((notification: WireNotification) => {
     if (notification.method === 'lead/changed') service.publish('lead', notification.params)
+    // Session pages extend beyond the metadata snapshot's bounded session portion. Every index change invalidates
+    // them, even when that snapshot is byte-for-byte identical.
+    else if (notification.method === 'session/indexChanged') feed.poke(true)
     else if (WORKSPACE_METHODS.has(notification.method) || (notification.method === 'event' && WORKSPACE_EVENTS.has(notification.params.event.type))) feed.poke()
   })
   const state = (): PhoneLinkState => ({

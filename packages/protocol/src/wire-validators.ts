@@ -62,6 +62,25 @@ const nonNegativeSafeInteger: Validator<number> = (value, path = '') => {
   return number
 }
 
+const phoneText = (max: number): Validator<string> => (value, path = '') => {
+  const text = isString(value, path)
+  if (!text.trim() || text.length > max) throw new ValidationError(path, `expected non-empty text up to ${max} characters`)
+  return text
+}
+
+const phonePageLimit: Validator<number> = (value, path = '') => {
+  const limit = isNumber(value, path)
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ValidationError(path, 'expected an integer from 1 to 100')
+  return limit
+}
+
+/** Phone controls accept only choices that the surface actually exposes. */
+const phoneShape = <T extends Record<string, unknown>>(fields: { [K in keyof T]: Validator<T[K]> }): Validator<T> => (value, path = '') => {
+  const source = isObject(value, path)
+  for (const key of Object.keys(source)) if (!Object.hasOwn(fields, key)) throw new ValidationError(path, 'unexpected phone control field')
+  return shape(fields)(source, path)
+}
+
 export const userContentValidator: Validator<UserContent> = taggedUnion('type', {
   text: shape({
     type: literalUnion('text'),
@@ -1009,6 +1028,10 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'phone/teams/list': shape({ limit: optional(isNumber) }),
   'phone/dashboard/read': shape({ range: optional(literalUnion('today', '7d', '30d')) }),
   'workspace/read': parseLeadEmpty,
+  'workspace/sessions/list': phoneShape({ archived: optional(isBoolean), cursor: optional(phoneText(2048)), limit: optional(phonePageLimit) }),
+  'workspace/session/start': phoneShape({ text: phoneText(32_000), project: optional(phoneText(120)) }),
+  'workspace/session/send': phoneShape({ id: phoneText(300), text: phoneText(32_000) }),
+  'workspace/stop': phoneShape({ id: phoneText(300) }),
   'workspace/thread/read': shape({ id: isString }),
   'workspace/approval/decide': shape({ id: isString, session: isString, allow: isBoolean, scope: optional(literalUnion('once', 'session')) }),
   'lead/thread/read': parseLeadEmpty,

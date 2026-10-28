@@ -1,7 +1,7 @@
 import type { ForgeGitEntry, ForgeRequester } from './forge.js'
 import type {
   PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
-  PhoneWorkSnapshot, PhoneWorkThread,
+  PhoneWorkItem, PhoneWorkSnapshot, PhoneWorkThread,
 } from './phone.js'
 import type { LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
@@ -797,6 +797,15 @@ export interface HostMethods {
    * on the `workspace` topic when it changes. Not the window's `workspace/*` file methods: those are folders and files.
    */
   'workspace/read': { params: Record<string, never>; result: PhoneWorkSnapshot }
+  /** Every ordinary desk session, in stable index pages, with active and archived cursors kept separate. */
+  'workspace/sessions/list': {
+    params: { readonly archived?: boolean; readonly cursor?: string; readonly limit?: number }
+    result: { readonly items: readonly PhoneWorkItem[]; readonly nextCursor: string | null }
+  }
+  /** Start with the desk's ordinary runtime and settings; a project is a displayed, admitted name. */
+  'workspace/session/start': { params: { readonly text: string; readonly project?: string }; result: { readonly id: string } }
+  'workspace/session/send': { params: { readonly id: string; readonly text: string }; result: Record<string, never> }
+  'workspace/stop': { params: { readonly id: string }; result: Record<string, never> }
   /** One session's conversation for the phone: its words scrubbed, no command output, no lines of a change. */
   'workspace/thread/read': { params: { readonly id: string }; result: PhoneWorkThread }
   /**

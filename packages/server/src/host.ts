@@ -6374,7 +6374,7 @@ export class Host {
    * that is live here already (it opened on its filter), or whose Seat never
    * carried one: the ordinary read serves those.
    */
-  async #scopedRead(runtime: AgentRuntime, id: SessionId): Promise<Session | null> {
+  async #scopedRead(runtime: AgentRuntime, id: SessionId, allowReopen = true): Promise<Session | null> {
     if (this.registry.get(runtime.info.id, id)?.live) return null
     // Being reopened right now, on its filter: the reopen's own read of what
     // it just opened is an ordinary one (the runtime holds it live, filtered).
@@ -6383,6 +6383,11 @@ export class Host {
     if (!seat) return null
     if (!(await this.#carriesFilter(seat, 'read'))) return null
     const kept = await this.#transcripts.recover(runtime.info.id, id)
+    // A phone may inspect an archive, but a filtered read must never restore it just to recover the agent's body.
+    if (!allowReopen) {
+      if (kept) return { ...kept, deskCopy: true }
+      throw new Error('This archived conversation has no retained transcript. Restore it on the desk to read it.')
+    }
     const source = await this.#sourceState(runtime, id)
     if (kept && (!source || source.kind !== 'changed')) return { ...kept, ...(source ? { deskCopy: source.kind === 'gone' } : {}) }
     try {
@@ -7209,7 +7214,7 @@ export class Host {
     return stable
   }
 
-  async #readTranscript(runtime: AgentRuntime, id: SessionId): Promise<Session> {
+  async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) return held.session
     // Reading the desk's own history needs no working agent process.
@@ -7219,7 +7224,7 @@ export class Host {
         await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
       if (kept) return { ...kept, deskCopy: true }
     }
-    const scoped = await this.#scopedRead(runtime, id)
+    const scoped = await this.#scopedRead(runtime, id, allowReopen)
     if (scoped) return scoped
     const source = await this.#sourceState(runtime, id)
     if (source && source.kind !== 'changed') {
@@ -9483,11 +9488,14 @@ export class Host {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
       },
-      isOwn: (runtime, id) => this.#sessionIndex.isOwn(runtime, id),
+      isOwn: (runtime, id, includeArchived) => this.#sessionIndex.isOwn(runtime, id, includeArchived),
       summary: (runtime, id) => this.#sessionIndex.get(runtime, id),
       // A conversation this host already holds in full is read as it is; any other is opened the way the window opens it.
       read: async (runtime, id) => {
         const held = this.registry.get(runtime, id)
+        // Opening a transcript in the window restores its archive. A phone reads that transcript without the
+        // window's restore or worktree preparation; only an explicit desk action may make it writable again.
+        if (this.#sessionIndex.get(runtime, id)?.archived) return this.#readTranscript(this.#runtime({ runtime }), id, false)
         return held?.session.itemsLoaded ? held.session : this.call('session/read', { runtime, sessionId: id })
       },
       live: (runtime, id) => {
@@ -9495,6 +9503,15 @@ export class Host {
         return { running: (record?.running.size ?? 0) > 0, pending: record ? [...record.approvals.values()] : [], cwd: record?.session.cwd ?? null }
       },
       respond: async (params) => { await this.call('approval/respond', params) },
+      defaultRuntime: () => {
+        const preferred = this.#state.state.preferences['activeRuntime']
+        return ((typeof preferred === 'string' ? this.#runtimes.get(preferred) : undefined) ?? this.#runtimes.values().next().value)?.info.id ?? null
+      },
+      projectRoots: () => this.#openRoots(),
+      canInterrupt: runtime => this.#runtimes.get(runtime)?.info.capabilities.interrupt === true,
+      create: params => this.call('session/create', params),
+      send: async params => { await this.call('turn/send', params) },
+      interrupt: async params => { await this.call('turn/interrupt', params) },
       hasSecret: (text) => leadContainsSecret(text),
       now: () => Date.now(),
     })

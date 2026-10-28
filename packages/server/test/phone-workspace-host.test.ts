@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test, type TestContext } from 'node:test'
-import { approvalId, itemId, sessionId, turnId, type Session, type SessionSummary } from '@harnessdesk/protocol'
+import { approvalId, itemId, runtimeId, sessionId, turnId, type Session, type SessionSummary } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { SessionIndex } from '../src/session-index.js'
 import { StateStore } from '../src/state.js'
@@ -12,9 +12,9 @@ import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 /** A real host over a fake agent and an index seeded the way a desk's own is, asked the phone's way. */
-const desk = async (t: TestContext) => {
+const desk = async (t: TestContext, bulk = false, interrupt = true) => {
   const root = tempDir('hd-phone-host-')
-  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt } })
   const row = (id: string, over: Partial<SessionSummary>): SessionSummary =>
     ({ runtime: runtime.info.id, id: sessionId(id), title: id, cwd: join(root, 'acme-api'), createdAt: 10, updatedAt: 20, status: { type: 'notLoaded' }, archived: false, ...over })
   const index = new SessionIndex(join(root, 'sessions.sqlite'))
@@ -22,6 +22,12 @@ const desk = async (t: TestContext) => {
   index.upsert(row('free', { title: 'Tidy the settings page', updatedAt: 20 }), { archived: false })
   index.upsert(row('shelved', { title: 'Old idea', updatedAt: 10 }), { archived: true })
   index.upsert(row('seat', { title: 'A Team seat', updatedAt: 40 }), { archived: false, teamId: 'team-1' })
+  index.upsert(row('removed', {}), { archived: false })
+  index.remove(runtime.info.id, sessionId('removed'))
+  if (bulk) {
+    for (let i = 0; i < 196; i++) index.upsert(row(`bulk-${i}`, { updatedAt: 50 + Math.floor(i / 3) }), { archived: false })
+    for (let i = 0; i < 12; i++) index.upsert(row(`old-${i}`, { updatedAt: 5 }), { archived: true })
+  }
   index.close()
   const db = new DatabaseSync(join(root, 'sessions.sqlite'))
   db.prepare('UPDATE sessions SET usage=? WHERE id=?').run(JSON.stringify({ total: { totalTokens: 5 }, last: { totalTokens: 5 }, cost: { amount: 0.75, currency: 'USD' } }), 'priced')
@@ -29,12 +35,98 @@ const desk = async (t: TestContext) => {
   // The price catalogue the ledger would otherwise fetch from the network: cached, fresh and empty.
   await mkdir(join(root, 'cache'), { recursive: true })
   await writeFile(join(root, 'cache', 'model-pricing.json'), JSON.stringify({ fetchedAt: Date.now(), catalogue: {} }))
-  const host = new Host({ state: new StateStore(join(root, 'state.json')), logger: silent, builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  const state = new StateStore(join(root, 'state.json'))
+  const host = new Host({ state, logger: silent, builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
   host.register(runtime)
   await host.start()
   t.after(() => host.dispose())
-  return { host, root, runtime }
+  return { host, root, runtime, state }
 }
+
+// The phone uses these request names at the host boundary, rather than invoking projection internals.
+const phoneCall = (host: Host, method: string, params: unknown): Promise<any> => host.call(method as never, params as never)
+
+test('phone workspace pages cover all 198 active sessions and the archive, without duplicates or Team seats', async t => {
+  const { host, runtime } = await desk(t, true)
+  const ids: string[] = []
+  let cursor: string | undefined
+  do {
+    const page = await phoneCall(host, 'workspace/sessions/list', { limit: 37, ...(cursor ? { cursor } : {}) })
+    assert.ok(page.items.length <= 37)
+    assert.ok(page.items.every((item: any) => item.kind === 'session' && !item.archived))
+    ids.push(...page.items.map((item: any) => item.id))
+    cursor = page.nextCursor ?? undefined
+  } while (cursor)
+  assert.equal(ids.length, 198)
+  assert.equal(new Set(ids).size, 198)
+  assert.ok(ids.includes(`${runtime.info.id}:free`))
+  const archiveIds: string[] = []
+  do {
+    const page = await phoneCall(host, 'workspace/sessions/list', { archived: true, limit: 5, ...(cursor ? { cursor } : {}) })
+    assert.ok(page.items.every((item: any) => item.archived === true))
+    archiveIds.push(...page.items.map((item: any) => item.id))
+    cursor = page.nextCursor ?? undefined
+  } while (cursor)
+  assert.equal(archiveIds.length, 13)
+  assert.equal(new Set([...ids, ...archiveIds]).size, 211)
+  assert.ok(archiveIds.includes(`${runtime.info.id}:shelved`))
+  const first = await phoneCall(host, 'workspace/sessions/list', { limit: 2 })
+  await assert.rejects(phoneCall(host, 'workspace/sessions/list', { archived: true, cursor: first.nextCursor }), /Invalid session index cursor/)
+})
+
+test('phone reads archived transcripts while refusing archived, Team, removed and unknown mutation targets', async t => {
+  const { host, root, runtime } = await desk(t)
+  runtime.minted.set('shelved', join(root, 'acme-api'))
+  assert.equal((await host.call('workspace/thread/read', { id: `${runtime.info.id}:shelved` })).title, 'Old idea')
+  for (const target of ['shelved', 'seat', 'removed', 'unknown']) {
+    for (const method of ['workspace/session/send', 'workspace/stop']) {
+      await assert.rejects(phoneCall(host, method, { id: `${runtime.info.id}:${target}`, ...(method.endsWith('send') ? { text: 'Hello' } : {}) }), /archived|not a session this desk can show/, `${method} ${target}`)
+    }
+  }
+  for (const target of ['seat', 'removed', 'unknown']) await assert.rejects(host.call('workspace/thread/read', { id: `${runtime.info.id}:${target}` }), /not a session this desk can show/)
+})
+
+test('phone starts on the preferred runtime and sends and interrupts through the real host without changing defaults', async t => {
+  const { host, root, runtime, state } = await desk(t)
+  const preferred = new FakeRuntime({ id: runtimeId('preferred') })
+  host.register(preferred)
+  await state.setPreferences({ activeRuntime: preferred.info.id })
+  await state.setPreferences({ chatsFolder: join(root, 'chats') })
+  const messages: string[] = []
+  preferred.onSend = (live, text) => { messages.push(text); live.finish() }
+  const created = await phoneCall(host, 'workspace/session/start', { text: '  Start the importer\n' })
+  assert.match(created.id, /^preferred:/)
+  assert.deepEqual(messages, ['  Start the importer\n'])
+  assert.equal(runtime.lastCreateOptions, null)
+  assert.ok(preferred.lastCreateOptions?.cwd.startsWith(join(root, 'chats')))
+  for (const hidden of ['model', 'effort', 'requestedCeiling', 'permissions', 'fast', 'plan']) assert.ok(!(hidden in preferred.lastCreateOptions!))
+  await phoneCall(host, 'workspace/session/send', { id: created.id, text: 'Keep the text\n' })
+  assert.deepEqual(messages, ['  Start the importer\n', 'Keep the text\n'])
+  preferred.onSend = null
+  await phoneCall(host, 'workspace/session/send', { id: created.id, text: 'Work until stopped' })
+  assert.equal((await host.call('workspace/thread/read', { id: created.id })).status, 'running')
+  assert.deepEqual(await phoneCall(host, 'workspace/stop', { id: created.id }), {})
+  assert.equal((await host.call('workspace/thread/read', { id: created.id })).status, 'done')
+})
+
+test('phone project selection accepts a known displayed name and refuses unknown or ambiguous names', async t => {
+  const { host, root, runtime, state } = await desk(t)
+  const project = join(root, 'acme-api')
+  await mkdir(project, { recursive: true })
+  await state.touchWorkspace({ path: project, name: 'acme-api', lastOpenedAt: 1 })
+  await state.setPreferences({ activeRuntime: 'removed-agent' })
+  await phoneCall(host, 'workspace/session/start', { text: 'Hello', project: 'acme-api' })
+  assert.equal(runtime.lastCreateOptions?.cwd, project)
+  await assert.rejects(phoneCall(host, 'workspace/session/start', { text: 'Hello', project: 'missing' }), /project.*available|known project/i)
+  await assert.rejects(phoneCall(host, 'workspace/session/start', { text: 'Hello', project }), /project.*available|known project/i)
+  await state.touchWorkspace({ path: join(root, 'other', 'acme-api'), name: 'acme-api', lastOpenedAt: 2 })
+  await assert.rejects(phoneCall(host, 'workspace/session/start', { text: 'Hello', project: 'acme-api' }), /more than one|ambiguous/i)
+})
+
+test('phone stop refuses a runtime that does not support interrupt', async t => {
+  const { host, runtime } = await desk(t, false, false)
+  await assert.rejects(phoneCall(host, 'workspace/stop', { id: `${runtime.info.id}:priced` }), /cannot stop|does not support/i)
+})
 
 test('the host lists the person’s own sessions for a phone, priced by the desk and named by the agent’s own presentation', async t => {
   const { host, root, runtime } = await desk(t)
@@ -67,7 +159,7 @@ test('the host answers the phone’s snapshot of the work in the phone’s own u
   assert.equal(snapshot.items[0]!.title, 'Fix the sign-in for … in …')
   assert.equal(snapshot.items[0]!.project, undefined, 'a folder that is no repository names no project, in the list or in the conversation')
   assert.equal(snapshot.deskName, 'Desk')
-  assert.deepEqual(snapshot.capabilities, { startSession: false, startTeam: false, reply: false, stop: false, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true })
+  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true })
   assert.deepEqual([snapshot.models, snapshot.flows, snapshot.commands, snapshot.threads], [[], [], [], []])
   // The usage scan may or may not have finished; when it has, it is seven days and no account.
   if (snapshot.usage) assert.equal(snapshot.usage.days.length, 7)
@@ -98,7 +190,7 @@ test('the host reads one conversation for the phone as what was said and done, a
   assert.ok(!text.includes('@'))
   assert.ok(!text.includes('auth.ts failed'), 'a command’s output stays on the desk')
 
-  for (const id of [`${runtime.info.id}:shelved`, `${runtime.info.id}:seat`, `${runtime.info.id}:nope`, 'nope']) {
+  for (const id of [`${runtime.info.id}:seat`, `${runtime.info.id}:nope`, 'nope']) {
     await assert.rejects(host.call('workspace/thread/read', { id }), /not a session this desk can show/, id)
   }
 })

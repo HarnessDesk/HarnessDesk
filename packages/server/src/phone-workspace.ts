@@ -246,20 +246,30 @@ export class PhoneWorkspace {
 
   // ------------------------------------------------------------ the phone's workspace
 
+  workSessions(params: { archived?: boolean; cursor?: string; limit?: number }): { items: PhoneWorkItem[]; nextCursor: string | null } {
+    const page = this.sessionsList({ ...(params.archived ? { state: 'archived' as const } : {}), cursor: params.cursor, limit: params.limit ?? WORK_ITEMS })
+    return { items: page.rows.map(row => this.#sessionItem(row)), nextCursor: page.next }
+  }
+
+  #sessionItem(row: PhoneSessionRow): PhoneWorkItem {
+    return {
+      id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
+      ...(row.state === 'archived' ? { archived: true } : {}),
+      phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
+      line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
+      agent: { name: row.seat }, updatedAt: row.lastActivityAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
+    }
+  }
+
   /** Open sessions and Teams as the phone lists them, newest first. */
   async workItems(limit = WORK_ITEMS): Promise<PhoneWorkItem[]> {
     const [{ rows: sessions }, inputs] = [this.sessionsList({ limit }), await this.#ports.teams()]
     const live = new Map(this.#ports.live().map(one => [keyOf(one.runtime, one.id), one]))
     const items: PhoneWorkItem[] = [
-      ...sessions.map((row): PhoneWorkItem => ({
-        id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
-        phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
-        line: row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
-        agent: { name: row.seat }, updatedAt: row.lastActivityAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
-      })),
+      ...sessions.map(row => this.#sessionItem(row)),
       ...inputs.map(input => this.#teamItem(input, live)),
     ]
-    return items.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit)
+    return items.sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   #teamItem(input: PhoneTeamInput, live: ReadonlyMap<string, PhoneLiveSession>): PhoneWorkItem {
