@@ -53,7 +53,7 @@ Twenty-four packages make up the repository:
 | `packages/lead` | Portable Lead contracts and injected management ports | `protocol`, `client`; only the exact child.ts and supervisor.ts entries under its src directory may import their allowlisted Node modules and the client's Node entry; the core has no ambient machine or network authority |
 | `packages/cli` | The `harnessdesk` command line over the client library; the app bundles it and installs a launcher for it, and `docs/cli.md` is its reference, generated from its command table | `client`, `protocol` |
 | `packages/ui` | Renderer: AppStore snapshots, slot layout, panels | `protocol`, `client/views` (browser context only, no `node:*`) |
-| `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `codex` (wiring in `bootstrap.ts` only), `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools`, `ws` |
+| `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, `client/node`, adapters, `codex` (wiring in `bootstrap.ts` only), `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools`, `ws` |
 | `packages/adapter-codex` | Native Codex adapter for `codex app-server` | `protocol`, `codex` |
 | `packages/codex` | Generated Codex JSON-RPC protocol client | Zero dependencies |
 | `packages/adapter-acp` | ACP adapter driving stdio peers | `protocol`, `transport-acp` |
