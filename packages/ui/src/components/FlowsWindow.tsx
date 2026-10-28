@@ -17,10 +17,10 @@ export const FlowsWindow = ({ onOpen, onNew }: {
   const active = useDestinationActive(), store = useStore(), snapshot = useSnapshot()
   const { rows, roots, loading, problems, retry } = useFlowCatalogue(active)
   const [origin, setOrigin] = useState('all'), [query, setQuery] = useState(''), [newTeam, setNewTeam] = useState(false)
-  useEffect(() => {
-    if (!loading && origin !== 'all' && origin !== 'builtin' && !roots.includes(origin)) setOrigin('all')
-  }, [loading, origin, roots])
   const [selection, setSelected] = useState<{ root: string; id: string; origin: FlowOrigin } | null>(null)
+  useEffect(() => {
+    if (!loading && origin !== 'all' && origin !== 'builtin' && !roots.includes(origin)) { setOrigin('all'); setSelected(null) }
+  }, [loading, origin, roots])
   const selected = rows.find(row => row.root === selection?.root && row.entry.id === selection.id && row.entry.origin === selection.origin) ?? null
   const detailRef = useRef<HTMLElement>(null)
   const exampleModel = useMemo(() => selected?.entry.policy ? flowModel(selected.entry.policy) : null, [selected?.entry.policy])
@@ -34,8 +34,9 @@ export const FlowsWindow = ({ onOpen, onNew }: {
   const [triggerRoot, setTriggerRoot] = useState<string | null>(null)
   const countKnown = useFlowRunCoverage(active)
   useEffect(() => { if (!active) { setNewTeam(false); setSelected(null); setStartFlow(null); setTriggersOpen(false); setTriggerRoot(null) } }, [active])
-  const selectedRoot = roots.find(root => root === origin) ?? roots[0] ?? null
-  const currentTriggerRoot = roots.find(root => root === triggerRoot) ?? selectedRoot
+  const projectRoot = roots.find(root => root === origin) ?? roots[0] ?? null
+  const selectedRoot = loading ? null : projectRoot
+  const currentTriggerRoot = roots.find(root => root === triggerRoot) ?? projectRoot
   const words = query.trim().toLocaleLowerCase()
   const visible = rows.filter(({ root, entry }) =>
     (origin === 'all' || origin === 'builtin' ? origin === 'all' || entry.origin === 'builtin' : entry.origin === 'project' && root === origin)
@@ -46,7 +47,7 @@ export const FlowsWindow = ({ onOpen, onNew }: {
   return <>
     <DestinationBar place="Flows" more={close => <MenuItem label="Manage triggers…" icon={<ClockIcon size={16} />} onSelect={() => { setTriggerRoot(selectedRoot); setTriggersOpen(true); close() }} />} />
     <Page width="wide">
-      <PageOptions title="Flows" action={{ label: 'New Flow', disabled: !selectedRoot && 'Open a project folder to build a Flow.', run: () => { if (selectedRoot) onNew(selectedRoot) } }}
+      <PageOptions title="Flows" action={{ label: 'New Flow', disabled: loading ? 'Reading Flows…' : !selectedRoot && 'Open a project folder to build a Flow.', run: () => { if (selectedRoot) onNew(selectedRoot) } }}
         choices={[{ id: 'origin', label: 'Flow origin', value: origin, items: [{ value: 'all', label: 'All origins' }, { value: 'builtin', label: 'Built in' }, ...roots.map(root => ({ value: root, label: projectName(root) }))], change: value => { setOrigin(value); setSelected(null) } }]}
         search={{ label: 'Search Flows', value: query, change: value => { setQuery(value); setSelected(null) } }} />
       {problems.length > 0 && <Banner tone="warning" measure="container" layout="stack"
@@ -55,7 +56,7 @@ export const FlowsWindow = ({ onOpen, onNew }: {
         <ToolFold label="Folder details"><Rows>{problems.map(problem => <Row key={problem.root} title={projectName(problem.root)} tooltip={problem.root} desc={problem.message} />)}</Rows></ToolFold>
       </Banner>}
       {loading && <Note>Reading Flows…</Note>}
-      {!loading && !roots.length && <Note>Open a project folder to build or start a Flow.</Note>}
+      {!loading && !roots.length && !problems.length && <Note>Open a project folder to build or start a Flow.</Note>}
       {selected && <section ref={detailRef} tabIndex={-1} aria-label={selected.entry.name}>
         <SectionHead name={selected.entry.name} action={<>
             <Button variant="outline" size="sm" disabled={!selectedRoot || !!selected.entry.problem} onClick={() => { if (selected.entry.problem) return; setStartFlow({ root: selected.entry.origin === 'project' ? selected.root : selectedRoot ?? selected.root, entry: selected.entry }) }}>Start Team</Button>

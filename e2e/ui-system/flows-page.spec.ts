@@ -36,6 +36,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(surface.getByRole('button', { name: 'New Flow', exact: true })).toBeDisabled()
     await expect(surface.getByRole('button', { name: 'Open Just a Team', exact: true })).toBeDisabled()
     await expect(surface.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+    await expect(surface.getByText('Open a project folder to build or start a Flow.', { exact: true })).toHaveCount(0)
   })
 
   test(`catalogue keeps its title in the body and the Flow subject in the bar · ${theme}`, async ({ page }) => {

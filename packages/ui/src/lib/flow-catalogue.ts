@@ -86,8 +86,10 @@ export const useFlowCatalogue = (active = true): CatalogueResult & { readonly re
   useEffect(() => {
     if (!active) return
     let live = true
-    setResult({ key, rows: [], roots: [], loading: true, problems: [] })
     const requested = JSON.parse(rootsKey) as string[]
+    // Keep known project choices and an open trigger editor stable during a
+    // reread. Screens still wait for settlement before offering new work.
+    setResult(previous => ({ key, rows: [], roots: previous.roots.filter(root => requested.includes(root)), loading: true, problems: [] }))
     void Promise.allSettled(requested.map(root => read(store, root))).then(results => {
       if (!live) return
       const lists: { root: string; entries: readonly FlowEntry[] }[] = [], problems: { root: string; message: string }[] = []
@@ -101,5 +103,5 @@ export const useFlowCatalogue = (active = true): CatalogueResult & { readonly re
     })
     return () => { live = false }
   }, [store, rootsKey, key, active])
-  return { ...(result.key === key ? result : { rows: [], loading: true, problems: [], roots: [] }), retry: () => setAttempt(value => value + 1) }
+  return { ...(result.key === key ? result : { rows: [], loading: true, problems: [], roots: result.roots.filter(root => roots.includes(root)) }), retry: () => setAttempt(value => value + 1) }
 }
