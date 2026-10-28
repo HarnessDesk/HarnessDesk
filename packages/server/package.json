@@ -19,6 +19,7 @@
     "@harnessdesk/adapter-acp": "workspace:*",
     "@harnessdesk/adapter-codex": "workspace:*",
     "@harnessdesk/agent-inventory": "workspace:*",
+    "@harnessdesk/client": "workspace:*",
     "@harnessdesk/codex": "workspace:*",
     "@harnessdesk/cordis-host": "workspace:*",
     "@harnessdesk/extension-host": "workspace:*",

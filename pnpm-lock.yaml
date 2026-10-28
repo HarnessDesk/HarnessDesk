@@ -279,6 +279,9 @@ importers:
       '@harnessdesk/agent-inventory':
         specifier: workspace:*
         version: link:../agent-inventory
+      '@harnessdesk/client':
+        specifier: workspace:*
+        version: link:../client
       '@harnessdesk/codex':
         specifier: workspace:*
         version: link:../codex

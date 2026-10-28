@@ -118,11 +118,13 @@ test('runtime permission grants refuse spawning and opening an unrelated file', 
   finally { await f.supervisor.stop() }
 })
 
-for (const layout of ['nested', 'hoisted', 'ancestor-hoisted'] as const) test(`the restricted child loads ${layout} dependencies without reading neighbouring files`, async t => {
+for (const layout of ['nested', 'hoisted', 'ancestor-hoisted', 'archive-hoisted', 'archive-ancestor-hoisted', 'archive-only'] as const) test(`the restricted child loads ${layout} dependencies without reading neighbouring files`, async t => {
   const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-lead-layout-')))
   t.after(() => rm(scratch, { recursive: true, force: true }))
-  const modules = join(scratch, 'node_modules')
-  const leadRoot = join(modules, layout === 'ancestor-hoisted' ? '@harnessdesk/server/node_modules/@harnessdesk/lead' : '@harnessdesk/lead')
+  const archived = layout.startsWith('archive-'), archiveOnly = layout === 'archive-only'
+  const modules = join(scratch, ...(archived ? [archiveOnly ? 'app.asar' : 'app.asar.unpacked'] : []), 'node_modules')
+  const leadRelative = layout.endsWith('ancestor-hoisted') ? '@harnessdesk/server/node_modules/@harnessdesk/lead' : '@harnessdesk/lead'
+  const leadRoot = join(modules, leadRelative)
   const dependencies = layout === 'nested' ? join(leadRoot, 'node_modules') : modules
   const ownRoot = fileURLToPath(new URL('../..', import.meta.url))
   await mkdir(leadRoot, { recursive: true })
@@ -138,10 +140,23 @@ for (const layout of ['nested', 'hoisted', 'ancestor-hoisted'] as const) test(`t
   await cp(wsRoot, join(dependencies, 'ws'), { recursive: true })
   const unrelated = join(modules, 'unrelated/private.txt')
   await mkdir(dirname(unrelated), { recursive: true }); await writeFile(unrelated, 'private fixture')
-  const { leadChildArgs, probeLeadRuntime: probeLayout } = await import(pathToFileURL(join(leadRoot, 'dist/src/supervisor.js')).href)
+  let supervisorRoot = leadRoot
+  if (archived && !archiveOnly) {
+    // Electron loads modules through its virtual archive path. Plain Node can only run the unpacked copy.
+    const archivedModules = join(scratch, 'app.asar/node_modules')
+    await cp(modules, archivedModules, { recursive: true })
+    supervisorRoot = join(archivedModules, leadRelative)
+    await rm(join(supervisorRoot, 'dist/src/child.js'))
+  }
+  const { leadChildArgs, probeLeadRuntime: probeLayout } = await import(pathToFileURL(join(supervisorRoot, 'dist/src/supervisor.js')).href)
+  const args = leadChildArgs()
+  assert.equal(args.at(-1), join(leadRoot, 'dist/src/child.js'), 'the child uses the unpacked twin only when it exists')
+  if (archived && !archiveOnly) {
+    const paths = [args.at(-1), ...args.filter((arg: string) => arg.startsWith('--allow-fs-read=')).map((arg: string) => arg.slice('--allow-fs-read='.length))]
+    assert.equal(paths.some((path: string) => path.includes('/app.asar/') || path.includes('\\app.asar\\')), false, 'entry and read grants must use the physical package tree')
+  }
   // The probe runs this layout's real child entry, so passing it proves the module graph loads under the grants.
   assert.deepEqual(await probeLayout(hostLeadRuntime()), { supported: true })
-  const args = leadChildArgs()
   const options = { encoding: 'utf8' as const, env: leadChildEnv(), timeout: 10_000 }
   const loaded = spawnSync(process.execPath, args, { ...options, input: frame({ version: 1, type: 'shutdown' }) })
   assert.equal(loaded.status, 0, `the real child must load before it can handle shutdown: ${loaded.stderr}`)

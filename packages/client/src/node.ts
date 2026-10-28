@@ -2,13 +2,24 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createInterface } from 'node:readline/promises'
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import { connect as connectSocket } from 'node:net'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { WebSocket } from 'ws'
 import { CLIENT_METHODS, type ClientMethodName, type HostToClient } from '@harnessdesk/protocol'
 import { WireCallError, type ClientTransport } from './index.js'
+
+/** The same path, as a process that is not Electron would have to open it. */
+export const packagedPath = (entry: string): string =>
+  entry.replace(`${sep}app.asar${sep}`, `${sep}app.asar.unpacked${sep}`)
+
+/** Keep Electron's archive path when the package does not carry an unpacked twin. */
+export const preferUnpackedPath = (entry: string): string => {
+  const unpacked = packagedPath(entry)
+  return unpacked !== entry && existsSync(unpacked) ? unpacked : entry
+}
 
 export interface DeskPointer {
   readonly home: string
