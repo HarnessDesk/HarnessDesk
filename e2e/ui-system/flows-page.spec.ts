@@ -34,6 +34,7 @@ for (const theme of ['light', 'dark'] as const) {
     const surface = frame(page)
     await expect(surface.locator('[data-slot="alert"]')).toContainText('Flows could not be read from 20 project folders.')
     await expect(surface.getByRole('button', { name: 'New Flow', exact: true })).toBeDisabled()
+    await expect(surface.getByRole('button', { name: 'New Flow', exact: true })).toHaveAttribute('title', 'No project folder could be read.')
     await expect(surface.getByRole('button', { name: 'Open Just a Team', exact: true })).toBeDisabled()
     await expect(surface.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
     await expect(surface.getByText('Open a project folder to build or start a Flow.', { exact: true })).toHaveCount(0)

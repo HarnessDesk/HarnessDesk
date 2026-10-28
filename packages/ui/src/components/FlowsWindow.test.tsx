@@ -104,6 +104,7 @@ it('disables project actions when no catalogue can be read and retries restored 
   })
   const newFlow = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'New Flow')!
   expect(newFlow.disabled).toBe(true)
+  expect(newFlow.title).toBe('No project folder could be read.')
   expect(container.querySelector<HTMLButtonElement>('button[aria-label="Open Just a Team"]')?.disabled).toBe(true)
   expect(container.textContent).toContain('Flows could not be read from 1 project folder.')
   expect(container.textContent).not.toContain('Open a project folder to build or start a Flow.')
@@ -132,10 +133,10 @@ it('keeps the selected project option while rereading and disables new work for 
   expect(newFlow.title).toBe('Reading Flows…')
 })
 
-it('resets a failed project origin and does not reopen its old selection when the folder recovers', async () => {
+it.each(['all', '/work/demo'])('clears an unavailable selection through recovery from %s', async origin => {
   const { catalog, store } = await mount()
   const select = container.querySelector<HTMLSelectElement>('select[aria-label="Flow origin"]')!
-  await act(async () => { select.value = '/work/demo'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  await act(async () => { select.value = origin; select.dispatchEvent(new Event('change', { bubbles: true })) })
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Release notes"]')!.click())
   expect(container.querySelector('section[aria-label="Release notes"]')).not.toBeNull()
   // A background route refresh observes that the selected folder disappeared.
@@ -181,6 +182,34 @@ it('keeps the current trigger editor mounted while an updated project list is be
   })
   expect(document.querySelector('[aria-label="Trigger draft"]')).toBe(draft)
   expect(draft.value).toBe('Unsaved trigger edit')
+})
+
+it('keeps the plain Team draft on its chosen project through a pending read and a changed default project', async () => {
+  const launch = vi.spyOn(frontDoor, 'FrontDoor').mockImplementation(({ context }) => <input aria-label="Team draft" defaultValue={context.root} />)
+  const { store, catalog } = await mount()
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Just a Team"]')!.click())
+  const draft = document.querySelector<HTMLInputElement>('[aria-label="Team draft"]')!
+  draft.value = 'Unsaved task and seating choices'
+  let finish!: (entries: readonly FlowEntry[]) => void
+  const pending = new Promise<readonly FlowEntry[]>(resolve => { finish = resolve })
+  catalog.mockReturnValue(pending)
+  await act(async () => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspace: { path: '/work/other', name: 'Other', lastOpenedAt: 2 }, workspaces: [...store.getSnapshot().workspaces] })
+  })
+  expect(document.querySelector('[aria-label="Team draft"]')).toBe(draft)
+  expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({ context: { kind: 'project', root: '/work/demo' }, startBlocked: 'Reading project Flows…' })
+  await act(async () => finish([entry('review', 'builtin')]))
+  expect(document.querySelector('[aria-label="Team draft"]')).toBe(draft)
+  expect(draft.value).toBe('Unsaved task and seating choices')
+  expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({ context: { kind: 'project', root: '/work/demo' }, startBlocked: null })
+  catalog.mockRejectedValue(new Error('Project folder is unavailable'))
+  await act(async () => {
+    const workbench = store.getSnapshot().workbench
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'flows', root: null, id: null, origin: null } } } })
+  })
+  expect(document.querySelector('[aria-label="Team draft"]')).toBe(draft)
+  expect(draft.value).toBe('Unsaved task and seating choices')
+  expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({ context: { kind: 'project', root: '/work/demo' }, startBlocked: 'This project folder is unavailable. Return to Flows and try again.' })
 })
 
 it('keeps failed Run coverage unknown rather than showing a zero or treating a Team as plain', async () => {
