@@ -284,6 +284,36 @@ test('phone reply opens a cold indexed session before entering the ordinary queu
   assert.deepEqual(messages, ['Reply to the older session'])
 })
 
+for (const method of ['workspace/session/send', 'workspace/thread/read']) test(`removing a session during cold ${method} keeps the removal authoritative`, { timeout: 10000 }, async t => {
+  const { host, runtime, root } = await desk(t)
+  const id = sessionId('priced')
+  runtime.minted.set(id, join(root, 'acme-api'))
+  let readStarted!: () => void
+  let releaseRead!: () => void
+  const started = new Promise<void>(resolve => { readStarted = resolve })
+  const release = new Promise<void>(resolve => { releaseRead = resolve })
+  const read = runtime.readSession.bind(runtime)
+  runtime.readSession = async target => {
+    const transcript = await read(target)
+    readStarted()
+    await release
+    return transcript
+  }
+  const messages: string[] = []
+  runtime.onSend = (live, text) => { messages.push(text); live.finish() }
+  const reply = phoneCall(host, method, { id: `${runtime.info.id}:${id}`, ...(method.endsWith('send') ? { text: 'Do not restore me' } : {}) })
+  const refusal = assert.rejects(reply, /not a session this desk can show/)
+  await started
+  await host.call('session/remove', { runtime: runtime.info.id, sessionId: id, removed: true })
+  releaseRead()
+  await refusal
+  assert.deepEqual(messages, [])
+  assert.equal(host.registry.get(runtime.info.id, id)?.queue.messages.length ?? 0, 0)
+  const db = new DatabaseSync(join(root, 'sessions.sqlite'))
+  try { assert.ok(db.prepare('SELECT removed_at FROM sessions WHERE runtime=? AND id=?').get(runtime.info.id, id)?.removed_at != null) }
+  finally { db.close() }
+})
+
 
 test('phone replies refuse a paused queue after interruption or failure without appending another message', async t => {
   for (const end of ['stop', 'failure']) {

@@ -6384,10 +6384,10 @@ export class Host {
     if (!seat) return null
     if (!(await this.#carriesFilter(seat, 'read'))) return null
     const kept = await this.#transcripts.recover(runtime.info.id, id)
-    // A phone may inspect an archive, but a filtered read must never restore it just to recover the agent's body.
+    // A phone read or reply preload must not reopen a filtered conversation just to recover its body.
     if (!allowReopen) {
       if (kept) return { ...kept, deskCopy: true }
-      throw new Error('This archived conversation has no retained transcript. Restore it on the desk to read it.')
+      throw new Error('This conversation has no retained transcript. Open it on the desk to read it.')
     }
     const source = await this.#sourceState(runtime, id)
     if (kept && (!source || source.kind !== 'changed')) return { ...kept, ...(source ? { deskCopy: source.kind === 'gone' } : {}) }
@@ -9491,13 +9491,12 @@ export class Host {
       },
       isOwn: (runtime, id, includeArchived) => this.#sessionIndex.isOwn(runtime, id, includeArchived),
       summary: (runtime, id) => this.#sessionIndex.get(runtime, id),
-      // A conversation this host already holds in full is read as it is; any other is opened the way the window opens it.
+      // Phone reads never admit a removed conversation or restore an archive, even if the desk changes it during I/O.
       read: async (runtime, id) => {
         const held = this.registry.get(runtime, id)
-        // Opening a transcript in the window restores its archive. A phone reads that transcript without the
-        // window's restore or worktree preparation; only an explicit desk action may make it writable again.
-        if (this.#sessionIndex.get(runtime, id)?.archived) return this.#readTranscript(this.#runtime({ runtime }), id, false)
-        return held?.session.itemsLoaded ? held.session : this.call('session/read', { runtime, sessionId: id })
+        const session = held?.session.itemsLoaded ? held.session : await this.#readTranscript(this.#runtime({ runtime }), id, false)
+        if (!this.#sessionIndex.isOwn(runtime, id, true)) throw new Error('That is not a session this desk can show.')
+        return session
       },
       live: (runtime, id) => {
         const record = this.registry.get(runtime, id)
@@ -9518,7 +9517,13 @@ export class Host {
       create: params => this.call('session/create', params),
       send: async params => { await this.call('turn/send', params) },
       queue: async params => {
-        if (!this.registry.get(params.runtime, params.sessionId)) await this.call('session/read', { runtime: params.runtime, sessionId: params.sessionId })
+        if (!this.registry.get(params.runtime, params.sessionId)) {
+          // A preload is not an explicit desk open: it must not undo a removal
+          // or restore an archive while its transcript is being read.
+          const session = await this.#readTranscript(this.#runtime(params), makeSessionId(params.sessionId), false)
+          if (!this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('That is not a session this desk can show.')
+          this.registry.upsert(session, this.registry.get(params.runtime, params.sessionId)?.live ?? null)
+        }
         if (!this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('That is not a session this desk can show.')
         if (this.registry.get(params.runtime, params.sessionId)?.queue.status === 'paused') {
           throw new Error('Earlier replies are paused. Continue them on the desk before replying.')
