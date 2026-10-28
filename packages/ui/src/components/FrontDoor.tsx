@@ -38,6 +38,8 @@ export interface FrontDoorProps {
   readonly onTaskChange?: (value: string) => void
   readonly onDoneChange?: (value: string) => void
   readonly projectProblem?: string
+  /** A parent can suspend starting while its project is rechecked, retaining this draft. */
+  readonly startBlocked?: string | null
   readonly onProjectOpened?: () => void
   readonly onClose: () => void
   readonly onStarted: (execution: FlowExecution) => void
@@ -74,7 +76,7 @@ const sortShapes = (entries: readonly FlowEntry[]): readonly FlowEntry[] =>
     return a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
   })
 
-export const FrontDoor = ({ context, goal, initial, initialPlain = false, initialTask = '', initialSource, initialDone = '', onTaskChange, onDoneChange, projectProblem, onProjectOpened, onClose, onStarted }: FrontDoorProps) => {
+export const FrontDoor = ({ context, goal, initial, initialPlain = false, initialTask = '', initialSource, initialDone = '', onTaskChange, onDoneChange, projectProblem, startBlocked = null, onProjectOpened, onClose, onStarted }: FrontDoorProps) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const root = context.root
@@ -403,7 +405,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   }
 
   const start = async (): Promise<void> => {
-    if (!preview?.flow.token || !startable || !sentenceValid || briefReading || policyPending || starting) return
+    if (startBlocked || !preview?.flow.token || !startable || !sentenceValid || briefReading || policyPending || starting) return
     setStarting(true)
     setStartProblem(null)
     try {
@@ -429,7 +431,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
   const plainValid = plainWords.length > 0 && plainWords.length <= 2000
   const plainAgents = inForce(snapshot.agents ?? [])
   const submitPlain = async (): Promise<void> => {
-    if (!plainValid || starting || openingProject || goal) return
+    if (startBlocked || !plainValid || starting || openingProject || goal) return
     setStarting(true)
     setStartProblem(null)
     let team = created
@@ -495,10 +497,10 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
     <FlowCardGrid>{list.map(flowCard)}</FlowCardGrid>
   </section>
   const locked = starting || !!created
-  const reason = plainTeam
+  const reason = startBlocked ?? (plainTeam
     ? starting ? 'Starting the Team…' : openingProject ? 'Opening the project…' : !plainValid ? taskIssue ?? doneIssue ?? 'Add a task first.' : null
-    : chosen ? startReason : 'Choose a Flow first.'
-  const canStart = plainTeam ? plainValid && !openingProject && !starting : !!chosen && startable && sentenceValid && !briefReading && !policyPending && !starting
+    : chosen ? startReason : 'Choose a Flow first.')
+  const canStart = !startBlocked && (plainTeam ? plainValid && !openingProject && !starting : !!chosen && startable && sentenceValid && !briefReading && !policyPending && !starting)
   const dryRun = (): void => {
     if (plainTeam) setPlainDryRun(true)
     else if (source) { setDryRunOpen(true); void runPreview(source, vars) }
@@ -511,7 +513,7 @@ export const FrontDoor = ({ context, goal, initial, initialPlain = false, initia
         <Button variant="default" aria-describedby={reason ? 'team-start-reason' : undefined} disabled={!canStart} onClick={() => void (plainTeam ? submitPlain() : start())}>{starting ? 'Starting…' : created ? 'Retry unfinished' : 'Start Team'}</Button>
         <Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button>
       </>}
-      footerAside={reason && <Note id="team-start-reason" role="status">{reason}</Note>}
+      footerAside={reason && <Note id="team-start-reason" role="status">{`${reason}`}</Note>}
       footerNavigation={<><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" disabled={locked} onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></>}
     >
       <FormStack>

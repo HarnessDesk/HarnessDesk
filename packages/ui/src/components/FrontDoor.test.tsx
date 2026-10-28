@@ -290,6 +290,38 @@ it('keeps the task, Flow picker and plain Team controls in one New Team dialog',
   expect(button('Start Team').disabled).toBe(true)
 })
 
+it.each(['plain', 'flow'])('keeps the %s Team draft editable while its parent blocks starting', async kind => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [], 'worktree/list': () => [], 'authoring/start/preview': () => previewOf(emptyFlow('ready'), { source: 'source' }), 'authoring/shape/render': () => ({ source: 'source', issues: [] }) })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  const plainStart = vi.spyOn(store, 'startTeam'), flowStart = vi.spyOn(store, 'startFlowGoal')
+  const context = { kind: 'project' as const, root: '/repo' }
+  const show = async (startBlocked: string | null) => act(async () => root.render(<StoreProvider store={store}>
+    <FrontDoor context={context} initialPlain={kind === 'plain'} initialSource={kind === 'flow' ? 'source' : undefined} initialTask="Keep this task" startBlocked={startBlocked} onClose={() => {}} onStarted={() => {}} />
+  </StoreProvider>))
+  await show(null)
+  await settle()
+  expect(button('Start Team').disabled).toBe(false)
+  const task = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="What should they do?"]')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(task, 'Keep my edited draft')
+    task.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await show('Reading project Flows…')
+  expect(button('Start Team').disabled).toBe(true)
+  expect(document.getElementById('team-start-reason')?.textContent).toBe('Reading project Flows…')
+  expect(task.disabled).toBe(false)
+  await act(async () => button('Start Team').click())
+  expect(plainStart).not.toHaveBeenCalled()
+  expect(flowStart).not.toHaveBeenCalled()
+  await show('This project folder is unavailable. Return to Flows and try again.')
+  expect(button('Start Team').disabled).toBe(true)
+  await show(null)
+  expect(document.querySelector('textarea[aria-label="What should they do?"]')).toBe(task)
+  expect(task.value).toBe('Keep my edited draft')
+  expect(button('Start Team').disabled).toBe(false)
+})
+
 it('previews an unsaved Flow source without re-reading its catalogue file', async () => {
   const store = new AppStore('ws://localhost:0/')
   const source = 'unsaved flow source'
