@@ -567,6 +567,13 @@ disconnects the device and requires a new pairing to return. This local pairing
 requires no account link. The Account page's linked phones belong to its
 separate service lane.
 
+A paired phone can page through active and archived sessions, open their
+redacted conversations, and, with Run granted, start a session, reply or stop
+a running turn. Starting uses the desk's selected agent and an admitted project
+or a fresh chat folder. Replies keep the conversation's settings. Archived
+conversations are read-only until restored on the desk; Team-owned sessions
+remain with their Team. Approval answers require Answer separately from Run.
+
 The **Local profile** beneath the account settings remains a name and a face
 kept on this Mac. Its page is its own preview: the head follows the name as
 you type it. The faces are the app's

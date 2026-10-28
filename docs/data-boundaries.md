@@ -81,8 +81,13 @@ and sends nothing to the account service. Session traffic is encrypted between
 the paired phone and this desk.
 
 A paired phone can receive the Lead thread and redacted work projections,
-send to the Lead, stop or resume it, answer its cards and permitted worker
-questions, and request required checks. Read, Run and Answer grants bound its
+page active and archived session metadata, and read their redacted transcripts.
+With Run it can create a session in an admitted project or a fresh chat folder,
+send text to an active ordinary session, and interrupt a supported running
+turn. These actions reuse the desk's host methods without changing session
+permissions or model settings. It can also send to the Lead, stop or resume
+it, answer its cards and permitted worker questions, and request required
+checks. Approval decisions require Answer. Read, Run and Answer grants bound its
 surface. The desk identity, paired-device keys, grants, revocations and port
 live under `phone-link/` in the local state folder. Removing a phone closes its
 connection and requires pairing again; starting without the opt-in closes the

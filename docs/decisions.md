@@ -4558,3 +4558,25 @@ enabled. Pairing needs no account link; account sign-out and deletion leave
 that registry intact. Reachable from your phone only saves an account
 preference; it opens no relay connection. These separate lifetimes keep each
 operation within the connection the person chose.
+
+## Phone sessions page the desk index and reuse its controls — 2026-10-27
+
+A live audit of a populated desk found 198 active ordinary conversations but
+only 80 in the phone's workspace snapshot. The native phone had no way to ask
+for the next page. The snapshot also advertised ordinary-session start, reply
+and stop as unavailable, even though their native surfaces already existed.
+
+Keep the compact snapshot for capabilities, Teams and recent work, and page
+the index separately for complete active and archived session coverage. A
+workspace change invalidates those pages. The phone fences refreshes by the
+connected desk, retaining its last good copy on a temporary read failure.
+Team-owned sessions stay with their Team; archived conversations are readable
+without acquiring mutation authority.
+
+The three ordinary-session controls reuse host session creation, turn send
+and interrupt, under the phone's Run grant. They never open the general
+renderer wire or grant a new permission level. Hidden composer defaults must
+not overwrite a conversation's model or permissions. Starting follows the
+desk's selected runtime and resolves a displayed project name only among
+admitted folders; a name that identifies two folders refuses instead of
+guessing. Answer remains a separate grant for approval decisions.
