@@ -118,10 +118,10 @@ test('runtime permission grants refuse spawning and opening an unrelated file', 
   finally { await f.supervisor.stop() }
 })
 
-for (const layout of ['nested', 'hoisted', 'ancestor-hoisted'] as const) test(`the restricted child loads ${layout} dependencies without reading neighbouring files`, async t => {
+for (const layout of ['nested', 'hoisted', 'ancestor-hoisted', 'archive-hoisted'] as const) test(`the restricted child loads ${layout} dependencies without reading neighbouring files`, async t => {
   const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-lead-layout-')))
   t.after(() => rm(scratch, { recursive: true, force: true }))
-  const modules = join(scratch, 'node_modules')
+  const modules = join(scratch, ...(layout === 'archive-hoisted' ? ['app.asar.unpacked'] : []), 'node_modules')
   const leadRoot = join(modules, layout === 'ancestor-hoisted' ? '@harnessdesk/server/node_modules/@harnessdesk/lead' : '@harnessdesk/lead')
   const dependencies = layout === 'nested' ? join(leadRoot, 'node_modules') : modules
   const ownRoot = fileURLToPath(new URL('../..', import.meta.url))
@@ -138,7 +138,15 @@ for (const layout of ['nested', 'hoisted', 'ancestor-hoisted'] as const) test(`t
   await cp(wsRoot, join(dependencies, 'ws'), { recursive: true })
   const unrelated = join(modules, 'unrelated/private.txt')
   await mkdir(dirname(unrelated), { recursive: true }); await writeFile(unrelated, 'private fixture')
-  const { leadChildArgs, probeLeadRuntime: probeLayout } = await import(pathToFileURL(join(leadRoot, 'dist/src/supervisor.js')).href)
+  let supervisorRoot = leadRoot
+  if (layout === 'archive-hoisted') {
+    // Electron loads modules through its virtual archive path. Plain Node can only run the unpacked copy.
+    const archivedModules = join(scratch, 'app.asar/node_modules')
+    await cp(modules, archivedModules, { recursive: true })
+    supervisorRoot = join(archivedModules, '@harnessdesk/lead')
+    await rm(join(supervisorRoot, 'dist/src/child.js'))
+  }
+  const { leadChildArgs, probeLeadRuntime: probeLayout } = await import(pathToFileURL(join(supervisorRoot, 'dist/src/supervisor.js')).href)
   // The probe runs this layout's real child entry, so passing it proves the module graph loads under the grants.
   assert.deepEqual(await probeLayout(hostLeadRuntime()), { supported: true })
   const args = leadChildArgs()

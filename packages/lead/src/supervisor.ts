@@ -45,10 +45,14 @@ export const leadChildEnv = (source: NodeJS.ProcessEnv = process.env, electron =
   return env
 }
 
+// Electron reports the virtual archive path even for asarUnpack files. The standalone Node child needs
+// the physical package tree for both its entry and its precise read grants.
+const leadModulePath = fileURLToPath(import.meta.url).replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2')
+
 /** Read the exact package trees needed by the ESM/client loader. No repository,
  * home, journal, credential directory, generic node_modules or write grant. */
 const readGrants = (): readonly string[] => {
-  const leadDist = dirname(dirname(fileURLToPath(import.meta.url))), leadRoot = dirname(leadDist)
+  const leadDist = dirname(dirname(leadModulePath)), leadRoot = dirname(leadDist)
   // Keep the lexical paths --preserve-symlinks uses, including pnpm's links.
   // electron-builder hoists dependencies beside @harnessdesk/lead rather than
   // keeping its package-local node_modules. Search the enclosing dependency
@@ -73,7 +77,7 @@ const readGrants = (): readonly string[] => {
 }
 /** The Lead child's flags, then its entry. No network grant: only the connected socket the host hands over reaches the desk.
  * Residual: process.kill is outside Node's permission model; child code can still signal same-user processes. */
-export const leadChildArgs = (entry = fileURLToPath(new URL('./child.js', import.meta.url))): readonly string[] =>
+export const leadChildArgs = (entry = join(dirname(leadModulePath), 'child.js')): readonly string[] =>
   ['--permission', '--no-allow-net', '--no-addons', '--preserve-symlinks', ...readGrants().map(path => `--allow-fs-read=${path}`), entry]
 
 export const LEAD_PROBE_TIMEOUT_MS = 10_000

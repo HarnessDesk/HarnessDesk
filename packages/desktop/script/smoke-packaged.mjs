@@ -278,10 +278,13 @@ try {
     'Contents/Resources/app.asar.unpacked/node_modules/@harnessdesk/server/node_modules/@harnessdesk/lead/dist/src/supervisor.js',
   ].map((path) => join(appPath, path)).find((path) => existsSync(path))
   if (!leadModule) throw new Error('this build does not carry the Lead supervisor under app.asar.unpacked')
+  // Import through the archive as the desktop does. Importing the unpacked file here hid a child entry
+  // that still pointed inside app.asar, which Electron can read but the bundled standalone Node cannot.
+  const hostLeadModule = leadModule.replace('app.asar.unpacked/', 'app.asar/')
   const probeScript = join(home, 'lead-probe.mjs')
   writeFileSync(probeScript, [
-    `const { probeLeadRuntime, leadChildArgs, leadChildEnv } = await import(${JSON.stringify(pathToFileURL(leadModule).href)})`,
-    `const { encodeLeadFrame } = await import(${JSON.stringify(new URL('./child-ipc.js', pathToFileURL(leadModule)).href)})`,
+    `const { probeLeadRuntime, leadChildArgs, leadChildEnv } = await import(${JSON.stringify(pathToFileURL(hostLeadModule).href)})`,
+    `const { encodeLeadFrame } = await import(${JSON.stringify(new URL('./child-ipc.js', pathToFileURL(hostLeadModule)).href)})`,
     "const { spawnSync } = await import('node:child_process')",
     `const own = await probeLeadRuntime({ binary: process.execPath, version: process.versions.node, electron: true, label: "this app's runtime" })`,
     `const bundled = await probeLeadRuntime({ binary: ${JSON.stringify(leadNode)}, version: ${JSON.stringify(LEAD_NODE.version)}, electron: false, label: 'the bundled runtime' })`,
