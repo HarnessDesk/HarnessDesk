@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import {
   approvalId, itemId, runtimeId, sessionId, turnId, type Approval, type ApprovalOption, type PhoneWorkSnapshot, type Session, type SessionSummary, type Turn,
 } from '@harnessdesk/protocol'
-import { PhoneWork, WorkspaceFeed, type PhoneWorkPorts } from '../src/phone-work.js'
+import { PhoneWork, phoneSessionValues, WorkspaceFeed, type PhoneWorkPorts } from '../src/phone-work.js'
 import { assessApproval, isLowRiskCommand } from '../src/phone-thread.js'
 
 const RT = runtimeId('agent-a')
@@ -34,7 +34,7 @@ const rig = (over: Partial<PhoneWorkPorts> = {}): Rig => {
   let current = session([])
   let running = false
   const ports: PhoneWorkPorts = {
-    workspace: { workItems: async () => [], workUsage: async () => undefined },
+    workspace: { workItems: async () => [], workUsage: async () => undefined, workSessions: () => ({ items: [], nextCursor: null }) },
     deskName: () => 'Studio Mac',
     home: HOME,
     seatName: runtime => runtime === RT ? 'Agent A' : null,
@@ -42,6 +42,8 @@ const rig = (over: Partial<PhoneWorkPorts> = {}): Rig => {
     summary: () => null,
     read: async () => current,
     live: () => ({ running, pending, cwd: CWD }),
+    defaultRuntime: () => RT, projectRoots: () => [], canInterrupt: () => true,
+    newSessionValues: async () => ({}), create: async () => session([]), send: async () => {}, queue: async () => ({ queuedId: null, sent: true }), interrupt: async () => {},
     respond: async params => { responded.push(params); pending = pending.filter(one => one.id !== params.approvalId) },
     hasSecret: text => /sk-[A-Za-z0-9]{10,}/.test(text),
     now: () => 1_000,
@@ -133,11 +135,11 @@ test('the snapshot says what the desk honours, in micro-dollars, with usage left
   const empty = await rig().work.snapshot()
   assert.deepEqual(empty, {
     deskName: 'Studio Mac', items: [], models: [], flows: [], commands: [], threads: [],
-    capabilities: { startSession: false, startTeam: false, reply: false, stop: false, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true },
+    capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true },
   })
   assert.ok(!('usage' in empty))
   const usage = { spentToday: { micros: 1_250_000 } } as never
-  const withUsage = await rig({ workspace: { workItems: async () => [], workUsage: async () => usage } }).work.snapshot()
+  const withUsage = await rig({ workspace: { workItems: async () => [], workUsage: async () => usage, workSessions: () => ({ items: [], nextCursor: null }) } }).work.snapshot()
   assert.deepEqual(withUsage.usage, usage)
   const named = await rig({ deskName: () => `Jane at dev@example.com ${HOME}/x` }).work.snapshot()
   assert.ok(!/@|\/home/.test(named.deskName), named.deskName)
@@ -355,4 +357,84 @@ test('the change feed publishes a snapshot only when it differs, only while a ph
   version = 3
   feed.poke(); await settle()
   assert.equal(published.length, 2)
+})
+
+
+test('a failed first send returns the created session instead of losing its identity', async () => {
+  const { work } = rig({ send: async () => { throw new Error('Synthetic first-send refusal') } })
+  const result = await work.sessionStart({ text: 'Keep this draft' })
+  assert.equal(result.id, `${RT}:${SID}`)
+  assert.match((result as { problem?: string }).problem ?? '', /created.*first message|first message.*confirm/i)
+})
+
+test('an invalidated workspace feed retries a failed build and republishes an identical snapshot', async t => {
+  let fail = false, builds = 0
+  const published: PhoneWorkSnapshot[] = []
+  const snapshot = { deskName: 'Same', items: [], models: [], flows: [], commands: [], capabilities: {} as never, threads: [] }
+  const feed = new WorkspaceFeed({ delayMs: 5, listening: () => true, build: async () => {
+    builds++
+    if (fail) { fail = false; throw new Error('Transient snapshot read failure') }
+    return snapshot
+  }, publish: value => { published.push(value) } })
+  t.after(() => feed.dispose())
+  feed.poke()
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.equal(published.length, 1)
+  fail = true
+  feed.poke(true)
+  await new Promise(resolve => setTimeout(resolve, 80))
+  assert.equal(published.length, 2)
+  assert.ok(builds >= 3)
+})
+
+
+test('phone starts resolve model selectors before dependent recommendations', async () => {
+  const calls: any[] = []
+  const values = await phoneSessionValues(RT, undefined, {}, async params => {
+    const model = params.values?.['model'] ?? 'one'
+    const effort = params.values?.['effort'] ?? (model === 'two' ? 'low' : 'high')
+    calls.push(params.values ?? {})
+    if (model === 'two' && effort === 'high') throw new Error('The recommended model cannot use old high effort')
+    return [
+      { id: 'model', type: 'select', category: 'model', label: 'Model', currentValue: model as string,
+        choices: [{ value: 'one', label: 'One' }, { value: 'two', label: 'Two' }], recommendedValue: 'two' },
+      { id: 'effort', type: 'select', category: 'thought_level', label: 'Effort', currentValue: effort as string,
+        choices: [{ value: model === 'two' ? 'low' : 'high', label: 'Effort' }], recommendedValue: model === 'two' ? 'low' : 'high' },
+    ]
+  })
+  assert.deepEqual(values, { model: 'two', effort: 'low' })
+  assert.ok(calls.some(value => value.model === 'two' && value.effort === undefined))
+})
+
+
+test('a saved profile keeps its implicit model while its dependent choices are validated', async () => {
+  const values = await phoneSessionValues(RT, undefined, { draftValues: { [RT]: { profile: 'two', effort: 'low' } } }, async params => {
+    const profile = params.values?.['profile'] ?? ''
+    const model = profile === 'two' ? 'two' : 'one'
+    if (profile === 'two' && 'model' in (params.values ?? {})) throw new Error('Profile owns its model')
+    return [
+      { id: 'profile', type: 'select', category: '_profile', label: 'Profile', currentValue: profile as string,
+        choices: [{ value: '', label: 'None' }, { value: 'two', label: 'Two' }] },
+      { id: 'model', type: 'select', category: 'model', label: 'Model', currentValue: model,
+        choices: [{ value: 'one', label: 'One' }, { value: 'two', label: 'Two' }], recommendedValue: 'one' },
+      { id: 'effort', type: 'select', category: 'thought_level', label: 'Effort', currentValue: (params.values?.['effort'] ?? (model === 'two' ? 'low' : 'high')) as string,
+        choices: [{ value: model === 'two' ? 'low' : 'high', label: 'Effort' }], recommendedValue: model === 'two' ? 'low' : 'high' },
+    ]
+  })
+  assert.deepEqual(values, { profile: 'two', effort: 'low' })
+})
+
+test('saved dependent choices incompatible with the selected model refuse before a combined resolver call', async () => {
+  const calls: any[] = []
+  await assert.rejects(phoneSessionValues(RT, undefined, { draftValues: { [RT]: { model: 'two', effort: 'high' } } }, async params => {
+    calls.push(params.values ?? {})
+    const model = params.values?.['model'] ?? 'one'
+    return [
+      { id: 'model', type: 'select', category: 'model', label: 'Model', currentValue: model as string,
+        choices: [{ value: 'one', label: 'One' }, { value: 'two', label: 'Two' }] },
+      { id: 'effort', type: 'select', category: 'thought_level', label: 'Effort', currentValue: model === 'two' ? 'low' : 'high',
+        choices: [{ value: model === 'two' ? 'low' : 'high', label: 'Effort' }] },
+    ]
+  }), /saved.*choices/i)
+  assert.deepEqual(calls, [{}, { model: 'two' }])
 })

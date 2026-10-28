@@ -149,8 +149,8 @@ export interface HostContext {
   readonly phone: Omit<import('../phone-link.js').PhoneLinkControl, 'onChange'>
   /** Redacted, phone-sized projections of sessions, Teams and spend; what a paired phone may read of the desk's work. */
   readonly phoneWorkspace: Pick<import('../phone-workspace.js').PhoneWorkspace, 'sessionsList' | 'teamsList' | 'dashboardRead'>
-  /** The phone's snapshot of the work, one conversation, and the one thing it may answer: an approval. */
-  readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'threadRead' | 'approvalDecide'>
+  /** The phone's projected work, ordinary session controls and approval answers. */
+  readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'sessionsList' | 'sessionStart' | 'sessionSend' | 'stop' | 'threadRead' | 'approvalDecide'>
   leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
   leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
   leadThreadSend(params: HostParams<'lead/thread/send'>): Promise<HostResult<'lead/thread/send'>>

@@ -207,6 +207,8 @@ export interface PhoneWorkItem {
   readonly kind: 'session' | 'team'
   readonly title: string
   readonly project?: string
+  /** Archived conversations remain readable; controls stay on the desk until restored. */
+  readonly archived?: boolean
   readonly phase: PhoneWorkPhase
   readonly line: string
   readonly agent?: PhoneAgentLabel

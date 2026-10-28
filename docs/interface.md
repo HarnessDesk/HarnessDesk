@@ -567,6 +567,13 @@ disconnects the device and requires a new pairing to return. This local pairing
 requires no account link. The Account page's linked phones belong to its
 separate service lane.
 
+A paired phone can page through active and archived sessions, open their
+redacted conversations, and, with Run granted, start a session, reply or stop
+a running turn. Starting uses the desk's selected agent and an admitted project
+or a fresh chat folder. Replies keep the conversation's settings. Archived
+conversations are read-only until restored on the desk; Team-owned sessions
+remain with their Team. Approval answers require Answer separately from Run.
+
 The **Local profile** beneath the account settings remains a name and a face
 kept on this Mac. Its page is its own preview: the head follows the name as
 you type it. The faces are the app's
@@ -2273,3 +2280,7 @@ and Review comment; each defaults on and saves independently to settings.follow.
 Open a goal when is a read-only list of project declarations with opens.lead
 true, using the arm preview's lead.summary. Each opens the project's returned
 trigger-file path. This page neither edits nor arms declarations.
+
+A phone start uses the selected runtime’s saved new-session choices after validating them against the current adapter. Replies use the ordinary turn queue while an agent is busy. If creation succeeds but the first message cannot be confirmed, the response retains the session id and a warning; the phone opens that conversation with the draft instead of starting another session on retry.
+
+Queued phone replies are acknowledged as waiting. If Stop or a failed turn pauses the queue, further phone replies refuse before enqueueing and keep their drafts, with an instruction to continue on the desk. Stop reports any replies still waiting. Model and profile selectors resolve before dependent saved choices and recommendations.

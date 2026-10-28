@@ -888,6 +888,18 @@ approves the phone before its Read, Run and Answer grants take effect.
 and general settings methods are outside that surface. The LAN listener is
 closed with the host. Account relay transport remains inactive.
 
+The phone's `workspace/read` snapshot carries capabilities, Teams and recent
+sessions. `workspace/sessions/list` pages the same session index for active
+and archived conversations, so the recent snapshot is not a limit on what a
+phone can show. The native client follows those pages and refreshes them on
+workspace changes. `workspace/session/start`, `workspace/session/send` and
+`workspace/stop` require Run and reach the ordinary session creation, turn
+dispatch and interrupt paths. They do not change a conversation's permissions
+or model. A new session uses the desk's selected runtime; project names resolve
+only to admitted folders, and ambiguous names are refused. Archived sessions
+are readable; their mutations and Team-owned session ids are refused. Approval
+decisions retain the separate Answer grant and the existing approval path.
+
 The account request inventory in [data-boundaries.md](data-boundaries.md#harnessdesk-account--only-after-you-choose-sign-in)
 names each endpoint, payload and trigger. Account sign-out/deletion clear the
 origin's sealed identity; they do not clear the LAN device registry.

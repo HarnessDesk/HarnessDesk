@@ -65,6 +65,14 @@ const UNREACHED = {
     'likewise — the paired phone reads spend and seats through this projection; the window has the usage dashboard itself',
   'workspace/read':
     'likewise — the paired phone asks for its snapshot of the work under this name, which the iOS app ships with; the window reads the planes themselves',
+  'workspace/sessions/list':
+    'likewise — the native phone pages active and archived sessions here; its Swift caller is outside the directories searched',
+  'workspace/session/start':
+    'likewise — the native phone starts an ordinary session here; the window uses session/create and turn/send',
+  'workspace/session/send':
+    'likewise — the native phone replies here; the window uses turn/send directly',
+  'workspace/stop':
+    'likewise — the native phone stops a turn here; the window uses turn/interrupt directly',
   'workspace/thread/read':
     'likewise — the paired phone reads one conversation through this redacted projection; the window opens the session itself',
   'workspace/approval/decide':

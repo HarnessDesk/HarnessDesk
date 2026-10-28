@@ -222,6 +222,16 @@ test('a Team row says stage, progress, who works on it and what it cost, and not
 
 // ------------------------------------------------------------------ dashboard
 
+test('a snapshot session cap never hides Teams, including older Teams', async () => {
+  const f = await populated()
+  try {
+    f.teams = Array.from({ length: 105 }, (_, i) => team(`team-${i}`, { updatedAt: NOW - (i + 2) * HOUR }))
+    const items = await f.workspace.workItems(2)
+    assert.equal(items.filter(item => item.kind === 'session').length, 2)
+    assert.equal(items.filter(item => item.kind === 'team').length, 105)
+  } finally { await f.done() }
+})
+
 const report = (account: string, over: Partial<UsageReport> = {}): UsageReport => ({
   runtime: agent, account, plan: 'Pro', lanes: [
     { id: 'session', label: '5-hour', usedPercent: 42.4, windowMinutes: 300, resetsAt: NOW + 2 * HOUR },

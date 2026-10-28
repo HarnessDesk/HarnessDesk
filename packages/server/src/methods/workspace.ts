@@ -263,4 +263,4 @@ export const workspaceMethods = {
   },
 // `workspace/read`, `workspace/thread/*` and `workspace/approval/*` are the phone's, answered in `phone-workspace.ts`; the
 // window's own `workspace/…` verbs are the folders and files above. `workspace/read` is named whole so it takes nothing else.
-} satisfies Omit<MethodsUnder<'workspace/' | 'preview/' | 'file/' | 'editor/', 'workspace/thread/' | 'workspace/approval/'>, 'workspace/read'>
+} satisfies Omit<MethodsUnder<'workspace/' | 'preview/' | 'file/' | 'editor/', 'workspace/thread/' | 'workspace/approval/' | 'workspace/session/' | 'workspace/sessions/'>, 'workspace/read' | 'workspace/stop'>

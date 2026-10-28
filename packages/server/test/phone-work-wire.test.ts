@@ -51,17 +51,21 @@ const leaks = (value: unknown): string[] => {
  */
 const door = async () => {
   const home = await mkdtemp(join(tmpdir(), 'hd-phone-wire-'))
-  const state = { title: 'Fix the importer', pending: [asked()], builds: 0, responded: [] as any[] }
+  const state = { title: 'Fix the importer', pending: [asked()], builds: 0, running: false, responded: [] as any[], actions: [] as any[] }
   const items = (): PhoneWorkItem[] => [{ id: KEY, kind: 'session', title: state.title, phase: 'running', line: 'Working', updatedAt: 1 }]
   const work = new PhoneWork({
-    workspace: { workItems: async () => { state.builds++; return items() }, workUsage: async () => undefined },
+    workspace: { workItems: async () => { state.builds++; return items() }, workUsage: async () => undefined, workSessions: () => ({ items: items(), nextCursor: null }) },
     deskName: () => 'Studio Mac',
     home: '/home/dev',
     seatName: runtime => runtime === RT ? 'Agent A' : null,
     isOwn: (runtime, id) => runtime === RT && id === SID,
     summary: () => null,
     read: async () => conversation,
-    live: () => ({ running: false, pending: state.pending, cwd: CWD }),
+    live: () => ({ running: state.running, pending: state.pending, cwd: CWD }),
+    defaultRuntime: () => RT, projectRoots: () => [CWD], canInterrupt: () => true,
+    newSessionValues: async () => ({}), queue: async params => { state.actions.push(['send', params]); state.running = true; return { queuedId: null, sent: true } }, create: async params => { state.actions.push(['create', params]); return conversation },
+    send: async params => { state.actions.push(['send', params]); state.running = true },
+    interrupt: async params => { state.actions.push(['stop', params]); state.running = false },
     respond: async params => { state.responded.push(params); state.pending = state.pending.filter(one => one.id !== params.approvalId) },
     hasSecret: () => false,
     now: () => 1_000,
@@ -96,12 +100,79 @@ const door = async () => {
 
 const isSnapshot = (m: any): boolean => m.t === 'evt' && m.topic === 'workspace'
 
+test('index changes invalidate paged sessions even when the bounded snapshot is identical', async () => {
+  const d = await door()
+  try {
+    const phone = await d.pair(['read'])
+    d.emit({ method: 'goal/changed', params: {} })
+    await phone.next(isSnapshot)
+    d.emit({ method: 'session/indexChanged', params: { upserted: [], removed: [], firstPageCursor: null } })
+    await d.settle()
+    assert.equal(phone.inbox.filter(isSnapshot).length, 1, 'an index change beyond the snapshot cap still tells the phone to refresh its pages')
+    phone.close()
+  } finally { await d.done() }
+})
+
+test('encrypted phone page and action requests dispatch only the visible choices to the existing host ports', async () => {
+  const d = await door()
+  try {
+    const reader = await d.pair(['read'])
+    const page = await reader.request('workspace/sessions/list', { limit: 37 })
+    assert.equal(page.ok, true)
+    assert.deepEqual(page.result.items.map((item: any) => item.id), [KEY])
+    assert.equal(page.result.nextCursor, null)
+    reader.close()
+    const phone = await d.pair(['run'])
+    assert.deepEqual((await phone.request('workspace/session/start', { text: '  Hello\n', project: 'acme-api' })).result, { id: KEY })
+    assert.deepEqual((await phone.request('workspace/session/send', { id: KEY, text: 'Reply\n' })).result, {})
+    assert.deepEqual((await phone.request('workspace/stop', { id: KEY })).result, {})
+    assert.deepEqual(d.state.actions, [
+      ['create', { runtime: RT, options: { cwd: CWD } }],
+      ['send', { runtime: RT, sessionId: SID, input: [{ type: 'text', text: '  Hello\n' }] }],
+      ['send', { runtime: RT, sessionId: SID, input: [{ type: 'text', text: 'Reply\n' }] }],
+      ['stop', { runtime: RT, sessionId: SID }],
+    ])
+    phone.close()
+  } finally { await d.done() }
+})
+
+test('session paging needs Read and session start, send and stop each need Run', async () => {
+  const d = await door()
+  try {
+    const reader = await d.pair(['read'])
+    for (const [method, params] of [
+      ['workspace/session/start', { text: 'Hello' }], ['workspace/session/send', { id: KEY, text: 'Hello' }], ['workspace/stop', { id: KEY }],
+    ] as const) assert.equal((await reader.request(method, params)).error.code, 'tierNotGranted', method)
+    reader.close()
+    const runner = await d.pair(['run'])
+    assert.equal((await runner.request('workspace/sessions/list', {})).error.code, 'tierNotGranted')
+    runner.close()
+  } finally { await d.done() }
+})
+
+test('session controls reject invalid text, hidden defaults, unbounded pages and invalid targets at the encrypted boundary', async () => {
+  const d = await door()
+  try {
+    const phone = await d.pair()
+    for (const [method, params] of [
+      ['workspace/sessions/list', { limit: 0 }], ['workspace/sessions/list', { limit: 101 }], ['workspace/sessions/list', { limit: 1.5 }],
+      ['workspace/sessions/list', { cursor: '' }], ['workspace/sessions/list', { archived: 'yes' }],
+      ['workspace/session/start', { text: '' }], ['workspace/session/start', { text: ' \n ' }], ['workspace/session/start', { text: 'x'.repeat(32_001) }],
+      ['workspace/session/start', { text: 'Hello', project: '' }], ['workspace/session/start', { text: 'Hello', permissions: 'always' }],
+      ['workspace/session/start', { text: 'Hello', model: 'hidden' }], ['workspace/session/send', { id: KEY, text: 'Hello', effort: 'high' }],
+      ['workspace/session/send', { id: KEY, text: ' ' }], ['workspace/session/send', { id: '', text: 'Hello' }],
+      ['workspace/stop', {}], ['workspace/stop', { id: '' }],
+    ] as const) assert.equal((await phone.request(method, params)).error.code, 'badRequest', `${method} ${JSON.stringify(params).slice(0, 100)}`)
+    phone.close()
+  } finally { await d.done() }
+})
+
 test('the phone surface carries the three workspace names at the tiers a phone needs, and the topic at read', () => {
   assert.equal(PHONE_POLICY.methods['workspace/read'], 'read')
   assert.equal(PHONE_POLICY.methods['workspace/thread/read'], 'read')
   assert.equal(PHONE_POLICY.methods['workspace/approval/decide'], 'answer')
   assert.equal(PHONE_POLICY.topics.workspace, 'read')
-  assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/thread/read'])
+  assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/thread/read'])
 })
 
 test('a phone that may read gets the snapshot and a conversation, and neither holds a path, an address or output', async () => {
@@ -112,7 +183,7 @@ test('a phone that may read gets the snapshot and a conversation, and neither ho
     assert.equal(snapshot.ok, true, JSON.stringify(snapshot))
     assert.equal(snapshot.result.deskName, 'Studio Mac')
     assert.deepEqual(snapshot.result.items.map((item: any) => item.id), [KEY])
-    assert.deepEqual(snapshot.result.capabilities, { startSession: false, startTeam: false, reply: false, stop: false, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true })
+    assert.deepEqual(snapshot.result.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true })
     const thread = await phone.request('workspace/thread/read', { id: KEY })
     assert.equal(thread.ok, true, JSON.stringify(thread))
     assert.equal(thread.result.status, 'asksYou')
@@ -150,7 +221,7 @@ test('the window’s other workspace methods, and the actions a phone cannot tak
   try {
     const phone = await d.pair()
     for (const method of ['workspace/recent', 'workspace/open', 'workspace/pick', 'workspace/forget', 'workspace/reveal', 'workspace/files', 'workspace/browse', 'workspace/readFile', 'workspace/stat',
-      'workspace/session/start', 'workspace/team/start', 'workspace/session/send', 'workspace/stop', 'workspace/delete', 'workspace/undo', 'phone/sessions/list-all']) {
+      'workspace/team/start', 'workspace/delete', 'workspace/undo', 'phone/sessions/list-all']) {
       const reply = await phone.request(method, {})
       assert.equal(reply.error.code, 'notOnPhoneSurface', method)
     }
