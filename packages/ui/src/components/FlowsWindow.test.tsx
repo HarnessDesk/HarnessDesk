@@ -67,6 +67,48 @@ it('filters cards by origin and search without previewing or starting a Team', a
   expect(preview).not.toHaveBeenCalled()
 })
 
+it('groups unavailable project reads behind one notice and creates only in a readable project', async () => {
+  const { create } = await mount(store => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({
+      workspace: { path: '/work/deleted-0', name: 'Deleted 0', lastOpenedAt: 2 },
+      workspaces: [...Array.from({ length: 20 }, (_, index) => ({ path: `/work/deleted-${index}`, name: `Deleted ${index}`, lastOpenedAt: 1 })), { path: '/work/demo', name: 'Demo', lastOpenedAt: 1 }],
+    })
+    vi.spyOn(store, 'flowCatalog').mockImplementation(async root => {
+      if (root !== '/work/demo') throw new Error(`ENOENT: no such file or directory, realpath '${root}'`)
+      return [entry('review', 'builtin'), entry('release', 'project')]
+    })
+  })
+  expect(container.querySelectorAll('[data-slot="alert"]')).toHaveLength(1)
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+  expect(container.textContent).toContain('Flows could not be read from 20 project folders.')
+  expect(container.textContent).not.toContain('ENOENT')
+  expect(container.querySelector('button[aria-label="Open Review a change"]')).not.toBeNull()
+  const origins = [...container.querySelectorAll<HTMLOptionElement>('select[aria-label="Flow origin"] option')].map(option => option.value)
+  expect(origins).toEqual(['all', 'builtin', '/work/demo'])
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'New Flow')!.click())
+  expect(create).toHaveBeenCalledWith('/work/demo')
+  const details = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Folder details'))!
+  await act(async () => details.click())
+  expect(details.getAttribute('aria-expanded')).toBe('true')
+  expect(container.textContent).toContain("realpath '/work/deleted-19'")
+})
+
+it('disables project actions when no catalogue can be read and retries restored folders', async () => {
+  const { catalog, create } = await mount(store => {
+    vi.spyOn(store, 'flowCatalog').mockRejectedValue(new Error('Project folder is unavailable'))
+  })
+  const newFlow = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'New Flow')!
+  expect(newFlow.disabled).toBe(true)
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Open Just a Team"]')?.disabled).toBe(true)
+  expect(container.textContent).toContain('Flows could not be read from 1 project folder.')
+  catalog.mockResolvedValue([entry('review', 'builtin')])
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Retry')!.click())
+  expect(container.querySelectorAll('[data-slot="alert"]')).toHaveLength(0)
+  expect(newFlow.disabled).toBe(false)
+  await act(async () => newFlow.click())
+  expect(create).toHaveBeenCalledWith('/work/demo')
+})
+
 it('keeps failed Run coverage unknown rather than showing a zero or treating a Team as plain', async () => {
   await mount(store => {
     ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ goals: new Map([[PREVIEW_GOAL.goal.id, { ...PREVIEW_GOAL, goal: { ...PREVIEW_GOAL.goal, root: '/work/demo' } }]]), flowExecutions: new Map() })

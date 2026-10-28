@@ -1736,6 +1736,8 @@ that policy. Shared user and built-in entries appear once; a project's own
 file keeps its project identity. A broken entry stays visible with its
 parser refusal. **Just a Team** has no steps: it opens the same New Team
 dialog with a shared board and chat.
+Unavailable project folders share one warning with folded details and Retry;
+only folders whose catalogue was read can be chosen for editing or starting.
 
 Opening a Flow puts the editable graph in main. Its title menu holds Rename,
 Duplicate and Delete; deletion moves a writable file to the Trash only if it
