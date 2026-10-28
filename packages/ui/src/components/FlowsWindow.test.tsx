@@ -9,6 +9,7 @@ import { DestinationPageScope } from '../panels/destination-page'
 import { emptyShapePolicy } from '../lib/shapes'
 import { FlowsWindow } from './FlowsWindow'
 import * as frontDoor from './FrontDoor'
+import * as triggersView from './ProjectTriggers'
 import { PREVIEW_GOAL } from '../preview/goal-fixture'
 import type { AppSnapshot, AppStore } from '../state/store'
 import { triggerProjectView } from '../preview/intake-fixture'
@@ -65,6 +66,150 @@ it('filters cards by origin and search without previewing or starting a Team', a
   })
   expect(container.textContent).toContain('No matching Flows')
   expect(preview).not.toHaveBeenCalled()
+})
+
+it('groups unavailable project reads behind one notice and creates only in a readable project', async () => {
+  const { create } = await mount(store => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({
+      workspace: { path: '/work/deleted-0', name: 'Deleted 0', lastOpenedAt: 2 },
+      workspaces: [...Array.from({ length: 20 }, (_, index) => ({ path: `/work/deleted-${index}`, name: `Deleted ${index}`, lastOpenedAt: 1 })), { path: '/work/demo', name: 'Demo', lastOpenedAt: 1 }],
+    })
+    vi.spyOn(store, 'flowCatalog').mockImplementation(async root => {
+      if (root !== '/work/demo') throw new Error(`ENOENT: no such file or directory, realpath '${root}'`)
+      return [entry('review', 'builtin'), entry('release', 'project')]
+    })
+  })
+  expect(container.querySelectorAll('[data-slot="alert"]')).toHaveLength(1)
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+  expect(container.textContent).toContain('Flows could not be read from 20 project folders.')
+  expect(container.textContent).not.toContain('ENOENT')
+  expect(container.querySelector('button[aria-label="Open Review a change"]')).not.toBeNull()
+  const origins = [...container.querySelectorAll<HTMLOptionElement>('select[aria-label="Flow origin"] option')].map(option => option.value)
+  expect(origins).toEqual(['all', 'builtin', '/work/demo'])
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'New Flow')!.click())
+  expect(create).toHaveBeenCalledWith('/work/demo')
+  const details = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Folder details'))!
+  await act(async () => details.click())
+  expect(details.getAttribute('aria-expanded')).toBe('true')
+  expect(container.textContent).toContain("realpath '/work/deleted-19'")
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  const manage = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Manage triggers'))!
+  await act(async () => manage.click())
+  expect([...document.querySelectorAll<HTMLOptionElement>('[role="dialog"][aria-label="Triggers"] select option')].map(option => option.value)).toEqual(['/work/demo'])
+})
+
+it('disables project actions when no catalogue can be read and retries restored folders', async () => {
+  const { catalog, create } = await mount(store => {
+    vi.spyOn(store, 'flowCatalog').mockRejectedValue(new Error('Project folder is unavailable'))
+  })
+  const newFlow = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'New Flow')!
+  expect(newFlow.disabled).toBe(true)
+  expect(newFlow.title).toBe('No project folder could be read.')
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Open Just a Team"]')?.disabled).toBe(true)
+  expect(container.textContent).toContain('Flows could not be read from 1 project folder.')
+  expect(container.textContent).not.toContain('Open a project folder to build or start a Flow.')
+  catalog.mockResolvedValue([entry('release', 'project')])
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Retry')!.click())
+  expect(container.querySelectorAll('[data-slot="alert"]')).toHaveLength(0)
+  expect(newFlow.disabled).toBe(false)
+  await act(async () => newFlow.click())
+  expect(create).toHaveBeenCalledWith('/work/demo')
+  expect(container.querySelector('button[aria-label="Open Release notes"]')).not.toBeNull()
+})
+
+it('keeps the selected project option while rereading and disables new work for the loading reason', async () => {
+  const { catalog, store } = await mount()
+  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Flow origin"]')!
+  await act(async () => { select.value = '/work/demo'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  catalog.mockImplementation(() => new Promise(() => {}))
+  await act(async () => {
+    const workbench = store.getSnapshot().workbench
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'flows', root: null, id: null, origin: null } } } })
+  })
+  expect(container.textContent).toContain('Reading Flows')
+  expect(select.value).toBe('/work/demo')
+  const newFlow = container.querySelector<HTMLButtonElement>('button[aria-label="New Flow"]')!
+  expect(newFlow.disabled).toBe(true)
+  expect(newFlow.title).toBe('Reading Flows…')
+})
+
+it.each(['all', '/work/demo'])('clears an unavailable selection through recovery from %s', async origin => {
+  const { catalog, store } = await mount()
+  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Flow origin"]')!
+  await act(async () => { select.value = origin; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Release notes"]')!.click())
+  expect(container.querySelector('section[aria-label="Release notes"]')).not.toBeNull()
+  // A background route refresh observes that the selected folder disappeared.
+  catalog.mockRejectedValue(new Error('Project folder is unavailable'))
+  const retry = () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Retry')!
+  await act(async () => {
+    const workbench = store.getSnapshot().workbench
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'flows', root: null, id: null, origin: null } } } })
+  })
+  expect(select.value).toBe('all')
+  expect(container.querySelector('section[aria-label="Release notes"]')).toBeNull()
+  catalog.mockResolvedValue([entry('release', 'project')])
+  await act(async () => retry().click())
+  expect(container.querySelector('button[aria-label="Open Release notes"]')).not.toBeNull()
+  expect(container.querySelector('section[aria-label="Release notes"]')).toBeNull()
+})
+
+it('ignores a late reply for a project that is no longer in the catalogue', async () => {
+  let finish!: (entries: readonly FlowEntry[]) => void
+  const pending = new Promise<readonly FlowEntry[]>(resolve => { finish = resolve })
+  const { store, catalog } = await mount(store => { vi.spyOn(store, 'flowCatalog').mockReturnValue(pending) })
+  catalog.mockResolvedValue([{ ...entry('review', 'builtin'), name: 'Current Flow' }])
+  await act(async () => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspace: { path: '/work/other', name: 'Other', lastOpenedAt: 2 }, workspaces: [] })
+  })
+  expect(container.querySelector('button[aria-label="Open Current Flow"]')).not.toBeNull()
+  await act(async () => finish([entry('release', 'project')]))
+  expect(container.querySelector('button[aria-label="Open Current Flow"]')).not.toBeNull()
+  expect(container.querySelector('button[aria-label="Open Release notes"]')).toBeNull()
+})
+
+it('keeps the current trigger editor mounted while an updated project list is being read', async () => {
+  vi.spyOn(triggersView, 'ProjectTriggers').mockImplementation(({ root }) => <input aria-label="Trigger draft" defaultValue={root} />)
+  const { store, catalog } = await mount()
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  const manage = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Manage triggers'))!
+  await act(async () => manage.click())
+  const draft = document.querySelector<HTMLInputElement>('[aria-label="Trigger draft"]')!
+  draft.value = 'Unsaved trigger edit'
+  catalog.mockImplementation(() => new Promise(() => {}))
+  await act(async () => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspaces: [...store.getSnapshot().workspaces, { path: '/work/other', name: 'Other', lastOpenedAt: 2 }] })
+  })
+  expect(document.querySelector('[aria-label="Trigger draft"]')).toBe(draft)
+  expect(draft.value).toBe('Unsaved trigger edit')
+})
+
+it('keeps the plain Team draft on its chosen project through a pending read and a changed default project', async () => {
+  const launch = vi.spyOn(frontDoor, 'FrontDoor').mockImplementation(({ context }) => <input aria-label="Team draft" defaultValue={context.root} />)
+  const { store, catalog } = await mount()
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Just a Team"]')!.click())
+  const draft = document.querySelector<HTMLInputElement>('[aria-label="Team draft"]')!
+  draft.value = 'Unsaved task and seating choices'
+  let finish!: (entries: readonly FlowEntry[]) => void
+  const pending = new Promise<readonly FlowEntry[]>(resolve => { finish = resolve })
+  catalog.mockReturnValue(pending)
+  await act(async () => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspace: { path: '/work/other', name: 'Other', lastOpenedAt: 2 }, workspaces: [...store.getSnapshot().workspaces] })
+  })
+  expect(document.querySelector('[aria-label="Team draft"]')).toBe(draft)
+  expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({ context: { kind: 'project', root: '/work/demo' }, startBlocked: 'Reading project Flows…' })
+  await act(async () => finish([entry('review', 'builtin')]))
+  expect(document.querySelector('[aria-label="Team draft"]')).toBe(draft)
+  expect(draft.value).toBe('Unsaved task and seating choices')
+  expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({ context: { kind: 'project', root: '/work/demo' }, startBlocked: null })
+  catalog.mockRejectedValue(new Error('Project folder is unavailable'))
+  await act(async () => {
+    const workbench = store.getSnapshot().workbench
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'flows', root: null, id: null, origin: null } } } })
+  })
+  expect(document.querySelector('[aria-label="Team draft"]')).toBe(draft)
+  expect(draft.value).toBe('Unsaved task and seating choices')
+  expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({ context: { kind: 'project', root: '/work/demo' }, startBlocked: 'This project folder is unavailable. Return to Flows and try again.' })
 })
 
 it('keeps failed Run coverage unknown rather than showing a zero or treating a Team as plain', async () => {
