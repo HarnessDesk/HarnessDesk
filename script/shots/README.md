@@ -21,6 +21,10 @@ in its temporary `receipts.json`; inspect that alongside the phone's visible
 result. Terminating the fixture closes its listeners. No real agent, account,
 repository or vendor endpoint is used.
 
+`PHONE_REFUSE_START` and `PHONE_REFUSE_REPLY` refuse without creating or sending
+anything, for checking draft recovery. Archived fixture 011 refuses its body
+with an instruction to restore it on the desk, for checking read failures.
+
 ## README and site stills
 
 ```sh

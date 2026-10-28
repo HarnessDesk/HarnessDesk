@@ -57,6 +57,15 @@ export async function createPhoneSessionRig() {
   }
   const originalCall = host.call.bind(host)
   host.call = async (method, params) => {
+    if (method === 'workspace/session/start' && params.text === 'PHONE_REFUSE_START') {
+      throw new Error('The synthetic desk refused this start.')
+    }
+    if (method === 'workspace/session/send' && params.text === 'PHONE_REFUSE_REPLY') {
+      throw new Error('The synthetic desk refused this reply.')
+    }
+    if (method === 'workspace/thread/read' && params.id === 'fake:archive-011') {
+      throw new Error('Restore this archived session on the desk to read it.')
+    }
     const result = await originalCall(method, params)
     if (['workspace/session/start', 'workspace/session/send', 'workspace/stop', 'workspace/approval/decide'].includes(method)) {
       receipts.push({ method, id: params.id ?? result.id ?? params.session, text: params.text, at: Date.now() })
