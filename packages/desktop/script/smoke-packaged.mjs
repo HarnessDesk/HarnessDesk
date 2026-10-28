@@ -278,14 +278,21 @@ try {
     'Contents/Resources/app.asar.unpacked/node_modules/@harnessdesk/server/node_modules/@harnessdesk/lead/dist/src/supervisor.js',
   ].map((path) => join(appPath, path)).find((path) => existsSync(path))
   if (!leadModule) throw new Error('this build does not carry the Lead supervisor under app.asar.unpacked')
+  // Import through the archive as the desktop does. Importing the unpacked file here hid a child entry
+  // that still pointed inside app.asar, which Electron can read but the bundled standalone Node cannot.
+  const hostLeadModule = leadModule.replace('app.asar.unpacked/', 'app.asar/')
   const probeScript = join(home, 'lead-probe.mjs')
   writeFileSync(probeScript, [
-    `const { probeLeadRuntime, leadChildArgs, leadChildEnv } = await import(${JSON.stringify(pathToFileURL(leadModule).href)})`,
-    `const { encodeLeadFrame } = await import(${JSON.stringify(new URL('./child-ipc.js', pathToFileURL(leadModule)).href)})`,
+    `const { probeLeadRuntime, leadChildArgs, leadChildEnv } = await import(${JSON.stringify(pathToFileURL(hostLeadModule).href)})`,
+    `const { encodeLeadFrame } = await import(${JSON.stringify(new URL('./child-ipc.js', pathToFileURL(hostLeadModule)).href)})`,
     "const { spawnSync } = await import('node:child_process')",
+    'const args = leadChildArgs()',
+    "const paths = [args.at(-1), ...args.filter(arg => arg.startsWith('--allow-fs-read=')).map(arg => arg.slice('--allow-fs-read='.length))]",
+    "const archived = paths.find(path => path.includes('/app.asar/'))",
+    "if (archived) throw new Error(`the Lead entry or a read grant still points inside app.asar: ${archived}`)",
     `const own = await probeLeadRuntime({ binary: process.execPath, version: process.versions.node, electron: true, label: "this app's runtime" })`,
     `const bundled = await probeLeadRuntime({ binary: ${JSON.stringify(leadNode)}, version: ${JSON.stringify(LEAD_NODE.version)}, electron: false, label: 'the bundled runtime' })`,
-    `const loaded = spawnSync(${JSON.stringify(leadNode)}, leadChildArgs(), { env: leadChildEnv(process.env, false), encoding: 'utf8', timeout: 10_000, input: Buffer.from(encodeLeadFrame({ version: 1, type: 'shutdown' })) })`,
+    `const loaded = spawnSync(${JSON.stringify(leadNode)}, args, { env: leadChildEnv(process.env, false), encoding: 'utf8', timeout: 10_000, input: Buffer.from(encodeLeadFrame({ version: 1, type: 'shutdown' })) })`,
     "if (loaded.status !== 0) throw new Error(`the bundled Lead child could not load its dependencies or handle shutdown: ${(loaded.stderr || loaded.error?.message || `exit ${loaded.status}`).slice(-1500)}`)",
     'process.stdout.write(JSON.stringify({ own, bundled, node: process.versions.node }))',
   ].join('\n'))
