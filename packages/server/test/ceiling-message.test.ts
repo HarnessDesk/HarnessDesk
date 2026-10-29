@@ -156,34 +156,55 @@ for (const ending of ['detach', 'close', 'close without an event', 'unavailable'
   test(`a held approval settles without allowing work after ${ending}`, async (t) => {
     const d = await room(t)
     await d.message('Merge #7.')
-    let result: ToolResult | undefined
-    const merging = d.call('pr_merge', d.receiver).then(value => { result = value })
-    const [approval] = await until(() => d.waiting(d.receiver).length ? d.waiting(d.receiver) : null, 'the held approval')
-    assert.ok(approval)
-    const resolutions: unknown[] = []
-    t.after(d.host.addBroadcaster(notification => {
-      if (notification.method !== 'event') return
-      const event = notification.params.event
-      if (event.type === 'approval/resolved' && event.sessionId === d.receiver.id && event.approvalId === approval.id) resolutions.push(event.resolution)
-    }))
-    if (ending === 'detach') d.runtime.emit({ type: 'session/detached', sessionId: d.receiver.id })
-    else if (ending === 'close') await d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
-    else if (ending === 'close without an event') {
-      t.mock.method(d.live(d.receiver), 'close', async () => { d.live(d.receiver).finish() })
-      await d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
+    const gate = d.host.ceilingGate
+    assert.ok(gate)
+    const recordRefusal = gate.recordRefusal.bind(gate)
+    let releaseRecording!: () => void
+    const recording = new Promise<void>(resolve => { releaseRecording = resolve })
+    let recordingStarted = false
+    t.mock.method(gate, 'recordRefusal', async (...args: Parameters<CeilingGate['recordRefusal']>) => {
+      recordingStarted = true
+      await recording
+      return recordRefusal(...args)
+    })
+    let returned = false
+    const merging = d.call('pr_merge', d.receiver).then(value => { returned = true; return value })
+    try {
+      const [approval] = await until(() => d.waiting(d.receiver).length ? d.waiting(d.receiver) : null, 'the held approval')
+      assert.ok(approval)
+      const resolutions: unknown[] = []
+      t.after(d.host.addBroadcaster(notification => {
+        if (notification.method !== 'event') return
+        const event = notification.params.event
+        if (event.type === 'approval/resolved' && event.sessionId === d.receiver.id && event.approvalId === approval.id) resolutions.push(event.resolution)
+      }))
+      if (ending === 'detach') d.runtime.emit({ type: 'session/detached', sessionId: d.receiver.id })
+      else if (ending === 'close') await d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
+      else if (ending === 'close without an event') {
+        t.mock.method(d.live(d.receiver), 'close', async () => { d.live(d.receiver).finish() })
+        await d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
+      }
+      else if (ending === 'unavailable') d.runtime.setHealth({ state: 'unavailable', reason: 'unknown', message: 'Stopped' })
+      else await d.host.unregister(FAKE_RUNTIME_ID)
+      // Abandonment is synchronous; the public result also waits for its record.
+      // Hold that record so a busy disk cannot turn this into a timing proxy.
+      assert.deepEqual(d.waiting(d.receiver), [])
+      assert.deepEqual(resolutions, [{ outcome: 'abandoned', reason: 'The conversation closed before anyone answered.' }])
+      await assert.rejects(d.host.call('approval/respond', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id,
+        approvalId: approval.id, decision: { type: 'option', optionId: 'allow' } }), /No approval is pending/)
+      await until(() => recordingStarted ? true : null, 'the abandoned refusal reaches recording')
+      assert.equal(returned, false, 'recording is still held after the approval was abandoned')
+      assert.deepEqual(d.ran, [])
+      releaseRecording()
+      assert.equal((await merging).ok, false)
+      assert.deepEqual(d.ran, [])
+      assert.deepEqual(resolutions, [{ outcome: 'abandoned', reason: 'The conversation closed before anyone answered.' }])
+      const audit = await d.host.call('audit/query', {}) as readonly { kind: string; sessionId: string; decision?: string }[]
+      assert.deepEqual(audit.filter(entry => entry.kind === 'approval/decided' && entry.sessionId === d.receiver.id).map(entry => entry.decision), ['abandoned'])
+    } finally {
+      releaseRecording()
+      await merging
     }
-    else if (ending === 'unavailable') d.runtime.setHealth({ state: 'unavailable', reason: 'unknown', message: 'Stopped' })
-    else await d.host.unregister(FAKE_RUNTIME_ID)
-    await settle()
-    assert.equal(result?.ok, false, 'ending the session settles its held work before the wait expires')
-    await assert.rejects(d.host.call('approval/respond', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id,
-      approvalId: approval.id, decision: { type: 'option', optionId: 'allow' } }), /No approval is pending/)
-    await merging
-    assert.deepEqual(d.ran, [])
-    assert.deepEqual(d.waiting(d.receiver), [])
-    assert.deepEqual(resolutions, [{ outcome: 'abandoned', reason: 'The conversation closed before anyone answered.' }])
-    const audit = await d.host.call('audit/query', {}) as readonly { kind: string; sessionId: string; decision?: string }[]
-    assert.deepEqual(audit.filter(entry => entry.kind === 'approval/decided' && entry.sessionId === d.receiver.id).map(entry => entry.decision), ['abandoned'])
   })
 }
 
