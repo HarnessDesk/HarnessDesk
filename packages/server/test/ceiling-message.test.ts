@@ -208,6 +208,44 @@ for (const ending of ['detach', 'close', 'close without an event', 'unavailable'
   })
 }
 
+test('a held approval arriving during session close is abandoned before close returns', async (t) => {
+  const d = await room(t)
+  await d.message('Merge #7.')
+  const live = d.live(d.receiver)
+  let releaseClose!: () => void
+  let closingStarted = false
+  const pendingClose = new Promise<void>(resolve => { releaseClose = resolve })
+  t.mock.method(live, 'close', async () => {
+    closingStarted = true
+    await pendingClose
+    live.finish()
+  })
+  const closing = d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
+  let merging: ReturnType<typeof d.call> | undefined
+  try {
+    await until(() => closingStarted ? true : null, 'the asynchronous close starts')
+    merging = d.call('pr_merge', d.receiver)
+    const [approval] = await until(() => d.waiting(d.receiver).length ? d.waiting(d.receiver) : null, 'the approval arriving during close')
+    assert.ok(approval)
+    releaseClose()
+    await closing
+    assert.deepEqual(d.waiting(d.receiver), [], 'closing also abandons answers requested while the handle was closing')
+    await assert.rejects(d.host.call('approval/respond', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id,
+      approvalId: approval.id, decision: { type: 'option', optionId: 'allow' } }), /No approval is pending/)
+    assert.equal((await merging).ok, false)
+    assert.deepEqual(d.ran, [])
+  } finally {
+    releaseClose()
+    await closing
+    // A red regression must still release its held tool before fixture cleanup.
+    for (const approval of d.waiting(d.receiver)) {
+      await d.host.call('approval/respond', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id,
+        approvalId: approval.id, decision: { type: 'option', optionId: 'refuse' } })
+    }
+    await merging
+  }
+})
+
 test('a held approval refuses an answer after its pending request was resolved', async (t) => {
   const d = await room(t)
   await d.message('Merge #7.')

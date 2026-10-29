@@ -59,6 +59,17 @@ try {
     assert.equal(value.gateways, true)
     assert.equal(Object.hasOwn(value, 'asksName'), false)
     assert.equal(Object.hasOwn(value, 'ownSessions'), false)
+    assert.equal(value.removable, id !== 'codex', 'only the registered extra account is removable')
+    assert.equal(value.home, id === 'codex' ? codexHome : extraCodex.home)
+    assert.equal(infos.find(info => info.id === id).origin, undefined, 'skipped registry rows do not own native runtimes')
+  }
+  assert.equal(infos.find(info => info.id === 'fixture-agy').origin, 'registry', 'the registered ACP agent still owns its runtime')
+  for (const id of ['codex', extraCodex.id]) {
+    await assert.rejects(host.call('acp/remove', { runtime: id }), /not in the agent registry/)
+  }
+  assert.equal(existsSync(join(extraCodex.home, 'auth.json')), true, 'ignored rows never authorize deleting an account home')
+  if (process.env.HD_DUPLICATE_IDS === '1') {
+    assert.equal(JSON.parse(readFileSync(join(root, 'agents.json'), 'utf8')).agents.some(row => row.id === 'codex'), true, 'ignored configuration is preserved')
   }
   assert.equal(existsSync(marker), false, 'no agent binary was invoked')
   if (process.env.HD_DUPLICATE_IDS === '1' || process.env.HD_DUPLICATE_SLOTS) {
