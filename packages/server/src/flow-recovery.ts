@@ -275,6 +275,7 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
     if (!object(intake) || !text(intake['key']) || !/^[0-9a-f]{64}$/.test(String(intake['key'])) || !text(intake['trigger']) ||
       !text(intake['closureDigest']) || typeof intake['dispatchHeld'] !== 'boolean' ||
       !(intake['holdGeneration'] === undefined || (integer(intake['holdGeneration']) && intake['holdGeneration'] >= 0)) ||
+      !(intake['supersededThrough'] === undefined || (integer(intake['supersededThrough']) && intake['supersededThrough'] >= 0)) ||
       !(again === null || (object(again) && text(again['role']) && text(again['title'])))) bad('has trigger bookkeeping it cannot describe')
   }
   const compiled = raw['compiled']

@@ -894,6 +894,39 @@ const statusIsRecord = (read: () => Named, env: Record<string, string> = {}, acc
     ...(account ? { account } : {}),
   })
 
+test('successful sign-out holds against the unchanged record until it changes', async () => {
+  let record: Named = DEV
+  const runtime = statusIsRecord(() => record, { FAKE_ACP_LOGOUT: '1' })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await runtime.logout()
+    assert.deepEqual((await runtime.getAccount()).accounts, [])
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+    record = null
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+    record = DEV
+    assert.deepEqual((await runtime.getAccount()).accounts, [DEV], 'a later sign-in to the same identity is allowed')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a different record after successful sign-out can sign in without an empty record', async () => {
+  let record: Named = DEV
+  const runtime = statusIsRecord(() => record, { FAKE_ACP_LOGOUT: '1' })
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await runtime.logout()
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+    record = OTHER
+    assert.deepEqual((await runtime.getAccount()).accounts, [OTHER])
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('after a sign-out, an account the agent’s record later names reads as signed in, not “Signed out.”', async () => {
   let record: Named = DEV
   const runtime = statusIsRecord(() => record, { FAKE_ACP_LOGOUT: '1' })

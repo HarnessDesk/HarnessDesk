@@ -2271,6 +2271,8 @@ export class AcpRuntime implements AgentRuntime {
     const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
     const before = this.#signIn
+    const beforeSignedOutIdentity = this.#signedOutIdentity
+    this.#signedOutIdentity = this.#config.identityIsStatus ? this.#identity() : null
     const beforeGeneration = this.#refusalGeneration
     const beforeObservation = this.#statusObservation
     // Make the state transition visible to the account/changed event emitted
@@ -2295,7 +2297,10 @@ export class AcpRuntime implements AgentRuntime {
     } catch (error) {
       // Only what this sign-out wrote is taken back: an answer that landed
       // while the command ran is newer than the rollback and stands.
-      if (this.#signIn === signedOut) this.#signIn = before
+      if (this.#signIn === signedOut) {
+        this.#signIn = before
+        this.#signedOutIdentity = beforeSignedOutIdentity
+      }
       if (this.#refusalGeneration === signedOutGeneration) {
         this.#refusalGeneration = beforeGeneration
         this.#statusObservation = beforeObservation
@@ -2844,6 +2849,8 @@ export class AcpRuntime implements AgentRuntime {
   #signIn: SignInObservation = { state: 'unknown' }
   /** Sign-outs whose command is still running: until it ends, the agent's record still names who is being signed out. */
   #signingOut = 0
+  /** Identity still present when the desk started its most recent sign-out. */
+  #signedOutIdentity: Account | null = null
   /** Every refusal counts, even when its unchanged message needs no notification. */
   #refusalGeneration = 0
   #statusObservation = -1
@@ -3046,15 +3053,22 @@ export class AcpRuntime implements AgentRuntime {
    * The desk's own sign-out gives way to the agent's record. Where the record
    * is the status (`identityIsStatus`), the sign-in the agent offers outside
    * the desk shows nowhere but there, and nothing else would say so until a
-   * session opened. Only once the sign-out command has ended — until then
-   * the record still names the account going out — and never a refusal,
-   * which is the agent's own and outranks the record. Answers whether it
-   * lifted one.
+   * session opened. Only once the sign-out command has ended and the record
+   * has changed from the account going out, and never a refusal, which is
+   * the agent's own and outranks the record. Answers whether it lifted one.
    */
   #liftSignOut(hasKey: boolean): boolean {
     const seen = this.#signIn
     if (seen.state !== 'required' || !seen.signedOut || this.#signingOut > 0) return false
-    if (!this.#config.identityIsStatus || hasKey || !this.#identity()) return false
+    if (!this.#config.identityIsStatus || hasKey) return false
+    const identity = this.#identity()
+    if (!identity) {
+      this.#signedOutIdentity = null
+      return false
+    }
+    const old = this.#signedOutIdentity
+    if (old && old.kind === identity.kind && (old.email ?? old.label) === (identity.email ?? identity.label)) return false
+    this.#signedOutIdentity = null
     this.#noteSignIn({ state: 'observed' })
     return true
   }
