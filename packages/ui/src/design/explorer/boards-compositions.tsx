@@ -820,6 +820,13 @@ const ListBoard = () => (
               subtitleLayout="below"
               trail={<Chip tone="neutral">Waiting</Chip>}
             />
+            <ListRow
+              data-catalog-case="compact-below-sparse"
+              density="compact"
+              subtitleLayout="below"
+              lead={<Avatar><AvatarFallback>JD</AvatarFallback></Avatar>}
+              title="Sparse compact row"
+            />
             <ListRow size="sm" nav title="Board" />
             <ListRow size="sm" nav selected title="Chat" />
           </ListRows>

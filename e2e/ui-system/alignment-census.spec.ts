@@ -14,6 +14,23 @@ const UPDATE = process.env.UPDATE_ALIGNMENT === '1'
 const CHECKS: Check[] = ['lead-off-line', 'trailing-glyph-off-column', 'header-off-body']
 const staged = new Map<string, string[]>()
 
+test('sparse compact below ListRow centres its heading within the minimum height', async ({ page }) => {
+  await page.goto('/design.html?view=list')
+  await page.evaluate(() => document.fonts.ready)
+  const row = page.locator('[data-catalog-case="compact-below-sparse"]')
+  await expect(row).toHaveCount(1)
+  const geometry = await row.evaluate(element => {
+    const bounds = element.getBoundingClientRect()
+    const heading = element.querySelector('[data-slot="list-row-heading"]')!.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    return { rowHeight: bounds.height, headingHeight: heading.height,
+      padding: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom),
+      delta: (heading.top + heading.bottom - bounds.top - bounds.bottom) / 2 }
+  })
+  expect(geometry.rowHeight - geometry.headingHeight - geometry.padding, JSON.stringify(geometry)).toBeGreaterThan(1)
+  expect(Math.abs(geometry.delta), JSON.stringify(geometry)).toBeLessThan(1)
+})
+
 for (const theme of ['light', 'dark'] as const) {
 
   for (const [item0, shape] of (['comparison', 'fix-and-review']).entries()) test(`New Team graph seats keep aligned role headers and full-width controls in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {

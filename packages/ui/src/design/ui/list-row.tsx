@@ -193,7 +193,7 @@ const ListRow = ({
       selected &&
         nav &&
         'bg-[var(--hd-sidebar-selected,var(--hd-selected))] hover:bg-[var(--hd-sidebar-selected,var(--hd-selected))] text-[var(--hd-sidebar-selected-foreground,inherit)] [&_[data-slot=list-row-subtitle]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] [&_[data-slot=list-row-trail]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))]',
-      below && 'flex-col items-stretch gap-0',
+      below && 'flex-col items-stretch justify-center gap-0',
       className,
     )}
     {...props}
