@@ -1,28 +1,29 @@
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 import { DEFAULT_LANE_PREFERENCES, parseClientMessage, ValidationError } from '@harnessdesk/protocol'
 import { Host } from '../src/host.js'
 import { Logger } from '../src/log.js'
 import { StateStore } from '../src/state.js'
 import { tempDir } from './scratch.js'
 
-const rig = async () => {
+const rig = async (t: TestContext) => {
   const state = new StateStore(join(tempDir('hd-lane-preferences-'), 'state.json')); await state.load()
   const host = new Host({ state, logger: new Logger('lane-test', { level: 'error', console: false }) })
+  t.after(() => host.dispose())
   return { state, host }
 }
 
-test('both preference verbs route through the real Host context', async () => {
-  const { host } = await rig()
+test('both preference verbs route through the real Host context', async (t) => {
+  const { host } = await rig(t)
   assert.deepEqual(await host.call('lane/preferences', {}), DEFAULT_LANE_PREFERENCES)
   const asked = { start: 31000, width: 30, browserProfile: false }
   assert.deepEqual(await host.call('lane/preferences/set', asked), asked)
   assert.deepEqual(await host.call('lane/preferences', {}), asked)
 })
 
-test('generic app preference writes cannot bypass lane validation', async () => {
-  const { state, host } = await rig()
+test('generic app preference writes cannot bypass lane validation', async (t) => {
+  const { state, host } = await rig(t)
   await assert.rejects(host.call('app/state/set', { patch: { lanes: { start: 0 } } }), /starting port/)
   assert.equal(Object.hasOwn(state.state.preferences, 'lanes'), false)
   state.state.preferences['lanes'] = null
