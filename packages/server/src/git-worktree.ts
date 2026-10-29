@@ -335,9 +335,9 @@ const readInventory = async (path: string, signal: AbortSignal): Promise<GitWork
     changes.push({ path: entry.path, status: `${entry.index}${entry.worktree}` })
   }
 
-  // Ignored contents are their own call, without `--untracked-files=all`:
-  // with it, git expands every file inside an ignored directory.
-  const dirty = await git(path, ['status', '--porcelain=v1', '-z', '--ignored'], undefined, signal)
+  // Keep ignored folders collapsed, independently of status.showUntrackedFiles:
+  // `no` hides contents removal would delete, while `all` expands each file.
+  const dirty = await git(path, ['status', '--porcelain=v1', '-z', '--ignored', '--untracked-files=normal'], undefined, signal)
   /* Through the reader, not `startsWith('!! ')` over every field: an origin is
      a bare path, so a source *named* `!! something` was read as an ignored
      record and reported as ignored having never been. */

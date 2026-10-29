@@ -490,6 +490,31 @@ test('ignored files are inventoried, because git deletes them without being forc
   assert.ok(await gone(made.path))
 })
 
+test('ignored-only removal requires confirmation when Git hides untracked files', async () => {
+  const { repo, state } = await seedRepo()
+  await writeFile(join(repo, '.gitignore'), '.env.local\n')
+  await git(repo, 'add', '.gitignore')
+  await git(repo, 'commit', '-qm', 'Ignore local settings')
+  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+  const local = join(made.path, '.env.local')
+  await writeFile(local, 'Local settings stay here.\n')
+  await git(made.path, 'config', 'status.showUntrackedFiles', 'no')
+  const held = await inventory(made.path)
+  assert.equal(held.changeCount, 0, 'only ignored contents need protection')
+
+  for (const force of [false, true]) {
+    await assert.rejects(
+      () => remove(repo, made.path, force, undefined, state),
+      /1 ignored file or folder.*Read what is there/s,
+    )
+    assert.equal(await readFile(local, 'utf8'), 'Local settings stay here.\n')
+  }
+  assert.deepEqual(held.ignored, ['.env.local'])
+  assert.equal(held.ignoredCount, 1)
+  await remove(repo, made.path, false, held.stateId, state)
+  assert.ok(await gone(made.path))
+})
+
 test('a confirmation is void once the folder has changed under it', async () => {
   const { repo, state } = await seedRepo()
   const made = await add(repo, 'busy', { kind: 'new', branch: 'busy' }, state)
