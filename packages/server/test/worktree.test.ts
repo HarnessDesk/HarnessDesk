@@ -827,6 +827,24 @@ test('what git ignores is named before the folder goes, and a file is told from 
   await assert.rejects(() => stat(join(wt.path, '.env')))
 })
 
+test('the removal dialog names ignored files when Git hides untracked files', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  const wt = await worktrees.create(repo, { name: 'local-settings' })
+  await writeFile(join(wt.path, '.gitignore'), '.env.local\nnode_modules/\n')
+  await git(wt.path, 'add', '.gitignore')
+  await git(wt.path, 'commit', '-q', '-m', 'ignore local settings')
+  await git(wt.path, 'config', '--local', 'status.showUntrackedFiles', 'no')
+  await writeFile(join(wt.path, '.env.local'), 'local settings\n')
+  await mkdir(join(wt.path, 'node_modules', 'pkg'), { recursive: true })
+  await writeFile(join(wt.path, 'node_modules', 'pkg', 'index.js'), 'module.exports = 1\n')
+
+  const held = await worktrees.changes(wt.path)
+  assert.equal(held.modified + held.untracked, 0)
+  assert.deepEqual([...held.ignored].sort(), ['.env.local', 'node_modules/'])
+  assert.equal(held.ignoredCount, 2, 'the dialog must still warn before removal')
+  assert.equal(await readFile(join(wt.path, '.env.local'), 'utf8'), 'local settings\n')
+})
+
 test('parseWorktreeList handles CRLF line endings from git worktree list on Windows (#469)', () => {
   const porcelain = [
     'worktree C:/repo',
