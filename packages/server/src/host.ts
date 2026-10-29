@@ -6567,6 +6567,10 @@ export class Host {
   }
 
   async #askPerson(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'refused' | 'unanswered'> {
+    // A turn record can outlive an eventless close. Only a live handle may
+    // ask the person for a new tool approval.
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record?.live) return 'unanswered'
     const answer = await this.#askHeld(runtime, sessionId, question)
     return answer === 'standing' ? 'refused' : answer
   }

@@ -246,6 +246,31 @@ test('a held approval arriving during session close is abandoned before close re
   }
 })
 
+test('a late tool cannot create a held approval after an eventless session close', async (t) => {
+  const d = await room(t)
+  await d.message('Merge #7.')
+  t.mock.method(d.live(d.receiver), 'close', async () => {})
+  await d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
+  const record = d.host.registry.get(FAKE_RUNTIME_ID, d.receiver.id)
+  assert.equal(record?.live, null)
+  assert.ok(record && record.running.size > 0, 'no lifecycle event cleared the in-flight turn')
+  let returned = false
+  const late = d.call('pr_merge', d.receiver).then(result => { returned = true; return result })
+  try {
+    await until(() => returned || d.waiting(d.receiver).length > 0 ? true : null, 'the late tool is refused or asks')
+    assert.deepEqual(d.waiting(d.receiver), [], 'a closed handle cannot ask for a new answer')
+    assert.equal((await late).ok, false)
+    assert.deepEqual(d.ran, [])
+  } finally {
+    for (const approval of d.waiting(d.receiver)) {
+      await d.host.call('approval/respond', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id,
+        approvalId: approval.id, decision: { type: 'option', optionId: 'refuse' } })
+    }
+    await late
+    d.live(d.receiver).finish()
+  }
+})
+
 test('a held approval refuses an answer after its pending request was resolved', async (t) => {
   const d = await room(t)
   await d.message('Merge #7.')
