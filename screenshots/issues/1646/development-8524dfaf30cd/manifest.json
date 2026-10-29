@@ -1,0 +1,103 @@
+{
+  "issue": 1646,
+  "development": "8524dfaf30cd82105c1e366bd9d8eed68ba95b2a",
+  "captureCheckout": "4ecf7f06b60df70dbabc5317f6b7e7bc28b3bb64",
+  "scope": "Production UI matches development; capture checkout differs only by a fixture test. Synthetic preview harness, Chromium desktop; no native or mobile claim.",
+  "privacy": "COLLECT plus textReasons passed; all six images visually inspected before publication.",
+  "files": [
+    {
+      "path": "issue-1646-plugins-light.png",
+      "sha256": "23861296b0f3e87a8232af1a918cff3d695242ff365e78d9a8336df7a586bedc",
+      "width": 1248,
+      "height": 971,
+      "geometry": {
+        "nextTag": "SPAN",
+        "nextGap": 16,
+        "rootClasses": "",
+        "bodyClasses": "",
+        "tab": "Plugins · 2",
+        "input": "Search plugins",
+        "gap": 16,
+        "stackToken": "16px"
+      }
+    },
+    {
+      "path": "issue-1646-apps-light.png",
+      "sha256": "5c8a6626dbd2d1443bdb02040aaa0b812d97efe06f7327a421d8e067523cf5c0",
+      "width": 1248,
+      "height": 971,
+      "geometry": {
+        "nextTag": "DIV",
+        "nextGap": 32,
+        "rootClasses": "",
+        "bodyClasses": "",
+        "tab": "Apps",
+        "input": "Search apps to connect",
+        "gap": 100,
+        "stackToken": "16px"
+      }
+    },
+    {
+      "path": "issue-1646-mcp-light.png",
+      "sha256": "610e56e248cbcff3cad6b76559354c48d293053d69595c3d561f5060f796c0b8",
+      "width": 1248,
+      "height": 971,
+      "geometry": {
+        "nextTag": "DIV",
+        "nextGap": 32,
+        "rootClasses": "",
+        "bodyClasses": "",
+        "tab": "MCP servers",
+        "gap": null,
+        "stackToken": "16px"
+      }
+    },
+    {
+      "path": "issue-1646-plugins-dark.png",
+      "sha256": "b63008f4421704bce605f0768a9233d75f5b8c8878acac579b25b6155636ab89",
+      "width": 1248,
+      "height": 971,
+      "geometry": {
+        "nextTag": "SPAN",
+        "nextGap": 16,
+        "rootClasses": "",
+        "bodyClasses": "",
+        "tab": "Plugins · 2",
+        "input": "Search plugins",
+        "gap": 16,
+        "stackToken": "16px"
+      }
+    },
+    {
+      "path": "issue-1646-apps-dark.png",
+      "sha256": "f3b62e33c33bccfff6fbb8e242b328eb15e407a073afbe782d545714225b3158",
+      "width": 1248,
+      "height": 971,
+      "geometry": {
+        "nextTag": "DIV",
+        "nextGap": 32,
+        "rootClasses": "",
+        "bodyClasses": "",
+        "tab": "Apps",
+        "input": "Search apps to connect",
+        "gap": 100,
+        "stackToken": "16px"
+      }
+    },
+    {
+      "path": "issue-1646-mcp-dark.png",
+      "sha256": "4d3baaabd45313aeb68a869d1f0f9bf030e5073b2092dc58dde5fdb75332f085",
+      "width": 1248,
+      "height": 971,
+      "geometry": {
+        "nextTag": "DIV",
+        "nextGap": 32,
+        "rootClasses": "",
+        "bodyClasses": "",
+        "tab": "MCP servers",
+        "gap": null,
+        "stackToken": "16px"
+      }
+    }
+  ]
+}
