@@ -381,6 +381,7 @@ try {
         for (let index = 0; index < 2; index += 1) await expect(passedChecks.nth(index)).toBeVisible()
         await photograph('09-judging-board')
         rig.release('judge')
+        await observe(cards => cards.some(one => one.role === 'judge' && one.state === 'done' && one.outcome === 'picked'), 'judge picked')
         const picked = await observe(cards => cards.some(one => one.role === 'referee' && one.state === 'open'), 'person merge step')
         await expect(boardTitle('Merge the picked change')).toBeVisible()
         await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge the picked change$/ })).toBeVisible()
