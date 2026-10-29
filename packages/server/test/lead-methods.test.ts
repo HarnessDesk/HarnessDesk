@@ -1946,3 +1946,71 @@ test('an allowance-stopped uncertain chat still needs the existing person Stop a
   await s.controls.send({ idempotencyKey: 'after-person-stop', text: 'Next task' }); await s.controls.idle()
   assert.equal(s.sends.length, 1)
 })
+
+for (const method of ['lead/chat/start', 'lead/chat/send'] as const) for (const reopen of [false, true])
+  test(`Stop during ${method} dispatch cannot acknowledge its later uncertainty (reopen: ${reopen})`, async t => {
+    let enter!: () => void, fail!: (error: Error) => void, stop!: () => void
+    const entered = new Promise<void>(resolve => { enter = resolve })
+    const failed = new Promise<never>((_resolve, reject) => { fail = reject })
+    const stopped = new Promise<void>(resolve => { stop = resolve })
+    let effects = 0, requests = 0
+    const s = await rig({ configured: true, manage: true, controls: { stopEffects: async () => { stop() } }, service: {
+      async send() {
+        requests++
+        if (requests === 1) await s.journal.execute({ id: 'held-chat', request: { method,
+          params: method === 'lead/chat/start' ? { text: 'Original task' } : { id: 'fixture:chat', text: 'Original task' },
+          project, runId: null, start: null }, context: { desk: s.journal.state.policy!, projectPolicy: null, project,
+          approved: null, budget: null, now: 100, policyInterpretation: 'idle' } }, async () => {
+          effects++; enter(); return failed
+        })
+        return { status: 'completed', text: 'Inspect the chat on the desk.' }
+      },
+    } })
+    t.after(() => s.controls.close())
+    await s.call('lead/thread/send', { idempotencyKey: 'original', text: 'Original task' })
+    await entered
+    const stopping = s.call('lead/stop', { expectedRevision: s.journal.state.seq })
+    await stopped
+    assert.equal(s.journal.state.phase, 'stopped')
+    assert.equal(s.journal.state.chatEffectsAcknowledged, true)
+    assert.equal(s.journal.state.attempts.get('held-chat')!.phase, 'started')
+    fail(new Error('response lost after effect started'))
+    await stopping
+    await s.controls.idle()
+    let journal = s.journal, controls = s.controls
+    if (reopen) {
+      s.controls.close()
+      journal = await createLeadJournal(s.storage)
+      let lookups = 0
+      await journal.recover(async () => { lookups++; return [] })
+      assert.equal(lookups, 0)
+      const { LeadControls } = await controlsModule()
+      controls = new LeadControls({ journal, service: s.service, project, model: 'fixture-model', now: () => 100,
+        nextId: () => 'fresh-person-request', push() {}, decidePerson: async () => {}, decideResult: async () => {}, stopEffects: async () => {} })
+      t.after(() => controls.close())
+    }
+    const waiting = await controls.readThread()
+    assert.equal(journal.state.attempts.get('held-chat')!.outcome, 'uncertain')
+    assert.equal(journal.state.attempts.get('held-chat')!.recoveryReported, true)
+    assert.equal(journal.state.chatEffectsAcknowledged, false, 'Stop before failure cannot acknowledge newly discovered uncertainty')
+    assert.equal(waiting.waitReason, 'lead-chat-effect-uncertain')
+    assert.equal(waiting.wayOut, null)
+    const before = journal.state
+    await assert.rejects(controls.resume({ expectedRevision: before.seq }), code('lead-no-person-wait'))
+    await assert.rejects(controls.send({ idempotencyKey: 'premature', text: 'Next request draft' }), code('lead-chat-effect-uncertain'))
+    assert.deepEqual(journal.state, before)
+    assert.equal(requests, 1)
+    const acknowledged = await controls.stop({ expectedRevision: journal.state.seq })
+    assert.equal(acknowledged.waitReason, null)
+    assert.equal(journal.state.chatEffectsAcknowledged, true)
+    const oldGoal = journal.state.budget!.logicalGoalId
+    const receipt = await controls.send({ idempotencyKey: 'fresh', text: 'Fresh person request' })
+    await controls.idle()
+    assert.notEqual(journal.state.budget!.logicalGoalId, oldGoal)
+    assert.deepEqual(await controls.send({ idempotencyKey: 'fresh', text: 'Retry must not replace the request' }), receipt)
+    await controls.idle()
+    assert.equal(requests, 2, 'only the separately chosen person request runs, once')
+    assert.equal(effects, 1, 'the uncertain chat effect is never replayed')
+    assert.equal(journal.state.attempts.size, 0)
+    assert.equal(s.records.filter(record => record.type === 'reconciliation').length, 0)
+  })

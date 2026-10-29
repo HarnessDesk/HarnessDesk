@@ -127,7 +127,7 @@ export const hasUncertainLeadChatEffect = (state: LeadState): boolean =>
  * bookkeeping may be retired, but any positive or contested evidence stays fenced. */
 export const canReportLeadChatEffect = (state: LeadState, attempt: LeadAttemptState): boolean =>
   isLeadChatEffect(attempt) && attempt.phase === 'finished' && attempt.outcome === 'uncertain' &&
-  !attempt.contested && attempt.stepId === null &&
+  !attempt.contested && !state.steps.some(step => step.attemptId === attempt.id) &&
   (attempt.evidence === null || parseLeadRunEvidence(attempt.evidence).length === 0) &&
   !state.runs.some(run => run.correlationId === attempt.correlationId) &&
   !state.budget?.rounds.some(round => round.startId === attempt.id)
@@ -531,6 +531,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       else ensure(event.identity === null)
       if (event.outcome === 'failed' && attempt!.method === 'flow/start-goal') releaseStart(event.id)
       updateAttempt(event.id, attempt => ({ ...attempt, phase: 'finished', outcome: event.outcome }))
+      if (event.outcome === 'uncertain' && isLeadChatEffect(attempt!)) state = { ...state, chatEffectsAcknowledged: false }
       if (event.outcome === 'uncertain' && attempt!.kind !== 'read') state = { ...state, phase: 'waiting-for-user',
         steps: state.steps.map(step => step.attemptId === event.id ? { ...step, state: 'uncertain' } : step) }
       break

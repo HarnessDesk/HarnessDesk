@@ -6,7 +6,7 @@ import { readChecks } from '../src/evidence/checks-file.js'
 import test from 'node:test'
 import { createLeadJournal, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract } from '@harnessdesk/protocol'
-import { freezeLeadPlan, LeadAssembly, leadPreviewUnfit, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence } from '../src/lead/assembly.js'
+import { freezeLeadPlan, LeadAssembly, leadPreviewUnfit, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence, type LeadAssemblyOptions } from '../src/lead/assembly.js'
 import { tempDir } from './scratch.js'
 
 const project = { id: 'acme', path: '/work/acme' }
@@ -126,4 +126,33 @@ test('restoring an existing Lead starts its host owners without creating a fresh
   await (restored as any).restore()
   assert.equal(created, 2)
   await restored.close()
+})
+
+test('assembly resolves ordinary chat tools without a Flow step while an approved step is running', async t => {
+  let inputs!: Parameters<LeadAssemblyOptions['create']>[0]
+  const assembly = new LeadAssembly({ home: tempDir('lead-assembly-chat-step-'), now: () => 100,
+    workspace: async () => contract.project.path, readySeats: () => ['fixture'], heldPreview: () => null,
+    create: async value => { inputs = value } })
+  t.after(() => assembly.close())
+  await assembly.ensure()
+  const approved = await inputs.freezePlan({ ...contract, project: inputs.project })
+  await inputs.journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: approved.digest, contract: approved })
+  await inputs.journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: approved.digest, choice: 'approve' }, 1000)
+  const call = { method: 'flow/start-goal' as const, params: { root: inputs.project.path, source: 'synthetic recipe', token: 'preview-1',
+    sentence: approved.goal, vars: {}, attended: true, seats: { implement: [{ runtime: 'fixture' }], review: [{ runtime: 'fixture' }] } } }
+  const resolved = await inputs.resolveTool(call)
+  assert.equal(resolved.stepId, 'work')
+  assert.equal(resolved.start?.id, 'work')
+  const started = await inputs.journal.execute({ id: 'flow-start', request: { ...call, ...resolved }, context: resolved.context, stepId: resolved.stepId },
+    async () => ({ value: {}, identity: { correlationId: 'flow-start', runId: 'run-1', teamId: 'team-1' } }))
+  assert.equal(started.outcome, 'succeeded')
+  assert.equal(inputs.journal.state.steps[0]!.state, 'started')
+  const flow = await inputs.resolveTool({ method: 'flow/execution/stop', params: { run: 'run-1' } })
+  assert.equal(flow.stepId, 'work')
+  assert.equal(flow.runId, 'run-1')
+  const chats = await Promise.all((['list', 'read', 'start', 'send', 'stop'] as const).map(async method => {
+    const tool = await inputs.resolveTool({ method: `lead/chat/${method}`, params: { id: 'fixture:chat', text: 'Inspect' } })
+    return { method, stepId: tool.stepId, start: tool.start }
+  }))
+  assert.deepEqual(chats, ['list', 'read', 'start', 'send', 'stop'].map(method => ({ method, stepId: null, start: null })))
 })

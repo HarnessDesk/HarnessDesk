@@ -259,6 +259,68 @@ for (const action of ['cancel', 'clear', 'policy'] as const) test(`queued dispat
   }
 })
 
+test('cancelling a held Lead admission leaves a new person follow-up behind its running turn', { timeout: 10000 }, async t => {
+  const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
+  r.runtime.refusesWhileBusy = true
+  r.setCwd(r.project.path)
+  const record = r.host.registry.upsert(r.session, live)
+  const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
+  const sent: string[] = [], observeSend = r.runtime.onSend
+  let delivered!: () => void
+  const followUpDrained = new Promise<void>(resolve => { delivered = resolve })
+  r.runtime.onSend = (session, text, options) => {
+    sent.push(text)
+    observeSend?.(session, text, options)
+  }
+  const warnings: string[] = []
+  t.after(r.host.addBroadcaster(notification => {
+    if (notification.method !== 'event') return
+    const event = notification.params.event
+    if (event.type === 'notice' && event.level === 'warning') warnings.push(event.message)
+    if (event.type === 'session/queue' && event.sessionId === r.session.id &&
+      event.queue.messages.length === 0 && sent.includes('Person follow-up')) delivered()
+  }))
+  await r.host.call('turn/send', { ...target, input: [{ type: 'text', text: 'Person message' }] })
+  assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
+  const queued = record.queue.messages[0]!
+  let release!: () => void, entered!: () => void
+  const held = new Promise<void>(resolve => { release = resolve }), admitting = new Promise<void>(resolve => { entered = resolve })
+  const queuedAdmission = r.host.registry.queuedAdmission.bind(r.host.registry)
+  r.host.registry.queuedAdmission = (one, id) => {
+    const admit = queuedAdmission(one, id)
+    if (id !== queued.id || !admit) return admit
+    return async current => { entered(); await held; await admit(current) }
+  }
+  // Hold automatic draining so the real flush call can await the selected
+  // message's complete dispatch, including its cancellation cleanup.
+  r.host.registry.pauseQueue(record, 'Waiting for explicit delivery')
+  live.finish()
+  const draining = r.host.call('turn/queue/flush', target)
+  try {
+    await admitting
+    await r.host.call('turn/queue/cancel', { ...target, id: queued.id })
+    assert.equal(record.queue.messages.length, 0)
+    assert.equal((await r.host.call('turn/queue', { ...target,
+      input: [{ type: 'text', text: 'New person turn' }] })).sent, true)
+    assert.equal((await r.host.call('turn/queue', { ...target,
+      input: [{ type: 'text', text: 'Person follow-up' }] })).sent, false)
+  } finally { release(); await draining }
+  assert.deepEqual(sent, ['Person message', 'New person turn'], 'neither follow-up is dispatched into the running turn')
+  assert.equal(record.queue.messages.length, 1)
+  assert.equal(record.queue.messages[0]?.state, 'queued', 'cancellation cleanup must not select the new tail while busy')
+  assert.notEqual(record.queue.status, 'paused', 'cancellation does not poison the queue')
+  assert.deepEqual(warnings, [], 'cancellation is not reported as a delivery failure')
+  live.finish()
+  await followUpDrained
+  // Another completion and flush must not deliver the surviving tail twice.
+  live.finish()
+  await r.host.call('turn/queue/flush', target)
+  assert.deepEqual(sent, ['Person message', 'New person turn', 'Person follow-up'])
+  assert.equal(record.queue.messages.length, 0)
+  assert.notEqual(record.queue.status, 'paused')
+  assert.deepEqual(warnings, [])
+})
+
 test('a fresh Lead request cannot revive an uncertain queued reply from the stopped request', async t => {
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.setCwd(r.project.path)
@@ -281,5 +343,5 @@ test('a fresh Lead request cannot revive an uncertain queued reply from the stop
   assert.equal(r.sends(), 1, 'acknowledgement never dispatches the old uncertain instruction')
   assert.equal(record.queue.messages.length, 1)
   assert.equal(record.queue.status, 'paused')
-  assert.match(record.queue.reason ?? '', /request|goal/i)
+  assert.equal(record.queue.reason, 'The Lead request changed. Cancel this queued reply and send a new message.')
 })

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { parseClientMessage, parseLeadAcceptanceContract, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
 import * as lead from '../src/index.js'
+import { canReportLeadChatEffect } from '../src/state.js'
 
 const runEvidence = (identity: lead.LeadRunIdentity, terminal = false): lead.LeadRunObservation => ({ ...identity, firstRoundId: '1', terminal })
 
@@ -2053,4 +2054,68 @@ test('reported chat uncertainty survives audit pruning and contested legacy evid
   assert.equal(restored.state.attempts.get('lost-chat').contested, true)
   await restored.stop(async () => {})
   assert.equal(lead.canBeginLeadGoal(restored.state), false)
+})
+
+for (const method of ['lead/chat/start', 'lead/chat/send']) for (const recovery of ['live', 'unreported', 'empty-evidence', 'interrupted'])
+  test(`incidental legacy step stamps do not strand ${method} uncertainty (${recovery})`, async () => {
+    const storage = memory(), journal = await prepare(storage)
+    let effects = 0
+    if (recovery === 'interrupted') storage.failOn('result')
+    const execution = journal.execute({ id: 'legacy-chat', stepId: 'implement', request: { ...request, method,
+      params: method === 'lead/chat/start' ? { text: 'Inspect' } : { id: 'fixture:chat', text: 'Inspect' }, start: null }, context }, async () => {
+      effects++; throw new Error('post-effect failure')
+    })
+    if (recovery === 'interrupted') { await assert.rejects(execution); storage.failOn(null) }
+    else assert.equal((await execution).outcome, 'uncertain')
+    let current = journal
+    if (recovery !== 'live') {
+      if (recovery !== 'interrupted') {
+        // Older journals stopped at the uncertain result or added an empty Flow lookup.
+        storage.records.splice(storage.records.findIndex(record => record.type === 'result' && record.id === 'legacy-chat') + 1)
+        if (recovery === 'empty-evidence') storage.records.push({ version: 1, seq: storage.records.length + 1,
+          type: 'reconciliation', id: 'legacy-chat', identity: null, count: 0, evidence: '[]' })
+      }
+      const replayed = await open(storage)
+      const checkpoint = lead.parseLeadCheckpoint(lead.leadCheckpoint(replayed.state, 'a'.repeat(64))).state
+      current = await lead.createLeadJournal({ read: async () => [], checkpoint: () => checkpoint,
+        append: async record => { storage.records.push(structuredClone(record)) } })
+      let lookups = 0
+      await current.recover(async () => { lookups++; return [] })
+      assert.equal(lookups, 0, 'chat effects have no Flow identity to reconcile')
+    }
+    const attempt = current.state.attempts.get('legacy-chat')!
+    assert.equal(attempt.stepId, 'implement', 'legacy metadata is retained')
+    assert.equal(attempt.outcome, 'uncertain')
+    assert.equal(attempt.recoveryReported, true)
+    assert.equal(attempt.resolutionPending, false)
+    assert.equal(current.state.managementReason, 'lead-chat-effect-uncertain')
+    assert.equal(current.state.steps[0].attemptId, null, 'metadata never binds a Flow step')
+    assert.equal(lead.canBeginLeadGoal(current.state), false)
+    await current.stop(async () => {})
+    assert.equal(lead.canBeginLeadGoal(current.state), true)
+    await current.beginGoal('fresh-person-request', 100)
+    assert.equal(current.state.budget.logicalGoalId, 'fresh-person-request')
+    assert.equal(current.state.attempts.size, 0)
+    assert.equal(effects, 1, 'neither recovery nor a new goal replays the uncertain call')
+    assert.deepEqual((await open(storage)).state, current.state)
+  })
+
+test('chat recovery ignores incidental step metadata but retains every actual Flow and evidence fence', async () => {
+  const journal = await prepare(memory())
+  await journal.execute({ id: 'legacy-chat', stepId: 'implement', request: { ...request, method: 'lead/chat/send',
+    params: { id: 'fixture:chat', text: 'Inspect' }, start: null }, context }, async () => { throw new Error('post-effect failure') })
+  const state: lead.LeadState = journal.state, attempt = state.attempts.get('legacy-chat')!
+  assert.equal(canReportLeadChatEffect(state, attempt), true)
+  const identity = { correlationId: attempt.id, runId: 'run-1', teamId: 'team-1' }
+  const bound: lead.LeadState = { ...state, steps: state.steps.map(step => ({ ...step, state: 'uncertain', attemptId: attempt.id })) }
+  for (const [blocked, candidate] of [
+    [state, { ...attempt, phase: 'started' }],
+    [state, { ...attempt, outcome: 'succeeded' }],
+    [state, { ...attempt, contested: true }],
+    [state, { ...attempt, evidence: JSON.stringify([runEvidence(identity, true)]) }],
+    [{ ...state, runs: [identity] }, attempt],
+    [{ ...state, budget: { ...state.budget!, rounds: [{ startId: attempt.id, executionId: null, roundId: null }] } }, attempt],
+    [bound, attempt],
+    [bound, { ...attempt, stepId: null }],
+  ] as const) assert.equal(canReportLeadChatEffect(blocked, candidate), false)
 })

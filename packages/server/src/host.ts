@@ -7492,7 +7492,9 @@ export class Host {
       }
     } finally {
       this.#draining.delete(key)
-      if (cancelled) void this.#drain(record)
+      // Cancellation may have emptied the queue long enough for a person to
+      // start a new turn. Its completion will drain any new tail in that case.
+      if (cancelled && !this.#queueBusy(record)) void this.#drain(record)
     }
   }
 

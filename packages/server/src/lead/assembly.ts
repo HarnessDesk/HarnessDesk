@@ -199,7 +199,7 @@ export class LeadAssembly {
         const step = state.contract?.steps.find(one => one.id === current?.id) ?? null
         const preview = call.method === 'flow/start-goal' && typeof params['token'] === 'string' ? options.heldPreview(params['token']) : null
         return { project, runId: typeof params['run'] === 'string' ? params['run'] : null, start: call.method === 'flow/start-goal' ? step : null,
-          stepId: step?.id ?? null, ...(preview ? { preview: { token: params['token'] as string, ...preview } } : {}),
+          stepId: call.method.startsWith('lead/chat/') ? null : step?.id ?? null, ...(preview ? { preview: { token: params['token'] as string, ...preview } } : {}),
           context: { desk: state.policy!, projectPolicy: null, project, approved: null, budget: null, now: options.now(), policyInterpretation: 'idle' } }
       },
       readEvidence: (runId, read) => readLeadEvidence(journal, runId, read, options.now) })

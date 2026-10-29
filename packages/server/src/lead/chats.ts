@@ -270,7 +270,7 @@ export class LeadChats {
       // dispatch is not recovery; every unresolved effect and live policy fence is.
       await this.#gate(call, attemptId, true)
       if (call.method !== 'lead/chat/stop' && (this.ports.state().budget?.logicalGoalId ?? null) !== requestGoal)
-        refuse('The Lead request changed. Inspect this queued reply before sending it again.')
+        refuse('The Lead request changed. Cancel this queued reply and send a new message.')
     }
   }
 }
