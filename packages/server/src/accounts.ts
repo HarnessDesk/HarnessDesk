@@ -406,13 +406,20 @@ export class AccountSlots {
     return slot
   }
 
-  /** Forgets a slot. Its home is deleted only when `purge` is set. */
-  remove(id: RuntimeId, purge = true): AccountSlot | null {
-    const slot = this.find(id)
+  /** Forgets one saved slot, purging its home only when no retained row uses it. */
+  remove(id: RuntimeId, purge = true, selected?: AccountSlot): AccountSlot | null {
+    const slot = selected === undefined ? this.find(id)
+      : this.#slots.find(entry => entry === selected && entry.id === id) ?? null
     if (!slot) return null
-    this.#slots = this.#slots.filter((entry) => entry.id !== id)
+    // A registered owner can select its exact row even when another agent's
+    // ignored row precedes it. The id-only API forgets just the first match.
+    this.#slots = this.#slots.filter((entry) => entry !== slot)
     this.#write()
     if (purge) {
+      if (this.#homeStillReferenced(slot.home)) {
+        this.log?.('account slot home kept for a retained row', { home: slot.home })
+        return slot
+      }
       // Only ever the farm: every shared entry inside it is a symlink, and
       // `rm` of a symlink removes the link, never what it points at.
       try {
@@ -432,6 +439,18 @@ export class AccountSlots {
       }
     }
     return slot
+  }
+
+  /** A hand-edited roster may share, alias or nest credential homes. */
+  #homeStillReferenced(home: string): boolean {
+    const physical = (path: string): string => {
+      try { return realpathSync.native(path) } catch { return resolve(path) }
+    }
+    const removed = physical(home)
+    return this.#slots.some(entry => {
+      const retained = physical(entry.home)
+      return retained === removed || isUnder(retained, removed) || isUnder(removed, retained)
+    })
   }
 
   /** Re-mirrors every slot of `agent`. Called on start, before the runtimes come up. */

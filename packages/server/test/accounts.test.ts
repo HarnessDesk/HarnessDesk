@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdtemp, mkdir, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
@@ -244,6 +244,66 @@ for (const cleanup of ['empty', 'duplicate'] as const) {
     }
   }
 }
+
+for (const purge of [false, true]) {
+  for (const arrangement of ['separate', 'same', 'target contains retained', 'retained contains target', 'alias'] as const) {
+    test(`removing the first duplicate-id row preserves the retained row and its ${arrangement} home, purge=${purge}`, async t => {
+      const root = await home()
+      t.after(() => rm(root, { recursive: true, force: true }))
+      const accounts = join(root, 'accounts')
+      const target = join(accounts, arrangement === 'retained contains target' ? 'parent/child' : 'target')
+      const retained = arrangement === 'same' ? target
+        : arrangement === 'target contains retained' ? join(target, 'nested')
+        : arrangement === 'retained contains target' ? join(accounts, 'parent')
+        : join(accounts, 'retained')
+      await mkdir(target, { recursive: true })
+      if (arrangement === 'alias') await symlink(target, retained)
+      else await mkdir(retained, { recursive: true })
+      const targetAuth = chatgptAuth('fixture-person', 'workspace-b')
+      const retainedAuth = arrangement === 'same' || arrangement === 'alias' ? targetAuth : chatgptAuth('fixture-person', 'workspace-c')
+      await writeFile(join(target, 'auth.json'), targetAuth)
+      await writeFile(join(retained, 'auth.json'), retainedAuth)
+      const rows = [
+        { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: target, createdAt: 1 },
+        { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: retained, createdAt: 2 },
+      ]
+      const file = join(root, 'accounts.json')
+      await writeFile(file, JSON.stringify({ accounts: rows }))
+      const slots = new AccountSlots(file)
+      assert.equal(slots.remove(FAKE_RUNTIME_ID, purge)?.home, target)
+      assert.deepEqual(slots.list(), [rows[1]], 'removing one account never forgets another saved row with its id')
+      assert.deepEqual(new AccountSlots(file).list(), [rows[1]], 'the retained row survives a roster reload')
+      assert.equal(await readFile(join(retained, 'auth.json'), 'utf8'), retainedAuth, 'the retained credential home stays intact')
+      if (purge && arrangement === 'separate') assert.equal(existsSync(target), false, 'an unshared removed home is purged')
+      else assert.equal(await readFile(join(target, 'auth.json'), 'utf8'), targetAuth, 'overlapping homes are retained for their surviving owner')
+    })
+  }
+}
+
+test('an exact account removal refuses copied, mismatched and already-removed selectors', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const rows = ['retained', 'selected'].map((name, index) => ({
+    id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: join(root, 'accounts', name), createdAt: index,
+  }))
+  for (const row of rows) {
+    await mkdir(row.home, { recursive: true })
+    await writeFile(join(row.home, 'auth.json'), chatgptAuth('fixture-person', row.home))
+  }
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: rows }))
+  const slots = new AccountSlots(file)
+  const selected = slots.list()[1]!
+  const untouched = await readFile(file, 'utf8')
+  assert.equal(slots.remove(FAKE_RUNTIME_ID, true, { ...selected }), null, 'a copied selector cannot choose another saved row')
+  assert.equal(slots.remove('other-runtime' as RuntimeId, true, selected), null, 'the selected row must match the runtime')
+  assert.equal(await readFile(file, 'utf8'), untouched)
+  assert.equal(slots.remove(FAKE_RUNTIME_ID, true, selected), selected)
+  assert.equal(existsSync(selected.home), false)
+  assert.equal(slots.remove(FAKE_RUNTIME_ID, true, selected), null, 'a stale selector cannot remove the surviving peer')
+  assert.deepEqual(new AccountSlots(file).list(), [rows[0]])
+  assert.equal(existsSync(join(rows[0]!.home, 'auth.json')), true)
+})
 
 test('an identity is the person and the workspace, never the email alone', async (t) => {
   const root = await home()
