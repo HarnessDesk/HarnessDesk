@@ -140,7 +140,7 @@ import { InapplicableActionsFrames } from './frames-inapplicable-actions'
 import { RunInspectorFrames } from './frames-run-inspector'
 import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
-import { TeamOverviewFrames } from './frames-team-overview'
+import { TeamOverviewFrames, TeamOverviewPreview } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames, ComparisonVerdictPreview, TileBrowserFrames } from './frames-side-by-side'
 import { AgentBriefFrames } from './frames-agent-brief'
@@ -1289,7 +1289,7 @@ createRoot(container).render(
     <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).has('desk-account') ? <HarnessDeskAccountPreview /> : new URLSearchParams(window.location.search).has('lead-synthetic') ? <LeadFrames />
+        {new URLSearchParams(window.location.search).get('team-overview') === 'narrow' ? <TeamOverviewPreview /> : new URLSearchParams(window.location.search).has('desk-account') ? <HarnessDeskAccountPreview /> : new URLSearchParams(window.location.search).has('lead-synthetic') ? <LeadFrames />
           : new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
           : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />

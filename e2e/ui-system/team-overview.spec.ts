@@ -6,10 +6,13 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     for (const width of [240, 280, 320]) {
       await page.setViewportSize({ width, height: 1100 })
-      await page.goto(`/preview.html?team-overview&theme=${theme}`)
+      await page.goto(`/preview.html?team-overview=narrow&theme=${theme}`)
       await page.evaluate(() => document.fonts.ready)
       const overview = page.locator('#team-overview-narrow [data-slot="team-overview"]')
       await expect(overview).toHaveAttribute('data-layout', 'narrow')
+      if (width === 240) {
+        expect(await overview.locator('[data-seat]').first().evaluate(element => element.getBoundingClientRect().width)).toBeLessThanOrEqual(128)
+      }
       const descriptions = overview.locator('[data-seat] [data-slot="list-row-subtitle"]').filter({ hasText: 'Reviewer · Alpha' })
       await expect(descriptions).toHaveCount(3)
       for (const description of await descriptions.all()) {

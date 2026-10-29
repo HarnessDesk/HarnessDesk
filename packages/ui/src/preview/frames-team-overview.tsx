@@ -4,6 +4,7 @@ import { TeamFramePreview } from './TeamFramePreview'
 import { SessionTree } from '../components/SessionTree'
 import { RailSection } from '../design'
 import { StoreProvider } from '../state/context'
+import { useTheme } from '../state/theme'
 import { sidebarTeamAttention } from './sidebar-fixture'
 import { previewStore } from './harness'
 import { overviewModel, overviewTeamStore, OVERVIEW_STATES, type OverviewScene } from './team-overview-fixture'
@@ -36,6 +37,18 @@ export const OverviewExample = ({scene}:{scene:OverviewScene}) => {
 
 export const TeamOverviewBoard = () => <div className="flex flex-col gap-4">{OVERVIEW_STATES.map(scene=><section key={scene} data-catalog-state={scene} className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></section>)}
  {NEEDS_YOU_STATES.map(scene=><section key={scene} data-catalog-state={`answer-${scene}`} className={scene==='narrow'?'max-w-sm':''}><NeedsYouExample scene={scene} /></section>)}</div>
+
+/** The focused specimen's authored account data is available to its frame audit. */
+export const overviewPreviewStore = previewStore({
+ theme: new URLSearchParams(location.search).get('theme') === 'dark' ? 'dark' : 'light',
+ accountsByRuntime: {},
+})
+const OverviewTheme = () => { useTheme(); return null }
+const OverviewFrame = ({scene}:{scene:OverviewScene}) => <section id={`team-overview-${scene}`} className={scene==='narrow'?'max-w-sm':''}><h2>{scene}</h2><div className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></div></section>
+
+/** The gallery's same narrow allocation, with its own account-free store. */
+export const TeamOverviewPreview = () => <StoreProvider store={overviewPreviewStore}><OverviewTheme /><div className="p-4"><div className="flex flex-col gap-4 p-4"><OverviewFrame scene="narrow" /></div></div></StoreProvider>
+
 export const TeamOverviewFrames = () => {
  const store=useMemo(() => overviewTeamStore(),[])
  const sidebarStore=useMemo(() => overviewTeamStore('running'),[])
@@ -45,7 +58,7 @@ export const TeamOverviewFrames = () => {
    return previewStore({...source,goals:new Map(rows.map(view=>[view.goal.id,view])),teams:new Map(rows.map(view=>[view.board.id,view.board])),flowExecutions:new Map(),sessions:new Map(),history:[],inbox:[]})
  },[])
  const liveStores=useMemo(() => (['running','needs-you','stalled','waiting-evidence','unreadable-ledger','findings-and-posting','stopped-unknown','unrouted','unchecked'] as const).map(scene=>({scene,store:overviewTeamStore(scene)})),[])
- return <div className="flex flex-col gap-4 p-4">{OVERVIEW_STATES.map(scene=><section key={scene} id={`team-overview-${scene}`} className={scene==='narrow'?'max-w-sm':''}><h2>{scene}</h2><div className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></div></section>)}
+ return <div className="flex flex-col gap-4 p-4">{OVERVIEW_STATES.map(scene=><OverviewFrame key={scene} scene={scene} />)}
  {NEEDS_YOU_STATES.map(scene=><section key={scene} id={`team-overview-answer-${scene}`} className={scene==='narrow'?'max-w-sm':''}><h2>answer {scene}</h2><NeedsYouExample scene={scene} /></section>)}
  {liveStores.map(({scene,store})=><section key={scene} id={`team-overview-live-${scene}`} className="h-144"><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>)}
  <section id="team-overview-team" className="h-96"><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>
