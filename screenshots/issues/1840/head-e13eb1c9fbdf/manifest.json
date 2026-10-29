@@ -1,0 +1,24 @@
+{
+  "issue": 1840,
+  "sourceHead": "e13eb1c9fbdf4f160e8d8e706c9bb42551ced8c0",
+  "surface": "Native Electron with an isolated fake runtime and a single-primary duplicate-id fixture",
+  "scenario": "Ignored account and agent rows use the primary id; actual host keeps its nonremovable primary home and no registry ownership. Configuration and auxiliary account file remain, sentinel never runs.",
+  "limits": "Neither sign-out nor removal is clicked. The held-approval close race is exercised by real Host/plugin tests, not this frame. Separate bootstrap tests and native metadata provide the extra-account positive control.",
+  "privacy": "All text/account audits empty before and after capture; worker and parent visually inspected both original PNGs.",
+  "files": [
+    {
+      "path": "runtime-primary-detail.png",
+      "caption": "Native runtime group, with the extra-account controls preserved",
+      "sha256": "882c3041dd40bc91eaaba7a862af0056ea1f336cad6f7cf5c458ab02ddb46251",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "path": "primary-account-detail.png",
+      "caption": "Primary account detail keeps Sign out and its actual credential home, without an account removal action",
+      "sha256": "95317199e77bacd76fbd4181974608820f4d4134b6d06a6d74745cc1bec4bcaf",
+      "width": 2560,
+      "height": 1680
+    }
+  ]
+}
