@@ -2,6 +2,8 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
+const SCHEMA_VERSION = 7
+
 /** The index and transcript bodies share this schema and one database file. */
 export const transaction = <T>(db: DatabaseSync, write: () => T): T => {
   db.exec('BEGIN IMMEDIATE')
@@ -13,10 +15,20 @@ export function openSessionDatabase(file: string): DatabaseSync {
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true })
   const db = new DatabaseSync(file)
   try {
+    // A snapshot reader can briefly hold the cold file while WAL is enabled.
+    // Wait for bounded contention instead of treating it as a broken store.
+    db.exec('PRAGMA busy_timeout = 5000')
     db.exec('PRAGMA journal_mode = WAL')
     const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0)
-    if (version > 7) throw new Error('Session index is from a newer schema')
-    if (version === 0) transaction(db, () => {
+    if (version > SCHEMA_VERSION) throw new Error('Session index is from a newer schema')
+    const migrate = (to: number, apply: () => void): void => transaction(db, () => {
+      // Another opener may have migrated while this connection waited for the
+      // write lock. Decide from the version protected by that lock.
+      const current = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0)
+      if (current > SCHEMA_VERSION) throw new Error('Session index is from a newer schema')
+      if (current < to) apply()
+    })
+    if (version === 0) migrate(1, () => {
       db.exec(`CREATE TABLE sessions (
         runtime TEXT NOT NULL, id TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('desk','imported')),
         title TEXT, preview TEXT, cwd TEXT NOT NULL, repo_root TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
@@ -32,7 +44,7 @@ export function openSessionDatabase(file: string): DatabaseSync {
       CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       PRAGMA user_version = 1;`)
     })
-    if (version < 2) transaction(db, () => {
+    if (version < 2) migrate(2, () => {
       // v1 stored archive as NOT NULL; preserve all rows, including tombstones.
       db.exec(`ALTER TABLE sessions RENAME TO sessions_v1;
         DROP INDEX sessions_sidebar; DROP INDEX sessions_page; DROP INDEX sessions_repo; DROP INDEX sessions_cwd;
@@ -51,7 +63,7 @@ export function openSessionDatabase(file: string): DatabaseSync {
         ALTER TABLE repos ADD COLUMN identity TEXT;
         PRAGMA user_version = 2;`)
     })
-    if (version < 3) transaction(db, () => {
+    if (version < 3) migrate(3, () => {
       db.exec(`ALTER TABLE sessions ADD COLUMN body TEXT NOT NULL DEFAULT 'none';
         ALTER TABLE sessions ADD COLUMN saved_at REAL;
         ALTER TABLE sessions ADD COLUMN usage TEXT;
@@ -72,13 +84,13 @@ export function openSessionDatabase(file: string): DatabaseSync {
           INSERT INTO items_fts(rowid,message_text,tool_text) VALUES(new.rowid,new.message_text,new.tool_text); END;
         PRAGMA user_version = 3;`)
     })
-    if (version < 4) transaction(db, () => {
+    if (version < 4) migrate(4, () => {
       db.exec(`ALTER TABLE sessions ADD COLUMN source_path TEXT;
         ALTER TABLE sessions ADD COLUMN source_mtime REAL;
         ALTER TABLE sessions ADD COLUMN source_size INTEGER;
         PRAGMA user_version = 4;`)
     })
-    if (version < 5) transaction(db, () => {
+    if (version < 5) migrate(5, () => {
       db.exec(`ALTER TABLE sessions ADD COLUMN last_opened_at REAL;
         ALTER TABLE sessions ADD COLUMN body_bytes INTEGER NOT NULL DEFAULT 0;
         CREATE TABLE imports(runtime TEXT PRIMARY KEY, imported_at REAL, count INTEGER NOT NULL DEFAULT 0,
@@ -101,7 +113,7 @@ export function openSessionDatabase(file: string): DatabaseSync {
       }
       db.exec('PRAGMA user_version = 5')
     })
-    if (version < 6) transaction(db, () => {
+    if (version < 6) migrate(6, () => {
       db.exec(`ALTER TABLE sessions ADD COLUMN worktree_path TEXT;
         ALTER TABLE sessions ADD COLUMN worktree_branch TEXT;
         ALTER TABLE sessions ADD COLUMN worktree_state TEXT CHECK(worktree_state IN ('present','removed','kept'));
@@ -110,7 +122,7 @@ export function openSessionDatabase(file: string): DatabaseSync {
         CREATE INDEX session_worktrees_path ON session_worktrees(path);
         PRAGMA user_version = 6;`)
     })
-    if (version < 7) transaction(db, () => {
+    if (version < 7) migrate(7, () => {
       db.exec(`ALTER TABLE session_worktrees ADD COLUMN title TEXT;
         ALTER TABLE session_worktrees ADD COLUMN updated_at REAL;
         UPDATE session_worktrees SET title=(SELECT title FROM sessions s WHERE s.runtime=session_worktrees.runtime AND s.id=session_worktrees.id),
