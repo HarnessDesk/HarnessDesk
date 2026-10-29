@@ -375,14 +375,19 @@ export const createDefaultHost = (
       return codexAccount(slot.id, slot.home)
     },
     remove: async (id) => {
+      // The host has unregistered the runtime. Its native ownership wins over
+      // an ignored ACP row, and ends even if persisting slot removal fails.
+      if (codexSlots.has(id)) {
+        try { slots.remove(id) } finally { codexSlots.delete(id) }
+        return
+      }
       // An Antigravity account is a registry row, so it is forgotten by
       // `acp-accounts.ts` — which also moves its folder to the Trash.
       if (acpAccounts.slotOf(id)?.removable) {
         await acpAccounts.remove(id)
         return
       }
-      slots.remove(id)
-      codexSlots.delete(id)
+      throw new Error('This runtime has no registered extra account to remove.')
     },
     // Read off the credential rather than asked of Codex: `account/read`
     // answers an email and a plan, and one email can hold two ChatGPT

@@ -208,19 +208,21 @@ for (const ending of ['detach', 'close', 'close without an event', 'unavailable'
   })
 }
 
-test('a held approval arriving during session close is abandoned before close returns', async (t) => {
+for (const closeFails of [false, true]) test(`a held approval arriving during session close is abandoned when close ${closeFails ? 'rejects' : 'resolves'}`, async (t) => {
   const d = await room(t)
   await d.message('Merge #7.')
   const live = d.live(d.receiver)
   let releaseClose!: () => void
   let closingStarted = false
   const pendingClose = new Promise<void>(resolve => { releaseClose = resolve })
-  t.mock.method(live, 'close', async () => {
+  const closeMock = t.mock.method(live, 'close', async () => {
     closingStarted = true
     await pendingClose
     live.finish()
+    if (closeFails) throw new Error('fixture close failed')
   })
   const closing = d.host.call('session/close', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id })
+  void closing.catch(() => {})
   let merging: ReturnType<typeof d.call> | undefined
   try {
     await until(() => closingStarted ? true : null, 'the asynchronous close starts')
@@ -228,7 +230,10 @@ test('a held approval arriving during session close is abandoned before close re
     const [approval] = await until(() => d.waiting(d.receiver).length ? d.waiting(d.receiver) : null, 'the approval arriving during close')
     assert.ok(approval)
     releaseClose()
-    await closing
+    if (closeFails) {
+      await assert.rejects(closing, /fixture close failed/)
+      assert.equal(d.host.registry.get(FAKE_RUNTIME_ID, d.receiver.id)?.live, live, 'a failed close does not discard its handle')
+    } else await closing
     assert.deepEqual(d.waiting(d.receiver), [], 'closing also abandons answers requested while the handle was closing')
     await assert.rejects(d.host.call('approval/respond', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id,
       approvalId: approval.id, decision: { type: 'option', optionId: 'allow' } }), /No approval is pending/)
@@ -236,7 +241,8 @@ test('a held approval arriving during session close is abandoned before close re
     assert.deepEqual(d.ran, [])
   } finally {
     releaseClose()
-    await closing
+    await closing.catch(() => {})
+    closeMock.mock.restore()
     // A red regression must still release its held tool before fixture cleanup.
     for (const approval of d.waiting(d.receiver)) {
       await d.host.call('approval/respond', { runtime: FAKE_RUNTIME_ID, sessionId: d.receiver.id,

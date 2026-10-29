@@ -5748,15 +5748,16 @@ export class Host {
 
     const agents = { restored: 0, skipped: 0 }
     const directory = this.options.agents
+    const storedAgent = (id: string): boolean => directory?.entries().some(entry => entry['id'] === id) ?? false
     for (const entry of Array.isArray(file.agents) ? file.agents : []) {
       const id = (entry as Record<string, unknown>)['id']
-      if (!directory || typeof id !== 'string' || this.#runtimes.has(id as RuntimeId) || directory.owns(id)) {
+      if (!directory || typeof id !== 'string' || this.#runtimes.has(id as RuntimeId) || storedAgent(id)) {
         agents.skipped += 1
         continue
       }
       try {
         const adopted = directory.adopt(entry as Record<string, unknown>)
-        if (!directory.owns(id)) {
+        if (!storedAgent(id)) {
           agents.skipped += 1
           continue
         }

@@ -9,7 +9,7 @@ import { tempDir } from './scratch.js'
 // executable makes even an accidental agent probe a test failure.
 const READ_SLOTS = `
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 const root = process.env.HD_STATE
 const codexHome = join(root, 'codex')
@@ -29,6 +29,8 @@ const { AccountSlots } = await import(process.env.HD_ACCOUNTS)
 const slots = new AccountSlots(join(root, 'accounts.json'))
 const extraCodex = slots.add('codex', codexHome, root)
 writeFileSync(join(extraCodex.home, 'auth.json'), '{}')
+const ignoredHome = join(root, 'accounts', 'ignored-acp')
+const trashed = []
 if (process.env.HD_DUPLICATE_SLOTS) {
   const saved = JSON.parse(readFileSync(join(root, 'accounts.json'), 'utf8'))
   saved.accounts.push({ ...extraCodex, id: process.env.HD_DUPLICATE_SLOTS === 'primary' ? 'codex' : extraCodex.id })
@@ -37,11 +39,20 @@ if (process.env.HD_DUPLICATE_SLOTS) {
 if (process.env.HD_DUPLICATE_IDS === '1') {
   const saved = JSON.parse(readFileSync(join(root, 'agents.json'), 'utf8'))
   for (const id of ['codex', extraCodex.id]) saved.agents.push({ id, name: 'Duplicate runtime', command: process.execPath, args: [sentinel] })
+  if (process.env.HD_ACCOUNT_LIFECYCLE === '1') {
+    mkdirSync(ignoredHome, { recursive: true })
+    writeFileSync(join(ignoredHome, 'auth.json'), '{"marker":"preserved"}')
+    Object.assign(saved.agents.find(entry => entry.id === extraCodex.id), {
+      agent: 'antigravity-acp', accountOf: 'fixture-agy',
+      env: { GEMINI_HOME: ignoredHome, AGY_ACP_FORCE_FILE_STORAGE: '1' }
+    })
+  }
   writeFileSync(join(root, 'agents.json'), JSON.stringify(saved))
 }
 const { createDefaultHost } = await import(process.env.HD_BOOTSTRAP)
 const { host, extensions, pathReady } = createDefaultHost({
   stateDir: root, codexHome, codexBinaryPath: process.env.HD_DUPLICATE_IDS === '1' || process.env.HD_DUPLICATE_SLOTS ? process.env.HD_NATIVE_FIXTURE : sentinel,
+  ...(process.env.HD_ACCOUNT_LIFECYCLE === '1' ? { trashPath: async home => { trashed.push(home); renameSync(home, home + '.trashed') } } : {}),
   console: false, logLevel: process.env.HD_DUPLICATE_IDS === '1' || process.env.HD_DUPLICATE_SLOTS ? 'warn' : 'error'
 })
 try {
@@ -93,6 +104,35 @@ try {
     await host.start()
     const account = await host.call('runtime/account', { runtime: 'codex' })
     assert.ok(account.accounts.length > 0, 'the native runtime still starts')
+    if (process.env.HD_ACCOUNT_LIFECYCLE === '1') {
+      await host.call('runtime/account/remove', { runtime: extraCodex.id })
+      assert.equal(new AccountSlots(join(root, 'accounts.json')).find(extraCodex.id), null, 'removal forgets the registered native slot')
+      assert.equal(existsSync(extraCodex.home), false, 'the removed native account home is purged')
+      assert.equal(readFileSync(join(ignoredHome, 'auth.json'), 'utf8'), '{"marker":"preserved"}', 'the ignored ACP account home is untouched')
+      assert.deepEqual(trashed, [], 'a native removal never follows the ignored ACP home')
+      const registryFile = join(root, 'agents.json')
+      const kept = JSON.parse(readFileSync(registryFile, 'utf8'))
+      assert.ok(kept.agents.some(entry => entry.id === extraCodex.id), 'native removal preserves ignored ACP configuration')
+      // The person removes that ignored row, then registers an ACP agent with
+      // the released id through the ordinary public door.
+      kept.agents = kept.agents.filter(entry => entry.id !== extraCodex.id)
+      writeFileSync(registryFile, JSON.stringify(kept))
+      const replacement = await host.call('acp/register', { custom: {
+        id: extraCodex.id, name: 'Replacement agent', command: process.execPath, args: [process.env.HD_ACP_FIXTURE]
+      } })
+      assert.equal(replacement.info.slot ?? null, null, 'the replacement ACP runtime inherits no stale native slot')
+      assert.equal(replacement.info.origin, 'registry')
+      const added = await host.call('runtime/account/add', { runtime: 'codex', name: 'Fixture account' })
+      const addedInfo = host.syncPayload().params.runtimes.find(info => info.id === added.runtime)
+      assert.equal(addedInfo.slot.removable, true, 'a dynamically added native account owns its slot')
+      assert.equal(addedInfo.slot.gateways, true)
+      assert.notEqual(addedInfo.slot.home, codexHome)
+      assert.equal(addedInfo.slot.home, new AccountSlots(join(root, 'accounts.json')).find(added.runtime).home)
+      await host.call('runtime/account/remove', { runtime: added.runtime })
+      assert.equal(new AccountSlots(join(root, 'accounts.json')).find(added.runtime), null)
+      assert.equal(host.syncPayload().params.runtimes.some(info => info.id === added.runtime), false)
+      assert.equal(existsSync(marker), false, 'only the requested fake runtimes were invoked')
+    }
   }
 } finally {
   await host.dispose()
@@ -105,6 +145,7 @@ for (const scenario of [
   { name: 'bootstrap skips configured ids already held by native runtimes and starts the host', agents: true, slots: '' },
   { name: 'bootstrap skips a repeated account slot and starts the host', agents: false, slots: 'repeated' },
   { name: 'bootstrap skips an account slot with the primary runtime id and starts the host', agents: false, slots: 'primary' },
+  { name: 'native account removal preserves an ignored ACP account and releases ownership for later registrations', agents: true, slots: '', lifecycle: true },
 ]) {
   test(scenario.name, { timeout: 30_000 }, async () => {
     const root = tempDir('hd-slot-wiring-')
@@ -117,7 +158,9 @@ for (const scenario of [
       HD_ACCOUNTS: new URL('../src/accounts.js', import.meta.url).href,
       HD_DUPLICATE_IDS: scenario.agents ? '1' : '0',
       HD_DUPLICATE_SLOTS: scenario.slots,
+      HD_ACCOUNT_LIFECYCLE: 'lifecycle' in scenario && scenario.lifecycle ? '1' : '0',
       HD_NATIVE_FIXTURE: new URL('../../../adapter-codex/test/fixtures/fake-codex.mjs', import.meta.url).pathname,
+      HD_ACP_FIXTURE: new URL('../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url).pathname,
     }
     delete env['SHELL']
     delete env['CODEX_HOME']
