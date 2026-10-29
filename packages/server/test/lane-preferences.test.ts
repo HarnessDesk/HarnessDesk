@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { existsSync, rmSync } from 'node:fs'
 import fsPromises from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
@@ -16,6 +17,45 @@ const rig = async (t: TestContext) => {
   const host = new Host({ state, logger: new Logger('lane-test', { level: 'error', console: false }) })
   t.after(() => host.dispose())
   return { state, host }
+}
+
+const interceptRename = (t: TestContext, replacement: typeof fsPromises.rename) => {
+  const mocked = t.mock.method(fsPromises, 'rename', replacement)
+  // Restore this binding before any later setup or disposal hook can fail.
+  // The Host's disposal mock must stay installed until its promise is adopted.
+  t.after(() => {
+    mocked.mock.restore()
+    syncBuiltinESMExports()
+  })
+  syncBuiltinESMExports()
+}
+
+for (const failure of ['setup', 'disposal'] as const) {
+  test(`the snapshot rename binding is restored after ${failure} rejects`, () => {
+    const source = `
+      import assert from 'node:assert/strict'
+      import { test } from 'node:test'
+      import fsPromises, { rename } from 'node:fs/promises'
+      import { syncBuiltinESMExports } from 'node:module'
+      const interceptRename = ${interceptRename.toString()}
+      test('controlled rejection', t => {
+        interceptRename(t, async () => {})
+        assert.equal(rename, fsPromises.rename, 'the named export was mocked')
+        if (${JSON.stringify(failure)} === 'setup') throw new Error('controlled setup rejection')
+        t.after(() => { throw new Error('controlled disposal rejection') })
+      })
+      test('the next test sees the restored binding', () => {
+        assert.equal(rename, fsPromises.rename, 'the named export must match the restored default export')
+        console.log('NAMED_RENAME_RESTORED')
+      })
+    `
+    const env = { ...process.env }
+    delete env['NODE_TEST_CONTEXT']
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', source], { env, encoding: 'utf8', timeout: 10_000 })
+    assert.equal(child.status, 1, 'only the controlled rejection fails the child suite')
+    assert.match(child.stdout + child.stderr, new RegExp(`controlled ${failure} rejection`))
+    assert.match(child.stdout, /NAMED_RENAME_RESTORED/, 'the following test observes the original filesystem binding')
+  })
 }
 
 test('both preference verbs route through the real Host context', async (t) => {
@@ -44,7 +84,7 @@ test('the preference fixture finishes its pending snapshot before scratch cleanu
   let directory: string | undefined
   let snapshot: { from: string; to: string } | undefined
   const rename = fsPromises.rename
-  t.mock.method(fsPromises, 'rename', (async (...args: Parameters<typeof rename>) => {
+  interceptRename(t, (async (...args: Parameters<typeof rename>) => {
     const destination = String(args[1])
     if (dirname(destination) === directory && /^sessions-\d{4}-\d{2}-\d{2}\.sqlite$/.test(basename(destination))) {
       snapshot = { from: String(args[0]), to: destination }
@@ -53,7 +93,6 @@ test('the preference fixture finishes its pending snapshot before scratch cleanu
     }
     return rename(...args)
   }) as typeof rename)
-  syncBuiltinESMExports()
   const { state, host } = await rig(t)
   directory = state.directory
   const dispose = host.dispose.bind(host)
@@ -86,9 +125,12 @@ test('the preference fixture finishes its pending snapshot before scratch cleanu
       assert.equal(existsSync(state.directory), false, 'no writer recreates the removed directory')
     } finally {
       release()
-      await (closing ?? dispose())
-      t.mock.restoreAll()
-      syncBuiltinESMExports()
+      try {
+        await (closing ?? dispose())
+      } finally {
+        t.mock.restoreAll()
+        syncBuiltinESMExports()
+      }
     }
   })
   // Give the Host constructor's scheduled daily snapshot a real event-loop
