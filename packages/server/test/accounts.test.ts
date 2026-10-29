@@ -458,6 +458,52 @@ const hostWithAccounts = async (options: {
   return { host, stateDir, primary, slots, accounts, created, names, own }
 }
 
+for (const failure of ['allocation', 'already registered', 'registration', 'observation restore', 'partial registration', 'commit'] as const) {
+  test(`a failed account ${failure} rolls back its allocation and only its new gateway key`, async t => {
+    const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts({ gateways: true })
+    t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+    await host.credentials.store('Existing gateway', 'fixture-existing', { kind: 'gateway' })
+    const before = await host.credentials.describe()
+    let commits = 0
+    const rolledBack: RuntimeId[] = []
+    accounts.commitAdd = runtime => {
+      commits += 1
+      assert.equal(host.ownsRuntime(runtime), true, 'ownership commits only after registration')
+      if (failure === 'commit') throw new Error('fixture commit failed')
+    }
+    accounts.rollbackAdd = async runtime => {
+      assert.equal(host.ownsRuntime(runtime), false, 'a rejected allocation is unregistered before rollback')
+      rolledBack.push(runtime.info.id)
+      slots.remove(runtime.info.id)
+    }
+    if (failure === 'registration') t.mock.method(host, 'register', () => { throw new Error('fixture registration failed') })
+    if (failure === 'allocation') t.mock.method(accounts, 'add', async () => { throw new Error('fixture allocation failed') })
+    if (failure === 'already registered') t.mock.method(accounts, 'add', async () => own)
+    if (failure === 'observation restore') {
+      const add = accounts.add.bind(accounts)
+      t.mock.method(accounts, 'add', async (...args: Parameters<AccountFactory['add']>) => {
+        const runtime = await add(...args)
+        runtime.restoreObservations = () => { throw new Error('fixture observation restore failed') }
+        return runtime
+      })
+    }
+    if (failure === 'partial registration') {
+      const register = host.register.bind(host)
+      t.mock.method(host, 'register', (runtime: AgentRuntime) => { register(runtime); throw new Error('fixture partial registration failed') })
+    }
+    await assert.rejects(host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+      gateway: { name: 'New gateway', endpoint: 'http://127.0.0.1:9/v1', apiKey: 'fixture-new' } }), failure === 'already registered'
+        ? /already registered runtime/ : /fixture (allocation|registration|observation restore|partial registration|commit) failed/)
+    assert.equal(commits, failure === 'commit' ? 1 : 0)
+    assert.deepEqual(rolledBack, [...created.keys()], 'a failed allocation invokes rollback for its own runtime')
+    assert.equal(slots.list().length, 0)
+    for (const id of created.keys()) assert.equal(existsSync(join(stateDir, 'accounts', id)), false)
+    for (const runtime of created.values()) assert.equal(host.ownsRuntime(runtime), false, 'failed registration never owns a runtime')
+    assert.deepEqual(await host.credentials.describe(), before, 'cleanup keeps the existing key')
+    assert.deepEqual(host.syncPayload().params.runtimes.map(info => info.id), [FAKE_RUNTIME_ID])
+  })
+}
+
 test('adding an account registers a second runtime and tells every client', async (t) => {
   const { host, stateDir } = await hostWithAccounts()
   t.after(async () => {
