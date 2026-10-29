@@ -16,6 +16,8 @@ export const FlowsWindow = ({ onOpen, onNew }: {
 }) => {
   const active = useDestinationActive(), store = useStore(), snapshot = useSnapshot()
   const { rows, roots, loading, problems, retry } = useFlowCatalogue(active)
+  const [retryingProblems, setRetryingProblems] = useState(false)
+  useEffect(() => { if (!active || !loading) setRetryingProblems(false) }, [active, loading])
   const [origin, setOrigin] = useState('all'), [query, setQuery] = useState(''), [newTeam, setNewTeam] = useState<string | null>(null)
   const [selection, setSelected] = useState<{ root: string; id: string; origin: FlowOrigin } | null>(null)
   const selected = rows.find(row => row.root === selection?.root && row.entry.id === selection.id && row.entry.origin === selection.origin) ?? null
@@ -53,12 +55,12 @@ export const FlowsWindow = ({ onOpen, onNew }: {
       <PageOptions title="Flows" action={{ label: 'New Flow', disabled: loading ? 'Reading Flows…' : !selectedRoot && (problems.length ? 'No project folder could be read.' : 'Open a project folder to build a Flow.'), run: () => { if (selectedRoot) onNew(selectedRoot) } }}
         choices={[{ id: 'origin', label: 'Flow origin', value: origin, items: [{ value: 'all', label: 'All origins' }, { value: 'builtin', label: 'Built in' }, ...roots.map(root => ({ value: root, label: projectName(root) }))], change: value => { setOrigin(value); setSelected(null) } }]}
         search={{ label: 'Search Flows', value: query, change: value => { setQuery(value); setSelected(null) } }} />
-      {problems.length > 0 && <Banner tone="warning" measure="container" layout="stack"
-        title={`Flows could not be read from ${problems.length} project ${problems.length === 1 ? 'folder' : 'folders'}.`}
-        actions={<BannerAction variant="secondary" onClick={retry}>Retry</BannerAction>}>
+      {(problems.length > 0 || (loading && retryingProblems)) && <Banner tone="warning" measure="container" layout="stack"
+        title={loading ? 'Checking project folders…' : `Flows could not be read from ${problems.length} project ${problems.length === 1 ? 'folder' : 'folders'}.`}
+        actions={!loading && <BannerAction variant="secondary" onClick={() => { setRetryingProblems(true); retry() }}>Retry</BannerAction>}>
         <ToolFold label="Folder details"><Rows>{problems.map(problem => <Row key={problem.root} title={projectName(problem.root)} tooltip={problem.root} desc={problem.message} />)}</Rows></ToolFold>
       </Banner>}
-      {loading && <Note>Reading Flows…</Note>}
+      {loading && <Note role="status">Reading Flows…</Note>}
       {!loading && !roots.length && !problems.length && <Note>Open a project folder to build or start a Flow.</Note>}
       {selected && <section ref={detailRef} tabIndex={-1} aria-label={selected.entry.name}>
         <SectionHead name={selected.entry.name} action={<>
