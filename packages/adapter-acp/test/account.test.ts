@@ -1035,6 +1035,75 @@ test('a sign-out that fails after a read in between puts the account back (#1842
   }
 })
 
+test('a successful desk sign-in lifts a same-identity sign-out', async () => {
+  const runtime = statusIsRecord(() => DEV, { FAKE_ACP_LOGOUT: '1' })
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    await runtime.logout()
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+    await runtime.login('acp:device')
+    const completion = await until(events, (event) => event.type === 'account/loginCompleted')
+    assert.equal(completion.type === 'account/loginCompleted' && completion.success, true)
+    const account = await runtime.getAccount()
+    assert.deepEqual(account.accounts, [DEV])
+    assert.equal(account.refusal, undefined)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a successful CLI sign-in lifts a same-identity sign-out while the runtime rests', async () => {
+  const runtime = statusIsRecord(() => DEV, {}, {
+    login: { command: FAKE_CLI, args: ['login'] },
+    logout: { command: FAKE_CLI, args: ['logout'] },
+  })
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  await runtime.start()
+  try {
+    await runtime.logout()
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+    assert.equal(await runtime.stopForIdle(), true)
+    await runtime.login('cli-browser')
+    const completion = await until(events, (event) => event.type === 'account/loginCompleted')
+    assert.equal(completion.type === 'account/loginCompleted' && completion.success, true)
+    const account = await runtime.getAccount()
+    assert.deepEqual(account.accounts, [DEV])
+    assert.equal(account.refusal, undefined)
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a failed sign-out does not roll back a concurrent successful desk sign-in', async (t) => {
+  let release!: () => void
+  const running = new Promise<void>((resolve) => { release = resolve })
+  t.mock.method(CliAccount.prototype, 'logout', async () => { await running; throw new Error('sign-out failed') })
+  const runtime = statusIsRecord(() => DEV, {}, { logout: { command: FAKE_CLI, args: ['logout'] } })
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  await runtime.start()
+  try {
+    await runtime.createSession({ cwd: process.cwd() })
+    const signingOut = runtime.logout()
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+    await runtime.login('acp:device')
+    const completion = await until(events, (event) => event.type === 'account/loginCompleted')
+    assert.equal(completion.type === 'account/loginCompleted' && completion.success, true)
+    release()
+    await assert.rejects(signingOut, /sign-out failed/)
+    const account = await runtime.getAccount()
+    assert.deepEqual(account.accounts, [DEV])
+    assert.equal(account.refusal, undefined)
+  } finally {
+    release()
+    await runtime.dispose()
+  }
+})
+
 test('a refusal is not lifted by the record, even one that follows a sign-out', async () => {
   let record: Named = DEV
   const runtime = statusIsRecord(() => record, { FAKE_ACP_LOGOUT: '1' })

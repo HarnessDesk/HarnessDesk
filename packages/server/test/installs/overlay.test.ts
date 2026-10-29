@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
 
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -282,6 +283,71 @@ test('an empty OpenCode data home stays signed out after a successful session (#
   mkdirSync(join(data, 'opencode'), { recursive: true })
   writeFileSync(join(data, 'opencode', 'auth.json'), JSON.stringify({ provider: { type: 'api', key: 'fake-key' } }))
   assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider')
+})
+
+test('OpenCode record sign-out and same-provider sign-in through the production overlay', async (t) => {
+  const data = folder(t, { 'opencode/auth.json': { provider: { type: 'api', key: 'fake-old' } } })
+  const path = join(data, 'opencode', 'auth.json')
+  const row = { id: 'opencode', name: 'OpenCode', command: process.execPath,
+    args: [fileURLToPath(new URL('../../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url))],
+    env: { XDG_DATA_HOME: data, FAKE_ACP_LOGOUT: '1' } }
+  const runtime = new AcpRuntime({ ...row, ...knowledgeOverlay(row, knownAgent('opencode')) })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  await runtime.createSession({ cwd: data })
+  assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider')
+  await runtime.logout()
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.', 'unchanged old record is suppressed')
+  writeFileSync(path, JSON.stringify({}))
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  writeFileSync(path, JSON.stringify({ provider: { type: 'api', key: 'fake-new' } }))
+  assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider', 'a newly observed record can name the same provider')
+})
+
+test('OpenCode cannot distinguish a same-provider replacement between reads from its unchanged record', async (t) => {
+  const data = folder(t, { 'opencode/auth.json': { provider: { type: 'api', key: 'fake-old' } } })
+  const path = join(data, 'opencode', 'auth.json')
+  const row = { id: 'opencode', name: 'OpenCode', command: process.execPath,
+    args: [fileURLToPath(new URL('../../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url))],
+    env: { XDG_DATA_HOME: data, FAKE_ACP_LOGOUT: '1' } }
+  const overlay = knowledgeOverlay(row, knownAgent('opencode'))
+  const runtime = new AcpRuntime({ ...row, ...overlay })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  await runtime.createSession({ cwd: data })
+  const before = overlay.resolveIdentity?.()
+  await runtime.logout()
+  writeFileSync(path, JSON.stringify({}))
+  writeFileSync(path, JSON.stringify({ provider: { type: 'api', key: 'fake-new' } }))
+  assert.deepEqual(overlay.resolveIdentity?.(), before, 'the actual reader returns the same provider-only identity')
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.', 'without an observed empty record there is no proof of a new sign-in')
+})
+
+test('OpenCode database sign-ins also expose provider identity without a sign-in revision', async (t) => {
+  const data = folder(t, {})
+  const directory = join(data, 'opencode')
+  mkdirSync(directory, { recursive: true })
+  const path = join(directory, 'opencode.db')
+  const db = new DatabaseSync(path)
+  db.exec("CREATE TABLE credential (id TEXT PRIMARY KEY, integration_id TEXT, active INTEGER, value TEXT, time_created INTEGER, time_updated INTEGER); INSERT INTO credential VALUES ('old', 'provider', 1, 'fake-old', 1, 1)")
+  db.close()
+  const row = { id: 'opencode', name: 'OpenCode', command: process.execPath,
+    args: [fileURLToPath(new URL('../../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url))],
+    env: { XDG_DATA_HOME: data, FAKE_ACP_LOGOUT: '1' } }
+  const overlay = knowledgeOverlay(row, knownAgent('opencode'))
+  const runtime = new AcpRuntime({ ...row, ...overlay })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  await runtime.createSession({ cwd: data })
+  const before = overlay.resolveIdentity?.()
+  await runtime.logout()
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  const writer = new DatabaseSync(path)
+  writer.exec("DELETE FROM credential; INSERT INTO credential VALUES ('new', 'provider', 1, 'fake-new', 2, 2)")
+  writer.close()
+  utimesSync(path, 2_000_000_000, 2_000_000_000)
+  assert.deepEqual(overlay.resolveIdentity?.(), before, 'a replacement row still names only the same provider')
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
 })
 
 

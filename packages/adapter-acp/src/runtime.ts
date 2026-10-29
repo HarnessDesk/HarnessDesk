@@ -2049,7 +2049,10 @@ export class AcpRuntime implements AgentRuntime {
     // Key presence and precedence are local reads, even while the agent is
     // idle. Refresh them before returning observations from an older cache;
     // only the agent-owned identities still need their saved answer.
-    if (this.#health.state !== 'ready' && saved && !lifted) {
+    // A successful desk sign-in can arrive while the runtime rests. Its
+    // newer observation owns the answer, rather than the saved sign-out.
+    const signedInAfterSignOut = this.#config.identityIsStatus && this.#signIn.state === 'observed' && saved?.refusal === 'Signed out.'
+    if (this.#health.state !== 'ready' && saved && !lifted && !signedInAfterSignOut) {
       const { unchecked: _was, ...rest } = saved
       const accounts = [...saved.accounts.filter(account => account.kind !== 'apiKey' && account.kind !== 'externalKey'), ...keyAccounts]
       const observed = this.#observedAccount(keyAccounts.length > 0)

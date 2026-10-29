@@ -937,6 +937,22 @@ test('a budget hold following supersession cannot re-arm the superseded card', a
   assert.deepEqual(orders(rig.events), ['order:seat-1'])
 })
 
+test('a superseded card stays retired across recovery and a later budget hold', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  await rig.flows.supersedeTriggered(run.id, 'A newer head arrived.', 'round')
+  await rig.restart()
+  assert.equal(rig.executions.stored(run.id)?.intake?.supersededThrough, 1)
+  await rig.flows.holdTriggered(run.id, PAUSED_REASON)
+  const session = rig.sessionOf('seat-1')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1'])
+})
+
 test('a round opened after supersession still re-arms its own card', async (t) => {
   const rig = await goalRig(t)
   const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])], { again: 'reviewer' })
