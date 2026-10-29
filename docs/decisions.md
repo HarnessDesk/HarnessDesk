@@ -4600,5 +4600,8 @@ line with too little reading width. `ListRow` now offers `subtitleLayout="below"
 the face, name and control share a centred heading, followed by a description
 across the row's inner width. Narrow Overview seats use this composition for
 their role, work or unavailable reason. The shared list catalogue shows the
-same option. The browser regression measures visible word ranges at 240, 280
+same option. The face centres on the heading, keeping it beside the name even
+when the description wraps; ordinary rows retain whole-row centring. Metadata
+follows the description at full width, and both row sizes keep a line gap.
+The browser regression measures visible word ranges at 240, 280
 and 320px preview viewports in both themes, including clipping and overflow.

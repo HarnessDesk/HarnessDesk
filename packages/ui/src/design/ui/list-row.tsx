@@ -27,7 +27,9 @@ import { cn } from '@/lib/utils'
  *
  * `subtitleLayout="below"` gives an earned description the whole row's
  * reading width. The face, name and control share one centred heading;
- * the description follows beneath it. This supports narrow panes whose
+ * the description and any metadata follow beneath it at full width. Faces
+ * centre on that heading, rather than the combined heading and description.
+ * This supports narrow panes whose
  * remaining text column cannot hold a readable sentence.
  */
 
@@ -121,6 +123,7 @@ const ListRow = ({
 }: ListRowProps) => {
   const below = subtitleLayout === 'below'
   const Heading = below ? 'div' : Fragment
+  const metadata = meta != null ? <div className="mt-1.5">{meta}</div> : null
   const description = subtitle != null ? (
     <div
       data-slot="list-row-subtitle"
@@ -128,6 +131,7 @@ const ListRow = ({
       className={cn(
         'min-w-0 text-(--hd-muted-foreground)',
         size === 'sm' ? 'text-xs' : 'mt-(--hd-table-line-gap)',
+        below && size === 'sm' && 'mt-(--hd-table-line-gap)',
         size === 'default' && (wrapSubtitle ? 'text-(length:--hd-table-sentence-size)' : 'text-(length:--hd-table-fact-size)'),
         wrapSubtitle ? 'whitespace-normal [overflow-wrap:normal]' : 'truncate',
         density === 'compact' && 'leading-(--hd-line-xs)',
@@ -227,7 +231,7 @@ const ListRow = ({
         {title}
       </div>
       {!below && description}
-      {meta != null && <div className="mt-1.5">{meta}</div>}
+      {!below && metadata}
     </div>
     {trail != null && (
       <div
@@ -243,6 +247,7 @@ const ListRow = ({
     )}
     </Heading>
     {below && description}
+    {below && metadata}
   </Element>
   )
 }

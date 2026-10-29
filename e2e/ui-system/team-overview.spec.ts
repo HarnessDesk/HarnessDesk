@@ -11,7 +11,24 @@ for (const theme of ['light', 'dark'] as const) {
       const overview = page.locator('#team-overview-narrow [data-slot="team-overview"]')
       await expect(overview).toHaveAttribute('data-layout', 'narrow')
       if (width === 240) {
-        expect(await overview.locator('[data-seat]').first().evaluate(element => element.getBoundingClientRect().width)).toBeLessThanOrEqual(128)
+        expect(await overview.locator('[data-seat]').first().evaluate(element => element.getBoundingClientRect().width)).toBeCloseTo(128, 0)
+      }
+      for (const row of await overview.locator('[data-seat]').all()) {
+        const geometry = await row.evaluate(element => {
+          const heading = element.querySelector('[data-slot="list-row-heading"]')!.getBoundingClientRect()
+          const face = element.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
+          const description = element.querySelector('[data-slot="list-row-subtitle"]')!.getBoundingClientRect()
+          const bounds = element.getBoundingClientRect()
+          const style = getComputedStyle(element)
+          return {
+            faceDelta: Math.abs((face.top + face.bottom - heading.top - heading.bottom) / 2),
+            startDelta: Math.abs(description.left - bounds.left - parseFloat(style.paddingLeft) - parseFloat(style.borderLeftWidth)),
+            endDelta: Math.abs(bounds.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth) - description.right),
+          }
+        })
+        expect(geometry.faceDelta).toBeLessThan(1.5)
+        expect(geometry.startDelta).toBeLessThan(1)
+        expect(geometry.endDelta).toBeLessThan(1)
       }
       const descriptions = overview.locator('[data-seat] [data-slot="list-row-subtitle"]').filter({ hasText: 'Reviewer · Alpha' })
       await expect(descriptions).toHaveCount(3)

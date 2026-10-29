@@ -38,8 +38,9 @@ export const OverviewExample = ({scene}:{scene:OverviewScene}) => {
 export const TeamOverviewBoard = () => <div className="flex flex-col gap-4">{OVERVIEW_STATES.map(scene=><section key={scene} data-catalog-state={scene} className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></section>)}
  {NEEDS_YOU_STATES.map(scene=><section key={scene} data-catalog-state={`answer-${scene}`} className={scene==='narrow'?'max-w-sm':''}><NeedsYouExample scene={scene} /></section>)}</div>
 
-/** The focused specimen's authored account data is available to its frame audit. */
-export const overviewPreviewStore = previewStore({
+let focusedStore: ReturnType<typeof previewStore> | undefined
+/** Lazily create the mounted specimen's store; its frame audit reads the same instance. */
+export const overviewPreviewStore = () => focusedStore ??= previewStore({
  theme: new URLSearchParams(location.search).get('theme') === 'dark' ? 'dark' : 'light',
  accountsByRuntime: {},
 })
@@ -47,7 +48,7 @@ const OverviewTheme = () => { useTheme(); return null }
 const OverviewFrame = ({scene}:{scene:OverviewScene}) => <section id={`team-overview-${scene}`} className={scene==='narrow'?'max-w-sm':''}><h2>{scene}</h2><div className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></div></section>
 
 /** The gallery's same narrow allocation, with its own account-free store. */
-export const TeamOverviewPreview = () => <StoreProvider store={overviewPreviewStore}><OverviewTheme /><div className="p-4"><div className="flex flex-col gap-4 p-4"><OverviewFrame scene="narrow" /></div></div></StoreProvider>
+export const TeamOverviewPreview = () => <StoreProvider store={overviewPreviewStore()}><OverviewTheme /><div className="p-4"><div className="flex flex-col gap-4 p-4"><OverviewFrame scene="narrow" /></div></div></StoreProvider>
 
 export const TeamOverviewFrames = () => {
  const store=useMemo(() => overviewTeamStore(),[])
