@@ -197,6 +197,54 @@ const chatgptAuth = (
   })
 }
 
+for (const cleanup of ['empty', 'duplicate'] as const) {
+  for (const problemFirst of [false, true]) {
+    for (const otherAgent of [false, true]) {
+      test(`startup preserves ambiguous account ids: ${cleanup}, problem ${problemFirst ? 'first' : 'last'}, ${otherAgent ? 'different agents' : 'same agent'}`, async t => {
+        const root = await home()
+        t.after(() => rm(root, { recursive: true, force: true }))
+        const primary = join(root, 'agent')
+        await mkdir(primary, { recursive: true })
+        const ownAuth = chatgptAuth('fixture-person', 'workspace-a')
+        await writeFile(join(primary, 'auth.json'), ownAuth)
+        const rows = [false, true].map((second) => ({
+          id: FAKE_RUNTIME_ID,
+          agent: second && otherAgent ? 'other-agent' as RuntimeId : FAKE_RUNTIME_ID,
+          home: join(root, 'accounts', second ? 'second' : 'first'),
+          createdAt: second ? 2 : 1,
+        }))
+        const credentials: (string | null)[] = []
+        for (const [index, row] of rows.entries()) {
+          await mkdir(row.home, { recursive: true })
+          await writeFile(join(row.home, 'keep.txt'), 'retained home')
+          const problem = (index === 0) === problemFirst
+          const credential = problem
+            ? cleanup === 'empty' ? null : ownAuth
+            : chatgptAuth('fixture-person', 'workspace-b')
+          credentials.push(credential)
+          if (credential !== null) await writeFile(join(row.home, 'auth.json'), credential)
+        }
+        const file = join(root, 'accounts.json')
+        const original = JSON.stringify({ accounts: rows })
+        await writeFile(file, original)
+        const slots = new AccountSlots(file)
+        for (const agent of new Set(rows.map(row => row.agent))) {
+          assert.deepEqual([...slots.pruneEmpty(agent)], [], 'automatic cleanup cannot select an ambiguous id')
+          assert.deepEqual([...slots.pruneDuplicates(agent, primary)], [], 'identity pruning cannot select an ambiguous id')
+        }
+        assert.deepEqual(slots.list(), rows)
+        assert.equal(await readFile(file, 'utf8'), original, 'no roster row is rewritten or dropped')
+        for (const [index, row] of rows.entries()) {
+          assert.equal(await readFile(join(row.home, 'keep.txt'), 'utf8'), 'retained home')
+          if (credentials[index] !== null) assert.equal(await readFile(join(row.home, 'auth.json'), 'utf8'), credentials[index])
+          else assert.equal(existsSync(join(row.home, 'auth.json')), false)
+        }
+        assert.equal(await readFile(join(primary, 'auth.json'), 'utf8'), ownAuth)
+      })
+    }
+  }
+}
+
 test('an identity is the person and the workspace, never the email alone', async (t) => {
   const root = await home()
   t.after(() => rm(root, { recursive: true, force: true }))
