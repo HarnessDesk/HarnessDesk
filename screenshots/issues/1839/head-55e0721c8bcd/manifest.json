@@ -1,0 +1,16 @@
+{
+  "issue": 1839,
+  "sourceHead": "55e0721c8bcd73e8ff1d6762ebea175f6c1c1a56",
+  "surface": "Native Electron app, isolated scripted fake runtime and synthetic managed worktree",
+  "scenario": "Local status.showUntrackedFiles=no; zero modified/untracked, one ignored .env.local. The actual host inventory feeds the Remove dialog. Keep closes it and preserves the file.",
+  "limits": "Dialog and Cancel path observed; final deletion was not clicked. No vendor authentication or real desk was used for this frame.",
+  "privacy": "COLLECT/textReasons and account audits empty before and after capture; worker and parent visually inspected the original PNG.",
+  "files": [
+    {
+      "path": "remove-worktree-ignored.png",
+      "sha256": "9f0215f57674b271b036ee0bcae3a227c8d4b9f5b314fb328a2a2cf0748dc15c",
+      "width": 2560,
+      "height": 1680
+    }
+  ]
+}
