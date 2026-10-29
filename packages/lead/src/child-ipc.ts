@@ -44,13 +44,14 @@ const fields: Readonly<Record<string, readonly string[]>> = {
   rpc: ['id', 'operation', 'args'], reply: ['id', 'ok', 'value', 'state'],
   dispatch: ['id', 'rpcId', 'call', 'correlationId'], 'dispatch-result': ['id', 'ok', 'value'],
   read: ['id', 'call'], 'read-result': ['id', 'ok', 'value'], state: ['state'],
-  shutdown: [], 'desk-lost': [], 'ownership-withdrawn': ['runId'], 'evidence-changed': [], 'wait-ended': ['runId', 'reason'], presence: ['presence'],
+  shutdown: [], 'desk-lost': [], 'ownership-withdrawn': ['runId'], 'evidence-changed': [], 'wait-ended': ['runId', 'reason'], presence: ['presence'], activity: ['busy'],
 }
 export const parseLeadIpc = (value: unknown): LeadIpcMessage => {
   const object = ipcObject(value), type = ipcText(object.type, 64), selected = fields[type]
   if (object.version !== 1 || !selected) return fail()
   ipcObject(object, ['version', 'type', ...selected])
   if ('id' in object) ipcId(object.id)
+  if (type === 'activity' && typeof object.busy !== 'boolean') fail()
   if (type === 'rpc') {
     if (!LEAD_RPC_OPERATIONS.includes(object.operation as LeadRpcOperation) || !Array.isArray(object.args) || object.args.length > 2) fail()
   }

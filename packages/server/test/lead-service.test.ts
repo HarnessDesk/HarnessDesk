@@ -1005,3 +1005,25 @@ test('a host-journaled repair resumes without starting or waiting for a manageme
   assert.equal(s.records.some(record => record.type === 'management'), false)
   assert.equal(s.spawns(), 0)
 })
+
+test('live child activity keeps the service cancellable after send returns and clears independently of durable reservations', async t => {
+  const s = await rig(t)
+  await s.service.setEnabled(true); await s.service.send(input)
+  assert.equal(s.service.requestInFlight, false)
+  const before = s.journal.state.seq
+  s.options().onActivity(true)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(s.service.requestInFlight, true)
+  assert.ok(s.journal.state.seq > before, 'activity publishes a new projection revision')
+  const activeRevision = s.journal.state.seq
+  s.options().onActivity(true)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(s.journal.state.seq, activeRevision, 'repeated busy frames do not churn revisions')
+  s.options().onActivity(false)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(s.service.requestInFlight, false)
+  assert.ok(s.journal.state.seq > activeRevision)
+  s.options().onActivity(true)
+  await s.service.stopGoal()
+  assert.equal(s.service.requestInFlight, false)
+})

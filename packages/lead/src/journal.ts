@@ -277,6 +277,7 @@ export class LeadJournal {
   #state: LeadState
   #tail: Promise<unknown> = Promise.resolve()
   #failed = false
+  readonly #dispatchNotStarted = new Set<string>()
   #stopEffectFailure: { readonly reason: 'stop-effects-failed'; readonly stopSeq: number } | null = null
   private readonly security: LeadJournalSecurity
   constructor(private readonly storage: LeadJournalStorage, records: readonly LeadJournalRecord[], security: LeadJournalSecurity = {}, checkpoint: LeadState | null = null) {
@@ -594,6 +595,15 @@ export class LeadJournal {
       throw new Error('lead-stop-effects-failed')
     }
   }
+  /** Host-only proof after an ordinary chat preflight refused, before its effect
+   * boundary. This is deliberately absent from LeadJournalPort and child RPC.
+   * The receipt is consumed by this live execute only; a crash still fails closed. */
+  noteDispatchNotStarted(id: string): void {
+    const attempt = this.#state.attempts.get(id)
+    if (!attempt || attempt.kind !== 'mutation' || attempt.phase !== 'started' || !attempt.dispatched || attempt.effect !== 'allow' ||
+      !['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'].includes(attempt.method)) throw new Error('lead-chat-preflight-receipt')
+    this.#dispatchNotStarted.add(id)
+  }
   execute(input: LeadToolAttempt, dispatch: LeadDispatch): Promise<{ decision: LeadPermissionDecision; outcome: LeadAttemptOutcome; value?: unknown }> {
     const { id, stepId } = input
     return this.#queue(async () => {
@@ -625,7 +635,7 @@ export class LeadJournal {
         : decideLeadPermission(request, { ...capturedContext, budget, now: this.#state.budget ? Math.max(capturedContext.now, this.#state.budget.now) : capturedContext.now,
           desk: this.#state.policy ?? capturedContext.desk, approved })
       const step = this.#state.steps.find(step => step.id === stepId)
-      const cancellation = method === 'flow/execution/stop' || method === 'team/intent' && action === 'abandon'
+      const cancellation = method === 'lead/chat/stop' || method === 'flow/execution/stop' || method === 'team/intent' && action === 'abandon'
       // Status reads remain available after Stop so the final report can observe desk state.
       if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined'].includes(this.#state.phase) || leadWorkerDispatchBlockedByOpenPr(this.#state) || hasPendingLeadPlan(this.#state) ||
         this.#state.recoveryBlocked || [...this.#state.attempts.values()].some(attempt => attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.phase === 'started' && attempt.dispatched))))
@@ -654,10 +664,12 @@ export class LeadJournal {
       const { decision, call, tier, cancellation, method } = prepared
       let result: LeadDispatchResult
       try { result = await dispatch(call, id) } catch {
-        const outcome = tier === 'read' || cancellation ? 'failed' : 'uncertain'
+        const noEffect = this.#dispatchNotStarted.delete(id)
+        const outcome = tier === 'read' || cancellation || noEffect ? 'failed' : 'uncertain'
         await this.#queue(() => this.#append({ type: 'result', id, outcome, identity: null }))
         return { decision, outcome }
       }
+      this.#dispatchNotStarted.delete(id)
       if (method === 'flow/start-goal' && result?.created === false && result.identity === null) {
         await this.#queue(() => this.#append({ type: 'result', id, outcome: 'failed', identity: null }))
         return { decision, outcome: 'failed', value: result.value }

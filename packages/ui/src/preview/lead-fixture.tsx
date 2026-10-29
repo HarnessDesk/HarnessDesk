@@ -26,7 +26,7 @@ export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', 
 export const leadMemory: LeadMemory = { version: 1, items: [
   { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
   { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
-export const LEAD_SCENES = ['runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
+export const LEAD_SCENES = ['ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -72,6 +72,16 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (scene === 'consent-expired') projection = { ...projection, wayOut: 'decide-plan', planConsentExpiresAt: Date.parse('2026-10-18T12:00:00Z') }
   if (scene === 'renewal-blocked') { thread.state = 'waiting-for-user'; thread.contract = leadContract; projection = { ...projection, waitReason: 'lead-renewal-blocked', planConsentExpiresAt: Date.parse('2026-10-18T12:00:00Z') } }
   if (scene === 'settings-unconfigured' || scene === 'empty') projection = { ...projection, settings: { ...base.settings, key: { configured: false, protection: 'encrypted' } } }
+  if (scene === 'ordinary-chat' || scene === 'ordinary-reply' || scene === 'setup-blocked') {
+    thread.state = scene === 'setup-blocked' ? 'waiting-for-user' : 'planning'
+    thread.messages = [
+      { version: 1, id: 'chat-question', revision: 1, role: 'user', text: 'Which chats need attention?' },
+      ...(scene === 'ordinary-reply' ? [] : [{ version: 1 as const, id: 'chat-answer', revision: 2, role: 'assistant' as const,
+        text: 'The checkout chat is waiting for an approval. The docs chat is idle. I can help with either one.' }]),
+    ]
+    projection = { ...projection, requestInFlight: scene === 'ordinary-reply',
+      ...(scene === 'setup-blocked' ? { waitReason: 'lead-plan-not-independent' as const } : {}) }
+  }
   return { ...projection, thread }
 }
 

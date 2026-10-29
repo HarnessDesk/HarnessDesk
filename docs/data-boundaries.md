@@ -100,7 +100,12 @@ and a runtime whose permission model blocks the network for its restricted
 child. The desktop app's bundled Node is downloaded from nodejs.org when the app
 is built, never by the installed app. Its host sends model requests containing
 the project root, system instructions, conversation, approved contract and tool
-results to the configured provider transport. Provider credentials stay in the
+results to the configured provider transport. When asked to manage project chats,
+these results can include their titles, state and redacted transcript projections.
+Only ordinary sessions in the selected canonical project are available; Team
+seats and other projects are refused. Chat state notifications contain ids and
+state, not transcript bytes. Ordinary delegated chats use the desk's saved session
+permissions and their agent's existing connection and spend. Provider credentials stay in the
 host; the child asks through a bounded provider-send port. Workers retain their
 own agent connections. Lead's journal, plan decisions, allowances and worker
 observations stay in the desk's state folder. Stop ends the active request and

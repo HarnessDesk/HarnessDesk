@@ -4580,3 +4580,15 @@ not overwrite a conversation's model or permissions. Starting follows the
 desk's selected runtime and resolves a displayed project name only among
 admitted folders; a name that identifies two folders refuses instead of
 guessing. Answer remains a separate grant for approval decisions.
+
+## Lead is one conversation and ordinary tasks use ordinary chats — 2026-10-28
+
+The owner asked for a Lead that feels like a single ongoing chat and manages other chats, using Dot, Duet and Muse as product references. The previous unconditional plan-first instruction turned even a screenshot request into reviewed software work. Repeated proposals failed seat or review-independence checks; Resume repeated the same request, while the phone hid both reasons behind a generic wait.
+
+Lead now answers directly and uses narrow project-scoped ordinary chat operations for simple delegated tasks. A reviewed plan remains available when software work needs formal independent review and acceptance. Its approval, held permissions, consent, budget and publication boundaries remain in place; ordinary session delegation does not claim that review or borrow its authority. Ordinary chat spend remains separate from the reviewed-run allowance, explained in its controls.
+
+The host checks every ordinary chat against canonical project membership, actual cwd, current policy and recovery. Starting uses saved session settings; queued replies, interrupts and approval handling remain the existing session paths. The child receives no shell, file, permission-setting, approval-answering or publication primitive. One durable allow attempt admits each ordinary mutation, and the host consumes it once, including refused admission. Trusted host receipts distinguish a preflight refusal with no effect from a genuinely uncertain dispatch; only the former permits a fresh corrected attempt. Other chat transcripts remain untrusted observations. Listings and recent transcript reads also have an encoded byte budget; partial reads report omitted turns instead of becoming tool refusals. Queued Lead messages retain their project and policy guard through to the actual send, including after a reopen; a changed target pauses the queue.
+
+Tracked chat state transitions are metadata, scoped and reauthorized by the client door. A bounded subscription baseline covers changes during a disconnect, and the model's wake gate coalesces them. Conversations are not Flow runs and never appear as fabricated reviewed results. Setup failures show the change needed and leave chat usable; transient interruptions may offer Resume. A new message includes trusted feedback about the prior rejected plan so that the model can correct it. Direct conversation turns do not park an unrelated approved plan for failing to start it.
+
+The screen, composer and navigation stay familiar. An ordinary active reply has its own Stop control; a finished reply leaves no planning banner. This supersedes the universal plan-first behavior, not the reviewed workflow's admission rules.

@@ -1090,3 +1090,81 @@ test('a connected outside client cannot call any Lead window control even with a
     assert.equal(result.error.code, 'notOnClientSurface')
   }
 })
+
+test('chat activity needs a canonical project scope and a live single-chat read grant', async t => {
+  const { directory, home, h, door, module } = await rig(t)
+  await door.close()
+  let broadcast!: (notification: WireNotification) => void
+  const add = h.host.addBroadcaster.bind(h.host)
+  Object.defineProperty(h.host, 'addBroadcaster', { value: (callback: typeof broadcast) => { broadcast = callback; return add(callback) } })
+  const checked: string[] = []
+  let granted = true
+  const reopened = await module.openClientDoor({ host: h.host, logger: silent, home, directory, hostVersion: 'test', policy: {
+    identity: 'lead', maximumTiers: ['read'], authorize: async request => {
+      if (request.method === 'lead/chat/read') { checked.push(request.params.id); return granted ? null : 'leadScope' }
+      return null
+    },
+  } })
+  assert.ok(reopened)
+  t.after(() => reopened.close())
+  const peer = await Peer.open(reopened.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  const projectDirectory = join(directory, 'project')
+  await mkdir(projectDirectory)
+  const project = await realpath(projectDirectory)
+  const event = (root = project) => ({ method: 'lead/chat/changed', params: { id: 'demo:session-1', project: root, state: 'idle' } } as unknown as WireNotification)
+  assert.deepEqual(module.topicsOf(event()), ['chats'])
+  for (const scope of [undefined, { team: 'other' }, { project, team: 'other' }, { project: '/tmp/other' }, { project }]) {
+    assert.equal((await peer.call('client/subscribe', { topics: ['chats'], ...(scope ? { scope } : {}) })).ok, true)
+    const before = peer.messages.length
+    broadcast(event())
+    broadcast(event('/tmp/other'))
+    await peer.call('goal/list', {})
+    assert.deepEqual(peer.messages.slice(before).filter(m => m.method === 'lead/chat/changed'), scope?.project === project && !('team' in scope) ? [event()] : [])
+  }
+  assert.ok(checked.includes('demo:session-1'))
+  granted = false
+  const before = peer.messages.length
+  broadcast(event())
+  await peer.call('goal/list', {})
+  assert.equal(peer.messages.slice(before).some(m => m.method === 'lead/chat/changed'), false)
+  granted = true
+  await rm(projectDirectory, { recursive: true, force: true })
+  broadcast(event())
+  await peer.call('goal/list', {})
+  assert.equal(peer.messages.slice(before).some(m => m.method === 'lead/chat/changed'), false)
+})
+
+test('chat subscribe replays only admitted tracked states and reconciles completion during the read', async t => {
+  const { directory, home, h, door, module } = await rig(t)
+  await door.close()
+  const projectDirectory = join(directory, 'project')
+  await mkdir(projectDirectory)
+  const project = await realpath(projectDirectory)
+  let broadcast!: (notification: WireNotification) => void
+  const add = h.host.addBroadcaster.bind(h.host)
+  Object.defineProperty(h.host, 'addBroadcaster', { value: (callback: typeof broadcast) => { broadcast = callback; return add(callback) } })
+  const chat = (id: string, state: string, root = project) => ({ id, project: root, state })
+  Object.defineProperty(h.host, 'leadChatActivities', { value: async () => {
+    broadcast({ method: 'lead/chat/changed', params: chat('demo:session-1', 'waiting') } as WireNotification)
+    broadcast({ method: 'lead/chat/changed', params: chat('demo:session-1', 'idle') } as WireNotification)
+    return [chat('demo:session-1', 'running'), chat('demo:refused', 'idle'), chat('demo:other', 'idle', '/tmp/other')]
+  } })
+  const reopened = await module.openClientDoor({ host: h.host, logger: silent, home, directory, hostVersion: 'test', policy: {
+    identity: 'lead', maximumTiers: ['read'], authorize: async request => request.method === 'lead/chat/read' && request.params.id !== 'demo:session-1' ? 'leadScope' : null,
+  } })
+  assert.ok(reopened)
+  t.after(() => reopened.close())
+  const peer = await Peer.open(reopened.socketPath)
+  t.after(() => peer.socket.close())
+  await peer.hello()
+  const result = await peer.call('client/subscribe', { topics: ['chats'], scope: { project } })
+  assert.deepEqual(result.result, { baseline: 1 })
+  await peer.call('goal/list', {})
+  assert.deepEqual(peer.messages.filter(m => m.method === 'lead/chat/changed'), [{ method: 'lead/chat/changed', params: chat('demo:session-1', 'idle') }])
+  const before = peer.messages.length
+  await peer.call('client/subscribe', { topics: ['chats'] })
+  await peer.call('goal/list', {})
+  assert.deepEqual(peer.messages.slice(before).filter(m => m.method === 'lead/chat/changed'), [])
+})

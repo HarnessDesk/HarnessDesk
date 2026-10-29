@@ -20,7 +20,8 @@ export const leadPresence = (state: LeadState): LeadPresence => {
   if (state.error) return { mood: 'sleeping', word: 'Desk offline', needs: 0, goalActive: false }
   if (!thread) return { mood: 'neutral', word: 'Ready', needs: 0, goalActive: false }
   const started = thread.state !== 'draft' || thread.messages.some(message => message.role === 'user')
-  const goalActive = started && !ENDED.has(thread.state)
+  const reviewed = !!thread.contract || !!thread.pr || thread.cards.some(card => card.type === 'plan')
+  const goalActive = reviewed && started && !ENDED.has(thread.state)
   if (state.waitReason === 'lead-result-awaiting-person') return { mood: 'done', word: 'Done · ready to accept', needs: 1, goalActive }
   const needs = state.personActions.length + (state.wayOut ? 1 : 0) + (thread.state === 'awaiting-plan' && state.wayOut !== 'decide-plan' ? 1 : 0)
   if (needs || thread.state === 'waiting-for-user') return { mood: 'alert', word: `${Math.max(needs, 1)} need${Math.max(needs, 1) === 1 ? 's' : ''} you`, needs: Math.max(needs, 1), goalActive }
@@ -28,6 +29,7 @@ export const leadPresence = (state: LeadState): LeadPresence => {
   if (thread.state === 'accepted') return { mood: 'done', word: 'Done', needs: 0, goalActive: false }
   if (thread.state === 'following') return { mood: 'neutral', word: 'Following', needs: 0, goalActive }
   if (goalActive) return { mood: 'working', word: 'Working · 1 goal', needs: 0, goalActive }
+  if (state.requestInFlight) return { mood: 'working', word: 'Thinking', needs: 0, goalActive: false }
   return { mood: 'neutral', word: 'Ready', needs: 0, goalActive: false }
 }
 

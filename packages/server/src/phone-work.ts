@@ -21,7 +21,8 @@ export interface PhoneWorkPorts {
   /** Index membership; archives are readable only when explicitly requested. */
   readonly isOwn: (runtime: RuntimeId, id: SessionId, includeArchived?: boolean) => boolean
   readonly summary: (runtime: RuntimeId, id: SessionId) => SessionSummary | null
-  readonly read: (runtime: RuntimeId, id: SessionId) => Promise<Session>
+  /** Scoped callers validate the same raw transcript's cwd before display-path normalization. */
+  readonly read: (runtime: RuntimeId, id: SessionId, admitCwd?: (cwd: string) => Promise<void>) => Promise<Session>
   /** What this host holds of a conversation right now. */
   readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly pending: readonly Approval[]; readonly cwd: string | null; readonly queued?: number }
   readonly respond: (params: HostParams<'approval/respond'>) => Promise<void>
@@ -31,10 +32,12 @@ export interface PhoneWorkPorts {
   readonly projectName?: (root: string) => string | null
   readonly canInterrupt: (runtime: RuntimeId) => boolean
   readonly newSessionValues: (runtime: RuntimeId, cwd?: string) => Promise<Readonly<Record<string, OptionValue>>>
-  readonly create: (params: HostParams<'session/create'>) => Promise<HostResult<'session/create'>>
-  readonly send: (params: HostParams<'turn/send'>) => Promise<void>
-  readonly queue: (params: HostParams<'turn/queue'>) => Promise<HostResult<'turn/queue'>>
-  readonly interrupt: (params: HostParams<'turn/interrupt'>) => Promise<void>
+  /** Host-only receipts: invoke after preflight, immediately before the actual
+   * allocation, queue mutation, send or interrupt. Never take these from wire data. */
+  readonly create: (params: HostParams<'session/create'>, effectStarted?: () => void) => Promise<HostResult<'session/create'>>
+  readonly send: (params: HostParams<'turn/send'>, admitCwd?: (cwd: string) => Promise<void>) => Promise<void>
+  readonly queue: (params: HostParams<'turn/queue'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>) => Promise<HostResult<'turn/queue'>>
+  readonly interrupt: (params: HostParams<'turn/interrupt'>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>) => Promise<void>
   /** Whether a piece of text could hold a secret. */
   readonly hasSecret: (text: string) => boolean
   readonly now: () => number
@@ -155,9 +158,11 @@ export class PhoneWork {
     return { runtime, session, key: `${runtime}:${session}` }
   }
 
-  async threadRead(params: { id: string }): Promise<PhoneWorkThread> {
+  async threadRead(params: { id: string }, admit?: (cwd: string) => Promise<void>): Promise<PhoneWorkThread> {
     const { runtime, session, key } = this.#target(params.id, true)
-    const read = await guarded(() => this.#ports.read(runtime, session))
+    const read = await guarded(() => this.#ports.read(runtime, session, admit))
+    await admit?.(read.cwd)
+    this.#target(params.id, true)
     const live = this.#ports.live(runtime, session)
     const summary = this.#ports.summary(runtime, session)
     const now = this.#ports.now()
@@ -176,8 +181,6 @@ export class PhoneWork {
   }
 
   async sessionStart(params: HostParams<'workspace/session/start'>): Promise<HostResult<'workspace/session/start'>> {
-    const runtime = this.#ports.defaultRuntime()
-    if (runtime === null) return refuse('No agent is available to start a session.')
     let cwd: string | undefined
     if (params.project !== undefined) {
       const matches = [...new Set(this.#ports.projectRoots())].filter(root => (this.#ports.projectName?.(root) ?? folderName(root)) === params.project)
@@ -185,11 +188,22 @@ export class PhoneWork {
       if (matches.length > 1) return refuse('More than one project has that name. Start it on the desk.')
       cwd = matches[0]!
     }
+    return this.startInProject(params, cwd)
+  }
+
+  /** Host-owned exact project root. It never resolves an untrusted folder basename. */
+  async startInProject(params: { text: string }, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>): Promise<HostResult<'workspace/session/start'>> {
+    const runtime = this.#ports.defaultRuntime()
+    if (runtime === null) return refuse('No agent is available to start a session.')
     return guarded(async () => {
       const values = await this.#ports.newSessionValues(runtime, cwd)
-      const session = await this.#ports.create({ runtime, options: { ...(cwd ? { cwd } : {}), ...(Object.keys(values).length ? { options: values } : {}) } })
+      await admit?.()
+      const session = await this.#ports.create({ runtime, options: { ...(cwd ? { cwd } : {}), ...(Object.keys(values).length ? { options: values } : {}) } }, effectStarted)
       const id = `${runtime}:${session.id}`
-      try { await this.#ports.send({ runtime, sessionId: session.id, input: [{ type: 'text', text: params.text }] }) }
+      try {
+        await admit?.(id)
+        await this.#ports.send({ runtime, sessionId: session.id, input: [{ type: 'text', text: params.text }] }, admitCwd)
+      }
       catch {
         // The runtime may have accepted the prompt before losing its reply.
         // Keep its identity and history; the phone opens it with the draft.
@@ -199,17 +213,19 @@ export class PhoneWork {
     })
   }
 
-  async sessionSend(params: HostParams<'workspace/session/send'>): Promise<HostResult<'workspace/session/send'>> {
+  async sessionSend(params: HostParams<'workspace/session/send'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>): Promise<HostResult<'workspace/session/send'>> {
     const { runtime, session } = this.#target(params.id)
-    const result = await guarded(() => this.#ports.queue({ runtime, sessionId: session, input: [{ type: 'text', text: params.text }] }))
+    const result = await guarded(() => this.#ports.queue({ runtime, sessionId: session, input: [{ type: 'text', text: params.text }] }, admit, effectStarted, admitCwd))
     return result.sent ? {} : { queued: true }
   }
 
-  async stop(params: HostParams<'workspace/stop'>): Promise<HostResult<'workspace/stop'>> {
+  async stop(params: HostParams<'workspace/stop'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>): Promise<HostResult<'workspace/stop'>> {
     const { runtime, session } = this.#target(params.id)
     if (!this.#ports.canInterrupt(runtime)) return refuse('This agent cannot stop a session from the phone.')
     if (!this.#ports.live(runtime, session).running) return this.#ports.live(runtime, session).queued ? { queued: true } : {}
-    await guarded(() => this.#ports.interrupt({ runtime, sessionId: session }))
+    await admit?.()
+    this.#target(params.id)
+    await guarded(() => this.#ports.interrupt({ runtime, sessionId: session }, effectStarted, admitCwd))
     return this.#ports.live(runtime, session).queued ? { queued: true } : {}
   }
 

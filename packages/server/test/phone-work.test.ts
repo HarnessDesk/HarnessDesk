@@ -438,3 +438,35 @@ test('saved dependent choices incompatible with the selected model refuse before
   }), /saved.*choices/i)
   assert.deepEqual(calls, [{}, { model: 'two' }])
 })
+
+test('a host-pinned start uses the exact root and saved defaults with fresh admission before allocation and send', async () => {
+  const seen: unknown[] = []
+  const { work } = rig({
+    newSessionValues: async (runtime, cwd) => { seen.push({ runtime, cwd }); return { permissions: 'workspace' } },
+    create: async params => { seen.push(params); return session([]) },
+    send: async params => { seen.push(params) },
+  })
+  const start = (work as unknown as { startInProject?: (params: { text: string }, root: string, admit: () => Promise<void>) => Promise<unknown> }).startInProject
+  assert.equal(typeof start, 'function', 'A trusted exact-root start must share the phone ordinary session lifecycle')
+  await start!.call(work, { text: 'Work here' }, CWD, async () => { seen.push('admit') })
+  assert.deepEqual(seen, [
+    { runtime: RT, cwd: CWD }, 'admit', { runtime: RT, options: { cwd: CWD, options: { permissions: 'workspace' } } },
+    'admit', { runtime: RT, sessionId: SID, input: [{ type: 'text', text: 'Work here' }] },
+  ])
+})
+
+test('pinned starts preserve allocated identity when admission changes before the first send', async () => {
+  let sends = 0, creates = 0
+  const { work } = rig({ create: async () => { creates++; return session([]) }, send: async () => { sends++ } })
+  const result = await work.startInProject({ text: 'Work here' }, CWD, async id => { if (id) throw new Error('Project was withdrawn') })
+  assert.equal(result.id, key)
+  assert.match(result.problem ?? '', /created.*first message/i)
+  assert.equal(creates, 1); assert.equal(sends, 0)
+})
+
+test('admission changing during new-session defaults refuses before allocating a conversation', async () => {
+  let creates = 0
+  const { work } = rig({ create: async () => { creates++; return session([]) } })
+  await assert.rejects(work.startInProject({ text: 'Work here' }, CWD, async () => { throw new Error('Budget exhausted') }), /Budget exhausted/)
+  assert.equal(creates, 0)
+})

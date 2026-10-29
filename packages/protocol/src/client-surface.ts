@@ -3,10 +3,15 @@ import type { GoalId } from './goal.js'
 import type { HostMethodName } from './wire.js'
 
 export type ClientTier = 'read' | 'run' | 'answer'
-export type ClientTopic = 'runs' | 'cards' | 'teams' | 'waiting' | 'notices' | 'seats' | 'reviews'
+export type ClientTopic = 'runs' | 'cards' | 'teams' | 'waiting' | 'notices' | 'seats' | 'reviews' | 'chats'
 
 /** The methods the client door answers, each with the tier it needs. */
 export const CLIENT_METHODS = {
+  'lead/chat/list': 'read',
+  'lead/chat/read': 'read',
+  'lead/chat/start': 'run',
+  'lead/chat/send': 'run',
+  'lead/chat/stop': 'run',
   'client/hello': 'read',
   'client/subscribe': 'read',
   'session/loadout': 'read',

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type { Stats } from 'node:fs'
+import { realpathSync, type Stats } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { connect as connectSocket } from 'node:net'
@@ -60,6 +60,7 @@ export const clientDoorPaths = (home: string, directory: string): { socketPath: 
 
 export const topicsOf = (notification: WireNotification): readonly ClientTopic[] => {
   switch (notification.method) {
+    case 'lead/chat/changed': return ['chats']
     case 'flow/execution-changed': return ['runs']
     case 'team/changed': return ['cards']
     case 'goal/changed': case 'goal/activity': return ['teams']
@@ -99,6 +100,7 @@ type Subscription = HostParams<'client/subscribe'>
 
 const snapshotKey = (notification: WireNotification): string | null => {
   switch (notification.method) {
+    case 'lead/chat/changed': return `chat:${notification.params.project}:${notification.params.id}`
     case 'seat/activity': return `seat:${notification.params.goal}:${notification.params.seat}`
     case 'flow/execution-changed': return `run:${notification.params.execution.id}`
     case 'team/changed': return `board:${notification.params.state.id}`
@@ -150,6 +152,12 @@ const approvalKey = (notification: WireNotification): string | null => {
 
 const inScope = (notification: WireNotification, views: readonly ScopeView[], scope: Subscription['scope']): boolean => {
   switch (notification.method) {
+    case 'lead/chat/changed': {
+      // Ordinary chats have no Team/Run membership. A missing or mixed scope
+      // grants nothing, and aliases cannot stand in for the host's pinned root.
+      if (!scope?.project || scope.team !== undefined || scope.run !== undefined || scope.project !== notification.params.project) return false
+      try { return realpathSync.native(notification.params.project) === notification.params.project } catch { return false }
+    }
     case 'flow/execution-changed': return views.some(v => v.goal.id === notification.params.execution.goal) &&
       (scope?.run === undefined || notification.params.execution.id === scope.run)
     case 'team/changed': return views.some(v => v.board.id === notification.params.state.id)
@@ -200,6 +208,11 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
     if (!await allowed({ id: 0, method: 'client/subscribe', params: selection })) {
       for (const runId of observed.covered) withdrawn(runId)
       return false
+    }
+    if (notification.method === 'lead/chat/changed') {
+      return inScope(notification, [], selection.scope) &&
+        await allowed({ id: 0, method: 'lead/chat/read', params: { id: notification.params.id } }) &&
+        inScope(notification, [], selection.scope)
     }
     if (notification.method === 'flow/execution-changed' && !await allowed(runRequest(notification.params.execution))) {
       const runId = notification.params.execution.id
@@ -390,6 +403,13 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
               const execution = await options.host.call('flow/execution', { run: run.id })
               const notification: WireNotification = { method: 'flow/execution-changed', params: { execution } }
               if (inScope(notification, views, next.scope)) remember(notification, sampledAt)
+            }
+            if (selectedTopics.has('chats') && next.scope?.project !== undefined && next.scope.team === undefined && next.scope.run === undefined) {
+              const sampledAt = collecting.snapshots.length
+              for (const activity of await options.host.leadChatActivities()) {
+                const notification: WireNotification = { method: 'lead/chat/changed', params: activity }
+                if (inScope(notification, [], next.scope)) remember(notification, sampledAt)
+              }
             }
             if (selectedTopics.has('cards')) for (const view of views) remember({ method: 'team/changed', params: { state: view.board } })
             if (selectedTopics.has('teams')) for (const view of views) remember({ method: 'goal/changed', params: { view } })

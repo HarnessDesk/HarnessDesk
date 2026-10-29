@@ -990,14 +990,33 @@ test('a message the person sends after approval is followed by the contract, so 
   s.controls.close()
 })
 
-test('a request before any plan is approved asks for a plan, and does not claim a contract was approved', async () => {
+test('a request without an approved plan continues the conversation without demanding a plan', async () => {
   const s = await rig({ configured: true })
   await s.controls.send({ idempotencyKey: 'goal', text: 'Inspect the check' }); await s.controls.idle()
   await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
   await s.controls.resume({ expectedRevision: s.journal.state.seq }); await s.controls.idle()
   const last: any = (s.sends.at(-1) as any).messages.at(-1)
   assert.equal(last.role, 'user')
-  assert.equal(turnText(last), 'No plan is approved yet. Continue with a plan for the person to approve.')
+  assert.match(turnText(last), /conversation/)
+  assert.doesNotMatch(turnText(last), /Continue with a plan for the person to approve/)
+  s.controls.close()
+})
+
+for (const reason of ['lead-plan-unseatable', 'lead-plan-not-independent', 'lead-plan-refused', 'lead-card-too-large',
+  'lead-start-binding-failed', 'lead-result-revisions-exhausted'] as const) test(`${reason} explains a setup problem without offering an unchanged retry`, async () => {
+  const s = await rig({ configured: true })
+  await s.journal.setManagementPhase('waiting-for-user', reason)
+  const view = await s.controls.readThread()
+  assert.equal(view.waitReason, reason)
+  assert.equal(view.wayOut, null)
+  await assert.rejects(s.controls.resume({ expectedRevision: view.revision }), code('lead-no-person-wait'))
+  await s.controls.send({ idempotencyKey: 'change-plan', text: 'Use an ordinary chat for this screenshot instead.' })
+  await s.controls.idle()
+  const request: any = s.sends.at(-1)
+  const context = request.messages.map(turnText).join('\n')
+  assert.match(context, /previous.*(plan|request|run|result)/i, 'the model sees the actual prior blocker')
+  assert.equal(s.journal.state.messages.at(-1)?.role, 'assistant')
+  assert.notEqual(s.journal.state.phase, 'waiting-for-user', 'a new message continues without a separate resume click')
   s.controls.close()
 })
 

@@ -42,6 +42,9 @@ class RigRuntime extends CodexRuntime {
 }
 export interface LeadRigOptions {
   readonly enabled?: boolean
+  /** Ordinary session tools, with one runtime and no reviewed plan. */
+  readonly ordinaryChats?: boolean
+  readonly holdOrdinaryContinuation?: boolean
   /** Offline host-publication fixture: one run, pinned demo repository and distinct repair commits. */
   readonly publication?: boolean
   /** Full offline forge walks: only explicit person creation and reviewed owned pushes. */
@@ -91,6 +94,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
   let supervisorOptions!: LeadSupervisorOptions
   const eagerResults: { tool_use_id: string; is_error: boolean }[] = []
   let eagerStart = false, eagerApproval = false, prematureStart = false
+  let ordinaryForeign = ''
   let provider: Awaited<ReturnType<typeof leadMessagesServer>>
   let restoreGoalSave: (() => void) | undefined
   let restoreUsage: (() => void) | undefined
@@ -226,6 +230,19 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     let toolId = 0, forbiddenAttempt = 0
     const reply = (body: Record<string, any>): unknown[] => {
       const state = journal.state
+      if (options.ordinaryChats) {
+        const results = body.messages.flatMap((message: any) => message.content).filter((block: any) => block.type === 'tool_result')
+        const result = (id: string) => results.find((block: any) => block.tool_use_id === id)
+        if (!result('ordinary-start')) return [{ type: 'tool_use', id: 'ordinary-start', name: 'chat_start', input: { text: 'Inspect this ordinary task' } }]
+        let started: any
+        try { started = JSON.parse(result('ordinary-start').content) } catch { return [text('Ordinary start failed')] }
+        if (!started?.id) return [text('Ordinary start failed')]
+        if (!result('ordinary-read')) return [{ type: 'tool_use', id: 'ordinary-read', name: 'chat_read', input: { id: started.id } }]
+        if (!result('ordinary-send')) return [{ type: 'tool_use', id: 'ordinary-send', name: 'chat_send', input: { id: started.id, text: 'Keep the task bounded' } }]
+        if (!result('ordinary-stop')) return [{ type: 'tool_use', id: 'ordinary-stop', name: 'chat_stop', input: { id: started.id } }]
+        if (!result('ordinary-foreign')) return [{ type: 'tool_use', id: 'ordinary-foreign', name: 'chat_read', input: { id: ordinaryForeign } }]
+        return [text('The ordinary session is stopped; the other project stayed outside this conversation.')]
+      }
       if (!state.contract || !state.consent) {
         const plan = text(JSON.stringify({ version: 1, type: 'lead-output', text: options.planText ?? 'Review the two-part repair before work starts.', plan: proposal }))
         if (options.eager && !eagerStart) {
@@ -270,7 +287,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       }
       return [text('Waiting for fresh worker checks and review.')]
     }
-    provider = enabled ? await leadMessagesServer(reply, () => options.holdRunning === true ? journal?.state.runs.length > 0 : options.holdPlanning === true || options.scenario === 'interrupted') : {
+    provider = enabled ? await leadMessagesServer(reply, () => options.holdOrdinaryContinuation === true ? provider.requests.length === 2 : options.holdRunning === true ? journal?.state.runs.length > 0 : options.holdPlanning === true || options.scenario === 'interrupted') : {
       requests: [], pending: false, transport: { async send() { throw new Error('disabled provider') } }, release() {}, interrupt() {}, async close() {},
     }
     const setupHost = async () => {
@@ -309,12 +326,12 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       })
       setTeamEngine(host.teamPlane); await extensions!.load(teamPlugin)
       if (!restoring) await host.start()
-      for (const [id, providerName] of [['rig-writer', 'synthetic-writer'], ['rig-reviewer', 'synthetic-reviewer']] as const) {
+      for (const [id, providerName] of (options.ordinaryChats ? [['rig-writer', 'synthetic-writer']] : [['rig-writer', 'synthetic-writer'], ['rig-reviewer', 'synthetic-reviewer']]) as readonly (readonly [string, string])[]) {
         const codexHome = join(home, id); await mkdir(codexHome, { recursive: true })
         const runtime = new RigRuntime({ id: id as RuntimeId, name: id === 'rig-writer' ? 'Scripted writer' : 'Scripted reviewer', codexHome,
           binaryPath: join(root, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
           capabilities: new GatedRegistry(extensions!, () => host.ceilingGate),
-          env: { FAKE_CODEX_PROCESS_CALLS: workerLog, FAKE_CODEX_FLOW: JSON.stringify({ state: passes, gates, approvalLog: workerLog, passPerRun: true, approvalBeforeWork: options.scenario === 'worker-approval', steps: {
+          env: { ...(options.ordinaryChats ? { FAKE_CODEX_MODE: 'hold' } : {}), FAKE_CODEX_PROCESS_CALLS: workerLog, FAKE_CODEX_FLOW: options.ordinaryChats ? '' : JSON.stringify({ state: passes, gates, approvalLog: workerLog, passPerRun: true, approvalBeforeWork: options.scenario === 'worker-approval', steps: {
             write: { kind: 'write', title: 'Implement the approved goal', outcomes: ['committed'], file: 'retry.txt', contents: 'Incomplete retry status list\n' },
             repair: { kind: 'write', title: 'Repair the blocking findings and rerun required checks', outcomes: ['committed'], file: 'retry.txt', contents: options.publication ? 'Complete retry status list {{intent}}\n' : 'Complete retry status list\n' },
             ...(options.publication ? { followRepair: { kind: 'write', title: 'Repair the followed pull request', outcomes: ['committed'], file: 'retry.txt', contents: 'Followed retry status list {{intent}}\n' } } : {}),
@@ -336,6 +353,12 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       if (restoring) await host.start()
       await host.call('workspace/open', { path: project.path })
       if (!enabled) return
+      if (options.ordinaryChats) {
+        const foreignRoot = join(scratch, 'other-project'); await mkdir(foreignRoot, { recursive: true })
+        await host.call('workspace/open', { path: foreignRoot })
+        const foreign = await host.call('session/create', { runtime: 'rig-writer' as RuntimeId, options: { cwd: foreignRoot } })
+        ordinaryForeign = `rig-writer:${foreign.id}`
+      }
       storage = await LeadFileJournal.open(home, 'synthetic-thread', { canaries: [LEAD_RIG_KEY] })
       journal = await createLeadJournal(storage)
       if (!journal.state.policy) {

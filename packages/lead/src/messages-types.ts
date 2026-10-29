@@ -17,6 +17,9 @@ export interface MessagesTurn {
 }
 export interface LeadMessagesRequest {
   readonly proactive?: boolean
+  /** A normal conversation turn must not pause unrelated reviewed work merely
+   * because its reply does not start that plan. Set by the authenticated host. */
+  readonly conversation?: boolean
   readonly wakeSource?: import('@harnessdesk/protocol').LeadWakeRecord['source']
   readonly messages: readonly MessagesTurn[]
   /** The owner may request structured text using

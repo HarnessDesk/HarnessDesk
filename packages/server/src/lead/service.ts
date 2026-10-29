@@ -60,6 +60,18 @@ export class LeadService {
   #publicProjection: { revision: number; generation: number; clean: true } | null = null
   #publicScans: Promise<void> = Promise.resolve()
   #enabled = false
+  #requestInFlight = false
+  get requestInFlight(): boolean { return this.#requestInFlight }
+  /** Host dispatches, including accepted queued work, must observe lifecycle revocation immediately. */
+  get managementAvailable(): boolean { return this.#enabled && !this.#closed && !this.#changingKeys && !this.#cleanupFailed }
+  #activity(busy: boolean): void {
+    const next = busy && !this.#closed
+    if (this.#requestInFlight === next) return
+    this.#requestInFlight = next
+    // Activity outlives an individual send response; give its projection a fresh
+    // revision without deriving liveness from durable billing reservations.
+    void this.options.journal.settingsChanged().catch(() => {})
+  }
   #closed = false
   #generation = 0
   #changingKeys = 0
@@ -110,6 +122,7 @@ export class LeadService {
             ...(options.seats ? { seats: options.seats } : {}), ...(memory.length ? { memory } : {}) }
         } catch (error) { await this.#release(); throw error }
       },
+      onActivity: busy => this.#activity(busy),
       ...(options.onPresence ? { onPresence: options.onPresence } : {}),
       admitCardOffer: card => admitLeadCard(options.journal.state, card, options.project, options.model ?? LEAD_MESSAGES_DEFAULTS.model),
       // What the model says is written for the person to read, so it gets the scan every other public text gets.
@@ -267,6 +280,7 @@ export class LeadService {
     finally { this.#registration?.close(); this.#registration = null }
   }
   #exited(reason: string): Promise<void> {
+    this.#activity(false)
     if (this.#exiting) return this.#exiting
     // Called only after the child has fully exited and its pending dispatches
     // have rejected. Recovery never races a live dispatch from that child.
@@ -285,6 +299,7 @@ export class LeadService {
     return task
   }
   async #halt(reason: string): Promise<void> {
+    this.#activity(false)
     try { await this.#latch(reason) }
     catch (error) { this.#cleanupFailed = true; throw error }
     finally {
@@ -421,7 +436,7 @@ export class LeadService {
   }
   close(): Promise<void> {
     if (this.#closed) return this.#tail.then(() => {})
-    this.#publicProjection = null; this.#closed = true; this.#enabled = false; ++this.#generation
+    this.#publicProjection = null; this.#closed = true; this.#activity(false); this.#enabled = false; ++this.#generation
     return this.#queue(async () => {
       await this.#halt('lead-host-shutdown')
     })

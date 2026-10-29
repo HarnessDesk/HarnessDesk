@@ -1,6 +1,6 @@
 import { PullRequestRecord } from './GitRecord'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { LEAD_LIMITS, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, leadWaitNeedsChange, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, LeadSlot, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, Input, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { openExternal } from '../lib/desktop'
 import { leadWakeLine } from '../lib/lead-presence'
@@ -16,7 +16,7 @@ import { LeadCards, leadDollars } from './LeadCards'
 import { LEAD_HANDBACK_LIMIT, LEAD_REPAIR_RECOVERY_FAILED } from './lead-wait-copy'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
-import { AtIcon, FolderIcon, PlusIcon, RouteIcon, SendIcon, SettingsIcon } from './Icons'
+import { AtIcon, FolderIcon, PlusIcon, RouteIcon, SendIcon, SettingsIcon, StopIcon } from './Icons'
 import { LeadStatusPanel, useLeadControls } from './LeadControls'
 import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
@@ -42,9 +42,9 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-result-awaiting-person': 'The result is waiting for your decision.',
   'lead-result-revisions-exhausted': 'The result reached its revision limit.',
   'lead-start-binding-failed': 'The run could not be linked to the approved plan.',
-  'lead-plan-refused': 'The proposed plan could not be offered.',
-  'lead-plan-unseatable': "A seat in the proposed plan can't work within its permissions, so the plan wasn't offered. Send a message to plan with other agents.",
-  'lead-plan-not-independent': "The proposed plan's reviewer can't be shown to use a different provider from its implementer, so no review could ever accept the work. Add an agent from another provider, or send a message to plan again.",
+  'lead-plan-refused': 'The proposed plan could not be offered. Send a message to change it or use an ordinary chat.',
+  'lead-plan-unseatable': "An agent in the reviewed plan can't work within its required permissions. Choose another agent on the desk, or ask for an ordinary chat for this task.",
+  'lead-plan-not-independent': "The reviewed plan needs a reviewer from a different provider. Add one on the desk, or ask for an ordinary chat for this task.",
   'lead-activity-failed': 'The Lead could not read the latest run activity.',
   'lead-subscription-failed': 'The Lead lost its run activity updates.',
   'lead-tools-refused': 'The requested desk operation was refused.',
@@ -85,9 +85,10 @@ const LeadLimits = ({ disabled }: { readonly disabled: boolean }) => {
   const valid = dollars.trim() !== '' && rounds.trim() !== '' && Number.isSafeInteger(micros) && micros >= 0 && micros <= LEAD_LIMITS.maxUsdMicros && Number.isSafeInteger(roundCount) && roundCount >= 0 && roundCount <= LEAD_LIMITS.rounds
   const raises = valid && (micros > caps.usdMicros || roundCount > caps.rounds)
   return <ComposerTrack name="mode">
-    <Popover title="Limits for this goal" drop="up" align="left" disabled={disabled} label={`Up to ${leadDollars(caps.usdMicros)} · ${roundsWords(caps.rounds)}`}
+    <Popover title="Lead and reviewed-run limits" drop="up" align="left" disabled={disabled} label={`Up to ${leadDollars(caps.usdMicros)} · ${roundsWords(caps.rounds)}`}
       onOpenChange={open => { if (open) { setDollars(String(caps.usdMicros / 1000000)); setRounds(String(caps.rounds)); setError(null) } }}>
       {close => <LeadSlot slot="lead-limits"><FormStack>
+        <Text role="muted">Covers Lead replies and reviewed runs. Ordinary chats have their own session spend.</Text>
         <InlineParts><Text role="muted">Up to $</Text><Input aria-label="Dollar limit" type="number" min={0} step="0.01" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} /></InlineParts>
         <InlineParts><Input aria-label="Round limit" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} /><Text role="muted">rounds</Text></InlineParts>
         <Text role="muted">{raises ? 'Raising asks for your approval in the conversation.' : 'Tightening applies at once.'}</Text>
@@ -122,9 +123,10 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const { owner } = useDestinationPage(), controls = useLeadControls(), { name, label, presence } = controls
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
   const terminalWait = state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable'
+  const setupWait = leadWaitNeedsChange(state.waitReason)
   const canStop = !!state.thread && !['stopped', 'accepted', 'declined'].includes(state.thread.state) &&
-    (state.thread.state !== 'draft' || state.thread.messages.some(message => message.role === 'user'))
-  const goalActive = canStop && !terminalWait
+    (!!state.thread.contract || !!state.thread.pr || state.requestInFlight || terminalWait)
+  const goalActive = canStop && (!!state.thread?.contract || !!state.thread?.pr) && !terminalWait
   const stopAction = <Button variant="ghost" disabled={stopping || decisionPending !== null} onClick={() => setConfirmStop(true)}>Stop goal</Button>
   const stop = async () => {
     if (stoppingRef.current || decisionLock.current) return
@@ -179,7 +181,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const live = state.error ? null
     : repairActive ? <TurnWorkLive data-slot="lead-live-line" data-kind="handback">{`Repairing ${handback.kind === 'checks' ? 'checks' : 'review comments'} · round ${handback.round}`}</TurnWorkLive>
     : phase === 'running' && progress ? <TurnWorkLive data-slot="lead-live-line" data-kind="running">{`Step ${progress.step} of ${progress.steps}${contract?.steps[progress.step - 1] ? ` · ${contract.steps[progress.step - 1]!.title}` : ''} · ${runsWords(progress.runs)}`}</TurnWorkLive>
-    : (phase === 'draft' || phase === 'planning') && state.requestInFlight ? <TurnWorkLive data-slot="lead-live-line" data-kind="planning">Planning…</TurnWorkLive>
+    : (phase === 'draft' || phase === 'planning') && state.requestInFlight ? <TurnWorkLive data-slot="lead-live-line" data-kind="planning">Thinking…</TurnWorkLive>
     : phase === 'stopped' && !cards.some(card => card.type === 'stopped') ? <TurnWorkLive settled data-slot="lead-live-line" data-kind="stopped">{STOPPED[state.thread?.budget?.stop?.reason ?? 'cancelled']}</TurnWorkLive>
     : null
   const openingJobs = !state.error && state.thread && !state.thread.messages.length && !state.thread.olderMessages && !state.thread.cards.length ? leadOpeningJobs(snapshot, state.thread.project?.path ?? null, pr) : []
@@ -255,7 +257,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {(state.waitReason === 'lead-handback-limit' || state.waitReason === 'lead-repair-recovery-failed') && <LeadCards {...cardProps} cards={[]} waitReason={state.waitReason} placement="thread" />}
         {pr && state.thread?.project && <PullRequestRecord root={state.thread.project.path} reference={{ repo: pr.repository, number: pr.number }} branch={pr.branch} />}
         {live}
-      </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. Tell me what you want done, and I'll plan it for your approval.` : 'Hi, tell me what you want done.'}</Text></ConversationEmptyState>}
+      </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. What can I help you with?` : 'Hi, what can I help you with?'}</Text></ConversationEmptyState>}
     </ConversationThread>
     {active && <ConversationDock ref={dock}>
       <ConversationComposerFrame before={<ComposerNoticeStack>
@@ -265,7 +267,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
           {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replace('{label}', label)}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
-          {!unavailable && state.wayOut === 'resume' && state.waitReason !== 'lead-predecessor-unavailable' && state.waitReason !== 'lead-predecessor-unverifiable' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
+          {setupWait && state.wayOut !== 'decide-plan' && <Banner>{WAITS[state.waitReason!]}</Banner>}
+          {!unavailable && !setupWait && state.wayOut === 'resume' && state.waitReason !== 'lead-predecessor-unavailable' && state.waitReason !== 'lead-predecessor-unverifiable' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
             {state.waitReason ? WAITS[state.waitReason] ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
           </Banner>}
           {state.wayOut === 'decide-plan' && (renewal
@@ -288,7 +291,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
                 </ComposerTrack>
                 <LeadLimits disabled={!!state.error || state.revision < 0} />
                 <ComposerGap /><ComposerTrack name="send">
-                  <ComposerSend type="submit" disabled={unavailable || requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : goalActive ? 'Send to the running goal' : 'Send'} title={requestPending ? 'Sending…' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>
+                  {state.requestInFlight && !goalActive
+                    ? <ComposerSend type="button" disabled={stopping} aria-label="Stop reply" title="Stop this reply" onClick={() => void stop()}><StopIcon size={12} /></ComposerSend>
+                    : <ComposerSend type="submit" disabled={unavailable || requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : goalActive ? 'Send to the running goal' : 'Send'} title={requestPending ? 'Sending…' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>}
                 </ComposerTrack>
               </ComposerTools>
       </ConversationComposerFrame>

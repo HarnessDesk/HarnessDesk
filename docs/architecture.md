@@ -840,6 +840,10 @@ An association needs a locally observed diff fact, a matching checkout and a com
 
 ## Lead child runtime
 
+Lead's ordinary conversation and reviewed Flow authority are separate. The narrow `lead/chat/*` client methods list, read, start, message and stop ordinary sessions in the host's selected canonical project. `LeadChats` checks live project membership, actual session cwd, desk and project policy, recovery and budget admission independently of the child. Starts use `PhoneWork.startInProject`, sharing the desk's saved session defaults, creation and unconfirmed-first-send behavior. Replies use the ordinary queue; stops use the existing interrupt path. No tool changes permissions or answers approvals. Reviewed Flow starts still require their own approved contract and held preview.
+
+The host stores at most 64 tracked chat ids in the Lead state folder’s `chats.json` watch file. Only meaningful running/waiting/idle transitions produce a metadata-only `lead/chat/changed` notification. The private client door rechecks project scope and current read authority, and supplies a bounded tracked-state baseline on subscription so a disconnected completion is observable. The Lead loop coalesces those changes, reads relevant conversations as untrusted observations, and reports only meaningful results or decisions. Ordinary sessions retain ordinary spend; they do not become approved Flow runs or consume its round accounting.
+
 The optional Lead child runs with `--permission --no-allow-net --no-addons
 --preserve-symlinks` and read grants for its own packages. Which binary runs it
 is decided by a capability probe (`probeLeadRuntime` in

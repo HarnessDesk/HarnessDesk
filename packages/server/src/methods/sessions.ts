@@ -16,6 +16,8 @@ import {
   type RuntimeId,
   type SessionId,
   type SessionOptions,
+  type HostParams,
+  type HostResult,
 } from '@harnessdesk/protocol'
 
 import { createChatFolder, rememberChatFolder } from '../chats.js'
@@ -104,6 +106,48 @@ export const archiveConversation = async (ctx: HostContext, params: { runtime: R
   return warning ? { warning } : null
 }
 
+/** Shared allocation path; the optional receipt is host-only and marks the runtime effect. */
+export async function createConversation(ctx: HostContext, params: HostParams<'session/create'>, effectStarted?: () => void): Promise<HostResult<'session/create'>> {
+  // Before any runtime is handed it, here and in a reopen or a fork. The
+  // adapters pass a cwd on as given, and an agent reads a relative one
+  // against its own working directory, which it has from this process:
+  // wherever the app happened to be started. Codex reads an empty one as that
+  // directory itself. The conversation's cwd is then an open root, which
+  // every confinement check trusts. A reopen or a fork that names no folder
+  // keeps the conversation's own.
+  assertAbsoluteCwd(params.options)
+  const runtime = ctx.runtimes.resolve(params)
+  // Routes resolve here and only here. A client-supplied `route` is
+  // discarded: the wire names a route by id, the host exchanges the
+  // stored credential for a loopback gateway, and only the resolved
+  // gateway address reaches the adapter.
+  // `attachments` is the host's own, like `route`: a Seat's approved filter
+  // is set by `agent/seat` alone, never by whoever calls this.
+  const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = params.options as typeof params.options & {
+    routeId?: string
+  }
+  const route = typeof routeId === 'string' ? await ctx.routes.resolve(runtime, routeId) : undefined
+  const allocated = rest.cwd === undefined ? await createChatFolder(ctx.state) : null
+  const options: SessionOptions = { ...rest, cwd: rest.cwd ?? allocated!, ...(route ? { route } : {}) }
+  // A lane's checkout is its cwd, which every runtime takes; its variables
+  // go only to a runtime that can take them per session (`laneEnvironmentFor`).
+  let live: AgentSession
+  try {
+    await ctx.runtimes.ensureStarted(runtime)
+    const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
+    effectStarted?.()
+    live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
+  } catch (error) {
+    // Never remove a caller's folder or files a runtime managed to write.
+    if (allocated) await rmdir(allocated).catch(() => {})
+    throw error
+  }
+  if (allocated) await rememberChatFolder(ctx.state, allocated)
+  const session = await ctx.sessions.attach(runtime, live.id, live)
+  await announceUnavailableTools(ctx, runtime, session)
+  return session
+}
+
 /**
  * Conversations as the host holds them: listing and search across the
  * runtime's own store and the host's, opening, reopening, forking, and the
@@ -148,45 +192,7 @@ export const sessionMethods = {
     return read
   },
 
-  'session/create': async (ctx, params) => {
-    // Before any runtime is handed it, here and in a reopen or a fork. The
-    // adapters pass a cwd on as given, and an agent reads a relative one
-    // against its own working directory, which it has from this process:
-    // wherever the app happened to be started. Codex reads an empty one as that
-    // directory itself. The conversation's cwd is then an open root, which
-    // every confinement check trusts. A reopen or a fork that names no folder
-    // keeps the conversation's own.
-    assertAbsoluteCwd(params.options)
-    const runtime = ctx.runtimes.resolve(params)
-    // Routes resolve here and only here. A client-supplied `route` is
-    // discarded: the wire names a route by id, the host exchanges the
-    // stored credential for a loopback gateway, and only the resolved
-    // gateway address reaches the adapter.
-    // `attachments` is the host's own, like `route`: a Seat's approved filter
-    // is set by `agent/seat` alone, never by whoever calls this.
-    const { route: _clientRoute, attachments: _clientAttachments, runtimeServers: _clientRuntimeServers, knownCwd: _clientKnownCwd, routeId, ...rest } = params.options as typeof params.options & {
-      routeId?: string
-    }
-    const route = typeof routeId === 'string' ? await ctx.routes.resolve(runtime, routeId) : undefined
-    const allocated = rest.cwd === undefined ? await createChatFolder(ctx.state) : null
-    const options: SessionOptions = { ...rest, cwd: rest.cwd ?? allocated!, ...(route ? { route } : {}) }
-    // A lane's checkout is its cwd, which every runtime takes; its variables
-    // go only to a runtime that can take them per session (`laneEnvironmentFor`).
-    let live: AgentSession
-    try {
-      await ctx.runtimes.ensureStarted(runtime)
-      const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
-      live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
-    } catch (error) {
-      // Never remove a caller's folder or files a runtime managed to write.
-      if (allocated) await rmdir(allocated).catch(() => {})
-      throw error
-    }
-    if (allocated) await rememberChatFolder(ctx.state, allocated)
-    const session = await ctx.sessions.attach(runtime, live.id, live)
-    await announceUnavailableTools(ctx, runtime, session)
-    return session
-  },
+  'session/create': (ctx, params) => createConversation(ctx, params),
 
   'session/resume': async (ctx, params) => {
     assertAbsoluteCwd(params.options)

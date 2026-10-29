@@ -77,7 +77,7 @@ it('has no empty reading measure and form stack above an idle composer', async (
 })
 it('greets without a name until settings have loaded', async () => {
   const { box } = await mount(leadProjection(), true)
-  expect(box.textContent).toContain('Hi, tell me what you want done.')
+  expect(box.textContent).toContain('Hi, what can I help you with?')
   expect(box.textContent).not.toContain("I'm Lead")
   expect(box.querySelector('textarea')?.placeholder).toBe('Message Lead…')
 })
@@ -93,7 +93,8 @@ it('shows initial allowances and disables Send during requestInFlight', async ()
   await input(box.querySelector('textarea')!, 'Inspect the empty state')
   expect(button('Send').disabled).toBe(false)
   await update({ requestInFlight: true })
-  expect(button('Sending…').disabled).toBe(true)
+  expect(button('Send')).toBeUndefined()
+  expect(button('Stop reply').disabled).toBe(false)
 })
 it.each(LEAD_CONTROL_REFUSALS)('maps %s to a sentence without raw codes', async code => {
   const { store, box } = await mount()
@@ -380,15 +381,15 @@ it.each(['running', 'waiting-for-user'] as const)('confirms Stop goal from %s an
   expect(liveLine(box)?.textContent).toBe('This goal was stopped.')
 })
 
-it('says the Lead is planning while its request runs, and goes quiet when it waits for the person', async () => {
+it('says the Lead is thinking while its request runs, and goes quiet when it waits for the person', async () => {
   const base = leadProjection(), { box, update } = await mount({ ...base, requestInFlight: true, thread: { ...base.thread, state: 'planning', messages: [goalMessage] } })
-  expect(liveLine(box)?.textContent).toBe('Planning…')
+  expect(liveLine(box)?.textContent).toBe('Thinking…')
   expect(liveLine(box)?.getAttribute('role')).toBe('status')
   await update({ requestInFlight: false })
   expect(liveLine(box)).toBeNull()
   // The first send, before the Lead's process has begun.
   await update({ requestInFlight: true, thread: { ...base.thread, state: 'draft', messages: [goalMessage] } })
-  expect(liveLine(box)?.textContent).toBe('Planning…')
+  expect(liveLine(box)?.textContent).toBe('Thinking…')
   // A plan on the table is not planning; the line would only flash under it.
   await update({ wayOut: 'decide-plan', thread: { ...base.thread, state: 'awaiting-plan', messages: [goalMessage], cards: [leadPlan], cardPositions: { plan: 2 } } })
   expect(liveLine(box)).toBeNull()
@@ -511,6 +512,40 @@ it('links the followed PR with check, review and ownership chips and limits work
   expect(liveLine(box)?.textContent).toBe('Repairing checks · round 2')
   await update({ thread: { ...base.thread, state: 'following', pr, handback: { ...handback, stage: 'completed' } } })
   expect(box.textContent).not.toContain('Repairing checks')
+})
+
+it.each([
+  ['lead-plan-not-independent', 'reviewer'],
+  ['lead-plan-unseatable', 'permissions'],
+  ['lead-plan-refused', 'plan'],
+  ['lead-card-too-large', 'large'],
+  ['lead-start-binding-failed', 'linked'],
+  ['lead-result-revisions-exhausted', 'revision limit'],
+] as const)('keeps %s actionable without a Resume loop', async (waitReason, text) => {
+  const base = leadProjection()
+  const { box } = await mount({ ...base, thread: { ...base.thread, state: 'waiting-for-user', cards: [] }, wayOut: null, waitReason })
+  expect(box.textContent).toContain(text)
+  expect(button('Resume')).toBeUndefined()
+  expect(box.querySelector('textarea')?.disabled).toBe(false)
+})
+
+it('does not leave a planning goal banner after an ordinary chat reply', async () => {
+  const base = leadProjection()
+  const { box } = await mount({ ...base, requestInFlight: false, thread: { ...base.thread, state: 'planning', contract: null,
+    cards: [], messages: [goalMessage, { version: 1, id: 'answer', revision: 8, role: 'assistant', text: 'Here is what I found.' }] } })
+  expect(box.querySelector('[data-slot="lead-run-strip"]')).toBeNull()
+  expect(button('Stop goal')).toBeUndefined()
+  expect(box.querySelector('textarea')?.disabled).toBe(false)
+})
+
+it('can stop an ordinary reply without requiring a goal topic', async () => {
+  const base = leadProjection()
+  const { request } = await mount({ ...base, requestInFlight: true, thread: { ...base.thread, state: 'planning', contract: null,
+    cards: [], messages: [goalMessage] } })
+  const stop = button('Stop reply')
+  expect(stop).toBeDefined()
+  await act(async () => stop!.click())
+  expect(request.mock.calls.some(([method]) => method === 'lead/stop')).toBe(true)
 })
 
 it.each([

@@ -1,5 +1,5 @@
 import {
-  leadProactiveReport, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
+  leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
@@ -10,6 +10,21 @@ import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindow
 import { leadContainsSecret } from './secrets.js'
 
 export const LEAD_PLAN_CONSENT_MS = 86_400_000
+
+/** Trusted host feedback survives the resume transition that clears the wait.
+ * It is supplied as current context, rather than fabricated assistant history. */
+const leadRecoveryContext = (reason: string | null): string | null => {
+  const fixes: Record<string, string> = {
+    'lead-plan-not-independent': 'The previous reviewed plan was refused because its reviewer could not be shown to use a different provider from its implementer.',
+    'lead-plan-unseatable': 'The previous reviewed plan was refused because an agent could not hold its required permissions.',
+    'lead-plan-refused': 'The previous plan could not be validated and was not offered.',
+    'lead-card-too-large': 'The previous request exceeded the decision size limit. Reduce its scope or use fewer steps.',
+    'lead-start-binding-failed': 'The previous run could not be linked to its approved plan. Inspect existing work before trying to start anything again.',
+    'lead-result-revisions-exhausted': 'The previous result reached its revision limit. Inspect existing work and ask for a changed request.',
+  }
+  const detail = reason === null ? null : fixes[reason]
+  return detail ? `Desk observation: ${detail} Explain this once if still relevant. Do not repeat the unchanged rejected plan. Continue the conversation, or use an ordinary chat for a simple task requested by the person. An ordinary chat does not provide reviewed-plan acceptance.` : null
+}
 export const LEAD_OUTPUT_TOKENS = 4096
 
 export const leadRefusal = (wireCode: LeadControlRefusal): Error & { wireCode: LeadControlRefusal } => Object.assign(new Error(wireCode), { wireCode })
@@ -35,6 +50,8 @@ interface LeadControlsOptions {
   /** Reads the workers' spend again; a Lead request is refused while that spend is not known. */
   readonly meterSpend?: () => Promise<void>
   readonly stopEffects?: () => Promise<void>
+  /** Child execution may continue across multiple service.send results. */
+  readonly readRequestInFlight?: () => boolean
   /** The Lead's latest checks between turns; shown only while a goal runs. */
   readonly readPresence?: () => LeadPresence | null
   /** Hands the text to the goal's worker that is in a turn; false when none took it. */
@@ -52,6 +69,8 @@ export class LeadControls {
   #continueAgain = false
   #requestInFlight = false
   #automaticRequest = false
+  #requestWaitReason: string | null = null
+  #requestConversation = true
   #closed = false
   #lastRevision = -1
   #actionsGeneration = 0
@@ -159,7 +178,7 @@ export class LeadControls {
     return result
   }
   #inFlight(): boolean {
-    return this.#requestInFlight
+    return this.#requestInFlight || this.options.readRequestInFlight?.() === true
   }
   #resumable(state: LeadState): boolean {
     if (['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked || this.#inFlight()) return false
@@ -171,6 +190,7 @@ export class LeadControls {
   #wayOut(state: LeadState): LeadWindowProjection['wayOut'] {
     if (['stopped', 'accepted', 'declined'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked) return null
     if (state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(`${card.id}:${card.revision}`))) return 'decide-plan'
+    if (leadWaitNeedsChange(state.managementReason)) return null
     if (state.managementReason === 'lead-predecessor-unavailable' || state.managementReason === 'lead-predecessor-unverifiable') return null
     return this.#resumable(state) ? 'resume' : null
   }
@@ -244,9 +264,10 @@ export class LeadControls {
       return receipt
     }, !!origin)
   }) }
-  async #commitRequest<T>(commit: (committed: () => void) => Promise<T>, proactive = false): Promise<T> {
+  async #commitRequest<T>(commit: (committed: () => void) => Promise<T>, proactive = false,
+    waitReason = this.options.journal.state.managementReason, conversation = true): Promise<T> {
     let committed = false
-    try { return await commit(() => { committed = true; this.#requestInFlight = true; this.#automaticRequest = proactive }) }
+    try { return await commit(() => { committed = true; this.#requestInFlight = true; this.#automaticRequest = proactive; this.#requestWaitReason = waitReason; this.#requestConversation = conversation }) }
     finally { if (committed) this.#detachContinue() }
   }
   #detachContinue(forcePublication = false): void {
@@ -289,15 +310,19 @@ export class LeadControls {
       const messages: MessagesTurn[] = journal.state.messages.filter(message => message.role !== 'system').map(message => ({
         role: message.role as 'user' | 'assistant', content: [{ type: 'text' as const, text: message.text }],
       }))
+      const waitReason = this.#requestWaitReason
+      this.#requestWaitReason = null
+      const recovery = leadRecoveryContext(waitReason)
+      if (recovery) messages.push({ role: 'user', content: [{ type: 'text', text: recovery }] })
       // Once a plan is approved every request ends with the contract, because the standing instructions say it
       // arrives in a message and the history above holds only words. Before that, a request still ends in a user turn.
       const { contract, steps } = journal.state
       if (contract) messages.push({ role: 'user', content: leadContinuation({ contract, steps, runs: leadPlanRuns(journal.state), mayProposeNewPlan: canReplaceLeadPlan(journal.state),
         personActions: await this.options.readPersonActions?.() ?? [] }) })
       else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: [
-        { type: 'text', text: 'No plan is approved yet. Continue with a plan for the person to approve.' },
+        { type: 'text', text: 'Continue the conversation from the person\'s latest message. Answer directly or use an ordinary chat for a task. Offer a reviewed plan only when the work needs that workflow; no plan has been approved.' },
       ] })
-      const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages, ...(proactive ? { proactive: true, wakeSource: journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const } : {}) })
+      const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages, conversation: this.#requestConversation, ...(proactive ? { proactive: true, wakeSource: journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const } : {}) })
       if (result.text) await service.assertPublic(result.text)
       this.#requestInFlight = this.#continueAgain
       if ((proactive ? result.proactive : result.text) && !['accepted', 'declined', 'stopped'].includes(journal.state.phase)) {
@@ -338,7 +363,7 @@ export class LeadControls {
         if (card.type === 'waiting') await this.options.decidePerson(card, decision, contract)
         else if (!(card.publication === 'push' && decision.choice === 'decline')) await this.options.decideResult(card, decision, contract)
       } : undefined, committed)
-    if (card.type === 'plan' && decision.choice === 'approve') await this.#commitRequest(commit)
+    if (card.type === 'plan' && decision.choice === 'approve') await this.#commitRequest(commit, false, null, false)
     else {
       // Result/person validation can read several runs while holding the writer.
       // Give it a fresh spend reading even when the previous one is still young;
@@ -432,7 +457,7 @@ export class LeadControls {
     if (wayOut === 'decide-plan') throw leadRefusal('lead-plan-pending')
     if (this.#inFlight()) throw leadRefusal('lead-request-in-flight')
     if (wayOut !== 'resume') throw leadRefusal('lead-no-person-wait')
-    await this.#commitRequest(committed => this.options.journal.resume(parsed.expectedRevision, this.#unanswered(), committed))
+    await this.#commitRequest(committed => this.options.journal.resume(parsed.expectedRevision, this.#unanswered(), committed), false, reason, false)
     return this.#projection()
   }) }
 }

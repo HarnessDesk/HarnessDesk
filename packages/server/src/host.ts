@@ -9,6 +9,9 @@ import { GitGateway } from './git-gateway/index.js'
 import { LeadPrFollow, type LeadPrFollowOptions } from './lead/pr-follow.js'
 import { leadPublicationPorts } from './lead/pr-publication.js'
 import { LeadPersonActions } from './lead/person-actions.js'
+import { LeadChatWatches } from './lead/chat-watches.js'
+import { LeadChats } from './lead/chats.js'
+import { loadLeadProjectPolicy } from './lead/project-policy.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
 import { phoneLinkOff } from './phone-link.js'
 import { PhoneWorkspace } from './phone-workspace.js'
@@ -20,7 +23,8 @@ import { LoadoutStore, LoadoutRecorder } from './loadouts.js'
 import { readKeptTranscriptFile } from './kept-transcript.js'
 import { Storage } from './storage.js'
 import { SessionWorktrees } from './session-worktrees.js'
-import { archiveConversation } from './methods/sessions.js'
+import { queueTurn, sendTurn } from './methods/turns.js'
+import { archiveConversation, createConversation } from './methods/sessions.js'
 import { readProcessTable, resourcesFromProcessTable } from './runtime-resources.js'
 import { retainRuntimeNotice } from './runtime-notices.js'
 import { AccountReads } from './account-reads.js'
@@ -820,6 +824,7 @@ export class Host {
   readonly #harnessDeskAccount: HarnessDeskAccount
   #leadService: LeadService | null = null
   #leadControls: LeadControls | null = null
+  #leadChats: LeadChats | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
   #leadPlannerFiles: LeadPlanner | null = null
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
@@ -3576,6 +3581,26 @@ export class Host {
     if (!this.#leadReady) throw new Error('lead-host-starting')
     if (this.#leadService) throw new Error('lead-service-exists')
     const { journal, project } = options
+    this.#leadChats = new LeadChats({ project, state: () => journal.state, now: () => Date.now(),
+      managementAvailable: () => this.#leadService?.managementAvailable === true,
+      noteDispatchNotStarted: id => journal.noteDispatchNotStarted(id),
+      member: () => this.#leadBudgets.port.member(project),
+      context: async call => {
+        const desk = journal.state.policy
+        if (!desk) throw new Error('lead-policy-unavailable')
+        const projectPolicy = await loadLeadProjectPolicy(project.path, desk)
+        return { ...(await options.resolveTool(call)).context, desk, projectPolicy, project }
+      },
+      index: this.#sessionIndex,
+      cwd: async (runtime, id) => this.registry.get(runtime, id)?.session.cwd ?? this.#sessionIndex.get(runtime, id)?.cwd ?? null,
+      live: (runtime, id) => {
+        const held = this.registry.get(runtime, id)
+        return { running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0 }
+      },
+      work: this.#phoneWorkView(),
+      watches: new LeadChatWatches(join(this.#state.directory, 'lead', 'chats.json')),
+      publish: params => this.#push({ method: 'lead/chat/changed', params }),
+    })
     let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
     this.onDispose(() => budgetOwner.close())
     this.onDispose(journal.onChange(() => {
@@ -3637,7 +3662,7 @@ export class Host {
       },
       recover: () => this.#leadBudgets.recover(),
       openDoor: async admission => openLeadClientDoor({ host: this, logger: this.#logger, home: this.#state.directory,
-        hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission }) }),
+        hostVersion: this.options.version ?? '0.1.0', onWithdrawn: withdraw, authority: await createLeadClientAuthority({ host: this, project: project.path, owned: [], admission, readChatTarget: id => this.#leadChats!.canRead(id) }) }),
       stopOwned,
     })
     const ownedWorker = (runtime: string, sessionId: string, includeClosed = false) => {
@@ -3742,6 +3767,7 @@ export class Host {
         await this.#leadAssembly.rememberProject(root)
         Object.assign(project, leadProjectOf(root))
       },
+      readRequestInFlight: () => this.#leadService?.requestInFlight ?? false,
       service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
       now: () => Date.now(), nextId: () => `lead-card-${randomUUID()}`, push: notification => this.#push(notification),
       publishResult: (card, decision, contract) => follow.accept(card, decision, contract),
@@ -5029,6 +5055,8 @@ export class Host {
       phoneWorkspace: this.#phoneWorkspaceView(),
       phoneWork: this.#phoneWorkView(),
       leadWakesRead: async () => (await this.#leadWindow()).readWakes(),
+      leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
+        start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),
@@ -5274,7 +5302,7 @@ export class Host {
         drain: (record) => this.#drain(record),
         nextId: () => this.#nextQueuedId(),
         busy: (record) => this.#queueBusy(record),
-        sendNow: (record, input, held) => this.#sendNow(record, input, held),
+        sendNow: (record, input, held, effectStarted, admitLive) => this.#sendNow(record, input, held, effectStarted, admitLive),
       },
       accounts: {
         add: (runtime, gateway, name) => this.#addAccount(runtime, gateway, name),
@@ -7215,25 +7243,36 @@ export class Host {
     return stable
   }
 
-  async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true): Promise<Session> {
+  async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: (cwd: string) => Promise<void>): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
-    if (held?.live && held.session.itemsLoaded && held.running.size > 0) return held.session
+    if (held?.live && held.session.itemsLoaded && held.running.size > 0) {
+      await admitCwd?.(held.live.settings().cwd)
+      return held.session
+    }
     // Reading the desk's own history needs no working agent process.
     const health = runtime.health()
     if (health.state === 'unavailable' && health.reason !== 'unknown' && !held?.live) {
+      if (admitCwd) throw new Error('The chat project location cannot be verified while its agent is unavailable.')
       const kept = await this.#transcripts.recover(runtime.info.id, id) ??
         await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
       if (kept) return { ...kept, deskCopy: true }
     }
     const scoped = await this.#scopedRead(runtime, id, allowReopen)
-    if (scoped) return scoped
+    if (scoped) {
+      if (admitCwd) throw new Error('The chat project location cannot be verified from its retained transcript.')
+      return scoped
+    }
     const source = await this.#sourceState(runtime, id)
-    if (source && source.kind !== 'changed') {
+    if (!admitCwd && source && source.kind !== 'changed') {
       const cached = await this.#transcripts.recover(runtime.info.id, id)
       if (cached) return { ...held?.session, ...cached, deskCopy: source.kind === 'gone' }
     }
     try {
-      const session = { ...await this.#transcripts.enrich(await runtime.readSession(id)),
+      const raw = await runtime.readSession(id)
+      // The index owns the desk's display location, not proof of a runtime
+      // transcript's scope. Check the body being returned before replacing cwd.
+      await admitCwd?.(raw.cwd)
+      const session = { ...await this.#transcripts.enrich(raw),
         ...(runtime.info.capabilities.sourceTranscript ? { deskCopy: false } : {}) }
       if (this.#sessionIndex.fillMissingMetadata(session)) this.#sessionIndexRepos.read(session.cwd)
       session.cwd = this.#sessionIndex.get(runtime.info.id, id)?.cwd || session.cwd
@@ -7247,6 +7286,9 @@ export class Host {
       }
       return this.#preserveReadRecency(session)
     } catch (error) {
+      // A retained display copy cannot prove the current raw location, and a
+      // scope refusal must never fall back to bytes from that same old index.
+      if (admitCwd) throw error
       // A conversation this host started and is still holding open was
       // watched item by item; what the registry has *is* the transcript.
       // Codex 0.153.0 answers a `thread/read` with turns on a thread it is
@@ -7332,7 +7374,8 @@ export class Host {
    * fence before and after reopening it and is counted as dispatching; sending through it is that same dispatch, not
    * a second one asking the same question again.
    */
-  async #sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession): Promise<TurnId> {
+  async #sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession, effectStarted?: () => void,
+    admitLive?: (live: AgentSession) => Promise<void>): Promise<TurnId> {
     const key = recordKey(record)
     // The mark is owned: only the send that set it may take it off. A send
     // whose deadline passed, and whose agent then answered after a later send
@@ -7352,7 +7395,12 @@ export class Host {
     // would hold the whole process open until it fired.
     deadline.unref()
     try {
-      return await (held ? held.send(input) : this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, live => live.send(input)))
+      const send = async (live: AgentSession) => {
+        if (admitLive) await admitLive(live)
+        effectStarted?.()
+        return live.send(input)
+      }
+      return await (held ? send(held) : this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, send))
     } catch (error) {
       release()
       throw error
@@ -7400,7 +7448,14 @@ export class Host {
       if (!sending) return
       this.#pushQueue(record)
       try {
-        await this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, current => current.send(sending.input))
+        await this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, async current => {
+          const admit = this.registry.queuedAdmission(record, sending.id)
+          if (admit) {
+            await admit(current)
+            if (!record.queue.messages.some(message => message.id === sending.id)) throw new Error('The queued message was cancelled before dispatch.')
+          }
+          return current.send(sending.input)
+        })
         this.registry.cancelQueued(record, sending.id)
         this.#pushQueue(record)
       } catch (error) {
@@ -9479,6 +9534,27 @@ export class Host {
     })
   }
 
+  async leadChatActivities(): Promise<readonly import('./lead/chats.js').LeadChatActivity[]> {
+    return this.#leadChats?.activities() ?? []
+  }
+
+  get leadChats(): Pick<LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop'> {
+    if (!this.#leadChats || this.#disposed) throw leadRefusal('lead-unavailable')
+    return this.#leadChats
+  }
+
+  #scopedLiveAdmission(params: { runtime: RuntimeId; sessionId: SessionId }, admitCwd?: (cwd: string) => Promise<void>): ((live: AgentSession) => Promise<void>) | undefined {
+    if (!admitCwd) return undefined
+    return async live => {
+      const cwd = live.settings().cwd
+      await admitCwd(cwd)
+      // A changed handle/location during asynchronous scope checks must not
+      // inherit the admission of the handle that was actually inspected.
+      if (this.registry.get(params.runtime, params.sessionId)?.live !== live || !samePath(live.settings().cwd, cwd) ||
+        !this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('The chat project scope changed before dispatch.')
+    }
+  }
+
   /** The phone's snapshot, conversation and approval answers, built on first use over the same planes. */
   #phoneWorkView(): PhoneWork {
     return this.#phoneWork ??= new PhoneWork({
@@ -9492,9 +9568,9 @@ export class Host {
       isOwn: (runtime, id, includeArchived) => this.#sessionIndex.isOwn(runtime, id, includeArchived),
       summary: (runtime, id) => this.#sessionIndex.get(runtime, id),
       // Phone reads never admit a removed conversation or restore an archive, even if the desk changes it during I/O.
-      read: async (runtime, id) => {
+      read: async (runtime, id, admitCwd) => {
         const held = this.registry.get(runtime, id)
-        const session = held?.session.itemsLoaded ? held.session : await this.#readTranscript(this.#runtime({ runtime }), id, false)
+        const session = !admitCwd && held?.session.itemsLoaded ? held.session : await this.#readTranscript(this.#runtime({ runtime }), id, false, admitCwd)
         if (!this.#sessionIndex.isOwn(runtime, id, true)) throw new Error('That is not a session this desk can show.')
         return session
       },
@@ -9514,13 +9590,16 @@ export class Host {
         await this.#ensureStarted(this.#runtime({ runtime }))
         return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params))
       },
-      create: params => this.call('session/create', params),
-      send: async params => { await this.call('turn/send', params) },
-      queue: async params => {
+      create: (params, effectStarted) => createConversation(this.#context, params, effectStarted),
+      send: async (params, admitCwd) => {
+        this.#noteReach(params)
+        await sendTurn(this.#context, params, this.#scopedLiveAdmission(params, admitCwd))
+      },
+      queue: async (params, admit, effectStarted, admitCwd) => {
         if (!this.registry.get(params.runtime, params.sessionId)) {
           // A preload is not an explicit desk open: it must not undo a removal
           // or restore an archive while its transcript is being read.
-          const session = await this.#readTranscript(this.#runtime(params), makeSessionId(params.sessionId), false)
+          const session = await this.#readTranscript(this.#runtime(params), makeSessionId(params.sessionId), false, admitCwd)
           if (!this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('That is not a session this desk can show.')
           this.registry.upsert(session, this.registry.get(params.runtime, params.sessionId)?.live ?? null)
         }
@@ -9528,9 +9607,19 @@ export class Host {
         if (this.registry.get(params.runtime, params.sessionId)?.queue.status === 'paused') {
           throw new Error('Earlier replies are paused. Continue them on the desk before replying.')
         }
-        return this.call('turn/queue', params)
+        await admit?.()
+        if (!this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('That is not a session this desk can show.')
+        if (this.registry.get(params.runtime, params.sessionId)?.queue.status === 'paused') throw new Error('Earlier replies are paused. Continue them on the desk before replying.')
+        this.#noteReach(params)
+        return queueTurn(this.#context, params, effectStarted, this.#scopedLiveAdmission(params, admitCwd))
       },
-      interrupt: async params => { await this.call('turn/interrupt', params) },
+      interrupt: async (params, effectStarted, admitCwd) => {
+        this.#noteReach(params)
+        const live = await this.#live(params)
+        await this.#scopedLiveAdmission(params, admitCwd)?.(live)
+        effectStarted?.()
+        await live.interrupt()
+      },
       hasSecret: (text) => leadContainsSecret(text),
       now: () => Date.now(),
     })
@@ -9566,6 +9655,13 @@ export class Host {
         const session = event.type === 'session/started' ? event.session.id :
           event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : null
         if (session) this.#seatActivities.session(String(runtime), String(session))
+      }
+    }
+    if (!this.#disposed && this.#leadChats && notification.method === 'event') {
+      const { runtime, event } = notification.params
+      if (['turn/started', 'turn/completed', 'approval/requested', 'approval/resolved', 'session/status', 'session/queue', 'session/closed', 'session/detached'].includes(event.type)) {
+        const id = event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : null
+        if (id) void this.#leadChats.changed(runtime, id).catch(() => {})
       }
     }
     // What a trigger Goal's waits are made of: named again once the current pass ends.

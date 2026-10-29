@@ -1119,3 +1119,18 @@ test('the supervisor starts the child on the chosen runtime, with that runtime\'
     assert.equal(options.env['ELECTRON_RUN_AS_NODE'], undefined, 'a plain Node needs no Electron switch')
   } finally { await f.supervisor.stop() }
 })
+
+test('private child activity is validated, distinct from presence and cleared when the child exits', async () => {
+  const { parseLeadIpc } = await import('../src/child-ipc.js')
+  assert.throws(() => parseLeadIpc({ version: 1, type: 'activity', busy: 'yes' }), /lead-ipc-invalid/)
+  assert.throws(() => parseLeadIpc({ version: 1, type: 'activity', busy: true, presence: {} }), /lead-ipc-invalid/)
+  assert.doesNotThrow(() => parseLeadIpc({ version: 1, type: 'activity', busy: true }))
+  const activity: boolean[] = []
+  const f = await fixture({ onActivity: (busy: boolean) => { activity.push(busy) } })
+  await f.supervisor.ensure()
+  f.child.stdout.write(frame({ version: 1, type: 'activity', busy: true }))
+  f.child.stdout.write(frame({ version: 1, type: 'activity', busy: true }))
+  assert.deepEqual(activity, [true])
+  await f.supervisor.stop()
+  assert.deepEqual(activity, [true, false])
+})

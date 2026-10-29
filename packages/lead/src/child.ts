@@ -155,6 +155,7 @@ export const runLeadChild = (options: ChildOptions = {}) => {
           },
         }) }
         loop = createLeadLoop({ journal, desk, project, ...(config.seats ? { seats: config.seats } : {}), ...(config.memory?.length ? { memory: config.memory } : {}),
+          onActivity: busy => { if (!closed) send({ type: 'activity', busy }) },
           onPresence: ({ wakes, readings }) => { if (!closed) send({ type: 'presence', presence: { ...wakes, readings } }) },
           clock: { now: Date.now, schedule: callback => { const timer = setTimeout(callback, 50); return () => clearTimeout(timer) } },
           nextId: randomUUID, messages: { apiKey: 'host-owned-provider-key', model: config.model, prices: config.prices, transport: { send: request => rpc('provider-send', [request.requestId, request.body]) as ReturnType<MessagesTransport['send']> }, // hd-secrets-ok: public marker; the host adds the real header
@@ -218,9 +219,10 @@ export const runLeadChild = (options: ChildOptions = {}) => {
         if (!loop || (message.id as number) <= requestId) throw denied()
         requestId = message.id as number
         const input = ipcObject(message.input)
-        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive', 'wakeSource'] as const).filter(key => Object.hasOwn(input, key))])
+        ipcObject(input, ['messages', 'maxTokens', ...(['system', 'proactive', 'conversation', 'wakeSource'] as const).filter(key => Object.hasOwn(input, key))])
         if (input.wakeSource !== undefined && !['schedule', 'desk-change', 'person', 'trigger'].includes(String(input.wakeSource))) throw denied()
         if (input.proactive !== undefined && typeof input.proactive !== 'boolean') throw denied()
+        if (input.conversation !== undefined && typeof input.conversation !== 'boolean') throw denied()
         const result = await loop.request(message.input as unknown as LeadMessagesRequest)
         if (loop.state.reason === 'lead-connection-ended') send({ type: 'desk-lost' })
         else send({ type: 'response', id: message.id, result: result ?? { status: 'refused', reason: 'lead-management-paused' } })
