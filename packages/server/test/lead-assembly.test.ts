@@ -73,12 +73,13 @@ test('plans freeze to the sha256 of their canonical JSON, projects are named by 
   assert.deepEqual(leadSeatChoices(['fixture'])?.implement.map(seat => seat.runtime), ['fixture'])
 })
 
-test('a plan that could never be accepted is refused before any card, with its own code', async () => {
+test('a plan that could never be accepted is refused before any card, with its own code', async t => {
   const home = tempDir('lead-assembly-seats-'), checked: string[] = []
   let freeze!: (value: typeof contract) => Promise<typeof contract>
   let unfit: 'lead-plan-unseatable' | 'lead-plan-not-independent' | null = 'lead-plan-unseatable'
   const assembly = new LeadAssembly({ home, now: () => 1, workspace: async () => contract.project.path, readySeats: () => ['fixture'], heldPreview: () => null,
     seatsHold: async (_root, step) => { checked.push(step.id); return unfit }, create: async inputs => { freeze = inputs.freezePlan } })
+  t.after(() => assembly.close())
   await assembly.ensure()
   await assert.rejects(freeze(contract), (error: any) => error.wireCode === 'lead-plan-unseatable')
   unfit = 'lead-plan-not-independent'

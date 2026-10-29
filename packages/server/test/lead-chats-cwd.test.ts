@@ -259,6 +259,179 @@ for (const action of ['cancel', 'clear', 'policy'] as const) test(`queued dispat
   }
 })
 
+for (const continuation of ['idle', 'new-turn'] as const) test(`cancelled Lead admission may refuse without holding the person tail: ${continuation}`, { timeout: 10000 }, async t => {
+  const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
+  r.runtime.refusesWhileBusy = true
+  r.setCwd(r.project.path)
+  const record = r.host.registry.upsert(r.session, live)
+  const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
+  const sent: string[] = [], warnings: string[] = [], observeSend = r.runtime.onSend
+  r.runtime.onSend = (session, text, options) => { sent.push(text); observeSend?.(session, text, options) }
+  let entered!: () => void, release!: () => void, delivered!: () => void
+  const admitting = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const tailDrained = new Promise<void>(resolve => { delivered = resolve })
+  let refusal = ''
+  t.after(r.host.addBroadcaster(notification => {
+    if (notification.method !== 'event') return
+    const event = notification.params.event
+    if (event.type === 'notice' && event.level === 'warning') warnings.push(event.message)
+    if (event.type === 'session/queue' && event.sessionId === r.session.id &&
+      event.queue.messages.length === 0 && sent.includes('Person follow-up')) delivered()
+  }))
+  await r.host.call('turn/send', { ...target, input: [{ type: 'text', text: 'Person message' }] })
+  assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
+  const selected = record.queue.messages[0]!
+  if (continuation === 'idle') await r.host.call('turn/queue', { ...target, input: [{ type: 'text', text: 'Person follow-up' }] })
+  const queuedAdmission = r.host.registry.queuedAdmission.bind(r.host.registry)
+  r.host.registry.queuedAdmission = (one, id) => {
+    const admit = queuedAdmission(one, id)
+    if (id !== selected.id || !admit) return admit
+    return async current => {
+      entered(); await held
+      try { await admit(current) } catch (error) { refusal = String(error); throw error }
+    }
+  }
+  // Awaitable dispatch cleanup gives the test a boundary before trailing idle
+  // or the newer turn completes. No flush is used to deliver the surviving tail.
+  r.host.registry.pauseQueue(record, 'Waiting for explicit delivery')
+  live.finish()
+  const draining = r.host.call('turn/queue/flush', target)
+  try {
+    await admitting
+    await r.host.call('turn/queue/cancel', { ...target, id: selected.id })
+    if (continuation === 'idle') {
+      r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'active' } })
+      await r.journal.setPolicy({ version: 1, revision: 2, mode: 'plan', rules: [] })
+    } else {
+      assert.equal((await r.host.call('turn/queue', { ...target, input: [{ type: 'text', text: 'New person turn' }] })).sent, true)
+      assert.equal((await r.host.call('turn/queue', { ...target, input: [{ type: 'text', text: 'Person follow-up' }] })).sent, false)
+      await r.journal.stop(async () => {})
+    }
+  } finally { release(); await draining }
+  assert.match(refusal, continuation === 'idle' ? /policy|mode|read/i : /stopped/i, 'production admission must actually refuse')
+  const beforeTail = continuation === 'idle' ? ['Person message'] : ['Person message', 'New person turn']
+  assert.deepEqual(sent, beforeTail, 'the cancelled Lead text never reaches the runtime')
+  assert.equal(record.queue.messages[0]?.state, 'queued')
+  assert.notEqual(record.queue.status, 'paused', 'a cancelled admission refusal is a normal skip')
+  assert.deepEqual(warnings, [])
+  r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
+  if (continuation === 'new-turn') {
+    assert.equal(record.queue.messages[0]?.state, 'queued', 'the newer person turn still owns delivery')
+    live.finish()
+  }
+  await tailDrained
+  live.finish()
+  r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
+  assert.deepEqual(sent, [...beforeTail, 'Person follow-up'])
+  assert.equal(record.queue.messages.length, 0)
+  assert.notEqual(record.queue.status, 'paused')
+  assert.deepEqual(warnings, [])
+})
+
+test('cancelling a queued item after runtime send begins retains a later rejection fence', { timeout: 10000 }, async t => {
+  const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
+  r.runtime.refusesWhileBusy = true
+  r.setCwd(r.project.path)
+  const record = r.host.registry.upsert(r.session, live)
+  const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
+  const sent: string[] = [], warnings: string[] = [], observeSend = r.runtime.onSend
+  r.runtime.onSend = (session, text, options) => { sent.push(text); observeSend?.(session, text, options) }
+  t.after(r.host.addBroadcaster(notification => {
+    if (notification.method === 'event' && notification.params.event.type === 'notice' &&
+      notification.params.event.level === 'warning') warnings.push(notification.params.event.message)
+  }))
+  await r.host.call('turn/send', { ...target, input: [{ type: 'text', text: 'Person message' }] })
+  assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
+  const selected = record.queue.messages[0]!
+  await r.host.call('turn/queue', { ...target, input: [{ type: 'text', text: 'Person follow-up' }] })
+  let entered!: () => void, release!: () => void
+  const sending = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const send = live.send.bind(live)
+  live.send = async (input, options) => {
+    const result = await send(input, options)
+    if (input.some(part => part.type === 'text' && part.text === 'Scoped follow-up')) {
+      entered(); await held
+      throw new Error('Synthetic runtime receipt lost after send began')
+    }
+    return result
+  }
+  r.host.registry.pauseQueue(record, 'Waiting for explicit delivery')
+  live.finish()
+  const draining = r.host.call('turn/queue/flush', target)
+  try {
+    await sending
+    assert.deepEqual(sent, ['Person message', 'Scoped follow-up'], 'the runtime has crossed the send boundary')
+    await r.host.call('turn/queue/cancel', { ...target, id: selected.id })
+  } finally { release(); await draining }
+  assert.equal(record.queue.status, 'paused')
+  assert.match(record.queue.reason ?? '', /Synthetic runtime receipt lost after send began/)
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0]!, /The queued message was not sent:.*Synthetic runtime receipt lost after send began/)
+  live.finish()
+  r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
+  assert.deepEqual(sent, ['Person message', 'Scoped follow-up'], 'idle must not bypass the uncertain runtime effect fence')
+  assert.equal(record.queue.messages.length, 1)
+  assert.equal(record.queue.messages[0]?.state, 'queued')
+  assert.equal(record.queue.status, 'paused')
+})
+
+test('cancelling a held Lead admission drains its surviving tail after trailing idle', { timeout: 10000 }, async t => {
+  const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
+  r.runtime.refusesWhileBusy = true
+  r.setCwd(r.project.path)
+  const record = r.host.registry.upsert(r.session, live)
+  const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
+  const sent: string[] = [], warnings: string[] = [], observeSend = r.runtime.onSend
+  r.runtime.onSend = (session, text, options) => { sent.push(text); observeSend?.(session, text, options) }
+  let entered!: () => void, release!: () => void, cleaned!: () => void, delivered!: () => void
+  const admitting = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const cancellationCleaned = new Promise<void>(resolve => { cleaned = resolve }), tailDrained = new Promise<void>(resolve => { delivered = resolve })
+  let released = false
+  t.after(r.host.addBroadcaster(notification => {
+    if (notification.method !== 'event') return
+    const event = notification.params.event
+    if (event.type === 'notice' && event.level === 'warning') warnings.push(event.message)
+    if (event.type === 'session/queue' && event.sessionId === r.session.id) {
+      if (released && event.queue.messages.length === 1) cleaned()
+      if (sent.includes('Person follow-up') && event.queue.messages.length === 0) delivered()
+    }
+  }))
+  await r.host.call('turn/send', { ...target, input: [{ type: 'text', text: 'Person message' }] })
+  const originalTurn = record.session.turns.find(turn => turn.status === 'inProgress')!
+  r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'active' } })
+  assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
+  const selected = record.queue.messages[0]!
+  assert.equal((await r.host.call('turn/queue', { ...target,
+    input: [{ type: 'text', text: 'Person follow-up' }] })).sent, false)
+  const queuedAdmission = r.host.registry.queuedAdmission.bind(r.host.registry)
+  r.host.registry.queuedAdmission = (one, id) => {
+    const admit = queuedAdmission(one, id)
+    if (id !== selected.id || !admit) return admit
+    return async current => { entered(); await held; await admit(current) }
+  }
+  live.finish()
+  try {
+    await admitting
+    assert.equal(record.session.status.type, 'active', 'completion preserves the trailing runtime status')
+    await r.host.call('turn/queue/cancel', { ...target, id: selected.id })
+  } finally { released = true; release() }
+  await cancellationCleaned
+  assert.deepEqual(sent, ['Person message'], 'the surviving tail waits while the runtime still reports active')
+  assert.equal(record.queue.messages[0]?.state, 'queued')
+  assert.notEqual(record.queue.status, 'paused')
+  assert.deepEqual(warnings, [])
+  r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
+  assert.equal(record.queue.messages[0]?.state, 'sending', 'trailing idle resumes the surviving tail without a flush')
+  // Repeated idle and completion notifications must share the in-flight drain.
+  r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
+  r.runtime.emit({ type: 'turn/completed', sessionId: r.session.id, turn: { ...originalTurn, status: 'completed' } })
+  await tailDrained
+  assert.deepEqual(sent, ['Person message', 'Person follow-up'])
+  assert.equal(record.queue.messages.length, 0)
+  assert.notEqual(record.queue.status, 'paused')
+  assert.deepEqual(warnings, [])
+})
+
 test('cancelling a held Lead admission leaves a new person follow-up behind its running turn', { timeout: 10000 }, async t => {
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.runtime.refusesWhileBusy = true
@@ -305,6 +478,10 @@ test('cancelling a held Lead admission leaves a new person follow-up behind its 
     assert.equal((await r.host.call('turn/queue', { ...target,
       input: [{ type: 'text', text: 'Person follow-up' }] })).sent, false)
   } finally { release(); await draining }
+  // A trailing idle notification from the preceding turn cannot override the
+  // newer unfinished person turn, even when that notification is repeated.
+  r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
+  r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
   assert.deepEqual(sent, ['Person message', 'New person turn'], 'neither follow-up is dispatched into the running turn')
   assert.equal(record.queue.messages.length, 1)
   assert.equal(record.queue.messages[0]?.state, 'queued', 'cancellation cleanup must not select the new tail while busy')
@@ -316,6 +493,45 @@ test('cancelling a held Lead admission leaves a new person follow-up behind its 
   live.finish()
   await r.host.call('turn/queue/flush', target)
   assert.deepEqual(sent, ['Person message', 'New person turn', 'Person follow-up'])
+  assert.equal(record.queue.messages.length, 0)
+  assert.notEqual(record.queue.status, 'paused')
+  assert.deepEqual(warnings, [])
+})
+
+test('idle notifications cannot drain a person follow-up while its first send awaits acceptance', { timeout: 10000 }, async t => {
+  const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
+  r.runtime.refusesWhileBusy = true
+  const record = r.host.registry.upsert(r.session, live)
+  const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
+  let entered!: () => void, release!: () => void, delivered!: () => void
+  const accepting = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const tailDrained = new Promise<void>(resolve => { delivered = resolve })
+  const send = live.send.bind(live), sent: string[] = [], warnings: string[] = [], observeSend = r.runtime.onSend
+  live.send = async (input, options) => {
+    if (input.some(part => part.type === 'text' && part.text === 'Person message')) { entered(); await held }
+    return send(input, options)
+  }
+  r.runtime.onSend = (session, text, options) => { sent.push(text); observeSend?.(session, text, options) }
+  t.after(r.host.addBroadcaster(notification => {
+    if (notification.method !== 'event') return
+    const event = notification.params.event
+    if (event.type === 'notice' && event.level === 'warning') warnings.push(event.message)
+    if (event.type === 'session/queue' && event.sessionId === r.session.id &&
+      event.queue.messages.length === 0 && sent.includes('Person follow-up')) delivered()
+  }))
+  const sending = r.host.call('turn/queue', { ...target, input: [{ type: 'text', text: 'Person message' }] })
+  try {
+    await accepting
+    assert.equal((await r.host.call('turn/queue', { ...target,
+      input: [{ type: 'text', text: 'Person follow-up' }] })).sent, false)
+    r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
+    r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
+    assert.equal(record.queue.messages[0]?.state, 'queued', 'the sendingNow marker still owns the first send')
+    assert.deepEqual(sent, [])
+  } finally { release(); assert.equal((await sending).sent, true) }
+  live.finish()
+  await tailDrained
+  assert.deepEqual(sent, ['Person message', 'Person follow-up'])
   assert.equal(record.queue.messages.length, 0)
   assert.notEqual(record.queue.status, 'paused')
   assert.deepEqual(warnings, [])

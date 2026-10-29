@@ -7455,16 +7455,21 @@ export class Host {
       const sending = this.registry.markSending(record)
       if (!sending) return
       this.#pushQueue(record)
+      let sendStarted = false
       try {
         await this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, async current => {
           const admit = this.registry.queuedAdmission(record, sending.id)
           if (admit) await admit(current)
           if (!record.queue.messages.some(message => message.id === sending.id)) { cancelled = true; return }
+          sendStarted = true
           return current.send(sending.input)
         })
         this.registry.cancelQueued(record, sending.id)
         this.#pushQueue(record)
       } catch (error) {
+        // An admission refusal cannot fail delivery of an already cancelled
+        // item. Once send began, however, a missing id says nothing about effects.
+        if (!sendStarted && !record.queue.messages.some(message => message.id === sending.id)) { cancelled = true; return }
         // Put it back exactly where it was and stop: the message is the thing
         // worth keeping, and a queue that kept firing into a broken agent would
         // burn the rest of it the same way.
@@ -8540,6 +8545,12 @@ export class Host {
         this.registry.pauseQueue(record, pauseReason(event.turn))
         this.#pushQueue(record)
       }
+    }
+    // Cancellation cleanup may still have seen the completed turn's active
+    // status. Its trailing idle notification resumes the surviving queue, but
+    // cannot deliver into a newer running turn or a send awaiting acceptance.
+    if (event.type === 'session/status' && event.status.type === 'idle' && record && !this.#queueBusy(record)) {
+      void this.#drain(record)
     }
     // Messages other agents left for this conversation go after the user's
     // own queue — the team module re-checks busyness and the queue itself,
