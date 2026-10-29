@@ -4592,3 +4592,13 @@ The host checks every ordinary chat against canonical project membership, actual
 Tracked chat state transitions are metadata, scoped and reauthorized by the client door. A bounded subscription baseline covers changes during a disconnect, and the model's wake gate coalesces them. Conversations are not Flow runs and never appear as fabricated reviewed results. Setup failures show the change needed and leave chat usable; transient interruptions may offer Resume. A new message includes trusted feedback about the prior rejected plan so that the model can correct it. Direct conversation turns do not park an unrelated approved plan for failing to start it.
 
 The screen, composer and navigation stay familiar. An ordinary active reply has its own Stop control; a finished reply leaves no planning banner. This supersedes the universal plan-first behavior, not the reviewed workflow's admission rules.
+
+## An earned description can take a narrow row's full width — 2026-10-29
+
+In the narrow Team Overview, the face and trailing control left a descriptive
+line with too little reading width. `ListRow` now offers `subtitleLayout="below"`:
+the face, name and control share a centred heading, followed by a description
+across the row's inner width. Narrow Overview seats use this composition for
+their role, work or unavailable reason. The shared list catalogue shows the
+same option. The browser regression measures visible word ranges at 240, 280
+and 320px preview viewports in both themes, including clipping and overflow.

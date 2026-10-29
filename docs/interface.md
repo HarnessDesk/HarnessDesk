@@ -1964,7 +1964,8 @@ Other evidence waits stay neutral, reading **Waiting** with their recorded
 reason in the Run strip; they do not raise Needs you in the Team or Run. A review waiting
 to be posted keeps its own reason and Findings action, alongside any evidence
 wait. The live line keeps pending release and trigger actions while these rows
-are shown; routing ids stay out of the reason. Below 800px Seats become list rows. A question,
+are shown; routing ids stay out of the reason. Below 800px Seats become list rows.
+Each description takes the row's full reading width below its name and controls. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 The selected Team and the Team owning the open Seat start expanded. Working

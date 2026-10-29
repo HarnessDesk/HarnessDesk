@@ -2,6 +2,47 @@ import { expect, test } from '@playwright/test'
 import { closeTeamDetails, selectTeamPage, teamSeats } from './team-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`Team Overview: seat descriptions keep a readable line in the narrowest preview in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    for (const width of [240, 280, 320]) {
+      await page.setViewportSize({ width, height: 1100 })
+      await page.goto(`/preview.html?team-overview&theme=${theme}`)
+      await page.evaluate(() => document.fonts.ready)
+      const overview = page.locator('#team-overview-narrow [data-slot="team-overview"]')
+      await expect(overview).toHaveAttribute('data-layout', 'narrow')
+      const descriptions = overview.locator('[data-seat] [data-slot="list-row-subtitle"]').filter({ hasText: 'Reviewer · Alpha' })
+      await expect(descriptions).toHaveCount(3)
+      for (const description of await descriptions.all()) {
+        const reading = await description.evaluate(element => {
+          const lines = new Map<number, string[]>()
+          const bounds = element.getBoundingClientRect()
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+          let clipped = false
+          for (let node; (node = walker.nextNode());) {
+            if (node.parentElement?.closest('.sr-only')) continue
+            for (const word of node.textContent!.matchAll(/[^\s·]+/g)) {
+              const range = document.createRange()
+              range.setStart(node, word.index!)
+              range.setEnd(node, word.index! + word[0].length)
+              const box = range.getBoundingClientRect()
+              if (box.width <= 1) continue
+              const line = Math.round(box.top)
+              lines.set(line, [...(lines.get(line) ?? []), word[0]])
+              clipped ||= box.left < bounds.left - 1 || box.right > bounds.right + 1
+            }
+          }
+          return { lines: [...lines.values()], clipped, overflow: element.scrollWidth > element.clientWidth }
+        })
+        expect(reading.lines, `seat description at viewport ${width}`).toEqual([['Reviewer', 'Alpha']])
+        expect(reading.clipped).toBe(false)
+        expect(reading.overflow).toBe(false)
+      }
+      expect(await overview.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    }
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
   test(`Team Overview: precedence, resting ink, faces, fold and pane width in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-overview&theme=${theme}`)

@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
@@ -23,6 +24,11 @@ import { cn } from '@/lib/utils'
  * the title in more words. A small state light belongs in `mark`, beside
  * the text column, so it never indents the title alone. An empty mark slot
  * reserves the same column for read and unread rows.
+ *
+ * `subtitleLayout="below"` gives an earned description the whole row's
+ * reading width. The face, name and control share one centred heading;
+ * the description follows beneath it. This supports narrow panes whose
+ * remaining text column cannot hold a readable sentence.
  */
 
 /* `title` is omitted from the div's own props before being re-declared. It is
@@ -42,6 +48,8 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
   subtitle?: React.ReactNode
   /** An earned sentence wraps whole; names, paths and compact facts truncate. */
   wrapSubtitle?: boolean
+  /** Below the heading and controls, using the row's whole reading width. */
+  subtitleLayout?: 'column' | 'below'
   /** The reading: a figure, a chip, a `Delta`, a menu. */
   trail?: React.ReactNode
   /** Below the title, full width — a `Progress`, a set of chips. */
@@ -100,6 +108,7 @@ const ListRow = ({
   wrapTitle,
   subtitle,
   wrapSubtitle,
+  subtitleLayout,
   trail,
   meta,
   interactive,
@@ -110,6 +119,23 @@ const ListRow = ({
   as = 'div',
   ...props
 }: ListRowProps) => {
+  const below = subtitleLayout === 'below'
+  const Heading = below ? 'div' : Fragment
+  const description = subtitle != null ? (
+    <div
+      data-slot="list-row-subtitle"
+      {...(wrapSubtitle ? { 'data-wrap-subtitle': '' } : {})}
+      className={cn(
+        'min-w-0 text-(--hd-muted-foreground)',
+        size === 'sm' ? 'text-xs' : 'mt-(--hd-table-line-gap)',
+        size === 'default' && (wrapSubtitle ? 'text-(length:--hd-table-sentence-size)' : 'text-(length:--hd-table-fact-size)'),
+        wrapSubtitle ? 'whitespace-normal [overflow-wrap:normal]' : 'truncate',
+        density === 'compact' && 'leading-(--hd-line-xs)',
+      )}
+    >
+      {subtitle}
+    </div>
+  ) : null
   /* The props are the div's; `button` is the narrower element and JSX
      cannot resolve the union on its own. */
   const Element = as as 'div'
@@ -118,6 +144,7 @@ const ListRow = ({
     data-slot="list-row"
     data-hd-table={density}
     data-size={size}
+    {...(below ? { 'data-subtitle-layout': 'below' } : {})}
     {...(as === 'button' ? { type: 'button' as const } : {})}
     /* `aria-current` rather than a class alone: a screen reader moving down a
        roster is told which conversation is open, which is the whole reason the
@@ -162,10 +189,12 @@ const ListRow = ({
       selected &&
         nav &&
         'bg-[var(--hd-sidebar-selected,var(--hd-selected))] hover:bg-[var(--hd-sidebar-selected,var(--hd-selected))] text-[var(--hd-sidebar-selected-foreground,inherit)] [&_[data-slot=list-row-subtitle]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] [&_[data-slot=list-row-trail]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))]',
+      below && 'flex-col items-stretch gap-0',
       className,
     )}
     {...props}
   >
+    <Heading {...(below ? { 'data-slot': 'list-row-heading', className: cn('flex min-w-0 items-center', size === 'sm' ? 'gap-2' : 'gap-(--hd-table-lead-gap)') } : {})}>
     {lead != null && (
       <span
         data-slot="list-row-lead"
@@ -197,21 +226,7 @@ const ListRow = ({
       >
         {title}
       </div>
-      {subtitle != null && (
-        <div
-          data-slot="list-row-subtitle"
-          {...(wrapSubtitle ? { 'data-wrap-subtitle': '' } : {})}
-          className={cn(
-            'text-(--hd-muted-foreground)',
-            size === 'sm' ? 'text-xs' : 'mt-(--hd-table-line-gap)',
-            size === 'default' && (wrapSubtitle ? 'text-(length:--hd-table-sentence-size)' : 'text-(length:--hd-table-fact-size)'),
-            wrapSubtitle ? 'whitespace-normal [overflow-wrap:normal]' : 'truncate',
-            density === 'compact' && 'leading-(--hd-line-xs)',
-          )}
-        >
-          {subtitle}
-        </div>
-      )}
+      {!below && description}
       {meta != null && <div className="mt-1.5">{meta}</div>}
     </div>
     {trail != null && (
@@ -226,6 +241,8 @@ const ListRow = ({
         {trail}
       </div>
     )}
+    </Heading>
+    {below && description}
   </Element>
   )
 }

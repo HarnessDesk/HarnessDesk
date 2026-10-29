@@ -812,6 +812,14 @@ const ListBoard = () => (
               wrapSubtitle
               trail={<Progress value={19} tone="warning" className="w-24" />}
             />
+            <ListRow
+              lead={<AvatarStack members={[AGENTS[0]!]} />}
+              title="Review the changes"
+              subtitle="Waiting for the workspace checks before the next review."
+              wrapSubtitle
+              subtitleLayout="below"
+              trail={<Chip tone="neutral">Waiting</Chip>}
+            />
             <ListRow size="sm" nav title="Board" />
             <ListRow size="sm" nav selected title="Chat" />
           </ListRows>
