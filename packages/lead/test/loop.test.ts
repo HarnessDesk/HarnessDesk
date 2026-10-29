@@ -1796,3 +1796,24 @@ test('closing a pending continuation clears private activity and cancels its sch
   assert.deepEqual(activity, [true, false])
   assert.equal(s.fake.requests.length, 1)
 })
+
+
+for (const name of ['chat_start', 'chat_send'] as const) test(`loop tools-refused fallback preserves specific ${name} uncertainty`, async () => {
+  const s = await fixture([message([tool('chat', name, name === 'chat_start' ? { text: 'Inspect' } : { id: 'fixture:chat', text: 'Inspect' })], { stop_reason: 'tool_use' })])
+  const original = s.options.desk.call
+  let effects = 0
+  s.options.desk.call = async (method: string, params: unknown) => {
+    if (method === 'lead/chat/start' || method === 'lead/chat/send') { effects++; throw new Error('Lost effect response') }
+    return original(method, params)
+  }
+  const loop = lead.createLeadLoop(s.options)
+  try {
+    await loop.request(input)
+    assert.equal(effects, 1)
+    assert.equal(s.journal.state.managementReason, 'lead-chat-effect-uncertain')
+    assert.equal(s.journal.state.phase, 'waiting-for-user')
+    await s.tick(); await loop.idle()
+    assert.equal(effects, 1)
+    assert.equal(s.fake.requests.length, 1)
+  } finally { await loop.close() }
+})

@@ -6,7 +6,7 @@ import type { LeadMood } from './lead-faces'
 export interface LeadPresence {
   readonly mood: LeadMood
   readonly word: string
-  /** Things only the person can do now: live approvals, a plan, a resume. */
+  /** Things only the person can do now: approvals, a plan, or recovery. */
   readonly needs: number
   readonly goalActive: boolean
 }
@@ -23,7 +23,7 @@ export const leadPresence = (state: LeadState): LeadPresence => {
   const reviewed = !!thread.contract || !!thread.pr || thread.cards.some(card => card.type === 'plan')
   const goalActive = reviewed && started && !ENDED.has(thread.state)
   if (state.waitReason === 'lead-result-awaiting-person') return { mood: 'done', word: 'Done · ready to accept', needs: 1, goalActive }
-  const needs = state.personActions.length + (state.wayOut ? 1 : 0) + (thread.state === 'awaiting-plan' && state.wayOut !== 'decide-plan' ? 1 : 0)
+  const needs = state.personActions.length + (state.wayOut || state.waitReason === 'lead-chat-effect-uncertain' ? 1 : 0) + (thread.state === 'awaiting-plan' && state.wayOut !== 'decide-plan' ? 1 : 0)
   if (needs || thread.state === 'waiting-for-user') return { mood: 'alert', word: `${Math.max(needs, 1)} need${Math.max(needs, 1) === 1 ? 's' : ''} you`, needs: Math.max(needs, 1), goalActive }
   if (thread.state === 'stopped') return { mood: 'sleeping', word: 'Paused', needs: 0, goalActive: false }
   if (thread.state === 'accepted') return { mood: 'done', word: 'Done', needs: 0, goalActive: false }

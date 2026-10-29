@@ -14,7 +14,7 @@ import { commandForApproval, commandTitle, projectPath, scrub, scrubText } from 
  */
 
 /** Trusted in-process completeness information; never serialized on the phone wire. */
-export interface ThreadProjection { readonly omittedTurns: number; readonly truncated: boolean }
+export interface ThreadProjection { readonly omittedSourceTurns: number; readonly truncated: boolean }
 const projectionKey = Symbol('phone-thread-projection')
 export const threadProjection = (thread: PhoneWorkThread): ThreadProjection | undefined =>
   (thread as PhoneWorkThread & { readonly [projectionKey]?: ThreadProjection })[projectionKey]
@@ -336,8 +336,8 @@ export interface ThreadInput {
 
 export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWorkThread => {
   const { session } = input
-  const omittedTurns = Math.max(0, session.turns.length - RECENT_TURNS)
-  let truncated = omittedTurns > 0
+  const omittedSourceTurns = Math.max(0, session.turns.length - RECENT_TURNS)
+  let truncated = omittedSourceTurns > 0
   const turns = session.turns.slice(-RECENT_TURNS).flatMap(turn => turnsOf(turn, session.cwd, () => { truncated = true }))
   // The sessions list's own project, so a row and its conversation never name two.
   const { project } = input
@@ -362,5 +362,5 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
       ...asks,
     ],
   }
-  return Object.defineProperty(result, projectionKey, { value: { omittedTurns, truncated } satisfies ThreadProjection })
+  return Object.defineProperty(result, projectionKey, { value: { omittedSourceTurns, truncated } satisfies ThreadProjection })
 }

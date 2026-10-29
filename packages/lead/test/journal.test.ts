@@ -1970,3 +1970,87 @@ test('wake records are final, idempotent, bounded, and do not advance the decisi
   assert.equal(replayed.state.decisionRevision, journal.state.decisionRevision)
   assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint(replayed.state, 'a'.repeat(64))).state, replayed.state)
 })
+
+
+for (const fence of ['plan', 'pr'] as const) test(`chat Stop dispatches and replays through the ${fence} fence`, async () => {
+  const storage = memory(), journal = await prepare(storage)
+  if (fence === 'plan') await journal.offerCard({ ...plan, revision: 2, contract: { ...contract, revision: 2 } })
+  else {
+    await journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'Reviewed', assertions: [], budget: lead.leadBudgetProjection(journal.state.budget!, 100) })
+    const source = { repository: 'acme/widgets', cwd: '/workspace/demo', branch: 'worker', head: 'b'.repeat(40), remote: 'origin', remoteUrl: '/tmp/hd-lead-r2-remote.git', defaultBranch: 'main', runId: 'run', teamId: 'team', runtime: 'fixture', sessionId: 'worker' }
+    const op = { id: 'publication', source, decision: { version: 1, cardId: 'result', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept-open-pr' }, at: 100, stage: 'push-prepared', effectStarted: false }
+    await journal.publication(op)
+    await journal.publication({ ...op, stage: 'pushed' })
+    await journal.publication({ ...op, stage: 'completed' }, { repository: source.repository, number: 7, branch: source.branch, head: source.head, branchOwner: 'lead', state: 'open', at: 100, check: null })
+  }
+  let dispatched = 0
+  const chat = (method: string) => ({ ...request, method, params: method.endsWith('/start') ? { text: 'Inspect' } : method.endsWith('/send') ? { id: 'fixture:chat', text: 'Inspect' } : { id: 'fixture:chat' }, start: null })
+  for (const method of ['lead/chat/start', 'lead/chat/send']) assert.equal((await journal.execute({ id: method.split('/').at(-1), request: chat(method), context }, async () => { dispatched++; return { value: {}, identity: null } })).outcome, 'denied')
+  assert.equal((await journal.execute({ id: 'stop-chat', request: chat('lead/chat/stop'), context }, async () => { dispatched++; return { value: {}, identity: null } })).outcome, 'succeeded')
+  assert.equal(dispatched, 1)
+  assert.deepEqual((await open(storage)).state, journal.state)
+})
+
+test('recovery classifies dispatched unfinished chat Stop as a failed cancellation', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.execute({ id: 'stop-chat', request: { ...request, method: 'lead/chat/stop', params: { id: 'fixture:chat' }, start: null }, context }, async () => ({ value: {}, identity: null }))
+  storage.records.pop() // crash after dispatch-start, before its result
+  const restored = await open(storage)
+  let lookups = 0
+  await restored.recover(async () => { lookups++; return [] })
+  assert.equal(restored.state.attempts.get('stop-chat').outcome, 'failed')
+  assert.equal(lookups, 0)
+  assert.deepEqual((await open(storage)).state, restored.state)
+})
+
+for (const legacy of [false, true]) test(`uncertain chat recovery reports without Flow reconciliation (legacy empty evidence: ${legacy})`, async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.execute({ id: 'lost-chat', request: { ...request, method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Inspect' }, start: null }, context }, async () => { throw new Error('post-effect failure') })
+  // Model journals written before chat recovery reports existed.
+  storage.records.splice(storage.records.findIndex(record => record.type === 'result' && record.id === 'lost-chat') + 1)
+  if (legacy) storage.records.push({ version: 1, seq: storage.records.length + 1, type: 'reconciliation', id: 'lost-chat', identity: null, count: 0, evidence: '[]' })
+  const restored = await open(storage)
+  let lookups = 0
+  await restored.recover(async () => { lookups++; return [] })
+  const attempt = restored.state.attempts.get('lost-chat')
+  assert.equal(attempt.outcome, 'uncertain')
+  assert.equal(attempt.recoveryReported, true)
+  assert.equal(attempt.resolutionPending, false)
+  assert.equal(lookups, 0)
+  assert.equal(restored.state.managementReason, 'lead-chat-effect-uncertain')
+  await restored.stop(async () => {})
+  assert.equal(lead.canBeginLeadGoal(restored.state), true)
+  assert.deepEqual((await open(storage)).state, restored.state)
+})
+
+
+test('an automatic allowance stop cannot acknowledge an uncertain chat effect', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.execute({ id: 'lost-chat', request: { ...request, method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Inspect' }, start: null }, context }, async () => { throw new Error('post-effect failure') })
+  await journal.updateBudget({ version: 1, type: 'stop', now: 100, reason: 'budget' }, async () => {})
+  assert.equal(lead.canBeginLeadGoal(journal.state), false)
+  await journal.stop(async () => {})
+  assert.equal(lead.canBeginLeadGoal(journal.state), true)
+  assert.equal(lead.canOfferAutomaticLeadGoal(journal.state, 'automatic'), false)
+  assert.deepEqual(lead.parseLeadCheckpoint(lead.leadCheckpoint(journal.state, 'a'.repeat(64))).state, journal.state)
+  const oldCheckpoint: any = lead.leadCheckpoint(journal.state, 'a'.repeat(64))
+  delete oldCheckpoint.state.chatEffectsAcknowledged
+  assert.equal(lead.parseLeadCheckpoint(oldCheckpoint).state.chatEffectsAcknowledged, false)
+  assert.deepEqual((await open(storage)).state, journal.state)
+})
+
+test('reported chat uncertainty survives audit pruning and contested legacy evidence stays fenced', async () => {
+  const storage = memory(), journal = await prepare(storage)
+  await journal.execute({ id: 'lost-chat', request: { ...request, method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Inspect' }, start: null }, context }, async () => { throw new Error('post-effect failure') })
+  for (let i = 0; i < 70; i++) await journal.execute({ id: `read-${i}`, request: { ...request, method: 'library/usage', params: {}, start: null }, context }, async () => ({ value: {}, identity: null }))
+  assert.equal(journal.state.attempts.get('lost-chat').outcome, 'uncertain')
+  assert.equal(journal.state.managementReason, 'lead-chat-effect-uncertain')
+  storage.records.splice(storage.records.findIndex(record => record.type === 'result' && record.id === 'lost-chat') + 1)
+  storage.records.push({ version: 1, seq: storage.records.length + 1, type: 'reconciliation-conflict', id: 'lost-chat' })
+  const restored = await open(storage)
+  await restored.recover(async () => { throw new Error('must not reconcile chat') })
+  assert.equal(restored.state.attempts.get('lost-chat').recoveryReported, false)
+  assert.equal(restored.state.attempts.get('lost-chat').contested, true)
+  await restored.stop(async () => {})
+  assert.equal(lead.canBeginLeadGoal(restored.state), false)
+})

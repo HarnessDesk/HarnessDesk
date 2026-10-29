@@ -25,11 +25,11 @@ const controlsModule = async (): Promise<any> => {
   assert.equal(typeof module.LeadControls, 'function', 'host-owned LeadControls must exist')
   return module
 }
-const rig = async (over: { configured?: boolean; service?: Record<string, any>; controls?: Record<string, any> } = {}) => {
+const rig = async (over: { configured?: boolean; manage?: boolean; service?: Record<string, any>; controls?: Record<string, any> } = {}) => {
   const records: LeadJournalRecord[] = [], notifications: WireNotification[] = [], sends: unknown[] = [], answers: unknown[] = []
   const storage = { async read() { return records }, async append(record: LeadJournalRecord) { records.push(record) } }
   const journal = await createLeadJournal(storage)
-  await journal.setPolicy(policy)
+  await journal.setPolicy(over.manage ? { ...policy, mode: 'manage' } : policy)
   await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical', caps: contract.caps, freshnessMs: 1000 })
   let configured = over.configured ?? false
   const service = { async status() { return { configured, protection: 'synthetic cipher' } },
@@ -1890,4 +1890,59 @@ test('automatic fallback keeps a valid model report and never fabricates a repor
     else assert.equal(replies.length, 0)
     s.controls.close()
   }
+})
+
+
+for (const method of ['lead/chat/start', 'lead/chat/send'] as const) test(`person controls leave an uncertain ${method} only after explicit Stop`, async t => {
+  let effects = 0, replies = 0
+  const s = await rig({ configured: true, manage: true, controls: { stopEffects: async () => {} }, service: {
+    async send() {
+      if (++replies === 1) await s.journal.execute({ id: 'lost-chat', request: { method,
+        params: method === 'lead/chat/start' ? { text: 'Inspect' } : { id: 'fixture:chat', text: 'Inspect' }, project, start: null, runId: null },
+        context: { desk: { ...policy, mode: 'manage' }, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } }, async () => {
+          effects++; throw new Error('injected post-effect failure')
+        })
+      // Exercise the ordinary loop's tools-refused fallback after an effect error.
+      if (replies === 1) await s.journal.setManagementPhase('waiting-for-user', 'lead-tools-refused')
+      return { status: 'completed', text: 'Inspect the chat on the desk.' }
+    },
+  } })
+  t.after(() => s.controls.close())
+  await s.call('lead/thread/send', { idempotencyKey: 'original', text: 'Inspect' })
+  await s.controls.idle()
+  const projection = await s.call('lead/thread/read')
+  assert.equal(effects, 1)
+  assert.equal(projection.waitReason, 'lead-chat-effect-uncertain')
+  assert.equal(projection.wayOut, null)
+  const before = s.journal.state
+  await assert.rejects(s.call('lead/resume', { expectedRevision: before.seq }), code('lead-no-person-wait'))
+  await assert.rejects(s.call('lead/thread/send', { idempotencyKey: 'premature', text: 'Fresh request draft' }), code('lead-chat-effect-uncertain'))
+  assert.deepEqual(s.journal.state, before)
+  assert.equal((await createLeadJournal(s.storage)).state.attempts.get('lost-chat')!.outcome, 'uncertain')
+  await s.call('lead/stop', { expectedRevision: s.journal.state.seq })
+  const oldGoal = s.journal.state.budget!.logicalGoalId
+  await assert.rejects(s.controls.send({ idempotencyKey: 'automatic-retry', text: 'Automatic follow-up' }, { source: 'pull-request', event: 'checks-failed', subject: 'acme/widgets#12', url: 'https://github.com/acme/widgets/pull/12' }), code('lead-request-in-flight'))
+  await s.call('lead/thread/send', { idempotencyKey: 'fresh', text: 'Fresh request' })
+  await s.controls.idle()
+  assert.notEqual(s.journal.state.budget!.logicalGoalId, oldGoal)
+  assert.equal(effects, 1, 'the original uncertain dispatch is never repeated')
+  assert.equal(replies, 2)
+  assert.equal(s.records.filter(record => record.type === 'reconciliation').length, 0)
+  assert.equal(s.records.some(record => record.type === 'recovery-report' && record.id === 'lost-chat'), true)
+})
+
+
+test('an allowance-stopped uncertain chat still needs the existing person Stop action', async t => {
+  const s = await rig({ configured: true, manage: true, controls: { stopEffects: async () => {} } })
+  t.after(() => s.controls.close())
+  await s.journal.execute({ id: 'lost-chat', request: { method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Inspect' }, project, runId: null, start: null },
+    context: { desk: s.journal.state.policy!, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } }, async () => { throw new Error('post-effect failure') })
+  await s.journal.updateBudget({ version: 1, type: 'stop', now: 100, reason: 'budget' }, async () => {})
+  const waiting = await s.controls.readThread()
+  assert.equal(waiting.thread.state, 'stopped'); assert.equal(waiting.waitReason, 'lead-chat-effect-uncertain'); assert.equal(waiting.wayOut, null)
+  await assert.rejects(s.controls.send({ idempotencyKey: 'before-person-stop', text: 'Next task' }), code('lead-chat-effect-uncertain'))
+  const acknowledged = await s.controls.stop({ expectedRevision: s.journal.state.seq })
+  assert.equal(acknowledged.waitReason, null)
+  await s.controls.send({ idempotencyKey: 'after-person-stop', text: 'Next task' }); await s.controls.idle()
+  assert.equal(s.sends.length, 1)
 })

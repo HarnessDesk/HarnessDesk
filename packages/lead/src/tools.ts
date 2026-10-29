@@ -45,7 +45,7 @@ export const LEAD_TOOLS = {
   evidence_seat: { method: 'evidence/seat', input_schema: schema({ runtime: textSchema, sessionId: textSchema }, ['runtime', 'sessionId']) },
   library_usage: { method: 'library/usage', input_schema: schema({}) },
 } as const satisfies Record<string, { method: ClientMethodName; input_schema: unknown }>
-export const leadToolDefinitions = Object.entries(LEAD_TOOLS).map(([name, tool]) => ({ name, description: `Desk operation ${tool.method}`, input_schema: tool.input_schema }))
+export const leadToolDefinitions = Object.entries(LEAD_TOOLS).map(([name, tool]) => ({ name, description: name === 'chat_read' ? 'Read a bounded recent chat view; omittedSourceTurns counts raw source turns and omittedPhoneEntries counts projected phone entries. truncated also covers shortened text.' : `Desk operation ${tool.method}`, input_schema: tool.input_schema }))
 export const parseLeadToolCall = (block: MessagesToolUse): LeadPermissionCall => {
   if (!Object.hasOwn(LEAD_TOOLS, block.name)) return fail()
   const tool = LEAD_TOOLS[block.name as keyof typeof LEAD_TOOLS]

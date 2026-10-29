@@ -47,6 +47,7 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-plan-not-independent': "The reviewed plan needs a reviewer from a different provider. Add one on the desk, or ask for an ordinary chat for this task.",
   'lead-activity-failed': 'The Lead could not read the latest run activity.',
   'lead-subscription-failed': 'The Lead lost its run activity updates.',
+  'lead-chat-effect-uncertain': 'The chat operation may have started. Inspect that chat on the desk, then start a new request when ready.',
   'lead-tools-refused': 'The requested desk operation was refused.',
   'lead-card-too-large': 'The request is too large to display safely.',
   'lead-budget-unknown': "HarnessDesk can't confirm what the workers have spent, so the Lead won't make another request. Sending a message tries again.",
@@ -267,7 +268,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
           {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replace('{label}', label)}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
-          {setupWait && state.wayOut !== 'decide-plan' && <Banner>{WAITS[state.waitReason!]}</Banner>}
+          {setupWait && (state.wayOut !== 'decide-plan' || state.waitReason === 'lead-chat-effect-uncertain') && <Banner actions={state.waitReason === 'lead-chat-effect-uncertain' ? <Button disabled={stopping || decisionPending !== null} aria-busy={stopping} onClick={() => void stop()}>Start new request</Button> : undefined}>{WAITS[state.waitReason!]}</Banner>}
           {!unavailable && !setupWait && state.wayOut === 'resume' && state.waitReason !== 'lead-predecessor-unavailable' && state.waitReason !== 'lead-predecessor-unverifiable' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
             {state.waitReason ? WAITS[state.waitReason] ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
           </Banner>}

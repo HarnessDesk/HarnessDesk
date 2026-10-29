@@ -482,9 +482,25 @@ for (const scenario of ['history', 'message', 'combined'] as const) test(`Lead d
   const projected = await r.work.threadRead({ id: key })
   const result = boundLeadChatRead(projected)
   assert.equal(result.truncated, true)
-  assert.equal(result.omittedTurns + result.turns.length, count)
+  assert.equal(result.omittedSourceTurns + result.omittedPhoneEntries + result.turns.length, count)
   assert.equal('omittedTurns' in JSON.parse(JSON.stringify(projected)), false, 'phone wire shape stays unchanged')
-  if (scenario === 'history') assert.equal(result.omittedTurns, 5)
+  if (scenario === 'history') assert.equal(result.omittedSourceTurns, 5)
   assert.equal(result.turns.at(-1)?.id, `m${count - 1}`)
   assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 12000)
+})
+
+
+test('Lead read omission metadata keeps raw source turns separate from projected phone entries', async () => {
+  const r = rig(), count = 45
+  r.setSession(session(Array.from({ length: count }, (_, i) => ({ id: turnId(`source-${i}`), status: 'completed' as const,
+    items: [{ id: itemId(`you-${i}`), type: 'userMessage' as const, content: [{ type: 'text' as const, text: 'Question' }] },
+      { id: itemId(`agent-${i}`), type: 'assistantMessage' as const, text: 'Useful reply. '.repeat(200) }] }))))
+  const projected = await r.work.threadRead({ id: key }), result = boundLeadChatRead(projected)
+  assert.equal(result.omittedSourceTurns, 5)
+  assert.equal(result.omittedPhoneEntries + result.turns.length, projected.turns.length)
+  assert.ok(result.omittedPhoneEntries > 0)
+  assert.equal(result.truncated, true)
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 12000)
+  assert.equal('omittedSourceTurns' in JSON.parse(JSON.stringify(projected)), false)
+  assert.equal('omittedPhoneEntries' in JSON.parse(JSON.stringify(projected)), false)
 })

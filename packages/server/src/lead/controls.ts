@@ -4,7 +4,7 @@ import {
   type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -161,7 +161,7 @@ export class LeadControls {
       ...(this.options.readWorkerApprovals?.() ?? []), ...leadApprovalCards(personActions, state.contract?.digest ?? '')]) }
     catch { this.#failedRevision = state.seq; throw leadRefusal('lead-projection-failed') }
     const wayOut = settings.unavailable ? null : this.#wayOut(state)
-    const waitReason = state.phase === 'waiting-for-user' && (LEAD_MANAGEMENT_REASONS as readonly (string | null)[]).includes(state.managementReason)
+    const waitReason = hasUncertainLeadChatEffect(state) && !state.chatEffectsAcknowledged ? 'lead-chat-effect-uncertain' : state.phase === 'waiting-for-user' && (LEAD_MANAGEMENT_REASONS as readonly (string | null)[]).includes(state.managementReason)
       ? state.managementReason : null
     const running = leadProgress(state), team = leadRunTeam(state)
     // The journal keeps no clock for the phase change; the host remembers when it first saw this goal run.
@@ -225,6 +225,7 @@ export class LeadControls {
     const idle = () => canOfferAutomaticLeadGoal(journal.state, input.idempotencyKey)
     if (origin && !idle()) throw leadRefusal('lead-request-in-flight')
     const newGoal = canBeginLeadGoal(journal.state)
+    if (!newGoal && hasUncertainLeadChatEffect(journal.state) && !journal.state.chatEffectsAcknowledged) throw leadRefusal('lead-chat-effect-uncertain')
     if (journal.state.budget?.stop && journal.state.budget.stop.reason !== 'cancelled' && !newGoal) throw leadRefusal('lead-budget-stopped')
     if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) && !newGoal) throw leadRefusal('lead-thread-closed')
     if (this.#inFlight()) throw leadRefusal('lead-request-in-flight')
@@ -425,7 +426,8 @@ export class LeadControls {
   stop(value: { readonly expectedRevision: number }): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const input = parseLeadResume(value), { journal } = this.options
     this.#expectRevision(input.expectedRevision)
-    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) throw leadRefusal('lead-thread-closed')
+    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) &&
+      !(hasUncertainLeadChatEffect(journal.state) && !journal.state.chatEffectsAcknowledged)) throw leadRefusal('lead-thread-closed')
     this.#continueAgain = false
     await journal.stop(this.options.stopEffects)
     // The independent Flow cleanup owner may already have cleared its marker.

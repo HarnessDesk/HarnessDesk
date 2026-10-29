@@ -821,7 +821,7 @@ export interface HostMethods {
     params: { readonly cursor?: string; readonly limit?: number }
     result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly updatedAt: number }[]; readonly nextCursor: string | null }
   }
-  'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedTurns: number; readonly truncated: boolean } }
+  'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
   'lead/chat/start': { params: { readonly text: string }; result: { readonly id: string; readonly problem?: string } }
   'lead/chat/send': { params: { readonly id: string; readonly text: string }; result: { readonly queued?: boolean } }
   'lead/chat/stop': { params: { readonly id: string }; result: { readonly queued?: boolean } }

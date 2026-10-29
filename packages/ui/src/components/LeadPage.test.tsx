@@ -583,3 +583,30 @@ it("starting an opening job preserves the person's unfinished composer draft", a
   await act(async () => start.click())
   expect(box.querySelector('textarea')!.value).toBe('Keep this unfinished goal')
 })
+
+
+it('uncertain chat notice acknowledges with Stop only and preserves the draft', async () => {
+  const base = leadProjection(), { store, box, update } = await mount({ ...base, waitReason: 'lead-chat-effect-uncertain',
+    wayOut: 'resume', thread: { ...base.thread, state: 'waiting-for-user', cards: [] } })
+  const stop = vi.spyOn(store.lead, 'stop').mockImplementation(async () => {
+    const stopped: LeadWindowProjection = { ...base, wayOut: null, waitReason: null, thread: { ...base.thread, state: 'stopped', cards: [] } }
+    await update(stopped)
+    return stopped
+  })
+  const send = vi.spyOn(store.lead, 'send').mockRejectedValue({ code: 'lead-chat-effect-uncertain' })
+  const resume = vi.spyOn(store.lead, 'resume')
+  const composer = box.querySelector('textarea')!
+  await input(composer, 'My separate next request')
+  expect(button('Resume')).toBeUndefined()
+  expect(box.textContent).toContain('may have started')
+  await act(async () => button('Send').click())
+  expect(composer.value).toBe('My separate next request')
+  expect(box.textContent).toContain('Start new request')
+  const action = button('Start new request')
+  expect(action.closest('[data-slot="composer-notices"]')).not.toBeNull()
+  await act(async () => action.click())
+  expect(stop).toHaveBeenCalledTimes(1)
+  expect(send).toHaveBeenCalledTimes(1)
+  expect(resume).not.toHaveBeenCalled()
+  expect(composer.value).toBe('My separate next request')
+})

@@ -6,7 +6,7 @@ import {
 import { compareLeadPolicyAuthority, sameLeadPolicyValues, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, type LeadState } from './state.js'
+import { hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 
 const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
@@ -324,6 +324,7 @@ export class LeadJournal {
     // A child refresh may finish after the person's publication decision.
     // That old acceptance wait cannot take passive following back over.
     if (reason === 'lead-result-awaiting-person' && this.#state.phase === 'following') return
+    if (hasUncertainLeadChatEffect(this.#state) && !['stopped', 'accepted', 'declined'].includes(this.#state.phase)) { phase = 'waiting-for-user'; reason = 'lead-chat-effect-uncertain' }
     if (this.#state.phase === phase && this.#state.managementReason === reason) return
     await this.#append({ type: 'management', phase, reason })
   }) }
@@ -635,7 +636,7 @@ export class LeadJournal {
         : decideLeadPermission(request, { ...capturedContext, budget, now: this.#state.budget ? Math.max(capturedContext.now, this.#state.budget.now) : capturedContext.now,
           desk: this.#state.policy ?? capturedContext.desk, approved })
       const step = this.#state.steps.find(step => step.id === stepId)
-      const cancellation = method === 'lead/chat/stop' || method === 'flow/execution/stop' || method === 'team/intent' && action === 'abandon'
+      const cancellation = isLeadCancellation(method, action)
       // Status reads remain available after Stop so the final report can observe desk state.
       if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined'].includes(this.#state.phase) || leadWorkerDispatchBlockedByOpenPr(this.#state) || hasPendingLeadPlan(this.#state) ||
         this.#state.recoveryBlocked || [...this.#state.attempts.values()].some(attempt => attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.phase === 'started' && attempt.dispatched))))
@@ -666,7 +667,11 @@ export class LeadJournal {
       try { result = await dispatch(call, id) } catch {
         const noEffect = this.#dispatchNotStarted.delete(id)
         const outcome = tier === 'read' || cancellation || noEffect ? 'failed' : 'uncertain'
-        await this.#queue(() => this.#append({ type: 'result', id, outcome, identity: null }))
+        await this.#queue(async () => {
+          await this.#append({ type: 'result', id, outcome, identity: null })
+          if (canReportLeadChatEffect(this.#state, this.#state.attempts.get(id)!))
+            await this.#append({ type: 'recovery-report', id })
+        })
         return { decision, outcome }
       }
       this.#dispatchNotStarted.delete(id)
@@ -746,10 +751,18 @@ export class LeadJournal {
         if (pending.phase === 'attempted') await this.#append({ type: 'decision', id: pending.id, effect: 'deny', reason: 'recovery', rule: null })
         if (pending.phase === 'attempted' || pending.phase === 'decided') await this.#append({ type: 'dispatch-start', id: pending.id, dispatched: false })
         if (pending.phase !== 'finished') await this.#append({ type: 'result', id: pending.id,
-          outcome: pending.dispatched ? pending.method === 'flow/execution/stop' || pending.method === 'team/intent' && pending.action === 'abandon' ? 'failed' : 'uncertain' : 'interrupted', identity: null })
+          outcome: pending.dispatched ? isLeadCancellation(pending.method, pending.action) ? 'failed' : 'uncertain' : 'interrupted', identity: null })
         if (!pending.dispatched) { await this.#append({ type: 'recovery-report', id: pending.id }); actions.push({ id: pending.id, type: 'not-dispatched' }); continue }
         if (pending.kind === 'read') { await this.#append({ type: 'recovery-report', id: pending.id }); actions.push({ id: pending.id, type: 'retry-read' }); continue }
-        if (pending.method === 'flow/execution/stop' || pending.method === 'team/intent' && pending.action === 'abandon') continue
+        if (canReportLeadChatEffect(this.#state, this.#state.attempts.get(pending.id)!)) {
+          await this.#append({ type: 'recovery-report', id: pending.id })
+          actions.push({ id: pending.id, type: 'needs-user' })
+          continue
+        }
+        if (isLeadCancellation(pending.method, pending.action)) continue
+        // Chat effects have no Flow identity to look up. Any unexpected binding
+        // or conflict stays fenced rather than being resolved by an empty lookup.
+        if (pending.method === 'lead/chat/start' || pending.method === 'lead/chat/send') continue
         let observed: readonly LeadRunObservation[] = []
         try {
           observed = (await reconcile({ id: pending.id, correlationId: pending.correlationId, method: pending.method })).map(parseLeadRunObservation)

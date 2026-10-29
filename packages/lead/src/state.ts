@@ -37,6 +37,8 @@ export interface LeadState {
   readonly budget: LeadBudgetLedger | null
   /** Journal sequence of the latched stop whose idempotent cancellation effects need acknowledgement. */
   readonly stopEffectsPending: number | null
+  /** Only the host-owned person Stop event acknowledges possible ordinary-chat effects. */
+  readonly chatEffectsAcknowledged: boolean
   readonly messages: readonly LeadMessage[]
   readonly olderMessages: number
   readonly sends: readonly (LeadSendReceipt & { readonly key: string })[]
@@ -58,7 +60,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ decisionRevision: 0, wakes: [], origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null,
+export const initialLeadState = (): LeadState => ({ decisionRevision: 0, wakes: [], origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
   cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 /** A read's journal revision remains valid through observation-only wakes. Any
  * intervening decision-affecting write advances the lower bound and refuses it. */
@@ -82,10 +84,10 @@ export const leadRepairResultReady = (state: LeadState): boolean => !state.handb
 export const leadHandbackTerminal = (op: LeadHandback): boolean => ['completed', 'failed', 'abandoned', 'withdrawn'].includes(op.stage)
 
 /** Automatic input may reserve only a draft with no person message in this goal. */
-export const canOfferAutomaticLeadGoal = (state: LeadState, key: string): boolean => canBeginLeadGoal(state) ||
+export const canOfferAutomaticLeadGoal = (state: LeadState, key: string): boolean => !hasUncertainLeadChatEffect(state) && (canBeginLeadGoal(state) ||
   state.phase === 'draft' && state.contract === null && (state.originKey === key || state.origin === null) &&
     !state.sends.some(send => send.revision > state.goalStartedSeq) &&
-    !state.messages.some(message => message.role === 'user' && message.revision > state.goalStartedSeq)
+    !state.messages.some(message => message.role === 'user' && message.revision > state.goalStartedSeq))
 
 /** Earlier runs stay owned for accounting and recovery, but judge only this plan. */
 export const leadPlanRuns = (state: LeadState): readonly LeadRunIdentity[] => state.runs.filter(run =>
@@ -111,9 +113,29 @@ export const canReplaceLeadPlan = (state: LeadState): boolean => {
   })
 }
 
+/** One cancellation classification for admission, replay and crash recovery. */
+export const isLeadCancellation = (method: string, action: string | null): boolean =>
+  method === 'lead/chat/stop' || method === 'flow/execution/stop' || method === 'team/intent' && action === 'abandon'
+
+const isLeadChatEffect = (attempt: LeadAttemptState): boolean =>
+  attempt.method === 'lead/chat/start' || attempt.method === 'lead/chat/send'
+
+export const hasUncertainLeadChatEffect = (state: LeadState): boolean =>
+  [...state.attempts.values()].some(attempt => isLeadChatEffect(attempt) && attempt.outcome === 'uncertain')
+
+/** Chat effects bind neither Flow runs nor budget rounds. Old empty Flow lookup
+ * bookkeeping may be retired, but any positive or contested evidence stays fenced. */
+export const canReportLeadChatEffect = (state: LeadState, attempt: LeadAttemptState): boolean =>
+  isLeadChatEffect(attempt) && attempt.phase === 'finished' && attempt.outcome === 'uncertain' &&
+  !attempt.contested && attempt.stepId === null &&
+  (attempt.evidence === null || parseLeadRunEvidence(attempt.evidence).length === 0) &&
+  !state.runs.some(run => run.correlationId === attempt.correlationId) &&
+  !state.budget?.rounds.some(round => round.startId === attempt.id)
+
 /** A cancelled goal may be replaced only after cancellation and recovery are settled. */
 export const canBeginLeadGoal = (state: LeadState): boolean =>
   ['stopped', 'accepted', 'declined'].includes(state.phase) && !!state.budget && state.stopEffectsPending === null &&
+  (!hasUncertainLeadChatEffect(state) || state.chatEffectsAcknowledged) &&
   !state.recoveryBlocked && !state.budget.requests.length && state.completedBudgets.length < 64 &&
   [...state.attempts.values()].every(attempt => attempt.phase === 'finished' && !attempt.resolutionPending && !attempt.contested &&
     (attempt.outcome !== 'uncertain' && attempt.outcome !== 'interrupted' || attempt.recoveryReported))
@@ -458,13 +480,17 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'team-approved':
       ensure(state.contract?.digest === event.contractDigest && !state.teams.includes(event.teamId) && state.teams.length < 4096)
       state = { ...state, teams: [...state.teams, event.teamId] }; break
-    case 'stop': state = { ...state, phase: 'stopped', budget: state.budget ? reduceLeadBudget(state.budget,
+    case 'stop': state = { ...state, phase: 'stopped', chatEffectsAcknowledged: true, budget: state.budget ? reduceLeadBudget(state.budget,
       { version: 1, type: 'stop', now: state.budget.now, reason: 'cancelled' }) : null }; break
     case 'stop-effects-done':
       ensure(state.stopEffectsPending === event.stopSeq); state = { ...state, stopEffectsPending: null }; break
     case 'recovery-block': state = { ...state, recoveryBlocked: true }; break
     case 'recovery-resolved': state = { ...state, recoveryBlocked: false }; break
-    case 'recovery-report': updateAttempt(event.id, attempt => { ensure(!attempt.recoveryReported); return { ...attempt, recoveryReported: true } }); break
+    case 'recovery-report':
+      updateAttempt(event.id, attempt => {
+        ensure(!attempt.recoveryReported)
+        return { ...attempt, recoveryReported: true, ...(canReportLeadChatEffect(state, attempt) ? { resolutionPending: false } : {}) }
+      }); break
     case 'attempt': {
       const tier = clientTierFor(event.method, event.action === null ? {} : { action: event.action })
       ensure(event.kind === (tier === 'read' ? 'read' : tier === 'run' ? 'mutation' : 'invalid'))
@@ -480,9 +506,9 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'dispatch-start': {
       const attempt = state.attempts.get(event.id)
       ensure(attempt?.phase === 'decided' && (!event.dispatched || attempt.effect === 'allow' && attempt.kind !== 'invalid'))
-      if (event.dispatched && attempt!.kind === 'mutation' && leadWorkerDispatchBlockedByOpenPr(state)) ensure(attempt!.method === 'flow/execution/stop' || attempt!.method === 'team/intent' && attempt!.action === 'abandon')
+      if (event.dispatched && attempt!.kind === 'mutation' && leadWorkerDispatchBlockedByOpenPr(state)) ensure(isLeadCancellation(attempt!.method, attempt!.action))
       if (event.dispatched && attempt!.kind === 'mutation' && hasPendingLeadPlan(state))
-        ensure(attempt!.method === 'flow/execution/stop' || attempt!.method === 'team/intent' && attempt!.action === 'abandon')
+        ensure(isLeadCancellation(attempt!.method, attempt!.action))
       if (event.dispatched && attempt!.method === 'flow/start-goal') {
         const step = state.steps.find(step => step.id === attempt!.stepId)
         ensure(state.phase === 'running' && !hasPendingLeadPlan(state) && step?.state === 'pending' && state.steps.find(step => step.state !== 'started')?.id === step.id)
@@ -588,7 +614,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     for (const [id, attempt] of attempts) {
       if (attempts.size <= 64) break
       const unbound = state.budget?.rounds.some(round => round.startId === id && round.executionId === null)
-      if (!unbound && !attempt.resolutionPending && !state.runs.some(run => run.correlationId === attempt.correlationId) && attempt.phase === 'finished' && (attempt.outcome !== 'uncertain' && attempt.outcome !== 'interrupted' || attempt.recoveryReported)) attempts.delete(id)
+      if (!(isLeadChatEffect(attempt) && attempt.outcome === 'uncertain') && !unbound && !attempt.resolutionPending && !state.runs.some(run => run.correlationId === attempt.correlationId) && attempt.phase === 'finished' && (attempt.outcome !== 'uncertain' && attempt.outcome !== 'interrupted' || attempt.recoveryReported)) attempts.delete(id)
     }
     state = { ...state, attempts }
   }
@@ -605,6 +631,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     event.type === 'card-decision' && event.decision.cardType === 'result' && event.decision.choice === 'accept'
   if (event.type !== 'new-goal' && ['stopped', 'accepted', 'declined'].includes(previous.phase) && !acceptsResult) state = { ...state, phase: previous.phase }
   if (state.budget?.stop && !['accepted', 'declined'].includes(state.phase)) state = { ...state, phase: 'stopped' }
+  if (!['stopped', 'accepted', 'declined'].includes(state.phase) && hasUncertainLeadChatEffect(state))
+    state = { ...state, phase: 'waiting-for-user', managementReason: 'lead-chat-effect-uncertain' }
   // Discovery is a new cancellation generation, even if an older cleanup is
   // currently running or has already acknowledged the original stop.
   const discovered = state.runs.some(run => !previous.runs.some(old => old.runId === run.runId)) ||

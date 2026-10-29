@@ -102,6 +102,10 @@ is built, never by the installed app. Its host sends model requests containing
 the project root, system instructions, conversation, approved contract and tool
 results to the configured provider transport. When asked to manage project chats,
 these results can include their titles, state and redacted transcript projections.
+Chat reads are bounded to 12,000 serialized bytes, with separate counts for
+omitted raw source turns (`omittedSourceTurns`) and projected phone entries
+(`omittedPhoneEntries`); partial text still sets `truncated`. The phone wire
+does not serialize this projection metadata.
 Only ordinary sessions in the selected canonical project are available; Team
 seats and other projects are refused. Chat state notifications contain ids and
 state, not transcript bytes. Ordinary delegated chats use the desk's saved session

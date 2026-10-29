@@ -3,6 +3,7 @@ import { realpath } from 'node:fs/promises'
 import test from 'node:test'
 import { createLeadJournal, type LeadPermissionContext, type LeadPermissionCall } from '@harnessdesk/lead'
 import { runtimeId, sessionId } from '@harnessdesk/protocol'
+import { LeadControls } from '../src/lead/controls.js'
 import { QUEUE_LIMIT } from '../src/registry.js'
 import { evidenceDesk } from './fixtures/evidence-desk.js'
 
@@ -67,7 +68,7 @@ const refusalRig = async (t: import('node:test').TestContext) => {
   let attempt = 0
   const execute = (call: LeadPermissionCall) => journal.execute({ id: `refusal-${++attempt}`, request: { ...call, project, runId: null, start: null }, context: context() },
     async parsed => ({ value: await desk.host.call(parsed.method, parsed.params as never), identity: null }))
-  return { ...desk, state, journal, records, execute }
+  return { ...desk, project, state, journal, records, execute }
 }
 
 test('a missing ordinary runtime refuses without poisoning a corrected chat start', async t => {
@@ -166,4 +167,46 @@ test('a full ordinary queue refuses before mutation and permits send after clear
   r.host.registry.clearQueue(record)
   assert.equal((await r.execute(call)).outcome, 'succeeded')
   assert.equal(record.queue.messages.length, 1)
+})
+
+
+for (const operation of ['start', 'send'] as const) test(`real chat ${operation} post-effect failure allows only person Stop then a fresh request`, async t => {
+  const r = await refusalRig(t)
+  let effects = 0, requests = 0, target: string | null = null
+  if (operation === 'start') {
+    const create = r.runtime.createSession.bind(r.runtime)
+    r.runtime.createSession = async options => { effects++; await create(options); throw new Error('Lost allocation response after creation') }
+  } else {
+    const created = await r.host.call('session/create', { runtime: r.runtime.info.id, options: { cwd: r.repo.dir } })
+    target = `${r.runtime.info.id}:${created.id}`
+    const live = r.runtime.sessions.get(created.id)!, send = live.send.bind(live)
+    live.send = async input => { effects++; await send(input); throw new Error('Lost turn response after send') }
+  }
+  const controls = new LeadControls({ journal: r.journal, project: r.project, model: 'fixture-model', now: () => Date.now(), nextId: () => 'fresh-logical-goal',
+    push() {}, decidePerson: async () => {}, decideResult: async () => {}, stopEffects: async () => {},
+    service: { status: async () => ({ configured: true, protection: 'synthetic' }), assertPublic: async () => {}, setKey: async () => {}, deleteKey: async () => {},
+      send: async () => {
+        if (++requests === 1) {
+          const call: LeadPermissionCall = operation === 'start' ? { method: 'lead/chat/start', params: { text: 'Original task' } }
+            : { method: 'lead/chat/send', params: { id: target!, text: 'Original task' } }
+          assert.equal((await r.execute(call)).outcome, 'uncertain')
+        }
+        return { status: 'completed', text: 'Inspect the chat on the desk.' }
+      } },
+  })
+  t.after(() => controls.close())
+  await controls.send({ idempotencyKey: 'first-person', text: 'Original task' }); await controls.idle()
+  const waiting = await controls.readThread()
+  assert.equal(waiting.waitReason, 'lead-chat-effect-uncertain'); assert.equal(waiting.wayOut, null)
+  const before = r.journal.state.seq
+  await assert.rejects(controls.resume({ expectedRevision: before }), { wireCode: 'lead-no-person-wait' })
+  await assert.rejects(controls.send({ idempotencyKey: 'too-soon', text: 'Next task draft' }), { wireCode: 'lead-chat-effect-uncertain' })
+  assert.equal(r.journal.state.seq, before)
+  assert.equal((await createLeadJournal({ read: async () => r.records, append: async () => {} })).state.attempts.get('refusal-1')!.outcome, 'uncertain')
+  await controls.stop({ expectedRevision: before })
+  await controls.send({ idempotencyKey: 'next-person', text: 'Next task' }); await controls.idle()
+  assert.equal(r.journal.state.budget!.logicalGoalId, 'fresh-logical-goal')
+  assert.equal(effects, 1); assert.equal(requests, 2)
+  assert.equal(r.runtime.sessions.size, 1, 'uncertain original work is never duplicated')
+  assert.equal(r.records.some(record => record.type === 'reconciliation'), false)
 })
