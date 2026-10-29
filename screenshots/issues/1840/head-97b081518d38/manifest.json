@@ -1,0 +1,25 @@
+{
+  "issue": 1840,
+  "pullRequest": 1884,
+  "sourceHead": "97b081518d385ffafc73f6f3efcc322aa70f4834",
+  "surface": "Native Electron, isolated fake-agent rig, trusted UI input",
+  "scenario": "Add account creates a distinct registered native runtime with its own removable slot and home. A preseeded native extra shares an id with an ignored ACP account row at a different home. Removing only that extra deletes its native runtime, row and home, while the primary and new account remain. Ignored ACP configuration and marker remain byte-identical; the sentinel never executes.",
+  "limits": "Creation and removal were verified in one running app session. The fake provider returns a canned identity; no real sign-in, credential completion or restart persistence was validated. Approval races and forced allocation/registration failures are Host tests, not these frames.",
+  "privacy": "Nine recorded text/account audit checkpoints were empty, including before and after each capture. Worker and parent visually inspected both original PNGs.",
+  "files": [
+    {
+      "path": "native-extra-remove-confirmation.png",
+      "sha256": "789505982dd2669941edd9ac6c0035b4473bd1f6320fa7e4068a33f9fa44d111",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Removal confirmation targets the preseeded native extra after Add account creates a distinct new account"
+    },
+    {
+      "path": "native-extra-removed-with-new-account.png",
+      "sha256": "ec6f258df61c2b16609fd5207cd91d0f4c605e1552a6a282654f3e771e20a3da",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Primary and newly created native account remain after the preseeded extra is removed"
+    }
+  ]
+}
