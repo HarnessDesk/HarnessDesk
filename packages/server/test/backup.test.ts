@@ -205,6 +205,40 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   assert.deepEqual(again.transcripts, { restored: 0, skipped: 1 })
 })
 
+for (const failure of ['builder', 'registration'] as const) {
+  test(`backup counts a saved agent once when ${failure} fails`, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-backup-adopt-failure-'))
+    const dispose = disposeHostsThenRemove(t, [dir])
+    const store = new AgentRegistryStore(join(dir, 'agents.json'))
+    const logger = new Heard()
+    const directory = new AgentDirectory({
+      store,
+      build: (config) => {
+        if (failure === 'builder') throw new Error('fixture builder failure')
+        return new FakeRuntime({ id: config.id as RuntimeId, name: config.name })
+      },
+      usageFor: () => null,
+      which: async () => null,
+    })
+    const host = new Host({ logger, state: new StateStore(join(dir, 'state.json')), agents: directory, catalogRefreshMs: 0 })
+    dispose(host)
+    if (failure === 'registration') host.register = () => { throw new Error('fixture registration failure') }
+    const entry = { id: 'fixture-agent', name: 'Fixture Agent', command: 'fixture-agent' }
+    const backup = { ...backupWith([]), agents: [entry] }
+
+    const report = await host.call('backup/import', { backup })
+    assert.deepEqual(report.agents, { restored: 1, skipped: 0 })
+    assert.deepEqual(store.entry(entry.id), entry)
+    assert.ok(logger.details.some((detail) => JSON.stringify(detail).includes(`fixture ${failure} failure`)))
+    const hello = await host.call('host/hello', { clientVersion: 'test' })
+    assert.ok(!hello.runtimes.some((runtime) => runtime.id === entry.id))
+
+    const again = await host.call('backup/import', { backup })
+    assert.deepEqual(again.agents, { restored: 0, skipped: 1 })
+    assert.deepEqual(store.entries(), [entry])
+  })
+}
+
 test('the memory sidecar is optional and never carries trust, even under a hostile key', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-memory-'))
   const disposeHostsThenRemoveDir = disposeHostsThenRemove(t, [dir])
