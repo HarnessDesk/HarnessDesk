@@ -58,9 +58,20 @@ test('the preference fixture finishes its pending snapshot before scratch cleanu
   directory = state.directory
   const dispose = host.dispose.bind(host)
   let closing: Promise<void> | undefined
+  // Release the real writer only when cleanup waits for disposal. Starting
+  // disposal without returning its promise must not satisfy this regression.
+  class AwaitedDisposal extends Promise<void> {
+    static override get [Symbol.species]() { return Promise }
+    override then<T = void, U = never>(
+      fulfilled?: ((value: void) => T | PromiseLike<T>) | null,
+      rejected?: ((reason: unknown) => U | PromiseLike<U>) | null,
+    ): Promise<T | U> {
+      release()
+      return super.then(fulfilled, rejected)
+    }
+  }
   t.mock.method(host, 'dispose', () => {
-    closing ??= dispose()
-    release()
+    closing ??= new AwaitedDisposal((resolve, reject) => { void dispose().then(resolve, reject) })
     return closing
   })
   // The fixture's cleanup was registered first. This check therefore runs at
