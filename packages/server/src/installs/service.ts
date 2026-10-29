@@ -102,6 +102,7 @@ export const matchesCommand = (command: string, commands: readonly string[] | un
 
 export class InstallService {
   readonly #last = new Map<string, InstallInfo>()
+  readonly #owners = new Map<string, object>()
   readonly #managedDir: string
 
   constructor(private readonly options: InstallServiceOptions) {
@@ -183,6 +184,26 @@ export class InstallService {
    * so `RuntimeInfo` can carry it without a scan per read.
    */
   async describe(config: AcpAgentConfig, judged?: Judgement): Promise<InstallInfo | null> {
+    return this.#describe(config, judged, this.#owner(config.id))
+  }
+
+  #owner(id: string): object {
+    let owner = this.#owners.get(id)
+    if (!owner) {
+      owner = {}
+      this.#owners.set(id, owner)
+    }
+    return owner
+  }
+
+  /** Retire this registration and all descriptions that began under it. */
+  forget(id: string): void {
+    this.#owners.delete(id)
+    this.#last.delete(id)
+  }
+
+  async #describe(config: AcpAgentConfig, judged: Judgement | undefined, owner: object): Promise<InstallInfo | null> {
+    if (this.#owners.get(config.id) !== owner) return null
     const known = this.knowledgeFor(config)
     if (!known) return null
     // Handed the judgement its caller already made, when there is one. Every
@@ -216,6 +237,7 @@ export class InstallService {
       installCommand: known.publish.installCommand,
       checkedAt: (this.options.now ?? Date.now)(),
     }
+    if (this.#owners.get(config.id) !== owner) return null
     this.#last.set(config.id, info)
     return info
   }
@@ -255,6 +277,7 @@ export class InstallService {
    * qualifies and the row's fallback is the right answer.
    */
   async launchFor(config: AcpAgentConfig, occasion: LaunchOccasion = 'start'): Promise<AcpLaunchDecision | null> {
+    const owner = this.#owner(config.id)
     const known = this.knowledgeFor(config)
     if (!known || known.acp.bridge) return null
     const judged = await this.#judge(config, known)
@@ -275,11 +298,11 @@ export class InstallService {
       const rowNamesTheCli = matchesCommand(config.command, known.cli.commands)
       const rowWasJudged = copies.some((copy) => copy.path === config.command)
       if (fallback && !rowNamesTheCli && !rowWasJudged) {
-        void this.describe(config, judged)
+        void this.#describe(config, judged, owner)
         return null
       }
       const tooOld = copies.find((copy) => copy.standing === 'too-old')
-      void this.describe(config, judged)
+      void this.#describe(config, judged, owner)
       return {
         blocked: tooOld
           ? {
@@ -318,7 +341,7 @@ export class InstallService {
     if (occasion === 'start' && known.preflight) {
       const result = await check(withCli(known.preflight.command))
       if (!result.ok) {
-        void this.describe(config, judged)
+        void this.#describe(config, judged, owner)
         return {
           blocked: {
             reason: 'unknown',
@@ -331,7 +354,7 @@ export class InstallService {
     if (occasion === 'start' && known.daemon) {
       const result = await check(withCli(known.daemon.check))
       if (!result.ok) {
-        void this.describe(config, judged)
+        void this.#describe(config, judged, owner)
         return {
           blocked: {
             reason: 'unknown',
@@ -341,7 +364,7 @@ export class InstallService {
         }
       }
     }
-    void this.describe(config, judged)
+    void this.#describe(config, judged, owner)
     return {
       command: cli,
       args: extendedArgs(known.acp.args, config.args),
@@ -356,6 +379,7 @@ export class InstallService {
    * through the same probe, so a bridge for an unknown CLI still works.
    */
   async executableFor(config: AcpAgentConfig, spec: AcpExecutableSpec): Promise<ResolvedExecutable | null> {
+    const owner = this.#owner(config.id)
     const known = this.knowledgeFor(config)
     const found = await findInstalls(
       {
@@ -378,7 +402,7 @@ export class InstallService {
       pinnedPath: this.#pinOf(config.id),
     })
     // The same scan, described rather than repeated.
-    if (known) void this.describe(config, judged)
+    if (known) void this.#describe(config, judged, owner)
     return judged.chosen ? { path: judged.chosen.path, version: judged.chosen.version } : null
   }
 

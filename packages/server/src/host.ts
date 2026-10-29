@@ -2556,6 +2556,7 @@ export class Host {
     this.#historyImport.cancel(id)
     const runtime = this.#runtimes.get(id)
     if (!runtime) return
+    this.options.installs?.forget?.(String(id))
     this.#invalidateDelegations(id)
     this.#settleHeld(id)
     this.registry.detachAll(id)
