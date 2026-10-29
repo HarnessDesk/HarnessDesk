@@ -1222,6 +1222,19 @@ export const HandoffSheet = ({
   )
 }
 
+export const chooseProjectForDraft = (store: ReturnType<typeof useStore>, chooseProject: () => void | Promise<boolean | void>): void => {
+  /* A folder chosen here is the person's say over where this draft starts, and
+     a hand-off only says where the work was. Opening a folder switches the
+     workspace and clears the draft's place, which would hand the choice back
+     to the hand-off's folder, so a folder that was chosen is recorded as the
+     place. Only while a hand-off folder is still outranking the workspace:
+     without one, the folder's own default (a new worktree, say) stays. */
+  void Promise.resolve(chooseProject()).then((chosen) => {
+    const now = store.getSnapshot()
+    if (chosen === true && now.draftPlace === null && now.draftHandoff?.cwd) store.startDraftIn(null)
+  })
+}
+
 /**
  * Where the conversation being written will run: the open folder, a
  * worktree of it, or — from a worktree — the main checkout.
@@ -1260,18 +1273,7 @@ export const PlaceControl = ({ onChooseProject: chooseProject }: { onChooseProje
   const { ref } = useNarrowToolbar('work-in')
   const workspace = snapshot.workspace
   const carried = snapshot.draftPlace === null ? snapshot.draftHandoff?.cwd : undefined
-  /* A folder chosen here is the person's say over where this draft starts, and
-     a hand-off only says where the work was. Opening a folder switches the
-     workspace and clears the draft's place, which would hand the choice back
-     to the hand-off's folder, so a folder that was chosen is recorded as the
-     place. Only while a hand-off folder is still outranking the workspace:
-     without one, the folder's own default (a new worktree, say) stays. */
-  const onChooseProject = chooseProject && (() => {
-    void Promise.resolve(chooseProject()).then((chosen) => {
-      const now = store.getSnapshot()
-      if (chosen === true && now.draftPlace === null && now.draftHandoff?.cwd) store.startDraftIn(null)
-    })
-  })
+  const onChooseProject = chooseProject && (() => chooseProjectForDraft(store, chooseProject))
   useEffect(() => { if (!session && workspace) void store.refreshWorkspaceGit(workspace.path) }, [store, workspace?.path, !!session])
   if (session) return null
   const folderPicker = <Popover title={carried ?? workspace?.path ?? `Starts in ${snapshot.chatsFolder}`} drop="up" align="left"

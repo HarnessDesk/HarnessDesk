@@ -89,7 +89,7 @@ import {
   TeamIcon,
   TerminalIcon,
 } from './Icons'
-import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
+import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl, chooseProjectForDraft } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import { draftsOf, NEW_SESSION_DRAFT_KEY, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
@@ -1319,7 +1319,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
                 {chipProviders.map(provider => <MenuItem key={provider.id} icon={contextChipIcon(provider.chip?.icon, provider.form)} label={`${provider.label}${provider.chip?.prompt ? '…' : ''}`} title={provider.chip?.description} onSelect={() => { if (provider.chip?.prompt) setRefPrompt(provider); else addContext(provider) }} />)}
                 <MenuLabel>Project</MenuLabel>
               </>}
-              <MenuItem icon={<FolderOpenIcon size={16} />} label="Change project folder…" onSelect={onChooseProject} />
+              <MenuItem icon={<FolderOpenIcon size={16} />} label="Change project folder…" onSelect={() => chooseProjectForDraft(store, onChooseProject)} />
             </Menu>}
           </Popover>
           </ComposerTrack>

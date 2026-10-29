@@ -7,6 +7,7 @@ import { runtimeId, sessionId, sessionKey, type HostMethodName, type Session, ty
 import { StoreProvider } from '../state/context'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { PlaceControl } from './ComposerControls'
+import { Composer } from './Composer'
 
 /**
  * "Local, or a worktree?" — answered where the message is written.
@@ -407,14 +408,14 @@ const CURRENT = { path: '/work/current-project', name: 'current-project', lastOp
 const PICKED = { path: '/work/picked-project', name: 'picked-project', lastOpenedAt: 2, git: { branch: 'main', sha: 'def5678' }, repo: { root: '/work/picked-project', worktree: false } } as WorkspaceEntry
 
 /** A real store with CURRENT open, optionally holding a draft handed off from a conversation that ran in SOURCE, and PlaceControl wired as the app wires it. */
-const pickerRig = async (handoff: boolean): Promise<AppStore> => {
+const pickerRig = async (handoff: boolean, composer = false, picked: WorkspaceEntry | null | 'failure' = PICKED): Promise<AppStore> => {
   const conversation = (id: string, cwd: string): Session =>
     ({ id: sessionId(id), runtime: AGENT, cwd, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }) as unknown as Session
   const answers: Partial<Record<HostMethodName, unknown>> = {
     'runtime/sessionDefaults': [],
     'workspace/open': CURRENT,
     'workspace/recent': [CURRENT, PICKED],
-    'workspace/pick': PICKED,
+    'workspace/pick': picked,
     'worktree/list': [],
     'git/status': { branch: 'main', headSha: 'abc', files: [] },
     'session/read': conversation('source', SOURCE),
@@ -422,7 +423,10 @@ const pickerRig = async (handoff: boolean): Promise<AppStore> => {
     'session/create': conversation('next', PICKED.path),
   }
   const store = new AppStore('ws://localhost:0/')
-  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => answers[method] ?? null) as never)
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'workspace/pick' && picked === 'failure') throw new Error('picker unavailable')
+    return answers[method] ?? null
+  }) as never)
   await store.selectRuntime(AGENT)
   await store.openWorkspace(CURRENT.path)
   if (handoff) {
@@ -433,12 +437,37 @@ const pickerRig = async (handoff: boolean): Promise<AppStore> => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <PlaceControl onChooseProject={() => store.pickWorkspace()} />
+        {composer ? <Composer onChooseProject={async () => { try { return await store.pickWorkspace() } catch { return false } }} /> : <PlaceControl onChooseProject={() => store.pickWorkspace()} />}
       </StoreProvider>,
     )
   })
   return store
 }
+
+it.each(['success', 'cancel', 'failure'] as const)('Add preserves the hand-off draft on picker %s', async (result) => {
+  const success = result === 'success'
+  const store = await pickerRig(true, true, success ? PICKED : result === 'failure' ? 'failure' : null)
+  const input = container.querySelector('textarea')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Take it from here.')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.setSelectionRange(5, 7)
+  })
+  click(container.querySelector('button[title="Add"]')!)
+  const choice = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent?.includes('Change project folder'))!
+  expect(choice).toBeTruthy()
+  await act(async () => {
+    choice.click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
+  expect(store.getSnapshot().draftHandoff?.cwd).toBe(SOURCE)
+  expect(input.value).toBe('Take it from here.')
+  expect([input.selectionStart, input.selectionEnd]).toEqual([5, 7])
+  expect(folderTrigger()?.title).toBe(success ? PICKED.path : SOURCE)
+  await store.queue([{ type: 'text', text: input.value }])
+  const create = vi.mocked(store.transport.request).mock.calls.filter(([method]) => method === 'session/create').at(-1)
+  expect(create?.[1]).toMatchObject({ options: { cwd: success ? PICKED.path : SOURCE } })
+})
 
 const folderTrigger = (): HTMLButtonElement | null => container.querySelector<HTMLButtonElement>('button[title$="-project"]')
 
