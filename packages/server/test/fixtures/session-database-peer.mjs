@@ -14,6 +14,17 @@ if (workerData.mode === 'reader') {
     Atomics.store(signal, 1, 1)
     db.exec('COMMIT')
   } finally { db.close() }
+} else if (workerData.mode === 'future-version') {
+  const db = new DatabaseSync(workerData.file)
+  try {
+    db.exec('BEGIN IMMEDIATE')
+    parentPort.postMessage('locked')
+    Atomics.wait(signal, 0, 0, 5000)
+    if (Atomics.load(signal, 0) !== 1) throw new Error('The opener did not attempt migration')
+    // Keep the writer lock briefly after the opener reaches BEGIN IMMEDIATE.
+    Atomics.wait(signal, 1, 0, 150)
+    db.exec('PRAGMA user_version = 8; COMMIT')
+  } finally { db.close() }
 } else {
   // Both real connections have read the old version before either acquires
   // its first migration lock. SQL results and transactions remain genuine.

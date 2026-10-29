@@ -41,7 +41,7 @@ const fixture = async (t: TestContext) => {
       assert.deepEqual(codes, codes.map(() => 0), 'owned peers finish before scratch removal')
     } finally { await rm(home, { recursive: true, force: true }) }
   })
-  const peer = (mode: 'reader' | 'initialize', signal: SharedArrayBuffer, holdMs = 0) => {
+  const peer = (mode: 'reader' | 'initialize' | 'future-version', signal: SharedArrayBuffer, holdMs = 0) => {
     const worker = new Worker(new URL('./fixtures/session-database-peer.mjs', import.meta.url), {
       workerData: { file, mode, signal, holdMs, module: new URL('../src/session-database.js', import.meta.url).href },
     })
@@ -85,6 +85,31 @@ test('concurrent initializers apply each migration only once after acquiring its
     assert.ok(value.worktreeColumns.includes('title'))
     assert.ok(value.worktreeColumns.includes('updated_at'))
   }
+})
+
+test('a newer schema committed while migration waits is rejected without modification', { timeout: 15_000 }, async t => {
+  const { file, peer } = await fixture(t)
+  const seed = new DatabaseSync(file)
+  seed.exec('PRAGMA journal_mode = WAL')
+  seed.close()
+  const buffer = new SharedArrayBuffer(8)
+  const signal = new Int32Array(buffer)
+  assert.equal(await peer('future-version', buffer), 'locked')
+  const exec = DatabaseSync.prototype.exec
+  t.mock.method(DatabaseSync.prototype, 'exec', function (this: DatabaseSync, sql: string) {
+    if (sql === 'BEGIN IMMEDIATE') {
+      Atomics.store(signal, 0, 1)
+      Atomics.notify(signal, 0)
+    }
+    return exec.call(this, sql)
+  })
+  assert.throws(() => { openSessionDatabase(file).close() }, /newer schema/)
+  const after = new DatabaseSync(file, { readOnly: true })
+  try {
+    assert.equal(after.prepare('PRAGMA user_version').get()?.['user_version'], 8)
+    assert.equal(after.prepare('SELECT value FROM fixture_marker').get()?.['value'], 'preserved')
+    assert.equal(after.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'sessions'").get()?.['n'], 0)
+  } finally { after.close() }
 })
 
 test('a lock that outlasts the busy budget still raises the real SQLite error', { timeout: 15_000 }, async t => {
