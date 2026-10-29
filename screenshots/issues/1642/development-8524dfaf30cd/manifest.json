@@ -1,0 +1,77 @@
+{
+  "issue": 1642,
+  "development": "8524dfaf30cd82105c1e366bd9d8eed68ba95b2a",
+  "captureCheckout": "4ecf7f06b60df70dbabc5317f6b7e7bc28b3bb64",
+  "scope": "Production UI matches development; capture checkout differs only by a fixture test. Synthetic preview harness, Chromium desktop; no native or mobile claim.",
+  "privacy": "COLLECT plus textReasons passed; all four images visually inspected before publication.",
+  "files": [
+    {
+      "path": "issue-1642-flow-light.png",
+      "sha256": "931cace632c23b4b0c2eb82f91d9c5008bb1d70ef1ae449338b182015ecedd9d",
+      "width": 1600,
+      "height": 1100,
+      "geometry": {
+        "url": "/preview.html?workspace-recovery=flow&theme=light",
+        "measure": "container",
+        "width": 812,
+        "parentWidth": 812,
+        "floating": 0,
+        "viewport": {
+          "width": 1600,
+          "height": 1100
+        }
+      }
+    },
+    {
+      "path": "issue-1642-flow-dark.png",
+      "sha256": "a01e6217420237eccad4c3353f21b1fada2ddbef665e26231753f7a714a7a9d3",
+      "width": 1600,
+      "height": 1100,
+      "geometry": {
+        "url": "/preview.html?workspace-recovery=flow&theme=dark",
+        "measure": "container",
+        "width": 812,
+        "parentWidth": 812,
+        "floating": 0,
+        "viewport": {
+          "width": 1600,
+          "height": 1100
+        }
+      }
+    },
+    {
+      "path": "issue-1642-plain-light.png",
+      "sha256": "6d690825652a6641ef83cfc625450e7437be3df2882b6e0c0aad3ea5c98baf19",
+      "width": 1600,
+      "height": 1100,
+      "geometry": {
+        "url": "/preview.html?workspace-recovery=plain&theme=light",
+        "measure": "container",
+        "width": 812,
+        "parentWidth": 812,
+        "floating": 0,
+        "viewport": {
+          "width": 1600,
+          "height": 1100
+        }
+      }
+    },
+    {
+      "path": "issue-1642-plain-dark.png",
+      "sha256": "399be71df61aad598357de1599b75d00c5ff715665c6bce800ffec17559de651",
+      "width": 1600,
+      "height": 1100,
+      "geometry": {
+        "url": "/preview.html?workspace-recovery=plain&theme=dark",
+        "measure": "container",
+        "width": 812,
+        "parentWidth": 812,
+        "floating": 0,
+        "viewport": {
+          "width": 1600,
+          "height": 1100
+        }
+      }
+    }
+  ]
+}
