@@ -304,6 +304,100 @@ test('OpenCode record sign-out and same-provider sign-in through the production 
   assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider', 'a newly observed record can name the same provider')
 })
 
+test('an unreadable OpenCode JSON record does not lift sign-out when the old record returns', async (t) => {
+  const original = { provider: { type: 'api', key: 'fake-old' } }
+  const data = folder(t, { 'opencode/auth.json': original })
+  const path = join(data, 'opencode', 'auth.json')
+  const row = { id: 'opencode', name: 'OpenCode', command: process.execPath,
+    args: [fileURLToPath(new URL('../../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url))],
+    env: { XDG_DATA_HOME: data, FAKE_ACP_LOGOUT: '1' } }
+  const runtime = new AcpRuntime({ ...row, ...knowledgeOverlay(row, knownAgent('opencode')) })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  await runtime.createSession({ cwd: data })
+  await runtime.logout()
+  writeFileSync(path, '{')
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  writeFileSync(path, JSON.stringify(original))
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.', 'failed read is not a record removal')
+  writeFileSync(path, '{}')
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  writeFileSync(path, JSON.stringify(original))
+  assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider', 'proven absence permits a later same-provider sign-in')
+})
+
+test('an unreadable OpenCode database does not lift sign-out when the old database returns', async (t) => {
+  const data = folder(t, {})
+  const dir = join(data, 'opencode')
+  mkdirSync(dir, { recursive: true })
+  const path = join(dir, 'opencode.db')
+  const db = new DatabaseSync(path)
+  db.exec("CREATE TABLE credential (integration_id TEXT, active INTEGER); INSERT INTO credential VALUES ('provider', 1)")
+  db.close()
+  const original = readFileSync(path)
+  const row = { id: 'opencode', name: 'OpenCode', command: process.execPath,
+    args: [fileURLToPath(new URL('../../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url))],
+    env: { XDG_DATA_HOME: data, FAKE_ACP_LOGOUT: '1' } }
+  const runtime = new AcpRuntime({ ...row, ...knowledgeOverlay(row, knownAgent('opencode')) })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  await runtime.createSession({ cwd: data })
+  await runtime.logout()
+  writeFileSync(path, 'not a database')
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  writeFileSync(path, original)
+  utimesSync(path, 2_000_000_000, 2_000_000_000)
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.', 'failed database read is not a record removal')
+  const empty = new DatabaseSync(path)
+  empty.exec('DELETE FROM credential')
+  empty.close()
+  utimesSync(path, 2_000_000_001, 2_000_000_001)
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  const signedIn = new DatabaseSync(path)
+  signedIn.exec("INSERT INTO credential VALUES ('provider', 1)")
+  signedIn.close()
+  utimesSync(path, 2_000_000_002, 2_000_000_002)
+  assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider', 'a verified empty database permits a later sign-in')
+})
+
+test('a record unreadable when sign-out starts cannot be mistaken for proven absence', async (t) => {
+  const original = { provider: { type: 'api', key: 'fake-old' } }
+  const data = folder(t, { 'opencode/auth.json': original })
+  const path = join(data, 'opencode', 'auth.json')
+  const row = { id: 'opencode', name: 'OpenCode', command: process.execPath,
+    args: [fileURLToPath(new URL('../../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url))],
+    env: { XDG_DATA_HOME: data, FAKE_ACP_LOGOUT: '1' } }
+  const runtime = new AcpRuntime({ ...row, ...knowledgeOverlay(row, knownAgent('opencode')) })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  await runtime.createSession({ cwd: data })
+  writeFileSync(path, '{')
+  await runtime.logout()
+  writeFileSync(path, JSON.stringify(original))
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+})
+
+test('a live OpenCode database proves absence and same-provider sign-in without the display cache delay', async (t) => {
+  const data = folder(t, {})
+  const dir = join(data, 'opencode')
+  mkdirSync(dir, { recursive: true })
+  const path = join(dir, 'opencode.db')
+  const db = new DatabaseSync(path)
+  db.exec("PRAGMA journal_mode = WAL; CREATE TABLE credential (integration_id TEXT, active INTEGER); INSERT INTO credential VALUES ('provider', 1)")
+  const row = { id: 'opencode', name: 'OpenCode', command: process.execPath,
+    args: [fileURLToPath(new URL('../../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url))],
+    env: { XDG_DATA_HOME: data, FAKE_ACP_LOGOUT: '1' } }
+  const runtime = new AcpRuntime({ ...row, ...knowledgeOverlay(row, knownAgent('opencode')) })
+  t.after(async () => { await runtime.dispose(); db.close() })
+  await runtime.start()
+  await runtime.createSession({ cwd: data })
+  await runtime.logout()
+  db.exec('DELETE FROM credential')
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  db.exec("INSERT INTO credential VALUES ('provider', 1)")
+  assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider')
+})
+
 test('OpenCode cannot distinguish a same-provider replacement between reads from its unchanged record', async (t) => {
   const data = folder(t, { 'opencode/auth.json': { provider: { type: 'api', key: 'fake-old' } } })
   const path = join(data, 'opencode', 'auth.json')

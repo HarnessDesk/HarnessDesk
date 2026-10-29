@@ -316,6 +316,8 @@ export interface AcpAgentConfig {
    * registry.
    */
   readonly resolveIdentity?: () => Account | null
+  /** Record-backed status: undefined means the record could not be read, null proves nobody is recorded. */
+  readonly resolveIdentityStatus?: () => Account | null | undefined
   /** The identity record is also the sign-in status: null means signed out. */
   readonly identityIsStatus?: boolean
   /**
@@ -2275,7 +2277,7 @@ export class AcpRuntime implements AgentRuntime {
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
     const before = this.#signIn
     const beforeSignedOutIdentity = this.#signedOutIdentity
-    this.#signedOutIdentity = this.#config.identityIsStatus ? this.#identity() : null
+    this.#signedOutIdentity = this.#config.identityIsStatus ? this.#identityStatus() : null
     const beforeGeneration = this.#refusalGeneration
     const beforeObservation = this.#statusObservation
     // Make the state transition visible to the account/changed event emitted
@@ -2852,8 +2854,8 @@ export class AcpRuntime implements AgentRuntime {
   #signIn: SignInObservation = { state: 'unknown' }
   /** Sign-outs whose command is still running: until it ends, the agent's record still names who is being signed out. */
   #signingOut = 0
-  /** Identity still present when the desk started its most recent sign-out. */
-  #signedOutIdentity: Account | null = null
+  /** Identity at sign-out; null is proven absent, undefined means the read failed. */
+  #signedOutIdentity: Account | null | undefined = null
   /** Every refusal counts, even when its unchanged message needs no notification. */
   #refusalGeneration = 0
   #statusObservation = -1
@@ -3064,12 +3066,14 @@ export class AcpRuntime implements AgentRuntime {
     const seen = this.#signIn
     if (seen.state !== 'required' || !seen.signedOut || this.#signingOut > 0) return false
     if (!this.#config.identityIsStatus || hasKey) return false
-    const identity = this.#identity()
-    if (!identity) {
+    const identity = this.#identityStatus()
+    if (identity === undefined) return false
+    if (identity === null) {
       this.#signedOutIdentity = null
       return false
     }
     const old = this.#signedOutIdentity
+    if (old === undefined) return false
     if (old && old.kind === identity.kind && (old.email ?? old.label) === (identity.email ?? identity.label)) return false
     this.#signedOutIdentity = null
     this.#noteSignIn({ state: 'observed' })
@@ -3167,6 +3171,19 @@ export class AcpRuntime implements AgentRuntime {
         error: String(error),
       })
       return null
+    }
+  }
+
+  /** Unlike a display identity, an unreadable status cannot prove absence. */
+  #identityStatus(): Account | null | undefined {
+    try {
+      if (this.#config.resolveIdentityStatus) return this.#config.resolveIdentityStatus()
+      return this.#config.resolveIdentity ? this.#config.resolveIdentity() : undefined
+    } catch (error) {
+      this.#config.logger?.warn?.('could not read who the agent is signed in as', {
+        agent: this.#config.id, error: String(error),
+      })
+      return undefined
     }
   }
 
