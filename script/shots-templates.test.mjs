@@ -4,9 +4,30 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { createTemplateRig, TEMPLATE_TASK, TEMPLATE_PUBLISH_BRANCH } from './shots/template-rig.mjs'
+import * as templateRig from './shots/template-rig.mjs'
 import { GhFindingForge } from '../packages/server/dist/src/findings/forge.js'
 import { markerOf, publicationKey, sha256 } from '../packages/server/dist/src/findings/publication.js'
+
+const { createTemplateRig, TEMPLATE_TASK, TEMPLATE_PUBLISH_BRANCH } = templateRig
+
+test('contest journey cases select one check mode while retaining the complete manual journey', () => {
+  assert.equal(typeof templateRig.templateJourneyCases, 'function')
+  for (const mode of ['skipped', 'declared']) {
+    assert.deepEqual(templateRig.templateJourneyCases(['--contest', '--contest-mode', mode]), [['mechanical-contest', mode]])
+  }
+  assert.deepEqual(templateRig.templateJourneyCases(['--contest']), [['mechanical-contest', 'skipped'], ['mechanical-contest', 'declared']])
+  assert.deepEqual(templateRig.templateJourneyCases([]), [['comparison', 'edited'], ['fix-and-review', 'none']])
+})
+
+test('contest journey cases refuse missing, unknown, repeated or unrelated mode selectors', () => {
+  assert.equal(typeof templateRig.templateJourneyCases, 'function')
+  for (const args of [
+    ['--contest', '--contest-mode'],
+    ['--contest', '--contest-mode', 'other'],
+    ['--contest', '--contest-mode', 'skipped', '--contest-mode', 'declared'],
+    ['--contest-mode', 'skipped'],
+  ]) assert.throws(() => templateRig.templateJourneyCases(args), /contest-mode/)
+})
 
 test('template journeys assert the persistent New Team and its explicit dry run before a real start', () => {
   const source = readFileSync(new URL('./shots/templates.mjs', import.meta.url), 'utf8')
