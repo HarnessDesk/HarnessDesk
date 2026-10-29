@@ -1,6 +1,45 @@
 import { expect, test } from '@playwright/test'
 import { closeTeamDetails, selectTeamPage, teamSeats } from './team-frame-actions'
 
+test('focused Overview exposes its mounted store to preview tooling', async ({ page }) => {
+  await page.goto('/preview.html?team-overview=narrow&theme=light')
+  await expect(page.locator('#team-overview-narrow [data-slot="team-overview"]')).toBeVisible()
+  await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
+  await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: { store: { setTheme(value: 'dark'): void } } }).__hdPreview
+    preview.store.setTheme('dark')
+  })
+  await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+  expect(await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: {
+      store: { getSnapshot(): { accountsByRuntime: object } }
+    } }).__hdPreview
+    return { accounts: preview.store.getSnapshot().accountsByRuntime, keys: Object.keys(preview).sort() }
+  })).toEqual({ accounts: {}, keys: ['store'] })
+  await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: { store: { setTheme(value: 'light'): void } } }).__hdPreview
+    preview.store.setTheme('light')
+  })
+  await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
+  await page.goto('/preview.html?team-overview=narrow&theme=dark')
+  await expect(page.locator('#team-overview-narrow [data-slot="team-overview"]')).toBeVisible()
+  await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+})
+
+test('default gallery keeps its conversation and sidebar preview helpers', async ({ page }) => {
+  await page.goto('/preview.html')
+  const details = await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: {
+      store: { getSnapshot(): { sessions: Map<string, unknown> } }
+      sessionKey: string
+      sidebarFolderlessStore: { getSnapshot(): unknown }
+    } }).__hdPreview
+    return { keys: Object.keys(preview).sort(), hasSession: preview.store.getSnapshot().sessions.has(preview.sessionKey),
+      hasSidebar: !!preview.sidebarFolderlessStore.getSnapshot() }
+  })
+  expect(details).toEqual({ keys: ['sessionKey', 'sidebarFolderlessStore', 'store'], hasSession: true, hasSidebar: true })
+})
+
 for (const theme of ['light', 'dark'] as const) {
   test(`Team Overview: seat descriptions keep a readable line in the narrowest preview in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })

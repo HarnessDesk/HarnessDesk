@@ -140,7 +140,7 @@ import { InapplicableActionsFrames } from './frames-inapplicable-actions'
 import { RunInspectorFrames } from './frames-run-inspector'
 import { ReviewPublicationFrames } from './frames-review-publication'
 import { ABANDON_VARIANTS, RunControlsFrames, type AbandonVariant } from './frames-run-controls'
-import { TeamOverviewFrames, TeamOverviewPreview } from './frames-team-overview'
+import { overviewPreviewStore, TeamOverviewFrames, TeamOverviewPreview } from './frames-team-overview'
 import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFrames } from './frames-stop-run'
 import { SideBySideFrames, ComparisonVerdictPreview, TileBrowserFrames } from './frames-side-by-side'
 import { AgentBriefFrames } from './frames-agent-brief'
@@ -153,6 +153,7 @@ import '../styles/app.css'
 import { installOverlayScrollbarTracking } from '../styles/overlay-scrollbars'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
+const SHOW_NARROW_OVERVIEW = new URLSearchParams(window.location.search).get('team-overview') === 'narrow'
 /* A second full `<Conversation>` duplicates every ambient header element —
    the plan strip, its "other agents" trigger — which is exactly what broke
    the composer frames above before they were gated the same way. Only on
@@ -229,8 +230,12 @@ if (new URLSearchParams(window.location.search).get('findings') === 'seat') {
  * reads is unchanged (#1313). This file is the page's one entry, loaded once
  * whatever URL names it, so the `store` it holds is the one the page mounts
  * its frames on. `e2e/ui-system/trajectory-layout.spec.ts` is the caller.
+ * The focused Overview mounts its own store and has no gallery conversation
+ * or folderless sidebar, so its hook exposes only that mounted store.
  */
-;(window as unknown as { __hdPreview: unknown }).__hdPreview = { store, sessionKey: PREVIEW_SESSION_KEY, sidebarFolderlessStore }
+;(window as unknown as { __hdPreview: unknown }).__hdPreview = SHOW_NARROW_OVERVIEW
+  ? { store: overviewPreviewStore() }
+  : { store, sessionKey: PREVIEW_SESSION_KEY, sidebarFolderlessStore }
 // The roster and chat share the real name role; populate this Goal's chat
 // with the existing rig messages so both treatments can be read together.
 previewMutable.patch({
@@ -1289,7 +1294,7 @@ createRoot(container).render(
     <SceneSteps />
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
-        {new URLSearchParams(window.location.search).get('team-overview') === 'narrow' ? <TeamOverviewPreview /> : new URLSearchParams(window.location.search).has('desk-account') ? <HarnessDeskAccountPreview /> : new URLSearchParams(window.location.search).has('lead-synthetic') ? <LeadFrames />
+        {SHOW_NARROW_OVERVIEW ? <TeamOverviewPreview /> : new URLSearchParams(window.location.search).has('desk-account') ? <HarnessDeskAccountPreview /> : new URLSearchParams(window.location.search).has('lead-synthetic') ? <LeadFrames />
           : new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
           : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
