@@ -1,0 +1,25 @@
+{
+  "issue": 1840,
+  "pullRequest": 1884,
+  "sourceHead": "f5c430d1bdbe807f0257a93794a6c26debb42090",
+  "surface": "Native Electron, isolated fake-agent rig, trusted UI input",
+  "scenario": "A native extra account shares an id with an ignored ACP account row at a different credential home. Removal through the pending extra account row deletes the native runtime, slot and home. The primary remains nonremovable. Ignored ACP configuration and its harmless marker file remain byte-identical. The sentinel never executes.",
+  "limits": "The extra account was pending, not authenticated. No provider or live-auth behavior was validated. Approval-close races are covered by Host/plugin tests, not these frames.",
+  "privacy": "All text and account audits were empty before navigation and before and after each capture. Worker and parent visually inspected both original PNGs.",
+  "files": [
+    {
+      "path": "native-extra-remove-confirmation.png",
+      "sha256": "835e900c632676b9893400168fd0825a747eb106ecf92e32036bd07624f1f628",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Canonical removal confirmation targets the native extra account credential home"
+    },
+    {
+      "path": "native-extra-removed-runtime-accounts.png",
+      "sha256": "882c3041dd40bc91eaaba7a862af0056ea1f336cad6f7cf5c458ab02ddb46251",
+      "width": 2560,
+      "height": 1680,
+      "caption": "After removal the primary account and account-add controls remain"
+    }
+  ]
+}
