@@ -15,6 +15,17 @@ export const TEMPLATE_TASK = 'Repair checkout retry'
 export const TEMPLATE_CHECK = 'node .harnessdesk/rig-check.mjs'
 export const TEMPLATE_PUBLISH_BRANCH = 'rig-write-review-1'
 
+/** A browser case owns one contest mode; the manual command still walks both. */
+export const templateJourneyCases = (argv) => {
+  const contest = argv.includes('--contest'), at = argv.indexOf('--contest-mode')
+  if (at === -1) return contest ? [['mechanical-contest', 'skipped'], ['mechanical-contest', 'declared']] : [['comparison', 'edited'], ['fix-and-review', 'none']]
+  if (!contest) throw new Error('--contest-mode requires --contest')
+  if (at !== argv.lastIndexOf('--contest-mode')) throw new Error('--contest-mode must appear once')
+  const mode = argv[at + 1]
+  if (!['skipped', 'declared'].includes(mode)) throw new Error('--contest-mode must be skipped or declared')
+  return [['mechanical-contest', mode]]
+}
+
 /** The two identities use the shipping native read/edit controls. */
 class TemplateRuntime extends CodexRuntime {
   constructor(options, provider, readOnly = false) { super(options); this.scriptedProvider = provider; this.scriptedName = options.name; this.scriptedReadOnly = readOnly }
