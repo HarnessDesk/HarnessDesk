@@ -968,7 +968,9 @@ export const putBack = async (
  */
 const ignoredIn = async (path: string): Promise<string[]> => {
   try {
-    const porcelain = await git(path, ['status', '--porcelain=v1', '-z', '--ignored=matching'])
+    // Keep ignored directories collapsed, even when the user's status preference
+    // hides untracked files (which would also hide every ignored entry).
+    const porcelain = await git(path, ['status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=normal'])
     return porcelain
       .split('\0')
       .filter((line) => line.startsWith('!! '))
