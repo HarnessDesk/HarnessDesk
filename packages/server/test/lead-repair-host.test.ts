@@ -138,6 +138,9 @@ for (const accepted of [false, true]) test(`host repairs validate and recover pu
   await rig.journal.settingsChanged(undefined, { checks: true, reviews: false })
   await following.deliver(watch(), { facts: [], observations: [] } as any)
   assert.equal(rig.journal.state.handbacks.at(-1)!.stage, 'withdrawn')
+  if (!rig.pending('result')) t.diagnostic(`withdrawn-green: ${JSON.stringify({ phase: rig.journal.state.phase,
+    reason: rig.journal.state.managementReason, operation: rig.journal.state.handbacks.at(-1), cards: rig.journal.state.cards,
+    decided: rig.journal.state.decidedCards, evidence: rig.latestEvidence })}`)
   assert.ok(rig.pending('result'), 'withdrawn-green re-offers the existing reviewed head through refreshRepairs')
   await new Promise(resolve => setTimeout(resolve, 1200))
   assert.ok(rig.pending('result'), 'the timer never changes withdrawal into a false unverified wait')

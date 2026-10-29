@@ -5,13 +5,19 @@ import type { HostMethodName } from './wire.js'
 export type ClientTier = 'read' | 'run' | 'answer'
 export type ClientTopic = 'runs' | 'cards' | 'teams' | 'waiting' | 'notices' | 'seats' | 'reviews' | 'chats'
 
-/** The methods the client door answers, each with the tier it needs. */
-export const CLIENT_METHODS = {
+/** Classified private methods: available only on a host-policy client door.
+ * The typed SDK uses them, while public discovery and the CLI exclude them. */
+export const PRIVATE_CLIENT_METHODS = {
   'lead/chat/list': 'read',
   'lead/chat/read': 'read',
   'lead/chat/start': 'run',
   'lead/chat/send': 'run',
   'lead/chat/stop': 'run',
+} as const satisfies Partial<Record<HostMethodName, ClientTier>>
+
+/** The methods the client door answers, each with the tier it needs. */
+export const CLIENT_METHODS = {
+  ...PRIVATE_CLIENT_METHODS,
   'client/hello': 'read',
   'client/subscribe': 'read',
   'session/loadout': 'read',

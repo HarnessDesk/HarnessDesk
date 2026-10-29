@@ -3719,7 +3719,7 @@ export class Host {
       }),
     })
     let repairRefresh: Promise<void> | null = null
-    const refreshRepairs = (): Promise<void> => repairRefresh ??= (async () => {
+    const refreshRepairsOnce = async (): Promise<void> => {
       if (this.#disposed) return
       await repairs.recover()
       const op = journal.state.handbacks.at(-1)
@@ -3748,7 +3748,14 @@ export class Host {
       }
       if (!current()) return
       await journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
-    })().finally(() => { repairRefresh = null })
+    }
+    const refreshRepairs = async (): Promise<void> => {
+      // A delivery can change the latest repair while an evidence read is out.
+      // The stale-result guard drops that read; waiters share a fresh pass begun
+      // after their request, without polls extending the active pass forever.
+      if (repairRefresh) await repairRefresh
+      return repairRefresh ??= refreshRepairsOnce().finally(() => { repairRefresh = null })
+    }
     const repairTimer = setInterval(() => { void refreshRepairs().catch(() => {}) }, 1000)
     repairTimer.unref(); this.onDispose(async () => { clearInterval(repairTimer); await repairRefresh?.catch(() => {}) })
     this.#intake.followPullRequests({ watches: () => follow.watches(), deliver: async (_watch, batch) => {
@@ -7416,6 +7423,7 @@ export class Host {
    */
   async #drain(record: SessionRecord): Promise<void> {
     const key = recordKey(record)
+    let cancelled = false
     if (this.#draining.has(key)) return
     if (record.queue.status === 'paused') return
     if (record.queue.messages.length === 0) return
@@ -7450,10 +7458,8 @@ export class Host {
       try {
         await this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, async current => {
           const admit = this.registry.queuedAdmission(record, sending.id)
-          if (admit) {
-            await admit(current)
-            if (!record.queue.messages.some(message => message.id === sending.id)) throw new Error('The queued message was cancelled before dispatch.')
-          }
+          if (admit) await admit(current)
+          if (!record.queue.messages.some(message => message.id === sending.id)) { cancelled = true; return }
           return current.send(sending.input)
         })
         this.registry.cancelQueued(record, sending.id)
@@ -7486,6 +7492,7 @@ export class Host {
       }
     } finally {
       this.#draining.delete(key)
+      if (cancelled) void this.#drain(record)
     }
   }
 

@@ -1,4 +1,5 @@
 import type { PhoneWorkThread, PhoneWorkTurn } from '@harnessdesk/protocol'
+import { threadProjection } from '../phone-thread.js'
 
 const MAX_BYTES = 12_000
 const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value))
@@ -21,19 +22,20 @@ const shorten = (turn: PhoneWorkTurn, length: number): PhoneWorkTurn => {
  * successful read at the provider's per-tool-result ceiling. Full text stays
  * available in the ordinary chat on the desk and phone. */
 export const boundLeadChatRead = (thread: PhoneWorkThread): PhoneWorkThread & { readonly omittedTurns: number; readonly truncated: boolean } => {
+  const projection = threadProjection(thread), omitted = projection?.omittedTurns ?? 0
   const result = { id: thread.id, title: excerpt(thread.title, 160), agent: { name: excerpt(thread.agent.name, 80),
     ...(thread.agent.model ? { model: excerpt(thread.agent.model, 100) } : {}) },
     ...(thread.project ? { project: excerpt(thread.project, 120) } : {}), status: thread.status,
-    turns: [] as PhoneWorkTurn[], omittedTurns: thread.turns.length, truncated: false }
+    turns: [] as PhoneWorkTurn[], omittedTurns: omitted + thread.turns.length, truncated: projection?.truncated ?? false }
   for (let index = thread.turns.length - 1; index >= 0; index--) {
     const turn = thread.turns[index]!
-    const candidate = { ...result, turns: [turn, ...result.turns], omittedTurns: index, truncated: index > 0 }
+    const candidate = { ...result, turns: [turn, ...result.turns], omittedTurns: omitted + index, truncated: (projection?.truncated ?? false) || omitted + index > 0 }
     if (bytes(candidate) <= MAX_BYTES) { Object.assign(result, candidate); continue }
     if (result.turns.length === 0) {
       let length = 2000
       do {
         result.turns = [shorten(turn, length)]
-        result.omittedTurns = index; result.truncated = true
+        result.omittedTurns = omitted + index; result.truncated = true
         length = Math.floor(length / 2)
       } while (bytes(result) > MAX_BYTES && length >= 16)
     }

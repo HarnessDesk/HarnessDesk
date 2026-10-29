@@ -18,6 +18,7 @@ const rig = async (t: TestContext) => {
   const project = { id: 'project', path: root }, runtime = runtimeId('fixture')
   let state: LeadState = { ...initialLeadState(), phase: 'planning', policy: { version: 1, revision: 1, mode: 'manage', rules: [] },
     budget: reduceLeadBudget(null, { version: 1, type: 'initialize', logicalGoalId: 'goal', now: 100, freshnessMs: 60000, caps: { usdMicros: 10000, rounds: 3 } }) }
+  let queuedScope: ((cwd: string) => Promise<void>) | undefined
   let member = true, cwdRead: (() => Promise<void>) | undefined, count = 0
   const calls: { method: string; params: any }[] = []
   const published: any[] = []
@@ -43,11 +44,11 @@ const rig = async (t: TestContext) => {
     work: {
       threadRead: async (params: any) => { calls.push({ method: 'read', params }); return { id: params.id, title: 'Project chat', agent: { name: 'Agent' }, status: 'done', turns: [] } },
       startInProject: async (params: any, root: string, admit: (id?: string) => Promise<void>) => { await admit(); calls.push({ method: 'start', params: { ...params, root } }); return { id: 'fixture:created' } },
-      sessionSend: async (params: any, admit: () => Promise<void>) => { await admit(); calls.push({ method: 'send', params }); return { queued: true } },
+      sessionSend: async (params: any, admit: () => Promise<void>, _effect: unknown, scope: (cwd: string) => Promise<void>) => { await admit(); queuedScope = scope; calls.push({ method: 'send', params }); return { queued: true } },
       stop: async (params: any, admit: () => Promise<void>) => { await admit(); calls.push({ method: 'stop', params }); return {} },
     },
   })
-  return { service, index, root, foreign, row, calls, authorize, published, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
+  return { service, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
     withdraw: () => { member = false }, onCwd: (callback: () => Promise<void>) => { cwdRead = callback } }
 }
 
@@ -183,4 +184,28 @@ test('a refused host admission consumes its durable attempt before scope or poli
   r.authorize('lead/chat/send', params)
   await r.service.send(params)
   assert.equal(r.calls.length, 1)
+})
+
+test('final queued admission ignores healthy dispatch but preserves every unresolved-effect fence', async t => {
+  const r = await rig(t); r.row('own')
+  const params = { id: 'fixture:own', text: 'Continue' }
+  const own = r.authorize('lead/chat/send', params)
+  await r.service.send(params)
+  const other = r.authorize('lead/chat/start', { text: 'Other task' })
+  const healthy = r.state()
+  await r.queuedScope()(r.root)
+  for (const id of [own, other]) for (const change of [
+    { outcome: 'uncertain' as const }, { resolutionPending: true }, { contested: true },
+  ]) {
+    const attempts = new Map(healthy.attempts)
+    attempts.set(id, { ...attempts.get(id)!, ...change })
+    r.setState({ attempts })
+    await assert.rejects(r.queuedScope()(r.root), /recovery/i)
+  }
+  r.setState(healthy)
+  for (const change of [{ recoveryBlocked: true }, { stopEffectsPending: 1 }, { phase: 'stopped' as const }]) {
+    r.setState(change)
+    await assert.rejects(r.queuedScope()(r.root), /recovery/i)
+    r.setState(healthy)
+  }
 })

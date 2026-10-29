@@ -116,7 +116,7 @@ export class LeadChats {
     await check(this.ports.index.get(runtime, session)?.cwd ?? null)
   }
 
-  async #gate(call: LeadPermissionCall, attemptId?: string): Promise<void> {
+  async #gate(call: LeadPermissionCall, attemptId?: string, finalAdmission = false): Promise<void> {
     await this.#project()
     const context = await this.ports.context(call)
     await this.#project()
@@ -125,8 +125,9 @@ export class LeadChats {
     if (MUTATIONS.has(call.method) && call.method !== 'lead/chat/stop') {
       if (this.ports.managementAvailable?.() === false) refuse('Lead management is disabled or unavailable.')
       if (['stopped', 'accepted', 'declined'].includes(state.phase) || state.recoveryBlocked || state.stopEffectsPending !== null ||
-        [...state.attempts.values()].some(attempt => attempt.id !== attemptId && attempt.kind === 'mutation' &&
-          (attempt.outcome === 'uncertain' || attempt.resolutionPending || attempt.contested || attempt.phase === 'started' && attempt.dispatched)))
+        [...state.attempts.values()].some(attempt => attempt.kind === 'mutation' &&
+          (attempt.outcome === 'uncertain' || attempt.resolutionPending || attempt.contested ||
+            !finalAdmission && attempt.id !== attemptId && attempt.phase === 'started' && attempt.dispatched)))
         refuse('Lead management is stopped pending recovery or user action.')
     }
     const approved = state.contract && state.consent ? { contract: state.contract, consent: state.consent,
@@ -264,7 +265,9 @@ export class LeadChats {
       catch { refuse('That session is outside the Lead project scope.') }
       await this.#target(id!, false)
       if (this.ports.project.path !== selected.path || this.ports.project.id !== selected.id) refuse('Lead project scope changed.')
-      await this.#gate(call, attemptId)
+      // Queue drains run independently of the mutation tail. Healthy concurrent
+      // dispatch is not recovery; every unresolved effect and live policy fence is.
+      await this.#gate(call, attemptId, true)
     }
   }
 }

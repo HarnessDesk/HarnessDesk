@@ -185,3 +185,76 @@ test('a newly allocated foreign handle receives no first prompt and retains its 
   assert.match(value.problem ?? '', /created|confirmed/i)
   assert.equal(r.sends(), 0)
 })
+
+test('a queued Lead reply drains while a second healthy mutation is held in dispatch', async t => {
+  const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
+  r.setCwd(r.project.path)
+  const record = r.host.registry.upsert(r.session, live)
+  await r.host.call('turn/send', { runtime: r.runtime.info.id, sessionId: r.session.id, input: [{ type: 'text', text: 'Person message' }] })
+  assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
+  let release!: () => void, entered!: () => void
+  const held = new Promise<void>(resolve => { release = resolve }), creating = new Promise<void>(resolve => { entered = resolve })
+  const create = r.runtime.createSession.bind(r.runtime)
+  r.runtime.createSession = async options => { entered(); await held; return create(options) }
+  const second = r.execute({ method: 'lead/chat/start', params: { text: 'Inspect another task' } })
+  try {
+    await creating
+    assert.ok([...r.journal.state.attempts.values()].some(a => a.method === 'lead/chat/start' && a.phase === 'started' && a.dispatched))
+    live.finish()
+    await until(() => record.queue.status === 'paused' || r.sends() > 1 ? true : null, 'concurrent queued admission')
+    assert.equal(r.sends(), 2)
+    assert.equal(record.queue.messages.length, 0)
+    assert.notEqual(record.queue.status, 'paused')
+  } finally { release(); await second }
+})
+
+for (const action of ['cancel', 'clear', 'policy'] as const) test(`queued dispatch awaiting a reopened handle honours ${action} before send`, async t => {
+  const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
+  const sent: string[] = [], observeSend = r.runtime.onSend
+  r.runtime.onSend = (session, text, options) => { sent.push(text); observeSend?.(session, text, options) }
+  r.setCwd(r.project.path)
+  const record = r.host.registry.upsert(r.session, live)
+  const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
+  await r.host.call('turn/send', { ...target, input: [{ type: 'text', text: 'Person message' }] })
+  assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
+  const queued = record.queue.messages[0]!
+  if (action === 'cancel') r.host.registry.enqueue(record, 'person-tail', [{ type: 'text', text: 'Person follow-up' }])
+  // Lose the handle after drain has selected the item, forcing its final dispatch
+  // to await a reopen. This is the same boundary as an agent restarting there.
+  const markSending = r.host.registry.markSending.bind(r.host.registry)
+  r.host.registry.markSending = one => { const selected = markSending(one); one.live = null; return selected }
+  let release!: () => void, entered!: () => void
+  const held = new Promise<void>(resolve => { release = resolve }), resuming = new Promise<void>(resolve => { entered = resolve })
+  const resume = r.runtime.resumeSession.bind(r.runtime)
+  r.runtime.resumeSession = async (id, options) => { entered(); await held; return resume(id, options) }
+  let dispatchRefused = false
+  let dispatchFinished = false, released = false
+  const cancelQueued = r.host.registry.cancelQueued.bind(r.host.registry)
+  r.host.registry.cancelQueued = (one, id) => {
+    cancelQueued(one, id)
+    if (released && id === queued.id) dispatchFinished = true
+  }
+  const detach = r.host.addBroadcaster(notification => {
+    if (notification.method === 'event' && notification.params.event.type === 'notice' &&
+      notification.params.event.message.startsWith('The queued message was not sent:')) dispatchRefused = true
+  })
+  t.after(detach)
+  live.finish()
+  await resuming
+  try {
+    if (action === 'cancel') await r.host.call('turn/queue/cancel', { ...target, id: queued.id })
+    else if (action === 'clear') await r.host.call('turn/queue/clear', target)
+    else await r.journal.setPolicy({ version: 1, revision: 2, mode: 'plan', rules: [] })
+  } finally { released = true; release() }
+  await until(() => dispatchFinished || dispatchRefused || record.queue.status === 'paused' || r.sends() > 1 ? true : null, 'final queued dispatch decision')
+  if (action === 'cancel') await until(() => r.sends() === 2 ? true : null, 'uncancelled queue tail')
+  assert.equal(r.sends(), action === 'cancel' ? 2 : 1)
+  assert.ok(!sent.includes('Scoped follow-up'), 'the cancelled prompt never reaches the runtime')
+  if (action === 'cancel') assert.ok(sent.includes('Person follow-up'))
+  assert.equal(record.queue.messages.length, action === 'policy' ? 1 : 0)
+  if (action === 'policy') assert.match(record.queue.reason ?? '', /policy|mode|read/i)
+  else {
+    assert.notEqual(record.queue.status, 'paused', 'a cancelled message does not poison the queue')
+    assert.equal(dispatchRefused, false, 'cancellation is not reported as a dispatch failure')
+  }
+})

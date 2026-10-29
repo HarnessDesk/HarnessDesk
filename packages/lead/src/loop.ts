@@ -80,10 +80,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let snapshot: ClientSnapshot | null = null, relays: ReturnType<typeof leadWorkerApprovalRelay>[] = []
   let acceptance: { runId: string; result: LeadAcceptanceResult }[] = []
   let cancelBatch: (() => void) | null = null, dirty = false, continuationPending = false
-  let batchRunning = false, batchAgain = false
+  let batchRunning = false, batchAgain = false, batchReply = false
   let requested = 0, reportedActivity = false
   const reportActivity = () => {
-    const busy = !closed && (requested > 0 || batchRunning || continuationPending && cancelBatch !== null)
+    const busy = !closed && (requested > 0 || batchReply || continuationPending && (cancelBatch !== null || batchRunning))
     if (busy === reportedActivity) return
     reportedActivity = busy
     try { options.onActivity?.(busy) } catch { /* A projection callback never owns execution. */ }
@@ -390,7 +390,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     if (cancelBatch || closed) return
     cancelBatch = clock.schedule(() => {
       cancelBatch = null
-      batchRunning = true; reportActivity()
+      batchRunning = true; batchReply = continuationPending; reportActivity()
       void queue(async () => {
         if (closed) return
         const activity = dirty, continueTools = continuationPending
@@ -423,13 +423,14 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           // coalesced with them. A later desk wake is a new automatic turn.
           const proactive = continueTools ? requestTemplate.proactive === true : activity
           stepped = true
+          batchReply = true; reportActivity()
           for (const [id, state] of chatChanges) if (changedChats.get(id) === state) changedChats.delete(id)
           await step({ ...requestTemplate, proactive, wakeSource: pendingWake.source, messages: activity ? withObservation(history, observation) : history }, undefined, pendingWake)
           report()
         } finally {
           try { if (!stepped) await journal.recordWake(pendingWake) }
           finally {
-            batchRunning = false
+            batchRunning = false; batchReply = false
             if (batchAgain && !closed) { batchAgain = false; schedule(false) }
             reportActivity()
           }

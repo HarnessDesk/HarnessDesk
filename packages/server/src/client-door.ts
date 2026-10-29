@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { connect as connectSocket } from 'node:net'
 import { join } from 'node:path'
 import {
-  CLIENT_METHODS, CLIENT_PROTOCOL, clientTierFor, parseClientEnvelope, parseClientMessage,
+  CLIENT_METHODS, PRIVATE_CLIENT_METHODS, CLIENT_PROTOCOL, clientTierFor, parseClientEnvelope, parseClientMessage,
   wireCodeOf, wireDataOf, wireError,
   type ClientTier, type ClientTopic, type ClientMethodName, type FlowExecutionSummary, type GoalView, type HostParams,
   type HostToClient, type WireNotification,
@@ -72,7 +72,11 @@ export const topicsOf = (notification: WireNotification): readonly ClientTopic[]
   }
 }
 
-export const clientRefusal = (method: string, hello: boolean, tiers: readonly ClientTier[], params?: unknown): string | null => {
+export const clientRefusal = (method: string, hello: boolean, tiers: readonly ClientTier[], params?: unknown, privateAccess = false): string | null => {
+  const privateRequest = Object.hasOwn(PRIVATE_CLIENT_METHODS, method) ||
+    method === 'client/subscribe' && typeof params === 'object' && params !== null &&
+    'topics' in params && Array.isArray(params.topics) && params.topics.includes('chats')
+  if (privateRequest && !privateAccess) return 'notOnClientSurface'
   const tier = clientTierFor(method, params)
   if (tier === null) return 'notOnClientSurface'
   if (!hello && method !== 'client/hello') return 'helloFirst'
@@ -309,7 +313,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
         enqueue(async () => {
           pendingSnapshots.delete(notification)
           if (consumedSnapshots.delete(notification)) return
-          if (!hello || !topicsOf(notification).some(t => topics().has(t))) return
+          if (!hello || (!policy && notification.method === 'lead/chat/changed') || !topicsOf(notification).some(t => topics().has(t))) return
           if (policy) {
             if (await notificationAllowed(notification, subscription)) send(notification)
             return
@@ -337,7 +341,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
         const { id, method } = envelope
         const params = typeof value === 'object' && value !== null && 'params' in value ? value.params : undefined
         tier = clientTierFor(method, params)
-        const refused = clientRefusal(method, hello, effectiveTiers(), params)
+        const refused = clientRefusal(method, hello, effectiveTiers(), params, policy !== undefined)
         if (refused) { refuse(id, method, refused, `Client request refused: ${refused}.`); return }
         let parsed
         try { parsed = parseClientMessage(value) }
@@ -348,7 +352,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
           catch { denied = 'connectionPolicy' }
           if (denied !== null) { refuse(id, method, denied, `Client request refused: ${denied}.`); return }
           // Authorization can await host facts; a live desk revocation still wins.
-          const revoked = clientRefusal(method, hello, effectiveTiers(), params)
+          const revoked = clientRefusal(method, hello, effectiveTiers(), params, true)
           if (revoked) { refuse(id, method, revoked, `Client request refused: ${revoked}.`); return }
         }
         if (parsed.method === 'client/hello') {
@@ -369,7 +373,7 @@ export const openClientDoor = async (options: ClientDoorOptions, filesystem: Cli
             greeted.add(ws)
             send({ id, ok: true, result: { protocolVersion: CLIENT_PROTOCOL, hostVersion: options.hostVersion,
               desk: { home, pid: process.pid, startedAt }, tiers: effectiveTiers(),
-              methods: Object.keys(CLIENT_METHODS), runtimes } })
+              methods: Object.keys(CLIENT_METHODS).filter(method => policy || !Object.hasOwn(PRIVATE_CLIENT_METHODS, method)), runtimes } })
             audit({ kind: 'client/connected', client: identity, statedPid, method, tier: 'read', outcome: 'ok' })
           } catch (error) {
             const code = wireCodeOf(error) ?? 'methodFailed'

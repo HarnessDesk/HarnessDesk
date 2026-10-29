@@ -483,13 +483,16 @@ test('notices and seat/team changes refresh observations without waking the mode
   let refreshes = 0
   const synced = s.options.desk.synced
   s.options.desk.synced = async () => { refreshes++; await synced() }
-  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  const activity: boolean[] = []
+  const loop = exported('createLeadLoop')({ ...s.options, onActivity: (busy: boolean) => activity.push(busy) }); await loop.request(input)
+  activity.length = 0
   for (const event of [{ type: 'notice', team: null, text: 'Unrelated prose' }, { type: 'notice', team: 'team-1', text: 'Prose' },
     { type: 'seat.changed', team: 'team-1', seat: 'seat-1' }, { type: 'team.changed', team: 'team-1' }]) {
     const before = refreshes
     s.emit(event); await s.drain(); await s.tick(); await loop.idle()
     assert.ok(refreshes > before, event.type + ' refreshes observations')
     assert.equal(s.fake.requests.length, 1, event.type)
+    assert.deepEqual(activity, [], event.type + ' refresh must not report a cancellable reply')
   }
   await loop.close()
 })

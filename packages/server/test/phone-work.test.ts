@@ -4,6 +4,7 @@ import {
   approvalId, itemId, runtimeId, sessionId, turnId, type Approval, type ApprovalOption, type PhoneWorkSnapshot, type Session, type SessionSummary, type Turn,
 } from '@harnessdesk/protocol'
 import { PhoneWork, phoneSessionValues, WorkspaceFeed, type PhoneWorkPorts } from '../src/phone-work.js'
+import { boundLeadChatRead } from '../src/lead/chat-read.js'
 import { assessApproval, isLowRiskCommand } from '../src/phone-thread.js'
 
 const RT = runtimeId('agent-a')
@@ -469,4 +470,21 @@ test('admission changing during new-session defaults refuses before allocating a
   const { work } = rig({ create: async () => { creates++; return session([]) } })
   await assert.rejects(work.startInProject({ text: 'Work here' }, CWD, async () => { throw new Error('Budget exhausted') }), /Budget exhausted/)
   assert.equal(creates, 0)
+})
+
+for (const scenario of ['history', 'message', 'combined'] as const) test(`Lead discloses ${scenario} truncation through the shared PhoneWork projection`, async () => {
+  const r = rig()
+  const count = scenario === 'message' ? 1 : 45
+  const text = scenario === 'history' ? 'Short reply' : 'Useful context. '.repeat(425)
+  assert.equal(scenario === 'history' || text.length === 6800, true)
+  r.setSession(session(Array.from({ length: count }, (_, i) => ({ id: turnId(`t${i}`), status: 'completed' as const,
+    items: [{ id: itemId(`m${i}`), type: 'assistantMessage' as const, text }] }))))
+  const projected = await r.work.threadRead({ id: key })
+  const result = boundLeadChatRead(projected)
+  assert.equal(result.truncated, true)
+  assert.equal(result.omittedTurns + result.turns.length, count)
+  assert.equal('omittedTurns' in JSON.parse(JSON.stringify(projected)), false, 'phone wire shape stays unchanged')
+  if (scenario === 'history') assert.equal(result.omittedTurns, 5)
+  assert.equal(result.turns.at(-1)?.id, `m${count - 1}`)
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 12000)
 })
