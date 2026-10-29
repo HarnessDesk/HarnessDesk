@@ -56,13 +56,13 @@ test('a scripted writer resumes, commits preserved work, publishes and completes
   runtime.sessions.get(scope.sessionId as never)!.finish()
 
   host = makeHost()
-  let script: Promise<void> | null = null
+  const scripts: Promise<void>[] = []
   let scriptProblem: unknown = null
   let blocks = 0
   runtime.onSend = (session, text) => {
     if (!text.startsWith(`Card #${card.id} on this Goal`)) return
     assert.match(text, /Your preserved work predates this claim/, 'the hand-back explains retained ownership')
-    script = (async () => {
+    const script = (async () => {
       assert.match(await host.teamPlane.claim(card.id, scope), /already hold|Claimed/)
       if (!published) {
         const committed = await host.teamPlane.commitWork(card.id, 'writer: preserve the resumed change', scope)
@@ -80,12 +80,21 @@ test('a scripted writer resumes, commits preserved work, publishes and completes
       }
       session.finish()
     })()
+    scripts.push(script)
     // Keep script failures attached to the test even before it starts awaiting them.
     void script.catch((error: unknown) => { scriptProblem = error })
   }
   await host.start()
-  await until(() => script, 'resumed writer script')
-  await script!
+  // Each of the three self-blocks hands the card back to a fresh turn. Await
+  // every scripted turn before timing settlement, rather than making the last
+  // three workers share the first worker's five-second settlement window.
+  for (let index = 0; index < 4; index++) {
+    await until(() => {
+      if (scriptProblem) throw scriptProblem
+      return scripts.length > index ? true : null
+    }, `resumed writer script ${index + 1}`)
+    await scripts[index]!
+  }
   const finished = await until(async () => {
     if (scriptProblem) throw scriptProblem
     const current = await host.call('flow/execution', { run: run.id }) as FlowExecution
@@ -95,6 +104,7 @@ test('a scripted writer resumes, commits preserved work, publishes and completes
   assert.equal(finished.state, 'settled')
   assert.equal(published, true)
   assert.equal(blocks, 3, 'self-block hand-backs did not spend the three-turn stall budget')
+  assert.equal(scripts.length, 4, 'only the expected hand-backs ran')
   const done = (await host.call('goal/read', { goal: run.goal }) as GoalView).board.intents[0]!
   assert.equal(done.outcome, 'published')
   assert.equal(done.state, 'done')

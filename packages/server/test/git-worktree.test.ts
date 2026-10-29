@@ -7,7 +7,7 @@ import { chmod, link, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, syml
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { after, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
@@ -618,7 +618,7 @@ test('a confirmation covers file contents beyond the inventory display cap', asy
   assert.equal(await readFile(join(made.path, 'f44.txt'), 'utf8'), 'edit\n')
 })
 
-test('inventory survives a reader held back beyond the Git listing deadline', { timeout: 30_000 }, async (t) => {
+test('inventory keeps a backpressured listing alive while metadata reads are paused', { timeout: 30_000 }, async (t) => {
   const { repo, state } = await seedRepo()
   const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
   await writeFile(join(made.path, '.gitignore'), 'cache/\n')
@@ -626,16 +626,16 @@ test('inventory survives a reader held back beyond the Git listing deadline', { 
   await mkdir(join(made.path, directory), { recursive: true })
   const seed = join(made.path, directory, 'seed')
   await writeFile(seed, '')
-  for (let start = 0; start < 4096; start += 64) {
-    await Promise.all(Array.from({ length: 64 }, (_, offset) =>
-      link(seed, join(made.path, directory, `${start + offset}-${'x'.repeat(180)}`))))
-  }
+  // Enough long names to fill the pipe; the held-child assertions below prove
+  // backpressure without paying for thousands of unrelated metadata reads.
+  await Promise.all(Array.from({ length: 600 }, (_, index) =>
+    link(seed, join(made.path, directory, `${index}-${'x'.repeat(180)}`))))
 
   const spawn = childProcess.spawn
   let listing: ReturnType<typeof spawn> | undefined
   t.mock.method(childProcess, 'spawn', ((command, args, options) => {
-    // Compress the production deadline so this regression takes milliseconds,
-    // while keeping real Git, pipes, backpressure and the child kill timer.
+    // If a separate Git timer is reintroduced, compress it below the pause.
+    // The whole-inventory deadline still bounds the production read.
     const ignored = args?.includes('--ignored')
     const child = spawn(command, args!, ignored && options?.timeout
       ? { ...options, timeout: 250 } : options!)
@@ -661,6 +661,9 @@ test('inventory survives a reader held back beyond the Git listing deadline', { 
     assert.ok(listing)
     assert.equal(listing.exitCode, null, 'Git is still writing when the reader stops')
     await delay(500)
+    assert.equal(listing.exitCode, null, 'the paused pipe still holds the writer')
+    assert.equal(listing.signalCode, null, 'the paused writer has not exited on a signal')
+    assert.equal(listing.killed, false, 'metadata work does not expire a separate Git timer')
     release()
     assert.deepEqual((await reading).ignored, ['cache/'])
   } finally {
@@ -779,26 +782,35 @@ test('inventory walks nested repository folders in parallel', async (t) => {
   }
 })
 
-test('inventory handles large ignored listings and clean indexes', { timeout: 120_000 }, async (t) => {
-  const { repo, state } = await seedRepo()
-  const made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
-  await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+describe('inventory handles large ignored listings and clean indexes', { concurrency: false }, () => {
+  let repo: string
+  let state: string
+  let made: Awaited<ReturnType<typeof add>>
   const directory = `cache/${'a'.repeat(200)}/${'b'.repeat(200)}/${'c'.repeat(200)}`
-  await mkdir(join(made.path, directory), { recursive: true })
-  const seed = join(made.path, 'cache', 'seed.bin')
-  await writeFile(seed, '')
-  const count = 22_000
-  let bytes = 0
-  for (let start = 0; start < count; start += 64) {
-    await Promise.all(Array.from({ length: Math.min(64, count - start) }, async (_, offset) => {
-      const file = `${directory}/f${String(start + offset).padStart(5, '0')}-${'x'.repeat(170)}`
-      bytes += Buffer.byteLength(file) + 1
-      await link(seed, join(made.path, file))
-    }))
-  }
-  assert.ok(bytes > 16 * 1024 * 1024, 'the ignored listing exceeds the buffered output limit')
+  // Creating the real tree is setup, not an inventory measurement. Bound it
+  // separately so it cannot spend the clean-index test's time before it starts.
+  before(async () => {
+    const seeded = await seedRepo()
+    repo = seeded.repo
+    state = seeded.state
+    made = await add(repo, 'holding', { kind: 'new', branch: 'holding' }, state)
+    await writeFile(join(made.path, '.gitignore'), 'cache/\n')
+    await mkdir(join(made.path, directory), { recursive: true })
+    const seed = join(made.path, 'cache', 'seed.bin')
+    await writeFile(seed, '')
+    const count = 22_000
+    let bytes = 0
+    for (let start = 0; start < count; start += 64) {
+      await Promise.all(Array.from({ length: Math.min(64, count - start) }, async (_, offset) => {
+        const file = `${directory}/f${String(start + offset).padStart(5, '0')}-${'x'.repeat(170)}`
+        bytes += Buffer.byteLength(file) + 1
+        await link(seed, join(made.path, file))
+      }))
+    }
+    assert.ok(bytes > 16 * 1024 * 1024, 'the ignored listing exceeds the buffered output limit')
+  }, { timeout: 120_000 })
 
-  await t.test('ignored listing', async () => {
+  test('ignored listing', { timeout: 120_000 }, async () => {
     const held = await inventory(made.path)
     assert.deepEqual(held.ignored, ['cache/'])
     const added = join(made.path, directory, 'later.bin')
@@ -806,9 +818,9 @@ test('inventory handles large ignored listings and clean indexes', { timeout: 12
     await assert.rejects(() => remove(repo, made.path, true, held.stateId, state), /changed since you looked/)
     assert.equal(await readFile(added, 'utf8'), 'later notes\n')
   })
-  await git(made.path, 'add', '-f', '.')
-  await git(made.path, 'commit', '-qm', 'keep the local files')
-  await t.test('clean index', async () => {
+  test('clean index', { timeout: 120_000 }, async () => {
+    await git(made.path, 'add', '-f', '.')
+    await git(made.path, 'commit', '-qm', 'keep the local files')
     const held = await inventory(made.path)
     assert.equal(held.changeCount, 0)
     assert.equal(held.ignoredCount, 0)

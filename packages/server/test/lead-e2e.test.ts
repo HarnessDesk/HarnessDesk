@@ -352,6 +352,9 @@ test('declining step 1 acceptance parks a model retry of step 2 as predecessor u
   assert.equal(rig.journal.state.runs.length, 1)
   // A message from the person goes on from here. The request it makes ends with the desk's message, which says step 1 has
   // started and step 2 has not, so the model is not told to start step 1 again.
+  // The journal's wait is visible before the child retires that request.
+  // Match the window's send barrier instead of racing its in-flight guard.
+  await rig.waitFor(async () => !(await rig.host.call('lead/thread/read', {})).requestInFlight, 'predecessor refusal turn completes')
   const before = rig.provider.requests.length
   await rig.host.call('lead/thread/send', { idempotencyKey: 'go-on', text: 'Carry on without step 2.' })
   await rig.waitFor(() => rig.provider.requests.length > before, 'the request that follows the person message')
