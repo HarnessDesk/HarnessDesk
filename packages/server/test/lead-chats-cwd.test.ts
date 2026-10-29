@@ -258,3 +258,28 @@ for (const action of ['cancel', 'clear', 'policy'] as const) test(`queued dispat
     assert.equal(dispatchRefused, false, 'cancellation is not reported as a dispatch failure')
   }
 })
+
+test('a fresh Lead request cannot revive an uncertain queued reply from the stopped request', async t => {
+  const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
+  r.setCwd(r.project.path)
+  const record = r.host.registry.upsert(r.session, live)
+  await r.host.call('turn/send', { runtime: r.runtime.info.id, sessionId: r.session.id,
+    input: [{ type: 'text', text: 'Person message' }] })
+  const result = await r.journal.execute({ id: 'lost-queue-receipt', request: {
+    method: 'lead/chat/send', params: { id: r.id, text: 'Old queued task' }, project: r.project, runId: null, start: null,
+  }, context: { desk: r.journal.state.policy!, projectPolicy: null, project: r.project, approved: null,
+    budget: null, now: Date.now(), policyInterpretation: 'idle' } }, async call => {
+    await r.host.call(call.method, call.params as never)
+    throw new Error('The queue accepted the message but its receipt was lost')
+  })
+  assert.equal(result.outcome, 'uncertain')
+  assert.equal(record.queue.messages.length, 1)
+  await r.journal.stop(async () => {})
+  await r.journal.beginGoal('new-person-request', Date.now())
+  live.finish()
+  await until(() => record.queue.status === 'paused' || r.sends() > 1 ? true : null, 'old queued admission after a new request')
+  assert.equal(r.sends(), 1, 'acknowledgement never dispatches the old uncertain instruction')
+  assert.equal(record.queue.messages.length, 1)
+  assert.equal(record.queue.status, 'paused')
+  assert.match(record.queue.reason ?? '', /request|goal/i)
+})

@@ -254,6 +254,7 @@ export class LeadChats {
 
   #liveScope(call: LeadPermissionCall, attemptId: string, target: () => string | undefined): (cwd: string) => Promise<void> {
     const selected = { ...this.ports.project }
+    const requestGoal = this.ports.state().budget?.logicalGoalId ?? null
     // An accepted queue item outlives its journal attempt. Keep its pinned
     // scope and current policy checks, without requiring an unfinished attempt.
     return async cwd => {
@@ -268,6 +269,8 @@ export class LeadChats {
       // Queue drains run independently of the mutation tail. Healthy concurrent
       // dispatch is not recovery; every unresolved effect and live policy fence is.
       await this.#gate(call, attemptId, true)
+      if (call.method !== 'lead/chat/stop' && (this.ports.state().budget?.logicalGoalId ?? null) !== requestGoal)
+        refuse('The Lead request changed. Inspect this queued reply before sending it again.')
     }
   }
 }
