@@ -1,0 +1,63 @@
+{
+  "issue": 1805,
+  "sourceHead": "f8a81583b9f725eefc45f9445fe5319a9f076ccb",
+  "surface": "Actual preview.html focused Team Overview specimen, production component and canonical ListRow",
+  "scenario": "Descriptions use the full inner row width below the heading. Three Reviewer and Alpha descriptions share one visible line at each width in both themes. The synthetic long file path truncates.",
+  "nativeGate": "Actual isolated fake-agent desktop at 720 by 840: person-created Team with two persisted scripted seats and no Flow execution; narrow Overview uses below descriptions. Two 672px seat rows, 648px description widths, 20px description heights. All nine text/account audits clear; owned app closed and awaited. No native photos. The first attempt was unverified before seeded preferences loaded; the guarded driver now waits for readiness and the second sitting verified the layout.",
+  "limits": "240px and 320px allocations are preview viewport constraints. Existing heading-name/status clipping has identical geometry on development and this candidate and is tracked in issue 1895.",
+  "privacy": "Worker and parent visually inspected all four original PNGs. Whole-document text plus actual authored empty account-map audits pass before and after every saved frame; no filter, allowlist change or image editing.",
+  "files": [
+    {
+      "path": "overview-light-240.png",
+      "caption": "Readable seat descriptions at viewport 240 in light theme",
+      "sha256": "ced3ec0a5b559bdde7b96c3ada2d9028c13132da31816c15fe157b72d22a6466",
+      "width": 176,
+      "height": 978,
+      "viewport": [
+        240,
+        1100
+      ],
+      "seatRowWidth": 128,
+      "descriptionWidth": 104
+    },
+    {
+      "path": "overview-light-320.png",
+      "caption": "Readable seat descriptions at viewport 320 in light theme",
+      "sha256": "3f92cd1e3f35c590053d5eb41ae1c9e5132c142d028191e871d507b5d2481e1e",
+      "width": 256,
+      "height": 834,
+      "viewport": [
+        320,
+        1100
+      ],
+      "seatRowWidth": 208,
+      "descriptionWidth": 184
+    },
+    {
+      "path": "overview-dark-240.png",
+      "caption": "Readable seat descriptions at viewport 240 in dark theme",
+      "sha256": "d09f93bab799fce058f48ff8287a662f96ce6cf02e2e3ec4ef6c974e4444bbdb",
+      "width": 176,
+      "height": 978,
+      "viewport": [
+        240,
+        1100
+      ],
+      "seatRowWidth": 128,
+      "descriptionWidth": 104
+    },
+    {
+      "path": "overview-dark-320.png",
+      "caption": "Readable seat descriptions at viewport 320 in dark theme",
+      "sha256": "49988f5bb978cd6bb30b46d01913fa663cd7a3eae52cb2f05dab01299e264b7e",
+      "width": 256,
+      "height": 834,
+      "viewport": [
+        320,
+        1100
+      ],
+      "seatRowWidth": 208,
+      "descriptionWidth": 184
+    }
+  ]
+}
