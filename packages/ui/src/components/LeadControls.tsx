@@ -29,7 +29,7 @@ export const useLeadControls = () => {
       onSelect={() => { close(); void run(() => store.lead.updateSettings({ name: other })) }} />
     <MenuItem icon={<StopIcon size={14} />} label={`Pause ${label}`} disabled={!presence.goalActive ? 'Nothing is running.' : busy}
       onSelect={() => { close(); setConfirmPause(true) }} />
-    <MenuItem icon={<RetryIcon />} label={`Restart ${label}`} disabled={state.settings?.unavailable ? 'No runtime on this desk can run the Lead.' : state.wayOut !== 'resume' ? 'Nothing is waiting to continue.' : busy}
+    <MenuItem icon={<RetryIcon />} label={`Restart ${label}`} disabled={state.settings?.unavailable ? 'No runtime on this desk can run the Lead.' : state.wayOut !== 'resume' || state.waitReason === 'lead-chat-effect-uncertain' ? 'Nothing is waiting to continue.' : busy}
       onSelect={() => { close(); void run(() => store.lead.resume()) }} />
     <MenuSeparator />
     <MenuItem icon={<SettingsIcon />} label="Lead settings" onSelect={() => { close(); openSettings() }} />

@@ -410,7 +410,7 @@ const goalCitation = goalShape({
 
 const goalValidators = {
   'client/hello': goalShape({ client: goalShape({ name: atMost(64, isFilled), version: atMost(64, isFilled) }), protocol: isNumber, pid: optional(isNumber) }),
-  'client/subscribe': goalShape({ topics: arrayOf(literalUnion('runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews')), scope: optional(goalShape({ team: optional(goalId), run: optional(isFilled), project: optional(atMost(4096, isFilled)) })) }),
+  'client/subscribe': goalShape({ topics: arrayOf(literalUnion('runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews', 'chats')), scope: optional(goalShape({ team: optional(goalId), run: optional(isFilled), project: optional(atMost(4096, isFilled)) })) }),
   'flow/executions': goalShape({ team: optional(goalId), project: optional(atMost(4096, isFilled)), active: optional(isBoolean) }),
   'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
   'goal/read': goalShape({ goal: goalId }),
@@ -1034,6 +1034,15 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'workspace/stop': phoneShape({ id: phoneText(300) }),
   'workspace/thread/read': shape({ id: isString }),
   'workspace/approval/decide': shape({ id: isString, session: isString, allow: isBoolean, scope: optional(literalUnion('once', 'session')) }),
+  'lead/chat/list': phoneShape({ cursor: optional(phoneText(2048)), limit: optional((value, path = '') => {
+    const limit = isNumber(value, path)
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new ValidationError(path, 'expected an integer from 1 to 50')
+    return limit
+  }) }),
+  'lead/chat/read': phoneShape({ id: phoneText(300) }),
+  'lead/chat/start': phoneShape({ text: phoneText(16_384) }),
+  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384) }),
+  'lead/chat/stop': phoneShape({ id: phoneText(300) }),
   'lead/thread/read': parseLeadEmpty,
   'lead/thread/send': parseLeadThreadSend,
   'lead/card/decide': parseLeadCardDecision,
@@ -1672,6 +1681,15 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 }
 
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
+
+const leadChatChangedParamsValidator: Validator<Extract<WireNotification, { method: 'lead/chat/changed' }>['params']> =
+  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle') })
+
+/** State-only wake signal; never accepts transcript content as an event. */
+export const parseLeadChatChangedParams = (
+  raw: unknown,
+): Extract<WireNotification, { method: 'lead/chat/changed' }>['params'] =>
+  leadChatChangedParamsValidator(raw, 'notification.params')
 
 const sessionRemovedParamsValidator: Validator<Extract<WireNotification, { method: 'session/removed' }>['params']> =
   shape({

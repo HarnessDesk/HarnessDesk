@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { leadReadingWords, leadWakeLine } from './lead-presence'
+import { leadPresence, leadReadingWords, leadWakeLine } from './lead-presence'
+import { createLeadState } from '../state/lead'
+import { leadProjection } from '../preview/lead-fixture'
 
 describe('the Lead between turns', () => {
+  it('keeps ordinary replies ready without inventing a running goal', () => {
+    const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
+    state.changed({ method: 'lead/changed', params: leadProjection({ thread: { ...leadProjection().thread, state: 'planning',
+      messages: [{ version: 1, id: 'm', revision: 1, role: 'user', text: 'Hello' }] } }) })
+    expect(leadPresence(state.state)).toMatchObject({ word: 'Ready', goalActive: false })
+  })
+  it('keeps unacknowledged chat uncertainty actionable after an automatic stop', () => {
+    const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
+    state.changed({ method: 'lead/changed', params: leadProjection({ waitReason: 'lead-chat-effect-uncertain', wayOut: null,
+      thread: { ...leadProjection().thread, state: 'stopped' } }) })
+    expect(leadPresence(state.state)).toMatchObject({ mood: 'alert', word: '1 needs you', needs: 1, goalActive: false })
+  })
   it('says how often it looked and whether it let everything pass', () => {
     expect(leadWakeLine(null)).toBeNull()
     expect(leadWakeLine({ checked: 0, quiet: 0, lastCheckedAt: null, readings: [] })).toBeNull()

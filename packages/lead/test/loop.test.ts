@@ -13,7 +13,7 @@ test('loop proposes a plan without starting before the authenticated approval', 
   assert.equal(loop.state.phase, 'awaiting-plan')
   assert.equal(s.journal.state.contract, null)
   assert.equal(s.calls.some(c => c.method === 'flow/start-goal'), false)
-  assert.deepEqual(s.calls[0].params.topics, ['runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews'])
+  assert.deepEqual(s.calls[0].params.topics, ['runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews', 'chats'])
   await loop.close()
 })
 
@@ -483,13 +483,16 @@ test('notices and seat/team changes refresh observations without waking the mode
   let refreshes = 0
   const synced = s.options.desk.synced
   s.options.desk.synced = async () => { refreshes++; await synced() }
-  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  const activity: boolean[] = []
+  const loop = exported('createLeadLoop')({ ...s.options, onActivity: (busy: boolean) => activity.push(busy) }); await loop.request(input)
+  activity.length = 0
   for (const event of [{ type: 'notice', team: null, text: 'Unrelated prose' }, { type: 'notice', team: 'team-1', text: 'Prose' },
     { type: 'seat.changed', team: 'team-1', seat: 'seat-1' }, { type: 'team.changed', team: 'team-1' }]) {
     const before = refreshes
     s.emit(event); await s.drain(); await s.tick(); await loop.idle()
     assert.ok(refreshes > before, event.type + ' refreshes observations')
     assert.equal(s.fake.requests.length, 1, event.type)
+    assert.deepEqual(activity, [], event.type + ' refresh must not report a cancellable reply')
   }
   await loop.close()
 })
@@ -753,7 +756,7 @@ test('a successful tool result beyond the continuation budget does not park the 
   const call = s.options.desk.call
   s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(15_000) : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
-  const result = await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(16_200) })) }] })
+  const result = await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(16_050) })) }] })
   assert.equal(result.status, 'completed')
   assert.equal(result.toolResults[0].content, 'Tool refused')
   assert.equal([...s.journal.state.attempts.values()].find(attempt => attempt.method === 'library/usage')!.outcome, 'succeeded')
@@ -919,6 +922,46 @@ test('text-only turns leave the no-progress counter alone', async () => {
   await loop.close()
 })
 
+test('ordinary chat work returns completion to the same Lead conversation without a reviewed plan', async () => {
+  const report = { version: 1, type: 'lead-output', proactive: {
+    finding: 'The screenshot is saved.', caveat: 'The worker reported the saved path.', ask: 'Open the chat to inspect the screenshot.' } }
+  const s = await fixture([
+    message([tool('capture', 'chat_start', { text: 'Capture a screenshot of the app and save it in this project.' })], { stop_reason: 'tool_use' }),
+    message([{ type: 'text', text: 'I started a chat to capture it.' }]),
+    message([{ type: 'text', text: JSON.stringify(report) }]),
+  ])
+  const call = s.options.desk.call
+  s.options.desk.call = (method: string, params: unknown) => method === 'lead/chat/start' ? Promise.resolve({ id: 'fixture:capture' }) : call(method, params)
+  const loop = exported('createLeadLoop')(s.options)
+  await loop.request(input)
+  await s.tick(); await loop.idle()
+  assert.equal(s.journal.state.contract, null)
+  assert.equal(s.journal.state.cards.length, 0)
+  assert.notEqual(s.journal.state.phase, 'waiting-for-user')
+  assert.equal(s.fake.requests.length, 2)
+  s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'idle' })
+  await s.drain(); await s.tick(); await loop.idle()
+  assert.equal(s.fake.requests.length, 3, 'completion gets one automatic turn')
+  assert.match(s.fake.requests.at(-1).body, /fixture:capture/)
+  assert.match(s.journal.state.messages.at(-1)!.text, /screenshot is saved/)
+  for (let i = 0; i < 8; i++) s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'idle' })
+  s.emit({ type: 'chat.changed', id: 'other:chat', project: '/workspace/foreign', state: 'waiting' })
+  await s.drain(); await s.tick(); await loop.idle()
+  assert.equal(s.fake.requests.length, 3, 'unchanged or foreign work stays quiet')
+  await loop.close()
+})
+
+test('an ordinary reply does not pause a separate approved plan that has not started', async () => {
+  const s = await fixture([message([{ type: 'text', text: 'The reviewed plan is still waiting to start. We can discuss the screenshot here.' }])])
+  await s.approve()
+  const loop = exported('createLeadLoop')(s.options)
+  await loop.request({ ...input, conversation: true })
+  assert.equal(loop.state.phase, 'running')
+  assert.equal(loop.state.reason, null)
+  assert.equal(s.journal.state.managementReason, null)
+  await loop.close()
+})
+
 test('a person resume resets the no-progress bound', async () => {
   const s = await fixture([...Array.from({ length: 4 }, (_, i) => message([tool(`read-${i}`, 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' })), message()])
   const call = s.options.desk.call
@@ -938,7 +981,7 @@ test('three oversized successful reads park without a fourth request', async () 
   const call = s.options.desk.call
   s.options.desk.call = async (method: string, params: unknown) => method === 'library/usage' ? 'x'.repeat(15_000) : call(method, params)
   const loop = exported('createLeadLoop')(s.options)
-  await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(16_200) })) }] })
+  await loop.request({ ...input, messages: [{ role: 'user', content: Array.from({ length: 64 }, () => ({ type: 'text', text: 'x'.repeat(16_050) })) }] })
   for (let i = 0; i < 4; i++) { await s.tick(); await loop.idle() }
   assert.equal(s.fake.requests.length, 3)
   assert.equal(loop.state.reason, 'lead-tools-refused')
@@ -1205,7 +1248,8 @@ test('the system text gives the project root, the seats and one plan example, an
     const offered = lines.find(line => line.startsWith('Seats a plan may name'))
     assert.ok(offered, 'the seats a plan may name are listed')
     for (const seat of [...crew.implement, ...crew.review]) assert.ok(offered.includes(JSON.stringify(seat)), `seat ${seat.model} is offered`)
-    assert.match(system, /ONLY one version 1 lead-output JSON object/)
+    assert.match(system, /For software changes that need a formal plan, independent review/)
+    assert.doesNotMatch(system, /Until a plan is approved, reply with ONLY/)
     // The private Flow's own seed title says "approved goal"; the instructions around it must not.
     assert.doesNotMatch(system.replace((lead as any).leadReviewedResultSource, ''), /approved goal/i)
     assert.ok(exampleLine(system), 'the system text carries one compact example plan')
@@ -1721,6 +1765,55 @@ test('a successful preview does not repeat the same observation before its start
   try {
     await loop.request(input)
     assert.equal(reads, 1, 'a preview with no intervening desk change reuses the initial observation')
+    assert.equal(s.fake.requests.length, 1)
+  } finally { await loop.close() }
+})
+
+test('private activity stays busy between a tool result and its scheduled continuation then clears at idle', async () => {
+  let release!: (value: ReturnType<typeof message>) => void
+  const held = new Promise<ReturnType<typeof message>>(resolve => { release = resolve })
+  const s = await fixture([message([tool('catalog', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' }), async () => held])
+  const activity: boolean[] = []
+  const loop = exported('createLeadLoop')({ ...s.options, onActivity: (busy: boolean) => { activity.push(busy) } })
+  try {
+    await loop.request(input)
+    assert.deepEqual(activity, [true], 'the deferred tool continuation is still cancellable after the first request resolves')
+    await s.tick(); await s.drain()
+    assert.equal(s.fake.requests.length, 2)
+    assert.deepEqual(activity, [true], 'provider retries and continuation keep the same busy interval')
+    release(message())
+    await loop.idle()
+    assert.deepEqual(activity, [true, false])
+  } finally { release(message()); await loop.close() }
+})
+
+test('closing a pending continuation clears private activity and cancels its scheduled turn', async () => {
+  const s = await fixture([message([tool('catalog', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' })])
+  const activity: boolean[] = []
+  const loop = exported('createLeadLoop')({ ...s.options, onActivity: (busy: boolean) => { activity.push(busy) } })
+  await loop.request(input)
+  await loop.close(); await s.tick()
+  assert.deepEqual(activity, [true, false])
+  assert.equal(s.fake.requests.length, 1)
+})
+
+
+for (const name of ['chat_start', 'chat_send'] as const) test(`loop tools-refused fallback preserves specific ${name} uncertainty`, async () => {
+  const s = await fixture([message([tool('chat', name, name === 'chat_start' ? { text: 'Inspect' } : { id: 'fixture:chat', text: 'Inspect' })], { stop_reason: 'tool_use' })])
+  const original = s.options.desk.call
+  let effects = 0
+  s.options.desk.call = async (method: string, params: unknown) => {
+    if (method === 'lead/chat/start' || method === 'lead/chat/send') { effects++; throw new Error('Lost effect response') }
+    return original(method, params)
+  }
+  const loop = lead.createLeadLoop(s.options)
+  try {
+    await loop.request(input)
+    assert.equal(effects, 1)
+    assert.equal(s.journal.state.managementReason, 'lead-chat-effect-uncertain')
+    assert.equal(s.journal.state.phase, 'waiting-for-user')
+    await s.tick(); await loop.idle()
+    assert.equal(effects, 1)
     assert.equal(s.fake.requests.length, 1)
   } finally { await loop.close() }
 })

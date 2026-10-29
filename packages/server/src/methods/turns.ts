@@ -1,16 +1,45 @@
 import { recordDeskInput, approvalId as makeApprovalId, sessionId as makeSessionId } from '@harnessdesk/protocol'
 
-import type { MethodsUnder } from './context.js'
+import type { AgentSession, HostParams, HostResult } from '@harnessdesk/protocol'
+import type { HostContext, MethodsUnder } from './context.js'
+
+/** Host callers may scope the actual handle after dispatch reopens it. */
+export async function sendTurn(ctx: HostContext, params: HostParams<'turn/send'>,
+  admitLive?: (live: AgentSession) => Promise<void>): Promise<HostResult<'turn/send'>> {
+  const turnId = await ctx.sessions.dispatch(params, live => ctx.queue.sendNow(ctx.sessions.record(params), recordDeskInput(params.input), live, undefined, admitLive))
+  return { turnId: String(turnId) }
+}
+
+/** Shared ordinary queue dispatch. Only host callers can supply the effect receipt. */
+export async function queueTurn(ctx: HostContext, params: HostParams<'turn/queue'>, effectStarted?: () => void,
+  admitLive?: (live: AgentSession) => Promise<void>): Promise<HostResult<'turn/queue'>> {
+  ctx.sessions.assertDispatchable(params)
+  const record = ctx.sessions.record(params)
+  if (admitLive && record.live) {
+    await admitLive(record.live)
+    ctx.sessions.assertDispatchable(params)
+    if (ctx.sessions.record(params) !== record) throw new Error('The conversation changed before its message could be queued.')
+  }
+  // Nothing to wait for: send it. A queue on an idle conversation would
+  // sit until some future turn ended, which is not what "send" means.
+  // `busy` counts a send still on its way to the agent, so two messages
+  // typed in the same breath cannot both go straight out — the second
+  // waits behind the first, which is what the person meant by typing it.
+  if (!ctx.queue.busy(record) && record.queue.messages.length === 0) {
+    await ctx.queue.sendNow(record, recordDeskInput(params.input), undefined, effectStarted, admitLive)
+    return { queuedId: null, sent: true }
+  }
+  const message = ctx.registry.enqueue(record, ctx.queue.nextId(), recordDeskInput(params.input), effectStarted, admitLive)
+  ctx.queue.push(record)
+  return { queuedId: message.id, sent: false }
+}
 
 /**
  * What happens inside a conversation: turns, the message queue that waits for
  * one to end, the agent's background tasks, and the answer to an approval.
  */
 export const turnMethods = {
-  'turn/send': async (ctx, params) => {
-    const turnId = await ctx.sessions.dispatch(params, live => ctx.queue.sendNow(ctx.sessions.record(params), recordDeskInput(params.input), live))
-    return { turnId: String(turnId) }
-  },
+  'turn/send': (ctx, params) => sendTurn(ctx, params),
 
   'turn/steer': async (ctx, params) => {
     await ctx.sessions.dispatch(params, live => live.steer(recordDeskInput(params.input)))
@@ -22,22 +51,7 @@ export const turnMethods = {
     return null
   },
 
-  'turn/queue': async (ctx, params) => {
-    ctx.sessions.assertDispatchable(params)
-    const record = ctx.sessions.record(params)
-    // Nothing to wait for: send it. A queue on an idle conversation would
-    // sit until some future turn ended, which is not what "send" means.
-    // `busy` counts a send still on its way to the agent, so two messages
-    // typed in the same breath cannot both go straight out — the second
-    // waits behind the first, which is what the person meant by typing it.
-    if (!ctx.queue.busy(record) && record.queue.messages.length === 0) {
-      await ctx.queue.sendNow(record, recordDeskInput(params.input))
-      return { queuedId: null, sent: true }
-    }
-    const message = ctx.registry.enqueue(record, ctx.queue.nextId(), recordDeskInput(params.input))
-    ctx.queue.push(record)
-    return { queuedId: message.id, sent: false }
-  },
+  'turn/queue': (ctx, params) => queueTurn(ctx, params),
 
   'turn/queue/cancel': (ctx, params) => {
     const record = ctx.sessions.record(params)

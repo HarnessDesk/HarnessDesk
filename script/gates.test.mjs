@@ -4757,3 +4757,17 @@ test('the browser read gate rejects a server-only plan that omits the package re
   const serverOnly = () => ({ browser: 'server', server_specs: '[]', browser_specs: 'all' })
   assert.deepEqual(browserReadGaps(repoRoot, reads, serverOnly), ['packages/cli/package.json'])
 })
+
+test('reachability includes only the closed literal Lead tool map as its native client surface', () => {
+  const file = 'packages/lead/src/tools.ts'
+  const text = `export const LEAD_TOOLS = {
+    chat_start: { method: 'lead/chat/start', input_schema: {} },
+    chat_read: { method: 'lead/chat/read', input_schema: {} },
+  } as const satisfies Record<string, unknown>`
+  assert.deepEqual([...reachedBy(['lead/chat/start', 'lead/chat/read'], [{ file, text }])], ['lead/chat/start', 'lead/chat/read'])
+  assert.deepEqual([...reachedBy(['lead/chat/start'], [{ file: 'packages/server/src/other.ts', text }])], [], 'ordinary host maps confer no surface reachability')
+  assert.deepEqual([...reachedBy(['lead/chat/start'], [{ file, text: "const marker = { method: 'lead/chat/start' }" }])], [])
+  for (const value of ["'unknown/method'", "'lead/chat/start' + suffix", 'selectedMethod']) {
+    assert.throws(() => reachedBy(['lead/chat/start'], [{ file, text: `export const LEAD_TOOLS = { chat: { method: ${value}, input_schema: {} } }` }]), /Lead tool|LEAD_TOOLS/)
+  }
+})

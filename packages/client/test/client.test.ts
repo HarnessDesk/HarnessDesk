@@ -568,3 +568,48 @@ test('raw notifications retain nothing unless explicitly requested', async () =>
   client.close()
   assert.deepEqual(await client.notifications()[Symbol.asyncIterator]().next(), { done: true, value: undefined })
 })
+
+test('chat activity emits validated state changes without inventing Flow runs', async () => {
+  const transport = new ScriptedTransport()
+  const client = await connect({ transport: async () => transport, client: clientInfo,
+    subscribe: { topics: ['chats'], scope: { project: '/tmp/demo' } } as unknown as Parameters<typeof connect>[0]['subscribe'] })
+  const events = client.events()[Symbol.asyncIterator]()
+  await next(events)
+  const changed = (state: unknown, patch: object = {}) => transport.emit({ method: 'lead/chat/changed',
+    params: { id: 'demo:session-1', project: '/tmp/demo', state, ...patch } } as unknown as WireNotification)
+  changed('idle')
+  changed('idle')
+  changed('complete')
+  changed('waiting', { id: '' })
+  changed('running', { project: '/tmp/other' })
+  changed('waiting')
+  client.close()
+  const actual: ClientEvent[] = []
+  for (;;) { const event = await events.next(); if (event.done) break; actual.push(event.value) }
+  assert.deepEqual(actual.map(({ at: _at, ...event }) => event), [
+    { v: 1, type: 'chat.changed', id: 'demo:session-1', project: '/tmp/demo', state: 'idle' },
+    { v: 1, type: 'chat.changed', id: 'demo:session-1', project: '/tmp/demo', state: 'waiting' },
+    { v: 1, type: 'end', reason: 'interrupted' },
+  ])
+  assert.deepEqual(client.snapshot().runs, [])
+})
+
+test('reconnect replays a tracked chat baseline that completed while disconnected', async () => {
+  const first = new ScriptedTransport(), second = new ScriptedTransport()
+  const chat = (state: string) => ({ method: 'lead/chat/changed', params: { id: 'demo:session-1', project: '/tmp/demo', state } } as WireNotification)
+  first.baseline = [chat('running')]
+  second.baseline = [chat('idle')]
+  let opens = 0
+  const client = await connect({ transport: async () => ++opens === 1 ? first : second, client: clientInfo,
+    subscribe: { topics: ['chats'], scope: { project: '/tmp/demo' } } })
+  const events = client.events()[Symbol.asyncIterator]()
+  await next(events)
+  assert.equal((await next(events) as { state?: string }).state, 'running')
+  first.close()
+  assert.equal((await next(events)).type, 'gap')
+  const completed = await next(events)
+  assert.equal(completed.type, 'chat.changed')
+  assert.equal((completed as { state?: string }).state, 'idle')
+  assert.deepEqual(client.snapshot().runs, [])
+  client.close()
+})

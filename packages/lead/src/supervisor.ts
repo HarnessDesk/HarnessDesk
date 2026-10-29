@@ -164,6 +164,7 @@ export interface LeadSupervisorOptions {
   readonly onExit?: (reason: string) => Promise<void> | void
   readonly onWaitEnded?: (runId: string, reason: 'ownership-withdrawn') => void
   /** The child's checks between model turns, for the person's window; a malformed one is a broken protocol. */
+  readonly onActivity?: (busy: boolean) => void
   readonly onPresence?: (presence: LeadPresence) => void
   readonly startupMs?: number
   readonly shutdownMs?: number
@@ -208,6 +209,11 @@ export class LeadSupervisor {
   #startAbort: AbortController | null = null
   #stopping: Promise<void> | null = null
   #generation = 0
+  #active = false
+  #activity(busy: boolean): void {
+    if (busy === this.#active) return
+    this.#active = busy; this.options.onActivity?.(busy)
+  }
   constructor(private readonly options: LeadSupervisorOptions) {}
   get live(): boolean { return this.#running !== null && !this.#running.exited }
   /** The runtime the child would start on, or why there is none. Probing is cached per binary and version. */
@@ -347,6 +353,7 @@ export class LeadSupervisor {
       if (!['completed', 'max-tokens', 'refused', 'cancelled', 'uncertain', 'rate-limited', 'failed', 'invalid-response'].includes(result.status as string)) throw error('protocol')
       running.pending.delete(message.id as number); pending.resolve(result); return
     }
+    if (message.type === 'activity') { this.#activity(message.busy === true && !this.#stopping); return }
     if (message.type === 'presence') { const presence = parseLeadPresence(message.presence); this.options.onPresence?.(presence); return }
     if (message.type === 'desk-lost') { running.reason = 'desk-lost'; this.#kill(running); return }
     if (message.type === 'wait-ended') {
@@ -473,7 +480,7 @@ export class LeadSupervisor {
   #kill(running: Running): void { running.providerAbort.abort(); if (!running.exited) { try { running.child.kill('SIGKILL') } catch { /* Exit remains the authority. */ } } }
   async #exit(running: Running): Promise<void> {
     if (running.exited) return
-    running.exited = true; running.providerAbort.abort(); running.failReady(error('exited'))
+    running.exited = true; this.#activity(false); running.providerAbort.abort(); running.failReady(error('exited'))
     for (const pending of [...running.pending.values(), ...running.replies.values()]) pending.reject(error(running.reason))
     running.pending.clear(); running.replies.clear()
     // A rejected reverse dispatch must finish writing its uncertain result before
@@ -515,7 +522,7 @@ export class LeadSupervisor {
   }
   stop(reason = 'stopped'): Promise<void> {
     if (this.#stopping) return this.#stopping
-    this.#generation++; this.#startAbort?.abort()
+    this.#generation++; this.#startAbort?.abort(); this.#activity(false)
     const stop = async () => {
       const duration = this.options.shutdownMs ?? 1000
       const running = this.#running

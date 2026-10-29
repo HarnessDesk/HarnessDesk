@@ -53,7 +53,7 @@ it.each(['light', 'dark'])('previews loading without a name and pending-plan dec
   const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
   try {
     await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="loading" /></StoreProvider>))
-    expect(box.textContent).toContain('Hi, tell me what you want done.')
+    expect(box.textContent).toContain('Hi, what can I help you with?')
     await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="pending-plan" /></StoreProvider>))
     const notices = box.querySelector('[data-slot="composer-notices"]')!
     expect(notices.textContent).not.toContain('Review plan')
@@ -116,7 +116,7 @@ it.each(['light', 'dark'])('previews the one quiet line while the Lead plans, wh
   const frame = (scene: 'planning' | 'running' | 'stopped') => act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene={scene} /></StoreProvider>))
   try {
     await frame('planning')
-    expect(line()?.textContent).toBe('Planning…')
+    expect(line()?.textContent).toBe('Thinking…')
     await frame('running')
     expect(line()?.textContent).toBe('Step 1 of 1 · Implement and review · 1 run')
     // Stop through the synthetic facade: what was reported as running is no longer reported, and the thread says why.

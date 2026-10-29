@@ -30,6 +30,26 @@ const context = () => ({
 const request = () => ({ method: 'flow/execution/stop', params: { run: 'run-1', reason: 'Stop work' },
   project: contract.project, runId: 'run-1', start: null })
 
+test('ordinary chats use project policy and known headroom without a reviewed contract', () => {
+  const c = { ...context(), approved: null }
+  for (const [method, params] of [
+    ['lead/chat/list', {}], ['lead/chat/read', { id: 'fixture:chat' }],
+    ['lead/chat/start', { text: 'Capture a screenshot' }], ['lead/chat/send', { id: 'fixture:chat', text: 'Use the active window' }],
+    ['lead/chat/stop', { id: 'fixture:chat' }],
+  ] as const) {
+    const r = { method, params, project: contract.project, runId: null, start: null }
+    assert.equal(decide(r, c).effect, 'allow', method)
+    assert.equal(decide({ ...r, project: null }, c).effect, 'deny', `${method} needs the host's project`)
+    if (method === 'lead/chat/start' || method === 'lead/chat/send') {
+      assert.equal(decide(r, { ...c, desk: policy('plan') }).effect, 'deny')
+      assert.equal(decide(r, { ...c, desk: policy('default') }).effect, 'ask')
+      assert.equal(decide(r, { ...c, policyInterpretation: 'interpreting' }).effect, 'deny')
+      assert.equal(decide(r, { ...c, budget: { ...c.budget, spend: 'unknown' } }).effect, 'deny')
+      assert.equal(decide(r, { ...c, budget: { ...c.budget, leadUsdMicros: 500 } }).effect, 'deny')
+    }
+  }
+})
+
 test('a project allow cannot override a desk deny', () => {
   const c = { ...context(), desk: policy('manage', [rule('deny')]), projectPolicy: policy('manage', [rule('allow')]) }
   assert.equal(decide(request(), c).effect, 'deny')

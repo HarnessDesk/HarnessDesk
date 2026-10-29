@@ -4,6 +4,7 @@ import {
   approvalId, itemId, runtimeId, sessionId, turnId, type Approval, type ApprovalOption, type PhoneWorkSnapshot, type Session, type SessionSummary, type Turn,
 } from '@harnessdesk/protocol'
 import { PhoneWork, phoneSessionValues, WorkspaceFeed, type PhoneWorkPorts } from '../src/phone-work.js'
+import { boundLeadChatRead } from '../src/lead/chat-read.js'
 import { assessApproval, isLowRiskCommand } from '../src/phone-thread.js'
 
 const RT = runtimeId('agent-a')
@@ -437,4 +438,69 @@ test('saved dependent choices incompatible with the selected model refuse before
     ]
   }), /saved.*choices/i)
   assert.deepEqual(calls, [{}, { model: 'two' }])
+})
+
+test('a host-pinned start uses the exact root and saved defaults with fresh admission before allocation and send', async () => {
+  const seen: unknown[] = []
+  const { work } = rig({
+    newSessionValues: async (runtime, cwd) => { seen.push({ runtime, cwd }); return { permissions: 'workspace' } },
+    create: async params => { seen.push(params); return session([]) },
+    send: async params => { seen.push(params) },
+  })
+  const start = (work as unknown as { startInProject?: (params: { text: string }, root: string, admit: () => Promise<void>) => Promise<unknown> }).startInProject
+  assert.equal(typeof start, 'function', 'A trusted exact-root start must share the phone ordinary session lifecycle')
+  await start!.call(work, { text: 'Work here' }, CWD, async () => { seen.push('admit') })
+  assert.deepEqual(seen, [
+    { runtime: RT, cwd: CWD }, 'admit', { runtime: RT, options: { cwd: CWD, options: { permissions: 'workspace' } } },
+    'admit', { runtime: RT, sessionId: SID, input: [{ type: 'text', text: 'Work here' }] },
+  ])
+})
+
+test('pinned starts preserve allocated identity when admission changes before the first send', async () => {
+  let sends = 0, creates = 0
+  const { work } = rig({ create: async () => { creates++; return session([]) }, send: async () => { sends++ } })
+  const result = await work.startInProject({ text: 'Work here' }, CWD, async id => { if (id) throw new Error('Project was withdrawn') })
+  assert.equal(result.id, key)
+  assert.match(result.problem ?? '', /created.*first message/i)
+  assert.equal(creates, 1); assert.equal(sends, 0)
+})
+
+test('admission changing during new-session defaults refuses before allocating a conversation', async () => {
+  let creates = 0
+  const { work } = rig({ create: async () => { creates++; return session([]) } })
+  await assert.rejects(work.startInProject({ text: 'Work here' }, CWD, async () => { throw new Error('Budget exhausted') }), /Budget exhausted/)
+  assert.equal(creates, 0)
+})
+
+for (const scenario of ['history', 'message', 'combined'] as const) test(`Lead discloses ${scenario} truncation through the shared PhoneWork projection`, async () => {
+  const r = rig()
+  const count = scenario === 'message' ? 1 : 45
+  const text = scenario === 'history' ? 'Short reply' : 'Useful context. '.repeat(425)
+  assert.equal(scenario === 'history' || text.length === 6800, true)
+  r.setSession(session(Array.from({ length: count }, (_, i) => ({ id: turnId(`t${i}`), status: 'completed' as const,
+    items: [{ id: itemId(`m${i}`), type: 'assistantMessage' as const, text }] }))))
+  const projected = await r.work.threadRead({ id: key })
+  const result = boundLeadChatRead(projected)
+  assert.equal(result.truncated, true)
+  assert.equal(result.omittedSourceTurns + result.omittedPhoneEntries + result.turns.length, count)
+  assert.equal('omittedTurns' in JSON.parse(JSON.stringify(projected)), false, 'phone wire shape stays unchanged')
+  if (scenario === 'history') assert.equal(result.omittedSourceTurns, 5)
+  assert.equal(result.turns.at(-1)?.id, `m${count - 1}`)
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 12000)
+})
+
+
+test('Lead read omission metadata keeps raw source turns separate from projected phone entries', async () => {
+  const r = rig(), count = 45
+  r.setSession(session(Array.from({ length: count }, (_, i) => ({ id: turnId(`source-${i}`), status: 'completed' as const,
+    items: [{ id: itemId(`you-${i}`), type: 'userMessage' as const, content: [{ type: 'text' as const, text: 'Question' }] },
+      { id: itemId(`agent-${i}`), type: 'assistantMessage' as const, text: 'Useful reply. '.repeat(200) }] }))))
+  const projected = await r.work.threadRead({ id: key }), result = boundLeadChatRead(projected)
+  assert.equal(result.omittedSourceTurns, 5)
+  assert.equal(result.omittedPhoneEntries + result.turns.length, projected.turns.length)
+  assert.ok(result.omittedPhoneEntries > 0)
+  assert.equal(result.truncated, true)
+  assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 12000)
+  assert.equal('omittedSourceTurns' in JSON.parse(JSON.stringify(projected)), false)
+  assert.equal('omittedPhoneEntries' in JSON.parse(JSON.stringify(projected)), false)
 })

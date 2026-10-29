@@ -15,6 +15,8 @@ export interface LeadClientAuthorityOptions {
   /** Live host journal projection, for starts admitted after this connection opened. */
   readonly readOwned?: () => readonly { readonly goal: string; readonly run: string }[]
   readonly maximumTiers?: readonly ClientTier[]
+  /** Validates the actual ordinary session without loading its transcript. */
+  readonly readChatTarget?: (id: string) => Promise<boolean>
   readonly authorizeStart?: (params: HostParams<'flow/start-goal'>) => boolean | Promise<boolean>
 }
 
@@ -56,6 +58,9 @@ export const createLeadClientAuthority = async (options: LeadClientAuthorityOpti
         // with the same single-read checks; project scope never grants ownership.
         switch (request.method) {
           case 'client/hello': return null
+          // The host handlers independently pin these pathless calls to this Lead's project.
+          case 'lead/chat/read': return await options.readChatTarget?.(request.params.id) === true ? null : 'leadScope'
+          case 'lead/chat/list': case 'lead/chat/start': case 'lead/chat/send': case 'lead/chat/stop': return null
           case 'library/usage': return 'leadScope'
           case 'workspace/open': return await inProject(request.params.path) ? null : 'leadScope'
           case 'flow/catalog': case 'flow/source': case 'goal/list':

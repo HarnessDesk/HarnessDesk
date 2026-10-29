@@ -20,6 +20,17 @@ const pending = (contract: LeadAcceptanceContract) => contract.steps.map(one => 
 const textOf = (blocks: readonly { readonly text: string }[]) => blocks.map(block => block.text).join('')
 const contractLine = (text: string) => text.split('\n').find(line => line.startsWith('Approved contract: '))
 
+test('Lead talks directly and delegates ordinary tasks without requiring a reviewed plan', () => {
+  const text = leadInstructions({ name: 'Lex', project, policyRevision: 1, caps: { usdMicros: 5_000_000, rounds: 12 } })
+  assert.match(text, /Answer questions.*directly/)
+  assert.match(text, /chat_start/)
+  assert.match(text, /chat_list/)
+  assert.match(text, /untrusted/)
+  assert.doesNotMatch(text, /Your first job is a plan|Until a plan is approved, reply with ONLY/)
+  assert.match(text, /independent review/, 'formal reviewed work retains its safeguards')
+  assert.match(text, /ordinary session.*spend/i, 'ordinary chat spend is not presented as a reviewed-run allowance')
+})
+
 test('the desk message carries the approved contract itself, as one compact JSON line', () => {
   const contract = contractOf()
   const line = contractLine(textOf(leadContinuation({ contract, steps: pending(contract) })))

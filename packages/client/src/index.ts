@@ -1,5 +1,5 @@
 import {
-  CLIENT_METHODS, CLIENT_PROTOCOL, sessionKey,
+  CLIENT_METHODS, CLIENT_PROTOCOL, sessionKey, parseLeadChatChangedParams,
   type ClientMethodName, type ClientTier, type FindingRunView, type FlowExecution, type GoalActivity,
   type HostParams, type HostResult, type HostToClient, type Intent, type TeamState,
   type SeatActivity, type FindingRoundPublication, type Approval, type GoalView, type RuntimeId, type SessionId, type WireNotification, type WireRequest,
@@ -24,6 +24,7 @@ type WaitingItem = ClientWaitingItem
 /** Stable version-1 observation vocabulary. Unknown future event types may be ignored. */
 export type ClientEvent = EventBase & (
   | { readonly type: 'hello'; readonly desk: HostResult<'client/hello'>['desk']; readonly hostVersion: string; readonly protocolVersion: number; readonly tiers: readonly ClientTier[] }
+  | ({ readonly type: 'chat.changed' } & Extract<WireNotification, { method: 'lead/chat/changed' }>['params'])
   | { readonly type: 'run.changed'; readonly run: string; readonly team: string; readonly flow: string; readonly state: FlowExecution['state']; readonly round: number | null; readonly reason: string | null; readonly revision?: string; readonly continues?: string }
   | { readonly type: 'card.changed'; readonly team: string; readonly card: number; readonly role: string | null; readonly state: Intent['state']; readonly outcome: string | null; readonly title: string; readonly seat?: string; readonly since?: number }
   | { readonly type: 'seat.changed'; readonly team: string; readonly seat: string; readonly role: string | null; readonly card: number | null; readonly state: SeatActivity['state']; readonly doing: SeatActivity['doing']; readonly since?: number }
@@ -103,11 +104,16 @@ class Observation {
   private seatValues = new Map<string, string>()
   private reviewValues = new Map<string, string>()
   private waiting = new Map<string, WaitingItem>()
+  private chatValues = new Map<string, string>()
+  private chatProject: string | undefined
   constructor(private topics: ReadonlySet<string>, private readonly emit: (event: EventBody) => void) {}
-  subscribe(subscription: HostParams<'client/subscribe'> | undefined) { this.topics = new Set(subscription?.topics ?? []) }
+  subscribe(subscription: HostParams<'client/subscribe'> | undefined) {
+    this.topics = new Set(subscription?.topics ?? [])
+    this.chatProject = subscription?.scope?.team === undefined && subscription?.scope?.run === undefined ? subscription?.scope?.project : undefined
+  }
   reset() {
     this.teams.clear(); this.seats.clear(); this.approvals.clear(); this.reviews.clear()
-    this.runs.clear(); this.boards.clear(); this.runValues.clear(); this.cardValues.clear(); this.teamValues.clear(); this.seatValues.clear(); this.reviewValues.clear(); this.waiting.clear()
+    this.chatValues.clear(); this.runs.clear(); this.boards.clear(); this.runValues.clear(); this.cardValues.clear(); this.teamValues.clear(); this.seatValues.clear(); this.reviewValues.clear(); this.waiting.clear()
   }
   snapshot(): ClientSnapshot {
     return structuredClone({
@@ -164,6 +170,15 @@ class Observation {
   }
   accept(notification: WireNotification) {
     switch (notification.method) {
+      case 'lead/chat/changed': {
+        if (!this.topics.has('chats') || this.chatProject === undefined) break
+        let chat: ReturnType<typeof parseLeadChatChangedParams>
+        try { chat = parseLeadChatChangedParams(notification.params) } catch { break }
+        if (chat.project !== this.chatProject) break
+        const { id, project, state } = chat
+        if (this.changed(this.chatValues, id, [project, state])) this.emit({ type: 'chat.changed', id, project, state })
+        break
+      }
       case 'flow/execution-changed': {
         const run = notification.params.execution
         this.runs.set(run.id, run)

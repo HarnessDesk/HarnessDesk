@@ -25,11 +25,11 @@ const controlsModule = async (): Promise<any> => {
   assert.equal(typeof module.LeadControls, 'function', 'host-owned LeadControls must exist')
   return module
 }
-const rig = async (over: { configured?: boolean; service?: Record<string, any>; controls?: Record<string, any> } = {}) => {
+const rig = async (over: { configured?: boolean; manage?: boolean; service?: Record<string, any>; controls?: Record<string, any> } = {}) => {
   const records: LeadJournalRecord[] = [], notifications: WireNotification[] = [], sends: unknown[] = [], answers: unknown[] = []
   const storage = { async read() { return records }, async append(record: LeadJournalRecord) { records.push(record) } }
   const journal = await createLeadJournal(storage)
-  await journal.setPolicy(policy)
+  await journal.setPolicy(over.manage ? { ...policy, mode: 'manage' } : policy)
   await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical', caps: contract.caps, freshnessMs: 1000 })
   let configured = over.configured ?? false
   const service = { async status() { return { configured, protection: 'synthetic cipher' } },
@@ -990,14 +990,33 @@ test('a message the person sends after approval is followed by the contract, so 
   s.controls.close()
 })
 
-test('a request before any plan is approved asks for a plan, and does not claim a contract was approved', async () => {
+test('a request without an approved plan continues the conversation without demanding a plan', async () => {
   const s = await rig({ configured: true })
   await s.controls.send({ idempotencyKey: 'goal', text: 'Inspect the check' }); await s.controls.idle()
   await s.journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
   await s.controls.resume({ expectedRevision: s.journal.state.seq }); await s.controls.idle()
   const last: any = (s.sends.at(-1) as any).messages.at(-1)
   assert.equal(last.role, 'user')
-  assert.equal(turnText(last), 'No plan is approved yet. Continue with a plan for the person to approve.')
+  assert.match(turnText(last), /conversation/)
+  assert.doesNotMatch(turnText(last), /Continue with a plan for the person to approve/)
+  s.controls.close()
+})
+
+for (const reason of ['lead-plan-unseatable', 'lead-plan-not-independent', 'lead-plan-refused', 'lead-card-too-large',
+  'lead-start-binding-failed', 'lead-result-revisions-exhausted'] as const) test(`${reason} explains a setup problem without offering an unchanged retry`, async () => {
+  const s = await rig({ configured: true })
+  await s.journal.setManagementPhase('waiting-for-user', reason)
+  const view = await s.controls.readThread()
+  assert.equal(view.waitReason, reason)
+  assert.equal(view.wayOut, null)
+  await assert.rejects(s.controls.resume({ expectedRevision: view.revision }), code('lead-no-person-wait'))
+  await s.controls.send({ idempotencyKey: 'change-plan', text: 'Use an ordinary chat for this screenshot instead.' })
+  await s.controls.idle()
+  const request: any = s.sends.at(-1)
+  const context = request.messages.map(turnText).join('\n')
+  assert.match(context, /previous.*(plan|request|run|result)/i, 'the model sees the actual prior blocker')
+  assert.equal(s.journal.state.messages.at(-1)?.role, 'assistant')
+  assert.notEqual(s.journal.state.phase, 'waiting-for-user', 'a new message continues without a separate resume click')
   s.controls.close()
 })
 
@@ -1872,3 +1891,126 @@ test('automatic fallback keeps a valid model report and never fabricates a repor
     s.controls.close()
   }
 })
+
+
+for (const method of ['lead/chat/start', 'lead/chat/send'] as const) test(`person controls leave an uncertain ${method} only after explicit Stop`, async t => {
+  let effects = 0, replies = 0
+  const s = await rig({ configured: true, manage: true, controls: { stopEffects: async () => {} }, service: {
+    async send() {
+      if (++replies === 1) await s.journal.execute({ id: 'lost-chat', request: { method,
+        params: method === 'lead/chat/start' ? { text: 'Inspect' } : { id: 'fixture:chat', text: 'Inspect' }, project, start: null, runId: null },
+        context: { desk: { ...policy, mode: 'manage' }, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } }, async () => {
+          effects++; throw new Error('injected post-effect failure')
+        })
+      // Exercise the ordinary loop's tools-refused fallback after an effect error.
+      if (replies === 1) await s.journal.setManagementPhase('waiting-for-user', 'lead-tools-refused')
+      return { status: 'completed', text: 'Inspect the chat on the desk.' }
+    },
+  } })
+  t.after(() => s.controls.close())
+  await s.call('lead/thread/send', { idempotencyKey: 'original', text: 'Inspect' })
+  await s.controls.idle()
+  const projection = await s.call('lead/thread/read')
+  assert.equal(effects, 1)
+  assert.equal(projection.waitReason, 'lead-chat-effect-uncertain')
+  assert.equal(projection.wayOut, null)
+  const before = s.journal.state
+  await assert.rejects(s.call('lead/resume', { expectedRevision: before.seq }), code('lead-no-person-wait'))
+  await assert.rejects(s.call('lead/thread/send', { idempotencyKey: 'premature', text: 'Fresh request draft' }), code('lead-chat-effect-uncertain'))
+  assert.deepEqual(s.journal.state, before)
+  assert.equal((await createLeadJournal(s.storage)).state.attempts.get('lost-chat')!.outcome, 'uncertain')
+  await s.call('lead/stop', { expectedRevision: s.journal.state.seq })
+  const oldGoal = s.journal.state.budget!.logicalGoalId
+  await assert.rejects(s.controls.send({ idempotencyKey: 'automatic-retry', text: 'Automatic follow-up' }, { source: 'pull-request', event: 'checks-failed', subject: 'acme/widgets#12', url: 'https://github.com/acme/widgets/pull/12' }), code('lead-request-in-flight'))
+  await s.call('lead/thread/send', { idempotencyKey: 'fresh', text: 'Fresh request' })
+  await s.controls.idle()
+  assert.notEqual(s.journal.state.budget!.logicalGoalId, oldGoal)
+  assert.equal(effects, 1, 'the original uncertain dispatch is never repeated')
+  assert.equal(replies, 2)
+  assert.equal(s.records.filter(record => record.type === 'reconciliation').length, 0)
+  assert.equal(s.records.some(record => record.type === 'recovery-report' && record.id === 'lost-chat'), true)
+})
+
+
+test('an allowance-stopped uncertain chat still needs the existing person Stop action', async t => {
+  const s = await rig({ configured: true, manage: true, controls: { stopEffects: async () => {} } })
+  t.after(() => s.controls.close())
+  await s.journal.execute({ id: 'lost-chat', request: { method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Inspect' }, project, runId: null, start: null },
+    context: { desk: s.journal.state.policy!, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } }, async () => { throw new Error('post-effect failure') })
+  await s.journal.updateBudget({ version: 1, type: 'stop', now: 100, reason: 'budget' }, async () => {})
+  const waiting = await s.controls.readThread()
+  assert.equal(waiting.thread.state, 'stopped'); assert.equal(waiting.waitReason, 'lead-chat-effect-uncertain'); assert.equal(waiting.wayOut, null)
+  await assert.rejects(s.controls.send({ idempotencyKey: 'before-person-stop', text: 'Next task' }), code('lead-chat-effect-uncertain'))
+  const acknowledged = await s.controls.stop({ expectedRevision: s.journal.state.seq })
+  assert.equal(acknowledged.waitReason, null)
+  await s.controls.send({ idempotencyKey: 'after-person-stop', text: 'Next task' }); await s.controls.idle()
+  assert.equal(s.sends.length, 1)
+})
+
+for (const method of ['lead/chat/start', 'lead/chat/send'] as const) for (const reopen of [false, true])
+  test(`Stop during ${method} dispatch cannot acknowledge its later uncertainty (reopen: ${reopen})`, async t => {
+    let enter!: () => void, fail!: (error: Error) => void, stop!: () => void
+    const entered = new Promise<void>(resolve => { enter = resolve })
+    const failed = new Promise<never>((_resolve, reject) => { fail = reject })
+    const stopped = new Promise<void>(resolve => { stop = resolve })
+    let effects = 0, requests = 0
+    const s = await rig({ configured: true, manage: true, controls: { stopEffects: async () => { stop() } }, service: {
+      async send() {
+        requests++
+        if (requests === 1) await s.journal.execute({ id: 'held-chat', request: { method,
+          params: method === 'lead/chat/start' ? { text: 'Original task' } : { id: 'fixture:chat', text: 'Original task' },
+          project, runId: null, start: null }, context: { desk: s.journal.state.policy!, projectPolicy: null, project,
+          approved: null, budget: null, now: 100, policyInterpretation: 'idle' } }, async () => {
+          effects++; enter(); return failed
+        })
+        return { status: 'completed', text: 'Inspect the chat on the desk.' }
+      },
+    } })
+    t.after(() => s.controls.close())
+    await s.call('lead/thread/send', { idempotencyKey: 'original', text: 'Original task' })
+    await entered
+    const stopping = s.call('lead/stop', { expectedRevision: s.journal.state.seq })
+    await stopped
+    assert.equal(s.journal.state.phase, 'stopped')
+    assert.equal(s.journal.state.chatEffectsAcknowledged, true)
+    assert.equal(s.journal.state.attempts.get('held-chat')!.phase, 'started')
+    fail(new Error('response lost after effect started'))
+    await stopping
+    await s.controls.idle()
+    let journal = s.journal, controls = s.controls
+    if (reopen) {
+      s.controls.close()
+      journal = await createLeadJournal(s.storage)
+      let lookups = 0
+      await journal.recover(async () => { lookups++; return [] })
+      assert.equal(lookups, 0)
+      const { LeadControls } = await controlsModule()
+      controls = new LeadControls({ journal, service: s.service, project, model: 'fixture-model', now: () => 100,
+        nextId: () => 'fresh-person-request', push() {}, decidePerson: async () => {}, decideResult: async () => {}, stopEffects: async () => {} })
+      t.after(() => controls.close())
+    }
+    const waiting = await controls.readThread()
+    assert.equal(journal.state.attempts.get('held-chat')!.outcome, 'uncertain')
+    assert.equal(journal.state.attempts.get('held-chat')!.recoveryReported, true)
+    assert.equal(journal.state.chatEffectsAcknowledged, false, 'Stop before failure cannot acknowledge newly discovered uncertainty')
+    assert.equal(waiting.waitReason, 'lead-chat-effect-uncertain')
+    assert.equal(waiting.wayOut, null)
+    const before = journal.state
+    await assert.rejects(controls.resume({ expectedRevision: before.seq }), code('lead-no-person-wait'))
+    await assert.rejects(controls.send({ idempotencyKey: 'premature', text: 'Next request draft' }), code('lead-chat-effect-uncertain'))
+    assert.deepEqual(journal.state, before)
+    assert.equal(requests, 1)
+    const acknowledged = await controls.stop({ expectedRevision: journal.state.seq })
+    assert.equal(acknowledged.waitReason, null)
+    assert.equal(journal.state.chatEffectsAcknowledged, true)
+    const oldGoal = journal.state.budget!.logicalGoalId
+    const receipt = await controls.send({ idempotencyKey: 'fresh', text: 'Fresh person request' })
+    await controls.idle()
+    assert.notEqual(journal.state.budget!.logicalGoalId, oldGoal)
+    assert.deepEqual(await controls.send({ idempotencyKey: 'fresh', text: 'Retry must not replace the request' }), receipt)
+    await controls.idle()
+    assert.equal(requests, 2, 'only the separately chosen person request runs, once')
+    assert.equal(effects, 1, 'the uncertain chat effect is never replayed')
+    assert.equal(journal.state.attempts.size, 0)
+    assert.equal(s.records.filter(record => record.type === 'reconciliation').length, 0)
+  })

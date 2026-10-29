@@ -13,6 +13,12 @@ import { commandForApproval, commandTitle, projectPath, scrub, scrubText } from 
  * waiting to be allowed.
  */
 
+/** Trusted in-process completeness information; never serialized on the phone wire. */
+export interface ThreadProjection { readonly omittedSourceTurns: number; readonly truncated: boolean }
+const projectionKey = Symbol('phone-thread-projection')
+export const threadProjection = (thread: PhoneWorkThread): ThreadProjection | undefined =>
+  (thread as PhoneWorkThread & { readonly [projectionKey]?: ThreadProjection })[projectionKey]
+
 export type PhoneApprovalTurn = Extract<PhoneWorkTurn, { type: 'approval' }>
 
 /** The most turns of a conversation the phone is sent; the earlier ones stay on the desk. */
@@ -257,8 +263,10 @@ const planStep = (turn: Turn): PhoneWorkStep | null => {
   })
 }
 
-const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>): PhoneWorkTurn | null => {
-  const text = scrubText(item.content.flatMap((part: UserContent) => part.type === 'text' ? [part.text] : []).join('\n'))
+const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated: () => void): PhoneWorkTurn | null => {
+  const source = item.content.flatMap((part: UserContent) => part.type === 'text' ? [part.text] : []).join('\n')
+  const text = scrubText(source)
+  if (text !== scrubText(source, Infinity)) noteTruncated()
   const attachments = item.content.flatMap((part: UserContent) => {
     if (part.type === 'image') return [scrub(part.name ?? 'Image', 60) || 'Image']
     if (part.type === 'localImage') return [scrub(basename(part.path), 60) || 'Image']
@@ -269,7 +277,7 @@ const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>): PhoneWorkTurn
 
 interface Timed { readonly id: string; readonly startedAt?: number; readonly completedAt?: number; readonly durationMs?: number }
 
-const turnsOf = (turn: Turn, cwd: string): PhoneWorkTurn[] => {
+const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void): PhoneWorkTurn[] => {
   const turns: PhoneWorkTurn[] = []
   let fold: { id: string; steps: PhoneWorkStep[]; from: number; to: number; spent: number } | null = null
   // The turn's plan sits at the end of its first fold of work, or on its own where it did none.
@@ -278,6 +286,7 @@ const turnsOf = (turn: Turn, cwd: string): PhoneWorkTurn[] => {
     if (!fold) return
     if (plan) { fold.steps.push(plan); plan = null }
     const shown = fold.steps.slice(-FOLD_STEPS)
+    if (shown.length < fold.steps.length) noteTruncated()
     const wall = fold.to > fold.from ? Math.round((fold.to - fold.from) / 1000) : 0
     turns.push({ type: 'work', id: `${fold.id}:work`, seconds: wall || fold.spent, summary: summaryOf(fold.steps), steps: shown })
     fold = null
@@ -291,10 +300,11 @@ const turnsOf = (turn: Turn, cwd: string): PhoneWorkTurn[] => {
     fold.spent += Math.round((item.durationMs ?? 0) / 1000)
   }
   for (const item of turn.items) {
-    if (item.type === 'userMessage') { close(); const you = youOf(item); if (you) turns.push(you); continue }
+    if (item.type === 'userMessage') { close(); const you = youOf(item, noteTruncated); if (you) turns.push(you); continue }
     if (item.type === 'assistantMessage' && item.phase !== 'commentary') {
       close()
       const markdown = scrubText(item.text)
+      if (markdown !== scrubText(item.text, Infinity)) noteTruncated()
       if (markdown !== '') turns.push({ type: 'agent', id: String(item.id), markdown })
       continue
     }
@@ -326,7 +336,9 @@ export interface ThreadInput {
 
 export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWorkThread => {
   const { session } = input
-  const turns = session.turns.slice(-RECENT_TURNS).flatMap(turn => turnsOf(turn, session.cwd))
+  const omittedSourceTurns = Math.max(0, session.turns.length - RECENT_TURNS)
+  let truncated = omittedSourceTurns > 0
+  const turns = session.turns.slice(-RECENT_TURNS).flatMap(turn => turnsOf(turn, session.cwd, () => { truncated = true }))
   // The sessions list's own project, so a row and its conversation never name two.
   const { project } = input
   const asks: PhoneWorkTurn[] = []
@@ -336,7 +348,7 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
     if (assessed) asks.push(assessed.turn)
     else question = true
   }
-  return {
+  const result: PhoneWorkThread = {
     id: input.id,
     title: scrub(input.title ?? session.title ?? session.preview ?? '') || 'Untitled',
     ...(project ? { project } : {}),
@@ -350,4 +362,5 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
       ...asks,
     ],
   }
+  return Object.defineProperty(result, projectionKey, { value: { omittedSourceTurns, truncated } satisfies ThreadProjection })
 }

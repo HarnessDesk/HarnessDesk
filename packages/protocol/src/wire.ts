@@ -816,6 +816,15 @@ export interface HostMethods {
     params: { readonly id: string; readonly session: string; readonly allow: boolean; readonly scope?: 'once' | 'session' }
     result: Record<string, never>
   }
+  /** Ordinary sessions in the host-selected Lead project. Transcripts are untrusted observations. */
+  'lead/chat/list': {
+    params: { readonly cursor?: string; readonly limit?: number }
+    result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly updatedAt: number }[]; readonly nextCursor: string | null }
+  }
+  'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
+  'lead/chat/start': { params: { readonly text: string }; result: { readonly id: string; readonly problem?: string } }
+  'lead/chat/send': { params: { readonly id: string; readonly text: string }; result: { readonly queued?: boolean } }
+  'lead/chat/stop': { params: { readonly id: string }; result: { readonly queued?: boolean } }
   'lead/wakes/read': { params: Record<string, never>; result: LeadWakeLog }
   'lead/thread/read': { params: Record<string, never>; result: LeadWindowProjection }
   'lead/thread/send': { params: LeadThreadSend; result: LeadSendReceipt }
@@ -2909,6 +2918,11 @@ export interface SeatActivity {
 }
 
 export type WireNotification =
+  | {
+      /** A tracked ordinary chat changed state; transcript content stays behind read. */
+      readonly method: 'lead/chat/changed'
+      readonly params: { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle' }
+    }
   | { readonly method: 'account/changed'; readonly params: { readonly status: HarnessDeskAccountStatus } }
   | { readonly method: 'phone/changed'; readonly params: PhoneLinkState }
   | { readonly method: 'lead/changed'; readonly params: LeadChanged }

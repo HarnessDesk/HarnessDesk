@@ -141,6 +141,21 @@ const decideParsedPermission = (request: LeadPermissionRequest, context: LeadPer
       return intersect(desk, projectPolicy, request.method, action, request.project?.id ?? null)
     }
     if (context.policyInterpretation !== 'idle') return deny('Management paused while user policy text is interpreted', 'policy-interpretation')
+    // Ordinary conversations use the selected project's management policy and
+    // their saved session permissions. They are not reviewed Flow runs and may
+    // neither borrow a run's approval nor require an unrelated review contract.
+    if (['lead/chat/start', 'lead/chat/send', 'lead/chat/stop'].includes(request.method)) {
+      if (request.project === null || context.project === null || !same(request.project, context.project))
+        return deny('Chat management requires the selected project', 'project')
+      if (request.method !== 'lead/chat/stop') {
+        if (context.budget === null) return deny('Chat management requires known budget headroom', 'budget')
+        const budget = parseLeadBudgetState(context.budget)
+        if (budget.stop !== null || budget.spend !== 'known' ||
+          budget.leadUsdMicros + budget.workerUsdMicros + budget.reservedUsdMicros >= budget.caps.usdMicros)
+          return deny('Budget is stopped, exhausted or unknown', 'budget')
+      }
+      return intersect(desk, projectPolicy, request.method, action, request.project.id)
+    }
     if (contract === null || context.approved === null || request.project === null || !same(contract.project, context.project))
       return deny('Management requires an approved contract and its project', 'unapproved')
     // Cancelling approved work narrows authority. Admission headroom and expiring plan

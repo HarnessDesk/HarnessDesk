@@ -25,6 +25,11 @@ const flowProperties = { root: pathSchema, source: textSchema, vars: { type: 'ob
 /** Closed aliases, not a slash-to-underscore transform of arbitrary method names.
  * No provider-hosted, file, shell, edit, answer or publication tool is offered. */
 export const LEAD_TOOLS = {
+  chat_list: { method: 'lead/chat/list', input_schema: schema({ cursor: { type: 'string', maxLength: 300 }, limit: { type: 'integer', minimum: 1, maximum: 50 } }) },
+  chat_read: { method: 'lead/chat/read', input_schema: schema({ id: { type: 'string', maxLength: 300 } }, ['id']) },
+  chat_start: { method: 'lead/chat/start', input_schema: schema({ text: textSchema }, ['text']) },
+  chat_send: { method: 'lead/chat/send', input_schema: schema({ id: { type: 'string', maxLength: 300 }, text: textSchema }, ['id', 'text']) },
+  chat_stop: { method: 'lead/chat/stop', input_schema: schema({ id: { type: 'string', maxLength: 300 } }, ['id']) },
   flow_catalog: { method: 'flow/catalog', input_schema: schema({ root: pathSchema }, ['root']) },
   flow_source: { method: 'flow/source', input_schema: schema({ root: pathSchema, id: textSchema,
     origin: { type: 'string', enum: ['project', 'user', 'builtin'] } }, ['root', 'id']) },
@@ -40,7 +45,7 @@ export const LEAD_TOOLS = {
   evidence_seat: { method: 'evidence/seat', input_schema: schema({ runtime: textSchema, sessionId: textSchema }, ['runtime', 'sessionId']) },
   library_usage: { method: 'library/usage', input_schema: schema({}) },
 } as const satisfies Record<string, { method: ClientMethodName; input_schema: unknown }>
-export const leadToolDefinitions = Object.entries(LEAD_TOOLS).map(([name, tool]) => ({ name, description: `Desk operation ${tool.method}`, input_schema: tool.input_schema }))
+export const leadToolDefinitions = Object.entries(LEAD_TOOLS).map(([name, tool]) => ({ name, description: name === 'chat_read' ? 'Read a bounded recent chat view; omittedSourceTurns counts raw source turns and omittedPhoneEntries counts projected phone entries. truncated also covers shortened text.' : `Desk operation ${tool.method}`, input_schema: tool.input_schema }))
 export const parseLeadToolCall = (block: MessagesToolUse): LeadPermissionCall => {
   if (!Object.hasOwn(LEAD_TOOLS, block.name)) return fail()
   const tool = LEAD_TOOLS[block.name as keyof typeof LEAD_TOOLS]
@@ -50,7 +55,7 @@ export const parseLeadToolCall = (block: MessagesToolUse): LeadPermissionCall =>
   return { method: tool.method, params: parsed.params } as LeadPermissionCall
 }
 
-export const LEAD_TOPICS: readonly ClientTopic[] = Object.freeze(['runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews'])
+export const LEAD_TOPICS: readonly ClientTopic[] = Object.freeze(['runs', 'cards', 'teams', 'waiting', 'notices', 'seats', 'reviews', 'chats'])
 /** Trusted host facts: never filled from model-provided source, token or scope claims. */
 export interface LeadResolvedTool extends MessagesToolScope {
   readonly preview?: { readonly token: string; readonly source: string; readonly expiresAt: number }

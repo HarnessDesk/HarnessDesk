@@ -2,6 +2,8 @@ import type { ClientMethodName } from '@harnessdesk/protocol'
 
 /** Human vocabulary for the closed client surface. Raw methods remain hover facts. */
 export const PERMISSION_LABELS = {
+  'lead/chat/list': 'List project chats', 'lead/chat/read': 'Read a project chat', 'lead/chat/start': 'Start a project chat',
+  'lead/chat/send': 'Message a project chat', 'lead/chat/stop': 'Stop a project chat',
   'client/hello': 'Connect to the desk', 'client/subscribe': 'Watch desk activity', 'session/loadout': 'Read conversation context',
   'attachment/seat': 'Read worker attachments', 'goal/list': 'List Teams', 'goal/read': 'Read a Team', 'team/intent': 'Update a Team',
   'flow/catalog': 'Browse Flows', 'flow/source': 'Read a Flow', 'flow/preview': 'Preview a run', 'flow/start-goal': 'Start a run',

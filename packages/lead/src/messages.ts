@@ -246,7 +246,8 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
     let requestId: string, body: string, messages: MessagesTurn[], maxTokens: number
     try {
       const captured = JSON.parse(safeJson(input)) as unknown
-      const source = object(captured, ['messages', 'system', 'maxTokens', 'proactive', 'wakeSource'])
+      const source = object(captured, ['messages', 'system', 'maxTokens', 'proactive', 'conversation', 'wakeSource'])
+      if (source.conversation !== undefined && typeof source.conversation !== 'boolean') fail()
       messages = history(source.messages)
       maxTokens = integer(source.maxTokens, LIMIT.maxTokens)
       if (maxTokens === 0) fail()

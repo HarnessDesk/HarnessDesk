@@ -446,7 +446,15 @@ export class SessionRegistry {
    * a typed message is never lost, so a full queue has to be an error the user
    * can see and act on, not a message that quietly disappears.
    */
-  enqueue(record: SessionRecord, id: string, input: readonly UserContent[]): QueuedMessage {
+  readonly #queuedAdmissions = new WeakMap<SessionRecord, Map<string, (live: AgentSession) => Promise<void>>>()
+
+  /** Host-only authority stays with the queued id through edits and moves; it never enters the wire projection. */
+  queuedAdmission(record: SessionRecord, id: string): ((live: AgentSession) => Promise<void>) | undefined {
+    return this.#queuedAdmissions.get(record)?.get(id)
+  }
+
+  enqueue(record: SessionRecord, id: string, input: readonly UserContent[], effectStarted?: () => void,
+    admitLive?: (live: AgentSession) => Promise<void>): QueuedMessage {
     if (!hasQueuedContent(input)) throw new Error('A queued message must contain at least one non-empty content item.')
     const queue = record.queue
     if (queue.messages.length >= QUEUE_LIMIT) {
@@ -459,12 +467,19 @@ export class SessionRegistry {
       throw new Error('The queue for this conversation is full. Send or clear some of it first.')
     }
     const message: QueuedMessage = { id, input, queuedAt: Date.now(), state: 'queued' }
+    effectStarted?.()
+    if (admitLive) {
+      let admissions = this.#queuedAdmissions.get(record)
+      if (!admissions) this.#queuedAdmissions.set(record, admissions = new Map())
+      admissions.set(id, admitLive)
+    }
     record.queue = { ...queue, messages: [...queue.messages, message] }
     return message
   }
 
   /** Removes one message. An id that is already gone is not an error — it left. */
   cancelQueued(record: SessionRecord, id: string): void {
+    this.#queuedAdmissions.get(record)?.delete(id)
     const messages = record.queue.messages.filter((message) => message.id !== id)
     // Emptying a paused queue resolves the pause: there is nothing left to hold.
     record.queue =
@@ -500,6 +515,7 @@ export class SessionRegistry {
   }
 
   clearQueue(record: SessionRecord): void {
+    this.#queuedAdmissions.delete(record)
     record.queue = emptyQueue()
   }
 

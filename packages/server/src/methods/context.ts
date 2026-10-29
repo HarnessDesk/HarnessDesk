@@ -151,6 +151,7 @@ export interface HostContext {
   readonly phoneWorkspace: Pick<import('../phone-workspace.js').PhoneWorkspace, 'sessionsList' | 'teamsList' | 'dashboardRead'>
   /** The phone's projected work, ordinary session controls and approval answers. */
   readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'sessionsList' | 'sessionStart' | 'sessionSend' | 'stop' | 'threadRead' | 'approvalDecide'>
+  readonly leadChats: Pick<import('../lead/chats.js').LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop'>
   leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
   leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
   leadThreadSend(params: HostParams<'lead/thread/send'>): Promise<HostResult<'lead/thread/send'>>
@@ -477,7 +478,8 @@ export interface HostContext {
      * inside `sessions.dispatch` passes the conversation it was handed as `held`: the send is that dispatch, and the
      * Wrap fence is not asked a second time.
      */
-    sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession): Promise<TurnId>
+    sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession, effectStarted?: () => void,
+      admitLive?: (live: AgentSession) => Promise<void>): Promise<TurnId>
   }
 
   readonly accounts: {

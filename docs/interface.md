@@ -2192,6 +2192,12 @@ no completion badge, activity, glow or motion.
 
 ## Lead
 
+Lead is one ongoing conversation. Questions, explanations and clarifications receive ordinary replies; they do not require a plan. A simple task can run in one ordinary chat, using the desk's selected agent and saved session permissions. Lead can find, read, message and stop ordinary chats in its selected project. Their approvals remain with the person. Ordinary chats have their own session spend; the Lead allowance covers its replies and reviewed Flow runs. The limits popover explains that distinction.
+
+While an ordinary reply is in flight the composer offers Stop reply. A completed reply leaves no planning banner or invented goal. Formal reviewed work retains its plan and approval cards. A setup failure keeps the composer available and explains the needed change without Resume; a new message carries that failure back to Lead so it can adjust. Transient interruptions retain Resume. Tracked ordinary chat state changes coalesce into a background check; results and decisions can return to the same Lead conversation, while unchanged work stays quiet.
+
+If a chat start or send loses its response after the effect may have begun, Lead waits with `lead-chat-effect-uncertain`. The notice says to inspect that chat on the desk and offers **Start new request**, using the existing person Stop action. Resume is unavailable. Sending before that acknowledgement returns specific feedback and leaves the draft intact. After successful Stop, the next separately typed person message starts a fresh logical goal; the original operation remains uncertain in the journal and is never replayed. Flow recovery, cleanup and allowance fences still apply.
+
 Lead is off by default; `HARNESSDESK_LEAD=1` enables it at startup. Its child
 needs a runtime whose permission model blocks the network; the desktop app
 carries one. Where no runtime passes the host's probe, Lead reports unavailable:
