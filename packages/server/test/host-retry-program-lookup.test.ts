@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -304,7 +304,7 @@ test('an overdue empty successful version probe is retried by the host schedule'
  * is drawing it wrong (#1774). So the desk remembers it, and asks that agent
  * again as it opens.
  */
-const relaunch = async (t: TestContext, dir: string, ...runtimes: AgentRuntime[]): Promise<Host> => {
+const relaunch = async (dir: string, own: (host: Host) => void, ...runtimes: AgentRuntime[]): Promise<Host> => {
   const host = new Host({
     logger: silent,
     state: new StateStore(join(dir, 'state.json')),
@@ -316,10 +316,61 @@ const relaunch = async (t: TestContext, dir: string, ...runtimes: AgentRuntime[]
   // The default is the first registered, and it is the one launch starts.
   host.register(new FakeRuntime({ id: runtimeId('default') }))
   for (const runtime of runtimes) host.register(runtime)
-  t.after(() => host.dispose())
+  own(host)
   await host.start()
   return host
 }
+
+const relaunchFixture = async (t: TestContext, prefix: string) => {
+  const dir = await mkdtemp(join(tmpdir(), prefix))
+  const hosts: Host[] = []
+  // Register before any launch; failed starts and manually closed hosts still belong here.
+  t.after(async () => {
+    const results = await Promise.allSettled(hosts.map(host => host.dispose()))
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'host cleanup failed')
+    await rm(dir, { recursive: true, force: true })
+  })
+  return { dir, relaunch: (...runtimes: AgentRuntime[]) => relaunch(dir, host => {
+    const dispose = host.dispose.bind(host)
+    let closing: Promise<void> | undefined
+    host.dispose = () => (closing ??= dispose())
+    hosts.push(host)
+  }, ...runtimes) }
+}
+
+test('relaunch fixture waits for every host before removing its directory', async () => {
+  const hooks: Array<() => unknown> = []
+  const context = { after: (hook: () => unknown) => { hooks.push(hook) } } as unknown as TestContext
+  const fixture = await relaunchFixture(context, 'hd-retry-cleanup-')
+  const first = await fixture.relaunch()
+  await first.dispose()
+  const second = await fixture.relaunch()
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let started!: () => void
+  const disposing = new Promise<void>(resolve => { started = resolve })
+  const dispose = second.dispose.bind(second)
+  second.dispose = async () => {
+    started()
+    await gate
+    await writeFile(join(fixture.dir, 'last-write'), 'done')
+    await dispose()
+  }
+  const cleanup = Promise.resolve(hooks[0]!())
+  try {
+    const began = await Promise.race([disposing.then(() => true), cleanup.then(() => false)])
+    assert.equal(began, true, 'cleanup must begin host disposal before directory removal')
+    assert.ok((await stat(fixture.dir)).isDirectory(), 'directory remains while disposal is held')
+    release()
+    await cleanup
+    await assert.rejects(stat(fixture.dir), { code: 'ENOENT' })
+  } finally {
+    release()
+    await cleanup
+    await rm(fixture.dir, { recursive: true, force: true })
+  }
+})
 
 const ask = async (host: Host, runtime: AgentRuntime): Promise<void> => {
   await host.call('runtime/warm', { runtime: runtime.info.id })
@@ -327,19 +378,18 @@ const ask = async (host: Host, runtime: AgentRuntime): Promise<void> => {
 }
 
 test('a failed spawn is remembered and unavailable as the desk next opens', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-spawn-relaunch-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const { relaunch: open } = await relaunchFixture(t, 'hd-spawn-relaunch-')
   const id = runtimeId('one')
   const failure = { state: 'unavailable', reason: 'spawnFailed', message: 'Fake could not spawn.' } satisfies RuntimeHealth
   const first = new Program({ id })
   first.failure = failure
-  const before = await relaunch(t, dir, first)
+  const before = await open(first)
   await ask(before, first)
   await before.dispose()
 
   const second = new Program({ id })
   second.failure = failure
-  const after = await relaunch(t, dir, second)
+  const after = await open(second)
   await pause(100)
   assert.equal(second.starts, 1, 'the failed spawn must be asked again at launch')
   const health = after.syncPayload().params.health?.find(entry => entry.runtime === id)?.health
@@ -347,8 +397,7 @@ test('a failed spawn is remembered and unavailable as the desk next opens', asyn
 })
 
 test('a fresh desk uses discovery failure before any session asks the agent', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-discovery-first-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const { dir, relaunch: open } = await relaunchFixture(t, 'hd-discovery-first-')
   class DiscoveredProgram extends Program {
     discoveries = 0
     async discoverProgram(): Promise<void> {
@@ -358,7 +407,7 @@ test('a fresh desk uses discovery failure before any session asks the agent', as
   }
   const program = new DiscoveredProgram({ id: runtimeId('one') })
   program.setHealth({ state: 'idle' })
-  const host = await relaunch(t, dir, program)
+  const host = await open(program)
   await pause(100)
   assert.equal(program.discoveries, 1, 'startup should use the program discovery')
   assert.equal(program.starts, 0, 'discovery does not launch the agent')
@@ -369,10 +418,10 @@ test('a fresh desk uses discovery failure before any session asks the agent', as
 })
 
 test('the PATH re-ask waits for a discovery in flight before judging the runtime', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-discovery-path-'))
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
   t.after(() => release())
+  const { dir, relaunch: open } = await relaunchFixture(t, 'hd-discovery-path-')
   let discovered!: () => void
   const discoveryFinished = new Promise<void>(resolve => { discovered = resolve })
   class DiscoveredProgram extends Program {
@@ -387,9 +436,7 @@ test('the PATH re-ask waits for a discovery in flight before judging the runtime
   }
   const program = new DiscoveredProgram({ id: runtimeId('one') })
   program.setHealth({ state: 'idle' })
-  const host = await relaunch(t, dir, program)
-  // Registered after the host's cleanup so its background cache writes finish first.
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const host = await open(program)
   assert.equal(program.discoveries, 1, 'startup discovery is still looking')
   assert.equal(program.starts, 0, 'startup has not launched the unused agent')
 
@@ -410,7 +457,7 @@ test('the PATH re-ask waits for a discovery in flight before judging the runtime
 })
 
 test('the PATH re-ask re-discovers a settled missing program without starting it', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-discovery-path-settled-'))
+  const { relaunch: open } = await relaunchFixture(t, 'hd-discovery-path-settled-')
   class DiscoveredProgram extends Program {
     discoveries = 0
     async discoverProgram(): Promise<void> {
@@ -420,8 +467,7 @@ test('the PATH re-ask re-discovers a settled missing program without starting it
   }
   const program = new DiscoveredProgram({ id: runtimeId('one') })
   program.setHealth({ state: 'idle' })
-  const host = await relaunch(t, dir, program)
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const host = await open(program)
   await until(() => program.health().state === 'unavailable', 'startup discovery did not finish')
 
   program.found = true
@@ -441,18 +487,17 @@ test('the PATH re-ask re-discovers a settled missing program without starting it
 })
 
 test('a stop that says unknown is not remembered as a program failure', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-stop-relaunch-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const { dir, relaunch: open } = await relaunchFixture(t, 'hd-stop-relaunch-')
   const id = runtimeId('one')
   const first = new Program({ id })
   first.found = true
-  const before = await relaunch(t, dir, first)
+  const before = await open(first)
   await ask(before, first)
   first.setHealth({ state: 'unavailable', reason: 'unknown', message: 'Stopped.' })
   await before.dispose()
 
   const again = new Program({ id })
-  await relaunch(t, dir, again)
+  await open(again)
   await pause(100)
   assert.equal(again.starts, 0, 'stopping does not ask the agent again next launch')
   const cache = JSON.parse(await readFile(join(dir, 'runtime-cache.json'), 'utf8'))
@@ -460,10 +505,7 @@ test('a stop that says unknown is not remembered as a program failure', async (t
 })
 
 test('startup discovers a never-started Codex without launching its app-server', { skip: process.platform === 'win32' }, async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-codex-discovery-first-'))
-  // Retried: discovery is fire-and-forget, and the remembered failure it
-  // writes can still be landing in `dir` while the folder is removed.
-  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }))
+  const { dir, relaunch: open } = await relaunchFixture(t, 'hd-codex-discovery-first-')
   const cli = join(dir, 'codex')
   const invocations = join(dir, 'invocations')
   const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
@@ -471,7 +513,7 @@ test('startup discovers a never-started Codex without launching its app-server',
   await chmod(cli, 0o755)
   const runtime = new CodexRuntime({ binaryPath: cli, codexHome: join(dir, 'agent-home'),
     discovery: { env: { PATH: dir }, locations: [] } })
-  const host = await relaunch(t, dir, runtime)
+  const host = await open(runtime)
   await until(() => runtime.health().state === 'unavailable', 'startup never discovered the broken program')
   const health = host.syncPayload().params.health?.find(entry => entry.runtime === runtime.info.id)?.health
   assert.ok(health?.state === 'unavailable')
@@ -485,8 +527,7 @@ test('startup discovers a never-started Codex without launching its app-server',
 })
 
 test('a Codex that would not report its version is asked again as the desk next opens, not drawn idle', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-retry-relaunch-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const { dir, relaunch: open } = await relaunchFixture(t, 'hd-retry-relaunch-')
   const cli = join(dir, 'codex')
   await writeFile(cli, '#!/bin/sh\nexit 1\n')
   await chmod(cli, 0o755)
@@ -494,13 +535,13 @@ test('a Codex that would not report its version is asked again as the desk next 
     discovery: { env: { PATH: dir }, locations: [] } })
 
   const first = codex()
-  const before = await relaunch(t, dir, first)
+  const before = await open(first)
   await ask(before, first)
   await until(() => first.health().state === 'unavailable', 'the first ask never found the copy broken')
   await before.dispose()
 
   const second = codex()
-  await relaunch(t, dir, second)
+  await open(second)
   assert.notEqual(second.health().state, 'ready')
   await until(() => second.health().state === 'unavailable', 'the desk opened with the broken copy drawn idle')
   const health = second.health()
@@ -510,56 +551,53 @@ test('a Codex that would not report its version is asked again as the desk next 
 })
 
 test('an agent asked again at launch that now starts is left cold the time after', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-retry-relaunch-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const { relaunch: open } = await relaunchFixture(t, 'hd-retry-relaunch-')
   const id = runtimeId('one')
 
   const broken = new Program({ id })
   broken.failure = unreadable
-  const before = await relaunch(t, dir, broken)
+  const before = await open(broken)
   await ask(before, broken)
   assert.deepEqual(broken.health(), unreadable)
   await before.dispose()
 
   const fixed = new Program({ id })
   fixed.found = true
-  const during = await relaunch(t, dir, fixed)
+  const during = await open(fixed)
   await until(() => fixed.health().state === 'ready', 'the agent that failed last time was not asked at launch')
   assert.equal(fixed.starts, 1)
   await during.dispose()
 
   const after = new Program({ id })
   after.found = true
-  await relaunch(t, dir, after)
+  await open(after)
   await pause(100)
   assert.equal(after.starts, 0, 'an agent that started last time waits to be asked, like any other')
 })
 
 test('an agent that failed for a reason of its own is not asked at launch', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-retry-relaunch-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const { relaunch: open } = await relaunchFixture(t, 'hd-retry-relaunch-')
   const id = runtimeId('one')
 
   const down = new Program({ id })
   down.failure = { state: 'unavailable', reason: 'crashed', message: 'It crashed.' }
-  const before = await relaunch(t, dir, down)
+  const before = await open(down)
   await ask(before, down)
   assert.equal(down.health().state, 'unavailable')
   await before.dispose()
 
   const again = new Program({ id })
-  await relaunch(t, dir, again)
+  await open(again)
   await pause(100)
   assert.equal(again.starts, 0, 'a crash is not a fact about the program on disk')
 })
 
 test('an agent that was missing and then crashed is not asked at launch', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'hd-retry-relaunch-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const { relaunch: open } = await relaunchFixture(t, 'hd-retry-relaunch-')
   const id = runtimeId('one')
 
   const program = new Program({ id })
-  const before = await relaunch(t, dir, program)
+  const before = await open(program)
   await ask(before, program)
   assert.deepEqual(program.health(), notInstalled)
   // Installed since, and it got as far as running before it fell over.
@@ -567,7 +605,7 @@ test('an agent that was missing and then crashed is not asked at launch', async 
   await before.dispose()
 
   const again = new Program({ id })
-  await relaunch(t, dir, again)
+  await open(again)
   await pause(100)
   assert.equal(again.starts, 0, 'the missing program is not the reason any more')
 })
