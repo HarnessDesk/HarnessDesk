@@ -953,8 +953,12 @@ there is no definition. A repository that keeps its files behind Git LFS then
 reads clean in status and can have a lane cut from it, because the program that
 converts them is the person's own. A repository can neither add a driver to
 that set nor change one in it, so a filter only the repository defines is never
-run. A status read leaves `required` off for those filters, so a program that
-has gone missing shows as a change instead of failing the read. The consuming
+run. Successful user-filter reads are cached for at most five seconds, bounded
+by entry size and count. The key includes the working directory, Git directory,
+HEAD, config locations, Git's PATH and caller limits, so conditional includes
+and config locations do not cross contexts. Signal-bearing reads and concurrent misses run independently;
+failures are never cached. A status read leaves `required` off for those filters,
+so a program that has gone missing shows as a change instead of failing the read. The consuming
 process cannot acquire another driver from live configuration.
 Status disables Git's implicit submodule content reads and reads initialized
 children through the same isolated runner, retaining their content, untracked,

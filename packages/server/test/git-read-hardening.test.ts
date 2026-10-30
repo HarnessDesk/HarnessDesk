@@ -944,6 +944,124 @@ const touched = async (path: string): Promise<void> => {
   await utimes(path, later, later)
 }
 
+test('user filter reads are reused briefly, but not across branch, repository or configuration environment', async (t) => {
+  const f = await fixture(t)
+  const other = await fixture(t)
+  const included = join(f.base, 'branch-filters')
+  await writeFile(included, converter('p'))
+  await userConfig(t, f, { global: `[includeIf "onbranch:main"]\n path = ${JSON.stringify(included)}\n` })
+  await convertedCommit(f)
+  await touched(join(f.root, 'data.dat'))
+  await f.git('branch', 'alternate')
+  await withGitShim(f, '', async (calls) => {
+    const scopes = async () => (await calls()).filter(args => args.includes('config') && (args.includes('--global') || args.includes('--system'))).length
+    assert.equal((await readGit(f.root, ['status', '--porcelain'])).stdout, '')
+    assert.equal((await readGit(f.root, ['status', '--porcelain'])).stdout, '')
+    assert.equal(await scopes(), 2, 'the second status reuses both user scopes')
+    await f.git('checkout', '-q', 'alternate')
+    await touched(join(f.root, 'data.dat'))
+    assert.match((await readGit(f.root, ['status', '--porcelain'])).stdout, /data\.dat/)
+    assert.equal(await scopes(), 4, 'a different HEAD gets its own include selection')
+    await readGit(other.root, ['status', '--porcelain'])
+    assert.equal(await scopes(), 6, 'a different repository gets its own include selection')
+    process.env['GIT_CONFIG_NOSYSTEM'] = '1'
+    await readGit(f.root, ['status', '--porcelain'])
+    assert.equal(await scopes(), 7, 'system-skip changes the lookup')
+  })
+})
+
+test('a cached filter read expires and the next source failure remains visible', async (t) => {
+  const f = await fixture(t)
+  await userConfig(t, f, {})
+  const flag = join(f.base, 'fail-after-warm')
+  await withGitShim(f, `
+    if (args.includes('config') && args.includes('--global') && require('node:fs').existsSync(${JSON.stringify(flag)})) {
+      process.stderr.write('expired config failure'); process.exit(1)
+    }
+  `, async () => {
+    await readGit(f.root, ['status', '--porcelain'])
+    await writeFile(flag, '')
+    await new Promise(resolve => setTimeout(resolve, 5_100))
+    await assert.rejects(readGit(f.root, ['status', '--porcelain']), /expired config failure/)
+  })
+})
+
+test('failed and aborted user filter reads do not become cached successes', async (t) => {
+  const f = await fixture(t)
+  await userConfig(t, f, {})
+  const flag = join(f.base, 'fail-once')
+  await writeFile(flag, '')
+  await withGitShim(f, `
+    if (args.includes('config') && args.includes('--global') && require('node:fs').existsSync(${JSON.stringify(flag)})) {
+      require('node:fs').unlinkSync(${JSON.stringify(flag)}); process.stderr.write('config failure'); process.exit(1)
+    }
+  `, async (calls) => {
+    await assert.rejects(readGit(f.root, ['status', '--porcelain']), /config failure/)
+    await readGit(f.root, ['status', '--porcelain'])
+    const controller = new AbortController()
+    controller.abort()
+    await assert.rejects(readGit(f.root, ['status', '--porcelain'], { signal: controller.signal }), { name: 'AbortError' })
+    await readGit(f.root, ['status', '--porcelain'])
+    assert.equal((await calls()).filter(args => args.includes('config') && args.includes('--global')).length, 2)
+  })
+})
+
+test('a cancelled user-config read does not affect a concurrent caller', async (t) => {
+  const f = await fixture(t)
+  await userConfig(t, f, {})
+  const started = join(f.base, 'user-config-started')
+  await withGitShim(f, `
+    if (args.includes('config') && args.includes('--global')) {
+      writeFileSync(${JSON.stringify(started)}, 'started')
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500)
+    }
+  `, async () => {
+    const controller = new AbortController()
+    const cancelled = readGit(f.root, ['status', '--porcelain'], { signal: controller.signal })
+    const deadline = Date.now() + 10_000
+    while (!(await stat(started).catch(() => undefined)) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20))
+    assert.ok(await stat(started).catch(() => undefined), 'the user config process started')
+    const other = readGit(f.root, ['status', '--porcelain'])
+    controller.abort()
+    await assert.rejects(cancelled, { name: 'AbortError' })
+    assert.equal((await other).stdout, '')
+  })
+})
+
+test('XDG config and gitdir includes select filters for their own context', async (t) => {
+  const f = await fixture(t)
+  const other = await fixture(t)
+  const xdg = join(f.base, 'xdg')
+  const emptyXdg = join(f.base, 'empty-xdg')
+  const home = join(f.base, 'home')
+  await mkdir(join(xdg, 'git'), { recursive: true })
+  await mkdir(emptyXdg)
+  await mkdir(home)
+  const more = join(f.base, 'gitdir-filters')
+  await writeFile(more, converter('p'))
+  await writeFile(join(xdg, 'git', 'config'), `[includeIf ${JSON.stringify(`gitdir:${f.root}/`)}]\n path = ${JSON.stringify(more)}\n`)
+  await userConfig(t, f, {})
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg }
+  delete env['GIT_CONFIG_GLOBAL']
+  await writeFile(join(f.root, '.gitattributes'), '*.dat filter=p\n')
+  await writeFile(join(f.root, 'data.dat'), 'expanded:hello\n')
+  await run('git', ['-C', f.root, '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'add', '.'], { env })
+  await run('git', ['-C', f.root, '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-qm', 'Add converted file'], { env })
+  await writeFile(join(other.root, '.gitattributes'), '*.dat filter=p\n')
+  await writeFile(join(other.root, 'data.dat'), 'expanded:hello\n')
+  await run('git', ['-C', other.root, '-c', "filter.p.clean=sed 's/^expanded:/short:/'", 'add', '.'], { env })
+  await other.git('commit', '-qm', 'Add converted file')
+  await touched(join(f.root, 'data.dat'))
+  await touched(join(other.root, 'data.dat'))
+  await withGitShim(f, '', async (calls) => {
+    const selected = { ...env, PATH: process.env.PATH }
+    assert.equal((await readGit(f.root, ['status', '--porcelain'], { env: selected })).stdout, '')
+    assert.match((await readGit(f.root, ['status', '--porcelain'], { env: { ...selected, XDG_CONFIG_HOME: emptyXdg } })).stdout, /data\.dat/)
+    assert.match((await readGit(other.root, ['status', '--porcelain'], { env: selected })).stdout, /data\.dat/)
+    assert.equal((await calls()).filter(args => args.includes('config') && args.includes('--global')).length, 3)
+  })
+})
+
 for (const scope of ['global', 'system'] as const) {
   test(`a filter the ${scope} configuration defines converts a touched file when status reads it`, async (t) => {
     const f = await fixture(t)
