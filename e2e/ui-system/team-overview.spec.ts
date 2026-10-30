@@ -1,5 +1,14 @@
 import { expect, test } from '@playwright/test'
+import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 import { closeTeamDetails, selectTeamPage, teamSeats } from './team-frame-actions'
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`general Team Overview gallery passes the whole-document text audit in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?team-overview&theme=${theme}`)
+    await expect(page.locator('#team-overview-answer-approval [data-slot="team-overview"]')).toBeVisible()
+    expect(textReasons(await page.evaluate(COLLECT), { user: USER })).toEqual([])
+  })
+}
 
 test('focused Overview exposes its mounted store to preview tooling', async ({ page }) => {
   await page.goto('/preview.html?team-overview=narrow&theme=light')
