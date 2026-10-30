@@ -3051,9 +3051,14 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
-  /** A session opened: whoever the agent is signed in as, it is signed in. */
+  /** Record a session open when it can establish sign-in. */
   #opened<T>(result: T, authGeneration: number): T {
-    if (authGeneration === this.#authGeneration) this.#noteSignIn({ state: 'observed' })
+    // A probe or session may open without authenticating (including in a
+    // fresh helper). When the agent's record is the status, opening alone
+    // cannot undo our sign-out while that record still names the old account.
+    // A changed record or an explicit successful login can lift it instead.
+    const signedOutRecord = this.#config.identityIsStatus && this.#signIn.state === 'required' && this.#signIn.signedOut
+    if (authGeneration === this.#authGeneration && !signedOutRecord) this.#noteSignIn({ state: 'observed' })
     return result
   }
 

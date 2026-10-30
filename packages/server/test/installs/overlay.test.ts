@@ -304,6 +304,27 @@ test('OpenCode record sign-out and same-provider sign-in through the production 
   assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider', 'a newly observed record can name the same provider')
 })
 
+test('an account-change model probe cannot restore an unchanged OpenCode record after logout', async (t) => {
+  const data = folder(t, { 'opencode/auth.json': { provider: {} } })
+  const row = { id: 'opencode', name: 'OpenCode', command: process.execPath,
+    args: [fileURLToPath(new URL('../../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url))],
+    env: { XDG_DATA_HOME: data, FAKE_ACP_LOGOUT: '1' } }
+  const runtime = new AcpRuntime({ ...row, ...knowledgeOverlay(row, knownAgent('opencode')),
+    gitEnvironment: async () => ({}) })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  assert.equal((await runtime.getAccount()).accounts[0]?.label, 'provider')
+  let refresh: Promise<unknown> | undefined
+  runtime.subscribe(event => {
+    if (event.type === 'account/changed' && !refresh) refresh = runtime.listModels()
+  })
+  await runtime.logout()
+  assert.ok(refresh, 'sign-out announces the account change')
+  await refresh
+  assert.deepEqual((await runtime.getAccount()).accounts, [])
+  assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+})
+
 test('an unreadable OpenCode JSON record does not lift sign-out when the old record returns', async (t) => {
   const original = { provider: { type: 'api', key: 'fake-old' } }
   const data = folder(t, { 'opencode/auth.json': original })
