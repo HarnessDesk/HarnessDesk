@@ -38,7 +38,7 @@
 
 **Interfaces:** Consumes `CardEvidence | undefined`, `finished: boolean`, `cardChips`, `isCurrent`, `isStale`, `ciVerdict`. Produces `evidenceSummary(card: CardEvidence | undefined, finished?: boolean): EvidenceSummary | null`, with labels and tones below. `null` means the existing display rules omit the trigger.
 
-- [ ] **Write failing behavioral cases.** Add tests using the existing `cardEvidence`, `checkView`, `ciView`, `factView` fixtures. At minimum, implement this table as independent assertions (with `review` and `finding` fixtures created with `factView` using a 40-character synthetic revision):
+- [x] **Write failing behavioral cases.** Add tests using the existing `cardEvidence`, `checkView`, `ciView`, `factView` fixtures. At minimum, implement this table as independent assertions (with `review` and `finding` fixtures created with `factView` using a 40-character synthetic revision):
 
 ```ts
 const review = (verdict: string, freshness: Freshness = { state: 'fresh' }) =>
@@ -65,8 +65,8 @@ expect(evidenceSummary(cardEvidence(1, []))).toBeNull()
 
   Also cover timeout, fresh CI failure, final freshness, stale finding, unknown check/CI, all stale variants, stale versus unknown priority, current review/finding over running, incomplete versus passing, and zero diff alone both unfinished (`null`) and finished (`Observed`). Test that a stale or unknown PR/diff alone remains `Observed`, since it is not a relevant status-bearing observation. Check returned tones and permutations so result does not depend on fact order.
 
-- [ ] **Run red:** `pnpm --filter @harnessdesk/ui exec vitest run src/lib/evidence.test.ts`; expect failure because `evidenceSummary` does not exist. Run through the whole-driver wrapper above.
-- [ ] **Implement** the following complete derivation in `evidence.ts`, using the existing helpers; do not change `ciVerdict`:
+- [x] **Run red:** `pnpm --filter @harnessdesk/ui exec vitest run src/lib/evidence.test.ts`; expect failure because `evidenceSummary` does not exist. Run through the whole-driver wrapper above.
+- [x] **Implement** the following complete derivation in `evidence.ts`, using the existing helpers; do not change `ciVerdict`:
 
 ```ts
 export type EvidenceSummaryLabel = 'Failed' | 'Changes requested' | 'Finding open' | 'Running' | 'Out of date' | 'Unknown' | 'Incomplete' | 'Checks recorded' | 'Observed'
@@ -92,7 +92,7 @@ export const evidenceSummary = (card: CardEvidence | undefined, finished = false
 }
 ```
 
-- [ ] **Run green:** repeat the red command; all cases pass. Run `pnpm --filter @harnessdesk/ui run typecheck` through the same wrapper and fix type errors without changing the protocol.
+- [x] **Run green:** repeat the red command; all cases pass. Run `pnpm --filter @harnessdesk/ui run typecheck` through the same wrapper and fix type errors without changing the protocol.
 
 ### Task 2: Render the one-row trigger and preserve details
 
@@ -100,7 +100,7 @@ export const evidenceSummary = (card: CardEvidence | undefined, finished = false
 
 **Interfaces:** Consumes `evidenceSummary(card, finished)`. Preserves `EvidenceChips` props and `ObservedDialog` signature.
 
-- [ ] **Write red component tests:** replace per-chip trigger assertions with one summary chip, a descriptive button name and a click that opens the full dialog. Retain direct dialog tests for commands, output, individual CI jobs, timestamp and freshness explanation. Preserve zero-diff and no-facts omission assertions. Example:
+- [x] **Write red component tests:** replace per-chip trigger assertions with one summary chip, a descriptive button name and a click that opens the full dialog. Retain direct dialog tests for commands, output, individual CI jobs, timestamp and freshness explanation. Preserve zero-diff and no-facts omission assertions. Example:
 
 ```ts
 await mount(<EvidenceChips id={1} title="Retry on a 502" card={cardEvidence(1, [checkView({ exit: 1, tail: 'failed output' }), ciView(['passed', 'skipped'])])} />)
@@ -113,8 +113,8 @@ expect(document.querySelector('[role="dialog"]')?.textContent).toContain('build:
 ```
 
   Update existing board tests that assert individual chips or old accessible names to assert summary plus unchanged detail dialog; keep cold-read failure, retry and unplaced-card tests intact. Include optional refused project configuration with a passing card and assert `Checks recorded`, not setup status.
-- [ ] **Run red:** `pnpm --filter @harnessdesk/ui exec vitest run src/components/EvidenceChips.test.tsx src/components/TeamBoardPane.test.tsx`; expect old trigger behavior to fail the new assertions. Use the whole-driver wrapper.
-- [ ] **Implement trigger:** import `evidenceSummary`, remove trigger-only `cardChips` and `spokenChip` imports, retain `FactChipView` for details. Replace only the calculation and Button contents:
+- [x] **Run red:** `pnpm --filter @harnessdesk/ui exec vitest run src/components/EvidenceChips.test.tsx src/components/TeamBoardPane.test.tsx`; expect old trigger behavior to fail the new assertions. Use the whole-driver wrapper.
+- [x] **Implement trigger:** import `evidenceSummary`, remove trigger-only `cardChips` and `spokenChip` imports, retain `FactChipView` for details. Replace only the calculation and Button contents:
 
 ```tsx
 const summary = evidenceSummary(card, finished)
@@ -129,7 +129,7 @@ if (summary === null) return null
 ```
 
   Keep the existing state and conditional `ObservedDialog` exactly; do not change its content, focus behavior or the board's placement.
-- [ ] **Run green:** repeat the red command, then run `pnpm --filter @harnessdesk/ui run typecheck` via the wrapper. Confirm existing `RunInspector.test.tsx` covers prior failure output, incomplete history and refused read; add a concrete regression there if a gap exists, and run that file through the wrapper.
+- [x] **Run green:** repeat the red command, then run `pnpm --filter @harnessdesk/ui run typecheck` via the wrapper. Confirm existing `RunInspector.test.tsx` covers prior failure output, incomplete history and refused read; add a concrete regression there if a gap exists, and run that file through the wrapper.
 
 ### Task 3: Prove density, keyboard behavior and native surface
 
@@ -137,7 +137,7 @@ if (summary === null) return null
 
 **Interfaces:** Existing `EVIDENCE_BOARD` preview; existing accessible button `What the desk observed on #1: Failed`, dialog `What the desk observed on #1`, and existing Run inspector history. The dense fixture must have seven distinguishable facts, including current failure, passing/skipped CI, PR, diff, a request-changes review, open finding and another named check. Use synthetic revisions and placeholder identities.
 
-- [ ] **Write the browser regression before Task 2 implementation:** extend the existing spec to select the dense card in both light and dark themes at 700 and 1440 CSS pixels, and retain the 220px column/202px card fit-floor exercise. Assert exactly one chip and `Failed`; measure its button and chip rectangles, require chip inside the card, `scrollWidth <= clientWidth`, one line and button height no greater than 32 CSS px (the existing inline control height). Check all seven fact sections, check output, command, individual CI states and stale reason inside the dialog. Use keyboard focus plus Enter and Space in separate openings, Escape/Done close, and assert focus returns to the trigger. Example geometry assertion:
+- [x] **Write the browser regression before Task 2 implementation:** extend the existing spec to select the dense card in both light and dark themes at 700 and 1440 CSS pixels, and retain the 220px column/202px card fit-floor exercise. Assert exactly one chip and `Failed`; measure its button and chip rectangles, require chip inside the card, `scrollWidth <= clientWidth`, one line and button height no greater than 32 CSS px (the existing inline control height). Check all seven fact sections, check output, command, individual CI states and stale reason inside the dialog. Use keyboard focus plus Enter and Space in separate openings, Escape/Done close, and assert focus returns to the trigger. Example geometry assertion:
 
 ```ts
 const button = card.getByRole('button', { name: 'What the desk observed on #1: Failed' })
@@ -158,15 +158,22 @@ await expect(button).toBeFocused()
 ```
 
   Use the existing preview theme controls and actual fixture selectors; do not emulate layout in jsdom. Exercise Flow inspector by keyboard, opening a prior failed attempt after a later pass and asserting its output, then separately verify incomplete and refused-history states. Reuse the existing Flow preview/inspector fixtures or component tests if the preview does not expose a history scene; do not claim a screenshot for that path.
-- [ ] **Run red before Task 2 implementation:** `pnpm exec playwright test -c playwright.ui-system.config.ts evidence-layout.spec.ts` through the whole-driver wrapper after building its preview with `pnpm build:node` and `pnpm build:e2e` in the same driver invocation; expect the old multi-chip trigger to fail. After Task 2, run the same assertion green. Confirm the preview server configuration in `playwright.ui-system.config.ts` rather than launching a second separately reserved server.
-- [ ] **Add the seven-fact fixture** using `checkView`, `ciView`, `prView`, `diffView`, and `factView`; include one stale relevant fact with a readable reason, without overwriting the failure. Retain other preview scenarios used by board tests. Re-run the same browser command green.
-- [ ] **Native validation:** build and launch the real Electron app through the existing staged fake-agent rig described in `script/shots/README.md`, with an isolated throwaway profile; seed seven facts and a failed-then-passed Flow check. Run the entire driver, app and browser capture inside one heavy slot. At 700 CSS px and regular width, in both themes, measure card and evidence row, verify one complete status, open details with keyboard, and inspect old failure output via Flow history. Record measured dimensions and actual outcomes; compare with the current [baseline measurement](https://github.com/HarnessDesk/HarnessDesk/issues/828#issuecomment-6529990736) (seven facts, six rows, 162 of 267 px). Audit each original frame before retaining it; if history fails the unchanged audit, report the refusal and retain no frame for it. Do not represent browser preview as native proof.
-- [ ] **Update docs:** replace the old descriptions of multiple card chips in `docs/interface.md` and the “Evidence on a card” section of `docs/multi-agent.md` with the one-row status, its non-certifying meaning, the full latest-facts dialog and separate Flow attempt history. Leave placement and refresh semantics intact.
-- [ ] **Focused gates:** within whole-driver slots run the relevant Vitest files, the existing Playwright spec, `pnpm --filter @harnessdesk/ui run typecheck`, `node script/design-audit.mjs --strict` and `pnpm check:push`. Report the precise commands and outcomes to the parent; the parent owns full verification and publication. Review `git diff --check`, the complete diff and privacy of added lines before any local implementation commit.
+- [x] **Run red before Task 2 implementation:** `pnpm exec playwright test -c playwright.ui-system.config.ts evidence-layout.spec.ts` through the whole-driver wrapper after building its preview with `pnpm build:node` and `pnpm build:e2e` in the same driver invocation; expect the old multi-chip trigger to fail. After Task 2, run the same assertion green. Confirm the preview server configuration in `playwright.ui-system.config.ts` rather than launching a second separately reserved server.
+- [x] **Add the seven-fact fixture** using `checkView`, `ciView`, `prView`, `diffView`, and `factView`; include one stale relevant fact with a readable reason, without overwriting the failure. Retain other preview scenarios used by board tests. Re-run the same browser command green.
+- [x] **Native validation:** build and launch the real Electron app through the existing staged fake-agent rig described in `script/shots/README.md`, with an isolated throwaway profile; seed seven facts and a failed-then-passed Flow check. Run the entire driver, app and browser capture inside one heavy slot. At 700 CSS px and regular width, in both themes, measure card and evidence row, verify one complete status, open details with keyboard, and inspect old failure output via Flow history. Record measured dimensions and actual outcomes; compare with the current [baseline measurement](https://github.com/HarnessDesk/HarnessDesk/issues/828#issuecomment-6529990736) (seven facts, six rows, 162 of 267 px). Audit each original frame before retaining it; if history fails the unchanged audit, report the refusal and retain no frame for it. Do not represent browser preview as native proof.
+- [x] **Update docs:** replace the old descriptions of multiple card chips in `docs/interface.md` and the “Evidence on a card” section of `docs/multi-agent.md` with the one-row status, its non-certifying meaning, the full latest-facts dialog and separate Flow attempt history. Leave placement and refresh semantics intact.
+- [x] **Focused gates:** within whole-driver slots run the relevant Vitest files, the existing Playwright spec, `pnpm --filter @harnessdesk/ui run typecheck`, `node script/design-audit.mjs --strict` and `pnpm check:push`. Report the precise commands and outcomes to the parent; the parent owns full verification and publication. Review `git diff --check`, the complete diff and privacy of added lines before any local implementation commit.
 
 ## Self-review checklist
 
-- [ ] Every approved priority and mixed-state interaction is asserted; aggregate CI, same-name retry suppression, distinct failure, zero diff and unknown freshness are explicit.
-- [ ] Layout tests measure actual rendered density at both widths/themes and validate full details, keyboard dismissal and focus return; separate Flow history covers prior failure, incomplete and refused reads.
-- [ ] No setup claim, all-passed assertion, protocol/host change, new primitive or alteration of board loading/error/withholding exists.
-- [ ] `EvidenceSummary` types, labels and tones match all consumer examples. No public path, credential, real identity or unaudited frame enters the diff.
+- [x] Every approved priority and mixed-state interaction is asserted; aggregate CI, same-name retry suppression, distinct failure, zero diff and unknown freshness are explicit.
+- [x] Layout tests measure actual rendered density at both widths/themes and validate full details, keyboard dismissal and focus return; separate Flow history covers prior failure, incomplete and refused reads.
+- [x] No setup claim, all-passed assertion, protocol/host change, new primitive or alteration of board loading/error/withholding exists.
+- [x] `EvidenceSummary` types, labels and tones match all consumer examples. No public path, credential, real identity or unaudited frame enters the diff.
+
+
+## Completion and handoff
+
+The helper, component and browser regressions ran red before their respective implementation changes and passed afterward. Focused UI tests, typecheck, strict design audit and the development-base push selection passed. The dense browser cases covered both themes and widths; staged native measurements and keyboard details passed in both themes at narrow and regular widths. The separate Flow history exposed the earlier failure by keyboard; its frame was refused by the unchanged privacy audit and was not retained.
+
+The parent inspected the canonical native originals. Full verification, full-tier CI, formal review, publication and landing remain with the parent and are not complete.

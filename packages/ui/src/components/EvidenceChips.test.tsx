@@ -85,6 +85,30 @@ it('a check still running is said, and a card with nothing observed yet says wha
   expect(dialog?.textContent).toContain('Nothing an agent says is recorded here.')
 })
 
+it('the observed facts retain their tone, freshness marks and stale distance', async () => {
+  const card = cardEvidence(1, [
+    checkView(),
+    checkView({ name: 'lint', freshness: { state: 'behind', commits: 2 } }),
+    ciView(['passed', 'cancelled']),
+    prView('merged', { freshness: { state: 'unknown', why: 'its checkout is gone' } }),
+  ], [{ name: 'e2e', since: 1 }])
+  await mount(<ObservedDialog id={1} title="Retry on a 502" card={card} onClose={() => {}} />)
+  const dialog = document.querySelector('[role="dialog"]')!
+  const chips = [...dialog.querySelectorAll<HTMLElement>('[data-slot="chip-words"]')].map(words => {
+    const chip = words.parentElement as HTMLElement
+    return [words.textContent, chip.dataset['tone'], 'stale' in chip.dataset, 'unknown' in chip.dataset]
+  })
+  expect(chips).toEqual([
+    ['verify ✓ @a1b2c3d', 'success', false, false],
+    ['lint ✓ @a1b2c3d', 'neutral', true, false],
+    ['CI cancelled', 'neutral', false, false],
+    ['PR #12 merged', 'neutral', false, true],
+  ])
+  expect(dialog.querySelector<HTMLElement>('[data-stale]')?.getAttribute('title')).toBe('lint ✓ @a1b2c3d — 2 commits since')
+  expect(dialog.textContent).toContain('e2e is running')
+  expect(dialog.textContent).toContain('Unknown: its checkout is gone.')
+})
+
 it('one status opens all recorded facts and their output', async () => {
   const card = cardEvidence(1, [checkView({ exit: 1, tail: 'failed output' }), ciView(['passed', 'skipped'])])
   await mount(<EvidenceChips id={1} title="Retry on a 502" card={card} />)
