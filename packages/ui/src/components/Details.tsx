@@ -12,7 +12,7 @@ import { Activity } from './Activity'
 import { Agents, hasSessionAgents } from './Agents'
 import { SeatRecordBlock } from './SeatRecordBlock'
 import { FileIcon, ReviewIcon } from './Icons'
-import { Button, ListRowDetail, ToolBodyControls, ToolBodySections, ToolFooterSuppressed, ToolSection, Switch, Tabs, TabsList, TabsTrigger } from '../design'
+import { Button, Chip, ListRowDetail, ToolBodyControls, ToolBodySections, ToolFooterSuppressed, ToolSection, Switch, Tabs, TabsList, TabsTrigger } from '../design'
 import {
   Counts,
   GroupLine,
@@ -346,6 +346,7 @@ const Changes = ({
       ),
     [turnDiff, needle],
   )
+  const outsideCount = turnFiles.filter(file => reportedLocation(file.path, session?.cwd, knownRoots) === 'outside').length
 
   const total = files.reduce(
     (sum, file) => {
@@ -379,7 +380,7 @@ const Changes = ({
     <>
       {turnFiles.length > 0 && (
         <>
-          <GroupLine left={`This turn · ${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'}`} />
+          <GroupLine left={`This turn · ${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'}`} right={outsideCount > 0 ? <Chip tone="neutral" size="sm" title="Reported path is outside the known open workspace and conversation roots.">{outsideCount} outside</Chip> : undefined} />
           <DiffFilesView files={turnFiles} locationForPath={path => reportedLocation(path, session?.cwd, knownRoots)} />
         </>
       )}

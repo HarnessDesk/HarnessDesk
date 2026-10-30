@@ -23,6 +23,7 @@
 - `packages/ui/src/lib/paths.ts`, `paths.test.ts`: lexical normalization and classification, without changing existing `isPathInside` callers. Export `type ReportedLocation = 'inside' | 'outside' | 'unknown'`, `reportedLocation(path: string, cwd: string | null | undefined, roots: readonly string[]): ReportedLocation`, and `knownOpenRoots(workspaces: readonly { readonly path: string }[], workspace: { readonly path: string } | null, sessionCwds: Iterable<string>, displayedCwd: string | null | undefined): string[]`.
 - `packages/ui/src/components/TurnFiles.tsx`, `TurnFiles.test.tsx`: use current snapshot roots and the `root` prop as displayed cwd; decorate the single-file heading, summary and each visible multi-file row. Existing file selection, undo and totals remain intact.
 - `packages/ui/src/components/Details.tsx`, `Details.toggles.test.tsx`: classify only `turnFiles` from `splitByFile(turn.diff)` using `session?.cwd`, not the Git fallback `root`. Pass the classifier to the diff reader. Keep existing filtered turn count and independent working-tree count.
+- Changes also shows a neutral outside count beside the turn total, scoped to filtered `turnFiles`; unknown locations do not count.
 - `packages/ui/src/editor/DiffFilesView.tsx`, `DiffView.nav.test.tsx`: optional `(path: string) => ReportedLocation` callback for navigation and every patch heading; absence means no labels. Do not alter `FileDiff` or other callers.
 - `docs/interface.md`: document the labels and independent totals after implementation.
 

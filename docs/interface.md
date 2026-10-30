@@ -61,7 +61,8 @@ The turn card and Changes label a reported file path **Outside** when it is
 outside the known open workspace and conversation roots, and **Location
 unknown** when its spelling cannot be placed. These are lexical labels, not
 access decisions. Turn counts describe observed edits; Git counts describe the
-current working tree. Filtering Changes narrows its displayed turn count.
+current working tree. Both the turn card and Changes summarize outside files;
+filtering Changes narrows its displayed turn total and outside count.
 
 Diffs wrap by default in the side pane and at full width. Modified lines keep
 their red/green ground and emphasize changed words with a stronger band on
