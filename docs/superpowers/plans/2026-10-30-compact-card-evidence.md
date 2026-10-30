@@ -137,7 +137,7 @@ if (summary === null) return null
 
 **Interfaces:** Existing `EVIDENCE_BOARD` preview; existing accessible button `What the desk observed on #1: Failed`, dialog `What the desk observed on #1`, and existing Run inspector history. The dense fixture must have seven distinguishable facts, including current failure, passing/skipped CI, PR, diff, a request-changes review, open finding and another named check. Use synthetic revisions and placeholder identities.
 
-- [ ] **Write the browser regression before Task 2 implementation:** extend the existing spec to select the dense card in both light and dark themes at 700 and 1440 CSS pixels, and retain the 220px column/202px card fit-floor exercise. Assert exactly one chip and `Failed`; measure its button and chip rectangles, require chip inside the card, `scrollWidth <= clientWidth`, one line and button height no greater than chip height plus 2 CSS px. Check all seven fact sections, check output, command, individual CI states and stale reason inside the dialog. Use keyboard focus plus Enter and Space in separate openings, Escape/Done close, and assert focus returns to the trigger. Example geometry assertion:
+- [ ] **Write the browser regression before Task 2 implementation:** extend the existing spec to select the dense card in both light and dark themes at 700 and 1440 CSS pixels, and retain the 220px column/202px card fit-floor exercise. Assert exactly one chip and `Failed`; measure its button and chip rectangles, require chip inside the card, `scrollWidth <= clientWidth`, one line and button height no greater than 32 CSS px (the existing inline control height). Check all seven fact sections, check output, command, individual CI states and stale reason inside the dialog. Use keyboard focus plus Enter and Space in separate openings, Escape/Done close, and assert focus returns to the trigger. Example geometry assertion:
 
 ```ts
 const button = card.getByRole('button', { name: 'What the desk observed on #1: Failed' })
@@ -149,7 +149,7 @@ const geometry = await button.evaluate(el => {
 })
 expect(geometry.clipped).toBe(false)
 expect(geometry.lines).toBe('nowrap')
-expect(geometry.buttonHeight).toBeLessThanOrEqual(geometry.chipHeight + 2)
+expect(geometry.buttonHeight).toBeLessThanOrEqual(32)
 await button.focus()
 await page.keyboard.press('Enter')
 await expect(page.getByRole('dialog', { name: 'What the desk observed on #1' })).toBeVisible()
@@ -158,7 +158,7 @@ await expect(button).toBeFocused()
 ```
 
   Use the existing preview theme controls and actual fixture selectors; do not emulate layout in jsdom. Exercise Flow inspector by keyboard, opening a prior failed attempt after a later pass and asserting its output, then separately verify incomplete and refused-history states. Reuse the existing Flow preview/inspector fixtures or component tests if the preview does not expose a history scene; do not claim a screenshot for that path.
-- [ ] **Run red before Task 2 implementation:** `pnpm test:ui-system -- evidence-layout.spec.ts` through the whole-driver wrapper after building its preview with `pnpm build:node` and `pnpm build:e2e` in the same driver invocation; expect the old multi-chip trigger to fail. After Task 2, run the same assertion green. Confirm the preview server configuration in `playwright.ui-system.config.ts` rather than launching a second separately reserved server.
+- [ ] **Run red before Task 2 implementation:** `pnpm exec playwright test -c playwright.ui-system.config.ts evidence-layout.spec.ts` through the whole-driver wrapper after building its preview with `pnpm build:node` and `pnpm build:e2e` in the same driver invocation; expect the old multi-chip trigger to fail. After Task 2, run the same assertion green. Confirm the preview server configuration in `playwright.ui-system.config.ts` rather than launching a second separately reserved server.
 - [ ] **Add the seven-fact fixture** using `checkView`, `ciView`, `prView`, `diffView`, and `factView`; include one stale relevant fact with a readable reason, without overwriting the failure. Retain other preview scenarios used by board tests. Re-run the same browser command green.
 - [ ] **Native validation:** build and launch the real Electron app through the existing staged fake-agent rig described in `script/shots/README.md`, with an isolated throwaway profile; seed seven facts and a failed-then-passed Flow check. Run the entire driver, app and browser capture inside one heavy slot. At 700 CSS px and regular width, in both themes, measure card and evidence row, verify one complete status, open details with keyboard, and inspect old failure output via Flow history. Record measured dimensions and actual outcomes; compare with the current [baseline measurement](https://github.com/HarnessDesk/HarnessDesk/issues/828#issuecomment-6529990736) (seven facts, six rows, 162 of 267 px). Audit each original frame before retaining it; if history fails the unchanged audit, report the refusal and retain no frame for it. Do not represent browser preview as native proof.
 - [ ] **Update docs:** replace the old descriptions of multiple card chips in `docs/interface.md` and the “Evidence on a card” section of `docs/multi-agent.md` with the one-row status, its non-certifying meaning, the full latest-facts dialog and separate Flow attempt history. Leave placement and refresh semantics intact.
