@@ -1,0 +1,58 @@
+{
+  "pr": 1907,
+  "sourceHead": "7c3b30b7de6cd1f79673136d90f10b2ceeefebb3",
+  "capturedProductHead": "ed7159fd2aee0636976aebaabd91fd4861aef50a",
+  "productAndPreviewBytesUnchanged": true,
+  "source": "Isolated fake-agent Electron desk; canonical substitutions and full account/history/guest audit before and after every capture",
+  "parentOriginalInspection": true,
+  "frames": [
+    {
+      "file": "crowded-1280-dark.png",
+      "sha256": "d0721461b5be50b8e56e749e885c7ca612c189d9fc5abc969abe1ee43ad17d50",
+      "width": 2560,
+      "height": 1800,
+      "visuallyInspected": true,
+      "path": "screenshots/pr-1907/after/crowded-1280-dark.png"
+    },
+    {
+      "file": "crowded-1280-light.png",
+      "sha256": "633ca4a1ff1c52a088e815513c355de8fe0e6f8aaa177a5c01b83d6f32172431",
+      "width": 2560,
+      "height": 1800,
+      "visuallyInspected": true,
+      "path": "screenshots/pr-1907/after/crowded-1280-light.png"
+    },
+    {
+      "file": "crowded-700-dark.png",
+      "sha256": "4310c86ae1f0e957d5cbe7f2a9ac739a45d5a0618399188d3b3e8d1c9b735adf",
+      "width": 1400,
+      "height": 1800,
+      "visuallyInspected": true,
+      "path": "screenshots/pr-1907/after/crowded-700-dark.png"
+    },
+    {
+      "file": "crowded-700-light.png",
+      "sha256": "ed5a73a03b7710c6ef27a991dab22ba8b7679f86169907087a36cc04f67c3e9f",
+      "width": 1400,
+      "height": 1800,
+      "visuallyInspected": true,
+      "path": "screenshots/pr-1907/after/crowded-700-light.png"
+    },
+    {
+      "file": "details-dark.png",
+      "sha256": "a44d5b0755f011addb0fc7d81174bbd75ceb5ce182de81b9f561ce3f635416cd",
+      "width": 2560,
+      "height": 1800,
+      "visuallyInspected": true,
+      "path": "screenshots/pr-1907/after/details-dark.png"
+    },
+    {
+      "file": "details-light.png",
+      "sha256": "4e2c208fe90babbfde05ff9e7a8de54bad30091428b9ebc5d9d8625d25ecbe40",
+      "width": 2560,
+      "height": 1800,
+      "visuallyInspected": true,
+      "path": "screenshots/pr-1907/after/details-light.png"
+    }
+  ]
+}
