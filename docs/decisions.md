@@ -109,6 +109,10 @@ bounded run.
 
 **Rule:** bounded green is feedback, and only full green is landing evidence.
 
+> Narrowed by [CI is dealt from manifests and measurements, not hand-carved jobs](#ci-is-dealt-from-manifests-and-measurements-not-hand-carved-jobs--2026-10-30):
+> outside main and development the full tier reads every spec in the
+> pull-request theme matrix.
+
 ## Team seats nest under their Team, and running rows spin — 2026-10-18 (owner)
 
 The owner chose seats nested under their Team again, with a spinner on working
@@ -4605,3 +4609,51 @@ when the description wraps; ordinary rows retain whole-row centring. Metadata
 follows the description at full width, and both row sizes keep a line gap.
 The browser regression measures visible word ranges at 240, 280
 and 320px preview viewports in both themes, including clipping and overflow.
+
+## CI is dealt from manifests and measurements, not hand-carved jobs — 2026-10-30
+
+Measured over 200 CI runs (2026-10-21 to 10-30, 42,000 runner minutes), and
+the failure logs of the 128 jobs that failed in them:
+
+- **Every pull request waited on one file.** The Lead end-to-end file's 31
+  cases ran in series for 21-29 minutes while every other job finished in
+  eleven. Profiled locally, 65% of a case was the host starting git: about
+  12,000 processes in 94 seconds, mostly re-asking which repository the same
+  few folders belong to, and re-reading one commit's checks file 313 times.
+  The host now asks `rev-parse` once instead of three times, reuses a
+  checkout identity it has just read for that same folder, keeps a project
+  answer for a second while its folder is still where it was, and keeps reads
+  of immutable objects. The same case went from 116 to 64 seconds; the desk a
+  person runs does the same work less often.
+- **Node tests are one manifest.** `script/node-tests.mjs` names each group —
+  unit, Node end-to-end, retention, the Lead's, the Lead's end-to-end — with its
+  per-file deadline and runtime, and deals the files into jobs of about five
+  minutes by `script/node-test-durations.json`. Verify, `pnpm test`,
+  `check:push` and CI read it; the `find … ! -path …` list kept in three copies
+  is gone. The Lead end-to-end cases are four files. Every job reports with
+  `spec`: on Node 22 the default TAP output left 19 failed jobs in nine days
+  without the failing test named anywhere in the last 5,000 lines of the log.
+- **The full tier's two themes and its recording belong to main and
+  development.** Every one of the 21 dark-theme failures of a geometry spec
+  in those nine days came with the same case failing in light, and a
+  recording made on a batch branch, a `full-ci` run or the release pull
+  request was never saved (only main and development keep the map). Those
+  runs still read every spec, in the pull-request matrix, on the built pages:
+  14 shards instead of 17 instrumented ones. The nightly run and main pushes
+  keep both themes and the recording.
+- **A tree is proven once.** A batch head's full run tested the merge of its
+  branch into `development`; squash-landed onto a `development` that had not
+  moved, the push is that same tree, and it ran the reached browser specs
+  again (40 pushes, 2,000 runner minutes in nine days); a release pull
+  request's full run and the `main` push after it did the same at 480 minutes
+  each. A full run that passes every part, the whole browser suite and native
+  smoke included, now uploads a `proven-tree-<tree>` artifact, and a push to
+  `main` or `development` whose tree has one from this repository's own
+  branches runs core CI only. The nightly run never reads a proof.
+- **CI runs the dealt UI unit suite.** A related selection took as long on one
+  runner as the four dealt shards (p50 4.8 against 5.1 minutes, p90 8.7
+  against 6.7). Local `check:push` still uses it, where a laptop is the cost.
+
+**Rule:** a job's contents come from a manifest and the last measurement, never
+from a list in the workflow; a check that never finds anything another check
+does not is measured, then removed from the place it costs most.
