@@ -1,0 +1,44 @@
+{
+  "pr": 1909,
+  "sourceHead": "b69ec722a2dbd7b267cce599bf79233eb538b6c0",
+  "surface": "Staged fake-agent Electron, synthetic reported file paths and controlled session responses",
+  "privacy": "Six originals visually inspected by worker and parent; unchanged complete account/history/guest audits before and after all frames, zero reasons; no real provider or filesystem undo",
+  "frames": [
+    {
+      "file": "summary-mixed4-turn-1280.png",
+      "sha256": "f5e0b494f5edbc96f0584f39597e833a23b505c5c5b7795beb02a9518a8a0562",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "summary-mixed4-turn-700.png",
+      "sha256": "760f7fe723e4b05827b93e289840a01dc6741aca2c78de0ce3101cc38720072c",
+      "width": 700,
+      "height": 900
+    },
+    {
+      "file": "summary-mixed4-changes-1280.png",
+      "sha256": "0ac0ab49f75c977afb9f8e3b18fda41a3041b4c9684b116a6068f952685d47de",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "summary-mixed4-changes-700-hidden.png",
+      "sha256": "ec8af8a1d0bc171007f3a9d9879e9a8c49ea9e890d6f494f7f2a7c022e87af9a",
+      "width": 700,
+      "height": 900
+    },
+    {
+      "file": "summary-unknown2-unknown-1280.png",
+      "sha256": "a3cf4aa871dc2cf6ca3e9a7b34aa99246da64be772b5c4a08ca3b79b52253915",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "file": "summary-unknown2-unknown-700.png",
+      "sha256": "186ac5370573d5a495c75bdbeaa0fd77057c583bc1f4ef2a10afcb3bee1826d0",
+      "width": 700,
+      "height": 900
+    }
+  ]
+}
