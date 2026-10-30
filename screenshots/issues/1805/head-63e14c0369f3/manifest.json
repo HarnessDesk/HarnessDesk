@@ -1,0 +1,108 @@
+{
+  "issue": 1805,
+  "sourceHead": "63e14c0369f3ca438e7e141dc70dc6c2ae50cf6e",
+  "surface": "Production Team Overview in focused preview.html and canonical ListRow in the design Explorer",
+  "scenario": "Three Reviewer and Alpha descriptions use the full inner row width on one visible line at 240 and 320 viewport widths in both themes. All seats retain heading-centered faces. The Explorer sparse compact row has a centered heading.",
+  "nativeGate": "Isolated fake-agent Electron at 720 by 840, with a person-origin Team, two persisted scripted seats and no Flow execution. Two 672px rows, 648px descriptions and 20px description heights. All nine whole-document and actual account-map audits clear. Owned app closed and awaited; no native photos.",
+  "privacy": "Worker and parent viewed all six original PNGs. Full unfiltered document audits pass before and after each frame. Focused Overview exposes its actual mounted store with a present empty account map. Explorer ListBoard has no mounted account-store consumer; account boundary is not applicable. No image editing or privacy-audit filtering.",
+  "limits": [
+    "Known heading-name/status clipping at extreme widths remains issue #1895; visible in these frames.",
+    "Long activity paths intentionally middle-truncate, retaining complete accessible text.",
+    "Extreme 240/320 allocations are preview constraints; no real provider, authentication or native OS chooser behavior is established."
+  ],
+  "captureDiagnostic": "The first current-head capture refused a blanket descendant-overflow assertion that included known title clipping and intentional path/sr-only text. The corrected scoped driver captured all six images, preserving complete classified overflow inventory and all privacy checks. It returned exit 1 at Vite cleanup with kill EPERM. Parent subsequently observed no listener on the owned port, no scoped Vite command for that port and connection refused twice. The original refused result is preserved; it is not represented as a successful command exit or successful original process-group probe.",
+  "files": [
+    {
+      "path": "overview-light-240.png",
+      "caption": "Readable seat descriptions at viewport 240 in light theme",
+      "sha256": "ced3ec0a5b559bdde7b96c3ada2d9028c13132da31816c15fe157b72d22a6466",
+      "width": 176,
+      "height": 978,
+      "viewport": [
+        240,
+        1100
+      ],
+      "theme": "light",
+      "seatRowWidth": 128,
+      "descriptionWidth": 104,
+      "observedClassifiedOverflowCount": 19,
+      "unexplainedOverflow": 0
+    },
+    {
+      "path": "overview-light-320.png",
+      "caption": "Readable seat descriptions at viewport 320 in light theme",
+      "sha256": "3f92cd1e3f35c590053d5eb41ae1c9e5132c142d028191e871d507b5d2481e1e",
+      "width": 256,
+      "height": 834,
+      "viewport": [
+        320,
+        1100
+      ],
+      "theme": "light",
+      "seatRowWidth": 208,
+      "descriptionWidth": 184,
+      "observedClassifiedOverflowCount": 11,
+      "unexplainedOverflow": 0
+    },
+    {
+      "path": "overview-dark-240.png",
+      "caption": "Readable seat descriptions at viewport 240 in dark theme",
+      "sha256": "d09f93bab799fce058f48ff8287a662f96ce6cf02e2e3ec4ef6c974e4444bbdb",
+      "width": 176,
+      "height": 978,
+      "viewport": [
+        240,
+        1100
+      ],
+      "theme": "dark",
+      "seatRowWidth": 128,
+      "descriptionWidth": 104,
+      "observedClassifiedOverflowCount": 19,
+      "unexplainedOverflow": 0
+    },
+    {
+      "path": "overview-dark-320.png",
+      "caption": "Readable seat descriptions at viewport 320 in dark theme",
+      "sha256": "49988f5bb978cd6bb30b46d01913fa663cd7a3eae52cb2f05dab01299e264b7e",
+      "width": 256,
+      "height": 834,
+      "viewport": [
+        320,
+        1100
+      ],
+      "theme": "dark",
+      "seatRowWidth": 208,
+      "descriptionWidth": 184,
+      "observedClassifiedOverflowCount": 11,
+      "unexplainedOverflow": 0
+    },
+    {
+      "path": "list-light.png",
+      "caption": "Below description and centered sparse compact ListRow in light theme",
+      "sha256": "cc9c5673d0fb76962bb0082b41bd8d19ee969821a5ae3589c6ea3f8a99677f29",
+      "width": 558,
+      "height": 497,
+      "viewport": [
+        1440,
+        1100
+      ],
+      "theme": "light",
+      "sparseRowHeight": 40,
+      "headingCenterDelta": -0.5
+    },
+    {
+      "path": "list-dark.png",
+      "caption": "Below description and centered sparse compact ListRow in dark theme",
+      "sha256": "2df9c6447bb06cf9c74b22a68847a3ac407046860779266688b6c7e426358676",
+      "width": 558,
+      "height": 497,
+      "viewport": [
+        1440,
+        1100
+      ],
+      "theme": "dark",
+      "sparseRowHeight": 40,
+      "headingCenterDelta": -0.5
+    }
+  ]
+}
