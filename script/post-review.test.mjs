@@ -517,3 +517,33 @@ test('adjacent secret fields use existing value policy in both paths', async () 
   }
   await checkCredentialCase('The token: refresh handling remains ordinary prose.', 0)
 })
+
+test('a permitted split field cannot suppress a later same-line refusal across calls', async () => {
+  for (const mode of ['review', 'fixes']) {
+    for (const first of ['token:\nrefresh', 'to%6ben:\nrefresh']) {
+      for (const second of ['password: sunshine', 'pass%77ord: sunshine']) {
+        const before = harness()
+        const after = harness()
+        const options = (body) => mode === 'review'
+          ? { pr: '42', round: '1', by: 'Codex', body, dryRun: true }
+          : { pr: '42', fixes: body, dryRun: true }
+        assert.equal(await postReview(options(first), before.runner, before.io), 0)
+        assert.equal(before.calls.some(isPost), false)
+        assert.equal(await postReview(options(second), after.runner, after.io), 2)
+        assert.equal(after.calls.length, 0)
+        assert.equal(after.output().stderr.includes('sunshine'), false)
+        assert.equal(after.output().stdout.includes('sunshine'), false)
+      }
+    }
+  }
+  await checkCredentialCase('token:\nrefresh\npass%77ord: sunshine', 2, 3, 'sunshine')
+})
+
+test('horizontal tabs around split field keys work without crossing blank lines', async () => {
+  for (const body of ['\tpassword:\nsunshine', 'password\t:\nsunshine', 'password:\t\nsunshine', '\t"password"\t:\t\r\nsunshine']) {
+    await checkCredentialCase(body, 2, 2, 'sunshine')
+  }
+  for (const body of ['\tpassword:\t\n\nsunshine', 't password:\nsunshine', '\\password:\nsunshine']) {
+    await checkCredentialCase(body, 0)
+  }
+})

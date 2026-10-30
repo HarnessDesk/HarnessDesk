@@ -123,6 +123,8 @@ const privateLines = (body) => {
  */
 const SECRET_KEY = '[A-Za-z0-9_.-]*(?:authorization|cookie|token|secret|passw(?:or)?d|pwd|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key|credential|session[-_ ]?id|bearer)[A-Za-z0-9_.-]*'
 const KEY_VALUE = new RegExp(`["']?\\b(${SECRET_KEY})["']?\\s*[:=]\\s*["']?(?:(?:bearer|basic|token)\\s+)?([^\\s"',;}\\])]+)`, 'gi')
+// Split parsing must not leave the global matcher's lastIndex for later reads.
+const SPLIT_VALUE = new RegExp(KEY_VALUE.source, 'i')
 const PLACEHOLDER_VALUE = /^(?:[<{[$%]|\.{2,}|…|\*+|x{3,}|-+|<.*>)|^(?:redacted|none|null|undefined|true|false|string|object|array|number|required|optional|empty|unset|hidden|masked|omitted|secret|token|password|value|example|placeholder|changeme|your[-_a-z]*|env|process\.env\S*)$/i
 // Prose may wrap values in backticks or end a sentence with a period. Weak keys
 // allow lowercase prose; strong keys refuse any non-placeholder value of sufficient length.
@@ -146,8 +148,7 @@ const splitCredentialLines = (source) => {
     const key = SPLIT_KEY.exec(line)
     const next = lines[index + 1]
     if (!key || next == null || !next.trim()) return []
-    KEY_VALUE.lastIndex = 0
-    const match = KEY_VALUE.exec(`${key[1] ?? key[2] ?? key[3]}: ${next.trim()}`)
+    const match = SPLIT_VALUE.exec(`${key[1] ?? key[2] ?? key[3]}: ${next.trim()}`)
     return match && secretFieldValue(match[1], match[2])
       ? [`line ${index + 2}  [credential in a secret-named field]`] : []
   })

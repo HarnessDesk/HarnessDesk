@@ -113,7 +113,7 @@ const secretFieldValue = (key, rawValue) => {
 }
 ```
 
-Add the following helpers after `headerCredentialLines`. The split-line matcher uses `KEY_VALUE` on a reconstructed single line so tokenization, optional schemes and punctuation match the existing same-line policy; `lastIndex` is reset because that regular expression is global. The first regex permits only matching quotes around a complete existing field name, a separator, and horizontal whitespace. A blank next line cannot be skipped.
+Define `const SPLIT_VALUE = new RegExp(KEY_VALUE.source, 'i')` beside `KEY_VALUE`, then add the following helpers after `headerCredentialLines`. The split-line matcher uses the `KEY_VALUE` pattern on a reconstructed single line so tokenization, optional schemes and punctuation match the existing same-line policy; a non-global clone avoids sharing `lastIndex` with the existing global matcher. The first regex permits only matching quotes around a complete existing field name, a separator, and horizontal whitespace. A blank next line cannot be skipped.
 
 ```js
 const SPLIT_KEY = new RegExp(`^[ \\t]*(?:(${SECRET_KEY})|"(${SECRET_KEY})"|'(${SECRET_KEY})')[ \\t]*[:=][ \\t]*$`, 'i')
@@ -123,8 +123,7 @@ const splitCredentialLines = (source) => {
     const key = SPLIT_KEY.exec(line)
     const next = lines[index + 1]
     if (!key || next == null || !next.trim()) return []
-    KEY_VALUE.lastIndex = 0
-    const match = KEY_VALUE.exec(`${key[1] ?? key[2] ?? key[3]}: ${next.trim()}`)
+    const match = SPLIT_VALUE.exec(`${key[1] ?? key[2] ?? key[3]}: ${next.trim()}`)
     return match && secretFieldValue(match[1], match[2])
       ? [`line ${index + 2}  [credential in a secret-named field]`] : []
   })
@@ -161,3 +160,9 @@ the text before posting.
 ```
 
 - [x] **Step 6: Review and hand off.** Run `git diff --check` and inspect `git diff -- script/check-secrets.mjs script/post-review.mjs script/post-review.test.mjs docs/release.md`; check all newly added text and generated fixtures for privacy, no value in diagnostics, same-line compatibility, hash scope and no unrelated changes. Re-run the focused test only if changes after step 4 affect it. Report the test command and results, intentional gaps, and any unverified behavior to the parent. The parent controls commits and review checkpoints unless it directs otherwise.
+
+## Parent preflight follow-up
+
+- [x] Reproduce the cross-call state leak through `postReview`: the regression test failed with an allowed result where refusal was expected. Use a non-global clone for split parsing so neither source nor later invocations inherit its state.
+- [x] Cover tabs in all key-line whitespace positions, matching quotes and CRLF, plus blank-line and literal-backslash boundaries. These cases passed before the fix; they are compatibility checks, not a second reproduced defect.
+- [x] Run focused post-review and secret-detector tests after the fix; keep the existing whole-body, same-line, placeholder and hash behavior.
