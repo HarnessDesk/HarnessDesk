@@ -75,12 +75,13 @@ registered runtime names come from `RuntimeInfo.presentation`.
 
 The native corner consumes 78px of the sidebar's top row. The default 256px
 column fits four full 28px controls and the mode switch when the controls
-give up their gaps. At smaller widths, both history arrows move to the main
-bar's lead, returning when the sidebar has room. Their rendered fold owns
-the handoff, so native corner reservations and live seam drags agree.
+give up their gaps. At smaller widths, a standing sidebar moves both arrows to
+the main bar, returning them when it has room. Their rendered fold owns the
+handoff, so native corner reservations and live seam drags agree.
 
-**The rule:** the sidebar's history arrows never fold away without a visible
-pair in the main bar. Control targets keep their design-system size.
+**The rule:** a standing sidebar hands folded history arrows to the main bar.
+A floating drawer keeps them in a second header row when they do not fit,
+because the covered main bar is inert. Control targets keep their design-system size.
 
 ## Browser CI is bounded on a pull request and complete before landing — 2026-10-15
 
