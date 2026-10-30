@@ -1,5 +1,4 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { access, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -177,53 +176,6 @@ const switchedOn = (value: string | undefined): boolean =>
 /** What Git says when an explicitly selected config file is absent. */
 const NO_CONFIG_FILE = /unable to read config file '.*': No such file or directory/
 
-// Entries are deliberately small and short-lived: configuration changes become
-// visible after at most five seconds. In-flight reads and failures are never shared.
-const FILTER_TTL_MS = 5_000
-const FILTER_CACHE_MAX = 32
-const FILTER_ENTRY_MAX = 64 * 1024
-const filterCache = new Map<string, { readonly until: number; readonly trusted: Trusted }>()
-
-const filterKey = (cwd: string, dir: string, head: string, options: ReadOptions): string | undefined => {
-  // An overridden Git discovery environment can make the original rev-parse
-  // and the stripped user-scope read see different repositories. Do not guess.
-  const source = options.env ?? process.env
-  if (options.signal || Object.keys(source).some(key => key.startsWith('GIT_') &&
-    !['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM', 'GIT_PAGER'].includes(key))) return undefined
-  // PATH selects Git; HOME, XDG and GIT_CONFIG_* select the user's config.
-  // Do not retain their values in cache keys. Limits are part of the identity.
-  return createHash('sha256').update(JSON.stringify([
-    cwd, dir, head, ['PATH', 'HOME', 'XDG_CONFIG_HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH',
-      'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_NOSYSTEM']
-      .map(key => source[key] ?? null),
-    options.timeout ?? 20_000, options.maxBuffer ?? 32 * 1024 * 1024, options.killSignal ?? null,
-  ])).digest('hex')
-}
-
-const cachedUserFilters = async (cwd: string, dir: string, head: string, options: ReadOptions): Promise<Trusted> => {
-  const snapshot = { ...options, env: { ...(options.env ?? process.env) } }
-  // A gitdir include can match the real path behind a symlink as well as its
-  // spelling. A failed resolution only disables caching; Git still reads it.
-  const candidate = filterKey(cwd, dir, head, snapshot)
-  const resolved = candidate ? await realpath(dir).catch(() => undefined) : undefined
-  const key = candidate && resolved ? createHash('sha256').update(candidate).update('\0').update(resolved).digest('hex') : undefined
-  if (key) {
-    const hit = filterCache.get(key)
-    if (hit && hit.until > performance.now()) return hit.trusted
-    filterCache.delete(key)
-  }
-  const started = performance.now()
-  const trusted = await userFilters(cwd, snapshot)
-  // A branch switch while Git resolved includes must not populate the old key.
-  if (key && performance.now() - started < FILTER_TTL_MS && Buffer.byteLength(JSON.stringify(trusted.settings)) <= FILTER_ENTRY_MAX &&
-      await readFile(join(dir, 'HEAD'), 'utf8').catch(() => '') === head &&
-      await realpath(dir).catch(() => undefined) === resolved) {
-    while (filterCache.size >= FILTER_CACHE_MAX) filterCache.delete(filterCache.keys().next().value!)
-    filterCache.set(key, { until: started + FILTER_TTL_MS, trusted })
-  }
-  return trusted
-}
-
 /**
  * The filter definitions in the person's own configuration, which are the only
  * ones an automatic read or checkout may run. They are read apart from the
@@ -308,19 +260,20 @@ const withView = async <T>(
   const original = (args: readonly string[]) => exec('git', ['-C', cwd, ...HARDENED_GIT_CONFIG, ...args], {
     ...options, timeout: options.timeout ?? 20_000, maxBuffer: options.maxBuffer ?? 32 * 1024 * 1024,
   })
-  const [root, dir, common, listed] = await Promise.all([
-    ...['--show-toplevel', '--git-dir', '--git-common-dir'].map(async flag =>
-      (await original(['rev-parse', '--path-format=absolute', flag])).stdout.replace(/\n$/, '')),
-    original(['config', '--null', '--list', '--includes']).then(result => result.stdout),
+  const [[root, dir, common, listed], trusted] = await Promise.all([
+    Promise.all([
+      ...['--show-toplevel', '--git-dir', '--git-common-dir'].map(async flag =>
+        (await original(['rev-parse', '--path-format=absolute', flag])).stdout.replace(/\n$/, '')),
+      original(['config', '--null', '--list', '--includes']).then(result => result.stdout),
+    ]),
+    via.trusted ?? userFilters(cwd, options),
   ])
-  const head = await readFile(join(dir!, 'HEAD'), 'utf8')
-  const trusted = via.trusted ?? await cachedUserFilters(cwd, dir!, head, options)
   const settings = settingsOf(listed!)
   const config = sanitizedConfig(settings) + trustedConfig(trusted, via.materialize === true)
   const home = await mkdtemp(join(tmpdir(), 'hd-git-read-'))
   try {
     await writeFile(join(home, 'config'), config, { mode: 0o600 })
-    await writeFile(join(home, 'HEAD'), head)
+    await writeFile(join(home, 'HEAD'), await readFile(join(dir!, 'HEAD')))
     for (const name of ['objects', 'refs', 'packed-refs', 'shallow', 'reftable']) {
       await symlink(join(common!, name), join(home, name))
     }

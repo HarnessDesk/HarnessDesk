@@ -1003,8 +1003,9 @@ if (args.includes('worktree') && args.includes('add')) {
   const configNames = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM'] as const
   const originalConfig = configNames.map((name) => [name, process.env[name]] as const)
   await writeFile(join(bin, 'system.gitconfig'), '')
+  await writeFile(join(bin, 'global.gitconfig'), '')
   process.env['GIT_CONFIG_SYSTEM'] = join(bin, 'system.gitconfig')
-  process.env['GIT_CONFIG_GLOBAL'] = join(bin, 'absent.gitconfig')
+  process.env['GIT_CONFIG_GLOBAL'] = join(bin, 'global.gitconfig')
   t.after(() => {
     for (const [name, value] of originalConfig) {
       if (value === undefined) delete process.env[name]

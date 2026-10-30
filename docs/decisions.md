@@ -945,7 +945,8 @@ directory with an immutable configuration snapshot. Included and global settings
 flattened into that snapshot; include paths and the repository's filter
 definitions are omitted. Global and system includes are evaluated from the
 repository's folder, so a conditional include for that repository applies;
-only those two scopes contribute filter definitions, with other Git environment
+an `onbranch` include selects using the repository's HEAD. Only those two scopes
+contribute filter definitions, with other Git environment
 configuration removed. The filters the person's own configuration defines are
 the one thing added: they are read apart from repository configuration by the
 `--system` and `--global` scopes alone (the system file only where `GIT_CONFIG_NOSYSTEM` would let git read it), and a file that is not
@@ -953,12 +954,8 @@ there is no definition. A repository that keeps its files behind Git LFS then
 reads clean in status and can have a lane cut from it, because the program that
 converts them is the person's own. A repository can neither add a driver to
 that set nor change one in it, so a filter only the repository defines is never
-run. Successful user-filter reads are cached for at most five seconds, bounded
-by entry size and count. The key includes the working directory, Git directory,
-HEAD, config locations, Git's PATH and caller limits, so conditional includes
-and config locations do not cross contexts. Signal-bearing reads and concurrent misses run independently;
-failures are never cached. A status read leaves `required` off for those filters,
-so a program that has gone missing shows as a change instead of failing the read. The consuming
+run. A status read leaves `required` off for those filters, so a program that
+has gone missing shows as a change instead of failing the read. The consuming
 process cannot acquire another driver from live configuration.
 Status disables Git's implicit submodule content reads and reads initialized
 children through the same isolated runner, retaining their content, untracked,
