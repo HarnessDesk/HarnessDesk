@@ -929,6 +929,7 @@ export class AcpRuntime implements AgentRuntime {
   readonly #account: CliAccount | null
   /** Sign-ins started over ACP that nobody has cancelled; see `#authenticateOverAcp`. */
   readonly #acpLogins = new Set<string>()
+  readonly #cliLoginGenerations = new Map<string, number>()
   readonly extensions: AcpExtensions | undefined
   /**
    * Set once the agent has shown it speaks the background-task extension —
@@ -2054,7 +2055,7 @@ export class AcpRuntime implements AgentRuntime {
     // A successful desk sign-in can arrive while the runtime rests. Its
     // newer observation owns the answer, rather than the saved sign-out.
     const signedInAfterSignOut = this.#config.identityIsStatus && this.#signIn.state === 'observed' && saved?.refusal === 'Signed out.'
-    if (this.#health.state !== 'ready' && saved && !lifted && !signedInAfterSignOut) {
+    if (this.#health.state !== 'ready' && saved && !lifted && !signedInAfterSignOut && !(this.#signIn.state === 'required' && this.#signIn.signedOut)) {
       const { unchecked: _was, ...rest } = saved
       const accounts = [...saved.accounts.filter(account => account.kind !== 'apiKey' && account.kind !== 'externalKey'), ...keyAccounts]
       const observed = this.#observedAccount(keyAccounts.length > 0)
@@ -2074,6 +2075,7 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     if (this.#account && this.#health.state === 'ready') {
+      const authGeneration = this.#authGeneration
       const beforeStatus = this.#signIn
       const refusalGeneration = this.#refusalGeneration
       // Publish a newer session refusal before asking the CLI again. Its
@@ -2082,6 +2084,7 @@ export class AcpRuntime implements AgentRuntime {
       const status = freshRefusal
         ? { accounts: [], signInMethods: this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : [] }
         : await this.#account.status()
+      if (authGeneration !== this.#authGeneration) return this.getAccount()
       this.#statusObservation = refusalGeneration
       if (!freshRefusal && this.#config.account?.status && this.#refusalGeneration === refusalGeneration && this.#signIn === beforeStatus && beforeStatus.state === 'required') {
         this.#noteSignIn({ state: 'observed' })
@@ -2104,7 +2107,10 @@ export class AcpRuntime implements AgentRuntime {
     const accounts = [...keyAccounts, ...observed.accounts]
     return this.#lastAccount = {
       accounts,
-      signInMethods: [...keyMethods, ...observed.signInMethods],
+      signInMethods: [
+        ...(this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : []),
+        ...keyMethods, ...observed.signInMethods,
+      ],
       ...(observed.refusal ? { refusal: observed.refusal } : {}),
       ...(accounts.length === 0 && observed.unchecked ? { unchecked: true } : {}),
     }
@@ -2177,7 +2183,14 @@ export class AcpRuntime implements AgentRuntime {
   async login(method: string): Promise<LoginStart> {
     if (method.startsWith(ACP_METHOD)) return this.#authenticateOverAcp(method.slice(ACP_METHOD.length))
     if (!this.#account) throw new Error(`${this.#config.name} declares no sign-in command.`)
-    return this.#account.login()
+    const generation = this.#authGeneration
+    let started: string | undefined
+    try {
+      return await this.#account.login((id) => { started = id; this.#cliLoginGenerations.set(id, generation) })
+    } catch (error) {
+      if (started) this.#cliLoginGenerations.delete(started)
+      throw error
+    }
   }
 
   /**
@@ -2197,6 +2210,7 @@ export class AcpRuntime implements AgentRuntime {
    * again. `CliAccount` treats a cancelled-then-successful flow the same way.
    */
   async #authenticateOverAcp(methodId: string): Promise<LoginStart> {
+    const authGeneration = this.#authGeneration
     const loginId = randomUUID()
     this.#acpLogins.add(loginId)
     const runtime = runtimeId(this.#config.id)
@@ -2205,7 +2219,7 @@ export class AcpRuntime implements AgentRuntime {
         const mine = this.#acpLogins.delete(loginId)
         // Before the events, so whoever reads the identity on `account/changed`
         // reads it signed in — the same ordering `#accountEvent` keeps.
-        this.#noteSignIn({ state: 'observed' })
+        if (authGeneration === this.#authGeneration) this.#noteSignIn({ state: 'observed' })
         if (mine) this.emit({ type: 'account/loginCompleted', runtime, loginId, success: true })
         this.emit({ type: 'account/changed', runtime })
       },
@@ -2276,6 +2290,8 @@ export class AcpRuntime implements AgentRuntime {
     const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
     const before = this.#signIn
+    this.#authGeneration++
+    const beforeAccount = this.#lastAccount
     const beforeSignedOutIdentity = this.#signedOutIdentity
     this.#signedOutIdentity = this.#config.identityIsStatus ? this.#identityStatus() : null
     const beforeGeneration = this.#refusalGeneration
@@ -2305,6 +2321,7 @@ export class AcpRuntime implements AgentRuntime {
       if (this.#signIn === signedOut) {
         this.#signIn = before
         this.#signedOutIdentity = beforeSignedOutIdentity
+        this.#lastAccount = beforeAccount
       }
       if (this.#refusalGeneration === signedOutGeneration) {
         this.#refusalGeneration = beforeGeneration
@@ -2829,6 +2846,8 @@ export class AcpRuntime implements AgentRuntime {
   #idleInfo: RuntimeInfo | null = null
   #restored: RuntimeObservations | null = null
   #lastAccount: AccountStatus | null = null
+  /** Invalidates observations begun before a desk sign-out. */
+  #authGeneration = 0
 
   // ACP has neither an archive nor a naming verb, even before negotiation.
   historyAuthorityKnown(): boolean { return true }
@@ -2923,8 +2942,9 @@ export class AcpRuntime implements AgentRuntime {
     attachments?: SessionAttachments,
     probe = false,
   ): Promise<T> {
+    const authGeneration = this.#authGeneration
     if (!probe) this.#sessionOpens++
-    try { return await this.#openSessionWithTools<T>(method, params, attachments) } finally {
+    try { return await this.#openSessionWithTools<T>(method, params, attachments, authGeneration) } finally {
       if (!probe) this.#sessionOpens--
     }
   }
@@ -2933,6 +2953,7 @@ export class AcpRuntime implements AgentRuntime {
     method: 'session/new' | 'session/load' | 'session/resume',
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
+    authGeneration = this.#authGeneration,
   ): Promise<T> {
     const caller = randomUUID()
     const steeringCaller = randomUUID()
@@ -2986,6 +3007,7 @@ export class AcpRuntime implements AgentRuntime {
     try {
       return this.#opened(
         claim(await connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
+        authGeneration,
       )
     } catch (error) {
       const message = describeAcp(error)
@@ -2994,7 +3016,7 @@ export class AcpRuntime implements AgentRuntime {
       // it says about the sign-in, so neither classification can hide the
       // other.
       if (servers.length === 0 || !REFUSES_TOOL_SERVER.test(message)) {
-        this.refusedForSignIn(error)
+        if (authGeneration === this.#authGeneration) this.refusedForSignIn(error)
         throw error
       }
       // Two opens can race into the same refusal — the eager probe and the
@@ -3013,9 +3035,9 @@ export class AcpRuntime implements AgentRuntime {
         for (const listener of this.#infoListeners) listener()
       }
       try {
-        return this.#opened(claim(await connection.request<T>(method, extend({ ...params, mcpServers: [] })), false))
+        return this.#opened(claim(await connection.request<T>(method, extend({ ...params, mcpServers: [] })), false), authGeneration)
       } catch (again) {
-        this.refusedForSignIn(again)
+        if (authGeneration === this.#authGeneration) this.refusedForSignIn(again)
         throw again
       }
     } finally {
@@ -3030,8 +3052,8 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /** A session opened: whoever the agent is signed in as, it is signed in. */
-  #opened<T>(result: T): T {
-    this.#noteSignIn({ state: 'observed' })
+  #opened<T>(result: T, authGeneration: number): T {
+    if (authGeneration === this.#authGeneration) this.#noteSignIn({ state: 'observed' })
     return result
   }
 
@@ -3082,7 +3104,9 @@ export class AcpRuntime implements AgentRuntime {
 
   /** Keep an interactive CLI's observation in step with its account events. */
   #accountEvent(event: AgentEvent): void {
-    if (event.type === 'account/loginCompleted' && event.success) {
+    const generation = event.type === 'account/loginCompleted' && event.loginId ? this.#cliLoginGenerations.get(event.loginId) : undefined
+    if (event.type === 'account/loginCompleted' && event.loginId) this.#cliLoginGenerations.delete(event.loginId)
+    if (event.type === 'account/loginCompleted' && event.success && generation === this.#authGeneration) {
       // CliAccount emits account/changed immediately after this completion;
       // update first so the listener reads the new identity on that event.
       this.#signIn = { state: 'observed' }

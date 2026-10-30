@@ -908,6 +908,28 @@ test('a pending cleanup that clears between gate reads still re-arms the Seat on
   assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-1'])
 })
 
+test('a pending gate that clears across the re-arm await retains exactly one hand-back', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  let read = false
+  rig.triggerGate = () => {
+    read = true
+    queueMicrotask(() => { rig.triggerGate = null })
+    return PENDING_VERDICT
+  }
+  const session = rig.sessionOf('seat-1')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  assert.equal(read, true)
+  await rig.flows.holdTriggered(run.id, PAUSED_REASON)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-1'])
+})
+
 test('a superseded hold does not re-arm its old card during pending cleanup', async (t) => {
   const rig = await goalRig(t)
   const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])])
