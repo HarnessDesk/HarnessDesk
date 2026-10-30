@@ -329,3 +329,38 @@ it.each([true, false])('refreshes commit evidence for a worktree with a saved wo
   expect(container.textContent).toContain('Committed beef123')
   expect(button('Undo')).toBeUndefined()
 })
+
+it('labels outside edits without changing the turn total or undo request and follows open roots', async () => {
+  const changes: FileChange[] = [
+    ...CHANGES,
+    { path: '/work/storefront/a.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-a\n+b' },
+    { path: '/work/storefront/b.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-a\n+b' },
+    { path: '/tmp/check.js', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-a\n+b' },
+  ]
+  const { revertTurn, refresh } = await rig([], changes)
+  expect(container.textContent).toContain('Edited 4 files')
+  expect(container.textContent).toContain('1 outside')
+  await act(async () => button('1 more')!.click())
+  expect(container.textContent).toContain('Outside')
+  await act(async () => button('Undo')!.click())
+  expect(revertTurn).toHaveBeenCalledWith(TURN.id, KEY, {})
+  await act(async () => refresh({ workspaces: [{ path: '/tmp', name: 'tmp', lastOpenedAt: 1 }] } as Partial<AppSnapshot>))
+  expect(container.textContent).not.toContain('Outside')
+  expect(container.textContent).not.toContain('1 outside')
+})
+
+it('labels a single outside edit in its heading', async () => {
+  await rig([], [{ path: '/tmp/check.js', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-a\n+b' }])
+  expect(container.textContent).toContain('Edited check.js')
+  expect(container.textContent).toContain('Outside')
+})
+
+it('marks an ambiguous reported name unknown without counting it as outside', async () => {
+  await rig([], [
+    ...CHANGES,
+    { path: 'C:relative.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-a\n+b' },
+  ])
+  expect(container.textContent).toContain('Edited 2 files')
+  expect(container.textContent).toContain('Location unknown')
+  expect(container.textContent).not.toContain('outside')
+})

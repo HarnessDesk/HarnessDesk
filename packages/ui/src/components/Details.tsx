@@ -4,6 +4,7 @@ import { currentTurn, type GitStatus } from '@harnessdesk/protocol'
 
 import { handOverToComposer } from '../lib/compose'
 import { countChanges, splitByFile, DiffView, DiffFilesView } from '../editor'
+import { knownOpenRoots, reportedLocation } from '../lib/paths'
 import { useActiveSession, usePane, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { inView } from '../lib/git-view'
@@ -264,6 +265,7 @@ const Changes = ({
   const root = session?.cwd ?? snapshot.workspace?.path ?? null
   const turn = session ? currentTurn(session) : undefined
   const turnDiff = turn?.diff ?? null
+  const knownRoots = knownOpenRoots(snapshot.workspaces, snapshot.workspace, [...snapshot.sessions.values()].map(item => item.cwd), session?.cwd)
 
   // Refresh git whenever the agent stops working, since that is when the tree
   // has just changed and the user is most likely to look.
@@ -378,7 +380,7 @@ const Changes = ({
       {turnFiles.length > 0 && (
         <>
           <GroupLine left={`This turn · ${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'}`} />
-          <DiffFilesView files={turnFiles} />
+          <DiffFilesView files={turnFiles} locationForPath={path => reportedLocation(path, session?.cwd, knownRoots)} />
         </>
       )}
 

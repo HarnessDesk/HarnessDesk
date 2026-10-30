@@ -3,6 +3,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { DiffView } from './DiffView'
+import { DiffFilesView } from './DiffFilesView'
+import { DEFAULT_DIFF_PREFS } from './diff-prefs'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -334,4 +336,22 @@ describe('DiffView hunk navigation (#390)', () => {
     expect(getPrevButton()?.disabled).toBe(true)
     expect(getNextButton()?.disabled).toBe(false)
   })
+})
+
+it('labels classified paths in navigation and headings, even when navigation is hidden', () => {
+  const files = [
+    { path: 'src/a.ts', diff: '@@ -1 +1 @@\n-a\n+b' },
+    { path: '/tmp/check.js', diff: '@@ -1 +1 @@\n-a\n+b' },
+  ]
+  const classify = (path: string) => path.startsWith('/tmp') ? 'outside' as const : 'inside' as const
+  act(() => root.render(<DiffFilesView files={files} locationForPath={classify} />))
+  expect(container.querySelector('nav')?.textContent).toContain('Outside')
+  expect(container.textContent?.match(/Outside/g)).toHaveLength(2)
+  act(() => root.render(<DiffFilesView files={files} locationForPath={classify} preferences={{ ...DEFAULT_DIFF_PREFS, showFiles: false }} />))
+  expect(container.querySelector('nav')).toBeNull()
+  expect(container.textContent?.match(/Outside/g)).toHaveLength(1)
+  act(() => root.render(<DiffFilesView files={[{ path: '', diff: '@@ -1 +1 @@\n-a\n+b' }]} locationForPath={() => 'unknown'} />))
+  expect(container.textContent).toContain('Location unknown')
+  act(() => root.render(<DiffFilesView files={files} />))
+  expect(container.textContent).not.toContain('Outside')
 })

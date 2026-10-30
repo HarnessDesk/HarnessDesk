@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { splitSessionKey, type FileChange, type Turn } from '@harnessdesk/protocol'
 
+import { knownOpenRoots, reportedLocation } from '../lib/paths'
 import { totalsByFile } from '../lib/turn-view'
-import { useSelect, useSessionKey, useStore } from '../state/context'
+import { useSelect, useSessionKey, useSnapshotSelector, useStore } from '../state/context'
 import { closedTurnFilesKey } from '../state/snapshot'
 import { Button, Card, ChangeStats, Chip, CodeText, IconTile, MiddleTruncate, Separator, Text } from '../design'
 import { CrossIcon, DiffIcon, RedoIcon, UndoIcon } from './Icons'
@@ -45,6 +46,11 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   // A workspace refresh invalidates Git evidence even when this turn's
   // checkout is not the open folder (or is absent from the recent list).
   const workspaces = useSelect((snapshot) => snapshot.workspaces)
+  const openRoots = useSnapshotSelector(
+    snapshot => knownOpenRoots(snapshot.workspaces, snapshot.workspace, [...snapshot.sessions.values()].map(session => session.cwd), null),
+    (a, b) => a.length === b.length && a.every((value, index) => value === b[index]),
+  )
+  const roots = knownOpenRoots([], null, openRoots, root)
   const sessionState = useSelect((snapshot) => key ? snapshot.sessions.get(key)?.status.type : undefined)
   const [committed, setCommitted] = useState<string | null>(null)
   useEffect(() => {
@@ -75,6 +81,11 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
 
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
+  const outsideCount = files.filter(file => reportedLocation(file.path, root, roots) === 'outside').length
+  const locationChip = (path: string) => {
+    const location = reportedLocation(path, root, roots)
+    return location === 'inside' ? null : <Chip tone="neutral" size="sm" title={location === 'outside' ? 'Reported path is outside the known open workspace and conversation roots.' : 'The reported path cannot be located against the known open roots.'}>{location === 'outside' ? 'Outside' : 'Location unknown'}</Chip>
+  }
   const one = files.length === 1 ? files[0] : undefined
   const shown = one ? [] : expanded ? files : files.slice(0, 3)
   const remaining = one ? 0 : files.length - shown.length
@@ -121,6 +132,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
           <Text role="subject" className={styles.titleLine}>
             {one ? <MiddleTruncate>{`${verb} ${basename(one.path)}`}</MiddleTruncate> : `${verb} ${files.length} files`}{' '}
             <ChangeStats added={added} removed={removed} />
+            {one ? locationChip(one.path) : outsideCount > 0 && <Chip tone="neutral" size="sm" title="Reported path is outside the known open workspace and conversation roots.">{outsideCount} outside</Chip>}
             {committed && <Chip tone="neutral" size="sm">Committed {committed.slice(0, 7)}</Chip>}
             {reverted && <Chip tone="neutral" size="sm">put back</Chip>}
           </Text>
@@ -208,6 +220,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
                     {file.kind === 'delete' && <Text role="meta" className={styles.kind}>deleted</Text>}
                     {file.kind === 'add' && <Text role="meta" className={styles.kind}>new</Text>}
                   </CodeText>
+                  {locationChip(file.path)}
                   <ChangeStats added={file.added} removed={file.removed} />
                 </Button>
               </li>
