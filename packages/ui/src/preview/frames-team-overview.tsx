@@ -6,7 +6,7 @@ import { RailSection } from '../design'
 import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { sidebarTeamAttention } from './sidebar-fixture'
-import { previewStore } from './harness'
+import { previewPrimaryRuntime, previewStore } from './harness'
 import { overviewModel, overviewTeamStore, OVERVIEW_STATES, type OverviewScene } from './team-overview-fixture'
 import { needsYouAnswers, needsYouModel, NEEDS_YOU_STATES, type NeedsYouScene } from './needs-you-fixture'
 
@@ -31,7 +31,7 @@ export const NeedsYouExample = ({ scene }: { scene: NeedsYouScene }) => {
 /** Both the catalogue and preview mount the production component. */
 export const OverviewExample = ({scene}:{scene:OverviewScene}) => {
  const model=overviewModel(scene)
- const runtimeName=previewStore().getSnapshot().runtimes[0]!.presentation.name
+ const runtimeName=previewPrimaryRuntime().presentation.name
  return <TeamOverview uncheckedDone={scene==='unchecked'?141:0} onBoard={()=>{}} onWrap={scene==='unchecked'?()=>{}:undefined} model={model} runtimeNames={new Map(model.seats.map(seat=>[seat.seat,runtimeName]))} runRules={[{id:'to-referee'}]} runName={scene==='comparison'?'Compare the changes':'Build and review'} runReason={scene==='comparison'?'Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved.':scene==='stalled'?'Choose the target before this Run can continue':null} defaultExpanded={scene==='done-open'||scene==='comparison'} onOpen={() => {}} onFindings={() => {}} />
 }
 
