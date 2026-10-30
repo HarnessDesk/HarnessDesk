@@ -32,7 +32,7 @@ The parent supplies `HEAVY_DRIVER` as a private environment variable pointing to
 
 **Interfaces:** Tests call existing `postReview` and inspect `harness().calls`, `harness().output()` and `harness().bodies`. No new production interface except the predicate export above.
 
-- [ ] **Step 1: Add focused red tests.** Append the following code to the test file. It generates values at runtime and never includes a value in a test title or assertion message. The 32 distinct ASCII characters have entropy 5 bits/character; the low-entropy value has entropy 0. The hex generator has sufficient variety to exercise the exemption and whole-body rule.
+- [x] **Step 1: Add focused red tests.** Append the following code to the test file. It generates values at runtime and never includes a value in a test title or assertion message. The 32 distinct ASCII characters have entropy 5 bits/character; the low-entropy value has entropy 0. The hex generator has sufficient variety to exercise the exemption and whole-body rule.
 
 ```js
 const generatedOpaque = (length) => Array.from({ length }, (_, i) =>
@@ -49,8 +49,8 @@ async function checkCredentialCase(body, expected, line, sensitive) {
     assert.equal(h.calls.some(isPost), expected === 0)
     if (expected === 2) {
       assert.equal(h.calls.length, 0) // refusal precedes identity reads and mutation
-      assert.match(h.output().stderr, /credential/)
-      if (line != null) assert.match(h.output().stderr, new RegExp(`line ${line}\\b`))
+      assert.equal(/credential/.test(h.output().stderr), true)
+      if (line != null) assert.equal(new RegExp(`line ${line}\\b`).test(h.output().stderr), true)
       if (sensitive) {
         assert.equal(h.output().stderr.includes(sensitive), false)
         assert.equal(h.output().stdout.includes(sensitive), false)
@@ -94,7 +94,7 @@ test('adjacent secret fields use existing value policy in both paths', async () 
 })
 ```
 
-- [ ] **Step 2: Run red test.** After the parent checkpoint and locked install, run:
+- [x] **Step 2: Run red test.** After the parent checkpoint and locked install, run:
 
 ```sh
 node "$HEAVY_DRIVER" -- node --test script/post-review.test.mjs
@@ -102,7 +102,7 @@ node "$HEAVY_DRIVER" -- node --test script/post-review.test.mjs
 
 Expected: the two new tests fail because the new forms currently post; existing tests continue to run. Do not log bodies or print generated fixture values. Node assertion output contains only expected/actual exit codes.
 
-- [ ] **Step 3: Implement the predicates.** In `script/check-secrets.mjs`, change only `const isBareCredentialFile` to `export const isBareCredentialFile`. In `script/post-review.mjs`, import it alongside `offendersIn`. Extract the value judgment from `headerCredentialLines` into this helper and replace the body of its loop with `if (secretFieldValue(match[1], match[2])) return [...]`, retaining the existing exact label and loop:
+- [x] **Step 3: Implement the predicates.** In `script/check-secrets.mjs`, change only `const isBareCredentialFile` to `export const isBareCredentialFile`. In `script/post-review.mjs`, import it alongside `offendersIn`. Extract the value judgment from `headerCredentialLines` into this helper and replace the body of its loop with `if (secretFieldValue(match[1], match[2])) return [...]`, retaining the existing exact label and loop:
 
 ```js
 const secretFieldValue = (key, rawValue) => {
@@ -138,9 +138,9 @@ const standaloneCredentialLines = (source) => source.split(/\r?\n/).flatMap((lin
 
 In `credentialLines`, add `splitCredentialLines(source), standaloneCredentialLines(source)` to the existing `.concat(...)` arguments. Keep `offendersIn` first, including its unmodified whole-body check, and retain `Set` deduplication. Consequently a whole-body 40/64 hex value still refuses, even though the new line helper exempts it. The guard remains before `readIdentity`, runner writes and dry-run output. Decoding instability continues to refuse before all checks.
 
-- [ ] **Step 4: Run green and inspect.** Repeat the exact focused command from step 2; expect all tests to pass. Check that same-line tests and existing inline hash/prose cases remain green. If a test fails, diagnose without printing a tested value; do not narrow an existing rule merely to satisfy a new test.
+- [x] **Step 4: Run green and inspect.** Repeat the exact focused command from step 2; expect all tests to pass. Check that same-line tests and existing inline hash/prose cases remain green. If a test fails, diagnose without printing a tested value; do not narrow an existing rule merely to satisfy a new test.
 
-- [ ] **Step 5: Update release guidance.** Replace the current limits paragraph in `docs/release.md` with:
+- [x] **Step 5: Update release guidance.** Replace the current limits paragraph in `docs/release.md` with:
 
 ```md
 It is a safety net on top of a human read, not a replacement for one. It also
@@ -160,4 +160,4 @@ repository, host or customer names, are not machine-checked. The poster reads
 the text before posting.
 ```
 
-- [ ] **Step 6: Review and hand off.** Run `git diff --check` and inspect `git diff -- script/check-secrets.mjs script/post-review.mjs script/post-review.test.mjs docs/release.md`; check all newly added text and generated fixtures for privacy, no value in diagnostics, same-line compatibility, hash scope and no unrelated changes. Re-run the focused test only if changes after step 4 affect it. Report the test command and results, intentional gaps, and any unverified behavior to the parent. The parent controls commits and review checkpoints unless it directs otherwise.
+- [x] **Step 6: Review and hand off.** Run `git diff --check` and inspect `git diff -- script/check-secrets.mjs script/post-review.mjs script/post-review.test.mjs docs/release.md`; check all newly added text and generated fixtures for privacy, no value in diagnostics, same-line compatibility, hash scope and no unrelated changes. Re-run the focused test only if changes after step 4 affect it. Report the test command and results, intentional gaps, and any unverified behavior to the parent. The parent controls commits and review checkpoints unless it directs otherwise.

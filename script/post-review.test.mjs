@@ -454,3 +454,66 @@ test('a path split by a line break after its home directory is still refused', a
   assert.equal(await postReview({ pr: '42', round: '1', by: 'Codex', body: split, repo: 'owner/repo' }, h.runner, h.io), 2)
   assert.equal(h.calls.some(isPost), false)
 })
+
+const generatedOpaque = (length) => Array.from({ length }, (_, i) =>
+  String.fromCharCode(i % 36 < 26 ? 97 + i % 36 : 48 + i % 36 - 26)).join('')
+const generatedHex = (length) => Array.from({ length }, (_, i) => '0123456789abcdef'[i % 16]).join('')
+
+async function checkCredentialCase(body, expected, line, sensitive) {
+  for (const mode of ['review', 'fixes']) {
+    const h = harness()
+    const options = mode === 'review'
+      ? { pr: '42', round: '1', by: 'Codex', body, repo: 'owner/repo' }
+      : { pr: '42', fixes: body, repo: 'owner/repo' }
+    assert.equal(await postReview(options, h.runner, h.io), expected)
+    assert.equal(h.calls.some(isPost), expected === 0)
+    if (expected === 2) {
+      assert.equal(h.calls.length, 0) // refusal precedes identity reads and mutation
+      assert.equal(/credential/.test(h.output().stderr), true)
+      if (line != null) assert.equal(new RegExp(`line ${line}\\b`).test(h.output().stderr), true)
+      if (sensitive) {
+        assert.equal(h.output().stderr.includes(sensitive), false)
+        assert.equal(h.output().stdout.includes(sensitive), false)
+      }
+    }
+  }
+}
+
+test('standalone generated lines respect entropy, boundaries and hashes in both paths', async () => {
+  const opaque = generatedOpaque(32)
+  await checkCredentialCase(`Before\n ${opaque} \nAfter`, 2, 2, opaque)
+  await checkCredentialCase(`Before\n${generatedOpaque(31)}\nAfter`, 0)
+  await checkCredentialCase(`Before\n${'a'.repeat(32)}\nAfter`, 0)
+  const threshold = 'abcdefgh'.repeat(4) // exactly 3 bits per character
+  await checkCredentialCase(`Before\n${threshold}\nAfter`, 2, 2, threshold)
+  await checkCredentialCase(`Before\n${'abcdefg'.repeat(5)}\nAfter`, 0)
+  await checkCredentialCase(`Before\n${opaque}!\nAfter`, 0)
+  await checkCredentialCase(`Before ${opaque} after`, 0)
+  for (const length of [40, 64]) {
+    const hash = generatedHex(length)
+    await checkCredentialCase(`Before\n${hash}\nAfter`, 0)
+    await checkCredentialCase(`Before\n${hash.toUpperCase()}\nAfter`, 0)
+    await checkCredentialCase(hash, 2, 1, hash) // existing whole-body behavior
+  }
+  for (const length of [39, 41, 63, 65]) {
+    const hex = generatedHex(length)
+    await checkCredentialCase(`Before\n${hex}\nAfter`, 2, 2, hex)
+  }
+  const symbols = generatedOpaque(32) + '+/=_-'
+  await checkCredentialCase(`Before\n${symbols}\nAfter`, 2, 2, symbols)
+  const encoded = opaque.replace('a', '%61')
+  await checkCredentialCase(`Before\n${encoded}\nAfter`, 2, 2, opaque)
+  await checkCredentialCase(`Before\n${opaque.slice(0, 8)}\u200b${opaque.slice(8)}\nAfter`, 2, 2, opaque)
+})
+
+test('adjacent secret fields use existing value policy in both paths', async () => {
+  for (const body of ['password:\nsunshine', '"password":\r\nsunshine', "'pwd'=\nsunshine", 'pass%77ord:\nsunshine', 'pass\u200bword:\nsunshine']) {
+    await checkCredentialCase(body, 2, 2, 'sunshine')
+  }
+  await checkCredentialCase('token:\nabc123', 2, 2, 'abc123')
+  await checkCredentialCase('password:\n"sunshine"', 2, 2, 'sunshine')
+  for (const body of ['token:\nrefresh', 'password:\nredacted', 'password:\nabc', 'password:\n\nsunshine', 'password:\n', 'ordinary password:\nsunshine', '"password\':\nsunshine', 'pw:\nsunshine']) {
+    await checkCredentialCase(body, 0)
+  }
+  await checkCredentialCase('The token: refresh handling remains ordinary prose.', 0)
+})

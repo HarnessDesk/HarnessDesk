@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { offendersIn } from './check-secrets.mjs'
+import { isBareCredentialFile, offendersIn } from './check-secrets.mjs'
 
 export const PLACEHOLDER_EMAIL_DOMAINS = Object.freeze(['example.com', 'acme.dev', 'harnessdesk.app'])
 
@@ -124,18 +124,38 @@ const privateLines = (body) => {
 const SECRET_KEY = '[A-Za-z0-9_.-]*(?:authorization|cookie|token|secret|passw(?:or)?d|pwd|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key|credential|session[-_ ]?id|bearer)[A-Za-z0-9_.-]*'
 const KEY_VALUE = new RegExp(`["']?\\b(${SECRET_KEY})["']?\\s*[:=]\\s*["']?(?:(?:bearer|basic|token)\\s+)?([^\\s"',;}\\])]+)`, 'gi')
 const PLACEHOLDER_VALUE = /^(?:[<{[$%]|\.{2,}|…|\*+|x{3,}|-+|<.*>)|^(?:redacted|none|null|undefined|true|false|string|object|array|number|required|optional|empty|unset|hidden|masked|omitted|secret|token|password|value|example|placeholder|changeme|your[-_a-z]*|env|process\.env\S*)$/i
+// Prose may wrap values in backticks or end a sentence with a period. Weak keys
+// allow lowercase prose; strong keys refuse any non-placeholder value of sufficient length.
+const secretFieldValue = (key, rawValue) => {
+  const value = rawValue.replace(/^`+|[`.]+$/g, '')
+  const strongKey = /authorization|cookie|passw(?:or)?d|pwd|secret|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key|credential/i.test(key)
+  const looksSecret = strongKey || /[\dA-Z]|[^a-z-]/.test(value)
+  return value.length >= 4 && looksSecret && !PLACEHOLDER_VALUE.test(value)
+}
 const headerCredentialLines = (source) => source.split(/\r?\n/).flatMap((line, index) => {
   for (const match of line.matchAll(KEY_VALUE)) {
-    // Prose wraps values in backticks and ends sentences after them: judge the value itself.
-    const value = match[2].replace(/^`+|[`.]+$/g, '')
-    // Under a weak key name (token, session id) a value made only of lowercase letters and hyphens reads as prose
-    // ("token: refresh"). Under a key that names a secret outright (password, secret, api key, authorization,
-    // cookie) any non-placeholder value is refused, whatever its case: a plain-word password is an ordinary value.
-    const strongKey = /authorization|cookie|passw(?:or)?d|pwd|secret|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key|credential/i.test(match[1])
-    const looksSecret = strongKey || /[\dA-Z]|[^a-z-]/.test(value)
-    if (value.length >= 4 && looksSecret && !PLACEHOLDER_VALUE.test(value)) return [`line ${index + 1}  [credential in a secret-named field]`]
+    if (secretFieldValue(match[1], match[2])) return [`line ${index + 1}  [credential in a secret-named field]`]
   }
   return []
+})
+// Match a complete key line; judge the next line with the same parser and value policy.
+const SPLIT_KEY = new RegExp(`^[ \\t]*(?:(${SECRET_KEY})|"(${SECRET_KEY})"|'(${SECRET_KEY})')[ \\t]*[:=][ \\t]*$`, 'i')
+const splitCredentialLines = (source) => {
+  const lines = source.split(/\r?\n/)
+  return lines.flatMap((line, index) => {
+    const key = SPLIT_KEY.exec(line)
+    const next = lines[index + 1]
+    if (!key || next == null || !next.trim()) return []
+    KEY_VALUE.lastIndex = 0
+    const match = KEY_VALUE.exec(`${key[1] ?? key[2] ?? key[3]}: ${next.trim()}`)
+    return match && secretFieldValue(match[1], match[2])
+      ? [`line ${index + 2}  [credential in a secret-named field]`] : []
+  })
+}
+const standaloneCredentialLines = (source) => source.split(/\r?\n/).flatMap((line, index) => {
+  const value = line.trim()
+  if (/^(?:[a-f\d]{40}|[a-f\d]{64})$/i.test(value)) return []
+  return isBareCredentialFile(value) ? [`line ${index + 1}  [standalone credential]`] : []
 })
 const bearerLines = (source) => source.split(/\r?\n/).flatMap((line, index) =>
   /\bbearer\s+(?![<{[$])[A-Za-z0-9._~+/=-]{20,}/i.test(line) ? [`line ${index + 1}  [bearer token]`] : [])
@@ -144,7 +164,7 @@ const credentialLines = (body) => {
   const sources = [String(body), decodePrivateText(body).text]
   return [...new Set(sources.flatMap((source) => offendersIn('post', source)
     .filter((entry) => !/rule 13/i.test(entry)) // addresses and home directories: this file's own checks own those
-    .map((entry) => entry.replace(/^post:/, 'line ')).concat(headerCredentialLines(source), bearerLines(source))))]
+    .map((entry) => entry.replace(/^post:/, 'line ')).concat(headerCredentialLines(source), bearerLines(source), splitCredentialLines(source), standaloneCredentialLines(source))))]
 }
 
 const withRepo = (args, repo) => repo ? [...args, '--repo', repo] : args
