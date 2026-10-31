@@ -1,0 +1,33 @@
+{
+  "issue": 1756,
+  "head": "b2e6b6623330a8e9532895f8906382b7e41ef211",
+  "tree": "56ca34138794d39a4f337e3eac5f1cdc091e923c",
+  "frames": [
+    {
+      "name": "unavailable-light.png",
+      "sha256": "0a62229c8733f28c7058d3454e98583d677195b3daca5723d9751cef37275e9f",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "unavailable-dark.png",
+      "sha256": "34309a5a258bff7c127f304ba74532d157271588749088cddf3184f95bfeae08",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "recovered-light.png",
+      "sha256": "4c2ae419b23ef04bffd071011cc50d4f5c8e091993fd3662c6331da11676211c",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "recovered-dark.png",
+      "sha256": "b542f6c7d179b4c60764d6242037b3c3f90d006b91546d7921a5ab9b215d9acf",
+      "width": 2560,
+      "height": 1680
+    }
+  ],
+  "surface": "Production desktop bootstrap with isolated fake-agent rig; unknown, failed and non-repository responses controlled at renderer transport boundary; real Git refresh recovery. No provider or native tooltip-visibility claim.",
+  "privacy": "All four final frames personally inspected; unmodified actual-username/account/path audit passed after synthetic path shortening."
+}
