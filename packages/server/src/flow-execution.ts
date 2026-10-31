@@ -2987,15 +2987,21 @@ export class FlowExecutions {
    * none, the run waits for a person with the reason. Idempotent, and it
    * never discards a card, an answer or a finding.
    */
-  supersedeTriggered(id: string, why: string, next: 'round' | 'person'): Promise<void> {
+  supersedeTriggered(id: string, why: string, next: 'round' | 'person', key: string): Promise<boolean> {
     return this.#queue.within(id, async () => {
       const run = this.#get(id)
       if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
       if (next === 'round') {
-        if (!run.intake.dispatchHeld) await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true } })
-        return
+        // An existing cause is this firing's round, even when a later firing has since landed.
+        if (run.rounds.some((round) => round.cause === `cause:intake:${key}`)) return false
+        // A crash before opening the round must reuse the boundary already saved for this firing.
+        if (run.intake.supersessionKey === key) return true
+        const through = Math.max(run.intake.supersededThrough ?? 0, ...run.rounds.map((round) => round.n))
+        await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true, rearm: [], supersededThrough: through, supersessionKey: key } })
+        return true
       }
       if (run.state === 'running' && run.reason !== why) await this.#stall(id, why)
+      return true
     })
   }
 
@@ -3019,7 +3025,7 @@ export class FlowExecutions {
     for (const controller of this.#checks.get(id) ?? []) controller.abort()
   }
 
-  async #mayDispatch(id: string): Promise<boolean> {
+  async #mayDispatch(id: string, held?: { pending: boolean }): Promise<boolean> {
     const run = this.#get(id)
     if (run.lead) {
       const verdict = await this.#leadGate(id)
@@ -3030,7 +3036,10 @@ export class FlowExecutions {
     const verdict = await this.#gateOf(id)
     if (verdict.ok) return true
     // Gated, but by a hold that is already being cleaned up under its own reason: holding again would replace it with this sentence.
-    if (verdict.pending) return false
+    if (verdict.pending) {
+      if (held) held.pending = true
+      return false
+    }
     if (verdict.transient) await this.#hold(id, verdict.reason)
     else await this.#stall(id, verdict.reason)
     return false
@@ -3105,15 +3114,14 @@ export class FlowExecutions {
    * A Seat's turn ended while its run was held by a pause or the cap: it is
    * handed its card again once the hold lifts, never while it stands.
    */
-  async #noteHeld(id: string, operation: FlowOperation): Promise<void> {
+  async #noteHeld(id: string, operation: FlowOperation, pending: boolean): Promise<void> {
     /* Held, or about to be: a hold whose cleanup the budget watch has not
        finished is not on the run yet, and the Seat whose turn ended meanwhile
        is handed its card when the hold is released all the same. */
-    if (!this.#get(id).intake?.heldFor) {
-      const gate = await this.#gateOf(id)
-      if (gate.ok || !gate.pending) return
-    }
     const run = this.#get(id)
+    // A supersede hold has no hold reason: its old cards must not return.
+    if (run.intake?.dispatchHeld && !run.intake.heldFor) return
+    if (!run.intake?.heldFor && !pending) return
     if (!run.intake || run.intake.rearm?.includes(operation.key)) return
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
     if (!card || done(card)) return
@@ -4316,8 +4324,10 @@ export class FlowExecutions {
   async #reArm(id: string, operation: FlowOperation, why: 'turn-ended' | 'released' | 'relaunched' = 'turn-ended'): Promise<void> {
     const run = this.#get(id)
     if (run.state !== 'running' || this.#continued(run)) return
-    if ((run.intake || run.lead) && !await this.#mayDispatch(id)) {
-      await this.#noteHeld(id, operation)
+    if (operation.card !== null && run.rounds.some((round) => round.n <= (run.intake?.supersededThrough ?? 0) && round.cards.includes(operation.card!))) return
+    const held = { pending: false }
+    if ((run.intake || run.lead) && !await this.#mayDispatch(id, held)) {
+      await this.#noteHeld(id, operation, held.pending)
       return
     }
     const seat = this.#port.seatOf(operation.seat!)
@@ -4377,8 +4387,9 @@ export class FlowExecutions {
          reopening must still hold or stall the run instead of handing the
          card back on spend that is no longer current (#939): read the gate
          again now, right before the card is actually handed back. */
-      if ((run.intake || run.lead) && !await this.#mayDispatch(id)) {
-        await this.#noteHeld(id, operation)
+      held.pending = false
+      if ((run.intake || run.lead) && !await this.#mayDispatch(id, held)) {
+        await this.#noteHeld(id, operation, held.pending)
         return
       }
     }

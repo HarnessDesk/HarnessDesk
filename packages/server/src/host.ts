@@ -1292,7 +1292,7 @@ export class Host {
           return cwd && root ? { cwd, root } : null
         },
         admitWrite: async (verb, scope, args) => {
-          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '' }
+          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '', associatedPullRequest: '' }
           const result = await this.#ceilingGate.admit({ tool: verb === 'comment' && (args as { subject?: string })?.subject === 'issue' ? 'issue_comment' : names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
             scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!), ...(scope.turnId ? { turnId: scope.turnId as TurnId } : {}) }, publishes: true })
           if (!result.admitted) throw new Error(result.refusal)
@@ -2340,7 +2340,7 @@ export class Host {
         startTriggered: (request) => this.#flows.startTriggered(request),
         againTriggered: (run, key, evidence) => this.#flows.againTriggered(run, key, evidence),
         resumeTriggered: (run) => this.#flows.resumeTriggered(run),
-        supersedeTriggered: (run, why, next) => this.#flows.supersedeTriggered(run, why, next),
+        supersedeTriggered: (run, why, next, key) => this.#flows.supersedeTriggered(run, why, next, key),
         runs: (goal) => this.#flows.executionsFor(goal),
         execution: (run) => this.#flows.executionOf(run),
         stopRun: async (run, why) => { await this.#flows.stopRun(run, why, 'desk') },

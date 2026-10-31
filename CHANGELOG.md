@@ -15,6 +15,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Open Teams use less CPU.** The desk no longer asks git the same questions about the same project folders over and over while it reads evidence and findings, and asks where a branch stands only after it has moved: a measured Lead run started about a third as many git processes and finished in under half the time.
 
+- **Detached conversations can find their own pull request.** Omitting the number in view, checks, review or comment uses that conversation's unique recorded open PR. Ambiguous cases still ask for a number; detached updates remain refused.
 - **Lead can repeat an approved plan, take a second look at a stop, and warn at 80% of its allowance.** Manage repeats and their last runs in Settings; raise a running goal's limits directly while keeping every publishing decision separate.
 
 - **Lead is a conversation first.** Ask questions directly, or ask it to start, read, message and stop ordinary chats in its project. Simple tasks no longer need an implementer and independent reviewer. Reviewed work keeps its approval gates; setup problems explain what to change instead of repeating Resume.

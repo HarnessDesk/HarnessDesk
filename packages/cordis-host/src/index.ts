@@ -75,6 +75,6 @@ export {
   withBrowserIdentity,
   type BrowserIdentity,
 } from './browser-scopes.js'
-export { validateForgeArgs, type ForgeVerb, type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeRequester, type ForgeGitEntry, type ForgeWriteResult, ForgeService, setForgeEngine, type ForgeEngine, type ForgeIdentity, type ForgeScope, type ForgeSeat } from './forge.js'
+export { validateForgeArgs, type ForgeVerb, type ForgeAssociatedPullRequest, type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeRequester, type ForgeGitEntry, type ForgeWriteResult, ForgeService, setForgeEngine, type ForgeEngine, type ForgeIdentity, type ForgeScope, type ForgeSeat } from './forge.js'
 export { IosService, type SimDevice } from './ios.js'
 export { AndroidService, type AndroidDevice } from './android.js'

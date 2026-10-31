@@ -973,7 +973,8 @@ directory with an immutable configuration snapshot. Included and global settings
 flattened into that snapshot; include paths and the repository's filter
 definitions are omitted. Global and system includes are evaluated from the
 repository's folder, so a conditional include for that repository applies;
-only those two scopes contribute filter definitions, with other Git environment
+an `onbranch` include selects using the repository's HEAD. Only those two scopes
+contribute filter definitions, with other Git environment
 configuration removed. The filters the person's own configuration defines are
 the one thing added: they are read apart from repository configuration by the
 `--system` and `--global` scopes alone (the system file only where `GIT_CONFIG_NOSYSTEM` would let git read it), and a file that is not
@@ -4480,6 +4481,8 @@ reopening instead of contesting it as foreign work. Shutdown freezes usage reads
 before their sources disappear; a new host rebuilds those readings before it can
 admit work.
 ## Every git write goes through one gateway, and the host holds the credential
+
+`Detached default PR selection belongs to the creating conversation.` When a detached conversation omits a PR number, view, checks, review and comment select only its intact successful creation records in the current pinned repository. Every recorded candidate is fetched explicitly and must retain its creation head; exactly one open match is required. Ambiguous or unavailable evidence requires an explicit number. Selection survives a host restart for the same runtime/session and does not transfer to another conversation. Attached and explicit selection retain their existing meaning, and detached PR updates remain refused. The host and repository remain pinned through the associated reads; lookup grants no write authority. The journal snapshot is serialized with repository work; network reads do not hold up other repository writes, and an interrupted caller schedules no further candidates after its current bounded read.
 
 The git-gateway design reverses the shell-reach part of
 [A pull request is published through the desk](#a-pull-request-is-published-through-the-desk-and-the-desk-signs-it).
