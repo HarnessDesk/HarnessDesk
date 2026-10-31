@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import { runtimeId, type RuntimeId } from '@harnessdesk/protocol'
 
@@ -28,7 +28,7 @@ const isUnder = (candidate: string, parentDir: string): boolean => {
     resolvedCandidate = realpathSync.native(resolvedCandidate)
   } catch {}
   const rel = relative(resolvedParent, resolvedCandidate)
-  return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
+  return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
 }
 
 /**
@@ -411,13 +411,13 @@ export class AccountSlots {
     const slot = selected === undefined ? this.find(id)
       : this.#slots.find(entry => entry === selected && entry.id === id) ?? null
     if (!slot) return null
-    // A registered owner can select its exact row even when another agent's
+    // A registered owner can select the saved slot object even when another agent's
     // ignored row precedes it. The id-only API forgets just the first match.
     this.#slots = this.#slots.filter((entry) => entry !== slot)
     this.#write()
     if (purge) {
       if (this.#homeStillReferenced(slot.home)) {
-        this.log?.('account slot home kept for a retained row', { home: slot.home })
+        this.log?.('account slot home kept for a retained row')
         return slot
       }
       // Only ever the farm: every shared entry inside it is a symlink, and
@@ -443,13 +443,17 @@ export class AccountSlots {
 
   /** A hand-edited roster may share, alias or nest credential homes. */
   #homeStillReferenced(home: string): boolean {
-    const physical = (path: string): string => {
-      try { return realpathSync.native(path) } catch { return resolve(path) }
+    if (this.#slots.length === 0) return false
+    // An unreadable or missing path may conceal an alias. Keep the removed
+    // home when either side cannot be resolved, even if that leaves an orphan.
+    const physical = (path: string): string | null => {
+      try { return realpathSync.native(path) } catch { return null }
     }
     const removed = physical(home)
+    if (removed === null) return true
     return this.#slots.some(entry => {
       const retained = physical(entry.home)
-      return retained === removed || isUnder(retained, removed) || isUnder(removed, retained)
+      return retained === null || retained === removed || isUnder(retained, removed) || isUnder(removed, retained)
     })
   }
 

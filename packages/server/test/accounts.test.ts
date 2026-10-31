@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import childProcess from 'node:child_process'
 import { syncBuiltinESMExports } from 'node:module'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -277,7 +277,7 @@ for (const cleanup of ['empty', 'duplicate'] as const) {
 }
 
 for (const purge of [false, true]) {
-  for (const arrangement of ['separate', 'same', 'target contains retained', 'retained contains target', 'alias'] as const) {
+  for (const arrangement of ['separate', 'same', 'target contains retained', 'target contains dotdot-named retained', 'retained contains target', 'alias'] as const) {
     test(`removing the first duplicate-id row preserves the retained row and its ${arrangement} home, purge=${purge}`, async t => {
       const root = await home()
       t.after(() => rm(root, { recursive: true, force: true }))
@@ -285,6 +285,7 @@ for (const purge of [false, true]) {
       const target = join(accounts, arrangement === 'retained contains target' ? 'parent/child' : 'target')
       const retained = arrangement === 'same' ? target
         : arrangement === 'target contains retained' ? join(target, 'nested')
+        : arrangement === 'target contains dotdot-named retained' ? join(target, '..saved')
         : arrangement === 'retained contains target' ? join(accounts, 'parent')
         : join(accounts, 'retained')
       await mkdir(target, { recursive: true })
@@ -311,7 +312,73 @@ for (const purge of [false, true]) {
   }
 }
 
-test('an exact account removal refuses copied, mismatched and already-removed selectors', async t => {
+test('an unresolved retained alias conservatively keeps the removed home', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const target = join(root, 'accounts', 'target')
+  const alias = join(root, 'accounts', 'alias')
+  await mkdir(target, { recursive: true })
+  await writeFile(join(target, 'keep.txt'), 'retained data')
+  await symlink(target, alias)
+  const rows = [
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: target, createdAt: 1 },
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: alias, createdAt: 2 },
+  ]
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: rows }))
+  const slots = new AccountSlots(file)
+  const original = realpathSync.native
+  try {
+    realpathSync.native = ((path: Parameters<typeof original>[0], options?: Parameters<typeof original>[1]) => {
+      if (path === alias) throw Object.assign(new Error('synthetic failure'), { code: 'EACCES' })
+      return original(path, options as never)
+    }) as typeof original
+    slots.remove(FAKE_RUNTIME_ID)
+  } finally { realpathSync.native = original }
+  assert.deepEqual(new AccountSlots(file).list(), [rows[1]])
+  assert.equal(await readFile(join(alias, 'keep.txt'), 'utf8'), 'retained data')
+})
+
+test('a dangling retained alias conservatively keeps an otherwise unshared home', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const target = join(root, 'accounts', 'target')
+  const alias = join(root, 'accounts', 'alias')
+  await mkdir(target, { recursive: true })
+  await writeFile(join(target, 'keep.txt'), 'retained conservatively')
+  await symlink(target, alias)
+  const rows = [
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: target, createdAt: 1 },
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: alias, createdAt: 2 },
+  ]
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: rows }))
+  const slots = new AccountSlots(file)
+  assert.equal(slots.list().length, 2)
+  await rm(alias)
+  await symlink(join(root, 'accounts', 'missing'), alias)
+  slots.remove(FAKE_RUNTIME_ID)
+  assert.deepEqual(slots.list(), [rows[1]])
+  assert.equal(await readFile(join(target, 'keep.txt'), 'utf8'), 'retained conservatively')
+})
+
+test('a real parent-directory escape is refused even with a dotdot-prefixed sibling', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const outside = join(root, '..saved')
+  await mkdir(outside, { recursive: true })
+  await writeFile(join(outside, 'keep.txt'), 'outside')
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: [
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: join(root, 'accounts', '..', '..saved'), createdAt: 1 },
+  ] }))
+  const slots = new AccountSlots(file)
+  assert.deepEqual(slots.list(), [])
+  slots.pruneEmpty(FAKE_RUNTIME_ID)
+  assert.equal(await readFile(join(outside, 'keep.txt'), 'utf8'), 'outside')
+})
+
+test('account removal requires the saved slot object and refuses copies, mismatches and stale selectors', async t => {
   const root = await home()
   t.after(() => rm(root, { recursive: true, force: true }))
   const rows = ['retained', 'selected'].map((name, index) => ({
