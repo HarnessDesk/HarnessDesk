@@ -10,19 +10,28 @@ import { ciCommands, gateCommands, missingFromCI } from './check-verify-drift.mj
 const unit = { command: 'pnpm', args: ['--filter', '@harnessdesk/ui', 'run', 'test'] }
 const command = 'pnpm --filter @harnessdesk/ui run test'
 
-test('Lead end-to-end tests have a dedicated 600s run outside every ordinary Node run', () => {
-  const file = 'packages/server/dist/test/lead-e2e.test.js'
-  const exclusion = `! -path '${file}'`
+test('every Node test group verify runs is run in CI through the manifest’s jobs', () => {
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   const verify = gateCommands(readFileSync(new URL('./verify.mjs', import.meta.url), 'utf8'))
   const workflow = ciCommands(readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'))
-  for (const [name, commands] of [['verify', verify], ['CI', workflow]]) {
-    const ordinary = commands.find(entry => entry.command === 'bash' && entry.args.some(arg => arg.includes('find packages/*/dist/test')))
-    assert.ok(ordinary?.args.some(arg => arg.includes(exclusion)), `${name} excludes Lead e2e from the 120s run`)
-    assert.equal(commands.filter(entry => entry.command === 'node' && entry.args.join(' ') === `--test --test-timeout=600000 ${file}`).length, 1, `${name} runs Lead e2e once at 600s`)
+  const groups = verify.filter(entry => entry.command === 'node' && entry.args[0] === 'script/node-tests.mjs')
+  assert.deepEqual(groups.map(entry => entry.args.join(' ')), ['unit', 'end-to-end', 'retention', 'lead', 'lead-e2e']
+    .map(group => `script/node-tests.mjs --group ${group}`), 'verify runs each group once, by name')
+  assert.deepEqual(missingFromCI(groups, workflow), [], 'CI runs them as the dealt jobs')
+  assert.ok(manifest.scripts.test.includes('node script/node-tests.mjs &&'), 'pnpm test runs every group')
+  assert.equal(verify.some(entry => entry.args.some(arg => /dist\/test/.test(arg))), false, 'no test file is named outside the manifest')
+})
+
+test('only the exact job command stands for a Node test group', () => {
+  const group = { command: 'node', args: ['script/node-tests.mjs', '--group', 'unit'] }
+  const line = 'node script/node-tests.mjs --group unit'
+  assert.deepEqual(missingFromCI([group], ciCommands('steps:\n  - run: node script/node-tests.mjs --job $NODE_JOB\n')), [])
+  for (const run of ['node script/node-tests.mjs --job node22-1', 'node script/node-tests.mjs --job $OTHER', 'node script/node-tests.mjs --job $NODE_JOB --bail', 'node other.mjs --job $NODE_JOB']) {
+    assert.deepEqual(missingFromCI([group], ciCommands(`steps:\n  - run: ${run}\n`)), [line], run)
   }
-  assert.ok(manifest.scripts.test.includes(exclusion), 'pnpm test excludes Lead e2e from the 120s run')
-  assert.ok(manifest.scripts.test.includes(`node --test --test-timeout=600000 "${file}"`), 'pnpm test runs Lead e2e at 600s')
+  assert.deepEqual(missingFromCI([group], ciCommands('steps:\n  - run: |\n      node script/node-tests.mjs --job $NODE_JOB\n      echo done\n')), [line], 'a block cannot supply it')
+  const other = { command: 'node', args: ['script/node-tests.mjs'] }
+  assert.deepEqual(missingFromCI([other], ciCommands('steps:\n  - run: node script/node-tests.mjs --job $NODE_JOB\n')), ['node script/node-tests.mjs'], 'only a named group is dealt')
 })
 
 // Dealt filenames stand for the whole suite only in the unconditional,

@@ -142,7 +142,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     journal.state.cards.find((card): card is Extract<LeadCard, { type: T }> => card.type === type && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
   const personGates = () => journal.state.runs.flatMap(run => host.teamPlane.stateFor(run.teamId).intents.filter(card => card.role === 'accept'))
   const worktrees = () => [...new Set(host.flowsPlane.leadRuns().flatMap(run => Object.values(run.seatPlans ?? {}).flatMap(plan => plan.handed.map(checkout => checkout.cwd))))]
-  const releaseWorkers = async () => { for (const marker of ['write', 'repair', 'review', 'followRepair']) await writeFile(join(gates, marker), '') }
+  const releaseWorkers = async (markers = ['write', 'repair', 'review', 'followRepair']) => { for (const marker of markers) await writeFile(join(gates, marker), '') }
   const restoreEnvironment = () => {
     if (previousHome === undefined) delete process.env['HARNESSDESK_HOME']; else process.env['HARNESSDESK_HOME'] = previousHome
     if (previousPath === undefined) delete process.env['PATH']; else process.env['PATH'] = previousPath
@@ -287,7 +287,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       }
       return [text('Waiting for fresh worker checks and review.')]
     }
-    provider = enabled ? await leadMessagesServer(reply, () => options.holdOrdinaryContinuation === true ? provider.requests.length === 2 : options.holdRunning === true ? journal?.state.runs.length > 0 : options.holdPlanning === true || options.scenario === 'interrupted') : {
+    provider = enabled ? await leadMessagesServer(reply, () => options.premature === true ? !prematureStart && journal?.state.runs.length > 0 && journal.state.steps.some(step => step.id === 'second' && step.state === 'pending') : options.holdOrdinaryContinuation === true ? provider.requests.length === 2 : options.holdRunning === true ? journal?.state.runs.length > 0 : options.holdPlanning === true || options.scenario === 'interrupted', options.premature === true) : {
       requests: [], pending: false, transport: { async send() { throw new Error('disabled provider') } }, release() {}, interrupt() {}, async close() {},
     }
     const setupHost = async () => {
@@ -456,7 +456,8 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       await service.setEnabled(true)
     }
     if (options.workerSpend) {
-      // This process-wide patch requires all tests in lead-e2e.test.ts to stay sequential (concurrency: false).
+      // This process-wide patch requires the cases of each lead-e2e-*.test.ts file to stay sequential (concurrency: false);
+      // the files run in processes of their own.
       // The Lead's meter reads its Seats' sessions; the patch covers that read and the whole-project one.
       const readInsight = Ledger.prototype.readInsight, readSessions = Ledger.prototype.readSessions
       restoreUsage = () => { Ledger.prototype.readInsight = readInsight; Ledger.prototype.readSessions = readSessions }
@@ -475,7 +476,14 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       if (options.offlineForge && choice === 'accept-open-pr') personPublication = true
       try { return await host.call('lead/card/decide', {
       version: 1, cardId: card.id, cardType: card.type, expectedRevision: card.revision, contractDigest: card.contractDigest, choice,
-      }) } finally { personPublication = false }
+      }) } catch (error) {
+        // A refused decision names what moved under it: the card, the contract or the phase.
+        const state = journal.state, now = state.cards.find(one => one.id === card.id)
+        throw Object.assign(new Error(`${(error as Error).message}: decided ${card.type} ${card.id}@${card.revision} (${card.contractDigest}) as ${choice}; ` +
+          `now ${now ? `@${now.revision} (${now.contractDigest})` : 'gone'}, contract ${state.contract?.digest ?? 'none'}, phase ${state.phase}, ` +
+          `decided [${state.decidedCards.join(', ')}], recoveryBlocked ${!!state.recoveryBlocked}, budgetStop ${!!state.budget?.stop}, ` +
+          `publication ${state.publication?.stage ?? 'none'}, card changed ${JSON.stringify(now) !== JSON.stringify(card)}`), { cause: error, wireCode: (error as { wireCode?: unknown }).wireCode })
+      } finally { personPublication = false }
     }
     const sendGoal = () => host.call('lead/thread/send', { idempotencyKey: `goal-${journal.state.seq}`, text: task })
     const settle = async () => { await host.flowsPlane.flush(); await sleep(150); await host.flowsPlane.flush() }

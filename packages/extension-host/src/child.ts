@@ -180,6 +180,7 @@ const remoteForgeEngine: ForgeEngine = {
   review: (args, scope) => askHost('forge/review', { args, scope }),
   comment: (args, scope) => askHost('forge/comment', { args, scope }),
   repository: scope => askHost('forge/repository', { args: {}, scope }),
+  associatedPullRequest: scope => askHost('forge/associatedPullRequest', { args: {}, scope }),
   record: (args, scope) => askHost('forge/record', { args, scope }),
   attribute: (args, scope) => askHost('forge/attribute', { args, scope }),
   seat: (scope) => askHost('forge/seat', { scope }),
