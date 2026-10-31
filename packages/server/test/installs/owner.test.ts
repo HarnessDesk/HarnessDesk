@@ -116,6 +116,45 @@ for (const operation of ['launch', 'executable'] as const) {
   })
 }
 
+for (const heldCheck of ['preflight', 'daemon'] as const) {
+  test(`a retired launch returns no decision after a held ${heldCheck} check`, async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-install-check-owner-'))
+    const store = new AgentRegistryStore(join(dir, 'agents.json'))
+    const entered = deferred()
+    let release!: (result: { ok: boolean; output: string }) => void
+    const gate = new Promise<{ ok: boolean; output: string }>((resolve) => { release = resolve })
+    const checks: string[] = []
+    const installs = new InstallService({ stateDir: dir, store, locate: {
+      home: dir, env: { PATH: '/fixture/bin' }, exists: (path) => path === '/fixture/bin/openclaw',
+      realpath: (path) => path, probe: async () => '2026.10.1',
+    }, check: async (spec) => {
+      const kind = spec.args?.[0] === 'config' ? 'preflight' : 'daemon'
+      checks.push(kind)
+      if (kind === heldCheck) { entered.resolve(null); return gate }
+      return { ok: true, output: '' }
+    } })
+    t.after(async () => { release({ ok: false, output: 'fixture refused' }); await rm(dir, { recursive: true, force: true }) })
+    store.add({ id, name: 'Previous program', agent: 'openclaw', command: 'old-fallback' })
+    const oldConfig = store.configs()[0]!
+    const oldOwner = {}
+    installs.register(id, oldOwner)
+    const pending = installs.launchFor(oldConfig, 'start', oldOwner)
+    await entered.promise
+    assert.deepEqual(checks, heldCheck === 'preflight' ? ['preflight'] : ['preflight', 'daemon'])
+    installs.forget(id)
+    assert.equal(installs.last(id), null)
+    store.patch(id, { command: 'new-fallback' })
+    const newOwner = {}
+    installs.register(id, newOwner)
+    const current = await installs.describe(store.configs()[0]!, empty, newOwner)
+    assert.equal(current?.fallback?.command, 'new-fallback')
+    release({ ok: false, output: 'fixture refused' })
+    assert.equal(await pending, null, 'a retired check cannot return a launch decision')
+    assert.deepEqual(installs.last(id), current, 'a retired check cannot replace current metadata')
+    assert.deepEqual(checks, heldCheck === 'preflight' ? ['preflight'] : ['preflight', 'daemon'])
+  })
+}
+
 test('a real retired ACP start cannot publish its late first executable scan', async (t) => {
   const { AcpRuntime } = await import('@harnessdesk/adapter-acp')
   const dir = await mkdtemp(join(tmpdir(), 'hd-install-late-first-'))
