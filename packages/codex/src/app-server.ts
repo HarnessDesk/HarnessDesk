@@ -376,6 +376,8 @@ export class CodexAppServer {
   }
 
   #onStdout(child: ChildProcessWithoutNullStreams, chunk: string): void {
+    // Stop and current-child exit already reject pending calls and change state.
+    // Retired notifications are discarded; stderr remains informational logs.
     if (this.#child !== child) return
     let messages: unknown[]
     try {
