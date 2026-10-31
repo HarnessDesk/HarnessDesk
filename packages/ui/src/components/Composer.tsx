@@ -39,6 +39,7 @@ import {
   MenuLabel,
   Text,
 } from '../design'
+import { LeadChatNotice } from './LeadChatNotice'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { HoldingMessagesChip, RoomMessagesHeld } from './RoomMessaging'
 import { ComposerNoticeStack } from '../design'
@@ -1115,6 +1116,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Pr
       <ComposerNoticeStack>
         <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`composer:${mount?.id ?? 'unmounted'}`} />
         <ComposerNotices />
+        {session && key && <LeadChatNotice runtime={session.runtime} sessionId={session.id} />}
         {storedRecoverable.map(({ key: ownerKey, item }) => (
           <ComposerNotice
             key={`stored-${ownerKey}-${item.id}`}

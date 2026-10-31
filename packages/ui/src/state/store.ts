@@ -1039,7 +1039,11 @@ export class AppStore {
     const epoch = this.#leadCapabilityEpoch
     try {
       const hello = await this.transport.request('host/hello', { clientVersion: '0.1.0' })
-      if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') { this.#patch({ leadAvailable: hello.capabilities?.lead === true }); this.#readPhoneLink(hello.capabilities?.phone === true) }
+      if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') {
+        this.#patch({ leadAvailable: hello.capabilities?.lead === true })
+        this.#readPhoneLink(hello.capabilities?.phone === true)
+        if (this.#snapshot.leadAvailable) void this.lead.readChatControl().catch(() => {})
+      }
     } catch { /* Remain disabled until the host can prove the capability. */ }
   }
 
@@ -1058,6 +1062,7 @@ export class AppStore {
       leadAvailable: capabilityEpoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open' && hello.capabilities?.lead === true,
     })
     this.#readPhoneLink(hello.capabilities?.phone === true)
+    if (this.#snapshot.leadAvailable) void this.lead.readChatControl().catch(() => {})
     // The local index does not wait for an agent or its account catalogue.
     const history = this.loadHistory({ reset: true })
     // Preferences first: they may restore the runtime the user last worked

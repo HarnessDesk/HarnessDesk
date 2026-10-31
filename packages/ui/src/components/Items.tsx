@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react'
 
@@ -122,7 +123,7 @@ import {
 import { transcriptToolTitle } from '../lib/transcript-tool-title'
 import { surfaceFor } from '../lib/notice-policy'
 import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
-import { isAgentMessageSource, splitContextContent, wrapContext } from '../lib/context-envelope'
+import { LEAD_MESSAGE_PREFIX, isLeadMessageSource, leadMessageKey, leadMessageWords, isAgentMessageSource, splitContextContent, wrapContext } from '../lib/context-envelope'
 import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
 import { Markdown } from './Markdown'
 import { Publication } from './Publication'
@@ -492,8 +493,22 @@ const UserText = ({ text }: { text: string }) => {
   )
 }
 
+const EMPTY_LEAD_CHATS: readonly { readonly sent: readonly string[] }[] = []
+const noLeadSubscription = () => () => {}
+/** Only an exact envelope recorded by the host earns the sender label. */
+const useLeadSentKeys = (): ReadonlySet<string> => {
+  const store = useStore()
+  const chats = useSyncExternalStore(store.lead?.subscribe ?? noLeadSubscription, () => store.lead?.state.chats ?? EMPTY_LEAD_CHATS)
+  return useMemo(() => new Set(chats.flatMap(chat => chat.sent)), [chats])
+}
+
 const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number }) => {
   const { injections, text } = splitContextContent(item.content)
+  const leadKeys = useLeadSentKeys()
+  const isLead = (block: { label: string; text: string }) =>
+    isLeadMessageSource(block.label) && leadKeys.has(leadMessageKey(wrapContext(block.label, block.text)))
+  const leadBlocks = injections.filter(isLead)
+  const folded = injections.filter(block => !isLead(block))
   const attachments = item.content.filter((part) => part.type !== 'text')
   const images = imagesOf(item)
   const singleImage = images.length === 1
@@ -504,9 +519,9 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
        option rather than something `align="end"` did silently, since the
        room's `ChannelMessage` also aligns "start" and keeps a different look. */
     <Message align="end" rhythm="transcript">
-      {(injections.length > 0 || (item.context?.length ?? 0) > 0) && (
+      {(folded.length > 0 || (item.context?.length ?? 0) > 0) && (
         <div style={{ alignSelf: 'stretch' }}>
-          {injections.map((injection, index) => (
+          {folded.map((injection, index) => (
             <ContextInjection key={index} label={injection.label} text={injection.text} />
           ))}
           {/* Peeled off by the adapter, because the shape of the wrapper is
@@ -588,6 +603,13 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
           })}
         </div>
       )}
+      {leadBlocks.map((block, index) => (
+        <MessageContent key={`lead-${index}`} align="end" data-lead-message="">
+          <Text role="meta" ink="secondary">Sent by {block.label.slice(LEAD_MESSAGE_PREFIX.length)}</Text>
+          <UserText text={leadMessageWords(block.text)} />
+          <UserMessageFooter text={leadMessageWords(block.text)} at={item.startedAt ?? sentAt} />
+        </MessageContent>
+      ))}
       {text.length > 0 && (
         // The surface and its footer, in the same MessageContent the room's
         // own body and trouble line stand in — genuine structure, not a

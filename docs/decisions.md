@@ -4895,3 +4895,24 @@ Measured on built pages, two workers:
   read) and 2,116 (both themes) to 368; wall time for the whole family went
   from 1,067 seconds to 190. The durations tables scale the recorded times by
   these ratios until CI records them.
+
+
+## Lead message provenance is verified and chat control belongs to the person — 2026-10-30
+
+A sender label is text anyone can type. The host composes the Lead envelope and
+records its exact digest; only a matching record earns `Sent by <name>`. An
+unknown envelope stays folded context. Failing closed loses a label, not a
+boundary. The envelope keeps the name at send time, so a later rename never
+rewrites an old sender.
+
+The host checks chat holders at Lead send and stop admission and at queue
+delivery. A prompt is advice; a host refusal enforces the person's decision.
+Take over removes waiting Lead messages and preserves the person's queue.
+A message already sending was admitted before take over and may finish, as
+with the person's ordinary queue. Hand back sends nothing and the Lead reads
+the chat on its next activity wake.
+
+Only the button takes over. A person's message is not a hand-over: they can add
+a word to the Lead's work without ending its hold. The composer stays usable
+under either holder. These controls grant no permissions, approval answers or
+Flow authority.
