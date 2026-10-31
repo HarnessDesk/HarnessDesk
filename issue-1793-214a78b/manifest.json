@@ -1,0 +1,52 @@
+{
+  "issue": 1793,
+  "pr": 1950,
+  "head": "214a78b6abcb3e8184338b49425842e1a1131fc4",
+  "tree": "8a16262d4988bd5da62e2dc027b512533ebfaf5a",
+  "surface": "Synthetic primary runtime, existing gateway dialog and primary credential detail, both actual themes. No real account or gateway created.",
+  "privacy": "Two mounted App stores; unchanged whole-document and independent account auditors; fourteen audits and two hidden-account refusal controls. Parent inspected both new detail frames; other four PNG hashes equal previously inspected frames. Unknown snapshot objects refused; source-vouched UI registries classified.",
+  "frames": [
+    {
+      "theme": "light",
+      "width": 1100,
+      "height": 900,
+      "sha256": "1932a58cb202bd251dea895efeedb7c1b7d9a60dfb11e0565a5facb7421cfbfa",
+      "name": "primary-light.png"
+    },
+    {
+      "theme": "light",
+      "width": 1100,
+      "height": 900,
+      "sha256": "003bcf2f611e46d292dc8e75bfd65502b384d0d878c607c2232e3dd962775267",
+      "name": "gateway-light.png"
+    },
+    {
+      "theme": "light",
+      "width": 1100,
+      "height": 900,
+      "sha256": "70966736f0613ac4e3ffce86aeda1a2ca404ee7d78736fe141ba14eac201bd33",
+      "name": "credential-home-light.png"
+    },
+    {
+      "theme": "dark",
+      "width": 1100,
+      "height": 900,
+      "sha256": "1b7648978fb6d5f228cacf20cb4df617a1c9ada167518f17dd44502adf3fb08b",
+      "name": "primary-dark.png"
+    },
+    {
+      "theme": "dark",
+      "width": 1100,
+      "height": 900,
+      "sha256": "ff85983a15ded99780112209d36f43ab31dfd3790711568a34c6abc8df6bb156",
+      "name": "gateway-dark.png"
+    },
+    {
+      "theme": "dark",
+      "width": 1100,
+      "height": 900,
+      "sha256": "2f4ff2560fb1caeb1c68d703cebe852808eea3bd1019ecbd61fcc14b35827cef",
+      "name": "credential-home-dark.png"
+    }
+  ]
+}
