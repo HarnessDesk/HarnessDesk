@@ -4782,6 +4782,120 @@ refused. That is a person's race too, and is fixed in the Lead, not the test
 read to give it, read again on every use, never on time or a path alone; a
 mark too new to tell the next change from is no mark.
 
+## The popup contracts are captured once and checked many times — 2026-10-31
+
+The 73 `frame-*` contract specs took about 414 of 653 recorded test-minutes in
+the full matrix and 103 of 270 in the pull-request matrix
+(`e2e/ui-system/durations*.json`). The eight `frame-contract-popup-*` specs
+were the largest family, 7,600 and 1,240 seconds. Each of their tests opened
+one wall destination at one width in one theme and measured its popups. Of the
+3.3 seconds a test took on built pages, opening the preview was about 2.2:
+every test's fresh context fetched and ran the 9.8 MB bundle again. Measuring
+was 0.2–0.5 seconds of round trips, and a dark test rendered the same geometry
+a second time.
+
+They are now captured once and checked many times:
+
+- **One render per destination and width.** A test takes a batch of up to ten
+  destinations at one width through one page, so the bundle stays in the HTTP
+  cache and a load takes 0.8–1.4 seconds. Nothing else carries over between
+  destinations: an init script empties local and session storage as each
+  document starts (the app writes drafts on `pagehide`, so clearing before
+  navigating is not enough), and the app keeps nothing in IndexedDB or
+  cookies. The preview fixture's route turns the cache off, so it is installed
+  only for a destination whose document asks for the local preview, which is
+  then staged again with it.
+- **One read per theme.** `frame-contract-popup-snapshot.ts` reads every
+  visible popup in one evaluate, then switches the page to dark in place (the
+  body attribute, `color-scheme` and the emulated media, with colour
+  transitions finished) and reads again. A destination with no popup has
+  nothing to read in dark and is not switched.
+- **The rules are pure functions.** `frame-contract-popup-rules.ts` holds the
+  C10 assertions with their messages and runs over each reading in Node. The
+  four locator helpers other frame specs call now read a surface once and call
+  the same rules, so there is one copy of each. `popup-contract-rules.spec.ts`
+  breaks each fact of a synthesised snapshot, 90 cases, and expects the rule
+  to name it; it starts no browser.
+- **A failure still names its destination and width.** A batch carries on past
+  a failing destination, attaches that destination's snapshot, and fails at the
+  end naming each one. The width stays a dimension of its own.
+
+What licenses it was measured on built pages, two workers:
+
+- A reused page reads what a fresh context reads: 576 of 576 destination-widths
+  produced identical snapshots.
+- The switched page reads what a dark load reads: 135 of 135 popup readings
+  were identical. `popup-theme-switch.spec.ts` keeps six destinations, one of
+  every popup kind and ink, on that comparison.
+- The rules catch what the live checks caught: 20 CSS mutations of plates,
+  rows, labels, hints, icons, separators, groups, notes, trailing values,
+  chevrons, info cards and inks, across the 45 popup destinations at 1440, and
+  the unmutated page. Old and new failed on exactly the same destinations in
+  945 of 945 cases; every mutation was caught by both.
+- Time, the popup family: the pull-request matrix went from 1,596 to 1,000
+  test-seconds (809 to 509 seconds of wall time) while gaining the dark ink
+  it never read; the full matrix's light and dark runs, 3,232 test-seconds,
+  are the same 1,000.
+
+Geometry is now read in light in every matrix; the 2026-10-30 measurement found
+dark geometry caught nothing light did not. Dark ink is read from a switched
+page rather than a dark load, which holds while the theme is CSS: a popup that
+chose its colours in script would break `popup-theme-switch.spec.ts` first.
+The durations tables scale the family's recorded times by these local ratios
+until CI records them.
+
+**Rule:** a frame family is migrated by giving its rules pure functions over a
+reading, proving each fails as the live check did, and adding its reads to the
+same visit. The families that open the same wall destinations (the leads, page
+layout and navigation) are next, and are where one visit per destination pays
+most.
+
+## The non-work window leads are captured once too — 2026-10-31
+
+The B10 lead contract — a non-work page titles itself in its content column,
+and the bar's fixed lead carries exactly the window's controls — was the
+next-largest frame family: 4,277 recorded test-seconds in the full matrix and
+805 in the pull-request matrix, over three window states (sidebar hidden at
+1440, 720, sidebar standing at 1440). Each of its 456 tests loaded two
+documents in a fresh context: the work conversation, for the place origin
+every non-work lead is held to, then the destination.
+
+It now runs the way the popup contracts do
+(`frame-snapshot-batch.ts`, shared by both families):
+
+- The work conversation's origin is read once per batch of ten
+  destinations, and each destination once, through one page.
+- `frame-contract-leads-snapshot.ts` reads the lead. The live check waited
+  before most assertions — for a title to leave the bar, the lead to gain its
+  buttons, a long title to find its room — and each wait is kept under the
+  same condition and deadline; only the assertion moved, to
+  `frame-contract-leads-rules.ts`. `expectLead`, which the B6 work leads
+  still call live, reads and checks through the same rule.
+- It is geometry, so it reads light only, in every matrix: the decision of
+  2026-10-31 above, accepted by the owner for this family as well.
+- `lead-contract-rules.spec.ts` breaks each fact of a synthesised reading,
+  21 cases, and expects the rule to name it.
+
+Measured on built pages, two workers:
+
+- A reused page read what the old test's fresh context read (the
+  conversation first, then the destination): 228 of 228 destination-states
+  and 12 of 12 batch references were identical.
+- Old and new failed on exactly the same destinations in 1,140 of 1,140
+  cases, over the unmutated page and CSS mutations of the title's column edge
+  (caught at 70 destinations in each state), a hidden title (70), a missing
+  Back control (50; Settings carries none) and the bar's height (the 26
+  Settings pages).
+- The branch that holds a bar title to the work origin and its title room is
+  reached by no destination today — all 76 title themselves in a column, six
+  of them canvases — so neither version asserted it on the live app, and
+  mutations of the place and the title changed nothing in either. Its rule is
+  held by the synthesised cases alone, and runs when a destination reaches it.
+- Time: from 1,070 test-seconds (the old light half, what a pull request
+  read) and 2,116 (both themes) to 368; wall time for the whole family went
+  from 1,067 seconds to 190. The durations tables scale the recorded times by
+  these ratios until CI records them.
+
 ## Repeating Lead work keeps the approved contract, one run at a time — 2026-10-30
 
 Recurring work should not need the same plan approval every week. A repeat therefore lives in the existing schedule store, carrying the approved digest-bound contract and per-run caps. The repeat field belongs to the approval scope. Each slot mints fresh goal, contract and step identities, budget and consent, and rechecks the same project, policy, source and seat constraints as a person-approved start. A changed fact returns a plan card with its reason. Legacy Settings tasks retain their plan-per-run behavior. Publishing, merging and deleting keep their own consent on every run.

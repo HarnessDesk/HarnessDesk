@@ -603,6 +603,9 @@ a code block.
 The popup-wall frame contract checks every menu it opens for width limits,
 plate and content insets, one-line trailing values, label uniqueness, and a
 consistent icon policy. The rule applies equally in light and dark themes.
+It is captured once and checked many times: each wall destination is
+rendered once at each width and read in both themes, and the rules in
+`e2e/ui-system/frame-contract-popup-rules.ts` run over that reading in Node.
 
 ## The second line
 
