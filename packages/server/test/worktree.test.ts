@@ -18,6 +18,7 @@ import {
   putBack,
   repositoryOf,
   samePath,
+  shellCheckoutIdentity,
   slugify,
 } from '../src/worktree.js'
 
@@ -1031,8 +1032,9 @@ if (args.includes('worktree') && args.includes('add')) {
   const configNames = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM'] as const
   const originalConfig = configNames.map((name) => [name, process.env[name]] as const)
   await writeFile(join(bin, 'system.gitconfig'), '')
+  await writeFile(join(bin, 'global.gitconfig'), '')
   process.env['GIT_CONFIG_SYSTEM'] = join(bin, 'system.gitconfig')
-  process.env['GIT_CONFIG_GLOBAL'] = join(bin, 'absent.gitconfig')
+  process.env['GIT_CONFIG_GLOBAL'] = join(bin, 'global.gitconfig')
   t.after(() => {
     for (const [name, value] of originalConfig) {
       if (value === undefined) delete process.env[name]
@@ -1059,4 +1061,27 @@ if (args.includes('worktree') && args.includes('add')) {
     await rejected.catch(() => undefined)
     process.env.PATH = originalPath
   }
+})
+
+test('checkout identity reads a repository whose path holds a newline or trailing spaces exactly', async (t) => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'harnessdesk-identity-')))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  for (const name of ['plain', 'two\nlines', 'trailing  ']) {
+    const repo = join(base, name)
+    await run('git', ['init', '-q', '-b', 'main', repo])
+    const identity = await shellCheckoutIdentity(repo)
+    assert.deepEqual(identity, { checkoutRoot: repo, gitCommonDir: join(repo, '.git'), gitDir: join(repo, '.git') }, JSON.stringify(name))
+  }
+  const linked = join(base, 'linked\ncheckout')
+  await writeFile(join(base, 'plain', 'f.txt'), 'x\n')
+  await git(join(base, 'plain'), 'add', '-A')
+  await git(join(base, 'plain'), 'commit', '-q', '-m', 'init')
+  await git(join(base, 'plain'), 'worktree', 'add', '-q', '-b', 'linked', linked)
+  assert.deepEqual(await shellCheckoutIdentity(linked), {
+    checkoutRoot: linked,
+    gitCommonDir: join(base, 'plain', '.git'),
+    // git names the worktree's own directory after the folder, with the newline replaced.
+    gitDir: join(base, 'plain', '.git', 'worktrees', 'linked-checkout'),
+  })
+  assert.equal((await repositoryOf(linked))?.root, join(base, 'plain'))
 })

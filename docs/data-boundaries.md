@@ -71,6 +71,8 @@ stops those observations being recorded; gateway writes remain recorded.
 Existing local records remain until removed with their state. Published Git
 objects and forge text follow the remote service's retention rules.
 
+When a detached conversation omits the PR number in view, checks, review or comment, the host reads that conversation's intact successful creation records locally and asks the pinned GitHub repository for each recorded PR's number, state and head branch. The outbound request names the repository and PR number and uses the host's existing forge login; the local journal and conversation identity are not sent. Follow-on plugin view and checks reads explicitly name the pinned repository on github.com through the existing shell grant; the review-link API read also names github.com as its hostname. This is on demand, with no background polling. Only a unique open matching creation is selected; the capability returns minimal selection metadata, and the existing tool reads and write checks still apply.
+
 ### Optional local phone access
 
 `HARNESSDESK_PHONE_LINK=1` enables a LAN WebSocket listener. Settings › Phone

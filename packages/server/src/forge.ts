@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { promisify } from 'node:util'
 
 import { validateForgeArgs, type ForgePush, type ForgeCreate, type ForgeUpdate, type ForgeMerge, type ForgeReview, type ForgeComment, type ForgeRecordQuery, type ForgeAttribute, type ForgeVerb, type ForgeWriteResult, type ForgeEngine, type ForgeIdentity, type ForgeScope, type ForgeSeat } from '@harnessdesk/cordis-host'
-import { isForgeReference, itemId, type ConfigOption, type ForgeReference, type PublicationItem } from '@harnessdesk/protocol'
+import { isForgeReference, itemId, type ConfigOption, type ForgeAssociatedPullRequest, type ForgeReference, type PublicationItem } from '@harnessdesk/protocol'
 
 import type { GitGateway, GitRequester, GitApproval } from './git-gateway/index.js'
 import type { HeldQuestion } from './ceilings/gate.js'
@@ -141,7 +141,7 @@ export class ForgePlane implements ForgeEngine {
       seat: { label: seat.label, role: seat.role, round: seat.round, team: seat.team },
       conversation: { runtime: scope.runtime!, sessionId: scope.sessionId! } }
     const repository = await gateway.pins.pinned(checkout.root)
-    if (!['record', 'attribute', 'repository'].includes(verb)) {
+    if (!['record', 'attribute', 'repository', 'associatedPullRequest'].includes(verb)) {
       try {
         if (scope.actor === 'context') throw new Error('Context resolution cannot write to the forge.')
         if (!this.port.admitWrite) throw new Error('The host has no forge write ceiling gate.')
@@ -158,7 +158,7 @@ export class ForgePlane implements ForgeEngine {
   #op(verb: ForgeVerb, args: unknown): import('./git-gateway/index.js').GitRecordEntry['op'] {
     if (verb === 'comment') return (args as ForgeComment)?.subject === 'issue' ? 'issue.comment' : 'pr.comment'
     const op = { push: 'push', create: 'pr.create', update: 'pr.update', merge: 'pr.merge', review: 'pr.review' } as const
-    if (verb === 'record' || verb === 'attribute' || verb === 'repository') throw new Error('A forge read has no write operation.')
+    if (verb === 'record' || verb === 'attribute' || verb === 'repository' || verb === 'associatedPullRequest') throw new Error('A forge read has no write operation.')
     return op[verb]
   }
   #address(args: unknown): { number?: number } {
@@ -309,6 +309,31 @@ export class ForgePlane implements ForgeEngine {
   }
   async repository(scope: ForgeScope): Promise<string | null> {
     return (await this.#context(scope, 'repository', {})).repository
+  }
+  async associatedPullRequest(scope: ForgeScope): Promise<ForgeAssociatedPullRequest> {
+    const { gateway, checkout, requester, repository } =
+      await this.#context(scope, 'associatedPullRequest', {})
+    if (scope.actor !== 'agent' || requester.kind !== 'session' || !requester.conversation) {
+      throw new Error('A live agent conversation is required to resolve its pull request.')
+    }
+    if (!repository) {
+      throw new Error('This project has no pinned repository. Call git_push and approve its repository first.')
+    }
+    const checkDestination = async (): Promise<void> => {
+      this.#live(scope)
+      if (await gateway.pins.pinned(checkout.root) !== repository ||
+          !await gateway.originMatches(checkout.cwd, repository)) {
+        throw new Error('git-gateway-repository-changed: The pinned repository or checkout origin changed.')
+      }
+      this.#live(scope)
+    }
+    await checkDestination()
+    const result = await gateway.associatedPullRequest(repository, {
+      runtime: requester.conversation.runtime,
+      sessionId: requester.conversation.sessionId,
+    }, scope.signal)
+    await checkDestination()
+    return result
   }
   async record(args: ForgeRecordQuery, scope: ForgeScope) {
     const { gateway, repository } = await this.#context(scope, 'record', args)
