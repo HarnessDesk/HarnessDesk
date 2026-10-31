@@ -316,6 +316,8 @@ export interface AcpAgentConfig {
    * registry.
    */
   readonly resolveIdentity?: () => Account | null
+  /** Record-backed status: undefined means the record could not be read, null proves nobody is recorded. */
+  readonly resolveIdentityStatus?: () => Account | null | undefined
   /** The identity record is also the sign-in status: null means signed out. */
   readonly identityIsStatus?: boolean
   /**
@@ -927,6 +929,7 @@ export class AcpRuntime implements AgentRuntime {
   readonly #account: CliAccount | null
   /** Sign-ins started over ACP that nobody has cancelled; see `#authenticateOverAcp`. */
   readonly #acpLogins = new Set<string>()
+  readonly #cliLoginGenerations = new Map<string, AuthWorld>()
   readonly extensions: AcpExtensions | undefined
   /**
    * Set once the agent has shown it speaks the background-task extension —
@@ -2049,7 +2052,10 @@ export class AcpRuntime implements AgentRuntime {
     // Key presence and precedence are local reads, even while the agent is
     // idle. Refresh them before returning observations from an older cache;
     // only the agent-owned identities still need their saved answer.
-    if (this.#health.state !== 'ready' && saved && !lifted) {
+    // A successful desk sign-in can arrive while the runtime rests. Its
+    // newer observation owns the answer, rather than the saved sign-out.
+    const signedInAfterSignOut = this.#config.identityIsStatus && this.#signIn.state === 'observed' && saved?.refusal === 'Signed out.'
+    if (this.#health.state !== 'ready' && saved && !lifted && !signedInAfterSignOut && !(this.#signIn.state === 'required' && this.#signIn.signedOut)) {
       const { unchecked: _was, ...rest } = saved
       const accounts = [...saved.accounts.filter(account => account.kind !== 'apiKey' && account.kind !== 'externalKey'), ...keyAccounts]
       const observed = this.#observedAccount(keyAccounts.length > 0)
@@ -2069,15 +2075,18 @@ export class AcpRuntime implements AgentRuntime {
       }
     }
     if (this.#account && this.#health.state === 'ready') {
+      const authGeneration = this.#authGeneration
       const beforeStatus = this.#signIn
       const refusalGeneration = this.#refusalGeneration
       // Publish a newer session refusal before asking the CLI again. Its
       // credential file may still describe the sign-in the session rejected.
-      const freshRefusal = this.#config.account?.status && beforeStatus.state === 'required' && this.#statusObservation !== refusalGeneration
+      const pendingSignOut = beforeStatus.state === 'required' && beforeStatus.signedOut && this.#signingOut > 0
+      const freshRefusal = this.#config.account?.status && beforeStatus.state === 'required' && (pendingSignOut || this.#statusObservation !== refusalGeneration)
       const status = freshRefusal
         ? { accounts: [], signInMethods: this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : [] }
         : await this.#account.status()
-      this.#statusObservation = refusalGeneration
+      if (!this.#currentAuthWorld(authGeneration)) return this.getAccount()
+      if (!pendingSignOut) this.#statusObservation = refusalGeneration
       if (!freshRefusal && this.#config.account?.status && this.#refusalGeneration === refusalGeneration && this.#signIn === beforeStatus && beforeStatus.state === 'required') {
         this.#noteSignIn({ state: 'observed' })
       }
@@ -2099,7 +2108,10 @@ export class AcpRuntime implements AgentRuntime {
     const accounts = [...keyAccounts, ...observed.accounts]
     return this.#lastAccount = {
       accounts,
-      signInMethods: [...keyMethods, ...observed.signInMethods],
+      signInMethods: [
+        ...(this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : []),
+        ...keyMethods, ...observed.signInMethods,
+      ],
       ...(observed.refusal ? { refusal: observed.refusal } : {}),
       ...(accounts.length === 0 && observed.unchecked ? { unchecked: true } : {}),
     }
@@ -2172,7 +2184,14 @@ export class AcpRuntime implements AgentRuntime {
   async login(method: string): Promise<LoginStart> {
     if (method.startsWith(ACP_METHOD)) return this.#authenticateOverAcp(method.slice(ACP_METHOD.length))
     if (!this.#account) throw new Error(`${this.#config.name} declares no sign-in command.`)
-    return this.#account.login()
+    const generation = this.#authGeneration
+    let started: string | undefined
+    try {
+      return await this.#account.login((id) => { started = id; this.#cliLoginGenerations.set(id, generation) })
+    } catch (error) {
+      if (started) this.#cliLoginGenerations.delete(started)
+      throw error
+    }
   }
 
   /**
@@ -2192,6 +2211,7 @@ export class AcpRuntime implements AgentRuntime {
    * again. `CliAccount` treats a cancelled-then-successful flow the same way.
    */
   async #authenticateOverAcp(methodId: string): Promise<LoginStart> {
+    const authGeneration = this.#authGeneration
     const loginId = randomUUID()
     this.#acpLogins.add(loginId)
     const runtime = runtimeId(this.#config.id)
@@ -2200,7 +2220,7 @@ export class AcpRuntime implements AgentRuntime {
         const mine = this.#acpLogins.delete(loginId)
         // Before the events, so whoever reads the identity on `account/changed`
         // reads it signed in — the same ordering `#accountEvent` keeps.
-        this.#noteSignIn({ state: 'observed' })
+        this.#observeAuth(authGeneration, { state: 'observed' }, 'login')
         if (mine) this.emit({ type: 'account/loginCompleted', runtime, loginId, success: true })
         this.emit({ type: 'account/changed', runtime })
       },
@@ -2271,6 +2291,14 @@ export class AcpRuntime implements AgentRuntime {
     const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
     const before = this.#signIn
+    const beforeAuthGeneration = canonicalAuthWorld(this.#authGeneration)
+    // Each logout fences older work with its own identity. Failure joins its
+    // world to the preceding one without reusing an identity for a later logout.
+    const signedOutAuthGeneration: AuthWorld = { previous: beforeAuthGeneration, pending: true }
+    this.#authGeneration = signedOutAuthGeneration
+    const beforeAccount = this.#lastAccount
+    const beforeSignedOutIdentity = this.#signedOutIdentity
+    this.#signedOutIdentity = this.#config.identityIsStatus ? this.#identityStatus() : null
     const beforeGeneration = this.#refusalGeneration
     const beforeObservation = this.#statusObservation
     // Make the state transition visible to the account/changed event emitted
@@ -2283,6 +2311,8 @@ export class AcpRuntime implements AgentRuntime {
     const signedOut: SignInObservation = { state: 'required', message: 'Signed out.', signedOut: true }
     this.#signIn = signedOut
     const signedOutGeneration = ++this.#refusalGeneration
+    const rollback: LogoutRollback = { before, beforeAccount, beforeSignedOutIdentity, beforeGeneration, beforeObservation }
+    this.#logoutRollbacks.add(rollback)
     this.#signingOut++
     try {
       if (overAcp) {
@@ -2292,17 +2322,45 @@ export class AcpRuntime implements AgentRuntime {
       } else {
         await this.#account!.logout()
       }
+      // Receipts completed inside this successful barrier must not become
+      // current merely because the barrier is no longer pending. A newer
+      // independent logout keeps its own receipts; failed newer worlds may
+      // already have been aliased to this one and must be discarded too.
+      for (const world of this.#deferredAuthObservations.keys()) {
+        if (canonicalAuthWorld(world) === signedOutAuthGeneration) this.#deferredAuthObservations.delete(world)
+      }
     } catch (error) {
       // Only what this sign-out wrote is taken back: an answer that landed
       // while the command ran is newer than the rollback and stands.
-      if (this.#signIn === signedOut) this.#signIn = before
+      signedOutAuthGeneration.parent = canonicalAuthWorld(beforeAuthGeneration)
+      // A later pending logout may have saved our temporary sign-out as its
+      // prior state. If we failed, it must roll back past us too.
+      for (const later of this.#logoutRollbacks) {
+        if (later.before !== signedOut) continue
+        later.before = rollback.before
+        later.beforeAccount = rollback.beforeAccount
+        later.beforeSignedOutIdentity = rollback.beforeSignedOutIdentity
+        if (later.beforeGeneration === signedOutGeneration) {
+          later.beforeGeneration = rollback.beforeGeneration
+          later.beforeObservation = rollback.beforeObservation
+        }
+      }
+      if (this.#signIn === signedOut) {
+        this.#signIn = rollback.before
+        this.#signedOutIdentity = rollback.beforeSignedOutIdentity
+        this.#lastAccount = rollback.beforeAccount
+      }
       if (this.#refusalGeneration === signedOutGeneration) {
-        this.#refusalGeneration = beforeGeneration
-        this.#statusObservation = beforeObservation
+        this.#refusalGeneration = rollback.beforeGeneration
+        this.#statusObservation = rollback.beforeObservation
       }
       throw error
     } finally {
+      signedOutAuthGeneration.pending = false
+      signedOutAuthGeneration.previous = undefined
+      this.#logoutRollbacks.delete(rollback)
       this.#signingOut--
+      this.#settleAuthObservations()
     }
   }
 
@@ -2819,6 +2877,69 @@ export class AcpRuntime implements AgentRuntime {
   #idleInfo: RuntimeInfo | null = null
   #restored: RuntimeObservations | null = null
   #lastAccount: AccountStatus | null = null
+  /** Invalidates observations begun before a desk sign-out. */
+  #authGeneration: AuthWorld = {}
+  #authObservationClock = 0
+  #acceptedAuthObservation = 0
+  #deferredAuthObservations = new Map<AuthWorld, AuthReceipts>()
+
+  #currentAuthWorld(world: AuthWorld | undefined): boolean {
+    return world !== undefined && canonicalAuthWorld(world) === canonicalAuthWorld(this.#authGeneration)
+  }
+
+  // Only pending logout barriers can still disappear. A settled successful
+  // logout has no previous link, so observations behind it are discarded.
+  #authWorldReachable(world: AuthWorld): boolean {
+    const target = canonicalAuthWorld(world)
+    let current = canonicalAuthWorld(this.#authGeneration)
+    for (;;) {
+      if (current === target) return true
+      if (!current.pending || !current.previous) return false
+      current = canonicalAuthWorld(current.previous)
+    }
+  }
+
+  #observeAuth(world: AuthWorld | undefined, observation: SignInObservation, kind: AuthReceipt['kind']): void {
+    if (!world) return
+    const receipt: AuthReceipt = { observation, kind, sequence: ++this.#authObservationClock }
+    if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) this.#applyAuthObservation(receipt, kind === 'cli')
+    else if (this.#authWorldReachable(world)) {
+      const canonical = canonicalAuthWorld(world)
+      const receipts = this.#deferredAuthObservations.get(canonical) ?? {}
+      receipts[kind === 'open' ? 'open' : 'strong'] = receipt
+      this.#deferredAuthObservations.set(canonical, receipts)
+    }
+  }
+
+  #applyAuthObservation(receipt: AuthReceipt, silent = false): void {
+    if (receipt.sequence <= this.#acceptedAuthObservation) return
+    // An open alone cannot lift a signed-out identity record, even when the
+    // reply was held behind a logout that subsequently failed.
+    if (receipt.kind === 'open' && this.#config.identityIsStatus && this.#signIn.state === 'required' && this.#signIn.signedOut) return
+    this.#noteSignIn(receipt.observation, receipt.sequence, silent)
+  }
+
+  #settleAuthObservations(): void {
+    let latest: AuthReceipt | undefined
+    const pending = new Map<AuthWorld, AuthReceipts>()
+    for (const [world, receipts] of this.#deferredAuthObservations) {
+      for (const receipt of [receipts.open, receipts.strong]) {
+        if (!receipt || receipt.sequence <= this.#acceptedAuthObservation) continue
+        if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) {
+          const blockedOpen = receipt.kind === 'open' && this.#config.identityIsStatus && this.#signIn.state === 'required' && this.#signIn.signedOut
+          if (!blockedOpen && (!latest || receipt.sequence > latest.sequence)) latest = receipt
+        } else if (this.#authWorldReachable(world)) {
+          const canonical = canonicalAuthWorld(world)
+          const group = pending.get(canonical) ?? {}
+          const key = receipt.kind === 'open' ? 'open' : 'strong'
+          if (!group[key] || receipt.sequence > group[key]!.sequence) group[key] = receipt
+          pending.set(canonical, group)
+        }
+      }
+    }
+    this.#deferredAuthObservations = pending
+    if (latest) this.#applyAuthObservation(latest)
+  }
 
   // ACP has neither an archive nor a naming verb, even before negotiation.
   historyAuthorityKnown(): boolean { return true }
@@ -2842,8 +2963,11 @@ export class AcpRuntime implements AgentRuntime {
   }
   /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
   #signIn: SignInObservation = { state: 'unknown' }
+  #logoutRollbacks = new Set<LogoutRollback>()
   /** Sign-outs whose command is still running: until it ends, the agent's record still names who is being signed out. */
   #signingOut = 0
+  /** Identity at sign-out; null is proven absent, undefined means the read failed. */
+  #signedOutIdentity: Account | null | undefined = null
   /** Every refusal counts, even when its unchanged message needs no notification. */
   #refusalGeneration = 0
   #statusObservation = -1
@@ -2911,8 +3035,9 @@ export class AcpRuntime implements AgentRuntime {
     attachments?: SessionAttachments,
     probe = false,
   ): Promise<T> {
+    const authGeneration = this.#authGeneration
     if (!probe) this.#sessionOpens++
-    try { return await this.#openSessionWithTools<T>(method, params, attachments) } finally {
+    try { return await this.#openSessionWithTools<T>(method, params, attachments, authGeneration) } finally {
       if (!probe) this.#sessionOpens--
     }
   }
@@ -2921,6 +3046,7 @@ export class AcpRuntime implements AgentRuntime {
     method: 'session/new' | 'session/load' | 'session/resume',
     params: Record<string, unknown>,
     attachments?: SessionAttachments,
+    authGeneration = this.#authGeneration,
   ): Promise<T> {
     const caller = randomUUID()
     const steeringCaller = randomUUID()
@@ -2974,6 +3100,7 @@ export class AcpRuntime implements AgentRuntime {
     try {
       return this.#opened(
         claim(await connection.request<T>(method, extend({ ...params, mcpServers: servers }))),
+        authGeneration,
       )
     } catch (error) {
       const message = describeAcp(error)
@@ -2982,7 +3109,7 @@ export class AcpRuntime implements AgentRuntime {
       // it says about the sign-in, so neither classification can hide the
       // other.
       if (servers.length === 0 || !REFUSES_TOOL_SERVER.test(message)) {
-        this.refusedForSignIn(error)
+        if (isAuthRefusal(error)) this.#observeAuth(authGeneration, { state: 'required', message: describeAcp(error) }, 'refusal')
         throw error
       }
       // Two opens can race into the same refusal — the eager probe and the
@@ -3001,9 +3128,9 @@ export class AcpRuntime implements AgentRuntime {
         for (const listener of this.#infoListeners) listener()
       }
       try {
-        return this.#opened(claim(await connection.request<T>(method, extend({ ...params, mcpServers: [] })), false))
+        return this.#opened(claim(await connection.request<T>(method, extend({ ...params, mcpServers: [] })), false), authGeneration)
       } catch (again) {
-        this.refusedForSignIn(again)
+        if (isAuthRefusal(again)) this.#observeAuth(authGeneration, { state: 'required', message: describeAcp(again) }, 'refusal')
         throw again
       }
     } finally {
@@ -3017,9 +3144,13 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
-  /** A session opened: whoever the agent is signed in as, it is signed in. */
-  #opened<T>(result: T): T {
-    this.#noteSignIn({ state: 'observed' })
+  /** Record a session open when it can establish sign-in. */
+  #opened<T>(result: T, authGeneration: AuthWorld): T {
+    // A probe or session may open without authenticating (including in a
+    // fresh helper). When the agent's record is the status, opening alone
+    // cannot undo our sign-out while that record still names the old account.
+    // A changed record or an explicit successful login can lift it instead.
+    this.#observeAuth(authGeneration, { state: 'observed' }, 'open')
     return result
   }
 
@@ -3030,7 +3161,8 @@ export class AcpRuntime implements AgentRuntime {
     return true
   }
 
-  #noteSignIn(next: SignInObservation): void {
+  #noteSignIn(next: SignInObservation, sequence = ++this.#authObservationClock, silent = false): void {
+    this.#acceptedAuthObservation = sequence
     if (next.state === 'required') this.#refusalGeneration++
     const before = this.#signIn
     if (before.state === next.state && (next.state !== 'required' || before.state !== 'required' || before.message === next.message)) return
@@ -3038,33 +3170,46 @@ export class AcpRuntime implements AgentRuntime {
     // `account` was false until the first observation, and a window may
     // already be drawn from that; and whoever holds the account surface
     // open should hear that the answer changed.
-    if (before.state === 'unknown') for (const listener of this.#infoListeners) listener()
-    this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
+    if (!silent) {
+      if (before.state === 'unknown') for (const listener of this.#infoListeners) listener()
+      this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
+    }
   }
 
   /**
    * The desk's own sign-out gives way to the agent's record. Where the record
    * is the status (`identityIsStatus`), the sign-in the agent offers outside
    * the desk shows nowhere but there, and nothing else would say so until a
-   * session opened. Only once the sign-out command has ended — until then
-   * the record still names the account going out — and never a refusal,
-   * which is the agent's own and outranks the record. Answers whether it
-   * lifted one.
+   * session opened. Only once the sign-out command has ended and the record
+   * has changed from the account going out, and never a refusal, which is
+   * the agent's own and outranks the record. Answers whether it lifted one.
    */
   #liftSignOut(hasKey: boolean): boolean {
     const seen = this.#signIn
     if (seen.state !== 'required' || !seen.signedOut || this.#signingOut > 0) return false
-    if (!this.#config.identityIsStatus || hasKey || !this.#identity()) return false
+    if (!this.#config.identityIsStatus || hasKey) return false
+    const identity = this.#identityStatus()
+    if (identity === undefined) return false
+    if (identity === null) {
+      this.#signedOutIdentity = null
+      return false
+    }
+    const old = this.#signedOutIdentity
+    if (old === undefined) return false
+    if (old && old.kind === identity.kind && (old.email ?? old.label) === (identity.email ?? identity.label)) return false
+    this.#signedOutIdentity = null
     this.#noteSignIn({ state: 'observed' })
     return true
   }
 
   /** Keep an interactive CLI's observation in step with its account events. */
   #accountEvent(event: AgentEvent): void {
+    const generation = event.type === 'account/loginCompleted' && event.loginId ? this.#cliLoginGenerations.get(event.loginId) : undefined
+    if (event.type === 'account/loginCompleted' && event.loginId) this.#cliLoginGenerations.delete(event.loginId)
     if (event.type === 'account/loginCompleted' && event.success) {
       // CliAccount emits account/changed immediately after this completion;
       // update first so the listener reads the new identity on that event.
-      this.#signIn = { state: 'observed' }
+      this.#observeAuth(generation, { state: 'observed' }, 'cli')
     }
     this.emit(event)
   }
@@ -3150,6 +3295,19 @@ export class AcpRuntime implements AgentRuntime {
         error: String(error),
       })
       return null
+    }
+  }
+
+  /** Unlike a display identity, an unreadable status cannot prove absence. */
+  #identityStatus(): Account | null | undefined {
+    try {
+      if (this.#config.resolveIdentityStatus) return this.#config.resolveIdentityStatus()
+      return this.#config.resolveIdentity ? this.#config.resolveIdentity() : undefined
+    } catch (error) {
+      this.#config.logger?.warn?.('could not read who the agent is signed in as', {
+        agent: this.#config.id, error: String(error),
+      })
+      return undefined
     }
   }
 
@@ -3931,6 +4089,32 @@ const describeAcp = (error: unknown): string => {
     return `${error.message}: ${error.details}`
   }
   return error instanceof Error ? error.message : String(error)
+}
+
+// A failed logout aliases its world to the world before it. Pending work may
+// retain old nodes, so find iteratively and compress paths as they are read.
+type AuthWorld = { parent?: AuthWorld; previous?: AuthWorld | undefined; pending?: boolean }
+
+type AuthReceipt = { observation: SignInObservation; kind: 'login' | 'cli' | 'open' | 'refusal'; sequence: number }
+type AuthReceipts = { open?: AuthReceipt; strong?: AuthReceipt }
+
+type LogoutRollback = {
+  before: SignInObservation
+  beforeAccount: AccountStatus | null
+  beforeSignedOutIdentity: Account | null | undefined
+  beforeGeneration: number
+  beforeObservation: number
+}
+
+function canonicalAuthWorld(world: AuthWorld): AuthWorld {
+  let root = world
+  while (root.parent) root = root.parent
+  while (world.parent) {
+    const next = world.parent
+    world.parent = root
+    world = next
+  }
+  return root
 }
 
 /**
