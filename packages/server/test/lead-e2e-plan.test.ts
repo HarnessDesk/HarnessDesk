@@ -3,6 +3,7 @@ import test from 'node:test'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { leadBudgetProjection } from '@harnessdesk/lead'
 import { createLeadRig } from './fixtures/lead-rig.js'
 
 // Every case owns the actual host, child, restricted door, journal and Flow engine.
@@ -156,6 +157,38 @@ test('real child survives a cap tightened after its request preflight', async t 
   assert.equal(rig.children.at(-1)!.exitCode, null)
   assert.equal(rig.children.at(-1)!.signalCode, null)
   await rig.assertNoForbiddenEffects()
+})
+
+test('person send and resume at the round cap leave a visible wait without extra dispatch', async t => {
+  const rig = await createLeadRig({ holdWorkers: true, waitMs: 60_000 }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve')
+  await rig.waitFor(() => rig.journal.state.runs.length > 0, 'first run')
+  await rig.workerWaiting(); await rig.reachCap('rounds')
+  await rig.waitFor(async () => !(await rig.host.call('lead/thread/read', {})).requestInFlight, 'idle before person message')
+  const budget = leadBudgetProjection(rig.journal.state.budget!, Date.now())
+  assert.equal(budget.spend, 'known')
+  assert.equal(budget.roundsAdmitted, budget.caps.rounds)
+  assert.equal(budget.stop, null)
+  const before = await rig.dispatchCounts()
+  const assertWait = async () => {
+    await rig.waitFor(async () => !(await rig.host.call('lead/thread/read', {})).requestInFlight, 'person request finishes')
+    const view = await rig.host.call('lead/thread/read', {})
+    assert.equal(view.thread.state, 'waiting-for-user')
+    assert.equal(view.waitReason, 'lead-request-failed')
+    assert.equal(rig.journal.state.budget!.stop, null)
+    assert.deepEqual(await rig.dispatchCounts(), before)
+    assert.equal(rig.children.at(-1)!.exitCode, null)
+    assert.equal(rig.children.at(-1)!.signalCode, null)
+    return view
+  }
+  await rig.sendGoal()
+  let view = await assertWait()
+  for (let i = 0; i < 2; i++) {
+    await rig.host.call('lead/resume', { expectedRevision: view.revision })
+    view = await assertWait()
+  }
+  await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
 })
 
 for (const cap of ['dollars', 'rounds', 'unknown'] as const) test(`full fixture stops dispatch at ${cap} equality or unknown spend`, async t => {
