@@ -453,20 +453,20 @@ it.each(['success', 'cancel', 'failure'] as const)('Add preserves the hand-off d
     input.dispatchEvent(new Event('input', { bubbles: true }))
     input.setSelectionRange(5, 7)
   })
-  click(container.querySelector('button[title="Add"]')!)
+  await act(async () => { container.querySelector<HTMLButtonElement>('button[title="Add"]')!.click() })
   const choice = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent?.includes('Change project folder'))!
   expect(choice).toBeTruthy()
   await act(async () => {
     choice.click()
-    await new Promise(resolve => setTimeout(resolve, 0))
   })
   expect(store.getSnapshot().draftHandoff?.cwd).toBe(SOURCE)
   expect(input.value).toBe('Take it from here.')
   expect([input.selectionStart, input.selectionEnd]).toEqual([5, 7])
-  expect(folderTrigger()?.title).toBe(success ? PICKED.path : SOURCE)
+  const folderTitle = folderTrigger()?.title
   await store.queue([{ type: 'text', text: input.value }])
   const create = vi.mocked(store.transport.request).mock.calls.filter(([method]) => method === 'session/create').at(-1)
   expect(create?.[1]).toMatchObject({ options: { cwd: success ? PICKED.path : SOURCE } })
+  expect(folderTitle).toBe(success ? PICKED.path : SOURCE)
 })
 
 const folderTrigger = (): HTMLButtonElement | null => container.querySelector<HTMLButtonElement>('button[title$="-project"]')
@@ -477,10 +477,6 @@ const chooseFolder = async (): Promise<void> => {
   expect(choose).toBeDefined()
   await act(async () => {
     choose!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    // The pick patches the workspace first and keeps reading the recent list
-    // after; the host double answers in microtasks, so one macrotask is the
-    // whole pick, not a half-way state.
-    await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
 
