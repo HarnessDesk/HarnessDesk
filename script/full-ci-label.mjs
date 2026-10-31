@@ -17,7 +17,7 @@ const pages = (value, key) => {
   });
 };
 
-export async function run({ event, repository, api, dispatch }) {
+export async function run({ event, repository, api, dispatch, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   const pr = event?.pull_request;
   const number = event?.number;
   if (!repoOk(repository) || event?.action !== 'labeled' || event?.label?.name !== 'full-ci' || !Number.isSafeInteger(number) || number <= 0 || pr?.number !== number || !shaOk(pr?.head?.sha) || !refOk(pr?.head?.ref) || !refOk(pr?.base?.ref) || !repoOk(pr?.head?.repo?.full_name) || pr?.base?.repo?.full_name !== repository) fail('Invalid label event');
@@ -45,16 +45,26 @@ export async function run({ event, repository, api, dispatch }) {
   }
   let reuse = false;
   if (lastLabel?.event === 'labeled') {
-    const runs = pages(await api(`${prefix}/actions/runs?head_sha=${pr.head.sha}&event=pull_request&per_page=100`, true), 'workflow_runs');
-    for (const candidate of runs) {
-      if (!object(candidate) || !Number.isSafeInteger(candidate.id) || candidate.id <= 0 || typeof candidate.path !== 'string' || typeof candidate.event !== 'string' || !shaOk(candidate.head_sha) || !Array.isArray(candidate.pull_requests) || !object(candidate.repository) || !repoOk(candidate.repository.full_name)) fail('Invalid workflow run');
-      if (candidate.pull_requests.some((p) => !object(p) || !Number.isSafeInteger(p.number) || p.number <= 0 || !shaOk(p.head?.sha) || !refOk(p.base?.ref))) fail('Invalid workflow run pull request');
-      const created = timestamp(candidate.created_at);
-      if (candidate.path !== '.github/workflows/ci.yml' || candidate.event !== 'pull_request' || candidate.head_sha !== pr.head.sha || candidate.repository.full_name !== repository || created < lastLabel.time || !candidate.pull_requests.some((p) => p?.number === number && p?.head?.sha === pr.head.sha && p?.base?.ref === pr.base.ref)) continue;
-      const jobs = pages(await api(`${prefix}/actions/runs/${candidate.id}/jobs?per_page=100`, true), 'jobs');
-      for (const job of jobs) if (!object(job) || !Number.isSafeInteger(job.id) || !Number.isSafeInteger(job.run_id) || !shaOk(job.head_sha) || typeof job.name !== 'string' || typeof job.status !== 'string' || !(job.conclusion === null || typeof job.conclusion === 'string')) fail('Invalid workflow job');
-      const markers = jobs.filter((j) => j.run_id === candidate.id && j.head_sha === pr.head.sha && j.name.startsWith('CI tier: ')).sort((a, b) => b.id - a.id);
-      if (markers[0]?.name === 'CI tier: full' && markers[0].status === 'completed' && markers[0].conclusion === 'success') { reuse = true; break; }
+    // Run creation can precede tier selection. Give an already matching active
+    // run a bounded chance to produce proof; API errors still fail immediately.
+    for (let attempt = 0; attempt <= 6; attempt++) {
+      let pending = false;
+      const runs = pages(await api(`${prefix}/actions/runs?head_sha=${pr.head.sha}&event=pull_request&per_page=100`, true), 'workflow_runs');
+      for (const candidate of runs) {
+        if (!object(candidate) || !Number.isSafeInteger(candidate.id) || candidate.id <= 0 || typeof candidate.path !== 'string' || typeof candidate.event !== 'string' || !shaOk(candidate.head_sha) || !['queued', 'in_progress', 'completed', 'waiting', 'requested', 'pending'].includes(candidate.status) || !Array.isArray(candidate.pull_requests) || !object(candidate.repository) || !repoOk(candidate.repository.full_name)) fail('Invalid workflow run');
+        if (candidate.pull_requests.some((p) => !object(p) || !Number.isSafeInteger(p.number) || p.number <= 0 || !shaOk(p.head?.sha) || !refOk(p.base?.ref))) fail('Invalid workflow run pull request');
+        const created = timestamp(candidate.created_at);
+        if (candidate.path !== '.github/workflows/ci.yml' || candidate.event !== 'pull_request' || candidate.head_sha !== pr.head.sha || candidate.repository.full_name !== repository || created < lastLabel.time || !candidate.pull_requests.some((p) => p?.number === number && p?.head?.sha === pr.head.sha && p?.base?.ref === pr.base.ref)) continue;
+        const jobs = pages(await api(`${prefix}/actions/runs/${candidate.id}/jobs?per_page=100`, true), 'jobs');
+        for (const job of jobs) if (!object(job) || !Number.isSafeInteger(job.id) || !Number.isSafeInteger(job.run_id) || !shaOk(job.head_sha) || typeof job.name !== 'string' || typeof job.status !== 'string' || !(job.conclusion === null || typeof job.conclusion === 'string')) fail('Invalid workflow job');
+        const markers = jobs.filter((j) => j.run_id === candidate.id && j.head_sha === pr.head.sha && j.name.startsWith('CI tier: ')).sort((a, b) => b.id - a.id);
+        const active = candidate.status === 'queued' || candidate.status === 'in_progress';
+        const marker = markers[0];
+        if (marker?.name === 'CI tier: full' && ((marker.status === 'completed' && marker.conclusion === 'success') || (active && ['queued', 'in_progress'].includes(marker.status) && marker.conclusion === null))) { reuse = true; break; }
+        if (!marker && active) pending = true;
+      }
+      if (reuse || !pending || attempt === 6) break;
+      await wait(10000);
     }
   }
   const final = matches(await api(`${prefix}/pulls/${number}`));
