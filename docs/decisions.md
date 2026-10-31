@@ -7,6 +7,30 @@ the rule is the last line of its section.
 
 ---
 
+## A self-hosted runner takes work only while it is shown to be up — 2026-10-30
+
+The organisation's hosted runners run twenty jobs at once. A full run is over
+thirty, so its browser shards waited three to ten minutes for a slot while the
+project's own Linux machine, paid for by the hour it is on, sat idle: no job
+named it.
+
+The first job, `CI runners`, asks whether one of that machine's runners is
+online and sends the typecheck and gates jobs there if so. Those two start at
+once and take minutes, so they free two hosted slots for the shards. A job
+sent to a runner that is down waits in the queue for a day rather than moving,
+so every doubt answers "hosted": no `RUNNER_STATUS_TOKEN` secret (forks never
+get one), a pull request from another repository, any failure to ask, or less
+than half an hour before the machine's scheduled stop (`SELF_HOSTED_UNTIL`).
+Jobs that start later in a run, like the bookkeeping checks, stay hosted for
+the same reason: the machine may have stopped by the time they are created.
+
+The pick is made once per run. "Re-run failed jobs" keeps it, so after the
+machine has stopped, re-run a failed typecheck or gates job with "Re-run all
+jobs", which asks again.
+
+**The rule:** a job reaches a self-hosted runner only through a pick made at
+the start of the run that defaults to the hosted runner.
+
 ## Customize is the shared capability destination — 2026-10-21
 
 Skills, MCP and Plugins share one Customize entrance and a common section navigation. Existing Library and Plugins destination identities remain valid for saved history, command links and capability detail pages. Settings' skill-management requests open Customize, scoped to the active runtime; Hooks retains a separate Settings page. Runtime-owned commands not covered by the scanned inventory remain browsable in Customize, under the active runtime’s name, with their enable switches and composer action. A different runtime scope never borrows the active runtime’s commands. Legacy command detail routes remain readable; the obsolete Settings list route replaces itself in navigation rather than leaving a redirect in Back history.
@@ -4624,7 +4648,13 @@ the failure logs of the 128 jobs that failed in them:
   checkout identity it has just read for that same folder, keeps a project
   answer for a second while its folder is still where it was, and keeps reads
   of immutable objects. The same case went from 116 to 64 seconds; the desk a
-  person runs does the same work less often.
+  person runs does the same work less often. The largest source left was every
+  evidence reader asking where each fact's branch stands. A branch's tip is now
+  asked again only once a file its ref is kept in has changed — the loose ref,
+  `packed-refs` or a reftable list, marked by `stat` and trusted only once it
+  has been still for longer than a filesystem tick — and how two commits stand
+  is kept per repository (`evidence/tips.ts`). That case now starts about
+  4,250 git processes in about 55 seconds, against about 6,300 in 64.
 - **Node tests are one manifest.** `script/node-tests.mjs` names each group —
   unit, Node end-to-end, retention, the Lead's, the Lead's end-to-end — with its
   per-file deadline and runtime, and deals the files into jobs of about five

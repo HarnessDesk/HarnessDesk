@@ -69,6 +69,28 @@ test('uncertain requests and budget stops halt without another model call', asyn
   }
 })
 
+test('a capacity refusal while running leaves a durable wait without stopping the budget', async () => {
+  const s = await fixture()
+  await s.approve()
+  const update = s.journal.updateBudget.bind(s.journal)
+  s.journal.updateBudget = async (event: Parameters<typeof update>[0], ...rest: [Parameters<typeof update>[1]?]) => {
+    if (event.type === 'reserve') throw Object.assign(new Error('refused'), { wireCode: 'lead-budget-admission' })
+    return update(event, ...rest)
+  }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.equal(s.journal.state.phase, 'waiting-for-user')
+    assert.equal(s.journal.state.managementReason, 'lead-request-failed')
+    assert.equal(s.journal.state.budget!.stop, null)
+    assert.equal(s.journal.state.budget!.requests.length, 0)
+    assert.equal(s.fake.requests.length, 0)
+    const reopened = await lead.createLeadJournal(s.storage)
+    assert.equal(reopened.state.phase, 'waiting-for-user')
+    assert.equal(reopened.state.managementReason, 'lead-request-failed')
+  } finally { await loop.close() }
+})
+
 test('replay converts a crash-mid-send reservation to uncertain without settling or retrying', async () => {
   const s = await fixture()
   await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'lost-request', inputTokens: 100, maxOutputTokens: 100,

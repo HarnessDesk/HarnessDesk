@@ -3,6 +3,7 @@ import test from 'node:test'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { leadBudgetProjection } from '@harnessdesk/lead'
 import { LeadPlanner } from '../src/lead/planner.js'
 import { LeadRepeats } from '../src/lead/repeats.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
@@ -161,6 +162,68 @@ test('accepting step 1 before the model starts step 2 seeds its reviewed revisio
   assert.equal(next.lead!.base, base)
   assert.equal(next.seatPlans!['1']!.base, base)
   await rig.assertNoForbiddenEffects()
+})
+
+test('real child survives a cap tightened after its request preflight', async t => {
+  const rig = await createLeadRig({ holdWorkers: true }); t.after(() => rig.dispose())
+  const update = rig.journal.updateBudget.bind(rig.journal)
+  let raced = false
+  t.mock.method(rig.journal, 'updateBudget', async (event: Parameters<typeof update>[0], ...rest: [Parameters<typeof update>[1]?]) => {
+    if (event.type === 'reserve' && !raced) {
+      raced = true
+      await update({ version: 1, type: 'tighten', now: event.now, caps: { usdMicros: 1, rounds: rig.journal.state.budget!.caps.rounds } })
+    }
+    return update(event, ...rest)
+  })
+  await rig.sendGoal()
+  await rig.waitFor(() => raced, 'raced reservation')
+  await rig.settle()
+  assert.equal(rig.provider.requests.length, 0)
+  assert.equal((await rig.workerCalls()).filter(one => one.method === 'turn/start').length, 0)
+  assert.equal(rig.journal.state.budget!.requests.length, 0)
+  assert.equal(rig.journal.state.budget!.caps.usdMicros, 1)
+  assert.equal(rig.journal.state.budget!.stop, null)
+  assert.equal(rig.journal.state.phase, 'waiting-for-user')
+  assert.equal(rig.journal.state.managementReason, 'lead-request-failed')
+  const projection = await rig.host.call('lead/thread/read', {})
+  assert.equal(projection.thread.state, 'waiting-for-user')
+  assert.equal(projection.waitReason, 'lead-request-failed')
+  assert.notEqual(rig.journal.state.managementReason, 'lead-child-exited')
+  assert.equal(rig.children.at(-1)!.exitCode, null)
+  assert.equal(rig.children.at(-1)!.signalCode, null)
+  await rig.assertNoForbiddenEffects()
+})
+
+test('person send and resume at the round cap leave a visible wait without extra dispatch', async t => {
+  const rig = await createLeadRig({ holdWorkers: true, waitMs: 60_000 }); t.after(() => rig.dispose())
+  await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
+  await rig.decide(rig.pending('plan')!, 'approve')
+  await rig.waitFor(() => rig.journal.state.runs.length > 0, 'first run')
+  await rig.workerWaiting(); await rig.reachCap('rounds')
+  await rig.waitFor(async () => !(await rig.host.call('lead/thread/read', {})).requestInFlight, 'idle before person message')
+  const budget = leadBudgetProjection(rig.journal.state.budget!, Date.now())
+  assert.equal(budget.spend, 'known')
+  assert.equal(budget.roundsAdmitted, budget.caps.rounds)
+  assert.equal(budget.stop, null)
+  const before = await rig.dispatchCounts()
+  const assertWait = async () => {
+    await rig.waitFor(async () => !(await rig.host.call('lead/thread/read', {})).requestInFlight, 'person request finishes')
+    const view = await rig.host.call('lead/thread/read', {})
+    assert.equal(view.thread.state, 'waiting-for-user')
+    assert.equal(view.waitReason, 'lead-request-failed')
+    assert.equal(rig.journal.state.budget!.stop, null)
+    assert.deepEqual(await rig.dispatchCounts(), before)
+    assert.equal(rig.children.at(-1)!.exitCode, null)
+    assert.equal(rig.children.at(-1)!.signalCode, null)
+    return view
+  }
+  await rig.sendGoal()
+  let view = await assertWait()
+  for (let i = 0; i < 2; i++) {
+    await rig.host.call('lead/resume', { expectedRevision: view.revision })
+    view = await assertWait()
+  }
+  await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
 })
 
 for (const cap of ['dollars', 'rounds', 'unknown'] as const) test(`full fixture stops dispatch at ${cap} equality or unknown spend`, async t => {

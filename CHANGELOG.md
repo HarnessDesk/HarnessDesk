@@ -7,7 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **Open Teams use less CPU.** The desk no longer asks git the same questions about the same project folders over and over while it reads evidence and findings: a measured Lead run started about half as many git processes and finished in a little over half the time.
+- **A late Codex process exit no longer disrupts its replacement.** Restarting while the previous process drains keeps replies and shutdown with the new process.
+
+- **Lead respects a reached round allowance without losing its child.** A running round can finish, and the next round is stopped at the allowance even if the limit changes while a request is being admitted.
+
+- **Open Teams use less CPU.** The desk no longer asks git the same questions about the same project folders over and over while it reads evidence and findings, and asks where a branch stands only after it has moved: a measured Lead run started about a third as many git processes and finished in under half the time.
 
 - **Lead can repeat an approved plan, take a second look at a stop, and warn at 80% of its allowance.** Manage repeats and their last runs in Settings; raise a running goal's limits directly while keeping every publishing decision separate.
 

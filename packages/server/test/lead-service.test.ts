@@ -599,6 +599,48 @@ const reserveThroughChild = (s: Awaited<ReturnType<typeof providerRig>>, request
 }])
 const settleThroughChild = (s: Awaited<ReturnType<typeof providerRig>>, requestId: string, inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0) =>
   s.journalRpc('updateBudget', [{ version: 1, type: 'settle', now: 100, requestId, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }])
+
+test('a cap tightened before durable reservation refuses without killing or granting authority', async t => {
+  let sends = 0
+  const s = await providerRig(t, async () => { sends++; return { status: 200, body: '{}' } })
+  const update = s.journal.updateBudget.bind(s.journal)
+  let tightened = false
+  s.journal.updateBudget = async (event, ...rest) => {
+    if (event.type === 'reserve' && event.requestId === 'cap-race' && !tightened) {
+      tightened = true
+      await update({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 1, rounds: 4 } })
+    }
+    return update(event, ...rest)
+  }
+  const result = reserveThroughChild(s, 'cap-race').then(() => 'accepted', () => 'refused')
+  await providerUntil(() => s.killed() || s.replies.length > 0)
+  assert.equal(s.killed(), false, 'capacity refusal must not poison the child')
+  assert.equal(await result, 'refused')
+  assert.equal(s.replies[0].state.budget.caps.usdMicros, 1, 'refusal synchronizes the durable host state')
+  assert.equal(s.journal.state.budget!.requests.length, 0)
+  await assert.rejects(s.settings.providerSend('cap-race', providerBody(), new AbortController().signal))
+  assert.equal(sends, 0)
+  // A different host-owned reservation with the same id must not turn the
+  // rejected child's earlier attempt into settlement authority.
+  await update({ version: 1, type: 'reserve', now: 100, requestId: 'cap-race', inputTokens: 0, maxOutputTokens: 0,
+    inputUsdMicrosPerMillion: 0, outputUsdMicrosPerMillion: 0, cacheReadUsdMicrosPerMillion: 0, cacheWriteUsdMicrosPerMillion: 0 })
+  void settleThroughChild(s, 'cap-race').catch(() => {})
+  await providerUntil(s.killed)
+  assert.equal(s.journal.state.budget!.settled.length, 0, 'refused reserve cannot authorize settlement')
+})
+
+for (const kind of ['duplicate', 'price'] as const) test(`capacity does not excuse a ${kind} reserve`, async t => {
+  const s = await providerRig(t, async () => { assert.fail('forged reserve must not send') })
+  if (kind === 'duplicate') await reserveThroughChild(s, 'existing')
+  await s.journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 1, rounds: 4 } })
+  const before = s.replies.length
+  void s.journalRpc('updateBudget', [{ version: 1, type: 'reserve', now: 100,
+    requestId: kind === 'duplicate' ? 'existing' : 'forged', inputTokens: 2000, maxOutputTokens: 32,
+    ...providerPrice, ...(kind === 'price' ? { inputUsdMicrosPerMillion: 0 } : {}) }]).catch(() => {})
+  await providerUntil(() => s.killed() || s.replies.length > before)
+  assert.equal(s.killed(), true)
+  assert.equal(s.replies.length, before)
+})
 const refusedSettle = async (s: Awaited<ReturnType<typeof providerRig>>, requestId: string, inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0) => {
   const before = s.replies.length
   void settleThroughChild(s, requestId, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
