@@ -38,9 +38,9 @@ jobs:
       shards: ${{ steps.paths.outputs.shards }}
       record: ${{ steps.paths.outputs.record }}
       unit_mode: ${{ steps.paths.outputs.unit_mode }}
-      unit_files: ${{ steps.paths.outputs.unit_files }}
       unit_shard_count: ${{ steps.paths.outputs.unit_shard_count }}
       unit_shards: ${{ steps.paths.outputs.unit_shards }}
+      node_jobs: ${{ steps.paths.outputs.node_jobs }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -70,6 +70,7 @@ jobs:
           CI_REF_NAME: ${{ github.ref_name }}
           CI_BEFORE: ${{ github.event.before }}
           CI_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           list="$RUNNER_TEMP/ci-changed-paths"
           rm -f "$list"
@@ -101,26 +102,78 @@ jobs:
               theme=true
             fi
           fi
-          UI_THEME_TOUCHED="$theme" node script/ci-changes.mjs "$list" > "$RUNNER_TEMP/ci-plan"
+          # A pushed tree that a full run already passed in full (the `proof`
+          # job below) does not run the browser suite again. Artifacts are read
+          # across branches, so a batch head's proof reaches its landing; one
+          # made from a fork, which runs its own copy of this workflow, does
+          # not count. Any failure to ask leaves the push to run as it always has.
+          proven=""
+          if [ "$EVENT_NAME" = "push" ]; then
+            tree=$(git rev-parse 'HEAD^{tree}')
+            proven=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=proven-tree-$tree&per_page=5" \
+              --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_repository_id == .workflow_run.repository_id) | .workflow_run.id][0] // empty' 2>/dev/null || true)
+          fi
+          CI_PROVEN_BY="$proven" UI_THEME_TOUCHED="$theme" node script/ci-changes.mjs "$list" > "$RUNNER_TEMP/ci-plan"
           cat "$RUNNER_TEMP/ci-plan" >> "$GITHUB_OUTPUT"
           sed -n 's/^summary=//p' "$RUNNER_TEMP/ci-plan" >> "$GITHUB_STEP_SUMMARY"
 
           # The same changed paths select unit tests once, before any install.
           node script/ci-unit-tests.mjs "$list" > "$RUNNER_TEMP/ci-unit-plan"
-          sed -n 's/^mode=/unit_mode=/p; s/^files=/unit_files=/p' "$RUNNER_TEMP/ci-unit-plan" >> "$GITHUB_OUTPUT"
           sed -n 's/^summary=//p' "$RUNNER_TEMP/ci-unit-plan" >> "$GITHUB_STEP_SUMMARY"
           unit_mode=$(sed -n 's/^mode=//p' "$RUNNER_TEMP/ci-unit-plan")
           unit_count=1
           case "$unit_mode" in
-            all) unit_count=$(node script/ci-unit-shards.mjs --count) ;;
-            related) ;; # Vitest discovers related tests at run time: one shard.
+            # A related selection (local check:push still uses it) took as long
+            # on one runner as the dealt suite on four: p50 4.8 against 5.1
+            # minutes, p90 8.7 against 6.7. CI runs the dealt suite.
+            all|related) unit_mode=all; unit_count=$(node script/ci-unit-shards.mjs --count) ;;
             none) unit_count=0 ;;
             *) echo "Unknown unit mode: $unit_mode"; exit 1 ;;
           esac
+          echo "unit_mode=$unit_mode" >> "$GITHUB_OUTPUT"
           echo "unit_shard_count=$unit_count" >> "$GITHUB_OUTPUT"
           # Keep [1] even when skipped, so the matrix is always well formed.
           unit_shards=$(node -e 'console.log(JSON.stringify(Array.from({ length: Math.max(1, Number(process.argv[1])) }, (_, i) => i + 1)))' "$unit_count")
           echo "unit_shards=$unit_shards" >> "$GITHUB_OUTPUT"
+
+          # The Node-package tests, dealt into jobs by recorded seconds (script/node-tests.mjs).
+          node script/node-tests.mjs --plan > "$RUNNER_TEMP/node-plan"
+          sed -n 's/^node_jobs=/node_jobs=/p' "$RUNNER_TEMP/node-plan" >> "$GITHUB_OUTPUT"
+          sed -n 's/^summary=//p' "$RUNNER_TEMP/node-plan" >> "$GITHUB_STEP_SUMMARY"
+
+  # The project's own Linux runner takes the two jobs that start at once, while
+  # it is up, which leaves two hosted slots for the shards behind them. A job
+  # sent to a runner that is down waits in the queue for a day, so the hosted
+  # runner is the answer whenever this cannot show the self-hosted one online:
+  # no token (forks never get one), any failure to ask, or less than half an
+  # hour before the runner's scheduled stop (`SELF_HOSTED_UNTIL`, Pacific).
+  runners:
+    name: CI runners
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      linux: ${{ steps.pick.outputs.linux }}
+    steps:
+      - name: Pick the Linux runner
+        id: pick
+        env:
+          RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+          # A pull request whose fork was deleted has no head repository; it
+          # must not pass for one of this repository's own branches.
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || (github.event.pull_request && 'deleted-fork' || github.repository) }}
+          SELF_HOSTED_UNTIL: ${{ vars.SELF_HOSTED_UNTIL || '1830' }}
+        run: |
+          linux='"ubuntu-latest"'
+          now=$(TZ=America/Los_Angeles date +%H%M)
+          if [ -n "$RUNNER_STATUS_TOKEN" ] && [ "$HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" ] && (( 10#$now < 10#$SELF_HOSTED_UNTIL )); then
+            online=$(GH_TOKEN="$RUNNER_STATUS_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" \
+              --jq '[.runners[] | select(.status == "online" and any(.labels[]; .name == "azure-linux"))] | length' 2>/dev/null || echo 0)
+            if [ "${online:-0}" -gt 0 ]; then
+              linux='["self-hosted","azure-linux"]'
+            fi
+          fi
+          echo "linux=$linux" >> "$GITHUB_OUTPUT"
+          echo "Linux runner for typecheck and gates: $linux" >> "$GITHUB_STEP_SUMMARY"
 
   # A separate check names the tier without changing branch protection's check
   # names. land-safe matches this proof to the required checks' check-suite id.
@@ -137,23 +190,32 @@ jobs:
           case "$CI_TIER" in full|bounded) ;; *) exit 1 ;; esac
           echo "CI tier: $CI_TIER" | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # One job ran every step below in turn, and took as long as all of them added
-  # together: the longest wait on every push, and the one that kept `package`
-  # from starting. It is the same steps now, with the same commands, split by
-  # what each needs into jobs that run side by side. Each repeats the
-  # checkout, install and build — about a minute each, in parallel — and
-  # `verify` at the end keeps the name branch protection and
-  # `script/land-safe.mjs` read, so it stays one check that is green only when
-  # every part is.
+  # The Node-package tests. `script/node-tests.mjs` is their manifest: which
+  # file runs in which `node --test` invocation, under which per-file deadline
+  # and on which runtime, and how they are dealt into jobs of about five
+  # minutes each by the seconds the last measurement recorded. One job ran
+  # every group in turn and took as long as all of them added together (the
+  # Lead end-to-end file alone took 21-29 minutes, on every pull request).
+  # Each job repeats the checkout, install and build, about a minute, in
+  # parallel; `verify` at the end keeps the one name branch protection reads.
   node-tests:
-    name: Node tests
+    name: Node tests ${{ matrix.job }}
+    needs: changes
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.node_jobs) }}
+    # A dealt job carries about five minutes of tests. The widest per-file
+    # deadline is ten minutes (a case stuck to its own ceiling must still say
+    # so by name); this limit only stops a runaway.
     timeout-minutes: 25
 
     steps:
+      # No Node test reads this repository's history: one commit is enough.
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - uses: pnpm/action-setup@v6
         with:
@@ -161,7 +223,9 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # 22 for the package floor; 26 for the Lead's groups, whose child and
+          # network-denial probes need a permission model that blocks the network.
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Install fixture shell
@@ -170,158 +234,32 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # `build` is the whole node build plus the UI: it compiles every package
-      # the test glob below reaches for, and copies the non-TypeScript fixtures
-      # the tests spawn as real processes. Anything less and the tests that
-      # spawn a fake agent fail on a binary that was never put in place.
+      # the tests reach for, and copies the non-TypeScript fixtures the tests
+      # spawn as real processes.
       - name: Build
         run: pnpm run build
 
-      # The per-test deadline is not about slow tests — most here finish in
-      # ~18s. It is so that a test which hangs fails by name well inside the
-      # job's twenty-five minutes instead of burning them and reporting
-      # nothing. On Node 22 this flag caps each test *file*'s cumulative
-      # time, not a single test's own — measured directly (#1000's review,
-      # round 2: three files each holding two 1.5s tests, each with its own
-      # `{ timeout: 10000 }`, still failed as a whole file at the flag's
-      # value); a per-test default on newer Node, where the same run passes.
-      # A per-test option can only ever narrow the file-cumulative ceiling
-      # here, never widen it. The four flow-host-evidence end-to-end files,
-      # the server's Lead e2e and intake files and the command line's end-to-end file
-      # legitimately need more than this, so they run in their own job below
-      # instead of sharing this one. Retention keeps this deadline, but runs
-      # alone below so concurrent fixtures cannot consume its workload guard.
-      #
-      # The exclusion is a `find`, not a second glob, because node's own
-      # glob matching has no negation syntax. It names each carved-out step
-      # by the very path glob that step is given (`-path`, not `-name`): a
-      # bare name also dropped `packages/protocol`'s `intake-wire.test.js`,
-      # which the server-only step below never picks up, so it ran nowhere.
-      # Still the same glob as before, minus the files the dedicated steps
-      # cover, so a package that gains tests is covered here the day it does.
+      # Spec output: its closing summary names every failing test.
       - name: Node tests
-        run: bash -c "node --test --test-timeout=120000 \$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js' ! -path 'packages/server/dist/test/lead-e2e.test.js' ! -path 'packages/lead/dist/test/supervisor.test.js' ! -path 'packages/server/dist/test/lead-service.test.js' ! -path 'packages/server/dist/test/lead-client.test.js' ! -path 'packages/server/dist/test/lead-assembly-child.test.js' ! -path 'packages/server/dist/test/lead-repair-host.test.js')"
-      # The same heap/CPU budgets and workload deadline, with no competing
-      # server fixtures on this runner while the 20 real Flow runs settle.
-      - name: Host retention tests
-        run: node --test --test-timeout=120000 "packages/server/dist/test/host-retention.test.js"
+        env:
+          NODE_JOB: ${{ matrix.job }}
+          HD_NODE_TEST_SECONDS: output/node-tests/${{ matrix.job }}
+        run: node script/node-tests.mjs --job $NODE_JOB
 
-  node-e2e:
-    name: Node end-to-end tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-      - uses: actions/checkout@v7
+      # Each file's measured seconds: `node script/node-tests.mjs --refresh`
+      # folds a run's into the table that deals the next.
+      - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.4.1
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install fixture shell
-        run: sudo apt-get update && sudo apt-get install --yes zsh
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build
-        run: pnpm run build
-
-      # The worst of these four files, flow-host-evidence-review.test.ts,
-      # has 7 end-to-end cases and took 33s measured with nothing else
-      # running. Each case's own ceiling is 260s (`E2E`) behind an internal
-      # 200s safety dump (`SAFETY_MS`) that names exactly what did not move
-      # on the desk — both in `test/fixtures/flow-host-evidence.ts`. Sized
-      # for the worst realistic combination for that file: its own measured
-      # normal total, one case genuinely stuck reaching its full 260s outer
-      # bound, and headroom for several others running as slow as this
-      # suite has actually observed under load (92-100s each, #972).
-      - name: Flow-host-evidence tests
-        run: node --test --test-timeout=600000 "packages/server/dist/test/flow-host-evidence-*.test.js"
-
-      # The server's intake end-to-end files (7 of its 21 intake test files)
-      # give each case a 120s ceiling of its own (`E2E` in each file), which sat
-      # exactly at the 120s the run above caps a whole file at: on Node 22 a
-      # slow file was cut by the runner before any case's own ceiling, or its
-      # message, could fire (#1003). The worst, intake-comments.test.ts and
-      # intake-host.test.ts, took 14s and 12s measured at a load average of 9 —
-      # but with a second full gate running beside it, intake-host's cases took
-      # 38-97s each. Sized like the step above, and measured on Node 22: one
-      # case genuinely stuck to its full 120s, failing on its own ceiling, and
-      # the rest of the worst file that slow: at 600s it ran every other case
-      # and ended in 397s; at 360s it was cut before its last two. The other
-      # intake files are unit tests that run in seconds; one glob keeps a new
-      # intake file in this run the day it is added.
-      - name: Intake tests
-        run: node --test --test-timeout=600000 "packages/server/dist/test/intake-*.test.js"
-
-      # The command line's end-to-end file starts a real host and the built
-      # CLI for each case, with ceilings of its own sized for a starved
-      # machine (#1289). Sized like the two steps above, so the file is never
-      # cut before those ceilings, or their messages, can fire.
-      - name: CLI end-to-end tests
-        run: node --test --test-timeout=600000 "packages/cli/dist/test/e2e*.test.js"
-
-  lead-e2e:
-    name: Lead end-to-end tests
-    runs-on: ubuntu-latest
-    # Run 40234619739: 30.5m total, including 27.6m in lead-e2e. Its two
-    # E3/E4 cases stopped at ~116s; allowing their full 240s ceilings adds
-    # at most 4.2m. Leave 5.3m headroom for setup and runner variance.
-    timeout-minutes: 40
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.4.1
-
-      - uses: actions/setup-node@v7
-        with:
-          # The Lead child and its network-denial probes need a Node whose permission
-          # model blocks the network (Node 26 LTS; 25 has reached end of life).
-          node-version: 26
-          cache: pnpm
-
-      - name: Install fixture shell
-        run: sudo apt-get update && sudo apt-get install --yes zsh
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build
-        run: pnpm run build
-
-      # Service and client fixtures also exercise the supervisor runtime gate.
-      - name: Lead supervisor tests
-        run: node --test --test-timeout=120000 "packages/lead/dist/test/supervisor.test.js"
-
-      - name: Lead service tests
-        run: node --test --test-timeout=120000 "packages/server/dist/test/lead-service.test.js"
-
-      - name: Lead client tests
-        run: node --test --test-timeout=120000 "packages/server/dist/test/lead-client.test.js"
-
-      # These cases start a real Lead child; the assembly unit tests stay on Node 22.
-      - name: Lead assembly child tests
-        run: node --test --test-timeout=120000 "packages/server/dist/test/lead-assembly-child.test.js"
-
-      - name: Lead repair host tests
-        run: node --test --test-timeout=120000 "packages/server/dist/test/lead-repair-host.test.js"
-
-      - name: Lead end-to-end tests
-        run: node --test --test-timeout=600000 "packages/server/dist/test/lead-e2e.test.js"
+          name: node-test-seconds-${{ matrix.job }}
+          path: output/node-tests/
+          retention-days: 7
+          if-no-files-found: ignore
 
   ui-typecheck:
     name: UI typecheck and desktop tests
-    runs-on: ubuntu-latest
+    needs: runners
+    runs-on: ${{ fromJSON(needs.runners.outputs.linux) }}
     # These run once, alongside the shards. Fifteen minutes leaves ample room
     # for install/build/typecheck and desktop tests while bounding a runaway.
     timeout-minutes: 15
@@ -361,11 +299,9 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.changes.outputs.unit_shards) }}
     # A full-suite deal plans about 125s of tests plus 60s of setup per shard.
-    # Related selections are undealt; 15 minutes covers the old serial run too.
     timeout-minutes: 15
     env:
       UNIT_MODE: ${{ needs.changes.outputs.unit_mode }}
-      UNIT_FILES: ${{ needs.changes.outputs.unit_files }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -399,10 +335,6 @@ jobs:
           UNIT_DEAL: ${{ steps.deal.outputs.files }}
         run: pnpm --filter @harnessdesk/ui run test $UNIT_DEAL
 
-      - name: UI tests that depend on the change
-        if: needs.changes.outputs.unit_mode == 'related'
-        run: pnpm --filter @harnessdesk/ui exec vitest related --run $UNIT_FILES
-
   ui-tests:
     name: UI tests
     runs-on: ubuntu-latest
@@ -422,7 +354,7 @@ jobs:
             exit 1
           fi
           case "$TYPECHECK_RESULT/$SHARDS_RESULT/$UNIT_MODE" in
-            success/success/all|success/success/related|success/skipped/none)
+            success/success/all|success/skipped/none)
               exit 0
               ;;
           esac
@@ -431,7 +363,8 @@ jobs:
 
   gates:
     name: Gates
-    runs-on: ubuntu-latest
+    needs: runners
+    runs-on: ${{ fromJSON(needs.runners.outputs.linux) }}
     timeout-minutes: 25
 
     steps:
@@ -537,7 +470,7 @@ jobs:
   verify:
     name: Build, typecheck, test
     runs-on: ubuntu-latest
-    needs: [node-tests, node-e2e, lead-e2e, ui-tests, gates]
+    needs: [node-tests, ui-tests, gates]
     if: always()
     timeout-minutes: 5
 
@@ -545,13 +478,11 @@ jobs:
       - name: Require every part of the gate
         env:
           NODE_TESTS_RESULT: ${{ needs.node-tests.result }}
-          NODE_E2E_RESULT: ${{ needs.node-e2e.result }}
-          LEAD_E2E_RESULT: ${{ needs.lead-e2e.result }}
           UI_TESTS_RESULT: ${{ needs.ui-tests.result }}
           GATES_RESULT: ${{ needs.gates.result }}
         run: |
           failed=0
-          for part in "node-tests:$NODE_TESTS_RESULT" "node-e2e:$NODE_E2E_RESULT" "lead-e2e:$LEAD_E2E_RESULT" "ui-tests:$UI_TESTS_RESULT" "gates:$GATES_RESULT"; do
+          for part in "node-tests:$NODE_TESTS_RESULT" "ui-tests:$UI_TESTS_RESULT" "gates:$GATES_RESULT"; do
             if [ "${part#*:}" != "success" ]; then
               echo "${part%%:*} did not succeed (${part#*:})."
               failed=1
@@ -561,7 +492,7 @@ jobs:
 
   package:
     name: Package (unsigned)
-    runs-on: macos-14
+    runs-on: macos-15
     needs: verify
     timeout-minutes: 30
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
@@ -626,7 +557,9 @@ jobs:
         run: |
           node script/ui-system-run.mjs e2e/ui-system/surfaces.spec.ts e2e/ui-system/narrow-right-panel-overlay.spec.ts e2e/ui-system/code-block.spec.ts
           node script/ui-system-run.mjs e2e/ui-system/side-by-side.spec.ts --grep "two Seat browsers stay live"
+      # Only a run that does not record downloads the pages; a recording run's shards read the dev server.
       - uses: actions/upload-artifact@v7
+        if: needs.changes.outputs.record != 'true'
         with:
           name: ui-system-pages
           path: packages/ui/dist-e2e/
@@ -847,7 +780,7 @@ jobs:
     name: UI system native smoke
     needs: changes
     if: needs.changes.outputs.native == 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 20
 
     steps:
@@ -902,3 +835,34 @@ jobs:
           fi
           echo "UI system native smoke did not succeed ($SMOKE_RESULT)."
           exit 1
+
+  # A full run that passed every part, the whole browser suite and native
+  # smoke included, names the tree it tested. A push of that same tree (a
+  # batch head or the release pull request landing on a branch that had not
+  # moved) reads this and runs core CI only. It gates nothing itself.
+  proof:
+    name: Tree proof
+    needs: [changes, verify, ui-system-browser-integration, ui-system-native-integration]
+    if: >-
+      needs.changes.outputs.tier == 'full' && needs.changes.outputs.browser == 'all'
+      && needs.changes.outputs.browser_specs == 'all' && needs.changes.outputs.native == 'true'
+      && needs.verify.result == 'success' && needs.ui-system-browser-integration.result == 'success'
+      && needs.ui-system-native-integration.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - name: Name the tested tree
+        id: tree
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          mkdir -p output/proof
+          printf 'tree=%s\nsha=%s\nrun=%s\n' "$tree" "$GITHUB_SHA" "$GITHUB_RUN_ID" > output/proof/proof.txt
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: proven-tree-${{ steps.tree.outputs.tree }}
+          path: output/proof/
+          retention-days: 14

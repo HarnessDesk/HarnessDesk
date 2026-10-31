@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const planners = ['ci-changes', 'ci-unit-tests', 'ci-unit-shards', 'ui-impact', 'ci-browser-shards', 'ci-imports']
+const planners = ['ci-changes', 'ci-unit-tests', 'ci-unit-shards', 'ui-impact', 'ci-browser-shards', 'ci-imports', 'node-tests']
 
 // Planning runs before the install. Follow lazy literal imports too, since a
 // load test alone cannot exercise imports inside every planning branch.
