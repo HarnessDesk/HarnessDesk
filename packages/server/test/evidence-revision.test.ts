@@ -227,6 +227,19 @@ test('a checkout another user owns, trusted only through safe.directory, is aske
   assert.ok(await asked() > first, 'another user\'s checkout is asked again, never kept')
 })
 
+test('a link to a checkout root that is pointed at another checkout is seen by the next read', async () => {
+  const first = await makeRepo()
+  const second = await makeRepo()
+  await new Promise((resolve) => setTimeout(resolve, RACY_MS + 50))
+  const link = join(tempDir('hd-project-link-'), 'project')
+  await symlink(first.dir, link)
+  assert.equal(await projectOf(link), await realpath(first.dir))
+  assert.equal(await projectOf(link), await realpath(first.dir))
+  await rm(link)
+  await symlink(second.dir, link)
+  assert.equal(await projectOf(link), await realpath(second.dir))
+})
+
 test('concurrent project reads preserve traversal through a symlink before its parent', async () => {
   const first = await makeRepo()
   const second = await makeRepo()

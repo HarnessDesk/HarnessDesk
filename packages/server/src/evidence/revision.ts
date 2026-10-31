@@ -260,7 +260,8 @@ export const projectOf = (folder: string, fallback?: string): Promise<string> =>
       kept.delete(key)
     }
     const before = await checkoutMarkAt(real)
-    const root = await repositoryRoot(folder)
+    // Asked of the path the mark describes, never through a link that could point elsewhere while git answers.
+    const root = await repositoryRoot(real)
     if (root === null) return real
     // Read again once git has answered: a checkout made or moved meanwhile must not leave a mark of after on an answer of before.
     if (before?.trusted) {
