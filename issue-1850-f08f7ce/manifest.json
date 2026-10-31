@@ -1,0 +1,33 @@
+{
+  "issue": 1850,
+  "head": "f08f7ce36622b69166d3ed3deb2fa2c5f3381ed0",
+  "tree": "78bf467344786a8e4ab9f01d9f94ec4b8a57ccfd",
+  "frames": [
+    {
+      "name": "before-light.png",
+      "sha256": "1f5fbe95faac6b57b1eac99624873677caca4ef4bd7e3539a7945a2e0dec81de",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "before-dark.png",
+      "sha256": "2bbe11b43461f6d7859a3c26c2a039580c98a389d6bd19f84488b921aecdeef2",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "picked-light.png",
+      "sha256": "764d40b2591711d4419a9d902fb3876ff1390dffdf4fc9f198d2cd96c8bd3001",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "picked-dark.png",
+      "sha256": "c27ab0e85e8fb7d971cf7e919c6e33103a2e58fd024c5a8458c6c6943778675c",
+      "width": 2560,
+      "height": 1680
+    }
+  ],
+  "surface": "Production desktop bootstrap with isolated fake-agent rig; carried draft preserved after trusted Add-menu folder selection, with controlled picker result at transport boundary and actual queued session cwd verified. No provider or real OS folder-picker claim.",
+  "privacy": "All four final frames personally inspected; unmodified actual-username/account/path audit passed after synthetic path shortening."
+}
