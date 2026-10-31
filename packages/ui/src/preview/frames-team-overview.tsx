@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { TeamOverview } from '../components/TeamOverview'
 import { TeamFramePreview } from './TeamFramePreview'
 import { SessionTree } from '../components/SessionTree'
@@ -30,9 +30,17 @@ export const NeedsYouExample = ({ scene }: { scene: NeedsYouScene }) => {
 
 /** Both the catalogue and preview mount the production component. */
 export const OverviewExample = ({scene}:{scene:OverviewScene}) => {
- const model=overviewModel(scene)
+ const [opened, setOpened] = useState<string[]>([])
+ const probe = scene === 'narrow' ? new URLSearchParams(location.search).get('seat-facts-test') : null
+ const source = overviewModel(probe === 'done' ? 'done' : scene)
+ const model = probe ? { ...source, run: probe === 'stopped' && source.run ? { ...source.run, state: 'stopped' as const } : source.run,
+   seats: source.seats.map(row => row.seat === 'seat-0'
+     ? { ...row, name: 'A', cost: { unit: 'turns' as const, value: 123456, estimated: false } }
+     : row.seat === 'seat-1' ? { ...row, name: 'A very long synthetic agent name for truncation', cost: { unit: 'money' as const, value: 0.21, estimated: false } }
+     : row.seat === 'seat-2' ? { ...row, cost: null, reason: 'This synthetic agent is unavailable.' } : row) } : source
  const runtimeName=previewPrimaryRuntime().presentation.name
- return <TeamOverview uncheckedDone={scene==='unchecked'?141:0} onBoard={()=>{}} onWrap={scene==='unchecked'?()=>{}:undefined} model={model} runtimeNames={new Map(model.seats.map(seat=>[seat.seat,runtimeName]))} runRules={[{id:'to-referee'}]} runName={scene==='comparison'?'Compare the changes':'Build and review'} runReason={scene==='comparison'?'Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved.':scene==='stalled'?'Choose the target before this Run can continue':null} defaultExpanded={scene==='done-open'||scene==='comparison'} onOpen={() => {}} onFindings={() => {}} />
+ const overview = <TeamOverview uncheckedDone={scene==='unchecked'?141:0} onBoard={()=>{}} onWrap={scene==='unchecked'?()=>{}:undefined} model={model} runtimeNames={new Map(model.seats.map(seat=>[seat.seat,runtimeName]))} runRules={[{id:'to-referee'}]} runName={scene==='comparison'?'Compare the changes':'Build and review'} runReason={scene==='comparison'?'Rule to-referee: Waiting for 3 open blocking findings to be confirmed resolved.':scene==='stalled'?'Choose the target before this Run can continue':null} defaultExpanded={scene==='done-open'||scene==='comparison'||probe==='done'} unavailable={probe === 'unavailable' ? new Set(['seat-2']) : undefined} onOpen={probe ? seat => setOpened(previous => [...previous, seat]) : () => {}} onFindings={() => {}} />
+ return probe ? <>{overview}<output data-seat-opened>{opened.join(',')}</output></> : overview
 }
 
 export const TeamOverviewBoard = () => <div className="flex flex-col gap-4">{OVERVIEW_STATES.map(scene=><section key={scene} data-catalog-state={scene} className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></section>)}
