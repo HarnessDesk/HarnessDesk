@@ -25,6 +25,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **A large saved attribution history no longer crashes the desktop.** Obsolete checkpoints are removed within a bounded recovery pass. If retained history still exceeds the budget, capture pauses for that project, keeping its observations and leaving sign-in, capture controls and normal conversations available. Backups report omitted histories and continue with healthy projects.
 
+- **A replacement Agent shows its own installation details.** Removing and re-adding an Agent no longer carries over the previous Agent's cached version or a late installation check.
+
 - **Account sign-in says when the service is unavailable.** A server failure now explains that the account service is unavailable and asks you to try later, instead of reporting that the desk could not reach your account.
 
 - **Source builds can sign in against staging.** `pnpm app:staging` launches a separate local desk with the staging account service selected explicitly.
