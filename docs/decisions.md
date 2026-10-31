@@ -4626,7 +4626,13 @@ the failure logs of the 128 jobs that failed in them:
   checkout identity it has just read for that same folder, keeps a project
   answer for a second while its folder is still where it was, and keeps reads
   of immutable objects. The same case went from 116 to 64 seconds; the desk a
-  person runs does the same work less often.
+  person runs does the same work less often. The largest source left was every
+  evidence reader asking where each fact's branch stands. A branch's tip is now
+  asked again only once a file its ref is kept in has changed — the loose ref,
+  `packed-refs` or a reftable list, marked by `stat` and trusted only once it
+  has been still for longer than a filesystem tick — and how two commits stand
+  is kept per repository (`evidence/tips.ts`). That case now starts about
+  4,250 git processes in about 55 seconds, against about 6,300 in 64.
 - **Node tests are one manifest.** `script/node-tests.mjs` names each group —
   unit, Node end-to-end, retention, the Lead's, the Lead's end-to-end — with its
   per-file deadline and runtime, and deals the files into jobs of about five
