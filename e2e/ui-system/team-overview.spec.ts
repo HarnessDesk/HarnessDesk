@@ -4,8 +4,10 @@ import { closeTeamDetails, selectTeamPage, teamSeats } from './team-frame-action
 
 for (const theme of ['light', 'dark'] as const) {
   test(`general Team Overview gallery passes the whole-document text audit in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-overview&theme=${theme}`)
     await expect(page.locator('#team-overview-answer-approval [data-slot="team-overview"]')).toBeVisible()
+    await expect.poll(() => page.locator('body').evaluate(body => body.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
     expect(textReasons(await page.evaluate(COLLECT), { user: USER })).toEqual([])
   })
 }
