@@ -155,11 +155,15 @@ test('a host-held forge approval keeps a child invocation alive beyond its injec
   const root = await mkdtemp(join(tmpdir(), 'hd-forge-held-')), store = join(root, 'plugins'), directory = join(store, 'writer')
   await mkdir(directory, { recursive: true })
   await writeFile(join(directory, 'harnessdesk.plugin.json'), JSON.stringify({ id: 'writer', name: 'Writer', main: './index.mjs', permissions: { forge: { write: true } } }))
-  await writeFile(join(directory, 'index.mjs'), plugin)
+  // Model registration outlasting the old 200ms budget on a cold or busy host.
+  // The test must reach the host-held response instead of timing out at startup.
+  const slowRegistration = plugin.replace('apply(ctx) {', 'apply(ctx) { const ready = Date.now() + 250; while (Date.now() < ready) {}')
+  await writeFile(join(directory, 'index.mjs'), slowRegistration)
+  const invokeTimeoutMs = 3_000
   const heard: ForgeScope[] = []
   const answer = async (_args: unknown, scope: ForgeScope) => {
     heard.push(scope)
-    await new Promise(resolve => setTimeout(resolve, 500))
+    await new Promise(resolve => setTimeout(resolve, invokeTimeoutMs + 500))
     assert.equal(scope.signal?.aborted, false, 'answering after the normal deadline is still live')
     return { output: 'written', repository: 'acme/widgets' }
   }
@@ -170,7 +174,7 @@ test('a host-held forge approval keeps a child invocation alive beyond its injec
     push: answer, pullRequest: { create: answer, update: answer, merge: answer }, review: answer, comment: answer,
     record: async () => [], attribute: async () => 'outside',
   }
-  const host = new SupervisedExtensionHost(new ExtensionKernel(), { invokeTimeoutMs: 200, env: { HARNESSDESK_PLUGINS: store }, forgeEngine: engine })
+  const host = new SupervisedExtensionHost(new ExtensionKernel(), { invokeTimeoutMs, env: { HARNESSDESK_PLUGINS: store }, forgeEngine: engine })
   t.after(async () => { await host.dispose(); await rm(root, { recursive: true, force: true }) })
   await host.loadInstalledPlugins()
   const tool = host.list('tool').find(one => one.name === 'forge_write')!

@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A late Codex process exit no longer disrupts its replacement.** Restarting while the previous process drains keeps replies and shutdown with the new process.
+
+- **Lead respects a reached round allowance without losing its child.** A running round can finish, and the next round is stopped at the allowance even if the limit changes while a request is being admitted.
+
 - **Open Teams use less CPU.** The desk no longer asks git the same questions about the same project folders over and over while it reads evidence and findings, and asks where a branch stands only after it has moved: a measured Lead run started about a third as many git processes and finished in under half the time.
 
 - **Detached conversations can find their own pull request.** Omitting the number in view, checks, review or comment uses that conversation's unique recorded open PR. Ambiguous cases still ask for a number; detached updates remain refused.
