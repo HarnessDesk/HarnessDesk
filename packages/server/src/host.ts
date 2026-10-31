@@ -2452,6 +2452,7 @@ export class Host {
     if (this.#runtimes.has(id)) {
       throw new Error(`A runtime with id ${id} is already registered. Await unregister before registering it again.`)
     }
+    this.options.installs?.register?.(String(id), runtime)
     // These async surfaces belong to the same process as the runtime verbs.
     // Keep their receiver (including private fields) and share its lifecycle.
     const surfaces = new WeakMap<object, object>()
@@ -2569,6 +2570,7 @@ export class Host {
     this.#historyImport.cancel(id)
     const runtime = this.#runtimes.get(id)
     if (!runtime) return
+    this.options.installs?.forget?.(String(id))
     this.#invalidateDelegations(id)
     this.#settleHeld(id)
     this.registry.detachAll(id)
@@ -5205,6 +5207,7 @@ export class Host {
         all: () => [...this.#runtimes.values()],
         ids: () => new Set(this.#runtimes.keys()),
         infoOf: (runtime) => this.#infoOf(runtime),
+        installOwner: (runtime) => this.ownsRuntime(runtime) ? this.#runtimeSources.get(String(runtime.info.id)) : undefined,
         metered: () => this.#meteredRuntimes(),
         extensionsOf: (params) => this.#extensionsOf(params),
         files: (runtime) => this.#files(runtime),
