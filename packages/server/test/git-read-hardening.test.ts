@@ -944,6 +944,25 @@ const touched = async (path: string): Promise<void> => {
   await utimes(path, later, later)
 }
 
+test('consecutive views use the current user filter and report config errors', async (t) => {
+  const f = await fixture(t)
+  await userConfig(t, f, { global: await marking(f) })
+  await convertedCommit(f)
+  await rm(`${f.script}.mark`, { force: true })
+  await touched(join(f.root, 'data.dat'))
+  await readGit(f.root, ['status', '--porcelain'])
+  assert.equal(await f.marker(), 'called')
+
+  await rm(`${f.script}.mark`)
+  await writeFile(join(f.base, 'user.gitconfig'), '')
+  await touched(join(f.root, 'data.dat'))
+  await readGit(f.root, ['status', '--porcelain'])
+  assert.equal(await f.marker(), '', 'a removed user filter is not executed on the next view')
+
+  await writeFile(join(f.base, 'user.gitconfig'), '[broken\n')
+  await assert.rejects(readGit(f.root, ['status', '--porcelain']), /bad config|config file/i)
+})
+
 for (const scope of ['global', 'system'] as const) {
   test(`a filter the ${scope} configuration defines converts a touched file when status reads it`, async (t) => {
     const f = await fixture(t)
@@ -1054,15 +1073,12 @@ test('a person with no global or system configuration file still gets status and
 })
 
 for (const scope of ['global', 'system'] as const) {
-  for (const absent of ['missing file', 'no match']) {
+  for (const absent of ['missing file']) {
     test(`an empty ${scope} filter scope through a Git wrapper allows status and lanes: ${absent}`, async (t) => {
       const f = await fixture(t)
       await userConfig(t, f, {})
       process.env[scope === 'global' ? 'GIT_CONFIG_GLOBAL' : 'GIT_CONFIG_SYSTEM'] = join(f.base, `absent-${scope}.gitconfig`)
-      const realGit = (await run('which', ['git'])).stdout.trim()
-      const answer = absent === 'missing file'
-        ? `process.stdout.write(require('node:child_process').execFileSync(${JSON.stringify(realGit)}, args)); return true`
-        : 'process.exit(1)'
+      const answer = `process.stderr.write("unable to read config file 'test': No such file or directory"); process.exit(128)`
       await withGitShim(f, `
         if (args.includes('config') && args.includes('--${scope}')) { ${answer} }
       `, async () => {
@@ -1075,6 +1091,21 @@ for (const scope of ['global', 'system'] as const) {
       })
     })
   }
+}
+
+for (const failure of [
+  { label: 'silent exit 1', code: 1, stderr: '' },
+  { label: 'permission denied', code: 128, stderr: "unable to read config file 'test': Permission denied" },
+  { label: 'not a directory', code: 128, stderr: "unable to read config file 'test': Not a directory" },
+  { label: 'exit 1 missing file', code: 1, stderr: "unable to read config file 'test': No such file or directory" },
+]) {
+  test(`user config failure is visible: ${failure.label}`, async (t) => {
+    const f = await fixture(t)
+    await userConfig(t, f, {})
+    await withGitShim(f, `if (args.includes('config') && args.includes('--global')) { process.stderr.write(${JSON.stringify(failure.stderr)}); process.exit(${failure.code}) }`, async () => {
+      await assert.rejects(readGit(f.root, ['status', '--porcelain=v1']))
+    })
+  })
 }
 
 test('removing a lane does not start a filter the person defines', async (t) => {
