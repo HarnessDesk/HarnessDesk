@@ -158,7 +158,9 @@ jobs:
         id: pick
         env:
           RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          # A pull request whose fork was deleted has no head repository; it
+          # must not pass for one of this repository's own branches.
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || (github.event.pull_request && 'deleted-fork' || github.repository) }}
           SELF_HOSTED_UNTIL: ${{ vars.SELF_HOSTED_UNTIL || '1830' }}
         run: |
           linux='"ubuntu-latest"'

@@ -24,6 +24,10 @@ than half an hour before the machine's scheduled stop (`SELF_HOSTED_UNTIL`).
 Jobs that start later in a run, like the bookkeeping checks, stay hosted for
 the same reason: the machine may have stopped by the time they are created.
 
+The pick is made once per run. "Re-run failed jobs" keeps it, so after the
+machine has stopped, re-run a failed typecheck or gates job with "Re-run all
+jobs", which asks again.
+
 **The rule:** a job reaches a self-hosted runner only through a pick made at
 the start of the run that defaults to the hosted runner.
 
