@@ -893,6 +893,11 @@ export class AcpRuntime implements AgentRuntime {
   #handedKeys: ReadonlySet<string> = new Set()
   /** The agent accepted being told to use a stored key, and nothing has told it otherwise since. */
   #keyTold = false
+  // Local admission order resolves competing successful operations. It is
+  // not a claim about when a provider applied concurrent requests.
+  #modeOperationClock = 0
+  #acceptedModeOperation = 0
+  #controlProcessGeneration = 0
   /** The version of the agent that refused the tool server; a different one is asked again. */
   #refusedBy: string | null | undefined = undefined
   /** The agent's bridge declared that it carries the desk's standing instruction. */
@@ -1084,6 +1089,7 @@ export class AcpRuntime implements AgentRuntime {
   async #stopConnections(): Promise<void> {
     for (const id of this.#readRest.keys()) this.#cancelReadRest(id)
     this.#stoppingConnections ??= (async () => {
+      this.#controlProcessGeneration++
       await Promise.all([this.#connection, ...this.#workers].map(connection => connection.stop()))
       this.#workers.clear()
       this.#sessionConnections.clear()
@@ -2139,18 +2145,20 @@ export class AcpRuntime implements AgentRuntime {
       // A key stored after this process was spawned waits for the next one.
       if (told.some((one) => typeof this.#config.resolveSecret?.(one.env) === 'string')) return
       this.#keyAuthPending = false
-      if (this.#keyTold && told.length > 0) this.#noteSignIn({ state: 'required', message: KEY_REMOVED })
-      this.#keyTold = false
+      if (this.#keyTold && told.length > 0) this.#observeAuth(this.#authGeneration, { state: 'required', message: KEY_REMOVED }, 'refusal')
+      this.#observeAuthMode(this.#authGeneration, { mode: 'other', ordinal: ++this.#modeOperationClock })
       return
     }
     this.#keyAuthPending = false
+    const world = this.#authGeneration
+    const receipt: AuthModeReceipt = { mode: 'key', ordinal: ++this.#modeOperationClock, process: this.#controlProcessGeneration }
     try {
       await this.#connection.request(ACP_AUTHENTICATE, { methodId: secret.acpMethod })
-      this.#keyTold = true
+      if (receipt.process !== this.#controlProcessGeneration || !this.#authWorldReachable(world)) return
+      if (!this.#observeAuthMode(world, receipt)) return
       this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
     } catch (error) {
       // Refused, so it signs in however it did before — nothing to undo later.
-      this.#keyTold = false
       this.#config.logger?.warn?.('the agent would not switch to the stored key', {
         agent: this.#config.id,
         error: describeAcp(error),
@@ -2212,15 +2220,18 @@ export class AcpRuntime implements AgentRuntime {
    */
   async #authenticateOverAcp(methodId: string): Promise<LoginStart> {
     const authGeneration = this.#authGeneration
+    const receipt: AuthModeReceipt = { mode: 'other', ordinal: ++this.#modeOperationClock, process: this.#controlProcessGeneration }
     const loginId = randomUUID()
     this.#acpLogins.add(loginId)
     const runtime = runtimeId(this.#config.id)
     void this.#connection.request(ACP_AUTHENTICATE, { methodId }).then(
       () => {
         const mine = this.#acpLogins.delete(loginId)
+        if (receipt.process !== this.#controlProcessGeneration) return
+        this.#observeAuthMode(authGeneration, receipt)
         // Before the events, so whoever reads the identity on `account/changed`
         // reads it signed in — the same ordering `#accountEvent` keeps.
-        this.#observeAuth(authGeneration, { state: 'observed' }, 'login')
+        this.#observeAuth(authGeneration, { state: 'observed' }, 'login', receipt.process)
         if (mine) this.emit({ type: 'account/loginCompleted', runtime, loginId, success: true })
         this.emit({ type: 'account/changed', runtime })
       },
@@ -2290,8 +2301,11 @@ export class AcpRuntime implements AgentRuntime {
     // fallback for an agent whose CLI cannot be asked.
     const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
+    const modeOrdinal = ++this.#modeOperationClock
+    const process = overAcp ? this.#controlProcessGeneration : undefined
     const before = this.#signIn
     const beforeAuthGeneration = canonicalAuthWorld(this.#authGeneration)
+    const beforeWasPending = beforeAuthGeneration.pending === true
     // Each logout fences older work with its own identity. Failure joins its
     // world to the preceding one without reusing an identity for a later logout.
     const signedOutAuthGeneration: AuthWorld = { previous: beforeAuthGeneration, pending: true }
@@ -2317,11 +2331,14 @@ export class AcpRuntime implements AgentRuntime {
     try {
       if (overAcp) {
         await this.#connection.request(ACP_LOGOUT, {})
+        if (process !== this.#controlProcessGeneration) throw new Error('The agent connection retired during sign-out.')
         // CliAccount announces its own; this path has nobody else to do it.
         this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
       } else {
         await this.#account!.logout()
       }
+      signedOutAuthGeneration.succeeded = true
+      this.#applyAuthMode({ mode: 'other', ordinal: modeOrdinal, process })
       // Receipts completed inside this successful barrier must not become
       // current merely because the barrier is no longer pending. A newer
       // independent logout keeps its own receipts; failed newer worlds may
@@ -2332,6 +2349,13 @@ export class AcpRuntime implements AgentRuntime {
     } catch (error) {
       // Only what this sign-out wrote is taken back: an answer that landed
       // while the command ran is newer than the rollback and stands.
+      // A newer barrier cannot carry mode evidence through a predecessor
+      // that was pending when it started and has since signed out.
+      if (beforeWasPending && canonicalAuthWorld(beforeAuthGeneration).succeeded) {
+        for (const [world, receipts] of this.#deferredAuthObservations) {
+          if (canonicalAuthWorld(world) === signedOutAuthGeneration) { delete receipts.mode; delete receipts.hostMode }
+        }
+      }
       signedOutAuthGeneration.parent = canonicalAuthWorld(beforeAuthGeneration)
       // A later pending logout may have saved our temporary sign-out as its
       // prior state. If we failed, it must roll back past us too.
@@ -2899,39 +2923,77 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
-  #observeAuth(world: AuthWorld | undefined, observation: SignInObservation, kind: AuthReceipt['kind']): void {
+  #observeAuth(world: AuthWorld | undefined, observation: SignInObservation, kind: AuthReceipt['kind'], process?: number): void {
     if (!world) return
-    const receipt: AuthReceipt = { observation, kind, sequence: ++this.#authObservationClock }
+    const receipt: AuthReceipt = { observation, kind, sequence: ++this.#authObservationClock, process }
     if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) this.#applyAuthObservation(receipt, kind === 'cli')
     else if (this.#authWorldReachable(world)) {
       const canonical = canonicalAuthWorld(world)
       const receipts = this.#deferredAuthObservations.get(canonical) ?? {}
-      receipts[kind === 'open' ? 'open' : 'strong'] = receipt
+      receipts[kind === 'open' ? 'open' : process === undefined ? 'strong' : 'strongAcp'] = receipt
       this.#deferredAuthObservations.set(canonical, receipts)
     }
   }
 
   #applyAuthObservation(receipt: AuthReceipt, silent = false): void {
-    if (receipt.sequence <= this.#acceptedAuthObservation) return
+    if ((receipt.process !== undefined && receipt.process !== this.#controlProcessGeneration) || receipt.sequence <= this.#acceptedAuthObservation) return
     // An open alone cannot lift a signed-out identity record, even when the
     // reply was held behind a logout that subsequently failed.
     if (receipt.kind === 'open' && this.#config.identityIsStatus && this.#signIn.state === 'required' && this.#signIn.signedOut) return
     this.#noteSignIn(receipt.observation, receipt.sequence, silent)
   }
 
+  // Admission and deferred settlement both require the same live control
+  // process. Accepted history survives a reload; a reply only held by a
+  // pending logout does not become history after that process retires.
+  #observeAuthMode(world: AuthWorld, receipt: AuthModeReceipt): boolean {
+    if ((receipt.process !== undefined && receipt.process !== this.#controlProcessGeneration) || receipt.ordinal <= this.#acceptedModeOperation) return false
+    if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) {
+      this.#applyAuthMode(receipt)
+      return true
+    }
+    if (!this.#authWorldReachable(world)) return false
+    const canonical = canonicalAuthWorld(world)
+    const group = this.#deferredAuthObservations.get(canonical) ?? {}
+    const key = receipt.process === undefined ? 'hostMode' : 'mode'
+    if (group[key] && receipt.ordinal <= group[key]!.ordinal) return false
+    group[key] = receipt
+    this.#deferredAuthObservations.set(canonical, group)
+    return true
+  }
+
+  #applyAuthMode(receipt: AuthModeReceipt): void {
+    if ((receipt.process !== undefined && receipt.process !== this.#controlProcessGeneration) || receipt.ordinal <= this.#acceptedModeOperation) return
+    this.#acceptedModeOperation = receipt.ordinal
+    this.#keyTold = receipt.mode === 'key'
+  }
+
   #settleAuthObservations(): void {
+    let latestMode: AuthModeReceipt | undefined
     let latest: AuthReceipt | undefined
     const pending = new Map<AuthWorld, AuthReceipts>()
     for (const [world, receipts] of this.#deferredAuthObservations) {
-      for (const receipt of [receipts.open, receipts.strong]) {
-        if (!receipt || receipt.sequence <= this.#acceptedAuthObservation) continue
+      for (const mode of [receipts.mode, receipts.hostMode]) {
+        if (!mode || mode.ordinal <= this.#acceptedModeOperation || (mode.process !== undefined && mode.process !== this.#controlProcessGeneration)) continue
+        if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) {
+          if (!latestMode || mode.ordinal > latestMode.ordinal) latestMode = mode
+        } else if (this.#authWorldReachable(world)) {
+          const canonical = canonicalAuthWorld(world)
+          const group = pending.get(canonical) ?? {}
+          const key = mode.process === undefined ? 'hostMode' : 'mode'
+          if (!group[key] || mode.ordinal > group[key]!.ordinal) group[key] = mode
+          pending.set(canonical, group)
+        }
+      }
+      for (const receipt of [receipts.open, receipts.strong, receipts.strongAcp]) {
+        if (!receipt || (receipt.process !== undefined && receipt.process !== this.#controlProcessGeneration) || receipt.sequence <= this.#acceptedAuthObservation) continue
         if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) {
           const blockedOpen = receipt.kind === 'open' && this.#config.identityIsStatus && this.#signIn.state === 'required' && this.#signIn.signedOut
           if (!blockedOpen && (!latest || receipt.sequence > latest.sequence)) latest = receipt
         } else if (this.#authWorldReachable(world)) {
           const canonical = canonicalAuthWorld(world)
           const group = pending.get(canonical) ?? {}
-          const key = receipt.kind === 'open' ? 'open' : 'strong'
+          const key = receipt.kind === 'open' ? 'open' : receipt.process === undefined ? 'strong' : 'strongAcp'
           if (!group[key] || receipt.sequence > group[key]!.sequence) group[key] = receipt
           pending.set(canonical, group)
         }
@@ -2939,6 +3001,7 @@ export class AcpRuntime implements AgentRuntime {
     }
     this.#deferredAuthObservations = pending
     if (latest) this.#applyAuthObservation(latest)
+    if (latestMode) this.#applyAuthMode(latestMode)
   }
 
   // ACP has neither an archive nor a naming verb, even before negotiation.
@@ -4093,10 +4156,11 @@ const describeAcp = (error: unknown): string => {
 
 // A failed logout aliases its world to the world before it. Pending work may
 // retain old nodes, so find iteratively and compress paths as they are read.
-type AuthWorld = { parent?: AuthWorld; previous?: AuthWorld | undefined; pending?: boolean }
+type AuthWorld = { parent?: AuthWorld; previous?: AuthWorld | undefined; pending?: boolean; succeeded?: boolean }
 
-type AuthReceipt = { observation: SignInObservation; kind: 'login' | 'cli' | 'open' | 'refusal'; sequence: number }
-type AuthReceipts = { open?: AuthReceipt; strong?: AuthReceipt }
+type AuthReceipt = { observation: SignInObservation; kind: 'login' | 'cli' | 'open' | 'refusal'; sequence: number; process?: number | undefined }
+type AuthModeReceipt = { mode: 'key' | 'other'; ordinal: number; process?: number | undefined }
+type AuthReceipts = { open?: AuthReceipt; strong?: AuthReceipt; strongAcp?: AuthReceipt; mode?: AuthModeReceipt; hostMode?: AuthModeReceipt }
 
 type LogoutRollback = {
   before: SignInObservation
