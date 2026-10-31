@@ -4,6 +4,7 @@ import { runtimeId, type FlowExecution, type FlowRun, type Intent } from '@harne
 
 import { cardEvidence, checkView, ciView, diffView, prView } from '../preview/evidence-fixture'
 import { flowRoleOf, flowStepOf, evidenceForCard, placeCard, type PlaceInput } from './board-facts'
+import { evidenceSummary } from './evidence'
 
 const intent = (over: Partial<Intent> = {}): Intent => ({
   id: 1,
@@ -323,4 +324,28 @@ it('uses each downstream check only for its recorded predecessor revision and ch
   expect(evidenceForCard(first, cards, wrongHead, undefined, [flow])?.facts).toEqual([diffA])
   const unrelated = cards.map(card => card.id === 3 ? { ...card, dependsOn: [] } : card)
   expect(evidenceForCard(first, unrelated, both, undefined, [flow])?.facts).toEqual([diffA])
+})
+
+it('shows a matching downstream check retry as running while preserving its recorded result', () => {
+  const writer = intent({ id: 1, role: 'writer' })
+  const check = intent({ id: 2, role: 'verify', state: 'claimed', dependsOn: [1] })
+  const flow = { id: 'run', state: 'running', document: { format: 'agents', flow: { roles: [{ id: 'writer', kind: 'agent' }, { id: 'verify', kind: 'check' }] } }, rounds: [{ role: 'writer', cards: [1] }, { role: 'verify', cards: [2] }] } as unknown as FlowExecution
+  const diff = diffView({ card: 1 })
+  const failed = checkView({ card: 2, exit: 1 })
+  const retry = { name: 'verify', since: 2 }
+  const board = { room: 'board', stamp: 1, checks: [], refused: [], unreadable: null, cards: [cardEvidence(1, [diff]), cardEvidence(2, [failed], [retry])] } as import('@harnessdesk/protocol').BoardEvidence
+  const read = (value: typeof board, cards = [writer, check]) => evidenceForCard(writer, cards, value, undefined, [flow])
+  const inherited = read(board)
+  expect(inherited?.facts).toEqual([diff, failed])
+  expect(evidenceSummary(inherited, true)?.label).toBe('Running')
+  expect(evidenceSummary(read({ ...board, cards: [board.cards[0]!, cardEvidence(2, [failed])] }), true)?.label).toBe('Failed')
+  const other = { ...failed, record: { ...failed.record, checkout: { cwd: '/repo/other', branch: 'other' } } }
+  expect(read({ ...board, cards: [board.cards[0]!, cardEvidence(2, [other], [retry])] })?.running).toEqual([])
+  expect(read(board, [writer, { ...check, dependsOn: [] }])?.running).toEqual([])
+  const passed = checkView({ card: 1 })
+  const ownResult = { ...passed, record: { ...passed.record, observedAt: failed.record.observedAt + 1 } }
+  const withOwnResult = { ...board, cards: [cardEvidence(1, [diff, ownResult]), board.cards[1]!] }
+  expect(read(withOwnResult)?.running).toEqual([])
+  expect(evidenceSummary(read(withOwnResult), true)?.label).toBe('Checks recorded')
+  expect(place({ evidence: inherited })).toEqual({ column: 'needs', why: 'verify failed' })
 })
