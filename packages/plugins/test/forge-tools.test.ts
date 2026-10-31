@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { ExtensionKernel, setForgeEngine, type ForgeEngine, type ForgeSeat } from '@harnessdesk/cordis-host'
-import { DESK_POST_MARKER, type ContributionId, type ForgeReference, type ToolResult } from '@harnessdesk/protocol'
+import { DESK_POST_MARKER, type ContributionId, type ForgeReference, type ForgeAssociatedPullRequest, type ToolResult } from '@harnessdesk/protocol'
 
 import { DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, gitPlugin, previousSignature, renderSignature, signDescription, signBody, unmarked } from '../src/index.js'
 
@@ -48,13 +48,23 @@ const after = (flag) => {
 const bodyFile = path.join(home, 'body.md')
 const mergedFile = path.join(home, 'merged')
 const pr = () => ({
-  number: 7, title: 'Add widgets', state: fs.existsSync(mergedFile) ? 'MERGED' : 'OPEN', isDraft: false,
+  number: fs.existsSync(path.join(home, 'pr-number')) ? Number(fs.readFileSync(path.join(home, 'pr-number'), 'utf8')) : 7, title: 'Add widgets', state: fs.existsSync(mergedFile) ? 'MERGED' : 'OPEN', isDraft: false,
   url: 'https://github.com/acme/widgets/pull/7', author: { login: 'octocat' },
   additions: 12, deletions: 3, changedFiles: 2,
   body: fs.existsSync(bodyFile) ? fs.readFileSync(bodyFile, 'utf8') : '',
   headRefName: fs.existsSync(path.join(home, 'head-branch')) ? fs.readFileSync(path.join(home, 'head-branch'), 'utf8') : require('child_process').execFileSync('git', ['branch', '--show-current'], { encoding: 'utf8' }).trim(), baseRefName: 'main',
 })
 const verb = args.slice(0, 2).join(' ')
+const expectedAssociatedRepo = path.join(home, 'expected-associated-repository')
+if (fs.existsSync(expectedAssociatedRepo)) {
+  const expected = fs.readFileSync(expectedAssociatedRepo, 'utf8')
+  if ((verb === 'pr view' || verb === 'pr checks') && after('--repo') !== expected) {
+    process.stderr.write('fake gh: associated read reached a different host or repository\n'); process.exit(1)
+  }
+  if (args[0] === 'api' && /\/pulls\/7\/reviews$/.test(args[1] ?? '') && after('--hostname') !== 'github.com') {
+    process.stderr.write('fake gh: associated review URL read reached another host\n'); process.exit(1)
+  }
+}
 if (verb === 'pr list') { process.stdout.write(fs.existsSync(bodyFile) ? JSON.stringify([{ number: 7, url: pr().url }]) : '[]'); process.exit(0) }
 if (verb === 'pr create') { fs.writeFileSync(bodyFile, after('--body') ?? ''); process.stdout.write('https://github.com/acme/widgets/pull/7\n'); process.exit(0) }
 if (verb === 'pr edit') { const body = after('--body'); if (body !== null) fs.writeFileSync(bodyFile, body); process.exit(0) }
@@ -127,6 +137,7 @@ interface Rig {
   readonly home: string
   readonly published: ForgeReference[]
   readonly seat: { current: ForgeSeat | null }
+  readonly association: { current: ForgeAssociatedPullRequest; calls: number }
   /** Set, the desk refuses publication with this reason. */
   readonly embargo: { current: string | null }
   tool(name: string): ContributionId
@@ -169,6 +180,7 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
     else process.env['GH_FAKE_HOME'] = homeBefore
   })
 
+  const association = { current: { status: 'none' } as ForgeAssociatedPullRequest, calls: 0 }
   const published: ForgeReference[] = []
   const seat = { current: SEAT as ForgeSeat | null }
   // Set, the desk refuses publication with this reason: a Seat still reviewing in a blind round.
@@ -176,6 +188,7 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
   const hostWrite = async (args: string[]) => ({ repository: 'acme/widgets', output: execFileSync('gh', args, { cwd: existsSync(join(home, 'expected-cwd')) ? readFileSync(join(home, 'expected-cwd'), 'utf8') : repo, encoding: 'utf8' }).trim() })
   const engine: ForgeEngine = {
     repository: async () => 'acme/widgets',
+    associatedPullRequest: async () => { association.calls++; return association.current },
     push: async () => { throw new Error('Use the gateway integration fixture for pushes') },
     pullRequest: {
       create: args => hostWrite(['pr', 'create', '--head', args.head, '--title', args.title, '--body', args.body, ...(args.base ? ['--base', args.base] : []), ...(args.draft ? ['--draft'] : [])]),
@@ -214,6 +227,7 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
     home,
     published,
     seat,
+    association,
     embargo,
     tool,
     // No file is no calls: a refusal before the forge is reached is the point of some of these.
@@ -1565,6 +1579,7 @@ test('all direct desk publication paths honor embargo', async (t) => {
   forge.embargo.current = null
   setForgeEngine({
     repository: async () => 'acme/widgets',
+    associatedPullRequest: async () => ({ status: 'none' as const }),
     push: async () => { throw new Error('No gateway in this fixture') },
       pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
       review: async () => { throw new Error('No gateway in this fixture') },
@@ -2170,4 +2185,87 @@ test('pr_update preserves literal flag-looking text when crossing the structured
   assert.equal(edit[edit.indexOf('--title') + 1], '--body')
   // Read the fake forge's stored body, rather than treating its values as argv flags again.
   assert.match(unmarked(readFileSync(join(forge.home, 'body.md'), 'utf8')), /^--base\n/)
+})
+
+test('detached omitted-number consumers retain the associated host and repository through checks and review', async t => {
+  const forge = await rig(t)
+  forge.association.current = { status: 'found', number: 7, repository: 'acme/widgets' }
+  writeFileSync(join(forge.home, 'head-branch'), 'feature/widgets')
+  writeFileSync(join(forge.home, 'expected-associated-repository'), 'github.com/acme/widgets')
+  execFileSync('git', ['checkout', '--detach', '-q'], { cwd: forge.repo })
+  const prior = { GH_HOST: process.env.GH_HOST, GH_REPO: process.env.GH_REPO }
+  process.env.GH_HOST = 'forge.example.com'; process.env.GH_REPO = 'acme/decoy'
+  t.after(() => { for (const [key, value] of Object.entries(prior)) { if (value === undefined) delete process.env[key]; else process.env[key] = value } })
+  assert.match(await forge.run('pr_view', {}), /#7/)
+  const checks = await forge.run('pr_checks', {})
+  assert.match(checks, /Checks on pull request #7/)
+  assert.match(checks, /✗ lint/, 'nonzero checks exit still returns its actual result')
+  assert.match(await forge.run('pr_comment', { body: 'Checked the widgets.' }), /Commented on pull request #7/)
+  assert.match(await forge.run('pr_review', { event: 'comment', body: 'Checked the widgets.' }), /Commented on pull request #7/)
+  assert.equal(forge.association.calls, 4)
+  const reads = forge.calls().filter(args => args[0] === 'pr' && ['view', 'checks'].includes(args[1] ?? ''))
+  assert.ok(reads.length >= 5)
+  assert.ok(reads.every(args => args[2] === '7' && args[args.indexOf('--repo') + 1] === 'github.com/acme/widgets'))
+  const reviewRead = forge.calls().find(args => args[0] === 'api' && args[1]?.endsWith('/pulls/7/reviews'))
+  assert.ok(reviewRead)
+  assert.equal(reviewRead[reviewRead.indexOf('--hostname') + 1], 'github.com')
+})
+
+test('detached unresolved association never chooses a PR or mutates it', async t => {
+  for (const status of ['none', 'ambiguous', 'unavailable'] as const) {
+    await t.test(status, async t => {
+      const forge = await rig(t)
+      forge.association.current = { status }
+      execFileSync('git', ['checkout', '--detach', '-q'], { cwd: forge.repo })
+      for (const [tool, args] of [
+        ['pr_view', {}], ['pr_checks', {}], ['pr_comment', { body: 'Checked.' }],
+        ['pr_review', { event: 'comment', body: 'Checked.' }],
+      ] as const) assert.match(await forge.run(tool, args), /^!/, tool)
+      assert.equal(forge.calls().some(args => args[0] === 'pr'), false)
+      assert.match(await forge.run('pr_update', { body: 'Detached edit' }), /detached HEAD/)
+      assert.equal(forge.association.calls, 4, 'update never consults association')
+      assert.equal(forge.published.length, 0)
+    })
+  }
+})
+
+test('attached and explicit selectors preserve legacy lookup and another seat review', async t => {
+  const forge = await rig(t)
+  writeFileSync(join(forge.home, 'head-branch'), 'another-seat')
+  assert.match(await forge.run('pr_view', {}), /#7/)
+  assert.match(await forge.run('pr_review', { event: 'comment', body: 'Independent review.' }), /Commented on pull request #7/)
+  assert.equal(forge.association.calls, 0)
+  assert.ok(forge.calls().some(args => args[0] === 'pr' && args[1] === 'view' && args[2] === ''))
+  execFileSync('git', ['checkout', '--detach', '-q'], { cwd: forge.repo })
+  assert.match(await forge.run('pr_view', { number: 7 }), /#7/)
+  assert.match(await forge.run('pr_checks', { number: 7 }), /Checks on pull request #7/)
+  assert.equal(forge.association.calls, 0)
+  const checks = forge.calls().find(args => args[0] === 'pr' && args[1] === 'checks')
+  assert.ok(checks)
+  assert.equal(checks.includes('--repo'), false, 'explicit checks argv is unchanged')
+  assert.match(await forge.run('pr_update', { number: 7, body: 'Detached edit' }), /detached HEAD/)
+})
+
+test('detached association rejects a response for another PR before any mutation', async t => {
+  const forge = await rig(t)
+  forge.association.current = { status: 'found', number: 7, repository: 'acme/widgets' }
+  execFileSync('git', ['checkout', '--detach', '-q'], { cwd: forge.repo })
+  writeFileSync(join(forge.home, 'pr-number'), '8')
+  for (const [tool, args] of [
+    ['pr_view', {}], ['pr_checks', {}], ['pr_comment', { body: 'Checked.' }],
+    ['pr_review', { event: 'comment', body: 'Checked.' }],
+  ] as const) assert.match(await forge.run(tool, args), /The recorded pull request could not be confirmed/, tool)
+  assert.equal(forge.calls().some(args => args[0] === 'pr' && ['comment', 'review', 'edit', 'checks'].includes(args[1] ?? '')), false)
+  assert.equal(forge.published.length, 0)
+})
+
+test('detached association refuses a changed repository before review or comment', async t => {
+  const forge = await rig(t)
+  forge.association.current = { status: 'found', number: 7, repository: 'acme/decoy' }
+  execFileSync('git', ['checkout', '--detach', '-q'], { cwd: forge.repo })
+  for (const [tool, args] of [
+    ['pr_comment', { body: 'Checked.' }], ['pr_review', { event: 'comment', body: 'Checked.' }],
+  ] as const) assert.match(await forge.run(tool, args), /The pinned repository changed/, tool)
+  assert.equal(forge.calls().some(args => args[0] === 'pr'), false)
+  assert.equal(forge.published.length, 0)
 })

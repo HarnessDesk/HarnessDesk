@@ -258,7 +258,7 @@ export const createLeadMessages = (options: LeadMessagesOptions): LeadMessagesCl
       if (!/^[A-Za-z0-9._:/-]{1,100}$/.test(requestId) || requestId.includes(apiKey)) fail()
       if (signal.aborted) return { status: 'cancelled' }
       await journal.updateBudget({ version: 1, type: 'reserve', now: now(), requestId, inputTokens, maxOutputTokens: maxTokens, ...price })
-    } catch { return { status: signal.aborted ? 'cancelled' : 'refused', reason: 'lead-messages-admission' } }
+    } catch (error) { return { status: signal.aborted ? 'cancelled' : 'refused', reason: (error as { wireCode?: unknown })?.wireCode === 'lead-budget-admission' ? 'lead-messages-capacity' : 'lead-messages-admission' } }
     const accounting = (event: Omit<Extract<LeadBudgetEvent, { type: 'settle' }>, 'version' | 'now' | 'requestId'> | { type: 'uncertain' }) =>
       journal.updateBudget({ version: 1, now: now(), requestId, ...event })
     const zero = () => accounting({ type: 'settle', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })

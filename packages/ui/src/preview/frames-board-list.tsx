@@ -4,7 +4,7 @@ import { runtimeId, type TeamState } from '@harnessdesk/protocol'
 import { TeamBoardPane } from '../components/TeamBoardPane'
 import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
-import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM } from './evidence-fixture'
+import { cardEvidence, checkView, ciView, diffView, EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, prView } from './evidence-fixture'
 import { previewStore } from './harness'
 
 /** Five jobs on the real board pane, with only synthetic identities and host facts. */
@@ -29,7 +29,12 @@ export const BoardListFrames = () => {
       ...EVIDENCE_TEAM.channel,
       ...[1, 4].map(id => ({ kind: 'signal' as const, id: `completed-${id}`, at: now - id * 60000, intent: id, title: jobs.find(one => one.id === id)!.title, signal: 'completed' as const, by: { kind: 'agent' as const, runtime: runtimeId('codex'), sessionId: 'c1', title: name } })),
     ] }
-    return previewStore({ teams: new Map([[EVIDENCE_ROOM, board]]), boardEvidence: evidenceState ? new Map() : new Map([[EVIDENCE_ROOM, EVIDENCE_BOARD]]), boardEvidenceFailed: new Set(evidenceState === 'failed' ? [EVIDENCE_ROOM] : []) })
+    // This geometry scene keeps its own passing card; the shared dense-evidence
+    // scene deliberately uses a failure, which belongs in Needs you.
+    const evidence = { ...EVIDENCE_BOARD, cards: EVIDENCE_BOARD.cards.map(card => card.card === 1
+      ? cardEvidence(1, [checkView({ card: 1 }), ciView(['passed', 'passed', 'skipped'], { card: 1 }), prView('open', { card: 1 }), diffView({ card: 1 })])
+      : card) }
+    return previewStore({ teams: new Map([[EVIDENCE_ROOM, board]]), boardEvidence: evidenceState ? new Map() : new Map([[EVIDENCE_ROOM, evidence]]), boardEvidenceFailed: new Set(evidenceState === 'failed' ? [EVIDENCE_ROOM] : []) })
   }, [])
   return <div data-frame-id="board-list-page" className="h-screen bg-background text-foreground"><StoreProvider store={store}><TeamViewFrame room={EVIDENCE_ROOM} page="board"><TeamBoardPane room={EVIDENCE_ROOM} /></TeamViewFrame></StoreProvider></div>
 }

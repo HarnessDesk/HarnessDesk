@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
-import { mkdtemp, mkdir, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises'
+import childProcess from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
+import { existsSync, realpathSync } from 'node:fs'
+import { mkdtemp, mkdir, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
@@ -196,6 +198,210 @@ const chatgptAuth = (
     },
   })
 }
+
+for (const cleanup of ['empty', 'duplicate'] as const) {
+  for (const problemFirst of [false, true]) {
+    for (const otherAgent of [false, true]) {
+      test(`startup removes the selected repeated-id row: ${cleanup}, problem ${problemFirst ? 'first' : 'last'}, ${otherAgent ? 'different agents' : 'same agent'}`, async t => {
+        const root = await home()
+        t.after(() => rm(root, { recursive: true, force: true }))
+        const primary = join(root, 'agent')
+        await mkdir(primary, { recursive: true })
+        const ownAuth = chatgptAuth('fixture-person', 'workspace-a')
+        await writeFile(join(primary, 'auth.json'), ownAuth)
+        const rows = [false, true].map((second) => ({
+          id: FAKE_RUNTIME_ID,
+          agent: second && otherAgent ? 'other-agent' as RuntimeId : FAKE_RUNTIME_ID,
+          home: join(root, 'accounts', second ? 'second' : 'first'),
+          createdAt: second ? 2 : 1,
+        }))
+        const credentials: (string | null)[] = []
+        for (const [index, row] of rows.entries()) {
+          await mkdir(row.home, { recursive: true })
+          await writeFile(join(row.home, 'keep.txt'), 'retained home')
+          const problem = (index === 0) === problemFirst
+          const credential = problem
+            ? cleanup === 'empty' ? null : ownAuth
+            : chatgptAuth('fixture-person', 'workspace-b')
+          credentials.push(credential)
+          if (credential !== null) await writeFile(join(row.home, 'auth.json'), credential)
+        }
+        const file = join(root, 'accounts.json')
+        const original = JSON.stringify({ accounts: rows })
+        await writeFile(file, original)
+        const slots = new AccountSlots(file)
+        const problemIndex = problemFirst ? 0 : 1
+        const problem = rows[problemIndex]!
+        const retained = rows[1 - problemIndex]!
+        const removed = cleanup === 'empty'
+          ? slots.pruneEmpty(problem.agent)
+          : slots.pruneDuplicates(problem.agent, primary)
+        assert.deepEqual([...removed], [problem.id])
+        assert.deepEqual(slots.list(), [retained], 'only the selected row is removed')
+        assert.deepEqual(new AccountSlots(file).list(), [retained])
+        assert.equal(existsSync(problem.home), false, 'the selected unshared home is purged')
+        assert.equal(await readFile(join(retained.home, 'keep.txt'), 'utf8'), 'retained home')
+        assert.equal(await readFile(join(retained.home, 'auth.json'), 'utf8'), credentials[1 - problemIndex])
+        assert.equal(await readFile(join(primary, 'auth.json'), 'utf8'), ownAuth)
+      })
+    }
+  }
+}
+
+for (const cleanup of ['empty', 'duplicate'] as const) {
+  test(`startup ${cleanup} pruning keeps a home shared by a retained row`, async t => {
+    const root = await home()
+    t.after(() => rm(root, { recursive: true, force: true }))
+    const primary = join(root, 'primary')
+    const shared = join(root, 'accounts', 'shared')
+    await mkdir(primary, { recursive: true })
+    await mkdir(shared, { recursive: true })
+    const auth = chatgptAuth('fixture-person', 'workspace-a')
+    await writeFile(join(primary, 'auth.json'), auth)
+    await writeFile(join(shared, 'keep.txt'), 'shared home')
+    if (cleanup === 'duplicate') await writeFile(join(shared, 'auth.json'), auth)
+    const rows = [
+      { id: FAKE_RUNTIME_ID, agent: 'other-agent' as RuntimeId, home: shared, createdAt: 1 },
+      { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: shared, createdAt: 2 },
+    ]
+    const file = join(root, 'accounts.json')
+    await writeFile(file, JSON.stringify({ accounts: rows }))
+    const slots = new AccountSlots(file)
+    const removed = cleanup === 'empty' ? slots.pruneEmpty(FAKE_RUNTIME_ID) : slots.pruneDuplicates(FAKE_RUNTIME_ID, primary)
+    assert.deepEqual([...removed], [FAKE_RUNTIME_ID])
+    assert.deepEqual(new AccountSlots(file).list(), [rows[0]])
+    assert.equal(await readFile(join(shared, 'keep.txt'), 'utf8'), 'shared home')
+    if (cleanup === 'duplicate') assert.equal(await readFile(join(shared, 'auth.json'), 'utf8'), auth)
+    assert.equal(await readFile(join(primary, 'auth.json'), 'utf8'), auth)
+  })
+}
+
+for (const purge of [false, true]) {
+  for (const arrangement of ['separate', 'same', 'target contains retained', 'target contains dotdot-named retained', 'retained contains target', 'alias'] as const) {
+    test(`removing the first duplicate-id row preserves the retained row and its ${arrangement} home, purge=${purge}`, async t => {
+      const root = await home()
+      t.after(() => rm(root, { recursive: true, force: true }))
+      const accounts = join(root, 'accounts')
+      const target = join(accounts, arrangement === 'retained contains target' ? 'parent/child' : 'target')
+      const retained = arrangement === 'same' ? target
+        : arrangement === 'target contains retained' ? join(target, 'nested')
+        : arrangement === 'target contains dotdot-named retained' ? join(target, '..saved')
+        : arrangement === 'retained contains target' ? join(accounts, 'parent')
+        : join(accounts, 'retained')
+      await mkdir(target, { recursive: true })
+      if (arrangement === 'alias') await symlink(target, retained)
+      else await mkdir(retained, { recursive: true })
+      const targetAuth = chatgptAuth('fixture-person', 'workspace-b')
+      const retainedAuth = arrangement === 'same' || arrangement === 'alias' ? targetAuth : chatgptAuth('fixture-person', 'workspace-c')
+      await writeFile(join(target, 'auth.json'), targetAuth)
+      await writeFile(join(retained, 'auth.json'), retainedAuth)
+      const rows = [
+        { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: target, createdAt: 1 },
+        { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: retained, createdAt: 2 },
+      ]
+      const file = join(root, 'accounts.json')
+      await writeFile(file, JSON.stringify({ accounts: rows }))
+      const slots = new AccountSlots(file)
+      assert.equal(slots.remove(FAKE_RUNTIME_ID, purge)?.home, target)
+      assert.deepEqual(slots.list(), [rows[1]], 'removing one account never forgets another saved row with its id')
+      assert.deepEqual(new AccountSlots(file).list(), [rows[1]], 'the retained row survives a roster reload')
+      assert.equal(await readFile(join(retained, 'auth.json'), 'utf8'), retainedAuth, 'the retained credential home stays intact')
+      if (purge && arrangement === 'separate') assert.equal(existsSync(target), false, 'an unshared removed home is purged')
+      else assert.equal(await readFile(join(target, 'auth.json'), 'utf8'), targetAuth, 'overlapping homes are retained for their surviving owner')
+    })
+  }
+}
+
+test('an unresolved retained alias conservatively keeps the removed home', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const target = join(root, 'accounts', 'target')
+  const alias = join(root, 'accounts', 'alias')
+  await mkdir(target, { recursive: true })
+  await writeFile(join(target, 'keep.txt'), 'retained data')
+  await symlink(target, alias)
+  const rows = [
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: target, createdAt: 1 },
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: alias, createdAt: 2 },
+  ]
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: rows }))
+  const slots = new AccountSlots(file)
+  const original = realpathSync.native
+  try {
+    realpathSync.native = ((path: Parameters<typeof original>[0], options?: Parameters<typeof original>[1]) => {
+      if (path === alias) throw Object.assign(new Error('synthetic failure'), { code: 'EACCES' })
+      return original(path, options as never)
+    }) as typeof original
+    slots.remove(FAKE_RUNTIME_ID)
+  } finally { realpathSync.native = original }
+  assert.deepEqual(new AccountSlots(file).list(), [rows[1]])
+  assert.equal(await readFile(join(alias, 'keep.txt'), 'utf8'), 'retained data')
+})
+
+test('a dangling retained alias conservatively keeps an otherwise unshared home', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const target = join(root, 'accounts', 'target')
+  const alias = join(root, 'accounts', 'alias')
+  await mkdir(target, { recursive: true })
+  await writeFile(join(target, 'keep.txt'), 'retained conservatively')
+  await symlink(target, alias)
+  const rows = [
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: target, createdAt: 1 },
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: alias, createdAt: 2 },
+  ]
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: rows }))
+  const slots = new AccountSlots(file)
+  assert.equal(slots.list().length, 2)
+  await rm(alias)
+  await symlink(join(root, 'accounts', 'missing'), alias)
+  slots.remove(FAKE_RUNTIME_ID)
+  assert.deepEqual(slots.list(), [rows[1]])
+  assert.equal(await readFile(join(target, 'keep.txt'), 'utf8'), 'retained conservatively')
+})
+
+test('a real parent-directory escape is refused even with a dotdot-prefixed sibling', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const outside = join(root, '..saved')
+  await mkdir(outside, { recursive: true })
+  await writeFile(join(outside, 'keep.txt'), 'outside')
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: [
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: join(root, 'accounts', '..', '..saved'), createdAt: 1 },
+  ] }))
+  const slots = new AccountSlots(file)
+  assert.deepEqual(slots.list(), [])
+  slots.pruneEmpty(FAKE_RUNTIME_ID)
+  assert.equal(await readFile(join(outside, 'keep.txt'), 'utf8'), 'outside')
+})
+
+test('account removal requires the saved slot object and refuses copies, mismatches and stale selectors', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const rows = ['retained', 'selected'].map((name, index) => ({
+    id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: join(root, 'accounts', name), createdAt: index,
+  }))
+  for (const row of rows) {
+    await mkdir(row.home, { recursive: true })
+    await writeFile(join(row.home, 'auth.json'), chatgptAuth('fixture-person', row.home))
+  }
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: rows }))
+  const slots = new AccountSlots(file)
+  const selected = slots.list()[1]!
+  const untouched = await readFile(file, 'utf8')
+  assert.equal(slots.remove(FAKE_RUNTIME_ID, true, { ...selected }), null, 'a copied selector cannot choose another saved row')
+  assert.equal(slots.remove('other-runtime' as RuntimeId, true, selected), null, 'the selected row must match the runtime')
+  assert.equal(await readFile(file, 'utf8'), untouched)
+  assert.equal(slots.remove(FAKE_RUNTIME_ID, true, selected), selected)
+  assert.equal(existsSync(selected.home), false)
+  assert.equal(slots.remove(FAKE_RUNTIME_ID, true, selected), null, 'a stale selector cannot remove the surviving peer')
+  assert.deepEqual(new AccountSlots(file).list(), [rows[0]])
+  assert.equal(existsSync(join(rows[0]!.home, 'auth.json')), true)
+})
 
 test('an identity is the person and the workspace, never the email alone', async (t) => {
   const root = await home()
@@ -456,6 +662,52 @@ const hostWithAccounts = async (options: {
   host.register(own)
   await host.start()
   return { host, stateDir, primary, slots, accounts, created, names, own }
+}
+
+for (const failure of ['allocation', 'already registered', 'registration', 'observation restore', 'partial registration', 'commit'] as const) {
+  test(`a failed account ${failure} rolls back its allocation and only its new gateway key`, async t => {
+    const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts({ gateways: true })
+    t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+    await host.credentials.store('Existing gateway', 'fixture-existing', { kind: 'gateway' })
+    const before = await host.credentials.describe()
+    let commits = 0
+    const rolledBack: RuntimeId[] = []
+    accounts.commitAdd = runtime => {
+      commits += 1
+      assert.equal(host.ownsRuntime(runtime), true, 'ownership commits only after registration')
+      if (failure === 'commit') throw new Error('fixture commit failed')
+    }
+    accounts.rollbackAdd = async runtime => {
+      assert.equal(host.ownsRuntime(runtime), false, 'a rejected allocation is unregistered before rollback')
+      rolledBack.push(runtime.info.id)
+      slots.remove(runtime.info.id)
+    }
+    if (failure === 'registration') t.mock.method(host, 'register', () => { throw new Error('fixture registration failed') })
+    if (failure === 'allocation') t.mock.method(accounts, 'add', async () => { throw new Error('fixture allocation failed') })
+    if (failure === 'already registered') t.mock.method(accounts, 'add', async () => own)
+    if (failure === 'observation restore') {
+      const add = accounts.add.bind(accounts)
+      t.mock.method(accounts, 'add', async (...args: Parameters<AccountFactory['add']>) => {
+        const runtime = await add(...args)
+        runtime.restoreObservations = () => { throw new Error('fixture observation restore failed') }
+        return runtime
+      })
+    }
+    if (failure === 'partial registration') {
+      const register = host.register.bind(host)
+      t.mock.method(host, 'register', (runtime: AgentRuntime) => { register(runtime); throw new Error('fixture partial registration failed') })
+    }
+    await assert.rejects(host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+      gateway: { name: 'New gateway', endpoint: 'http://127.0.0.1:9/v1', apiKey: 'fixture-new' } }), failure === 'already registered'
+        ? /already registered runtime/ : /fixture (allocation|registration|observation restore|partial registration|commit) failed/)
+    assert.equal(commits, failure === 'commit' ? 1 : 0)
+    assert.deepEqual(rolledBack, [...created.keys()], 'a failed allocation invokes rollback for its own runtime')
+    assert.equal(slots.list().length, 0)
+    for (const id of created.keys()) assert.equal(existsSync(join(stateDir, 'accounts', id)), false)
+    for (const runtime of created.values()) assert.equal(host.ownsRuntime(runtime), false, 'failed registration never owns a runtime')
+    assert.deepEqual(await host.credentials.describe(), before, 'cleanup keeps the existing key')
+    assert.deepEqual(host.syncPayload().params.runtimes.map(info => info.id), [FAKE_RUNTIME_ID])
+  })
 }
 
 test('adding an account registers a second runtime and tells every client', async (t) => {
@@ -1228,6 +1480,190 @@ test('removing a gateway account destroys the key it was the only user of', asyn
   // would be a key on disk that no screen in the app can name or remove.
   await host.call('runtime/account/remove', { runtime: added.runtime })
   assert.deepEqual(await host.call('credentials/list', {}), [])
+})
+
+for (const failure of ['commit', 'partial registration', 'unregister throws'] as const) {
+  test(`failed gateway ${failure} stops forwarding before its runtime id is reused`, async t => {
+    const { host, stateDir, accounts, own } = await hostWithAccounts({ gateways: true })
+    const seen: string[] = []
+    const upstream = createServer((request, response) => {
+      seen.push(`${request.url} ${request.headers.authorization}`)
+      request.resume()
+      response.end('{}')
+    })
+    await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+    t.after(async () => {
+      await host.dispose()
+      await new Promise<void>(resolve => upstream.close(() => resolve()))
+      await rm(stateDir, { recursive: true, force: true })
+    })
+    const port = (upstream.address() as AddressInfo).port
+    await host.credentials.store('Existing gateway', 'fixture-existing', { kind: 'gateway' })
+    const before = await host.credentials.describe()
+    const id = 'fake-reused-gateway' as RuntimeId
+    let slot: ReturnType<AccountFactory['slotOf']> = null
+    let base = ''
+    let rollbacks = 0
+    accounts.add = async (_info, gateway) => {
+      slot = { agent: FAKE_RUNTIME_ID, home: stateDir, removable: true, gateway: gateway! }
+      return new FakeRuntime({ id })
+    }
+    const originalSlotOf = accounts.slotOf.bind(accounts)
+    accounts.slotOf = (info, runtime) => info.id === id ? slot : originalSlotOf(info, runtime)
+    accounts.prepare = async (_id, resolved) => { base = resolved.endpoint }
+    accounts.rollbackAdd = async () => { rollbacks++; slot = null }
+    accounts.commitAdd = () => { throw new Error('fixture setup failed') }
+    if (failure === 'partial registration') {
+      const register = host.register.bind(host)
+      t.mock.method(host, 'register', (runtime: AgentRuntime) => { register(runtime); throw new Error('fixture setup failed') })
+    }
+    if (failure === 'unregister throws') {
+      const unregister = host.unregister.bind(host)
+      t.mock.method(host, 'unregister', async (runtimeId: RuntimeId) => { await unregister(runtimeId); throw new Error('fixture cleanup failed') })
+    }
+    await assert.rejects(host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+      gateway: { name: 'Old', endpoint: `http://127.0.0.1:${port}/old`, apiKey: 'fixture-old' } }), /fixture setup failed/)
+    const oldBase = base
+    assert.ok(oldBase)
+    assert.equal(rollbacks, 1)
+    assert.equal(host.ownsRuntime(own), true)
+    assert.deepEqual(await host.credentials.describe(), before)
+    // stop closes the child asynchronously; wait for the old listener to close.
+    let closed = false
+    for (let attempt = 0; attempt < 50 && !closed; attempt++) {
+      try { await fetch(`${oldBase}/responses`, { method: 'POST', body: '{}' }) }
+      catch { closed = true; break }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(closed, true, 'failed gateway still forwards requests')
+    assert.deepEqual(seen, [])
+    t.mock.restoreAll()
+    accounts.commitAdd = () => {}
+    const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+      gateway: { name: 'New', endpoint: `http://127.0.0.1:${port}/new`, apiKey: 'fixture-new' } })
+    assert.equal(added.runtime, id)
+    assert.notEqual(base, oldBase, 'reused id must receive a fresh gateway')
+    const response = await fetch(`${base}/responses`, { method: 'POST', body: '{}' })
+    assert.equal(response.status, 200)
+    assert.deepEqual(seen, ['/new/responses Bearer fixture-new'])
+  })
+}
+
+test('a competitor registered while preparing a gateway cannot keep the failed allocation forwarding', async t => {
+  const { host, stateDir, accounts } = await hostWithAccounts({ gateways: true })
+  const seen: string[] = []
+  const upstream = createServer((request, response) => {
+    seen.push(`${request.url} ${request.headers.authorization}`)
+    request.resume()
+    response.end('{}')
+  })
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  const port = (upstream.address() as AddressInfo).port
+  const id = 'fake-late-owner' as RuntimeId
+  const allocated = new FakeRuntime({ id })
+  const competitor = new FakeRuntime({ id })
+  let slot: ReturnType<AccountFactory['slotOf']> = null
+  let base = ''
+  let rollbacks = 0
+  let endRequested!: () => void
+  const endObserved = new Promise<void>(resolve => { endRequested = resolve })
+  let releaseEnd: (() => void) | undefined
+  let closeCaptured: (() => void) | undefined
+  let childClosed: Promise<void> | undefined
+  const spawn = childProcess.spawn
+  t.mock.method(childProcess, 'spawn', ((...args: Parameters<typeof spawn>) => {
+    const child = spawn(...args)
+    if (String(args[1]?.[0]).endsWith('/responses-gateway/dist/src/child.js')) {
+      childClosed = new Promise(resolve => child.once('close', () => resolve()))
+      const stdin = child.stdin!
+      const end = stdin.end.bind(stdin)
+      let inputClosed = false
+      closeCaptured = () => {
+        if (!inputClosed) { inputClosed = true; end() }
+      }
+      stdin.end = (() => {
+        releaseEnd = closeCaptured
+        endRequested()
+        return stdin
+      }) as typeof stdin.end
+    }
+    return child
+  }) as typeof spawn)
+  syncBuiltinESMExports()
+  t.after(async () => {
+    closeCaptured?.()
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+    await childClosed
+    await host.dispose()
+    await new Promise<void>(resolve => upstream.close(() => resolve()))
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  const originalSlotOf = accounts.slotOf.bind(accounts)
+  accounts.slotOf = (info, runtime) => info.id === id ? (runtime === allocated ? slot : null) : originalSlotOf(info, runtime)
+  accounts.add = async (_info, gateway) => {
+    slot = { agent: FAKE_RUNTIME_ID, home: stateDir, removable: true, gateway: gateway! }
+    return allocated
+  }
+  accounts.prepare = async (_id, resolved) => {
+    assert.equal(base, '', 'competitor must not prepare the pending allocation')
+    base = resolved.endpoint
+    host.register(competitor)
+  }
+  accounts.rollbackAdd = async runtime => { assert.equal(runtime, allocated); rollbacks++; slot = null }
+  const before = await host.credentials.describe()
+  const operation = host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+    gateway: { name: 'Old', endpoint: `http://127.0.0.1:${port}/old`, apiKey: 'fixture-old' } })
+  const outcome = operation.then(() => 'resolved', () => 'rejected')
+  try {
+    await endObserved
+    assert.ok(base)
+    const response = await fetch(`${base}/responses`, { method: 'POST', body: '{}' })
+    await response.arrayBuffer()
+    assert.deepEqual(seen, ['/old/responses Bearer fixture-old'])
+    const state = await Promise.race([outcome, new Promise<string>(resolve => setImmediate(() => resolve('pending')))])
+    assert.equal(state, 'pending', 'failed account answered before its owned gateway closed')
+  } finally {
+    releaseEnd?.()
+  }
+  await assert.rejects(operation, /already registered/)
+  await childClosed
+  assert.equal(rollbacks, 1)
+  assert.equal(host.ownsRuntime(competitor), true)
+  assert.deepEqual(await host.credentials.describe(), before)
+  await assert.rejects(fetch(`${base}/responses`, { method: 'POST', body: '{}' }))
+  assert.deepEqual(seen, ['/old/responses Bearer fixture-old'])
+})
+
+test('a failed allocation with a competing runtime id leaves its gateway running', async t => {
+  const { host, stateDir, accounts, slots } = await hostWithAccounts({ gateways: true })
+  const seen: string[] = []
+  const upstream = createServer((request, response) => {
+    seen.push(request.headers.authorization ?? '')
+    request.resume()
+    response.end('{}')
+  })
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  t.after(async () => {
+    await host.dispose()
+    await new Promise<void>(resolve => upstream.close(() => resolve()))
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  const port = (upstream.address() as AddressInfo).port
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+    gateway: { name: 'Existing', endpoint: `http://127.0.0.1:${port}/existing`, apiKey: 'fixture-existing' } })
+  const before = await host.credentials.describe()
+  const config = await readFile(join(slots.find(added.runtime)!.home, 'config.toml'), 'utf8')
+  const base = /base_url = "([^"]+)"/.exec(config)?.[1]
+  assert.ok(base)
+  accounts.add = async () => new FakeRuntime({ id: added.runtime })
+  accounts.rollbackAdd = async () => {}
+  await assert.rejects(host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+    gateway: { name: 'Other', endpoint: `http://127.0.0.1:${port}/other`, apiKey: 'fixture-other' } }))
+  assert.deepEqual(await host.credentials.describe(), before)
+  assert.equal(host.hasRuntime(added.runtime), true)
+  assert.equal((await fetch(`${base}/responses`, { method: 'POST', body: '{}' })).status, 200)
+  assert.deepEqual(seen, ['Bearer fixture-existing'])
 })
 
 test('a gateway account reaches its upstream with the real key, which it never held', async (t) => {

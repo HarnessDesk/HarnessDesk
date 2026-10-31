@@ -56,7 +56,7 @@ const HUNK_LINE = /^(@@+) -\d+(?:,\d+)? (?:-\d+(?:,\d+)? )*\+\d+(?:,\d+)? \1(?:[
  * with gutter numbers (review, round 2). There, every line is metadata now,
  * whatever it says; the list is left for a diff that has no `diff ` line.
  */
-const classifier = (): { readonly kind: (raw: string) => LineKind; readonly width: () => number } => {
+const classifier = (hasHunk: boolean): { readonly kind: (raw: string) => LineKind; readonly width: () => number } => {
   let sawHunk = false
   let introducing = false
   // The marks before a line's text: one in a plain diff, one per parent in a merge's.
@@ -78,7 +78,9 @@ const classifier = (): { readonly kind: (raw: string) => LineKind; readonly widt
         return 'meta'
       }
       if (introducing) return 'meta'
-      if (!sawHunk && HEADER.test(raw)) return 'meta'
+      // Input-only previews have no hunk header; their ---/+++ lines are
+      // changed text, not a file introduction.
+      if (!sawHunk && HEADER.test(raw) && (hasHunk || !/^(?:--- |\+\+\+ )/.test(raw))) return 'meta'
       // "\ No newline at end of file"
       if (raw.startsWith('\\')) return 'meta'
       const marks = raw.slice(0, width)
@@ -102,9 +104,9 @@ const withoutCr = (text: string): string => (text.endsWith('\r') ? text.slice(0,
 
 export const parseDiff = (diff: string): DiffLine[] => {
   const lines: DiffLine[] = []
-  const classify = classifier()
-  let oldNumber = 0
-  let newNumber = 0
+  const classify = classifier(HUNK_LINE.test(diff))
+  let oldNumber: number | null = null
+  let newNumber: number | null = null
 
   /* The empty string after a final newline is an artefact of the split, not
      a line, and is dropped as what it is. It used to be dropped by what it
@@ -121,6 +123,7 @@ export const parseDiff = (diff: string): DiffLine[] => {
       newNumber = Number(hunk?.[3])
       lines.push({ kind, text: withoutCr(raw), oldNumber: null, newNumber: null })
     } else if (kind === 'meta') {
+      if (raw.startsWith('diff ')) { oldNumber = null; newNumber = null }
       lines.push({ kind, text: withoutCr(raw), oldNumber: null, newNumber: null })
     } else {
       /* A line is its marks and then its text, one mark per parent. A line
@@ -134,8 +137,8 @@ export const parseDiff = (diff: string): DiffLine[] => {
       const text = /^[ +-]+$/.test(marks) ? raw.slice(width) : raw
       const inResult = !marks.includes('-')
       const inFirst = inResult ? marks[0] !== '+' : marks[0] === '-'
-      const old = inFirst ? oldNumber++ : null
-      const now = inResult ? newNumber++ : null
+      const old = inFirst && oldNumber !== null ? oldNumber++ : null
+      const now = inResult && newNumber !== null ? newNumber++ : null
       lines.push({ kind, text: withoutCr(text), oldNumber: kind === 'add' ? null : old, newNumber: now })
     }
   }
@@ -173,7 +176,7 @@ export const asRemovals = (content: string): DiffLine[] =>
  * line, which matters because the review pane counts every file on render.
  */
 export const countChanges = (diff: string): { added: number; removed: number } => {
-  const classify = classifier()
+  const classify = classifier(HUNK_LINE.test(diff))
   let added = 0
   let removed = 0
   for (const line of diff.split('\n')) {

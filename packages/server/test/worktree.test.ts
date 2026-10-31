@@ -18,6 +18,7 @@ import {
   putBack,
   repositoryOf,
   samePath,
+  shellCheckoutIdentity,
   slugify,
 } from '../src/worktree.js'
 
@@ -801,6 +802,34 @@ test("the main checkout's uncommitted edits come along onto the branch", async (
   assert.equal(await readFile(join(repo, 'notes.txt'), 'utf8'), 'notes, edited and not committed\n', 'the edit came along')
 })
 
+test('a staged rename origin is not an ignored entry', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  await writeFile(join(repo, '!! source'), 'rename me\n')
+  await writeFile(join(repo, '.gitignore'), 'ignored.txt\nignored-dir/\n')
+  await git(repo, 'add', '-A')
+  await git(repo, 'commit', '-q', '-m', 'prepare rename')
+  const wt = await worktrees.create(repo, { name: 'rename-origin' })
+  await git(wt.path, 'mv', '!! source', 'renamed.txt')
+  await writeFile(join(wt.path, 'shared.txt'), 'modified\n')
+  await writeFile(join(wt.path, 'untracked.txt'), 'untracked\n')
+
+  const cleanIgnored = await worktrees.changes(wt.path)
+  assert.equal(cleanIgnored.modified, 2)
+  assert.equal(cleanIgnored.untracked, 1)
+  assert.deepEqual([...cleanIgnored.files].sort(), ['renamed.txt', 'shared.txt', 'untracked.txt'])
+  assert.equal(cleanIgnored.ignoredCount, 0)
+  assert.deepEqual(cleanIgnored.ignored, [])
+
+  await writeFile(join(wt.path, 'ignored.txt'), 'ignored\n')
+  await mkdir(join(wt.path, 'ignored-dir'), { recursive: true })
+  await writeFile(join(wt.path, 'ignored-dir', 'child.txt'), 'ignored\n')
+  const withIgnored = await worktrees.changes(wt.path)
+  assert.equal(withIgnored.modified, 2)
+  assert.equal(withIgnored.untracked, 1)
+  assert.equal(withIgnored.ignoredCount, 2)
+  assert.deepEqual([...withIgnored.ignored].sort(), ['ignored-dir/', 'ignored.txt'])
+})
+
 test('what git ignores is named before the folder goes, and a file is told from a rebuildable folder', async (t) => {
   /* #209: `git status` counts none of this, so the checkout reads as clean and
      `git worktree remove` deletes it without being forced. An `.env` that was
@@ -1003,8 +1032,9 @@ if (args.includes('worktree') && args.includes('add')) {
   const configNames = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM'] as const
   const originalConfig = configNames.map((name) => [name, process.env[name]] as const)
   await writeFile(join(bin, 'system.gitconfig'), '')
+  await writeFile(join(bin, 'global.gitconfig'), '')
   process.env['GIT_CONFIG_SYSTEM'] = join(bin, 'system.gitconfig')
-  process.env['GIT_CONFIG_GLOBAL'] = join(bin, 'absent.gitconfig')
+  process.env['GIT_CONFIG_GLOBAL'] = join(bin, 'global.gitconfig')
   t.after(() => {
     for (const [name, value] of originalConfig) {
       if (value === undefined) delete process.env[name]
@@ -1031,4 +1061,27 @@ if (args.includes('worktree') && args.includes('add')) {
     await rejected.catch(() => undefined)
     process.env.PATH = originalPath
   }
+})
+
+test('checkout identity reads a repository whose path holds a newline or trailing spaces exactly', async (t) => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), 'harnessdesk-identity-')))
+  t.after(() => rm(base, { recursive: true, force: true }))
+  for (const name of ['plain', 'two\nlines', 'trailing  ']) {
+    const repo = join(base, name)
+    await run('git', ['init', '-q', '-b', 'main', repo])
+    const identity = await shellCheckoutIdentity(repo)
+    assert.deepEqual(identity, { checkoutRoot: repo, gitCommonDir: join(repo, '.git'), gitDir: join(repo, '.git') }, JSON.stringify(name))
+  }
+  const linked = join(base, 'linked\ncheckout')
+  await writeFile(join(base, 'plain', 'f.txt'), 'x\n')
+  await git(join(base, 'plain'), 'add', '-A')
+  await git(join(base, 'plain'), 'commit', '-q', '-m', 'init')
+  await git(join(base, 'plain'), 'worktree', 'add', '-q', '-b', 'linked', linked)
+  assert.deepEqual(await shellCheckoutIdentity(linked), {
+    checkoutRoot: linked,
+    gitCommonDir: join(base, 'plain', '.git'),
+    // git names the worktree's own directory after the folder, with the newline replaced.
+    gitDir: join(base, 'plain', '.git', 'worktrees', 'linked-checkout'),
+  })
+  assert.equal((await repositoryOf(linked))?.root, join(base, 'plain'))
 })
