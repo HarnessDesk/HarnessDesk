@@ -380,8 +380,18 @@ export class AccountSlots {
     primary: string,
     stateDir: string,
     gateway?: AccountSlot['gateway'],
+    available: (id: RuntimeId) => boolean = () => true,
   ): AccountSlot {
-    const id = runtimeId(`${agent}-${randomBytes(3).toString('hex')}`)
+    let id: RuntimeId | undefined
+    for (let attempt = 0; attempt < 64; attempt += 1) {
+      const candidate = runtimeId(`${agent}-${randomBytes(3).toString('hex')}`)
+      if (!this.find(candidate) && available(candidate) &&
+          !lstatSync(slotHome(stateDir, candidate), { throwIfNoEntry: false })) {
+        id = candidate
+        break
+      }
+    }
+    if (id === undefined) throw new Error('Could not allocate an unused account id.')
     const home = slotHome(stateDir, id)
     const linked = linkHome(primary, home, gateway ? gatewayPrivateEntries : undefined)
     const slot: AccountSlot = { id, agent, home, createdAt: Date.now(), ...(gateway ? { gateway } : {}) }
