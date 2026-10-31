@@ -603,6 +603,9 @@ a code block.
 The popup-wall frame contract checks every menu it opens for width limits,
 plate and content insets, one-line trailing values, label uniqueness, and a
 consistent icon policy. The rule applies equally in light and dark themes.
+It is captured once and checked many times: each wall destination is
+rendered once at each width and read in both themes, and the rules in
+`e2e/ui-system/frame-contract-popup-rules.ts` run over that reading in Node.
 
 ## The second line
 
@@ -1375,7 +1378,10 @@ When adding a control, row or surface to HarnessDesk:
 - The code face marks a face, never a size. `.mono` sets `font-family` and
   nothing else, so a row whose title happens to be an identifier stays the size
   of the rows around it.
-- Table, list and settings faces centre on the whole row. Other icon leads
+- Table, list and settings faces centre on the whole row. A ListRow with
+  `subtitleLayout="below"` centres its face on the name-and-controls heading;
+  its description and metadata span the inner width beneath that heading.
+  Other icon leads
   belong on the first text line, not centred against
   the title *and* its description.
 - A single line is centred in its container. In a notice, tile, text, actions
@@ -1874,7 +1880,9 @@ conversations whose process is no longer held.
 
 The Run strip uses the Team chat's live line, including a kept answer's way
 on and a pending release. A Seat's face centres on the whole row, or its first cell including the name
-and role.
+and role. In a narrow ListRow with `subtitleLayout="below"`, the face centres
+on the name-and-controls heading instead: the description spans the row below
+it, without pulling the face away from the name's line.
 
 Attention summaries use ListRow's wrapping sentence slot, so questions and
 approval reasons arrive whole even in a narrow pane. Recorded usage is read

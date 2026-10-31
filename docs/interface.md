@@ -57,6 +57,13 @@ it needs and the size this panel has.
 Before a draft has its first message, Changes stays disabled with
 **Available after the first message** on hover. Activity appears as work is recorded.
 
+The turn card and Changes label a reported file path **Outside** when it is
+outside the known open workspace and conversation roots, and **Location
+unknown** when its spelling cannot be placed. These are lexical labels, not
+access decisions. Turn counts describe observed edits; Git counts describe the
+current working tree. Both the turn card and Changes summarize outside files;
+filtering Changes narrows its displayed turn total and outside count.
+
 Diffs wrap by default in the side pane and at full width. Modified lines keep
 their red/green ground and emphasize changed words with a stronger band on
 both sides. Line numbers, file paths and `+N −N` counts remain visible.
@@ -1410,8 +1417,9 @@ along with what Settings still does not do — is recorded with the audit.
 
 ## What the desk observed
 
-**On a card.** A room's board draws each card's evidence as chips in its foot,
-and its columns — Needs you, Working, In review, To do, Ready, and Set aside
+**On a card.** A room's board draws one compact observation status in each card's foot.
+It opens the latest recorded facts and does not certify required checks; the
+Flow inspector separately keeps check attempt history. Board columns — Needs you, Working, In review, To do, Ready, and Set aside
 while anything is — come from those facts, so nothing on the board is dragged.
 A completed card is not placed until the first evidence read succeeds; while
 that read is pending or unavailable, the board says so rather than claiming
@@ -1964,7 +1972,8 @@ Other evidence waits stay neutral, reading **Waiting** with their recorded
 reason in the Run strip; they do not raise Needs you in the Team or Run. A review waiting
 to be posted keeps its own reason and Findings action, alongside any evidence
 wait. The live line keeps pending release and trigger actions while these rows
-are shown; routing ids stay out of the reason. Below 800px Seats become list rows. A question,
+are shown; routing ids stay out of the reason. Below 800px Seats become list rows.
+Each description takes the row's full reading width below its name and controls. A question,
 unread notice or new work brings a Seat out of that fold. The sidebar nests
 its conversation under the same Team, even after its process has rested.
 The selected Team and the Team owning the open Seat start expanded. Working

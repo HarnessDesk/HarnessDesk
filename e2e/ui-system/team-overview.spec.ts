@@ -1,6 +1,106 @@
 import { expect, test } from '@playwright/test'
 import { closeTeamDetails, selectTeamPage, teamSeats } from './team-frame-actions'
 
+test('focused Overview exposes its mounted store to preview tooling', async ({ page }) => {
+  await page.goto('/preview.html?team-overview=narrow&theme=light')
+  await expect(page.locator('#team-overview-narrow [data-slot="team-overview"]')).toBeVisible()
+  await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
+  await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: { store: { setTheme(value: 'dark'): void } } }).__hdPreview
+    preview.store.setTheme('dark')
+  })
+  await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+  expect(await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: {
+      store: { getSnapshot(): { accountsByRuntime: object } }
+    } }).__hdPreview
+    return { accounts: preview.store.getSnapshot().accountsByRuntime, keys: Object.keys(preview).sort() }
+  })).toEqual({ accounts: {}, keys: ['store'] })
+  await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: { store: { setTheme(value: 'light'): void } } }).__hdPreview
+    preview.store.setTheme('light')
+  })
+  await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
+  await page.goto('/preview.html?team-overview=narrow&theme=dark')
+  await expect(page.locator('#team-overview-narrow [data-slot="team-overview"]')).toBeVisible()
+  await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+})
+
+test('default gallery keeps its conversation and sidebar preview helpers', async ({ page }) => {
+  await page.goto('/preview.html')
+  const details = await page.evaluate(() => {
+    const preview = (window as unknown as { __hdPreview: {
+      store: { getSnapshot(): { sessions: Map<string, unknown> } }
+      sessionKey: string
+      sidebarFolderlessStore: { getSnapshot(): unknown }
+    } }).__hdPreview
+    return { keys: Object.keys(preview).sort(), hasSession: preview.store.getSnapshot().sessions.has(preview.sessionKey),
+      hasSidebar: !!preview.sidebarFolderlessStore.getSnapshot() }
+  })
+  expect(details).toEqual({ keys: ['sessionKey', 'sidebarFolderlessStore', 'store'], hasSession: true, hasSidebar: true })
+})
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`Team Overview: seat descriptions keep a readable line in the narrowest preview in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    for (const width of [240, 280, 320]) {
+      await page.setViewportSize({ width, height: 1100 })
+      await page.goto(`/preview.html?team-overview=narrow&theme=${theme}`)
+      await page.evaluate(() => document.fonts.ready)
+      const overview = page.locator('#team-overview-narrow [data-slot="team-overview"]')
+      await expect(overview).toHaveAttribute('data-layout', 'narrow')
+      if (width === 240) {
+        expect(await overview.locator('[data-seat]').first().evaluate(element => element.getBoundingClientRect().width)).toBeCloseTo(128, 0)
+      }
+      for (const row of await overview.locator('[data-seat]').all()) {
+        const geometry = await row.evaluate(element => {
+          const heading = element.querySelector('[data-slot="list-row-heading"]')!.getBoundingClientRect()
+          const face = element.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
+          const description = element.querySelector('[data-slot="list-row-subtitle"]')!.getBoundingClientRect()
+          const bounds = element.getBoundingClientRect()
+          const style = getComputedStyle(element)
+          return {
+            faceDelta: Math.abs((face.top + face.bottom - heading.top - heading.bottom) / 2),
+            startDelta: Math.abs(description.left - bounds.left - parseFloat(style.paddingLeft) - parseFloat(style.borderLeftWidth)),
+            endDelta: Math.abs(bounds.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth) - description.right),
+          }
+        })
+        expect(geometry.faceDelta).toBeLessThan(1.5)
+        expect(geometry.startDelta).toBeLessThan(1)
+        expect(geometry.endDelta).toBeLessThan(1)
+      }
+      const descriptions = overview.locator('[data-seat] [data-slot="list-row-subtitle"]').filter({ hasText: 'Reviewer · Alpha' })
+      await expect(descriptions).toHaveCount(3)
+      for (const description of await descriptions.all()) {
+        const reading = await description.evaluate(element => {
+          const lines = new Map<number, string[]>()
+          const bounds = element.getBoundingClientRect()
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+          let clipped = false
+          for (let node; (node = walker.nextNode());) {
+            if (node.parentElement?.closest('.sr-only')) continue
+            for (const word of node.textContent!.matchAll(/[^\s·]+/g)) {
+              const range = document.createRange()
+              range.setStart(node, word.index!)
+              range.setEnd(node, word.index! + word[0].length)
+              const box = range.getBoundingClientRect()
+              if (box.width <= 1) continue
+              const line = Math.round(box.top)
+              lines.set(line, [...(lines.get(line) ?? []), word[0]])
+              clipped ||= box.left < bounds.left - 1 || box.right > bounds.right + 1
+            }
+          }
+          return { lines: [...lines.values()], clipped, overflow: element.scrollWidth > element.clientWidth }
+        })
+        expect(reading.lines, `seat description at viewport ${width}`).toEqual([['Reviewer', 'Alpha']])
+        expect(reading.clipped).toBe(false)
+        expect(reading.overflow).toBe(false)
+      }
+      expect(await overview.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    }
+  })
+}
+
 for (const theme of ['light', 'dark'] as const) {
   test(`Team Overview: precedence, resting ink, faces, fold and pane width in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })

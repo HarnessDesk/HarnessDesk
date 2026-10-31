@@ -635,6 +635,8 @@ await ctx.forge.publish(
 const { via, login, available, reason } = await ctx.forge.identity(scope)
 ```
 
+`ctx.forge.associatedPullRequest(scope)` reads the live agent conversation's successful PR creations from the complete verified Git record in its pinned repository. It returns `{ status: 'found', number, repository }`, `{ status: 'none' }`, `{ status: 'ambiguous' }`, or `{ status: 'unavailable' }`. The host supplies caller identity; the read accepts no repository or identity arguments and requires the existing forge grant and live invocation. A missing pin or changed destination is refused. The result grants no permission to write. Creations without a recorded number still require explicit selection; existing records are left unchanged.
+
 Three things worth knowing:
 
 - **Every verb rides the invocation it was called from**, so `seat`, `publish`

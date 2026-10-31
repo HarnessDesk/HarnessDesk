@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import childProcess, { type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -256,6 +258,137 @@ test('stop leaves the server stopped and refuses further calls', async () => {
     () => server.request('model/list', {} as never),
     (error: unknown) => error instanceof CodexError && error.code === 'notRunning',
   )
+})
+
+// Capture the real spawned processes, without exposing a production test hook.
+// The test emits controlled data on their public Readable streams where noted;
+// exit and close receipts always come from the real child processes.
+const captureChildren = (t: import('node:test').TestContext, server: CodexAppServer) => {
+  const original = childProcess.spawn
+  const children: Array<{
+    child: ChildProcessWithoutNullStreams
+    exited: boolean
+    closed: boolean
+    exit: Promise<void>
+    close: Promise<void>
+  }> = []
+  childProcess.spawn = ((...args: unknown[]) => {
+    const child = Reflect.apply(original, childProcess, args) as ChildProcessWithoutNullStreams
+    if (Array.isArray(args[1]) && args[1][0] === 'app-server') {
+      const entry = { child, exited: false, closed: false, exit: Promise.resolve(), close: Promise.resolve() }
+      entry.exit = new Promise<void>((resolve) => child.once('exit', () => { entry.exited = true; resolve() }))
+      entry.close = new Promise<void>((resolve) => child.once('close', () => { entry.closed = true; resolve() }))
+      children.push(entry)
+      t.diagnostic(`captured child handle PID ${child.pid}`)
+    }
+    return child
+  }) as typeof childProcess.spawn
+  syncBuiltinESMExports()
+  t.after(async () => {
+    try {
+      // Restore real timers before cleanup, including on assertion failure.
+      t.mock.timers.reset()
+      const stopping = server.stop()
+      for (const entry of children) {
+        t.diagnostic(`cleanup child ${entry.child.pid}: exited=${entry.exited} closed=${entry.closed}`)
+        if (!entry.exited && entry.child.exitCode === null && entry.child.signalCode === null) entry.child.kill('SIGKILL')
+      }
+      await Promise.all([stopping, ...children.map((entry) => entry.close)])
+      for (const entry of children) t.diagnostic(`closed child ${entry.child.pid}: exited=${entry.exited} closed=${entry.closed}`)
+    } finally {
+      childProcess.spawn = original
+      syncBuiltinESMExports()
+    }
+  })
+  return children
+}
+
+test('a draining child cannot disturb its replacement', { skip: process.platform === 'win32', timeout: 15_000 }, async (t) => {
+  const server = make('overlap-stop', { maxRestarts: 0 })
+  const children = captureChildren(t, server)
+  const notices: string[] = []
+  let pendingSeen!: () => void
+  const pendingNotice = new Promise<void>((resolve) => { pendingSeen = resolve })
+  server.onNotification((notice) => {
+    notices.push(notice.method)
+    if ((notice.method as string) === 'overlap/pending') pendingSeen()
+  })
+  await server.start()
+  const old = children[0]!
+  const realSetTimeout = setTimeout
+  // Freeze the production grace timer, not the test's real deadline or IPC.
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const oldStop = server.stop()
+  await new Promise<void>((resolve) => realSetTimeout(resolve, 3_100))
+  assert.equal(old.exited, false, 'the stop deadline is held beyond its real three-second grace')
+  await server.start()
+  const replacement = children[1]!
+  assert.notEqual(replacement.child.pid, old.child.pid)
+  const outcome = server.request('overlap/wait' as never, {} as never)
+    .then((value) => ({ value }), (error: unknown) => ({ error }))
+  await pendingNotice
+  assert.equal(old.exited, false, 'old child remains live throughout replacement startup')
+  t.diagnostic(`releasing old child ${old.child.pid}; replacement ${replacement.child.pid} has a pending request`)
+  old.child.kill('SIGUSR1')
+  await oldStop
+  await old.close // exit is not proof that stdout has drained
+  t.diagnostic(`old child ${old.child.pid}: exited=${old.exited} closed=${old.closed}`)
+  assert.equal(server.processId, replacement.child.pid)
+  assert.equal(server.state.type, 'ready')
+  assert.deepEqual(notices, ['overlap/pending'])
+  replacement.child.kill('SIGUSR2')
+  assert.deepEqual(await outcome, { value: { owner: 'replacement' } })
+  let stopped = false
+  const finalStop = server.stop().then(() => { stopped = true })
+  await Promise.resolve()
+  assert.equal(stopped, false, 'stop waits for the live replacement to exit')
+  assert.equal(replacement.exited, false)
+  replacement.child.kill('SIGUSR1')
+  await finalStop
+  assert.equal(replacement.exited, true, 'stop itself awaited exit')
+  await replacement.close
+  t.diagnostic(`replacement ${replacement.child.pid}: exited=${replacement.exited} closed=${replacement.closed}`)
+})
+
+test('retired partial stdout cannot corrupt replacement framing', { skip: process.platform === 'win32', timeout: 15_000 }, async (t) => {
+  const server = make('overlap-stop', { maxRestarts: 0 })
+  const children = captureChildren(t, server)
+  const notices: string[] = []
+  server.onNotification((notice) => notices.push(notice.method))
+  await server.start()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const oldStop = server.stop()
+  await server.start()
+  const [old, replacement] = children
+  assert.ok(old && replacement)
+  // Controlled public stream data: incomplete old bytes, then a complete new frame.
+  old.child.stdout.emit('data', '{"method":"stale')
+  replacement.child.stdout.emit('data', '{"method":"replacement/notice","params":{}}\n')
+  assert.deepEqual(notices, ['replacement/notice'])
+  old.child.kill('SIGUSR1')
+  await oldStop
+  await old.close
+})
+
+test('a synchronous stop drops later frames in the same stdout chunk', { skip: process.platform === 'win32', timeout: 15_000 }, async (t) => {
+  const server = make('overlap-stop', { maxRestarts: 0 })
+  const children = captureChildren(t, server)
+  const notices: string[] = []
+  let stopping: Promise<void> | undefined
+  server.onNotification((notice) => {
+    notices.push(notice.method)
+    if ((notice.method as string) === 'first/notice') stopping = server.stop()
+  })
+  await server.start()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const child = children[0]!
+  // One public data event guarantees both frames enter the same decoder push.
+  child.child.stdout.emit('data', '{"method":"first/notice","params":{}}\n{"method":"second/notice","params":{}}\n')
+  assert.deepEqual(notices, ['first/notice'])
+  assert.ok(stopping)
+  child.child.kill('SIGUSR1')
+  await stopping
+  await child.close
 })
 
 test('stop after a crash does not trigger another restart', async (t) => {
