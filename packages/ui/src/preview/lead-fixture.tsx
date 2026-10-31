@@ -10,7 +10,14 @@ export const leadContract: LeadAcceptanceContract = { version: 1, revision: 1, d
   assertions: [{ id: 'checks', kind: 'check', description: 'Keyboard checks pass' }, { id: 'review', kind: 'review', description: 'Fresh review approves' }, { id: 'findings', kind: 'blocking-findings', description: 'Blocking findings resolved' }],
   caps: { usdMicros: 5000000, rounds: 4 } }
 export const leadPlan: Extract<LeadCard, { type: 'plan' }> = { version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: leadContract.digest, contract: leadContract }
-export const leadBudget = { version: 1 as const, revision: 3, caps: leadContract.caps, leadUsdMicros: 12000, workerUsdMicros: 250000, reservedUsdMicros: 0, roundsAdmitted: 1, spend: 'known' as const, stop: null }
+export const leadRepeatingContract: LeadAcceptanceContract = { ...leadContract, digest: 'c'.repeat(64), goal: 'Update the dependencies in acme-web and open a pull request.',
+  project: { id: 'acme-web', path: '/workspace/acme-web' }, repeat: { every: 'mondays', at: '09:00' }, caps: { usdMicros: 3000000, rounds: 2 } }
+export const leadRepeatingPlan: Extract<LeadCard, { type: 'plan' }> = { ...leadPlan, id: 'repeat-plan', contractDigest: leadRepeatingContract.digest, contract: leadRepeatingContract }
+export const leadSecondLook: Extract<LeadCard, { type: 'second-look' }> = { version: 1, id: 'look-1', revision: 1, type: 'second-look', contractDigest: leadContract.digest,
+  logicalGoalId: 'goal-demo', runId: 'run-demo', stopKey: 'stop-demo', said: 'Blocked on #231.', found: '#231 merged at 13:42.', did: 'Restarted, round 2 of 3.' }
+export const leadAllowanceWarning: Extract<LeadCard, { type: 'allowance-warning' }> = { version: 1, id: '80-demo', revision: 1, type: 'allowance-warning', contractDigest: leadContract.digest,
+  logicalGoalId: 'goal-demo', usdMicros: 4000000, caps: leadContract.caps }
+export const leadBudget = { version: 1 as const, logicalGoalId: 'goal-demo', revision: 3, caps: leadContract.caps, leadUsdMicros: 12000, workerUsdMicros: 250000, reservedUsdMicros: 0, roundsAdmitted: 1, spend: 'known' as const, stop: null }
 export const leadWaiting: Extract<LeadCard, { type: 'waiting' }> = { version: 1, id: 'waiting', revision: 2, type: 'waiting', kind: 'person', runId: 'run-demo', personCardId: 'person-demo', summary: 'The empty state now keeps focus on its next action.', contractDigest: leadContract.digest,
   assertions: [{ assertionId: 'checks', status: 'passed', revision: 2, contractRevision: 1, evidence: [{ kind: 'check', id: 'keyboard', revision: 'head-demo' }], reason: null }] }
 export const leadResult: Extract<LeadCard, { type: 'result' }> = { version: 1, id: 'result', revision: 3, type: 'result', outcome: 'reviewed', contractDigest: leadContract.digest, summary: 'Ready for your acceptance. Inspect the patch in Changes.', assertions: leadContract.assertions.map(assertion => ({ assertionId: assertion.id, status: 'passed', revision: 3, contractRevision: leadContract.revision, evidence: [{ kind: assertion.kind === 'review' ? 'review' : assertion.kind === 'blocking-findings' ? 'finding' : 'check', id: assertion.id, revision: 'head-demo' }], reason: null })), budget: leadBudget }
@@ -21,18 +28,24 @@ export const leadProjection = (over: Partial<LeadWindowProjection> = {}): LeadWi
 
 /** The person's own files, as Settings › Lead shows them: one weekday task, quiet nights, one kept line and one offered. */
 export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', to: '07:00' }, tasks: [
+  { id: 'repeat-repeat-plan', title: 'Update acme-web dependencies', goal: leadRepeatingContract.goal, project: leadRepeatingContract.project.path, every: 'mondays', at: '09:00', enabled: true, lastRunAt: Date.parse('2026-10-26T09:00:00Z'), approved: { contract: leadRepeatingContract, contractDigest: leadRepeatingContract.digest }, perRunCaps: leadRepeatingContract.caps, paused: false, runs: [
+    { slot: Date.parse('2026-10-19T09:00:00Z'), at: Date.parse('2026-10-19T09:00:00Z'), state: 'started', logicalGoalId: 'repeat-goal-one', outcome: 'accepted', usdMicros: 1200000, rounds: 2 },
+    { slot: Date.parse('2026-10-26T09:00:00Z'), at: Date.parse('2026-10-26T09:00:00Z'), state: 'skipped', reason: 'The last run still waits for you.' }] },
   { id: 'task-tidy', title: 'Morning tidy', goal: 'Close branches merged last week and list what is left.', every: 'weekdays', at: '09:00', enabled: true, lastRunAt: null },
   { id: 'task-notes', title: 'Release notes draft', goal: 'Draft the notes for what landed this week.', every: 'fridays', at: '16:00', enabled: false, lastRunAt: null }] }
 export const leadMemory: LeadMemory = { version: 1, items: [
   { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
   { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
-export const LEAD_SCENES = ['chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
+export const LEAD_SCENES = ['repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
   let projection = base
   if (!['loading', 'empty', 'goal-composer', 'opening-jobs', 'wake-ledger'].includes(scene) && !scene.startsWith('settings-')) thread.messages = [{ version: 1, id: 'goal', revision: 1, role: 'user', text: leadContract.goal }]
   if (['pending-plan', 'consent-expired', 'stale-card-replacement', 'narrow', 'app-shell'].includes(scene)) { thread.cards = [{ ...leadPlan, revision: scene === 'consent-expired' || scene === 'stale-card-replacement' ? 2 : 1 }]; thread.state = 'awaiting-plan'; thread.cardPositions = { plan: 2 } }
+  if (scene === 'repeating-plan') { thread.cards = [leadRepeatingPlan]; thread.state = 'awaiting-plan'; thread.cardPositions = { 'repeat-plan': 2 } }
+  if (scene === 'second-look') { thread.cards = [leadSecondLook]; thread.contract = leadContract; thread.state = 'running' }
+  if (scene === 'allowance-warning') { thread.cards = [leadAllowanceWarning]; thread.contract = leadContract; thread.state = 'running'; thread.budget = { ...leadBudget, leadUsdMicros: 1000000, workerUsdMicros: 3000000 } }
   if (scene === 'stale-card-replacement') thread.cards = [{ ...leadPlan, revision: 2, contractDigest: 'b'.repeat(64), contract: { ...leadContract, revision: 2, digest: 'b'.repeat(64), goal: 'Keep focus after the empty state action completes' } }]
   if (thread.cards.some(card => card.type === 'plan')) projection = { ...projection, wayOut: 'decide-plan' }
   if (scene === 'waiting') { thread.cards = [leadWaiting]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { waiting: 3 } }

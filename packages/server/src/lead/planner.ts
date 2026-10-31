@@ -1,6 +1,7 @@
+import { leadRefusal } from './controls.js'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { LEAD_SCHEDULE_LIMITS, parseLeadMemory, parseLeadSchedule, type LeadMemory, type LeadSchedule, type LeadScheduledTask } from '@harnessdesk/protocol'
+import { LEAD_SCHEDULE_LIMITS, parseLeadMemory, parseLeadSchedule, type LeadMemory, type LeadSchedule, type LeadScheduledTask, type LeadScheduledRun, type LeadAcceptanceContract } from '@harnessdesk/protocol'
 
 const SCHEDULE_FILE = 'schedule.json', MEMORY_FILE = 'memory.json'
 const EMPTY_SCHEDULE: LeadSchedule = { version: 1, tasks: [], quiet: null }
@@ -22,12 +23,18 @@ const slotToday = (task: LeadScheduledTask, at: Date): number | null => {
   const slot = new Date(at); slot.setHours(Number(task.at.slice(0, 2)), Number(task.at.slice(3, 5)), 0, 0)
   return slot.getTime() <= at.getTime() ? slot.getTime() : null
 }
-/** The first enabled task whose slot today has come and that has not run since; quiet hours hold every one. */
+/** Coalesce sleeping across slots to the most recent eligible slot. A brand new task
+ * begins with today's slot; existing tasks can catch up once after a long sleep. */
 export const leadDueTask = (schedule: LeadSchedule, at: Date): { readonly task: LeadScheduledTask; readonly slot: number } | null => {
   if (leadQuietAt(schedule, at)) return null
   for (const task of schedule.tasks) {
-    const slot = task.enabled ? slotToday(task, at) : null
-    if (slot !== null && (task.lastRunAt === null || task.lastRunAt < slot)) return { task, slot }
+    if (!task.enabled) continue
+    const date = new Date(at)
+    for (let days = 0; days < (task.lastRunAt === null && task.createdAt === undefined ? 1 : 8); days++) {
+      const slot = slotToday(task, date)
+      if (slot !== null && (task.lastRunAt !== null || task.createdAt === undefined || slot >= task.createdAt) && (task.lastRunAt === null || task.lastRunAt < slot)) return { task, slot }
+      date.setDate(date.getDate() - 1); date.setHours(23, 59, 59, 999)
+    }
   }
   return null
 }
@@ -56,15 +63,57 @@ export class LeadPlanner {
     return next
   }
   readSchedule(): Promise<LeadSchedule> { return this.#read(SCHEDULE_FILE, value => parseLeadSchedule(value), EMPTY_SCHEDULE) }
-  /** The person's edit; when a task last ran is the host's to say, so an edit keeps the recorded time. */
-  async writeSchedule(value: LeadSchedule): Promise<LeadSchedule> {
-    const previous = await this.readSchedule(), parsed = parseLeadSchedule(value)
-    const ran = new Map(previous.tasks.map(task => [task.id, task.lastRunAt]))
-    return this.#write(SCHEDULE_FILE, { ...parsed, tasks: parsed.tasks.map(task => ({ ...task, lastRunAt: ran.get(task.id) ?? null })) })
+  #mutate(change: (schedule: LeadSchedule) => LeadSchedule): Promise<LeadSchedule> {
+    const next = this.#writes.then(async () => {
+      const value = parseLeadSchedule(change(await this.readSchedule()))
+      await mkdir(join(this.home, 'lead'), { recursive: true, mode: 0o700 })
+      const file = this.#file(SCHEDULE_FILE), temporary = `${file}.${process.pid}.tmp`
+      await writeFile(temporary, JSON.stringify(value), { mode: 0o600 }); await rename(temporary, file)
+      return value
+    })
+    this.#writes = next.catch(() => {})
+    return next
+  }
+  /** Person edits never forge host run history or an approved contract. Changing
+   * the recurring scope drops its approval and returns to ordinary plan cards. */
+  writeSchedule(value: LeadSchedule): Promise<LeadSchedule> {
+    const parsed = parseLeadSchedule(value)
+    return this.#mutate(previous => ({ ...parsed, tasks: parsed.tasks.map(task => {
+      const old = previous.tasks.find(one => one.id === task.id)
+      const { approved: _approved, perRunCaps: _caps, runs: _runs, createdAt: _created, ...edit } = task
+      const preserves = old && old.goal === task.goal && old.project === task.project && old.every === task.every && old.at === task.at
+      return { ...edit, lastRunAt: old?.lastRunAt ?? null, ...(!old ? { createdAt: Date.now() } : old.createdAt === undefined ? {} : { createdAt: old.createdAt }), ...(old?.runs ? { runs: old.runs } : {}),
+        ...(preserves && old.approved ? { approved: old.approved, perRunCaps: old.perRunCaps } : {}) }
+    }) }))
   }
   async markRan(id: string, at: number): Promise<void> {
-    const schedule = await this.readSchedule()
-    await this.#write(SCHEDULE_FILE, { ...schedule, tasks: schedule.tasks.map(task => task.id === id ? { ...task, lastRunAt: at } : task) })
+    await this.#mutate(schedule => ({ ...schedule, tasks: schedule.tasks.map(task => task.id === id ? { ...task, lastRunAt: at } : task) }))
+  }
+  /** A fresh approval of a recurring plan turns a stopped or paused match back on; a consent renewal leaves its state alone. */
+  approveRepeat(id: string, contract: LeadAcceptanceContract, logicalGoalId?: string, now = Date.now(), reactivate = true): Promise<LeadSchedule> {
+    if (!contract.repeat) throw new Error('lead-repeat-required')
+    return this.#mutate(schedule => {
+      const existing = schedule.tasks.find(task => task.approved?.contractDigest === contract.digest || task.project === contract.project.path && task.goal === contract.goal && task.every === contract.repeat!.every && task.at === contract.repeat!.at)
+      if (existing) return { ...schedule, tasks: schedule.tasks.map(task => task.id !== existing.id ? task : { ...task, ...(reactivate ? { enabled: true, paused: false } : {}), approved: { contract, contractDigest: contract.digest }, perRunCaps: contract.caps,
+        runs: logicalGoalId ? [...(task.runs ?? []).filter(run => run.logicalGoalId !== logicalGoalId), { slot: task.runs?.find(run => run.logicalGoalId === logicalGoalId)?.slot ?? now, at: now, state: 'started' as const, logicalGoalId }].slice(-12) : task.runs }) }
+      return { ...schedule, tasks: [...schedule.tasks, { id, project: contract.project.path, title: contract.goal.slice(0, 80), goal: contract.goal.slice(0, 2000),
+        ...contract.repeat!, enabled: true, paused: false, createdAt: now, lastRunAt: now, approved: { contract, contractDigest: contract.digest }, perRunCaps: contract.caps, runs: logicalGoalId ? [{ slot: now, at: now, state: 'started' as const, logicalGoalId }] : [] }] }
+    })
+  }
+  recordRun(id: string, run: LeadScheduledRun): Promise<LeadSchedule> {
+    return this.#mutate(schedule => ({ ...schedule, tasks: schedule.tasks.map(task => task.id === id ? { ...task, lastRunAt: Math.max(task.lastRunAt ?? 0, run.slot),
+      runs: [...(task.runs ?? []).filter(old => old.slot !== run.slot), run].slice(-12) } : task) }))
+  }
+  settleRun(logicalGoalId: string, outcome: 'accepted' | 'declined' | 'stopped', usdMicros: number | undefined, rounds: number): Promise<LeadSchedule> {
+    return this.#mutate(schedule => ({ ...schedule, tasks: schedule.tasks.map(task => ({ ...task, ...(task.runs ? { runs: task.runs.map(run =>
+      run.logicalGoalId === logicalGoalId ? { ...run, outcome, ...(usdMicros === undefined ? {} : { usdMicros: Math.max(run.usdMicros ?? 0, usdMicros) }), rounds } : run) } : {}) })) }))
+  }
+  control(id: string, action: 'pause' | 'resume' | 'stop'): Promise<LeadSchedule> {
+    return this.#mutate(schedule => {
+      if (!schedule.tasks.some(task => task.id === id && (action !== 'resume' || task.enabled))) throw leadRefusal('lead-repeat-missing')
+      return { ...schedule, tasks: schedule.tasks.map(task => task.id !== id ? task : action === 'stop' ? { ...task, enabled: false, paused: true } :
+        action === 'pause' ? { ...task, paused: true } : { ...task, enabled: true, paused: false }) }
+    })
   }
   readMemory(): Promise<LeadMemory> { return this.#read(MEMORY_FILE, value => parseLeadMemory(value), EMPTY_MEMORY) }
   writeMemory(value: LeadMemory): Promise<LeadMemory> { return this.#write(MEMORY_FILE, parseLeadMemory(value)) }

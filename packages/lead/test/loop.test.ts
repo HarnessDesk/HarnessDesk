@@ -370,6 +370,61 @@ test('relevant activity invalidates a result before the deferred observation bat
   await loop.close()
 })
 
+test('a final person-gate notification briefly fences even an unchanged reviewed result', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    const card = s.journal.state.cards.find(card => card.type === 'result')!
+    const previousWakes = new Set(s.journal.state.wakes.map(wake => wake.id))
+    assert.equal(s.journal.state.managementReason, 'lead-result-awaiting-person')
+    s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'running', flow: 'lead-reviewed-result', round: 2, reason: null })
+    await s.drain()
+    assert.ok(s.journal.state.decidedCards.includes(`${card.id}:${card.revision}`), 'opening the person round can arrive after the first result')
+    await assert.rejects(s.journal.decideCard({ version: 1, cardId: card.id, cardType: 'result', expectedRevision: card.revision, contractDigest: card.contractDigest, choice: 'accept' }))
+    await s.tick(); await loop.idle()
+    const current = s.journal.state.cards.find(one => one.id === card.id)!
+    assert.equal(current.revision, card.revision, 'identical evidence restores the same card after observation')
+    assert.equal(s.journal.state.decidedCards.includes(`${current.id}:${current.revision}`), false)
+    assert.ok(s.journal.state.wakes.some(wake => !previousWakes.has(wake.id) && !wake.modelTurn), 'a completed observation batch has a durable wake receipt')
+  } finally { await loop.close() }
+})
+
+test('a late repair notification invalidates a post-green result after hand-back completion', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const first = exported('createLeadLoop')(s.options)
+  await first.request(input); await first.close()
+  const old = s.journal.state.cards.find(card => card.type === 'result')!
+  const state: lead.LeadState = { ...s.journal.state, phase: 'running', managementReason: null,
+    decidedCards: [...s.journal.state.decidedCards, `${old.id}:${old.revision}`],
+    pr: { repository: 'acme/widgets', number: 7, branch: 'worker', head: 'head-1', branchOwner: 'lead', state: 'open', at: 100,
+      check: { head: 'head-1', state: 'passed', total: 1 } },
+    ciPassed: ['head-1'], handbacks: [{ key: 'repair-1', event: 'checks-failed', kind: 'checks', head: 'old-head', runId: 'run-1', teamId: 'team-1', round: 4, at: 100, stage: 'completed', publishedHead: 'head-1' }] }
+  const records: lead.LeadJournalRecord[] = []
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append(record) { records.push(record) }, checkpoint() { return state } })
+  const observation = await fixture(); observation.setEvidence(spendEvidence())
+  let next = 0
+  const loop = exported('createLeadLoop')({ ...observation.options, journal, nextId: () => `repair-observation-${++next}` })
+  try {
+    await loop.start()
+    assert.equal(lead.leadRepairResultReady(journal.state), true)
+    const card = journal.state.cards.find(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))!
+    assert.ok(card)
+    const afterOffer = records.length
+    observation.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'settled', flow: 'lead-reviewed-result', round: 4, reason: null })
+    await observation.drain()
+    assert.deepEqual(records.slice(afterOffer).map(record => record.type), ['invalidate-results'], 'the notification fence retires the exact fresh card, without a later hand-back or person decision')
+    assert.ok(journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
+    assert.equal(journal.state.handbacks.at(-1)!.stage, 'completed')
+    assert.deepEqual(journal.state.ciPassed, ['head-1'])
+    await observation.tick(); await loop.idle()
+    assert.equal(journal.state.decidedCards.includes(`${card.id}:${card.revision}`), false, 'the final observation restores the unchanged post-green card')
+    assert.equal(journal.state.cards.find(current => current.id === card.id)!.revision, card.revision)
+  } finally { await loop.close() }
+})
+
 test('an ordinary event prevents an older in-flight evidence read from restoring an invalidated result', async () => {
   const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
   await s.approve(); s.setEvidence(spendEvidence())

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { join } from 'node:path'
+import { leadHandbackTerminal } from '@harnessdesk/lead'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
 
@@ -18,11 +19,28 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   t.after(() => rig.dispose())
   const offline = rig.offline
   assert.ok(offline, 'the rig exposes an offline fake forge and local bare remote')
+  let recoveredHost = false
+  const waitForObservedResult = async (label: string, ready: () => boolean = () => true) => {
+    await rig.waitFor(() => ready() && rig.host.registry.all().every(record => record.running.size === 0), `${label}: worker turns ended`)
+    await rig.host.flowsPlane.flush()
+    const observing = rig.childLive
+    assert.ok(observing || recoveredHost, 'the one-sitting case must retain its live child observation fence')
+    const observedAfter = Date.now(), previousWakes = new Set(rig.journal.state.wakes.map(wake => wake.id))
+    // Recovery restores host-owned repair state without starting a child. With
+    // no child there is no delayed child notification, nor a child wake to await.
+    if (observing) rig.service.evidenceChanged()
+    await rig.waitFor(() => ready() && !rig.service.requestInFlight && rig.journal.state.managementReason === 'lead-result-awaiting-person' &&
+      (observing ? rig.journal.state.wakes.some(wake => !previousWakes.has(wake.id) && !wake.modelTurn && wake.at > observedAfter) : !rig.childLive) &&
+      !!rig.pending('result'), label)
+  }
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
   await rig.decide(rig.pending('plan')!, 'approve'); await rig.releaseWorkers()
   await rig.waitFor(() => !!rig.pending('result'), 'reviewed result')
   await rig.waitFor(() => { const last = rig.host.flowsPlane.leadRuns()[0]?.rounds.at(-1); return last?.role === 'accept' && last.state === 'running' }, 'live person gate')
-  await rig.waitFor(() => !!rig.pending('result'), 'stable reviewed result after person gate opens')
+  // The Flow can open its person round before the child's final worker/gate
+  // notifications arrive. Merely seeing the first result is not an observation
+  // barrier: those notifications fence it until the child reads the desk again.
+  await waitForObservedResult('reviewed result after final worker and person-gate observations')
   await rig.decide(rig.pending('result')!, 'accept-open-pr')
   t.diagnostic(`initial reviewed PR published after ${Date.now() - started}ms`)
   const initial = structuredClone(rig.journal.state.pr)!, team = rig.journal.state.runs[0]!.teamId
@@ -37,6 +55,7 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   finally { t.diagnostic(`reviewed host push wait took ${Date.now() - repairStarted}ms; stage=${rig.journal.state.handbacks[0]?.stage}`) }
   if (restart) {
     await rig.interruptAt('host-restart')
+    recoveredHost = true
     assert.equal(rig.journal.state.handbacks[0]?.stage, 'awaiting-ci', 'restart retains the published head and CI wait')
     assert.equal(rig.journal.state.budget?.stop, null, 'restored fake runtimes retain known spend before recovery')
   }
@@ -48,12 +67,20 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   // Supplemental PR reads are budgeted across polls; drive the fake clock
   // until this exact head's green check has actually been observed.
   for (let poll = 0; poll < 8 && rig.journal.state.pr?.check?.state !== 'passed'; poll++) await offline.poll()
-  await rig.waitFor(() => !!rig.pending('result'), 'fresh result after green CI')
+  const repairReady = () => {
+    const state = rig.journal.state, op = state.handbacks.at(-1), pr = state.pr
+    return op?.key === operation.key && leadHandbackTerminal(op) && op.publishedHead === repaired && state.ciPassed.includes(repaired) &&
+      pr?.head === repaired && pr.check?.head === repaired && pr.check.state === 'passed'
+  }
+  await rig.waitFor(repairReady, 'terminal hand-back and durable green CI on the repaired head')
   const evidence = await new EvidenceStore(join(rig.home, 'evidence')).read(rig.project.path, 'evidence')
   assert.equal(evidence.skipped, 0)
   const green = evidence.lines.flatMap(line => line.type === 'evidence' && line.record.intake?.goal === team && line.record.fact.kind === 'ci' && line.record.fact.at === repaired ? [line.record.fact] : [])
   assert.equal(green.length, 1, 'one durable green CI fact for this Team and published head')
   assert.ok(green[0]!.kind === 'ci' && green[0]!.checks.some(check => check.name === 'CI passed' && check.state === 'passed'))
+  // Green forge state alone does not mean the child consumed the repair's final
+  // notifications. Finish that observation before re-reading the pending card.
+  await waitForObservedResult('fresh post-green result after final repair observations', repairReady)
   await rig.decide(rig.pending('result')!, 'accept')
   assert.equal(rig.journal.state.phase, 'following')
   await offline.mergeExternally(); await offline.poll()

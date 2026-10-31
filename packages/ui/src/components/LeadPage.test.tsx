@@ -498,6 +498,38 @@ it('shows checks and reviews on the observed head while the person owns the bran
   expect(box.querySelector('[data-slot="lead-pr-status"] button')?.getAttribute('title')).toBe(head)
 })
 
+it('renders a scheduled origin as a short time without its internal id or timestamp', async () => {
+  const base = leadProjection(), slot = new Date(2026, 9, 26, 9).getTime()
+  const { box } = await mount({ ...base, thread: { ...base.thread, cards: [leadPlan], origin: { source: 'schedule', event: 'schedule-repeat-internal-id', subject: String(slot), url: null } } })
+  const text = [...box.querySelectorAll('[data-role="meta"]')].find(node => node.textContent?.startsWith('From:'))!.textContent!
+  expect(text).toContain('From: scheduled run, Mon, Oct 26')
+  expect(text).toContain('9:00 AM')
+  expect(text).not.toContain('internal-id')
+  expect(text).not.toContain(String(slot))
+})
+
+it.each(['accepted', 'declined'] as const)('keeps informational history read-only after a goal is %s and another begins', async outcome => {
+  const base = leadProjection(), warning = { version: 1 as const, id: 'warning-old', revision: 1, type: 'allowance-warning' as const, contractDigest: null,
+    logicalGoalId: 'goal-old', usdMicros: 4000000, caps: { usdMicros: 5000000, rounds: 4 } }
+  const look = { version: 1 as const, id: 'look-old', revision: 1, type: 'second-look' as const, contractDigest: null,
+    logicalGoalId: 'goal-old', runId: 'run-old', stopKey: 'stop-old', said: 'Blocked on #231', found: '#231 merged', did: 'Restarted' }
+  const { box, update } = await mount({ ...base, thread: { ...base.thread, state: outcome, budget: { ...leadBudget, logicalGoalId: 'goal-old' }, cards: [warning, look] } })
+  expect(box.textContent).toContain('At 80%')
+  expect(box.textContent).not.toContain('Raise limit…')
+  await update({ thread: { ...base.thread, state: 'running', budget: { ...leadBudget, logicalGoalId: 'goal-new', caps: { usdMicros: 15000000, rounds: 4 } },
+    cards: [], decisions: [{ card: warning, position: 1 }, { card: look, position: 2 }] } })
+  expect(box.textContent).toContain('Second look')
+  expect(box.textContent).toContain('$4.00 of $5.00')
+  expect(box.textContent).not.toContain('Raise limit…')
+})
+
+it('keeps Raise limit available on the current stopped goal', async () => {
+  const base = leadProjection(), warning = { version: 1 as const, id: 'warning-stopped', revision: 1, type: 'allowance-warning' as const, contractDigest: null,
+    logicalGoalId: 'goal-stopped', usdMicros: 4000000, caps: { usdMicros: 5000000, rounds: 4 } }
+  const { box } = await mount({ ...base, thread: { ...base.thread, state: 'stopped', budget: { ...leadBudget, logicalGoalId: 'goal-stopped', stop: { reason: 'cancelled', revision: 3 } }, cards: [warning] } })
+  expect(box.textContent).toContain('Raise limit…')
+})
+
 it('links the followed PR with check, review and ownership chips and limits working text to the active repair', async () => {
   const base = leadProjection(), pr = { repository: 'acme/widgets', number: 12, branch: 'repair', head: 'a'.repeat(40), branchOwner: 'person' as const, state: 'open' as const, check: null, review: null, at: 1 }
   const { box, update } = await mount({ ...base, thread: { ...base.thread, state: 'following', pr, origin: { source: 'pull-request', event: 'checks-failed', subject: 'acme/widgets#12', url: 'https://github.com/acme/widgets/pull/12' } } })

@@ -177,6 +177,8 @@ export interface FlowLeadBinding {
   readonly base?: string
 }
 export interface FlowLeadGuard {
+  /** Host second-look authority and atomic admission, including terminal spend reopening. */
+  prepareSecondLook?(run: StoredFlowExecution, key: string, round: number): Promise<void>
   prepareRepair?(run: StoredFlowExecution, key: string, round: number): Promise<void>
   validateStart?(binding: FlowLeadBinding): Promise<void>
   bind(run: StoredFlowExecution): Promise<void>
@@ -3127,6 +3129,43 @@ export class FlowExecutions {
   }
 
   // --------------------------------------------------------------- rounds
+
+  /** Host-only continuation of a proved worker blocker. This never creates a
+   * new run or repeats a Flow start; the same step owns one newly admitted
+   * round. A cause key survives polling and recovery. Person and budget stops
+   * remain terminal, and uncertain effects are never replayed here.
+   */
+  restartLeadStopped(id: string, stopKey: string): Promise<FlowRoundState> {
+    return this.#queue.within(id, async () => {
+      let run = this.#get(id)
+      if (!/^second-look-[a-f0-9]{64}$/.test(stopKey) || !run.lead || !this.#lead?.prepareSecondLook || this.#continued(run))
+        throw new Error('lead-second-look-run-unavailable')
+      const cause = `cause:lead:${stopKey}`, existing = run.rounds.find(round => round.cause === cause)
+      if (existing && existing.state !== 'opening') return existing
+      const previous = existing ? run.rounds.find(round => round.n === existing.n - 1) : run.rounds.at(-1)
+      const role = previous && policyOf(run).roles.find(role => role.id === previous.role)
+      const cards = previous ? this.#team.stateFor(run.goal).intents.filter(card => previous.cards.includes(card.id)) : []
+      const workerStop = run.state === 'settled' && run.end?.kind === 'unrouted' && run.end.outcome === 'blocked' ||
+        run.state === 'stalled' && run.end?.kind === 'stalled' || run.state === 'stopped' && run.end?.kind === 'stopped' && run.end.by === 'desk'
+      if ((!existing && !workerStop) || !previous || role?.kind !== 'agent' || !cards.length || cards.length !== previous.cards.length ||
+        !cards.every(done) || run.operations.some(operation => operation.state === 'uncertain') || this.#stopRequests.has(id))
+        throw new Error('lead-second-look-run-unavailable')
+      // The guard validates current consent, the journaled stop claim, and the
+      // same contract binding, then admits this round with existing caps.
+      await this.#lead.prepareSecondLook(run, stopKey, existing?.n ?? run.rounds.length + 1)
+      const admission = await this.#leadGate(id)
+      if (!admission.ok) throw new Error(admission.reason)
+      if (this.#stopRequests.has(id)) throw new StopPending()
+      run = await this.#put({ ...this.#get(id), state: 'running', reason: null })
+      // Fresh metering after the state change covers this reopened execution.
+      // #openRound rechecks dispatch, records round accounting, then dispatches.
+      const restarted = await this.#openRound(run.id, { role: role.id, title: cards[0]!.title,
+        ...(cards[0]!.detail ? { detail: cards[0]!.detail! } : {}) },
+        { key: cause, evidence: previous.evidence }, [...new Set(cards.flatMap(card => card.dependsOn))])
+      if (restarted.state !== 'running' || this.#get(id).state !== 'running') throw new Error('lead-second-look-restart-refused')
+      return restarted
+    })
+  }
 
   /** Phase 8's entry: a round opened for an outside cause, idempotent on its key. */
   openRound(id: string, then: FlowThen, cause: { readonly key: string; readonly evidence: readonly string[] }): Promise<FlowRoundState> {
