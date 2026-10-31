@@ -4688,6 +4688,20 @@ the failure logs of the 128 jobs that failed in them:
 from a list in the workflow; a check that never finds anything another check
 does not is measured, then removed from the place it costs most.
 
+## Full CI label admission — 2026-10-30
+
+A label worker rechecks the live pull request and can reuse a matching PR run
+created no earlier than the latest full-ci label application only when that run
+has a successful full-tier marker. This avoids admitting an old or bounded event
+snapshot; the marker is admission evidence, not a claim that CI passed. A push
+can still move the branch after the recheck, so this is not atomic deduplication.
+Events have second-resolution timestamps; a labeled and unlabeled event in the
+same second are ambiguous, so the worker treats removal as latest and dispatches.
+The same-repository-only `pull_request` workflow checks out the immutable event
+merge commit (`github.sha`) so its helper is present before the PR is merged.
+This keeps the existing fork condition and actions write permission; it does not
+use `pull_request_target` or expand the workflow's trust boundary.
+
 ## Repeating Lead work keeps the approved contract, one run at a time — 2026-10-30
 
 Recurring work should not need the same plan approval every week. A repeat therefore lives in the existing schedule store, carrying the approved digest-bound contract and per-run caps. The repeat field belongs to the approval scope. Each slot mints fresh goal, contract and step identities, budget and consent, and rechecks the same project, policy, source and seat constraints as a person-approved start. A changed fact returns a plan card with its reason. Legacy Settings tasks retain their plan-per-run behavior. Publishing, merging and deleting keep their own consent on every run.
@@ -4704,4 +4718,4 @@ Model-inferred blockers, repeated retries, a second start of an already started 
 
 Known Lead and worker spend reaching 80% produces a journaled At 80% entry with the observed figure and unchanged hard stop. A desk conversation message tells the Lead to finish only what its approved plan needs and leave additional review asks in the result. Standing instructions remain stable throughout the goal. A higher dollar cap re-arms the warning for its own threshold. Unknown, stale, partial and ambiguous spend produce no warning figure.
 
-Raise limit… is a person-only direct caps update in the shared Dialog. It can increase dollars, rounds or both and preserves an existing stop latch. A second Lead approval card for the person's own choice, changing the standing prompt mid-goal, estimating unknown spend and automatically clearing a stopped goal were rejected: none is needed to make the remaining allowance useful.
+Raise limit… is a person-only direct caps update in the shared Dialog. It can increase dollars, rounds or both and preserves an existing stop latch. The raise belongs to its goal: the next goal starts from the caps in force before it, and a fresh approval of a stopped repeat turns that repeat back on. A second Lead approval card for the person's own choice, changing the standing prompt mid-goal, estimating unknown spend and automatically clearing a stopped goal were rejected: none is needed to make the remaining allowance useful.

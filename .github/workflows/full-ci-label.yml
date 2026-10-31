@@ -12,6 +12,7 @@ on:
 permissions:
   actions: write
   contents: read
+  pull-requests: read
 
 jobs:
   dispatch:
@@ -20,9 +21,15 @@ jobs:
     if: github.event.label.name == 'full-ci' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          # The pull_request event's immutable merge commit contains this workflow's helper.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
       - name: Dispatch CI on the head branch
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: gh workflow run ci.yml --ref "$HEAD_REF"
+        run: node script/full-ci-label.mjs
