@@ -1,3 +1,4 @@
+import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject } from '@harnessdesk/protocol'
 import { parseLeadDecisionMessage, parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy, parseLeadCaps } from '@harnessdesk/protocol'
 import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
 import { initialLeadState, type LeadState, type LeadAttemptState } from './state.js'
@@ -26,7 +27,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // cards after that message and before the next journal write.
   const namedSource = threadSource && { ...threadSource, completedBudgets: Object.hasOwn(threadSource, 'completedBudgets') ? threadSource.completedBudgets : [], decisionRevision: threadSource.decisionRevision ?? threadSource.seq, wakes: threadSource.wakes ?? [], nameChosen: threadSource.nameChosen ?? (threadSource.messages.length > 0 || threadSource.olderMessages > 0), name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
   const followSource = namedSource && { ...namedSource, follow: Object.hasOwn(namedSource, 'follow') ? namedSource.follow : { checks: true, reviews: true }, pr: Object.hasOwn(namedSource, 'pr') ? namedSource.pr : null, publication: Object.hasOwn(namedSource, 'publication') ? namedSource.publication : null, ownedPush: Object.hasOwn(namedSource, 'ownedPush') ? namedSource.ownedPush : null }
-  const repairSource = followSource && { ...followSource, goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, chatEffectsAcknowledged: followSource.chatEffectsAcknowledged ?? false, secondLooks: followSource.secondLooks ?? [], raisedFrom: followSource.raisedFrom ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
+  const repairSource = followSource && { ...followSource, workerApprovals: Object.hasOwn(followSource, 'workerApprovals') ? followSource.workerApprovals : [], goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, chatEffectsAcknowledged: followSource.chatEffectsAcknowledged ?? false, secondLooks: followSource.secondLooks ?? [], raisedFrom: followSource.raisedFrom ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
   const source = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
     ? { ...repairSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : repairSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
@@ -64,6 +65,10 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   }
   const policy = source.policy === null ? null : parseLeadPermissionPolicy(source.policy)
   const contract = source.contract === null ? null : parseLeadAcceptanceContract(source.contract)
+  assert(Array.isArray(source.workerApprovals) && source.workerApprovals.length <= 128)
+  const workerApprovals = source.workerApprovals.map(rule => parseLeadWorkerApprovalRule(rule))
+  assert(new Set(workerApprovals.map(rule => rule.id)).size === workerApprovals.length && new Set(workerApprovals.map(rule => JSON.stringify(rule.key))).size === workerApprovals.length)
+  assert(workerApprovals.every(rule => contract && source.consent && !['stopped', 'accepted', 'declined', 'following'].includes(source.phase) && rule.contractDigest === contract.digest && rule.goalStartedSeq === source.goalStartedSeq && leadWorkerRuleInProject(rule.key, contract.project.path)))
   assert(Array.isArray(source.completedBudgets) && source.completedBudgets.length <= 64)
   const completedBudgets = source.completedBudgets.map(value => parseLeadBudgetLedger(value))
   assert(new Set(completedBudgets.map(budget => budget.logicalGoalId)).size === completedBudgets.length)
@@ -145,6 +150,6 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     if (consent.renewalCardRevision !== undefined) assert(Number.isSafeInteger(consent.renewalCardRevision) && cards.some(card => card.type === 'plan' && card.contractDigest === consent.contractDigest && card.revision === consent.renewalCardRevision))
     assert(Number.isSafeInteger(consent.expiresAt) && consent.expiresAt > 0)
   }
-  const state = structuredClone({ ...source, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages })
+  const state = structuredClone({ ...source, workerApprovals, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages })
   return { checkpoint: structuredClone(checkpoint), state }
 }

@@ -1,5 +1,5 @@
 import {
-  leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
+  parseLeadApprovalRevoke, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
   parseLeadBudgetRaise, type LeadBudgetRaise, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
@@ -42,6 +42,7 @@ interface LeadControlsOptions {
   /** Live host registry relays, never child proposals or person decisions. */
   readonly readWorkerApprovals?: () => readonly Extract<LeadCard, { type: 'waiting' }>[]
   readonly readPersonActions?: () => Promise<readonly LeadAction[]>
+  readonly revokeApproval?: (input: { readonly id: string; readonly contractDigest: string }) => Promise<void>
   readonly performAction?: (input: LeadActionInput) => Promise<void>
   /** Host revalidates the live Flow, card and evidence on the journal's decision queue. */
   readonly decidePerson: (card: Extract<LeadCard, { type: 'waiting' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
@@ -178,7 +179,7 @@ export class LeadControls {
     if (this.#steers.goal !== goal) this.#steers = { goal, list: [] }
     const steers = this.#steers.list.slice(-64)
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, savedApprovals: state.workerApprovals.map(({ id, target, count }) => ({ id, target, count })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }
@@ -213,6 +214,13 @@ export class LeadControls {
   async readWakes() { const state = this.options.journal.state; return { revision: state.seq, wakes: state.wakes } }
   readThread(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
   readSettings(): Promise<LeadWindowProjection> { return this.#projection().catch(error => this.#refuse(error)) }
+  revokeApproval(value: { readonly id: string; readonly contractDigest: string }): Promise<LeadWindowProjection> { return this.#queue(async () => {
+    const input = parseLeadApprovalRevoke(value)
+    if (!this.options.revokeApproval) throw leadRefusal('lead-operation-refused')
+    await this.options.revokeApproval(input)
+    void this.#notify(true)
+    return this.#projection()
+  }) }
   perform(value: LeadActionInput): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const input = parseLeadActionInput(value)
     if (input.contractDigest !== this.options.journal.state.contract?.digest) throw leadRefusal('lead-card-stale')

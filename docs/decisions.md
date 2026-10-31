@@ -4915,3 +4915,52 @@ Model-inferred blockers, repeated retries, a second start of an already started 
 Known Lead and worker spend reaching 80% produces a journaled At 80% entry with the observed figure and unchanged hard stop. A desk conversation message tells the Lead to finish only what its approved plan needs and leave additional review asks in the result. Standing instructions remain stable throughout the goal. A higher dollar cap re-arms the warning for its own threshold. Unknown, stale, partial and ambiguous spend produce no warning figure.
 
 Raise limit… is a person-only direct caps update in the shared Dialog. It can increase dollars, rounds or both and preserves an existing stop latch. The raise belongs to its goal: the next goal starts from the caps in force before it, and a fresh approval of a stopped repeat turns that repeat back on. A second Lead approval card for the person's own choice, changing the standing prompt mid-goal, estimating unknown spend and automatically clearing a stopped goal were rejected: none is needed to make the remaining allowance useful.
+
+
+## Worker approvals can be remembered for one Lead goal — 2026-10-31
+
+“Yes for this goal” is a person's decision through the same authenticated window
+or paired-phone answer path as “Yes once”. It answers the live request using the
+runtime's one-call option and persists a host-owned exact key. Child RPC, Lead
+tools and ordinary clients have no save or revoke operation; the worker-approval
+permission floor remains in place.
+
+Keys use the real normalized approval shapes:
+
+- Command: `command` plus `cwd`, both exact strings, distinct from stdin. Only a
+  closed grammar of read commands currently qualifies: `pwd`; `git status` with
+  `--short`, `--branch`, `--porcelain`; `git log` with `--oneline`, `--stat`,
+  `--all`, or a numeric `-1` through `-99`; `git diff` with `--stat`,
+  `--name-only`, `--cached`. Shell composition, output options, configuration
+  options and unknown programs have no reusable safe key.
+- File change: the one exact absolute path under the approved project. Add and
+  update share that path key. Multiple paths, deletion, movement, root grants,
+  and authority files or directories (`.git`, `.harnessdesk`, agent configuration,
+  permissions and budget files) do not qualify. The complete bounded diff is
+  displayed on the request; undisplayed content cannot receive this answer.
+  The host rechecks real filesystem paths before saving or answering; links
+  below the project root are excluded, including links into authority storage.
+- Permission/tool: the exact tool name from trusted `flowBoardTool` provenance,
+  only. The closed read set is `list_intents`, `get_context`, `get_team_status`,
+  `review_candidates`, and `list_findings`. Permission summaries are display
+  text and cannot prove tool identity, even when they look like a tool name. Filesystem, network or gateway grants and undisplayed rationale
+  cannot be remembered.
+- User input, elicitation and command stdin: no key. These are questions or
+  input to a running process and always reach the person.
+
+There are no patterns, wildcards, prefix matches or inferred similarities.
+Publication, irreversible operations and authority changes are excluded by the
+closed eligibility sets; a later request is classified again before matching.
+The target must belong to a live Seat of a run bound to the current approved
+plan. Old runs, closed Seats and the Lead's own work cannot borrow a rule.
+
+The journal and strict checkpoint retain each rule's goal-start sequence,
+contract digest, closed key and acknowledged-answer count. Legacy checkpoints
+start with none. Ending the goal (including acceptance before PR following),
+starting a new or repeated goal, or replacing the approved contract discards
+all saved approvals. A pending plan suspends automatic answers. Revocation and
+automatic admission share the journal writer queue, so revocation applies to
+the next admitted request. The host retains the target's thread audit before
+dispatch and counts an answer after its responder acknowledges it. A crash
+between acknowledgement and the count write can undercount; it cannot widen
+the stored key. An unacknowledged dispatch remains a person-visible request.

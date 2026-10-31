@@ -733,13 +733,17 @@ test('host budget admission refusal kills a live dispatch before journaling and 
 
 test('child RPC and window-shaped click frames cannot invoke human decisions', async () => {
   const { parseLeadIpc } = await import('../src/child-ipc.js')
-  for (const operation of ['decideCard', 'resume', 'setPolicy', 'appendMessage', 'lead/card/decide'])
+  for (const operation of ['saveWorkerApproval', 'revokeWorkerApproval', 'useWorkerApproval', 'lead/approval/revoke', 'lead/action/perform', 'decideCard', 'resume', 'setPolicy', 'appendMessage', 'lead/card/decide'])
     assert.throws(() => parseLeadIpc({ version: 1, type: 'rpc', id: 1, operation, args: [] }), /lead-ipc-invalid/)
   assert.throws(() => parseLeadIpc({ version: 1, type: 'lead/card/decide', params: {} }), /lead-ipc-invalid/)
 })
 
 test('a framed child click terminates its synthetic pid without invoking a journal decision', async () => {
   for (const payload of [
+    { version: 1, type: 'rpc', id: 1, operation: 'saveWorkerApproval', args: [] },
+    { version: 1, type: 'rpc', id: 1, operation: 'revokeWorkerApproval', args: [] },
+    { version: 1, type: 'lead/action/perform', params: { choice: 'yes-goal' } },
+    { version: 1, type: 'lead/approval/revoke', params: { id: 'rule' } },
     { version: 1, type: 'rpc', id: 1, operation: 'decideCard', args: [] },
     { version: 1, type: 'lead/card/decide', params: { choice: 'accept' } },
   ]) {

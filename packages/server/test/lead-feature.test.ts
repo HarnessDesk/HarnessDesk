@@ -277,3 +277,51 @@ for (const windows of [false, true]) test(`automatic project admission accepts $
     } finally { Object.defineProperty(process, 'platform', descriptor) }
   } else await automaticProject(fixture.project.path + '/')
 })
+
+test('the host consumes a saved worker rule before broadcasting the approval and still surfaces irreversible work', async t => {
+  const { host, runtime, stateDir, repo } = await evidenceDesk(t, { leadEnabled: true })
+  await writeAgent(stateDir)
+  const goal = await host.call('goal/create', { root: repo.dir, sentence: 'Inspect demo' })
+  const card = await host.call('team/add', { room: goal.goal.id, title: 'Inspect demo' })
+  const seat = await host.call('goal/seat', { goal: goal.goal.id, card: card.id, agent: 'scout' })
+  const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Inspect demo', project: { id: 'demo', path: repo.dir }, policyRevision: 1,
+    steps: [{ id: 'work', title: 'Inspect', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments: [{ role: 'implement', agent: 'scout', seat: { runtime: 'fake' }, ceiling: 'read' }] }],
+    assertions: [{ id: 'diff', kind: 'diff', description: 'Reviewed' }], caps: { usdMicros: 1000000, rounds: 3 } })
+  const base = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await base.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
+  await base.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'rule-test', caps: contract.caps, freshnessMs: 60000 })
+  await base.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  await base.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, Date.now() + 60000)
+  const { reduceLeadRecord } = await import('@harnessdesk/lead')
+  let state = base.state
+  for (const event of [
+    { type: 'attempt', id: 'start', correlationId: 'start', method: 'flow/start-goal', action: null, arguments: { type: 'object', size: 0, fields: [] }, kind: 'mutation', stepId: 'work', policyRevision: 1, projectPolicyRevision: null, contractRevision: 1 },
+    { type: 'decision', id: 'start', effect: 'allow', reason: 'policy', rule: null }, { type: 'dispatch-start', id: 'start', dispatched: true },
+    { type: 'result', id: 'start', outcome: 'succeeded', identity: { correlationId: 'start', runId: 'owned-run', teamId: goal.goal.id } },
+  ]) state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, ...event })
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {}, checkpoint: () => state })
+  t.mock.method(host.credentials, 'leadStatus', async () => ({ configured: false, protection: 'synthetic cipher' }))
+  const service = host.createLeadService({ journal, project: contract.project, prices: {}, resolveTool: async () => { throw Error('unused') }, freezePlan: async value => value,
+    readEvidence: async () => { throw Error('unused') }, createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  t.after(() => service.close())
+  const live = runtime.sessions.get(seat.session.sessionId)!
+  const pushes: any[] = []
+  host.addBroadcaster(value => pushes.push(value))
+  const first = live.askPermission(approvalId('first-tool'), 'get_team_status', { server: 'harnessdesk', tool: 'get_team_status' })
+  const initial = await host.call('lead/thread/read', {}), action = initial.personActions!.find(action => action.kind === 'worker-approval')!
+  assert.ok(action.kind === 'worker-approval' && action.choices.includes('yes-goal'))
+  await host.call('lead/action/perform', { id: action.id, contractDigest: contract.digest, choice: 'yes-goal' })
+  await first
+  const next = live.askPermission(approvalId('second-tool'), 'get_team_status', { server: 'harnessdesk', tool: 'get_team_status' })
+  assert.deepEqual(await next, { type: 'option', optionId: 'allow-once' })
+  await journal.recordWake({ id: 'flush', at: Date.now(), source: 'person', decision: 'silent', modelTurn: false, usdMicros: null })
+  assert.equal(journal.state.workerApprovals[0]!.count, 1)
+  assert.match(journal.state.messages.at(-1)!.text, /Allowed under your rule for this goal/)
+  assert.equal(pushes.some(value => value.method === 'event' && value.params.event.type === 'approval/requested' && value.params.event.approval.id === 'second-tool'), false)
+  const irreversible = live.askPermission(approvalId('publish-tool'), 'mcp__harnessdesk__git_push')
+  const projection = await host.call('lead/thread/read', {})
+  const pending = projection.personActions!.find(action => action.kind === 'worker-approval')!
+  assert.ok(pending.kind === 'worker-approval'); assert.ok(!pending.choices.includes('yes-goal'))
+  await host.call('lead/action/perform', { id: pending.id, contractDigest: contract.digest, choice: 'no' })
+  await irreversible
+})

@@ -829,6 +829,7 @@ export interface HostMethods {
   'lead/thread/read': { params: Record<string, never>; result: LeadWindowProjection }
   'lead/thread/send': { params: LeadThreadSend; result: LeadSendReceipt }
   'lead/card/decide': { params: LeadCardDecision; result: LeadWindowProjection }
+  'lead/approval/revoke': { params: { readonly id: string; readonly contractDigest: string }; result: LeadWindowProjection }
   'lead/action/perform': { params: LeadActionInput; result: LeadWindowProjection }
   'lead/settings/read': { params: Record<string, never>; result: LeadWindowProjection }
   'lead/settings/update': { params: LeadSettingsUpdate; result: LeadWindowProjection | LeadNameReceipt }

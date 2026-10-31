@@ -1,3 +1,4 @@
+import type { LeadSavedApproval } from './goal-worker-approval.js'
 import { CLIENT_ACTION_TIERS, CLIENT_METHODS, type ClientMethodName } from './client-surface.js'
 import type { CeilingLevel } from './evidence.js'
 import type { FlowSeat } from './flow.js'
@@ -319,11 +320,12 @@ export interface LeadSteer { readonly id: string; readonly text: string; readonl
   readonly after?: number }
 /** Live host-owned requests. These are not model-proposed cards or LeadCardDecision inputs. */
 export type LeadAction =
-  | { readonly kind: 'worker-approval'; readonly id: string; readonly runId: string; readonly role: string; readonly request: string; readonly choices: readonly ('yes-once' | 'no')[] }
+  | { readonly kind: 'worker-approval'; readonly id: string; readonly runId: string; readonly role: string; readonly request: string; readonly choices: readonly ('yes-once' | 'yes-goal' | 'no')[]; readonly details?: string }
   | { readonly kind: 'check'; readonly id: string; readonly runId: string; readonly name: string; readonly command: string }
-export interface LeadActionInput { readonly id: string; readonly contractDigest: string; readonly choice: 'yes-once' | 'no' | 'run' }
+export interface LeadActionInput { readonly id: string; readonly contractDigest: string; readonly choice: 'yes-once' | 'yes-goal' | 'no' | 'run' }
 /** Window projection adds the host's guarded way out; child observations grant no control. */
 export interface LeadWindowProjection extends LeadHostProjection {
+  readonly savedApprovals?: readonly LeadSavedApproval[]
   readonly personActions?: readonly LeadAction[]
   readonly requestInFlight: boolean
   readonly wayOut: LeadPersonAction
@@ -791,17 +793,20 @@ const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
   const kind = (value as { kind?: unknown })?.kind
   return kind === 'worker-approval'
     ? object<Extract<LeadAction, { kind: 'worker-approval' }>>({ ...actionBase, kind: literalUnion('worker-approval'), role: text(80),
-      request: text(240), choices: list(literalUnion('yes-once', 'no'), 2) })(value, path)
+      request: text(240), details: optional(boundedText(8000, false, proseControls)), choices: list(literalUnion('yes-once', 'yes-goal', 'no'), 3) })(value, path)
     : object<Extract<LeadAction, { kind: 'check' }>>({ ...actionBase, kind: literalUnion('check'), name: text(40), command: boundedText(2000, false, proseControls) })(value, path)
 }
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
   waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
+  savedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer() }), 128, 0, rule => rule.id)),
   personActions: optional(list(parseLeadAction, 1024, 0, action => action.id)), presence: optional(parseLeadPresence),
   steers: optional(list(parseLeadSteer, 64, 0, steer => steer.id)),
 }))
 
-export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, contractDigest: digest, choice: literalUnion('yes-once', 'no', 'run') })
+export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, contractDigest: digest, choice: literalUnion('yes-once', 'yes-goal', 'no', 'run') })
 
 export const parseLeadWakeRecord: Validator<LeadWakeRecord> = object({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked'), modelTurn: isBoolean, usdMicros: nullable(micros) })
 export const parseLeadWakeLog: Validator<LeadWakeLog> = object({ revision: integer(), wakes: list(parseLeadWakeRecord, 128, 0, wake => wake.id) })
+
+export const parseLeadApprovalRevoke: Validator<{ readonly id: string; readonly contractDigest: string }> = object({ id, contractDigest: digest })
