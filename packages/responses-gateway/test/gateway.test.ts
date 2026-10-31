@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import childProcess, { type ChildProcess } from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
 import { createServer, type Server } from 'node:http'
 import { test } from 'node:test'
 
@@ -87,7 +89,7 @@ test('the gateway swaps its token for the provider key and forwards', async () =
 test('an acquisition cannot stop a borrowed gateway or a replacement', async () => {
   const upstream = await upstreamServer()
   const supervisor = new GatewaySupervisor()
-  let releaseReplacement: (() => void) | undefined
+  let releaseReplacement: (() => Promise<void>) | undefined
   const options = (key: string) => ({ upstream: `http://127.0.0.1:${upstream.port}/v1`, resolveKey: async () => key })
   const send = async (endpoint: string) => {
     const response = await fetch(`${endpoint}/responses`, { method: 'POST', body: '{}' })
@@ -98,7 +100,7 @@ test('an acquisition cannot stop a borrowed gateway or a replacement', async () 
     const existing = await supervisor.ensure('borrowed', options('fixture-existing'))
     const borrowed = await supervisor.acquire('borrowed', options('fixture-unused'))
     assert.equal(borrowed.gateway.endpoint, existing.endpoint)
-    borrowed.release()
+    await borrowed.release()
     await send(existing.endpoint)
     assert.equal(upstream.seen.at(-1)?.auth, 'Bearer fixture-existing')
 
@@ -106,20 +108,91 @@ test('an acquisition cannot stop a borrowed gateway or a replacement', async () 
     supervisor.stop('replacement')
     const replacement = await supervisor.acquire('replacement', options('fixture-replacement'))
     releaseReplacement = replacement.release
-    first.release()
+    await Promise.all([first.release(), first.release()])
     await send(replacement.gateway.endpoint)
     assert.equal(upstream.seen.at(-1)?.auth, 'Bearer fixture-replacement')
     const current = await supervisor.acquire('replacement', options('fixture-unused'))
     try {
       assert.equal(current.gateway.endpoint === replacement.gateway.endpoint, true, 'replacement remains registered')
     } finally {
-      current.release()
+      await current.release()
     }
   } finally {
     await supervisor.dispose()
-    releaseReplacement?.()
+    await releaseReplacement?.()
     await new Promise<void>((resolve, reject) => upstream.server.close(error => error ? reject(error) : resolve()))
   }
+})
+
+test('owned release bounds a child that does not receive EOF', async t => {
+  const supervisor = new GatewaySupervisor()
+  const spawn = childProcess.spawn
+  let child: ChildProcess | undefined
+  let closed: Promise<void> | undefined
+  let closeSeen = false
+  let closeInput: (() => void) | undefined
+  let endCalls = 0
+  const signals: Array<NodeJS.Signals | number | undefined> = []
+  t.mock.method(childProcess, 'spawn', ((...args: Parameters<typeof spawn>) => {
+    const spawned = spawn(...args)
+    child = spawned
+    closed = new Promise(resolve => spawned.once('close', () => { closeSeen = true; resolve() }))
+    const stdin = spawned.stdin!
+    const end = stdin.end.bind(stdin)
+    let inputClosed = false
+    closeInput = () => { if (!inputClosed) { inputClosed = true; end() } }
+    stdin.end = (() => { endCalls++; return stdin }) as typeof stdin.end
+    const kill = spawned.kill.bind(spawned)
+    spawned.kill = ((signal?: NodeJS.Signals | number) => {
+      signals.push(signal)
+      return kill(signal)
+    }) as typeof spawned.kill
+    return spawned
+  }) as typeof spawn)
+  syncBuiltinESMExports()
+  let timersEnabled = false
+  let mockSetTimeout: typeof setTimeout | undefined
+  t.after(async () => {
+    if (mockSetTimeout) globalThis.setTimeout = mockSetTimeout
+    if (timersEnabled) t.mock.timers.reset()
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+    if (child && child.exitCode === null && child.signalCode === null && !child.killed) closeInput?.()
+    await closed
+    await supervisor.dispose()
+  })
+  const options = { upstream: 'http://127.0.0.1:1', resolveKey: async () => 'fixture-key' }
+  const owned = await supervisor.acquire('held', options)
+  assert.ok(child)
+  const borrowed = await supervisor.acquire('held', options)
+  assert.equal(borrowed.gateway.endpoint, owned.gateway.endpoint)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  timersEnabled = true
+  mockSetTimeout = globalThis.setTimeout
+  let scheduled = 0
+  globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => {
+    scheduled++
+    return mockSetTimeout!(...args)
+  }) as typeof setTimeout
+  await borrowed.release()
+  assert.equal(scheduled, 0, 'borrowed release must not schedule a deadline')
+  assert.equal(endCalls, 0, 'borrowed release must not close the child input')
+  t.mock.timers.tick(2_500)
+  assert.deepEqual(signals, [])
+  assert.equal(child.exitCode, null)
+  let resolvedBeforeClose = false
+  const first = owned.release().then(() => { resolvedBeforeClose = !closeSeen })
+  const second = owned.release()
+  assert.equal(endCalls, 1, 'repeated release must close input only once')
+  assert.equal(scheduled, 1, 'repeated release must share one deadline')
+  t.mock.timers.tick(2_499)
+  assert.deepEqual(signals, [])
+  t.mock.timers.tick(1)
+  assert.deepEqual(signals, ['SIGKILL'], 'deadline must signal the captured child')
+  await Promise.all([first, second])
+  assert.equal(resolvedBeforeClose, false, 'release must wait for child close')
+  assert.equal(child.signalCode, 'SIGKILL')
+  assert.equal(closeSeen, true)
 })
 
 test('a pinned model rewrites the request body; the caller cannot override it', async () => {

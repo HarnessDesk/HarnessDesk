@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import childProcess from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -1352,11 +1354,6 @@ test('a competitor registered while preparing a gateway cannot keep the failed a
     response.end('{}')
   })
   await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
-  t.after(async () => {
-    await host.dispose()
-    await new Promise<void>(resolve => upstream.close(() => resolve()))
-    await rm(stateDir, { recursive: true, force: true })
-  })
   const port = (upstream.address() as AddressInfo).port
   const id = 'fake-late-owner' as RuntimeId
   const allocated = new FakeRuntime({ id })
@@ -1364,32 +1361,74 @@ test('a competitor registered while preparing a gateway cannot keep the failed a
   let slot: ReturnType<AccountFactory['slotOf']> = null
   let base = ''
   let rollbacks = 0
+  let endRequested!: () => void
+  const endObserved = new Promise<void>(resolve => { endRequested = resolve })
+  let releaseEnd: (() => void) | undefined
+  let closeCaptured: (() => void) | undefined
+  let childClosed: Promise<void> | undefined
+  const spawn = childProcess.spawn
+  t.mock.method(childProcess, 'spawn', ((...args: Parameters<typeof spawn>) => {
+    const child = spawn(...args)
+    if (String(args[1]?.[0]).endsWith('/responses-gateway/dist/src/child.js')) {
+      childClosed = new Promise(resolve => child.once('close', () => resolve()))
+      const stdin = child.stdin!
+      const end = stdin.end.bind(stdin)
+      let inputClosed = false
+      closeCaptured = () => {
+        if (!inputClosed) { inputClosed = true; end() }
+      }
+      stdin.end = (() => {
+        releaseEnd = closeCaptured
+        endRequested()
+        return stdin
+      }) as typeof stdin.end
+    }
+    return child
+  }) as typeof spawn)
+  syncBuiltinESMExports()
+  t.after(async () => {
+    closeCaptured?.()
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+    await childClosed
+    await host.dispose()
+    await new Promise<void>(resolve => upstream.close(() => resolve()))
+    await rm(stateDir, { recursive: true, force: true })
+  })
   const originalSlotOf = accounts.slotOf.bind(accounts)
-  accounts.slotOf = (info, runtime) => info.id === id ? slot : originalSlotOf(info, runtime)
+  accounts.slotOf = (info, runtime) => info.id === id ? (runtime === allocated ? slot : null) : originalSlotOf(info, runtime)
   accounts.add = async (_info, gateway) => {
     slot = { agent: FAKE_RUNTIME_ID, home: stateDir, removable: true, gateway: gateway! }
     return allocated
   }
   accounts.prepare = async (_id, resolved) => {
+    assert.equal(base, '', 'competitor must not prepare the pending allocation')
     base = resolved.endpoint
     host.register(competitor)
   }
   accounts.rollbackAdd = async runtime => { assert.equal(runtime, allocated); rollbacks++; slot = null }
   const before = await host.credentials.describe()
-  await assert.rejects(host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
-    gateway: { name: 'Old', endpoint: `http://127.0.0.1:${port}/old`, apiKey: 'fixture-old' } }), /already registered/)
-  assert.ok(base)
+  const operation = host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+    gateway: { name: 'Old', endpoint: `http://127.0.0.1:${port}/old`, apiKey: 'fixture-old' } })
+  const outcome = operation.then(() => 'resolved', () => 'rejected')
+  try {
+    await endObserved
+    assert.ok(base)
+    const response = await fetch(`${base}/responses`, { method: 'POST', body: '{}' })
+    await response.arrayBuffer()
+    assert.deepEqual(seen, ['/old/responses Bearer fixture-old'])
+    const state = await Promise.race([outcome, new Promise<string>(resolve => setImmediate(() => resolve('pending')))])
+    assert.equal(state, 'pending', 'failed account answered before its owned gateway closed')
+  } finally {
+    releaseEnd?.()
+  }
+  await assert.rejects(operation, /already registered/)
+  await childClosed
   assert.equal(rollbacks, 1)
   assert.equal(host.ownsRuntime(competitor), true)
   assert.deepEqual(await host.credentials.describe(), before)
-  let closed = false
-  for (let attempt = 0; attempt < 50 && !closed; attempt++) {
-    try { const response = await fetch(`${base}/responses`, { method: 'POST', body: '{}' }); await response.arrayBuffer() }
-    catch { closed = true; break }
-    await new Promise(resolve => setTimeout(resolve, 20))
-  }
-  assert.equal(closed, true, 'failed allocation gateway still forwards original key')
-  assert.deepEqual(seen, [])
+  await assert.rejects(fetch(`${base}/responses`, { method: 'POST', body: '{}' }))
+  assert.deepEqual(seen, ['/old/responses Bearer fixture-old'])
 })
 
 test('a failed allocation with a competing runtime id leaves its gateway running', async t => {

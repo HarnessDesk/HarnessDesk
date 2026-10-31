@@ -6064,7 +6064,7 @@ export class Host {
    * leave that account explaining itself on its own row, not stop the app —
    * the same bargain `#startOne` makes for an agent that will not launch.
    */
-  async #prepareGateway(runtime: AgentRuntime, acquired?: (release: () => void) => void): Promise<void> {
+  async #prepareGateway(runtime: AgentRuntime, acquired?: (release: () => Promise<void>) => void): Promise<void> {
     const slot = this.options.accounts?.slotOf(runtime.info, runtime)
     if (!slot?.gateway) return
     const { name, endpoint, credentialRef } = slot.gateway
@@ -8976,7 +8976,7 @@ export class Host {
         }
       : undefined
     let runtime: AgentRuntime | undefined
-    let releaseGateway: (() => void) | undefined
+    let releaseGateway: (() => Promise<void>) | undefined
     try {
       const allocated = await accounts.add(of.info, spec, name)
       if (this.ownsRuntime(allocated)) throw new Error('The account factory returned an already registered runtime.')
@@ -8994,7 +8994,7 @@ export class Host {
           this.#logger.warn('a failed account setup could not stop its runtime', { runtime: runtime.info.id, error: String(cleanupError) })
         }
         try {
-          releaseGateway?.()
+          await releaseGateway?.()
         } catch (cleanupError) {
           this.#logger.warn('a failed account setup could not stop its gateway', { runtime: runtime.info.id, error: String(cleanupError) })
         }

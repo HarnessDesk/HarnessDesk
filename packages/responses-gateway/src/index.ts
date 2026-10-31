@@ -22,7 +22,7 @@ export interface RunningGateway {
 /** An acquisition may release only the process it started, never a borrowed one. */
 export interface GatewayAcquisition {
   readonly gateway: RunningGateway
-  readonly release: () => void
+  readonly release: () => Promise<void>
 }
 
 interface Entry {
@@ -68,13 +68,15 @@ export class GatewaySupervisor {
     },
   ): Promise<GatewayAcquisition> {
     const existing = this.#running.get(routeId)
-    if (existing && existing.child.exitCode === null) return { gateway: existing.gateway, release: () => {} }
+    if (existing && existing.child.exitCode === null) return { gateway: existing.gateway, release: async () => {} }
 
     const token = randomBytes(24).toString('hex')
     const child = spawn(process.execPath, [CHILD_ENTRY], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     })
+    // Install the receipt before any await, including a failed spawn.
+    const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
     // The gateway takes its configuration on stdin and nothing after; if it
     // has already died, the pipe says EPIPE, which must not take the host —
     // and must not vanish either, because a gateway that never got its key
@@ -125,9 +127,19 @@ export class GatewaySupervisor {
     const entry = { child, gateway }
     this.#running.set(routeId, entry)
     this.#logger.info?.('model gateway ready', { routeId, endpoint: gateway.endpoint })
+    let releaseReceipt: Promise<void> | undefined
     return { gateway, release: () => {
+      if (releaseReceipt) return releaseReceipt
       if (this.#running.get(routeId) === entry) this.#running.delete(routeId)
       child.stdin?.end()
+      // The child normally exits after draining its server, with its own 1.5s
+      // fallback. Bound the wait if it cannot process EOF at all.
+      const deadline = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      }, 2_500)
+      deadline.unref?.()
+      releaseReceipt = closed.finally(() => clearTimeout(deadline))
+      return releaseReceipt
     } }
   }
 
