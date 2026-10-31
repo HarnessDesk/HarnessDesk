@@ -243,6 +243,10 @@ export interface FlowIntake {
   readonly holdGeneration?: number
   /** The Seats whose turn ended while that hold stood: each is handed its card again once it lifts. */
   readonly rearm?: readonly string[]
+  /** Rounds through this number were superseded and their cards cannot be handed out again. */
+  readonly supersededThrough?: number
+  /** Firing that last established the supersession boundary, including before its round exists. */
+  readonly supersessionKey?: string
 }
 
 /** Structured cause of a Run's departure from running. */

@@ -26,6 +26,10 @@ export interface LeadBudgetLedger extends LeadBudgetState {
   readonly observation: Event<'observe'> | null
 }
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-budget-refused') }
+/** A valid reserve can lose headroom while it waits for the durable writer. */
+export class LeadBudgetAdmissionRefused extends Error {
+  constructor() { super('lead-budget-refused') }
+}
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const cost = (tokens: number, rate: number): number => {
   const value = (BigInt(tokens) * BigInt(rate) + 999_999n) / 1_000_000n
@@ -136,10 +140,13 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       next = { ...next, rounds, goalId: state.goalId ?? event.goalId, executionIds: [...new Set([...state.executionIds, event.executionId])] }; break
     }
     case 'reserve': {
-      admit(state, now, true)
       ensure(state.requests.length < 4096 && !state.requests.some(request => request.reservation.requestId === event.requestId) && !state.settled.some(item => item.id === event.requestId))
+      const view = leadBudgetProjection(state, now)
+      if (view.stop !== null || view.spend !== 'known' || view.roundsAdmitted >= view.caps.rounds ||
+          view.leadUsdMicros + view.workerUsdMicros + view.reservedUsdMicros >= view.caps.usdMicros ||
+          state.leadUsdMicros + state.workerUsdMicros + state.reservedUsdMicros + charge(event, null) > state.caps.usdMicros)
+        throw new LeadBudgetAdmissionRefused()
       const request = { reservation: event, uncertain: false }
-      ensure(state.leadUsdMicros + state.workerUsdMicros + state.reservedUsdMicros + charge(event, null) <= state.caps.usdMicros)
       next = { ...next, requests: [...state.requests, request] }; break
     }
     case 'settle': case 'uncertain': case 'write-off': {

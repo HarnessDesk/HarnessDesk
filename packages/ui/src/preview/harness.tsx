@@ -149,6 +149,9 @@ import editorSource from '../lib/brands.ts?raw'
 export const runtime = (id: string, name: string): RuntimeInfo =>
   ({ id: runtimeId(id), name, capabilities: {}, presentation: { name } }) as unknown as RuntimeInfo
 
+/** The first runtime in an unseeded preview store, also used by standalone specimens. */
+export const previewPrimaryRuntime = (): RuntimeInfo => runtime('codex', 'Alpha')
+
 /** The conversation every frame below is scoped to. */
 export const PREVIEW_SESSION_KEY = sessionKey(runtimeId('codex'), 's1' as SessionId)
 
@@ -961,7 +964,7 @@ class PreviewStore {
       workspaces: previewWorkspaces,
       runtimes: [
         {
-          ...runtime('codex', 'Alpha'),
+          ...previewPrimaryRuntime(),
           ceilings: {
             read: { settings: [{ option: 'permissions', value: ':read-only' }], how: 'Read-only sandbox; anything past it asks you' },
             edit: {

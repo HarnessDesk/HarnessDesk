@@ -1,9 +1,38 @@
 import path from 'node:path'
 
-import { expect, test } from '@playwright/test'
+import { expect, test, type FrameLocator } from '@playwright/test'
 
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { WALL_TIME } from './frame-wall-destinations'
+
+// The iframe loads asynchronously; give its scene steps their own deadline once they start.
+const waitForScene = async (frame: FrameLocator) => {
+  await expect(frame.locator('html')).toHaveAttribute('data-scene-steps', /^(running|done|failed)$/, { timeout: 15_000 })
+  await expect(frame.locator('html')).toHaveAttribute('data-scene-steps', 'done', { timeout: 15_000 })
+}
+
+// Opt in to the controlled delay; adding it to a cold CI server would compound its load.
+if (process.env.GUIDES_DELAY_REGRESSION === '1' && process.env.UI_SYSTEM_SERVER !== 'static') test('a slow iframe startup does not consume the scene steps deadline', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  await page.clock.setFixedTime(WALL_TIME)
+  await installFramePreviewFixture(page)
+  let delayed = false
+  await page.route('**/src/preview/main.tsx*', async route => {
+    delayed = true
+    await new Promise(resolve => setTimeout(resolve, 10_500))
+    await route.continue()
+  })
+  await page.addInitScript(() => {
+    if (!new URLSearchParams(location.search).has('steps')) return
+    const raf = window.requestAnimationFrame.bind(window)
+    window.requestAnimationFrame = callback => raf(time => { setTimeout(() => callback(time), 500) })
+  })
+  await page.goto('/review.html?themes=light&guides=lines&scene=conversation-details-no-background')
+  const frame = page.frameLocator('iframe[title="Details, no background list (light)"]')
+  await waitForScene(frame)
+  expect(delayed).toBe(true)
+  await expect(frame.locator('[aria-label="Conversation facts"]')).toBeVisible()
+})
 
 for (const theme of ['light', 'dark'] as const) {
   test(`review board reports the measured Details frame in ${theme}`, async ({ page }) => {
@@ -13,7 +42,7 @@ for (const theme of ['light', 'dark'] as const) {
     await installFramePreviewFixture(page)
     await page.goto(`/review.html?themes=${theme}&guides=lines&scene=conversation-details-no-background`)
     const frame = page.frameLocator(`iframe[title="Details, no background list (${theme})"]`)
-    await expect(frame.locator('html')).toHaveAttribute('data-scene-steps', 'done', { timeout: 15_000 })
+    await waitForScene(frame)
     const scene = page.locator(`[data-scene="conversation-details-no-background"][data-theme="${theme}"]`)
     const measured = async () => frame.locator('body').evaluate(() => {
       const report = (window as any).__hdGuides.current
