@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Accepting a Lead result no longer fails while the Lead is re-reading.** A click that lands in the moment the Lead takes its result back to read new observations waits for it and is made on the same result when it comes back unchanged; only a result that actually changed asks you to look again.
+
 - **Card evidence fits on one row.** A compact observed status opens the recorded facts and their details.
 
 - **A late Codex process exit no longer disrupts its replacement.** Restarting while the previous process drains keeps replies and shutdown with the new process.

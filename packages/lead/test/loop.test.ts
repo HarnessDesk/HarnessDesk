@@ -497,6 +497,20 @@ test('fresh same-dollar spend samples preserve one live result at its original r
   await loop.close()
 })
 
+test('a result already offered with the same evidence and spend is kept, not offered again, by a loop that did not offer it', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  const first = s.journal.state.cards.find(card => card.type === 'result')!
+  await loop.close()
+  // A loop that did not offer it — as for the host's result once a repair's CI passed — finds this same result.
+  const next = exported('createLeadLoop')(s.options)
+  await next.refresh(); await next.idle()
+  assert.equal(liveResults(s).length, 1)
+  assert.equal(liveResults(s)[0]!.revision, first.revision, 'a click on the card already offered still stands')
+  await next.close()
+})
+
 test('notices and seat/team changes refresh observations without waking the model', async () => {
   const s = await fixture([message(), message(), message(), message()])
   await s.approve()

@@ -104,7 +104,7 @@ export interface IntakeHostPort {
     origin(goal: string): GoalOrigin | null
   }
   readonly flows: TriggerExecutionPort & {
-    supersedeTriggered(run: string, why: string, next: 'round' | 'person'): Promise<void>
+    supersedeTriggered(run: string, why: string, next: 'round' | 'person', key: string): Promise<boolean>
     /** Every run on a Goal. */
     runs(goal: string): readonly FlowExecution[]
     execution(run: string): FlowExecution | null
@@ -596,7 +596,7 @@ export class IntakePlane {
     const run = this.#port.flows.execution(operation.run)
     if (!run?.intake) return
     const next = operation.mode === 'again' ? 'round' : 'person'
-    await this.#port.flows.supersedeTriggered(operation.run, AGAIN_MISSING, next)
+    if (!await this.#port.flows.supersedeTriggered(operation.run, AGAIN_MISSING, next, operation.key)) return
     // New-head interruption is best effort; only budget cleanup requires a durable retry.
     await this.#port.interrupt(operation.goal).catch((error: unknown) => {
       this.#port.log('superseded Goal turns could not be interrupted', { goal: operation.goal, error: String(error) })

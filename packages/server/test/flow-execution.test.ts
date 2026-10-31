@@ -892,6 +892,104 @@ const PENDING_VERDICT = { reason: 'This Goal waits while its interrupted work is
 const holdOf = (run: { readonly intake?: { readonly dispatchHeld: boolean; readonly heldFor?: string | null; readonly holdGeneration?: number } | undefined }) =>
   [run.intake?.dispatchHeld, run.intake?.heldFor ?? null, run.intake?.holdGeneration ?? 0]
 
+test('a pending cleanup that clears between gate reads still re-arms the Seat on release', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  let reads = 0
+  rig.triggerGate = () => ++reads === 1 ? PENDING_VERDICT : null
+  const session = rig.sessionOf('seat-1')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  await rig.flows.holdTriggered(run.id, PAUSED_REASON)
+  rig.triggerGate = null
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-1'])
+})
+
+test('a pending gate that clears across the re-arm await retains exactly one hand-back', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  let read = false
+  rig.triggerGate = () => {
+    read = true
+    queueMicrotask(() => { rig.triggerGate = null })
+    return PENDING_VERDICT
+  }
+  const session = rig.sessionOf('seat-1')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  assert.equal(read, true)
+  await rig.flows.holdTriggered(run.id, PAUSED_REASON)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-1'])
+})
+
+test('a superseded hold does not re-arm its old card during pending cleanup', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  await rig.flows.supersedeTriggered(run.id, 'A newer head arrived.', 'round', 'a'.repeat(64))
+  rig.triggerGate = () => PENDING_VERDICT
+  const session = rig.sessionOf('seat-1')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  rig.triggerGate = null
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1'])
+})
+
+test('a budget hold following supersession cannot re-arm the superseded card', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  await rig.flows.supersedeTriggered(run.id, 'A newer head arrived.', 'round', 'a'.repeat(64))
+  await rig.flows.holdTriggered(run.id, PAUSED_REASON)
+  const session = rig.sessionOf('seat-1')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1'])
+})
+
+test('a superseded card stays retired across recovery and a later budget hold', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  await rig.flows.supersedeTriggered(run.id, 'A newer head arrived.', 'round', 'a'.repeat(64))
+  await rig.restart()
+  assert.equal(rig.executions.stored(run.id)?.intake?.supersededThrough, 1)
+  await rig.flows.holdTriggered(run.id, PAUSED_REASON)
+  const session = rig.sessionOf('seat-1')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1'])
+})
+
+test('a round opened after supersession still re-arms its own card', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])], { again: 'reviewer' })
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  await rig.flows.supersedeTriggered(run.id, 'A newer head arrived.', 'round', 'a'.repeat(64))
+  await rig.flows.openRound(run.id, { role: 'reviewer', title: 'Continue this work' }, { key: 'intake:new-head', evidence: [] })
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  const session = rig.sessionOf('seat-2')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-2', 'order:seat-2'])
+})
+
 test('a Seat whose turn ends while a hold’s cleanup is pending is neither held again nor handed its card, and is handed it once the hold is released', async (t) => {
   const rig = await goalRig(t)
   const run = await rig.startTriggered(REVIEW_ONE, [agent('reviewer', ['approve'])])
