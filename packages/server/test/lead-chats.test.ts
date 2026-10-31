@@ -19,6 +19,7 @@ const rig = async (t: TestContext) => {
   const project = { id: 'project', path: root }, runtime = runtimeId('fixture')
   let state: LeadState = { ...initialLeadState(), phase: 'planning', policy: { version: 1, revision: 1, mode: 'manage', rules: [] },
     budget: reduceLeadBudget(null, { version: 1, type: 'initialize', logicalGoalId: 'goal', now: 100, freshnessMs: 60000, caps: { usdMicros: 10000, rounds: 3 } }) }
+  let onContext: (() => void) | undefined, onRecord: (() => void) | undefined
   let queuedScope: ((cwd: string) => Promise<void>) | undefined
   let member = true, cwdRead: (() => Promise<void>) | undefined, count = 0
   const calls: { method: string; params: any }[] = []
@@ -42,10 +43,10 @@ const rig = async (t: TestContext) => {
   const holders = new Map<string, 'lead' | 'person'>(), sentKeys: { id: string; key: string }[] = []
   const control = {
     holder: async (_project: string, id: string) => holders.get(id) ?? null,
-    noteSent: async (_project: string, id: string, key: string) => { sentKeys.push({ id, key }); if (!holders.has(id)) holders.set(id, 'lead') },
+    noteSent: async (_project: string, id: string, key: string) => { sentKeys.push({ id, key }); onRecord?.(); if (!holders.has(id)) holders.set(id, 'lead') },
   }
   const service = new LeadChats({ noteDispatchNotStarted: () => {}, control, project, state: () => state, member: async () => member, now: () => 100,
-    context: async (): Promise<LeadPermissionContext> => ({ desk: state.policy!, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' }),
+    context: async (): Promise<LeadPermissionContext> => { onContext?.(); return { desk: state.policy!, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } },
     index, cwd: async (runtime: any, id: any) => { await cwdRead?.(); return index.get(runtime, id)?.cwd ?? null },
     live: () => live, publish: (event: any) => { published.push(event) },
     work: {
@@ -55,7 +56,7 @@ const rig = async (t: TestContext) => {
       stop: async (params: any, admit: () => Promise<void>) => { await admit(); calls.push({ method: 'stop', params }); return {} },
     },
   })
-  return { service, sentInput, holders, sentKeys, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
+  return { service, onContext: (callback: () => void) => { onContext = callback }, onRecord: (callback: () => void) => { onRecord = callback }, sentInput, holders, sentKeys, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
     withdraw: () => { member = false }, onCwd: (callback: () => Promise<void>) => { cwdRead = callback } }
 }
 
@@ -245,4 +246,24 @@ test('queued Lead replies recheck the holder before delivery', async t => {
   r.authorize('lead/chat/send', params); await r.service.send(params)
   r.holders.set(params.id, 'person')
   await assert.rejects(r.queuedScope()(r.root), { message: LEAD_CHAT_HELD })
+})
+
+
+test('take over during the last queued policy check wins before delivery', async t => {
+  const r = await rig(t); r.row('own')
+  const params = { id: 'fixture:own', text: 'Continue' }
+  r.authorize('lead/chat/send', params); await r.service.send(params)
+  r.onContext(() => { r.holders.set(params.id, 'person') })
+  await assert.rejects(r.queuedScope()(r.root), { message: LEAD_CHAT_HELD })
+})
+
+test('take over while the envelope is being recorded refuses enqueue and first delivery', async t => {
+  const r = await rig(t); r.row('own')
+  const params = { id: 'fixture:own', text: 'Continue' }
+  r.onRecord(() => { r.holders.set(params.id, 'person'); r.holders.set('fixture:created', 'person') })
+  r.authorize('lead/chat/send', params)
+  await assert.rejects(r.service.send(params), { message: LEAD_CHAT_HELD })
+  r.authorize('lead/chat/start', { text: 'Start work' })
+  await assert.rejects(r.service.start({ text: 'Start work' }), { message: LEAD_CHAT_HELD })
+  assert.equal(r.sentInput.length, 0)
 })

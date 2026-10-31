@@ -251,7 +251,7 @@ export class LeadChats {
         createdId = id
         await admit(id)
         // Recorded before the first message leaves, so the transcript can vouch for it on first render.
-        if (id) { await this.#watch(id); await this.#record(id, envelope); await admit(id) }
+        if (id) { await this.#watch(id); await this.#record(id, envelope); await admit(id); await this.#notHeld(id) }
       }, effectStarted, scope, [deskContextContent(envelope)])
     })
   }
@@ -261,7 +261,7 @@ export class LeadChats {
     return this.#mutate(call, (admit, effectStarted, attemptId) => {
       const scope = this.#liveScope(call, attemptId, () => params.id)
       return this.ports.work.sessionSend(params, async () => {
-        await admit(); await this.#notHeld(params.id); await this.#watch(params.id); await this.#record(params.id, envelope); await admit()
+        await admit(); await this.#notHeld(params.id); await this.#watch(params.id); await this.#record(params.id, envelope); await admit(); await this.#notHeld(params.id)
       }, effectStarted, scope, [deskContextContent(envelope)])
     })
   }
@@ -290,8 +290,8 @@ export class LeadChats {
       if (this.ports.project.path !== selected.path || this.ports.project.id !== selected.id) refuse('Lead project scope changed.')
       // Queue drains run independently of the mutation tail. Healthy concurrent
       // dispatch is not recovery; every unresolved effect and live policy fence is.
-      await this.#notHeld(id!)
       await this.#gate(call, attemptId, true)
+      await this.#notHeld(id!)
       if (call.method !== 'lead/chat/stop' && (this.ports.state().budget?.logicalGoalId ?? null) !== requestGoal)
         refuse('The Lead request changed. Cancel this queued reply and send a new message.')
     }

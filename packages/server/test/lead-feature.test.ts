@@ -277,3 +277,10 @@ for (const windows of [false, true]) test(`automatic project admission accepts $
     } finally { Object.defineProperty(process, 'platform', descriptor) }
   } else await automaticProject(fixture.project.path + '/')
 })
+
+test('an enabled desk without a selected project has no chat control records', async t => {
+  const { host } = rig(t, true)
+  await host.start()
+  for (const method of ['lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack'] as const)
+    assert.deepEqual(await host.call(method, { id: 'fixture:s1' } as never), { project: null, chats: [] })
+})

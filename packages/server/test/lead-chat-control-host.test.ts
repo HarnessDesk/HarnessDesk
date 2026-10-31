@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { realpath } from 'node:fs/promises'
+import { join } from 'node:path'
+import { LeadChatControlStore } from '../src/lead/chat-control.js'
+import { realpath, writeFile } from 'node:fs/promises'
 import test from 'node:test'
 import { createLeadJournal, type LeadPermissionContext, type LeadPermissionCall } from '@harnessdesk/lead'
 import { runtimeId, sessionId, type WireNotification } from '@harnessdesk/protocol'
@@ -79,4 +81,19 @@ test('disabled Lead has no chat controls', async t => {
   const { host } = await evidenceDesk(t)
   for (const method of ['lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack'] as const)
     assert.deepEqual(await host.call(method, { id: 'fixture:s1' } as never), { project: null, chats: [] })
+})
+
+
+for (const entry of ['window', 'phone'] as const) test(`${entry} reads restore the control record before the Lead conversation is opened`, async t => {
+  const h = await evidenceDesk(t, { leadEnabled: true })
+  const project = await realpath(h.repo.dir)
+  const created = await h.host.call('session/create', { runtime: h.runtime.info.id, options: { cwd: project } })
+  const id = `${h.runtime.info.id}:${created.id}`
+  const store = new LeadChatControlStore(join(h.stateDir, 'lead', 'chat-control.json'))
+  await store.noteSent(project, id, 'a'.repeat(64))
+  await store.setHolder(project, id, 'person')
+  // The remembered Lead selection is canonical; the generic fixture uses an OS temp alias.
+  await writeFile(join(h.stateDir, 'lead', 'project.json'), JSON.stringify({ version: 1, path: project }))
+  if (entry === 'window') { const list = await h.host.call('lead/chats/control', {}); assert.equal(list.project, project); assert.equal(list.chats[0]?.holder, 'person') }
+  else assert.equal((await h.host.call('workspace/thread/read', { id })).leadChatHolder, 'person')
 })

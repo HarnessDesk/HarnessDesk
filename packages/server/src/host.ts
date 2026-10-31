@@ -9647,6 +9647,11 @@ export class Host {
 
   /** The window's bounded record of Lead-managed chats in the selected project. */
   async #chatControlList(): Promise<LeadChatControlList> {
+    // Like the other window Lead reads, join lazy restoration before answering.
+    if (!this.#leadChatControl && !this.#disposed) {
+      try { await this.#leadAssembly?.ensure() }
+      catch (error) { if ((error as { wireCode?: string }).wireCode !== 'lead-project-missing') throw error }
+    }
     const store = this.#leadChatControl, project = this.#leadChatProject
     return store && project ? store.list(project) : { project: null, chats: [] }
   }
@@ -9667,6 +9672,7 @@ export class Host {
   }
 
   async #setChatHolder(id: string, holder: LeadChatHolder): Promise<LeadChatControlList> {
+    await this.#chatControlList()
     const store = this.#leadChatControl, project = this.#leadChatProject
     if (!store || !project) return { project: null, chats: [] }
     if (!await store.setHolder(project, id, holder)) throw new Error('The Lead has not written to this chat.')
@@ -9681,9 +9687,9 @@ export class Host {
     return this.#phoneWork ??= new PhoneWork({
       workspace: this.#phoneWorkspaceView(),
       chatControl: async (id, cwd) => {
-        const project = this.#leadChatProject
-        if (!project || await realpath(cwd).catch(() => null) !== project) return undefined
-        return (await this.#chatControlList()).chats.find(chat => chat.id === id)
+        const list = await this.#chatControlList()
+        if (!list.project || await realpath(cwd).catch(() => null) !== list.project) return undefined
+        return list.chats.find(chat => chat.id === id)
       },
       deskName: () => this.#phoneLink?.state().deskName ?? '',
       home: homedir(),
