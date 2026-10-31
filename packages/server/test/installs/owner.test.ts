@@ -28,26 +28,29 @@ for (const oldFinishesFirst of [true, false]) {
     let clock = 0
     const installs = new InstallService({
       stateDir: dir, store, now: () => ++clock,
-      locate: { home: dir, env: { PATH: '' }, exists: () => false, probe: async () => null },
+      locate: { home: dir, env: { PATH: '/fixture/bin' }, exists: (path) => path === '/fixture/bin/gemini', realpath: (path) => path, probe: async () => '1.2.3' },
       registryVersion: (registryId) => registryId === 'old' ? oldVersion.promise : newVersion.promise,
     })
     const host = new Host({ logger: new Logger('test', { level: 'error', console: false }), state: new StateStore(join(dir, 'state.json')), agents, installs, catalogRefreshMs: 0 })
     t.after(async () => { oldVersion.resolve(null); newVersion.resolve(null); await host.dispose(); await rm(dir, { recursive: true, force: true }) })
-    const add = (name: string) => store.add({ id, name, agent: 'antigravity-acp', command: 'fixture-command' })
+    const add = (name: string) => store.add({ id, name, agent: 'gemini', command: 'gemini' })
     const info = () => host.syncPayload().params.runtimes.find((runtime) => runtime.id === id)
     add('Previous program')
-    host.register(new FakeRuntime({ id, name: 'Previous program' }))
+    host.register(new FakeRuntime({ id, name: 'Previous program', version: 'unknown' }))
     const oldConfig = store.configs()[0]!
     // An ordinary completed description remains visible to its owner.
-    const original = await installs.describe({ ...oldConfig }, empty)
+    const original = await installs.describe({ ...oldConfig })
     assert.ok(original)
+    assert.equal(original.chosen?.version, '1.2.3')
     assert.deepEqual(info()?.install, original)
+    assert.equal(info()?.version, '1.2.3')
     store.patch(id, { registry: { id: 'old', version: '1.0.0' } })
     const oldPending = installs.describe(oldConfig, empty)
     await host.call('acp/remove', { runtime: id })
     assert.equal(store.entry(id), null)
-    host.register(new FakeRuntime({ id, name: 'Replacement program' }))
+    host.register(new FakeRuntime({ id, name: 'Replacement program', version: 'unknown' }))
     assert.equal(info()?.install, undefined)
+    assert.equal(info()?.version, 'unknown')
     await assert.rejects(host.call('runtime/installs', { runtime: id }), /no install knowledge/)
     add('Replacement program')
     store.patch(id, { registry: { id: 'new', version: '1.0.0' } })
@@ -67,6 +70,10 @@ for (const oldFinishesFirst of [true, false]) {
       await oldPending
       assert.deepEqual(info()?.install, current, 'old work cannot overwrite the new owner')
     }
+    const explicit = await host.call('runtime/installs', { runtime: id })
+    assert.equal(explicit.chosen?.version, '1.2.3')
+    assert.deepEqual(explicit.registryUpdate, { version: '3.0.0' })
+    assert.deepEqual(info()?.install, explicit)
   })
 }
 
