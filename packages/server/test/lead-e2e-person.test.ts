@@ -88,10 +88,20 @@ for (const surface of ['window', 'phone']) test(`person runs missing required ch
 })
 
 test('a premature step 2 during review is cleanly refused and later starts without a person resume', async t => {
-  const rig = await createLeadRig({ premature: true }); t.after(() => rig.dispose())
+  const rig = await createLeadRig({ premature: true, holdWorkers: true }); t.after(() => rig.dispose())
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
   await rig.decide(rig.pending('plan')!, 'approve')
-  await rig.waitFor(() => [...rig.journal.state.attempts.values()].some(attempt => attempt.stepId === 'second' && attempt.method === 'flow/start-goal' && attempt.outcome !== null), 'premature start decision')
+  await rig.waitFor(() => rig.provider.pending, 'pre-review provider request')
+  const held = rig.provider.requests.at(-1)!
+  assert.equal(held.delivered, false, 'the provider request stays held while the writer is blocked')
+  assert.equal(rig.host.flowsPlane.leadRuns().some(run => run.rounds.at(-1)?.role === 'review'), false)
+  await rig.releaseWorkers(['write', 'repair'])
+  await rig.waitFor(() => rig.host.flowsPlane.leadRuns().some(run => run.rounds.at(-1)?.role === 'review' && run.rounds.at(-1)?.state === 'running'), 'live review')
+  assert.equal(held.delivered, false, 'the pre-review request remains held until review is live')
+  await rig.waitFor(() => {
+    if (rig.provider.pending) rig.provider.release()
+    return [...rig.journal.state.attempts.values()].some(attempt => attempt.stepId === 'second' && attempt.method === 'flow/start-goal' && attempt.outcome !== null)
+  }, 'premature start decision')
   const refused = [...rig.journal.state.attempts.values()].find(attempt => attempt.stepId === 'second' && attempt.method === 'flow/start-goal')!
   assert.equal(refused.outcome, 'denied')
   assert.equal(refused.dispatched, false)
