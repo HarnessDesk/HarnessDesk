@@ -183,17 +183,15 @@ export class InstallService {
    * signing in. Null for an agent the desk has no table for. Remembered,
    * so `RuntimeInfo` can carry it without a scan per read.
    */
-  async describe(config: AcpAgentConfig, judged?: Judgement): Promise<InstallInfo | null> {
-    return this.#describe(config, judged, this.#owner(config.id))
+  async describe(config: AcpAgentConfig, judged: Judgement | undefined, owner: object): Promise<InstallInfo | null> {
+    if (!owner) return null
+    return this.#describe(config, judged, owner)
   }
 
-  #owner(id: string): object {
-    let owner = this.#owners.get(id)
-    if (!owner) {
-      owner = {}
-      this.#owners.set(id, owner)
-    }
-    return owner
+  /** Bind scans to the runtime registered by the host, before it can start. */
+  register(id: string, owner: object): void {
+    this.#owners.set(id, owner)
+    this.#last.delete(id)
   }
 
   /** Retire this registration and all descriptions that began under it. */
@@ -203,7 +201,7 @@ export class InstallService {
   }
 
   async #describe(config: AcpAgentConfig, judged: Judgement | undefined, owner: object): Promise<InstallInfo | null> {
-    if (this.#owners.get(config.id) !== owner) return null
+    if (!owner || this.#owners.get(config.id) !== owner) return null
     const known = this.knowledgeFor(config)
     if (!known) return null
     // Handed the judgement its caller already made, when there is one. Every
@@ -237,7 +235,7 @@ export class InstallService {
       installCommand: known.publish.installCommand,
       checkedAt: (this.options.now ?? Date.now)(),
     }
-    if (this.#owners.get(config.id) !== owner) return null
+    if (!owner || this.#owners.get(config.id) !== owner) return null
     this.#last.set(config.id, info)
     return info
   }
@@ -276,11 +274,12 @@ export class InstallService {
    * either the desk has no knowledge of this agent, or nothing installed
    * qualifies and the row's fallback is the right answer.
    */
-  async launchFor(config: AcpAgentConfig, occasion: LaunchOccasion = 'start'): Promise<AcpLaunchDecision | null> {
-    const owner = this.#owner(config.id)
+  async launchFor(config: AcpAgentConfig, occasion: LaunchOccasion, owner: object): Promise<AcpLaunchDecision | null> {
+    if (!owner || this.#owners.get(config.id) !== owner) return null
     const known = this.knowledgeFor(config)
     if (!known || known.acp.bridge) return null
     const judged = await this.#judge(config, known)
+    if (this.#owners.get(config.id) !== owner) return null
     const { chosen, copies } = judged
     const cli = chosen?.path ?? null
     if (!cli) {
@@ -340,6 +339,7 @@ export class InstallService {
     // 20-second-budget commands per known agent for the life of the app.
     if (occasion === 'start' && known.preflight) {
       const result = await check(withCli(known.preflight.command))
+      if (this.#owners.get(config.id) !== owner) return null
       if (!result.ok) {
         void this.#describe(config, judged, owner)
         return {
@@ -353,6 +353,7 @@ export class InstallService {
     }
     if (occasion === 'start' && known.daemon) {
       const result = await check(withCli(known.daemon.check))
+      if (this.#owners.get(config.id) !== owner) return null
       if (!result.ok) {
         void this.#describe(config, judged, owner)
         return {
@@ -378,8 +379,8 @@ export class InstallService {
    * is new enough, or the pinned one. Absent knowledge, a plain PATH lookup
    * through the same probe, so a bridge for an unknown CLI still works.
    */
-  async executableFor(config: AcpAgentConfig, spec: AcpExecutableSpec): Promise<ResolvedExecutable | null> {
-    const owner = this.#owner(config.id)
+  async executableFor(config: AcpAgentConfig, spec: AcpExecutableSpec, owner: object): Promise<ResolvedExecutable | null> {
+    if (!owner || this.#owners.get(config.id) !== owner) return null
     const known = this.knowledgeFor(config)
     const found = await findInstalls(
       {
@@ -397,6 +398,7 @@ export class InstallService {
       },
       { ...this.#locateOptions(config, known), also: isPathAbsolute(spec.command) ? [spec.command] : [] },
     )
+    if (this.#owners.get(config.id) !== owner) return null
     const judged = judgeInstalls(found, {
       ...(known?.cli.minVersion ? { minVersion: known.cli.minVersion } : {}),
       pinnedPath: this.#pinOf(config.id),
