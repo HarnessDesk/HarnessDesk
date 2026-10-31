@@ -66,14 +66,17 @@ const workers =
  * with `UI_SYSTEM_MATRIX=pr` (see `script/ci-changes.mjs`). The frame specs below
  * skip cases whose title names the dark theme: theme variables change colour,
  * not geometry. Colour contracts retain both themes in every browser run.
- * The full tier (main, batch branches, full-ci and manual runs) reads both themes
- * for every spec with `UI_SYSTEM_MATRIX=full`.
+ * Full-tier runs on main and development (main pushes, the nightly run, their
+ * manual dispatches) read both themes for every spec with
+ * `UI_SYSTEM_MATRIX=full`; the rest of the full tier reads every spec in the
+ * pull-request matrix (`script/ci-changes.mjs`).
  *
  * Skipped by default is wrong for a new spec, so the list is the other way
  * round: a `frame-*` spec is a geometry spec until it is named here. The
- * popup contracts check the ink of a disabled or destructive row against the
- * same token in whichever theme runs; they stay on the geometry side because
- * both ends of that comparison come from the active theme.
+ * popup contracts (`frame-contract-popup-*`) are neither: they render each
+ * destination once, light, and read its ink again after switching the theme
+ * in place, so every run checks both themes and no title names one
+ * (`frame-contract-popup-snapshot.ts`).
  * `script/ci-browser-plan.test.mjs` fails a spec that asserts a colour and is
  * not listed.
  */

@@ -161,17 +161,34 @@ try {
         const execution = [...snapshot.flowExecutions.values()].find(one => one.document.flow.name === name && snapshot.goals.has(one.goal))
         return { id: execution.id, goal: execution.goal }
       }, name)
+      // The browser regression advances only this observer's clock. Host and
+      // renderer keep running normally; the first referee read is held for one
+      // poll, making the two phases exceed one window but fit separately.
+      const phaseClock = process.argv.includes('--observation-clock-test') && template === 'comparison'
+        ? { offset: 0, active: false, judge: false, transition: false } : null
+      const now = () => Date.now() + (phaseClock?.offset ?? 0)
       const observe = async (matches, label) => {
         let view, execution
-        const until = Date.now() + 30000
+        const until = now() + 30000
         do {
           view = await rig.host.call('goal/read', { goal: run.goal })
           execution = await rig.host.call('flow/execution', { run: run.id })
+          if (phaseClock?.active && !phaseClock.judge && view.board.intents.some(one => one.role === 'judge' && one.state === 'done' && one.outcome === 'picked')) {
+            phaseClock.judge = true
+            phaseClock.offset += 25000
+          }
+          if (phaseClock?.judge && !phaseClock.transition) {
+            view = { ...view, board: { ...view.board, intents: view.board.intents.filter(one => one.role !== 'referee') } }
+          }
           assert.deepEqual(rig.errors, [], 'no scripted agent tool failure')
           assert.notEqual(execution.state, 'stalled', execution.reason ?? 'the template stalled')
           if (matches(view.board.intents, execution)) break
           await new Promise(done => setTimeout(done, 50))
-        } while (Date.now() < until)
+          if (phaseClock?.judge && !phaseClock.transition) {
+            phaseClock.transition = true
+            phaseClock.offset += 8000
+          }
+        } while (now() < until)
         if (!matches(view.board.intents, execution)) {
           const facts = await rig.host.call('evidence/board', { room: run.goal })
           writeFileSync(join(out, `${template}-local-flow-diagnostic.json`), `${JSON.stringify({ label, execution, cards: view.board.intents, facts }, null, 2)}\n`)
@@ -364,9 +381,17 @@ try {
         const checkCards = page.locator('[data-slot="board-card"]').filter({ has: boardTitle('Check the attempt') })
         await expect(boardColumn('Working').getByRole('heading', { level: 4, name: /^#\d+ Check the attempt$/ })).toHaveCount(1)
         await expect(boardColumn('To do').getByRole('heading', { level: 4, name: /^#\d+ Check the attempt$/ })).toHaveCount(1)
-        await expect(checkCards.filter({ hasText: 'verify running' })).toHaveCount(1)
-        await expect(boardColumn('Working').locator('[data-slot="board-card"]').filter({ hasText: 'verify running' })).toHaveCount(1)
-        await expect(boardColumn('To do').locator('[data-slot="board-card"]').filter({ hasText: 'verify running' })).toHaveCount(0)
+        const runningCard = checkCards.filter({ has: page.getByRole('button', { name: /^What the desk observed on #\d+: Running$/ }) })
+        await expect(runningCard).toHaveCount(1)
+        await expect(boardColumn('Working').locator('[data-slot="board-card"]').filter({ has: page.getByRole('button', { name: /^What the desk observed on #\d+: Running$/ }) })).toHaveCount(1)
+        await expect(boardColumn('To do').locator('[data-slot="board-card"]').filter({ has: page.getByRole('button', { name: /^What the desk observed on #\d+: Running$/ }) })).toHaveCount(0)
+        const runningId = Number((await runningCard.getByRole('heading', { level: 4 }).innerText()).match(/^#(\d+)/)[1])
+        const runningFacts = await rig.host.call('evidence/board', { room: run.goal })
+        assert.ok(runningFacts.cards.find(one => one.card === runningId)?.running.some(one => one.name === 'verify'), 'the Host records verify running on the displayed card')
+        await runningCard.getByRole('button', { name: /What the desk observed/ }).click()
+        const runningDetails = page.getByRole('dialog', { name: `What the desk observed on #${runningId}` })
+        await expect(runningDetails).toContainText('verify is running')
+        await runningDetails.getByRole('button', { name: 'Done', exact: true }).click()
         await photograph('08-checking-board')
         rig.release('checks')
         await observe(cards => cards.some(one => one.role === 'judge' && one.state === 'claimed'), 'judge seated')
@@ -376,13 +401,20 @@ try {
         await expect(boardColumn('Needs you').getByRole('heading', { level: 4 })).toHaveCount(0)
         await expect(page.getByText('nothing checked', { exact: true })).toHaveCount(0)
         await expect(checkCards.getByText('pass', { exact: true })).toHaveCount(2)
-        const passedChecks = checkCards.getByText(/^verify ✓ @[0-9a-f]+$/)
-        await expect(passedChecks).toHaveCount(2)
-        for (let index = 0; index < 2; index += 1) await expect(passedChecks.nth(index)).toBeVisible()
+        await expect(checkCards.getByRole('button', { name: /^What the desk observed on #\d+: Checks recorded$/ })).toHaveCount(2)
+        for (const card of await checkCards.all()) {
+          await card.getByRole('button', { name: /What the desk observed/ }).click()
+          const details = page.getByRole('dialog', { name: /^What the desk observed on #\d+$/ })
+          await expect(details.getByText(/^verify ✓ @[0-9a-f]+$/)).toBeVisible()
+          await expect(details).toContainText('It exited 0.')
+          await details.getByRole('button', { name: 'Done', exact: true }).click()
+        }
         await photograph('09-judging-board')
+        if (phaseClock) phaseClock.active = true
         rig.release('judge')
         await observe(cards => cards.some(one => one.role === 'judge' && one.state === 'done' && one.outcome === 'picked'), 'judge picked')
         const picked = await observe(cards => cards.some(one => one.role === 'referee' && one.state === 'open'), 'person merge step')
+        if (phaseClock) assert.deepEqual([phaseClock.judge, phaseClock.transition, phaseClock.offset], [true, true, 33000], 'both controlled observation phases ran')
         await expect(boardTitle('Merge the picked change')).toBeVisible()
         await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge the picked change$/ })).toBeVisible()
         await photograph('10-referee-board')

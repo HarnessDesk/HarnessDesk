@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isPathInside, relativeTo, shortPath } from './paths'
+import { isPathInside, relativeTo, shortPath, reportedLocation, knownOpenRoots } from './paths'
 
 /**
  * The tilde rule, at its edges.
@@ -98,5 +98,32 @@ describe('relativeTo', () => {
   it('leaves Windows paths outside root untouched', () => {
     expect(relativeTo('D:\\other\\file.ts', 'C:\\repo')).toBe('D:\\other\\file.ts')
     expect(relativeTo('C:\\repo2\\file.ts', 'C:\\repo')).toBe('C:\\repo2\\file.ts')
+  })
+})
+
+
+describe('reported locations', () => {
+  it.each([
+    ['../tmp/check.js', '/work/app', ['/work/app'], 'outside'],
+    ['src/../a.ts', '/work/app', ['/work/app'], 'inside'],
+    ['/work/app-2/a.ts', '/work/app', ['/work/app'], 'outside'],
+    ['/work/other/a.ts', '/work/app', ['/work/app', '/work/other'], 'inside'],
+    ['file.ts', null, ['/work/app'], 'unknown'],
+    ['', '/work/app', ['/work/app'], 'unknown'],
+    ['C:\\Repo\\src\\a.ts', 'C:\\Repo', ['c:/repo'], 'inside'],
+    ['C:relative.ts', 'C:\\Repo', ['C:\\Repo'], 'unknown'],
+    ['/work/app', null, ['/work/app'], 'inside'],
+    ['/x', null, ['/'], 'inside'],
+    ['C:/x', null, ['C:/'], 'inside'],
+    ['/../../x', null, ['/'], 'unknown'],
+    ['/work/App/a', null, ['/work/app'], 'outside'],
+    ['/work/app/a', null, [], 'unknown'],
+    ['\\\\server\\share', null, ['/'], 'unknown'],
+    ['bad\0path', '/work/app', ['/work/app'], 'unknown'],
+  ] as const)('classifies %s', (path, cwd, roots, expected) => {
+    expect(reportedLocation(path, cwd, roots)).toBe(expected)
+  })
+  it('uses only absolute opened and conversation roots', () => {
+    expect(knownOpenRoots([{ path: '/a' }, { path: 'relative' }], { path: '/b' }, ['/c', 'bad'], '/d')).toEqual(['/a', '/b', '/c', '/d'])
   })
 })

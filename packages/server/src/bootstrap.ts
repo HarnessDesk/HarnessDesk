@@ -15,7 +15,7 @@ import { GatedRegistry } from './ceilings/gate.js'
 import { attachmentGateway } from './attachments/wiring.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
 
-import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
+import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig, type AccountSlot } from './accounts.js'
 import { AcpAccounts } from './acp-accounts.js'
 import { AcpRegistry } from './acp-registry.js'
 import { applyLoginShellPath } from './installs/shell-path.js'
@@ -311,6 +311,16 @@ export const createDefaultHost = (
   // too, before any of it becomes a runtime with a row of its own.
   slots.pruneDuplicates(CODEX_RUNTIME_ID, codexHome)
   slots.relink(CODEX_RUNTIME_ID, codexHome)
+  // Only a slot whose exact runtime was registered owns its account metadata.
+  // A configured row skipped for a duplicate id must not describe the survivor.
+  type OwnedSlot = { slot: AccountSlot; runtime: CodexRuntime }
+  const codexSlots = new Map<string, OwnedSlot>()
+  // Pending slots are visible only to their own allocation during gateway setup.
+  const pendingCodexSlots = new Map<string, OwnedSlot>()
+  const codexSlotOf = (info: RuntimeInfo): AccountSlot | undefined => {
+    const owned = codexSlots.get(info.id)
+    return owned && host.ownsRuntime(owned.runtime) ? owned.slot : undefined
+  }
 
   const codexAccount = (id: ReturnType<typeof runtimeId>, home: string): CodexRuntime =>
     new CodexRuntime({
@@ -330,12 +340,13 @@ export const createDefaultHost = (
 
   const accounts: AccountFactory = {
     canAdd: (info) => isCodex(info) || acpAccounts.canAdd(info.id),
-    slotOf: (info) => {
-      if (!isCodex(info)) {
+    slotOf: (info, allocation) => {
+      const pending = pendingCodexSlots.get(info.id)
+      const slot = pending && pending.runtime === allocation ? pending.slot : codexSlotOf(info)
+      if (info.id !== CODEX_RUNTIME_ID && !slot) {
         const slot = acpAccounts.slotOf(info.id)
         return slot ? { ...slot, asksName: true, ownSessions: true } : null
       }
-      const slot = slots.find(info.id)
       return slot
         ? {
             agent: slot.agent,
@@ -366,18 +377,47 @@ export const createDefaultHost = (
         if (local) host.bindUsage(runtimeId(config.id), local)
         return buildAcpRuntime(config)
       }
-      const agent = slots.find(info.id)?.agent ?? info.id
-      const slot = slots.add(agent, codexHome, stateDir, gateway)
-      return codexAccount(slot.id, slot.home)
+      const agent = codexSlotOf(info)?.agent ?? info.id
+      const slot = slots.add(agent, codexHome, stateDir, gateway, id =>
+        !host.hasRuntime(id) && !pendingCodexSlots.has(id) && agentRegistry.entry(id) === null)
+      try {
+        const runtime = codexAccount(slot.id, slot.home)
+        pendingCodexSlots.set(slot.id, { slot, runtime })
+        return runtime
+      } catch (error) {
+        slots.remove(slot.id, true, slot)
+        throw error
+      }
+    },
+    commitAdd: (runtime) => {
+      const pending = pendingCodexSlots.get(runtime.info.id)
+      if (pending?.runtime !== runtime) return
+      codexSlots.set(runtime.info.id, pending)
+      pendingCodexSlots.delete(runtime.info.id)
+    },
+    rollbackAdd: async (runtime) => {
+      const owned = pendingCodexSlots.get(runtime.info.id) ?? codexSlots.get(runtime.info.id)
+      if (owned?.runtime !== runtime) return
+      try { slots.remove(runtime.info.id, true, owned.slot) } finally {
+        if (pendingCodexSlots.get(runtime.info.id)?.runtime === runtime) pendingCodexSlots.delete(runtime.info.id)
+        if (codexSlots.get(runtime.info.id)?.runtime === runtime) codexSlots.delete(runtime.info.id)
+      }
     },
     remove: async (id) => {
+      // The host has unregistered the runtime. Its native ownership wins over
+      // an ignored ACP row, and ends even if persisting slot removal fails.
+      const owned = codexSlots.get(id)
+      if (owned) {
+        try { slots.remove(id, true, owned.slot) } finally { codexSlots.delete(id) }
+        return
+      }
       // An Antigravity account is a registry row, so it is forgotten by
       // `acp-accounts.ts` — which also moves its folder to the Trash.
       if (acpAccounts.slotOf(id)?.removable) {
         await acpAccounts.remove(id)
         return
       }
-      slots.remove(id)
+      throw new Error('This runtime has no registered extra account to remove.')
     },
     // Read off the credential rather than asked of Codex: `account/read`
     // answers an email and a plan, and one email can hold two ChatGPT
@@ -386,7 +426,7 @@ export const createDefaultHost = (
     // `auth.json` carries both.
     identityOf: (info) => {
       if (!isCodex(info)) return null
-      const slot = slots.find(info.id)
+      const slot = codexSlotOf(info)
       if (slot?.gateway) return null // Its key is the broker's, not a home's.
       return accountIdentity(slot?.home ?? codexHome)
     },
@@ -394,13 +434,13 @@ export const createDefaultHost = (
     // all that is left is telling this account's Codex to use it, which is a
     // file in a home only this module knows the shape of.
     prepare: async (id, resolved) => {
-      const slot = slots.find(id)
+      const slot = codexSlots.get(id)?.slot ?? pendingCodexSlots.get(id)?.slot
       if (!slot?.gateway) return
       writeGatewayConfig(slot.home, resolved.name, resolved.endpoint)
     },
   }
   const isCodex = (info: RuntimeInfo): boolean =>
-    info.id === CODEX_RUNTIME_ID || slots.find(info.id) !== null
+    info.id === CODEX_RUNTIME_ID || codexSlotOf(info) !== undefined
 
   // The tool gateway: plugin tools for out-of-process projections (the MCP
   // bridge ACP agents receive). Unix socket; filesystem permissions are the
@@ -579,6 +619,10 @@ export const createDefaultHost = (
   }
   const agents = new AgentDirectory({
     store: agentRegistry,
+    ownsRuntime: (id) => {
+      const runtime = acpRuntimes.get(String(id))
+      return runtime !== undefined && host.ownsRuntime(runtime)
+    },
     build: buildAcpRuntime,
     usageFor: (agent) =>
       localUsageFor(
@@ -668,7 +712,9 @@ export const createDefaultHost = (
       })
       continue
     }
-    host.register(codexAccount(slot.id, slot.home))
+    const runtime = codexAccount(slot.id, slot.home)
+    host.register(runtime)
+    codexSlots.set(slot.id, { slot, runtime })
   }
 
   void host.credentials.warm()

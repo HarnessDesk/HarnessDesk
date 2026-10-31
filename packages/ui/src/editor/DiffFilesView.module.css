@@ -16,6 +16,10 @@
   text-overflow: ellipsis;
 }
 .list .path { display: flex; }
+.entry { display: flex; align-items: center; gap: var(--hd-space-2); }
+.files .constrained { flex: 1 1 0; justify-content: flex-start; }
+.pathText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.location { flex: none; }
 .counts {
   white-space: nowrap;
   font-size: var(--hd-text-xs);

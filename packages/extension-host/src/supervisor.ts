@@ -426,10 +426,10 @@ export class PluginHostProcess {
           return
         }
         const verb = request.method.slice(6) as ForgeVerb
-        if (['push', 'create', 'update', 'merge', 'review', 'comment', 'record', 'attribute', 'repository'].includes(verb)) {
+        if (['push', 'create', 'update', 'merge', 'review', 'comment', 'record', 'attribute', 'repository', 'associatedPullRequest'].includes(verb)) {
           const plugin = this.#plugins.find(entry => String(entry.instanceId) === scope.plugin)
           const grant = plugin?.permissions.forge
-          if (!['record', 'attribute', 'repository'].includes(verb) && !(typeof grant === 'object' && grant.write === true)) {
+          if (!['record', 'attribute', 'repository', 'associatedPullRequest'].includes(verb) && !(typeof grant === 'object' && grant.write === true)) {
             refuse('Permission denied: forge.write'); return
           }
           validateForgeArgs(verb, params['args'])
@@ -438,7 +438,7 @@ export class PluginHostProcess {
           if (leases?.size !== 1) { refuse('This forge call has no unambiguous live invocation.'); return }
           const lease = leases.values().next().value
           if (!lease) { refuse('This forge call has no live invocation.'); return }
-          if (!['record', 'attribute', 'repository'].includes(verb) && lease.scope.actor === 'context') {
+          if (!['record', 'attribute', 'repository', 'associatedPullRequest'].includes(verb) && lease.scope.actor === 'context') {
             refuse('Context resolution cannot write to the forge.'); return
           }
           const trusted = { ...lease.scope, plugin: scope.plugin, signal: lease.controller.signal }
@@ -449,6 +449,7 @@ export class PluginHostProcess {
               let result: unknown
               switch (verb) {
                 case 'repository': result = await plane.repository(trusted); break
+                case 'associatedPullRequest': result = await plane.associatedPullRequest(trusted); break
                 case 'push': result = await plane.push(args as ForgePush, trusted); break
                 case 'create': result = await plane.pullRequest.create(args as ForgeCreate, trusted); break
                 case 'update': result = await plane.pullRequest.update(args as ForgeUpdate, trusted); break

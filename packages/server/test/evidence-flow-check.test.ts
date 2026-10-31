@@ -195,7 +195,15 @@ test('a Flow check journals its host-owned card identity and stays busy through 
   const launch = new Promise<void>((resolve) => { launched = resolve })
   const running = plane.runFlowCheck('sleep 30', { cwd: repo.dir, timeoutSec: 30, signal: controller.signal, onStarted: launched }, { goal: 'goal-1', card: 3, name: 'gate', round: 1 })
   try {
+    await assert.rejects(plane.runFlowCheck('true', { cwd: repo.dir, timeoutSec: 5 }, { goal: 'goal-1', card: 3, name: 'gate', round: 1 }), /gate is running on #3/)
     await launch
+    const head = await repo.git('rev-parse', 'HEAD')
+    const branch = await repo.git('branch', '--show-current')
+    const board = await plane.board('goal-1')
+    const markers = board.cards.find(card => card.card === 3)?.running as readonly { name: string; target?: unknown }[] | undefined
+    assert.deepEqual(markers?.map(({ name, target }) => ({ name, target })), [
+      { name: 'gate', target: { at: head, cwd: repo.dir, branch } },
+    ])
     const processDir = join(dir, 'check-processes')
     const [file] = await readdir(processDir)
     const saved = JSON.parse(await readFile(join(processDir, file!), 'utf8')) as { owner?: unknown }
