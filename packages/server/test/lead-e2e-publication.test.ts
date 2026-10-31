@@ -22,7 +22,16 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   await rig.decide(rig.pending('plan')!, 'approve'); await rig.releaseWorkers()
   await rig.waitFor(() => !!rig.pending('result'), 'reviewed result')
   await rig.waitFor(() => { const last = rig.host.flowsPlane.leadRuns()[0]?.rounds.at(-1); return last?.role === 'accept' && last.state === 'running' }, 'live person gate')
-  await rig.waitFor(() => !!rig.pending('result'), 'stable reviewed result after person gate opens')
+  // The Flow can open its person round before the child's final worker/gate
+  // notifications arrive. Merely seeing the first result is not an observation
+  // barrier: those notifications fence it until the child reads the desk again.
+  await rig.waitFor(() => rig.host.registry.all().every(record => record.running.size === 0), 'worker turns ended')
+  await rig.host.flowsPlane.flush()
+  const observedAfter = Date.now(), previousWakes = new Set(rig.journal.state.wakes.map(wake => wake.id))
+  rig.service.evidenceChanged()
+  await rig.waitFor(() => !rig.service.requestInFlight && rig.journal.state.managementReason === 'lead-result-awaiting-person' &&
+    rig.journal.state.wakes.some(wake => !previousWakes.has(wake.id) && !wake.modelTurn && wake.at > observedAfter) &&
+    !!rig.pending('result'), 'reviewed result after final worker and person-gate observations')
   await rig.decide(rig.pending('result')!, 'accept-open-pr')
   t.diagnostic(`initial reviewed PR published after ${Date.now() - started}ms`)
   const initial = structuredClone(rig.journal.state.pr)!, team = rig.journal.state.runs[0]!.teamId

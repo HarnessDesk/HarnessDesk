@@ -69,6 +69,28 @@ test('only the host retains digest-bound approvals and the last twelve runs acro
   assert.equal((await planner.writeSchedule({ ...edited, tasks: [saved] })).tasks[0]!.approved, undefined)
 })
 
+test('a refused scheduled start consumes its slot once with fixed, safe prose', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'lead-repeat-refused-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const planner = new LeadPlanner(home), journal = await memoryJournal()
+  await planner.writeSchedule({ version: 1, tasks: [{ ...task, approved: undefined, perRunCaps: undefined }], quiet: null })
+  await planner.markRan(task.id, task.lastRunAt!)
+  const now = new Date(2026, 9, 26, 10).getTime(), slot = new Date(2026, 9, 26, 9).getTime()
+  let starts = 0
+  const refusal = Object.assign(new Error('<script>private user input</script>'), { wireCode: 'lead-key-missing' })
+  const repeats = new LeadRepeats({ planner, journal, now: () => now, async start() { starts++; throw refusal } })
+  await repeats.tick()
+  const schedule = await planner.readSchedule()
+  assert.deepEqual(JSON.parse(JSON.stringify(schedule.tasks[0]!.runs)), [{ slot, at: now, state: 'skipped', reason: 'The Lead could not start' }])
+  assert.equal(schedule.tasks[0]!.lastRunAt, slot)
+  assert.equal(leadDueTask(schedule, new Date(now)), null)
+  await repeats.tick()
+  assert.equal(starts, 1)
+  assert.equal((await planner.readSchedule()).tasks[0]!.runs!.length, 1)
+  await assert.rejects(repeats.runNow(task.id), error => error === refusal)
+  assert.deepEqual((await planner.readSchedule()).tasks[0]!.runs, schedule.tasks[0]!.runs, 'a refused person attempt leaves schedule history untouched')
+})
+
 test('changed policy, seats or source invoke fresh planning without freezing the stale approval', async () => {
   for (const reason of ['The permissions changed', 'The seats changed', 'The Flow source changed']) {
     const journal = await memoryJournal(); let frozen = false, calls = 0

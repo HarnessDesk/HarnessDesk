@@ -23,10 +23,15 @@ export class LeadRepeats {
     if (!due) return
     const reason = due.task.paused ? 'Paused' : !this.#idle() ? 'The previous goal is still open' : null
     if (reason) { await this.port.planner.recordRun(due.task.id, { slot: due.slot, at: now, state: 'skipped', reason }); return }
-    await this.#start(due.task, due.slot)
+    let result: Awaited<ReturnType<typeof this.port.start>>
+    try { result = await this.port.start(due.task, due.slot) }
+    catch {
+      await this.port.planner.recordRun(due.task.id, { slot: due.slot, at: now, state: 'skipped', reason: 'The Lead could not start' })
+      return
+    }
+    await this.#recordStart(due.task, due.slot, result)
   }) }
-  async #start(task: LeadScheduledTask, slot: number): Promise<void> {
-    const result = await this.port.start(task, slot)
+  async #recordStart(task: LeadScheduledTask, slot: number, result: Awaited<ReturnType<typeof this.port.start>>): Promise<void> {
     await this.port.planner.recordRun(task.id, { slot, at: this.port.now(), state: result.approved ? 'started' : 'needs-approval',
       logicalGoalId: result.logicalGoalId, ...(result.reason ? { reason: result.reason } : {}) })
   }
@@ -35,6 +40,7 @@ export class LeadRepeats {
     const schedule = await this.port.planner.readSchedule(), task = schedule.tasks.find(task => task.id === id)
     if (!task || !task.enabled) throw leadRefusal('lead-repeat-missing')
     if (leadQuietAt(schedule, new Date(this.port.now()))) throw leadRefusal('lead-repeat-quiet')
-    await this.#start(task, this.port.now())
+    const slot = this.port.now()
+    await this.#recordStart(task, slot, await this.port.start(task, slot))
   }) }
 }

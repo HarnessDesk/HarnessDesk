@@ -348,6 +348,27 @@ test('relevant activity invalidates a result before the deferred observation bat
   await loop.close()
 })
 
+test('a final person-gate notification briefly fences even an unchanged reviewed result', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    const card = s.journal.state.cards.find(card => card.type === 'result')!
+    const previousWakes = new Set(s.journal.state.wakes.map(wake => wake.id))
+    assert.equal(s.journal.state.managementReason, 'lead-result-awaiting-person')
+    s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'running', flow: 'lead-reviewed-result', round: 2, reason: null })
+    await s.drain()
+    assert.ok(s.journal.state.decidedCards.includes(`${card.id}:${card.revision}`), 'opening the person round can arrive after the first result')
+    await assert.rejects(s.journal.decideCard({ version: 1, cardId: card.id, cardType: 'result', expectedRevision: card.revision, contractDigest: card.contractDigest, choice: 'accept' }))
+    await s.tick(); await loop.idle()
+    const current = s.journal.state.cards.find(one => one.id === card.id)!
+    assert.equal(current.revision, card.revision, 'identical evidence restores the same card after observation')
+    assert.equal(s.journal.state.decidedCards.includes(`${current.id}:${current.revision}`), false)
+    assert.ok(s.journal.state.wakes.some(wake => !previousWakes.has(wake.id) && !wake.modelTurn), 'a completed observation batch has a durable wake receipt')
+  } finally { await loop.close() }
+})
+
 test('an ordinary event prevents an older in-flight evidence read from restoring an invalidated result', async () => {
   const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
   await s.approve(); s.setEvidence(spendEvidence())
