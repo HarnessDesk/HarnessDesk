@@ -99,12 +99,13 @@ registered runtime names come from `RuntimeInfo.presentation`.
 
 The native corner consumes 78px of the sidebar's top row. The default 256px
 column fits four full 28px controls and the mode switch when the controls
-give up their gaps. At smaller widths, both history arrows move to the main
-bar's lead, returning when the sidebar has room. Their rendered fold owns
-the handoff, so native corner reservations and live seam drags agree.
+give up their gaps. At smaller widths, a standing sidebar moves both arrows to
+the main bar, returning them when it has room. Their rendered fold owns the
+handoff, so native corner reservations and live seam drags agree.
 
-**The rule:** the sidebar's history arrows never fold away without a visible
-pair in the main bar. Control targets keep their design-system size.
+**The rule:** a standing sidebar hands folded history arrows to the main bar.
+A floating drawer keeps them in a second header row when they do not fit,
+because the covered main bar is inert. Control targets keep their design-system size.
 
 ## Browser CI is bounded on a pull request and complete before landing — 2026-10-15
 
@@ -3218,7 +3219,9 @@ revision, sequence and open-card checks apply to both paths.
 The owner chose the face shape for runtimes: a runtime is who does the work
 in these lists, and one meaning keeps one shape everywhere. Settings,
 setup, Add a runtime, gateway rows and the runtime card all follow the
-person's Faces setting — square corners by default, round when chosen.
+person's Faces setting. At the time, square corners were the default and round
+was chosen; the superseding decision above makes round the default and square
+the choice.
 Accounts keep their rings; plugins, skills, files and sections keep their
 square tiles.
 
@@ -4699,8 +4702,15 @@ does not is measured, then removed from the place it costs most.
 
 A label worker rechecks the live pull request and can reuse a matching PR run
 created no earlier than the latest full-ci label application only when that run
-has a successful full-tier marker. This avoids admitting an old or bounded event
-snapshot; the marker is admission evidence, not a claim that CI passed. A push
+has generated a matching full-tier marker. A queued or running marker counts
+while its workflow is active; a completed marker must have succeeded. If a
+matching active run has not generated a tier marker, the worker waits up to six
+ten-second intervals for selection, refreshing runs and jobs each time. API
+calls add their own time; an API failure still fails immediately. A bounded or
+inactive run does not earn that wait, and an exhausted wait keeps the normal
+dispatch. The final live PR check still follows the wait. This avoids admitting
+an old or bounded event snapshot; the marker is admission evidence, not a claim
+that CI passed. A push
 can still move the branch after the recheck, so this is not atomic deduplication.
 Events have second-resolution timestamps; a labeled and unlabeled event in the
 same second are ambiguous, so the worker treats removal as latest and dispatches.
@@ -4896,6 +4906,23 @@ Measured on built pages, two workers:
   from 1,067 seconds to 190. The durations tables scale the recorded times by
   these ratios until CI records them.
 
+## Repeating Lead work keeps the approved contract, one run at a time — 2026-10-30
+
+Recurring work should not need the same plan approval every week. A repeat therefore lives in the existing schedule store, carrying the approved digest-bound contract and per-run caps. The repeat field belongs to the approval scope. Each slot mints fresh goal, contract and step identities, budget and consent, and rechecks the same project, policy, source and seat constraints as a person-approved start. A changed fact returns a plan card with its reason. Legacy Settings tasks retain their plan-per-run behavior. Publishing, merging and deleting keep their own consent on every run.
+
+A slot is skipped when paused or while work remains open; it never queues. Missed slots while asleep coalesce to one run on wake, held by quiet hours. Stop retains history, and Run once now requires an idle Lead. The last 12 run records include the terminal outcome and known spend. A second schedule store, replaying every missed slot, carrying old consent into a new run and giving the Lead repeat controls were rejected because each would make either ownership or authority less clear.
+
+## A worker stop can receive one host second look — 2026-10-30
+
+A named issue or pull request may have cleared since a worker stopped, and a completion claim can lack check evidence after its last edit. The host may act once on such a stop using facts it can prove. A cleared blocker resumes owned work through the existing recovery path within the same approved step and allowance. Missing evidence produces a steer on the existing worker path. One journaled Second look entry records Said, Found and Did; a failed or inapplicable intervention leaves the ordinary person wait. The wake gate does not reawaken the model for a handled stop.
+
+Model-inferred blockers, repeated retries, a second start of an already started step and counting worker output as a required person-run check were rejected. They would confuse claims with evidence or add authority. The untrusted Said text is bounded and sanitized when rendered.
+
+## The last fifth of a Lead allowance finishes the approved plan — 2026-10-30
+
+Known Lead and worker spend reaching 80% produces a journaled At 80% entry with the observed figure and unchanged hard stop. A desk conversation message tells the Lead to finish only what its approved plan needs and leave additional review asks in the result. Standing instructions remain stable throughout the goal. A higher dollar cap re-arms the warning for its own threshold. Unknown, stale, partial and ambiguous spend produce no warning figure.
+
+Raise limit… is a person-only direct caps update in the shared Dialog. It can increase dollars, rounds or both and preserves an existing stop latch. The raise belongs to its goal: the next goal starts from the caps in force before it, and a fresh approval of a stopped repeat turns that repeat back on. A second Lead approval card for the person's own choice, changing the standing prompt mid-goal, estimating unknown spend and automatically clearing a stopped goal were rejected: none is needed to make the remaining allowance useful.
 
 ## Lead message provenance is verified and chat control belongs to the person — 2026-10-30
 

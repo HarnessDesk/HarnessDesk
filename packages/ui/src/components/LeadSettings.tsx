@@ -101,7 +101,7 @@ export const LeadSettings = ({ settings, expiry, update, onError, error, cards =
 
 
 /** Settings owns this route; the capability gate prevents mounting it while disabled. */
-export const LeadSettingsSection = () => {
+export const LeadSettingsSection = ({ focus }: { readonly focus?: string | null }) => {
   const store = useStore(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
   const [error, setError] = useState<string | null>(null)
@@ -110,5 +110,5 @@ export const LeadSettingsSection = () => {
     error={error} onError={error => setError(leadRefusalText(error))} update={value => { setError(null); return store.lead.updateSettings(value) }}
     onOpen={focus => store.openDestination({ kind: 'lead', focus })} />
     <LeadTriggerSettings follow={state.settings.follow} root={state.thread?.project?.path ?? null} update={value => store.lead.updateSettings(value)} onError={error => setError(leadRefusalText(error))} />
-    <LeadPlanSettingsSection label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} cards={state.thread?.cards} /></> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null
+    <LeadPlanSettingsSection focus={focus} label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} cards={state.thread?.cards} /></> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null
 }

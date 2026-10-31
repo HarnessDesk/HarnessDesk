@@ -105,6 +105,7 @@ export const LeftColumnBody = forwardRef<HTMLDivElement, {
 LeftColumnBody.displayName = 'LeftColumnBody'
 export interface LeftColumnTopProps {
   readonly shown: boolean
+  readonly floating?: boolean
   readonly settings: boolean
   readonly back: boolean
   readonly forward: boolean
@@ -125,10 +126,11 @@ export interface LeftColumnTopProps {
  * the column's own spacing marks the transition to its brand row. The mode
  * switch takes the reserved right edge and is absent in Settings. Gapless
  * controls preserve full targets beside the native corner at the default
- * width; when history no longer fits, the main bar carries both arrows.
+ * width; a standing column hands folded history to the main bar, while a
+ * floating drawer keeps it in its own second row.
  * Its compact cells use the shared switcher appearance.
  */
-export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top className={styles.top}>
+export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top data-floating={props.floating || undefined} className={styles.top}>
   <Bar inset="rail" corner className="hd-drag">
     <div className={styles.lead}>
       <Button variant="ghost" size="pattern" className={`${styles.topButton} hd-no-drag`}

@@ -15,8 +15,11 @@ for (const theme of ['light', 'dark'] as const) {
     await top.evaluate(node => { (node as HTMLElement).style.setProperty('--titlebar-inset', 'var(--hd-titlebar-lights)') })
     await expect(conversation).toHaveAttribute('aria-pressed', 'true')
     await expect(editor).toBeVisible()
-    await expect(top.getByRole('button', { name: 'Back', exact: true })).toBeHidden()
-    await expect(top.getByRole('button', { name: 'Forward', exact: true })).toBeHidden()
+    for (const name of ['Back', 'Forward']) {
+      const history = top.getByRole('button', { name, exact: true })
+      if (width === 720) await expect(history).toBeVisible()
+      else await expect(history).toBeHidden()
+    }
     const boxes = await top.evaluate(node => {
       const track = node.querySelector<HTMLElement>('[data-mode-switch]')!, box = node.getBoundingClientRect()
       return { right: box.right, cells: [...track.querySelectorAll('button')].map(button => {
@@ -71,6 +74,7 @@ for (const theme of ['light', 'dark'] as const) for (const windowWidth of [1440,
     await editor.click()
     // A real visit and return enable Forward, so a stolen pointer has an observable consequence.
     await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
+    await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
     await page.keyboard.press('Meta+[')
     await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(0)
     for (const width of [239, 240, 256, 267, 268, 280]) {
@@ -80,14 +84,18 @@ for (const theme of ['light', 'dark'] as const) for (const windowWidth of [1440,
       const targets = await top.evaluate(node => [...node.querySelectorAll('button')]
         .filter(button => button.getBoundingClientRect().width > 0).map(button => {
           const box = button.getBoundingClientRect()
-          return { label: button.getAttribute('aria-label'), disabled: button.disabled, x: box.x, right: box.right,
+          return { label: button.getAttribute('aria-label'), disabled: button.disabled, x: box.x, right: box.right, y: box.y, bottom: box.bottom,
             centerHit: document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('button')?.getAttribute('aria-label') }
         }))
-      expect.soft(targets.slice(1).filter((target, index) => target.x < targets[index]!.right), `overlaps at ${width}px`).toEqual([])
+      const overlaps = targets.flatMap((target, index) => targets.slice(index + 1)
+        .filter(other => target.x < other.right && other.x < target.right && target.y < other.bottom && other.y < target.bottom)
+        .map(other => [target.label, other.label]))
+      expect.soft(overlaps, `overlaps at ${width}px`).toEqual([])
       for (const target of targets.filter(target => !target.disabled)) expect.soft(target.centerHit, `${target.label} owns its centre at ${width}px`).toBe(target.label)
       const forward = top.getByRole('button', { name: 'Forward', exact: true })
-      expect.soft(await forward.isVisible(), `history fits the native default before the mode track at ${width}px`).toBe(width >= 256)
-      if (width >= 256) {
+      const historyVisible = windowWidth === 720 || width >= 256
+      expect.soft(await forward.isVisible(), `history remains reachable at ${width}px`).toBe(historyVisible)
+      if (historyVisible) {
         await expect(forward).toBeEnabled()
         const box = (await forward.boundingBox())!
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)

@@ -3,7 +3,7 @@ import type {
   PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
   PhoneWorkItem, PhoneWorkSnapshot, PhoneWorkThread,
 } from './phone.js'
-import type { LeadChatControlList, LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory } from './lead.js'
+import type { LeadChatControlList, LeadRepeatControl, LeadBudgetRaise, LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
@@ -844,6 +844,8 @@ export interface HostMethods {
   /** Say something to the goal's running worker mid-turn, without restarting it. */
   'lead/steer': { params: { readonly text: string }; result: LeadWindowProjection }
   /** The Lead's own timetable: goals it opens when idle, and the hours it opens none. */
+  'lead/repeat/control': { params: LeadRepeatControl; result: LeadSchedule }
+  'lead/budget/raise': { params: LeadBudgetRaise; result: LeadWindowProjection }
   'lead/schedule/read': { params: Record<string, never>; result: LeadSchedule }
   'lead/schedule/update': { params: { readonly schedule: LeadSchedule }; result: LeadSchedule }
   /** What the Lead keeps between goals, the person's lines and its own suggestions. */

@@ -24,6 +24,31 @@ const mount = (cards: readonly LeadCard[], decide = vi.fn(async () => {})) => {
   return { box, render, decide }
 }
 const button = (box: Element, name: string) => [...box.querySelectorAll('button')].find(node => (node.getAttribute('aria-label') ?? node.textContent) === name)!
+it('shows a repeating plan with its timetable and allowance per run', () => {
+  const contract = { ...leadContract, repeat: { every: 'mondays', at: '09:00' }, caps: { usdMicros: 3000000, rounds: 2 } }
+  const { box } = mount([{ ...leadPlan, contract } as LeadCard])
+  expect(box.textContent).toContain('Repeats')
+  expect(box.textContent).toContain('How it repeats')
+  expect(box.textContent).toContain('Mondays at 09:00')
+  expect(box.textContent).toContain('Skips a week while the last run waits for you')
+  expect(box.textContent).toContain('Runs once when the desk wakes, if it was asleep')
+  expect(box.textContent).toContain('Up to $3.00 a run · 2 rounds')
+})
+it('describes a daily repeat without internal scheduling words', () => {
+  const { box } = mount([{ ...leadPlan, contract: { ...leadContract, repeat: { every: 'day', at: '09:00' } } } as LeadCard])
+  expect(box.textContent).toContain('Skips a run while the last one waits for you')
+  expect(box.textContent).toContain('Runs once when the desk wakes, if it was asleep')
+})
+it('keeps an older repeating result linked to its own plan after a new goal', () => {
+  const box = document.createElement('div'), root = createRoot(box), onRuns = vi.fn()
+  document.body.append(box)
+  const old = { ...leadContract, repeat: { every: 'mondays' as const, at: '09:00' } }
+  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[]} contract={{ ...leadContract, digest: 'b'.repeat(64), revision: 2 }} knownContracts={[old]}
+    decisions={[{ card: leadResult, choice: 'accept', position: 1 }]} onRuns={onRuns} onDecide={vi.fn()} onChanges={vi.fn()} onApprovals={vi.fn()} /></StoreProvider>))
+  clean.push(() => { act(() => root.unmount()); box.remove() })
+  act(() => button(box, 'Runs').click())
+  expect(onRuns).toHaveBeenCalledWith(old)
+})
 it('fences decisions to the seen card revision and digest, replacing stale controls in place', async () => {
   const { box, render, decide } = mount([leadPlan])
   const old = button(box, 'Approve'); expect(old).toBeDefined()

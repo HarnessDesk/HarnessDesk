@@ -8,7 +8,16 @@ import { PhoneSim } from '@harnessdesk/phone-link/sim'
 import { parseLeadAcceptanceContract, type PhoneLinkState, type WireNotification } from '@harnessdesk/protocol'
 import { Logger } from '../src/log.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
-import { phoneLinkOff, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
+import { PHONE_POLICY, phoneLinkOff, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
+
+test('repeat history, repeat controls and direct limit raises require their own phone tiers', () => {
+  assert.equal(PHONE_POLICY.methods['lead/schedule/read'], 'read')
+  assert.equal(PHONE_POLICY.methods['lead/repeat/control'], 'run')
+  assert.equal(PHONE_POLICY.methods['lead/budget/raise'], 'answer')
+  assert.equal(PHONE_POLICY.methods['lead/thread/read'], 'read')
+  assert.equal(PHONE_POLICY.methods['lead/card/decide'], 'answer')
+  assert.equal(PHONE_POLICY.methods['lead/settings/update'], undefined)
+})
 
 const project = { id: 'demo', path: '/workspace/demo' }
 const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Inspect the check', project,

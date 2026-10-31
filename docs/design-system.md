@@ -1990,7 +1990,8 @@ region around every control. The row has no separator hairline beneath it;
 the column's own spacing marks the transition to its brand row. The mode
 switch takes the reserved right edge and is absent in Settings. Gapless
 controls preserve full targets beside the native corner at the default
-width; when history no longer fits, the main bar carries both arrows.
+width; a standing column hands folded history to the main bar, while a
+floating drawer keeps it in its own second row.
 Its compact cells use the shared switcher appearance.
 
 ### `LeftColumnSeat`

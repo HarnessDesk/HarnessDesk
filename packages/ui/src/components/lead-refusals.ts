@@ -14,6 +14,9 @@ export const REFUSALS: Record<LeadControlRefusal, string> = {
   'lead-chat-effect-uncertain': 'The chat operation may have started. Inspect that chat on the desk, then choose Start new request before sending your next message.',
   'lead-thread-closed': 'This Lead thread has finished.', 'lead-steer-unavailable': 'No worker is in a turn to steer right now.', 'lead-budget-stopped': 'This goal has used its allowance. Stop it to begin a new one.',
   'lead-protection-unavailable': 'Encrypted key storage is unavailable.', 'lead-request-in-flight': 'Wait for the current request to finish.',
+  'lead-repeat-missing': 'This repeat has stopped or is no longer available. Open Settings to review it.',
+  'lead-repeat-cleanup-pending': 'The previous run still needs to be settled. Wait, then try again.',
+  'lead-repeat-quiet': 'Quiet hours are holding this run. Try again after they end.',
   'lead-project-missing': 'Open a folder first, then send your goal.',
 }
 

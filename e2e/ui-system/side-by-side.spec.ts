@@ -432,11 +432,11 @@ test('a tile chord immediately after focus survives CPU throttling', async ({ pa
     // Deliberately send the chord without waiting for the frame's focus
     // context to render. SideBySide must consult live DOM focus at receipt.
     await page.keyboard.press('Alt+Meta+Enter')
-    await expectExpansion(target, 1)
   } finally {
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 })
     await cdp.detach()
   }
+  await expectExpansion(target, 1)
 })
 
 test('a narrow tile fits its identity, and bare ⌘1 is not a grid chord', async ({ page }) => {

@@ -17,6 +17,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Card evidence fits on one row.** A compact observed status opens the recorded facts and their details.
 
+- **Changing a hand-off draft's project folder sets where it starts.** The Add menu now honors the chosen folder while keeping the hand-off context.
+
 - **Trigger drafts stay open when their project folder becomes unavailable.** The selected project is retained while Flows are reread, so a draft does not move to another folder or disappear during recovery.
 
 - **A late Codex process exit no longer disrupts its replacement.** Restarting while the previous process drains keeps replies and shutdown with the new process.
@@ -26,6 +28,7 @@ move is real work and is not news to a person weighing an upgrade.
 - **Open Teams use less CPU.** The desk no longer asks git the same questions about the same project folders over and over while it reads evidence and findings, and asks where a branch stands only after it has moved: a measured Lead run started about a third as many git processes and finished in under half the time.
 
 - **Detached conversations can find their own pull request.** Omitting the number in view, checks, review or comment uses that conversation's unique recorded open PR. Ambiguous cases still ask for a number; detached updates remain refused.
+- **Lead can repeat an approved plan, take a second look at a stop, and warn at 80% of its allowance.** Manage repeats and their last runs in Settings; raise a running goal's limits directly while keeping every publishing decision separate.
 
 - **Backup restore counts what it saved.** A runtime configuration saved before setup fails is counted as restored once, rather than skipped or counted twice.
 
@@ -36,6 +39,8 @@ move is real work and is not news to a person weighing an upgrade.
 - **Lead is a conversation first.** Ask questions directly, or ask it to start, read, message and stop ordinary chats in its project. Simple tasks no longer need an implementer and independent reviewer. Reviewed work keeps its approval gates; setup problems explain what to change instead of repeating Resume.
 
 - **The phone can reach older sessions and control ordinary conversations.** Paired phones page active and archived sessions, and the Run grant allows starting a session, replying and stopping a turn while keeping the desk's session settings. Approval answers still require Answer.
+
+- **Saved face shapes appear correctly at startup.** Faces wait for their saved shape, and remain visible if the initial connection fails.
 
 - **A large saved attribution history no longer crashes the desktop.** Obsolete checkpoints are removed within a bounded recovery pass. If retained history still exceeds the budget, capture pauses for that project, keeping its observations and leaving sign-in, capture controls and normal conversations available. Backups report omitted histories and continue with healthy projects.
 
@@ -58,6 +63,8 @@ move is real work and is not news to a person weighing an upgrade.
 - **Saved conversations open reliably during brief database contention.** The desk waits for a short lock when opening its conversation store and safely coordinates concurrent upgrades.
 
 - **Turn edits show their reported location.** Files outside known open workspace and conversation roots, or whose location is unknown, are labelled in the turn card and Changes pane. Git still reports the current working tree separately.
+
+- **Back and Forward stay reachable in a narrow floating sidebar.** The drawer keeps the history controls inside it while the covered content is inactive.
 
 ## 0.6.1 — 2026-10-23
 

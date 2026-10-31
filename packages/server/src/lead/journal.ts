@@ -308,7 +308,7 @@ export class LeadFileJournal implements LeadJournalStorage {
       handle = await fs.open(file, constants.O_CREAT | constants.O_RDWR | constants.O_APPEND | constants.O_NOFOLLOW, 0o600)
       await handle.chmod(0o600); await handle.sync(); await syncDirectory(directory); await syncDirectory(home)
       journal = new LeadFileJournal(directory, file, handle, lease, metadata, { ...security, digestContract: security.digestContract ?? (contract => {
-        const { digest: _digest, ...body } = contract; return createHash('sha256').update(JSON.stringify(body)).digest('hex')
+        const { digest: _digest, ...body } = contract; return createHash('sha256').update(JSON.stringify(body, (_key, value: unknown) => value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value)).digest('hex')
       }) })
       await journal.load()
       return journal

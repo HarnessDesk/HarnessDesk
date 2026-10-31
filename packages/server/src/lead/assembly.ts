@@ -25,6 +25,11 @@ export const LEAD_DEFAULT_CAPS = Object.freeze({ usdMicros: 1_000_000, rounds: 1
 const FRESHNESS_MS = 60_000
 const PROJECT_FILE = 'project.json'
 
+export const leadContractDigest = (value: LeadAcceptanceContract): string => {
+  const { digest: _digest, ...scope } = value
+  return createHash('sha256').update(JSON.stringify(scope, (_key, value: unknown) => value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value)).digest('hex')
+}
+
 /** The digest every plan is frozen with: sha256 of its canonical JSON, the way the approval cards name it. */
 export const freezeLeadPlan = async (value: LeadAcceptanceContract): Promise<LeadAcceptanceContract> => {
   let publicationRepository: string | null = null
@@ -35,7 +40,7 @@ export const freezeLeadPlan = async (value: LeadAcceptanceContract): Promise<Lea
     if (remote) publicationRepository = githubRepositoryFromUrl(await rawPushUrl(value.project.path, remote))
   } catch { /* A local-only plan grants no publication destination. */ }
   const pinned = { ...value, publicationRepository }
-  return { ...pinned, digest: createHash('sha256').update(JSON.stringify(pinned)).digest('hex') }
+  return { ...pinned, digest: leadContractDigest(pinned) }
 }
 
 /** A project's identity is its path, so a restart names the same project without storing anything else. */

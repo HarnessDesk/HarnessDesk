@@ -11,6 +11,20 @@ const thread = (revision = 1, state = 'draft', cards: unknown[] = []) => ({ vers
   project: null, olderMessages: 0, messages: [], cards })
 const projection = (revision: number, state = 'running', cards: unknown[] = []) => ({ version: 1, revision, thread: thread(revision, state, cards), settings, waitReason: state === 'waiting-for-user' ? 'lead-request-failed' : null, planConsentExpiresAt: null, requestInFlight: false, wayOut: state === 'stopped' ? null : cards.length ? 'decide-plan' : state === 'waiting-for-user' ? 'resume' : null })
 
+it('sends person repeat controls and a revision-bound direct cap raise through their own methods', async () => {
+  const { createLeadState } = await load()
+  const schedule = { version: 1, tasks: [], quiet: null }
+  const request = vi.fn(async (method: string) => method === 'lead/repeat/control' ? schedule : projection(8))
+  const facade = createLeadState({ request }, () => true)
+  facade.changed({ method: 'lead/changed', params: projection(7) })
+  expect(await facade.controlRepeat('task-one', 'pause')).toEqual(schedule)
+  const caps = { usdMicros: 6000000, rounds: 5 }
+  await facade.raiseLimit('goal-one', caps)
+  expect(request).toHaveBeenCalledWith('lead/repeat/control', { taskId: 'task-one', action: 'pause' })
+  expect(request).toHaveBeenCalledWith('lead/budget/raise', { logicalGoalId: 'goal-one', caps, expectedRevision: 7 })
+  expect(facade.state.revision).toBe(8)
+})
+
 describe('Lead state facade', () => {
   it('ignores a readThread response that arrives after availability is dropped', async () => {
     const { createLeadState } = await load()
