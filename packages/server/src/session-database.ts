@@ -15,7 +15,7 @@ export function openSessionDatabase(file: string): DatabaseSync {
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true })
   const db = new DatabaseSync(file)
   try {
-    // A snapshot reader can briefly hold the cold file while WAL is enabled.
+    // A reader can briefly hold the cold file while WAL is enabled.
     // Wait for bounded contention instead of treating it as a broken store.
     db.exec('PRAGMA busy_timeout = 5000')
     db.exec('PRAGMA journal_mode = WAL')
