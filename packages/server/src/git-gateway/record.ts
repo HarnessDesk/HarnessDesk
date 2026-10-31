@@ -58,6 +58,10 @@ interface Snapshot {
   readonly verification: GitRecordVerification; readonly branches: Map<string, GitRecordEntry[]>
 }
 export interface SucceededPushQuery { readonly repository: string; readonly branch: string; readonly sha: string; readonly requester: GitRequester }
+export interface RecordedPullRequest {
+  readonly number: number
+  readonly branch: string
+}
 
 /** Host-only journal. Segments share one chain; a separately persisted anchor
  * commits its tail and physical line count. Reads cache parsed segments and a
@@ -259,6 +263,28 @@ export class GitRecord {
       if (!read.verification.ok) return 'outside'
       const row = read.branches.get(branch)?.findLast(row => row.op === 'push' && row.outcome === 'ok' && row.sha === sha)
       return row && row.requester.kind !== 'outside' ? row.requester : 'outside'
+    }))
+  }
+  successfulPullRequests(
+    repository: string,
+    caller: { readonly runtime: string; readonly sessionId: string },
+  ): Promise<readonly RecordedPullRequest[]> {
+    repository = canonicalRepository(repository)
+    return this.#queue(repository, () => this.#locked(repository, async () => {
+      const read = this.#read(repository)
+      if (!read.verification.ok) throw new Error(`git-record-broken:${read.verification.line}`)
+      const found = new Map<string, RecordedPullRequest>()
+      for (const row of read.rows) {
+        if (row.op !== 'pr.create' || row.outcome !== 'ok' ||
+            row.requester.kind !== 'session' ||
+            row.requester.conversation?.runtime !== caller.runtime ||
+            row.requester.conversation?.sessionId !== caller.sessionId ||
+            !Number.isSafeInteger(row.number) || row.number! < 1 ||
+            typeof row.branch !== 'string' || row.branch.trim() === '') continue
+        const candidate = { number: row.number!, branch: row.branch }
+        found.set(JSON.stringify([candidate.number, candidate.branch]), candidate)
+      }
+      return [...found.values()]
     }))
   }
   hasSucceededPush(query: SucceededPushQuery): boolean {

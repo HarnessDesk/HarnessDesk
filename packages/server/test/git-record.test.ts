@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, writeFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -12,6 +13,71 @@ const fixture = async () => {
   const directory = await mkdtemp(join(tmpdir(), 'hd-git-record-')), record = new GitRecord(directory)
   return { directory, record, path: join(directory, 'git-record', 'acme__widgets.ndjson') }
 }
+
+type PrEvidence = { readonly number: number; readonly branch: string }
+const conversation = { runtime: 'fake', sessionId: 'conversation-1' }
+const created = (id: string) => ({ ...entry(id), op: 'pr.create' as const, number: 17,
+  requester: { ...requester, conversation } })
+const creations = (record: GitRecord, repo = repository, caller = conversation) =>
+  (record as GitRecord & { successfulPullRequests(repository: string, caller: typeof conversation): Promise<readonly PrEvidence[]> })
+    .successfulPullRequests(repo, caller)
+
+test('conversation PR evidence survives reopening and excludes unrelated or incomplete outcomes', async t => {
+  const f = await fixture()
+  t.after(() => rm(f.directory, { recursive: true, force: true }))
+  await f.record.append(created('own'))
+  await f.record.append(created('duplicate'))
+  await f.record.append({ ...created('other-session'), requester: { ...requester, conversation: { ...conversation, sessionId: 'other' } } })
+  await f.record.append({ ...created('other-runtime'), requester: { ...requester, conversation: { ...conversation, runtime: 'other' } } })
+  await f.record.append({ ...created('other-repo'), repository: 'acme/other' })
+  await f.record.append({ ...created('person'), requester: { ...requester, kind: 'person', conversation } })
+  await f.record.append({ ...created('missing-conversation'), requester })
+  await f.record.append({ ...created('push'), op: 'push' })
+  for (const outcome of ['intent', 'failed', 'refused', 'rejected'] as const)
+    await f.record.append({ ...created(`outcome-${outcome}`), outcome })
+  for (const [index, number] of [undefined, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1].entries())
+    await f.record.append({ ...created(`number-${index}`), number })
+  for (const [index, branch] of [undefined, '', '   '].entries())
+    await f.record.append({ ...created(`branch-${index}`), branch })
+  const reopened = new GitRecord(f.directory)
+  assert.deepEqual(await creations(reopened), [{ number: 17, branch: 'worker' }])
+  assert.deepEqual(await creations(reopened, repository, { ...conversation, runtime: 'absent' }), [])
+  assert.deepEqual(await creations(reopened, 'acme/absent'), [])
+})
+
+test('conversation PR evidence reads past the inspection window and keeps distinct recorded heads', { timeout: 30_000 }, async t => {
+  const f = await fixture()
+  t.after(() => rm(f.directory, { recursive: true, force: true }))
+  await f.record.append(created('own-first'))
+  await f.record.append({ ...created('same-number-different-head'), branch: 'other-worker' })
+  const lines = (await readFile(f.path, 'utf8')).trimEnd().split('\n')
+  const hash = (line: string) => createHash('sha256').update(line).digest('hex')
+  let previous = hash(`${lines.at(-1)!}\n`)
+  for (let n = 0; n < 1005; n++) {
+    const line = JSON.stringify({ ...entry(`later-${n}`), prev: previous })
+    lines.push(line)
+    previous = hash(`${line}\n`)
+  }
+  const anchor = JSON.parse(await readFile(`${f.path}.anchor`, 'utf8'))
+  await writeFile(f.path, `${lines.join('\n')}\n`)
+  await writeFile(`${f.path}.anchor`, JSON.stringify({ ...anchor, last: previous, lines: lines.length }))
+  assert.deepEqual(await new GitRecord(f.directory).verify(repository), { ok: true, damaged: 0 }, 'synthetic unrelated history retains a valid journal chain')
+  assert.deepEqual(await creations(new GitRecord(f.directory)), [
+    { number: 17, branch: 'worker' }, { number: 17, branch: 'other-worker' },
+  ])
+})
+
+test('conversation PR evidence rejects damaged and unreadable journals', async t => {
+  const damaged = await fixture(), unreadable = await fixture()
+  t.after(async () => { await rm(damaged.directory, { recursive: true, force: true }); await rm(unreadable.directory, { recursive: true, force: true }) })
+  await damaged.record.append(created('damaged'))
+  await writeFile(damaged.path, (await readFile(damaged.path, 'utf8')).replace('"number":17', '"number":18'))
+  await assert.rejects(creations(damaged.record), /git-record-broken:/)
+  await unreadable.record.append(created('unreadable'))
+  await rm(unreadable.path)
+  await mkdir(unreadable.path)
+  await assert.rejects(creations(unreadable.record))
+})
 
 test('the anchor detects an edited last outcome and attributes no damaged history', async () => {
   const f = await fixture()

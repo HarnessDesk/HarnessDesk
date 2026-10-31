@@ -15,7 +15,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Open Teams use less CPU.** The desk no longer asks git the same questions about the same project folders over and over while it reads evidence and findings, and asks where a branch stands only after it has moved: a measured Lead run started about a third as many git processes and finished in under half the time.
 
-- **Turn edits show their reported location.** Files outside known open workspace and conversation roots, or whose location is unknown, are labelled in the turn card and Changes pane. Git still reports the current working tree separately.
+- **Detached conversations can find their own pull request.** Omitting the number in view, checks, review or comment uses that conversation's unique recorded open PR. Ambiguous cases still ask for a number; detached updates remain refused.
 
 - **Lead is a conversation first.** Ask questions directly, or ask it to start, read, message and stop ordinary chats in its project. Simple tasks no longer need an implementer and independent reviewer. Reviewed work keeps its approval gates; setup problems explain what to change instead of repeating Resume.
 
@@ -36,6 +36,8 @@ move is real work and is not news to a person weighing an upgrade.
 - **Pair a phone on the local network without an account link.** With local phone access enabled, Settings › Phone shows a code to scan; allow each phone at the desk and remove it from the same page.
 
 - **Git writes have one recorded path.** Approve pushes and steer an agent's own push through HarnessDesk, with a pinned project repository, PR and project Git records, and global or project preferences. Heads written elsewhere appear as Outside and name no one.
+
+- **Turn edits show their reported location.** Files outside known open workspace and conversation roots, or whose location is unknown, are labelled in the turn card and Changes pane. Git still reports the current working tree separately.
 
 ## 0.6.1 — 2026-10-23
 
