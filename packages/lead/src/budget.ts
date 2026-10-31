@@ -75,6 +75,25 @@ export const leadBudgetProjection = (state: LeadBudgetLedger, now: number): Lead
   return parseLeadBudgetState({ version: 1, revision: state.revision, caps: state.caps, leadUsdMicros: state.leadUsdMicros,
     workerUsdMicros: state.workerUsdMicros, reservedUsdMicros: state.reservedUsdMicros, roundsAdmitted: state.rounds.length, spend, stop: state.stop })
 }
+/** Host-only, journaled reopening of one stopped execution. Validate the old
+ * complete projection first, retain every charged dollar, and reserve exactly
+ * one additional round before discarding its final-cost status. Fresh cumulative
+ * metering must cover the active run again before dispatch; old observations
+ * stay as source revision fences but can no longer vouch for its spend.
+ */
+export const reopenLeadBudgetRound = (state: LeadBudgetLedger, executionId: string, roundId: string, now: number): LeadBudgetLedger => {
+  ensure(Number.isSafeInteger(now) && now >= state.now && state.executionIds.includes(executionId) &&
+    typeof roundId === 'string' && roundId.length > 0 && roundId.length <= 200)
+  if (state.rounds.some(round => round.executionId === executionId && round.roundId === roundId)) return state
+  const view = leadBudgetProjection(state, now)
+  ensure(view.stop === null && view.spend === 'known' && state.requests.length === 0 && view.reservedUsdMicros === 0 &&
+    view.roundsAdmitted < view.caps.rounds && state.rounds.length < LEAD_LIMITS.rounds &&
+    view.leadUsdMicros + view.workerUsdMicros < view.caps.usdMicros)
+  return finish({ ...state, now, revision: nextLeadRevision(state.revision),
+    rounds: [...state.rounds, { executionId, roundId, startId: null }],
+    terminalObservations: state.terminalObservations.filter(observation => observation.executionIds[0] !== executionId),
+    observation: null })
+}
 const finish = (state: LeadBudgetLedger): LeadBudgetLedger => {
   const charged = state.settled.reduce((total, item) => Math.min(LEAD_LIMITS.maxUsdMicros + 1, total + item.usdMicros), 0)
   const leadUsdMicros = Math.min(LEAD_LIMITS.maxUsdMicros, charged)

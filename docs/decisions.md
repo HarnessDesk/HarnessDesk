@@ -4657,3 +4657,21 @@ the failure logs of the 128 jobs that failed in them:
 **Rule:** a job's contents come from a manifest and the last measurement, never
 from a list in the workflow; a check that never finds anything another check
 does not is measured, then removed from the place it costs most.
+
+## Repeating Lead work keeps the approved contract, one run at a time — 2026-10-30
+
+Recurring work should not need the same plan approval every week. A repeat therefore lives in the existing schedule store, carrying the approved digest-bound contract and per-run caps. The repeat field belongs to the approval scope. Each slot mints fresh goal, contract and step identities, budget and consent, and rechecks the same project, policy, source and seat constraints as a person-approved start. A changed fact returns a plan card with its reason. Legacy Settings tasks retain their plan-per-run behavior. Publishing, merging and deleting keep their own consent on every run.
+
+A slot is skipped when paused or while work remains open; it never queues. Missed slots while asleep coalesce to one run on wake, held by quiet hours. Stop retains history, and Run once now requires an idle Lead. The last 12 run records include the terminal outcome and known spend. A second schedule store, replaying every missed slot, carrying old consent into a new run and giving the Lead repeat controls were rejected because each would make either ownership or authority less clear.
+
+## A worker stop can receive one host second look — 2026-10-30
+
+A named issue or pull request may have cleared since a worker stopped, and a completion claim can lack check evidence after its last edit. The host may act once on such a stop using facts it can prove. A cleared blocker resumes owned work through the existing recovery path within the same approved step and allowance. Missing evidence produces a steer on the existing worker path. One journaled Second look entry records Said, Found and Did; a failed or inapplicable intervention leaves the ordinary person wait. The wake gate does not reawaken the model for a handled stop.
+
+Model-inferred blockers, repeated retries, a second start of an already started step and counting worker output as a required person-run check were rejected. They would confuse claims with evidence or add authority. The untrusted Said text is bounded and sanitized when rendered.
+
+## The last fifth of a Lead allowance finishes the approved plan — 2026-10-30
+
+Known Lead and worker spend reaching 80% produces a journaled At 80% entry with the observed figure and unchanged hard stop. A desk conversation message tells the Lead to finish only what its approved plan needs and leave additional review asks in the result. Standing instructions remain stable throughout the goal. A higher dollar cap re-arms the warning for its own threshold. Unknown, stale, partial and ambiguous spend produce no warning figure.
+
+Raise limit… is a person-only direct caps update in the shared Dialog. It can increase dollars, rounds or both and preserves an existing stop latch. A second Lead approval card for the person's own choice, changing the standing prompt mid-goal, estimating unknown spend and automatically clearing a stopped goal were rejected: none is needed to make the remaining allowance useful.

@@ -41,6 +41,7 @@ class RigRuntime extends CodexRuntime {
   override async providerAt() { return this.provider }
 }
 export interface LeadRigOptions {
+  readonly repeat?: boolean
   readonly enabled?: boolean
   /** Ordinary session tools, with one runtime and no reviewed plan. */
   readonly ordinaryChats?: boolean
@@ -222,7 +223,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       { role: 'implement', agent: 'implementer', seat: { runtime: 'rig-writer', model: 'gpt-5.5' }, ceiling: 'edit' },
       { role: 'review', agent: 'code-reviewer', seat: { runtime: 'rig-reviewer', model: 'gpt-5.5' }, ceiling: 'read' },
     ]
-    const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1, ...(options.publication ? { publicationRepository: 'acme/widgets' } : {}),
+    const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1, ...(options.repeat ? { repeat: { every: 'day', at: '09:00' } } : {}), ...(options.publication ? { publicationRepository: 'acme/widgets' } : {}),
       steps: (options.manualChecks || options.publication ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments })),
       assertions: [{ id: 'unit', kind: 'check', description: 'Required check passes' }, { id: 'review', kind: 'review', description: 'Independent review approves' },
         { id: 'blockers', kind: 'blocking-findings', description: 'No unresolved blockers' }], caps: { usdMicros: 10_000_000, rounds: 20 } })
@@ -472,7 +473,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       else await releaseWorkers()
     }
     const decide = async (card: LeadCard, choice: LeadCardDecision['choice']) => {
-      if (card.type === 'stopped') throw new Error('stopped cards have no decision')
+      if (card.type === 'stopped' || card.type === 'second-look' || card.type === 'allowance-warning') throw new Error('stopped cards have no decision')
       if (options.offlineForge && choice === 'accept-open-pr') personPublication = true
       try { return await host.call('lead/card/decide', {
       version: 1, cardId: card.id, cardType: card.type, expectedRevision: card.revision, contractDigest: card.contractDigest, choice,

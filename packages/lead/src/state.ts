@@ -1,7 +1,7 @@
 import { clientTierFor, parseLeadCardDecisionFor, type LeadWakeRecord, type LeadOrigin, type LeadHandback, type LeadName, type LeadFollowPreferences, type LeadPullRequest, type LeadDecisionMessage, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
 import { applyLeadPolicyDecision, compareLeadPolicyAuthority, sameLeadPolicyValues } from './permissions.js'
 import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity, type LeadPublicationOperation, type LeadOwnedPush } from './journal.js'
-import { reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
+import { reopenLeadBudgetRound, reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
 
 export const LEAD_SEND_RECEIPTS = 4096
 
@@ -34,6 +34,7 @@ export interface LeadState {
   readonly ownedPush: LeadOwnedPush | null
   readonly decisionMessages: readonly LeadDecisionMessage[]
   readonly completedBudgets: readonly LeadBudgetLedger[]
+  readonly secondLooks: readonly { readonly runId: string; readonly stopKey: string; readonly at: number }[]
   readonly budget: LeadBudgetLedger | null
   /** Journal sequence of the latched stop whose idempotent cancellation effects need acknowledgement. */
   readonly stopEffectsPending: number | null
@@ -60,7 +61,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ decisionRevision: 0, wakes: [], origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
+export const initialLeadState = (): LeadState => ({ decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
   cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 /** A read's journal revision remains valid through observation-only wakes. Any
  * intervening decision-affecting write advances the lower bound and refuses it. */
@@ -370,6 +371,16 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'invalidate-results':
       state = { ...state, retryResult: null, decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'result').map(cardKey)])] }; break
 
+    case 'second-look-attempt': case 'second-look-restart': {
+      ensure(state.runs.some(run => run.runId === event.runId) && !state.secondLooks.some(look => look.stopKey === event.stopKey) && state.secondLooks.length < 128)
+      const budget = event.type === 'second-look-restart' ? reopenLeadBudgetRound(state.budget!, event.runId, event.roundId, event.now) : state.budget
+      state = { ...state, budget, secondLooks: [...state.secondLooks, { runId: event.runId, stopKey: event.stopKey, at: event.now }] }; break
+    }
+    case 'person-caps': {
+      ensure(state.budget?.logicalGoalId === event.logicalGoalId && event.now >= state.budget.now)
+      const budget = applyLeadBudgetCaps({ ...state.budget!, now: event.now }, event.caps)
+      state = { ...state, budget, phase: budget.stop ? 'stopped' : state.phase }; break
+    }
     case 'budget': {
       if (['reserve', 'start'].includes(event.event.type)) ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
       if (event.event.type === 'round' && ['stopped', 'accepted', 'declined'].includes(state.phase)) {

@@ -13,6 +13,7 @@ import { useDestinationPage, useDestinationActive } from '../panels/destination-
 import { useSnapshot, useStore } from '../state/context'
 import { LeadMessage } from './LeadMessage'
 import { LeadCards, leadDollars } from './LeadCards'
+import { leadRepeatTaskFor } from '../lib/lead-repeat'
 import { LEAD_HANDBACK_LIMIT, LEAD_REPAIR_RECOVERY_FAILED } from './lead-wait-copy'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
@@ -224,6 +225,15 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   }, [active, selectedDecision, state.revision])
   const cardProps = {
     releasedBranch: pr,
+    knownContracts: [...cards, ...(state.thread?.decisions ?? []).map(decision => decision.card)].flatMap(card => card.type === 'plan' ? [card.contract] : []),
+    onRuns: (scope: NonNullable<typeof contract>) => {
+      const open = (id?: string) => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: id ? `repeat:${id}` : 'lead-runs' } })
+      void store.lead.readSchedule().then(schedule => {
+        const task = leadRepeatTaskFor(schedule, scope, contract?.digest, origin)
+        open(task?.id)
+      }).catch(() => open())
+    },
+    onRaiseLimit: (logicalGoalId: string, caps: Parameters<typeof store.lead.raiseLimit>[1]) => store.lead.raiseLimit(logicalGoalId, caps),
     onPerform: (input: Parameters<typeof store.lead.perform>[0]) => store.lead.perform(input),
     focusCard: selectedDecision, decisionLock, decisionPending, setDecisionPending, expiry: state.planConsentExpiresAt, contract, budget: state.thread?.budget,
     onDecide: (decision: Parameters<typeof store.lead.decide>[0]) => { setError(null); return store.lead.decide(decision) }, onError: refusal, onSettled: () => input.current?.focus(),

@@ -510,3 +510,35 @@ test('automatic origin and repair projection are bounded data and never decision
   assert.throws(() => protocol.parseLeadHandback({ ...handback, round: 0 }), protocol.ValidationError)
   assert.throws(() => protocol.parseLeadHandback({ ...handback, approved: true }), protocol.ValidationError)
 })
+
+test('repeat scope, bounded run history, and host information cards are closed and validated', () => {
+  const repeat = { every: 'mondays', at: '09:00' }
+  const repeating = { ...contract, repeat }
+  assert.deepEqual(protocol.parseLeadAcceptanceContract(repeating), repeating)
+  assert.throws(() => protocol.parseLeadAcceptanceContract({ ...contract, repeat: { every: 'weekly', at: '09:00' } }))
+  assert.throws(() => protocol.parseLeadAcceptanceContract({ ...contract, repeat: { every: 'mondays', at: '24:00' } }))
+  const task = { id: 'repeat-1', title: 'Dependencies', goal: 'Update acme-web', every: 'mondays', at: '09:00', enabled: true, lastRunAt: null,
+    approved: { contract: repeating, contractDigest: digest }, perRunCaps: caps, paused: false,
+    runs: [{ slot: 1, at: 2, state: 'started', logicalGoalId: 'goal-1', outcome: 'accepted', usdMicros: 100, rounds: 2 }] }
+  assert.doesNotThrow(() => protocol.parseLeadSchedule({ version: 1, tasks: [task], quiet: null }))
+  for (const bad of [{ ...task, approved: { contract: repeating, contractDigest: 'b'.repeat(64) } }, { ...task, runs: Array(13).fill(task.runs[0]) },
+    { ...task, runs: [{ ...task.runs[0], state: 'queued' }] }, { ...task, runs: [{ ...task.runs[0], usdMicros: -1 }] }])
+    assert.throws(() => protocol.parseLeadSchedule({ version: 1, tasks: [bad], quiet: null }))
+  for (const card of [
+    { ...base, type: 'second-look', logicalGoalId: 'goal-1', runId: 'run-1', stopKey: 'stop-1', said: 'Blocked on #231', found: '#231 merged', did: 'Restarted' },
+    { ...base, type: 'allowance-warning', logicalGoalId: 'goal-1', usdMicros: 4_000_000, caps },
+  ]) {
+    assert.deepEqual(protocol.parseLeadCard(card), card)
+    assert.throws(() => protocol.parseLeadCard({ ...card, permission: 'merge' }))
+    assert.throws(() => protocol.parseLeadCardDecision({ version: 1, cardId: card.id, cardType: card.type, expectedRevision: 1, contractDigest: digest, choice: 'approve' }))
+  }
+  assert.throws(() => protocol.parseLeadCard({ ...base, type: 'second-look', logicalGoalId: 'goal-1', runId: 'run-1', stopKey: 'stop-1', said: 'x'.repeat(1001), found: 'Cleared', did: 'Restarted' }))
+})
+
+
+test('Lead contracts preserve explicit no-publication pins without adding an absent pin', () => {
+  for (const publicationRepository of [undefined, null, 'acme/acme-web']) {
+    const value = { ...contract, ...(publicationRepository === undefined ? {} : { publicationRepository }) }
+    assert.deepEqual(protocol.parseLeadAcceptanceContract(value), value)
+  }
+})

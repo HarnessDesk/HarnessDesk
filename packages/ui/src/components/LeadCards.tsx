@@ -1,7 +1,9 @@
 import { OutsideHeadBanner } from './GitRecord'
 import { useRef, useState, type MutableRefObject } from 'react'
 import type { LeadProactive, LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage, LeadPullRequest } from '@harnessdesk/protocol'
-import { Button, CodeText, Row, LeadContract, LeadPlanFlow, Text } from '../design'
+import { LEAD_LIMITS, type LeadCaps } from '@harnessdesk/protocol'
+import { Banner, Button, Chip, CodeText, Dialog, FormStack, Input, Row, Rows, LeadContract, LeadPlanFlow, Text } from '../design'
+import { leadRepeatWords } from '../lib/lead-repeat'
 import { folderName } from '../lib/projects'
 import { LeadDecision } from './LeadDecision'
 import { LEAD_HANDBACK_LIMIT, LEAD_REPAIR_RECOVERY_FAILED } from './lead-wait-copy'
@@ -30,7 +32,12 @@ const policyMode = { plan: 'Plan', default: 'Default', manage: 'Manage' }
 const ruleWords = (rule: { effect: string; method: keyof typeof PERMISSION_LABELS; action: string | null; project: string | null } | undefined) => rule ? `${rule.effect} · ${PERMISSION_LABELS[rule.method]} · ${rule.action ?? 'All actions'} · ${rule.project ?? 'Approved project'}` : 'No rule'
 
 /** Window-owned details and revision-bound decisions. The child never receives a click. */
-export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform, decisions = [], contract, budget, onDecide, onChanges, onApprovals, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, waitReason, placement = 'both' }: {
+type DecisionCard = Extract<LeadCard, { type: LeadCardDecision['cardType'] }>
+const decisionCard = (card: LeadCard): card is DecisionCard => !['stopped', 'second-look', 'allowance-warning'].includes(card.type)
+export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform, decisions = [], contract, budget, onDecide, onChanges, onApprovals, knownContracts = [], onRuns, onRaiseLimit, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, waitReason, placement = 'both' }: {
+  readonly knownContracts?: readonly LeadAcceptanceContract[]
+  readonly onRuns?: (contract: LeadAcceptanceContract) => void
+  readonly onRaiseLimit?: (logicalGoalId: string, caps: LeadCaps) => Promise<unknown>
   readonly releasedBranch?: LeadPullRequest | null
   readonly personActions?: readonly LeadAction[]; readonly onPerform?: (input: LeadActionInput) => Promise<unknown>
   readonly decisionLock?: MutableRefObject<boolean>; readonly decisionPending?: string | null
@@ -57,7 +64,7 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
     finally { busy.current = false; setPending(null) }
   }
   const focus = useRef(new Map<string, HTMLElement>())
-  const decide = async (card: Exclude<LeadCard, { type: 'stopped' }>, choice: LeadCardDecision['choice']) => {
+  const decide = async (card: DecisionCard, choice: LeadCardDecision['choice']) => {
     if (busy.current || !latest.current.some(current => current.id === card.id && current.revision === card.revision && current.contractDigest === card.contractDigest)) return
     busy.current = true; setPending(card.id)
     let succeeded = false
@@ -65,9 +72,11 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
     catch (error) { onError?.(error) }
     finally { busy.current = false; setPending(null); if (succeeded && onSettled) onSettled(); else focus.current.get(card.id)?.focus() }
   }
-  const active = cards.find(card => card.id === focusCard && card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed')) ?? [...cards].reverse().find(card => card.type === 'branch-ownership') ?? [...cards].reverse().find(card => card.type === 'plan') ?? cards.find(card => card.type !== 'stopped' && !(card.type === 'result' && card.outcome !== 'reviewed'))
-  const plans = new Map([...cards, ...decisions.map(({ card }) => card)].flatMap(card => card.type === 'plan' ? [[card.contractDigest, card.contract] as const] : []))
+  const active = cards.find(card => card.id === focusCard && decisionCard(card) && !(card.type === 'result' && card.outcome !== 'reviewed')) ?? [...cards].reverse().find(card => card.type === 'branch-ownership') ?? [...cards].reverse().find(card => card.type === 'plan') ?? cards.find(card => decisionCard(card) && !(card.type === 'result' && card.outcome !== 'reviewed'))
+  const plans = new Map([...knownContracts.map(contract => [contract.digest, contract] as const), ...[...cards, ...decisions.map(({ card }) => card)].flatMap(card => card.type === 'plan' ? [[card.contractDigest, card.contract] as const] : [])])
   return <>{placement !== 'dock' && waitReason && <LeadContract cardType="waiting" cardId={waitReason === 'lead-handback-limit' ? 'handback-limit' : 'repair-recovery-failed'} summary={waitReason === 'lead-handback-limit' ? LEAD_HANDBACK_LIMIT : LEAD_REPAIR_RECOVERY_FAILED} />}{[...cards.map(card => ({ card, choice: undefined as LeadCardDecision['choice'] | undefined })), ...decisions.map(({ card, choice }) => ({ card, choice }))].map(({ card, choice }) => {
+    if (card.type === 'second-look') return placement === 'dock' ? null : <LeadSecondLook key={card.id} card={card} />
+    if (card.type === 'allowance-warning') return placement === 'dock' ? null : <LeadAllowanceWarning key={card.id} card={card} currentCaps={budget?.caps} onRaise={onRaiseLimit} />
     const worker = card.type === 'waiting' && card.kind === 'worker-approval'
     const person = card.type === 'waiting' && !worker || card.type === 'result' && card.outcome === 'reviewed'
     const approval = card.type === 'plan' || card.type === 'permission-change' || card.type === 'budget-change'
@@ -85,9 +94,15 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
     return <div key={`${card.id}:${card.revision}:${choice ?? 'pending'}`}>
       {card.type === 'branch-ownership' && !state && placement !== 'dock' && <OutsideHeadBanner branch={releasedBranch?.branch ?? `Branch for #${card.number}`} head={card.observedHead} previous={releasedBranch?.head} rewritten={releasedBranch?.branchChange === 'rewrite'} disabled={pending !== null} onReclaim={() => { void decide(card, 'reclaim-branch') }} />}
       {placement !== 'dock' && (card.type !== 'branch-ownership' || state) && <LeadContract cardId={card.id} cardType={card.type} summary={summary} state={state} focusRef={ref}>
-        {card.type === 'plan' && <><LeadPlanFlow steps={card.contract.steps} /><Markdown text={`Done when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`} /></>}
+        {card.type === 'plan' && <>
+          {card.contract.repeat && <><Chip tone="neutral">Repeats</Chip><Text as="p" role="subject">How it repeats</Text>
+            <Text as="p" role="prose">{leadRepeatWords[card.contract.repeat.every]} at {card.contract.repeat.at}</Text>
+            <Text as="p" role="muted">{card.contract.repeat.every === 'mondays' || card.contract.repeat.every === 'fridays' ? 'Skips a week while the last run waits for you' : 'Skips a slot while the last run waits for you'}</Text>
+            <Text as="p" role="muted">Desk asleep: one run when it wakes</Text></>}
+          <LeadPlanFlow steps={card.contract.steps} /><Markdown text={`Done when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`} /></>}
         {card.type === 'result' && card.publication === 'push' && <Text as="p" role="meta">Push the reviewed changes and open a pull request.</Text>}
-        {caps && <><Text as="p" role="meta">{leadAllowance(caps, scope?.project.path)}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}
+        {caps && <><Text as="p" role="meta">{card.type === 'plan' && card.contract.repeat ? `Up to ${leadDollars(caps.usdMicros)} a run · ${caps.rounds} rounds` : leadAllowance(caps, scope?.project.path)}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}
+        {(card.type === 'plan' || card.type === 'result') && scope?.repeat && onRuns && <Button variant="quiet" onClick={() => onRuns(scope)}>Runs</Button>}
         {(card.type === 'waiting' && !worker || card.type === 'result') && <>
           <Text as="p" role="meta">{(['check', 'review', 'blocking-findings', 'diff'] as const).flatMap(kind => {
             const expected = scope?.assertions.filter(assertion => assertion.kind === kind) ?? []
@@ -103,9 +118,9 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
         </>}
       </LeadContract>}
       {card.type !== 'branch-ownership' && placement !== 'thread' && !state && active === card && !personActions.some(action => action.id === card.id) && <LeadDecision key={`${card.id}:${card.revision}`} id={card.id} type={card.type} detail={card.type === 'permission-change' || card.type === 'budget-change' ? summary : undefined} title={card.type === 'plan' ? 'Approve this plan?' : worker ? 'A worker needs your approval' : person ? 'Accept these changes?' : 'Approve this change?'} pending={pending !== null} focusRef={ref}
-        approveLabel={person ? 'Accept' : 'Approve'} onApprove={person || approval ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, person ? 'accept' : 'approve') } : undefined}
+        approveLabel={person ? 'Accept' : 'Approve'} onApprove={person || approval ? () => { void decide(card as DecisionCard, person ? 'accept' : 'approve') } : undefined}
         onOpenPr={card.type === 'result' && card.outcome === 'reviewed' ? () => { void decide(card, 'accept-open-pr') } : undefined}
-        onDecline={person || approval ? () => { void decide(card as Exclude<LeadCard, { type: 'stopped' }>, 'decline') } : undefined}
+        onDecline={person || approval ? () => { void decide(card as DecisionCard, 'decline') } : undefined}
         link={worker ? { label: 'Open approvals', run: () => onApprovals(card.runId) } : person ? { label: 'Open changes', run: onChanges } : undefined} />}
     </div>
   })}{placement !== 'thread' && personActions.map(action => <Row key={action.id} kind="record" layout="record"
@@ -117,6 +132,40 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
     </> : <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'run')}>{`Run check ${action.name}`}</Button>} />)}</>
 }
 const LeadReason = ({ text }: { readonly text: string }) => <Markdown text={text} />
+
+const LeadSecondLook = ({ card }: { readonly card: Extract<LeadCard, { type: 'second-look' }> }) => <LeadContract cardId={card.id} cardType={card.type}>
+  <Text as="p" role="subject">Second look</Text>
+  <Rows>{(['said', 'found', 'did'] as const).map(key => <Row key={key} title={{ said: 'Said', found: 'Found', did: 'Did' }[key]} desc={sanitizeText(card[key])} />)}</Rows>
+</LeadContract>
+
+const LeadAllowanceWarning = ({ card, currentCaps, onRaise }: {
+  readonly card: Extract<LeadCard, { type: 'allowance-warning' }>
+  readonly currentCaps?: LeadCaps
+  readonly onRaise?: (logicalGoalId: string, caps: LeadCaps) => Promise<unknown>
+}) => {
+  const [open, setOpen] = useState(false), [dollars, setDollars] = useState(''), [rounds, setRounds] = useState('')
+  const [pending, setPending] = useState(false), [error, setError] = useState(false), busy = useRef(false)
+  const caps = currentCaps ?? card.caps
+  const usdMicros = Math.round(Number(dollars) * 1000000), count = Number(rounds)
+  const valid = dollars.trim() !== '' && rounds.trim() !== '' && Number.isSafeInteger(usdMicros) && usdMicros >= caps.usdMicros && usdMicros <= LEAD_LIMITS.maxUsdMicros && Number.isSafeInteger(count) && count >= caps.rounds && count <= LEAD_LIMITS.rounds && (usdMicros > caps.usdMicros || count > caps.rounds)
+  return <LeadContract cardId={card.id} cardType={card.type}>
+    <Text as="p" role="subject">At 80%</Text>
+    <Text as="p" role="value" tone="warning">{leadDollars(card.usdMicros)} of {leadDollars(card.caps.usdMicros)}</Text>
+    <Text as="p" role="muted">At {leadDollars(card.caps.usdMicros)} the goal stops, as before</Text>
+    {onRaise && <Button variant="outline" onClick={() => { setDollars(String(caps.usdMicros / 1000000)); setRounds(String(caps.rounds)); setError(false); setOpen(true) }}>Raise limit…</Button>}
+    {open && <Dialog title="Raise limit" description="Applies to this goal. A goal that has stopped stays stopped." onClose={() => { if (!busy.current) setOpen(false) }}
+      footer={<><Button disabled={pending || !valid} aria-busy={pending} onClick={async () => {
+        if (!valid || !onRaise || busy.current) return
+        busy.current = true; setPending(true); setError(false)
+        try { await onRaise(card.logicalGoalId, { usdMicros, rounds: count }); setOpen(false) } catch { setError(true) } finally { busy.current = false; setPending(false) }
+      }}>Apply</Button><Button variant="quiet" disabled={pending} onClick={() => setOpen(false)}>Cancel</Button></>}>
+        <FormStack><Rows>
+          <Row title="Dollar cap" control={<Input aria-label="New dollar cap" type="number" min={caps.usdMicros / 1000000} max={LEAD_LIMITS.maxUsdMicros / 1000000} step="0.01" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} />} />
+          <Row title="Rounds" control={<Input aria-label="New rounds" type="number" min={caps.rounds} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} />} />
+        </Rows>{error && <Banner tone="warning" role="alert">The limit could not be changed. Read the current goal and try again.</Banner>}</FormStack>
+    </Dialog>}
+  </LeadContract>
+}
 
 /** A single host-shaped finding, qualification and next step; navigation never answers a decision. */
 export const LeadProactiveCard = ({ report, onAction }: { readonly report: LeadProactive; readonly onAction?: (action: NonNullable<LeadProactive['action']>) => void }) => <LeadContract>

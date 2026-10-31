@@ -154,6 +154,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     for (const request of journal.state.budget?.requests ?? []) if (request.uncertain)
       await journal.updateBudget({ version: 1, type: 'write-off', now: clock.now(), requestId: request.reservation.requestId })
   }
+  const handledSecondLooks = new Set<string>()
   const refresh = async (): Promise<void> => {
     if (closed) return
     refreshPending = false
@@ -191,6 +192,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       }
       if (closed || generation !== expected) return
       personActions = actions
+      // A host second look already handled this stop. Consume its fingerprint
+      // without buying a model turn; subsequent actual run progress still wakes.
+      const handled = journal.state.secondLooks.filter(look => !handledSecondLooks.has(look.stopKey) && journal.state.cards.some(card => card.type === 'second-look' && card.stopKey === look.stopKey))
+      if (handled.length) {
+        for (const look of handled) handledSecondLooks.add(look.stopKey)
+        for (const look of handled) gate.handledStop(look.stopKey, look.runId, snapshot, owned(), personActions)
+      }
       publicationSources = sources
       const budget = journal.state.budget && leadBudgetProjection(journal.state.budget!, clock.now())
       const reviewed = contract && state.steps.every(step => step.state === 'started') && evaluated.length > 0 &&
@@ -260,6 +268,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     if (reason === 'lead-budget-unknown') reason = null
     return false
   }
+  const deliveredAllowanceWarnings = new Set<string>()
   const performStep = async (input: LeadMessagesRequest, signal?: AbortSignal): Promise<LeadMessagesResult | null> => {
     if (blocked()) return null
     if (journal.state.phase === 'draft') await journal.setManagementPhase('planning')
@@ -269,7 +278,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     signal?.addEventListener('abort', abort, { once: true })
     const evidenceAt = deskReadAt, evidenceGeneration = generation
     let result: LeadMessagesResult
-    try { result = await messages.request({ ...input, ...(input.proactive ? { messages: withObservation(input.messages, 'This is an automatic wake. Reply with the proactive finding/caveat/ask envelope from your instructions, or stay quiet.') } : {}), system: [input.system, standingInstructions()].filter(Boolean).join('\n') }, active.signal) }
+    const allowance = journal.state.cards.find(card => card.type === 'allowance-warning' && card.logicalGoalId === journal.state.budget?.logicalGoalId && card.caps.usdMicros === journal.state.budget?.caps.usdMicros && !deliveredAllowanceWarnings.has(card.id))
+    if (allowance) deliveredAllowanceWarnings.add(allowance.id)
+    const request = allowance ? { ...input, messages: withObservation(input.messages, 'Desk message: 80% of the allowance is used. Finish only what the approved plan needs. List review asks outside it in the result instead of doing them.') } : input
+    try { result = await messages.request({ ...request, ...(input.proactive ? { messages: withObservation(request.messages, 'This is an automatic wake. Reply with the proactive finding/caveat/ask envelope from your instructions, or stay quiet.') } : {}), system: [input.system, standingInstructions()].filter(Boolean).join('\n') }, active.signal) }
     catch { result = { status: 'failed', reason: 'lead-messages-failed' } }
     finally { signal?.removeEventListener('abort', abort); active = null }
     history = result.messages ?? history

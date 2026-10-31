@@ -3,6 +3,8 @@ import test from 'node:test'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { LeadPlanner } from '../src/lead/planner.js'
+import { LeadRepeats } from '../src/lead/repeats.js'
 import { createLeadRig } from './fixtures/lead-rig.js'
 
 // Every case owns the actual host, child, restricted door, journal and Flow engine.
@@ -102,6 +104,39 @@ test('two-run reviewed result follows failed review and repair and retries a fai
   assert.equal(rig.journal.state.phase, 'accepted')
   assert.equal(rig.personGates().filter(one => one.outcome === 'accepted').length, 2)
   await rig.assertAccounting(); await rig.assertNoForbiddenEffects()
+})
+
+test('one repeat approval runs twice and skips a slot while its first result waits', async t => {
+  const rig = await createLeadRig({ repeat: true }); t.after(() => rig.dispose())
+  await rig.reviewed()
+  let schedule = await rig.host.call('lead/schedule/read', {})
+  assert.equal(schedule.tasks.length, 1)
+  const task = schedule.tasks[0]!, firstGoal = rig.journal.state.budget!.logicalGoalId, firstDigest = rig.journal.state.contract!.digest
+  assert.equal(task.approved!.contractDigest, firstDigest)
+  assert.equal(task.runs![0]!.logicalGoalId, firstGoal)
+  // Advance only the schedule owner's clock. Real worker timers and consent
+  // remain on the host clock; no production timer or provider is replaced.
+  const later = new Date(task.lastRunAt!); later.setDate(later.getDate() + 1); later.setHours(10, 0, 0, 0)
+  const owner = new LeadRepeats({ planner: new LeadPlanner(rig.home), journal: rig.journal, now: () => later.getTime(),
+    async start() { throw new Error('A pending result cannot start another slot') } })
+  await owner.tick(); await owner.tick()
+  schedule = await rig.host.call('lead/schedule/read', {})
+  assert.equal(schedule.tasks[0]!.runs!.filter(run => run.state === 'skipped').length, 1)
+  assert.equal(rig.journal.state.budget!.logicalGoalId, firstGoal)
+  await assert.rejects(rig.host.call('lead/repeat/control', { taskId: task.id, action: 'run-now' }))
+  await rig.decide(rig.pending('result')!, 'accept')
+  await rig.waitFor(() => !rig.service.requestInFlight && !rig.journal.state.budget!.requests.length, 'first repeat finishes')
+  await rig.host.call('lead/repeat/control', { taskId: task.id, action: 'run-now' })
+  await rig.waitFor(() => !!rig.pending('result'), 'second repeat reviewed result without another plan approval')
+  assert.notEqual(rig.journal.state.budget!.logicalGoalId, firstGoal)
+  assert.notEqual(rig.journal.state.contract!.digest, firstDigest)
+  assert.ok(rig.journal.state.steps.every(step => step.id !== 'first' && step.id !== 'second'))
+  assert.equal(rig.journal.state.cards.filter(card => card.type === 'plan' && !rig.journal.state.decidedCards.includes(`${card.id}:${card.revision}`)).length, 0)
+  schedule = await rig.host.call('lead/schedule/read', {})
+  assert.equal(schedule.tasks[0]!.runs!.filter(run => run.state === 'started').length, 2)
+  await rig.decide(rig.pending('result')!, 'accept')
+  await rig.waitFor(async () => (await rig.host.call('lead/schedule/read', {})).tasks[0]!.runs!.filter(run => run.outcome === 'accepted').length === 2, 'both run results retained')
+  await rig.assertNoForbiddenEffects()
 })
 
 test('accepting step 1 before the model starts step 2 seeds its reviewed revision', async t => {

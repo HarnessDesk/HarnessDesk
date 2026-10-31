@@ -2224,6 +2224,12 @@ and the separate-approval boundary for publishing, merging and deleting. Results
 show qualified check, review, findings and changes status, reasons and separately
 attributed Lead and reported worker spend. Unknown values remain unknown.
 
+A plan for recurring work carries a Repeats chip and a How it repeats block: its local timetable, that a slot is skipped while the previous run waits, and that an asleep desk makes one run when it wakes. The allowance is per run. Approve covers the stored contract for future runs; publishing, merging and deleting still ask on each run. A changed project, policy, seat, review independence or Flow source returns a plan card with the reason. Each run has its own result and acceptance. Plan and result Runs links open Settings › Lead, where each task's Runs view shows its next slot and last 12 runs, state, reason and known spend and rounds. Pause silently skips slots until Resume. Stop retains the history. Run once now requires an idle Lead. Settings tasks without an approved contract still ask for a plan approval each time.
+
+A host intervention on a worker stop shows one Second look entry with Said, Found and Did facts. A proven cleared issue or pull request can resume the existing run within its allowance; missing fresh check evidence can produce one steer asking the worker to show output. Such output remains advisory: required checks still need the person's own Run check action. Unchanged or unprovable claims reach the person as before.
+
+Known attributed spend at 80% shows one At 80% entry, its dollar total and cap in warning ink, and the unchanged stop threshold. Raise limit… opens the shared Dialog with dollar and round fields and applies the person's increase directly. A raised dollar cap can produce a new warning on reaching its own 80%; uncertain spend never produces a figure. Increasing a stopped goal's limits leaves it stopped. The Lead receives a desk message to finish only what the approved plan needs and list extra review asks in the result.
+
 The shared ApprovalDialog docks the question and buttons above the composer.
 Plans and widenings offer Approve and Decline; a result offers Open changes,
 Decline, Accept and Accept and open PR. The fourth action sends accept-open-pr
