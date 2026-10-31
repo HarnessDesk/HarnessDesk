@@ -1,0 +1,21 @@
+{
+  "issue": 1897,
+  "head": "e91f3ad3336d858e5f133e71c8de17839b26978f",
+  "tree": "39fb40b9e88f5725dcd88f333a4e963aab3b0ded",
+  "frames": [
+    {
+      "name": "approval-light.png",
+      "sha256": "966b6f0e82fb3b6d44103d0176b4c1271031828fb92348c00d742ab72f46bec0",
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "name": "approval-dark.png",
+      "sha256": "ccc7f4ec6a2e32927265942044e90ed0a28e80a08c570729ebfe40ad9cc6dfee",
+      "width": 1440,
+      "height": 900
+    }
+  ],
+  "surface": "General synthetic preview gallery. Whole-document text and attributes, all mounted application-store accounts, source-authored preview roots/runtimes and the source-matched data iframe content audited independently. Preview-specific validation; no claim that the desktop rig-only reasonsFor accepts the preview data iframe. No shipping app behavior or provider claim.",
+  "privacy": "Both actual themes personally inspected; unchanged whole-document text and attribute checks plus independent account, preview-history and guest-content checks passed."
+}
