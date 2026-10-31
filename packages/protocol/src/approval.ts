@@ -18,6 +18,8 @@ export interface ApprovalBase {
   readonly requestedAt: number
   /** Runtime-supplied rationale, e.g. "needs network access to install". */
   readonly reason?: string | null
+  /** Additional authority requested by this approval, normalized as complete display facts. */
+  readonly extraGrants?: readonly { readonly label: string; readonly value: string }[]
 }
 
 /** Extra scope an approval may grant beyond the single action. */

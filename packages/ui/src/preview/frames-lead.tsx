@@ -58,7 +58,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     }
     if (method === 'lead/action/perform') {
       if (params.contractDigest !== current.thread.contract?.digest || !current.personActions?.some(action => action.id === params.id)) throw { code: 'lead-card-stale' }
-      emit({ ...current, revision: current.revision + 1, ...(params.choice === 'yes-goal' ? { savedApprovals: [...current.savedApprovals ?? [], { id: 'rule-new', target: 'git log in /workspace/demo', count: 0 }] } : {}), personActions: current.personActions.filter(action => action.id !== params.id), thread: { ...current.thread, cards: current.thread.cards.filter(card => card.id !== params.id) } })
+      emit({ ...current, revision: current.revision + 1, ...(params.choice === 'yes-goal' ? { savedApprovals: [...current.savedApprovals ?? [], { id: 'rule-new', target: '/workspace/demo/src/panel.tsx', count: 0 }] } : {}), personActions: current.personActions.filter(action => action.id !== params.id), thread: { ...current.thread, cards: current.thread.cards.filter(card => card.id !== params.id) } })
       return current
     }
     if (method === 'lead/card/decide') {

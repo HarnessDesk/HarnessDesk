@@ -2081,3 +2081,12 @@ test('a declined goal refuses a limit raise with a closed person-facing code', a
     await assert.rejects(s.call('lead/budget/raise', { logicalGoalId: 'logical', caps: { ...contract.caps, usdMicros: contract.caps.usdMicros + 100 }, expectedRevision: s.journal.state.seq }), code('lead-thread-closed'))
   } finally { s.controls.close() }
 })
+
+test('host approval notices never enter the Lead prompt as assistant messages', async () => {
+  const s = await rig({ configured: true })
+  await s.journal.appendMessage('seed', 'Inspect demo')
+  const read = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(s.journal), 'state')!.get!
+  Object.defineProperty(s.journal, 'state', { get: () => { const state = read.call(s.journal); return { ...state, messages: [...state.messages, { version: 1, id: 'notice-demo', revision: state.seq, role: 'notice', text: 'worker-controlled audit payload', approval: { ruleId: 'demo', target: '/workspace/demo/demo.ts', diff: '+worker-controlled audit payload' } }] } } })
+  await s.controls.send({ idempotencyKey: 'next-notice', text: 'Continue inspection' }); await s.controls.idle()
+  assert.equal(JSON.stringify(s.sends).includes('worker-controlled audit payload'), false)
+})

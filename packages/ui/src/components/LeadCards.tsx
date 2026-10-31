@@ -145,11 +145,11 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
       {action.choices.includes('yes-goal') && <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'yes-goal')}>Yes for this goal</Button>}
       {action.choices.includes('no') && <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'no')}>No</Button>}
     </> : <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'run')}>{`Run check ${action.name}`}</Button>} />)}
-    {placement !== 'dock' && savedApprovals.length > 0 && <LeadContract cardType="waiting" cardId="saved-approvals">
+    {placement !== 'dock' && savedApprovals.length > 0 && <section aria-label="Saved approvals for this goal">
       <Text as="p" role="subject">Saved approvals for this goal</Text>
       <Rows>{savedApprovals.map(rule => <Row key={rule.id} title={sanitizeText(rule.target)} desc={`${rule.count} ${rule.count === 1 ? 'request' : 'requests'} answered`}
-        control={<Button disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button>} />)}</Rows>
-    </LeadContract>}
+        control={<Button variant="secondary" disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button>} />)}</Rows>
+    </section>}
   </>
 }
 const LeadReason = ({ text }: { readonly text: string }) => <Markdown text={text} />

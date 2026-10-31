@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdir, writeFile, symlink } from 'node:fs/promises'
+import { mkdir, writeFile, symlink, link } from 'node:fs/promises'
 import { join } from 'node:path'
 import { readChecks } from '../src/evidence/checks-file.js'
 import { tempDir } from './scratch.js'
@@ -74,10 +74,8 @@ test('requests with undisplayed text offer only No and direct the person to the 
   }
 })
 
-test('undisplayed permission scope and file content cannot receive an affirmative', async () => {
-  for (const details of [{ filesystem: ['/workspace/demo'] }, { network: ['example.com'] }, { reason: 'Additional context' },
-    { type: 'fileChange', changes: [{ path: 'demo.ts', kind: { type: 'add' }, diff: 'export const value = 1' }] },
-    { type: 'command', command: 'node demo.mjs', cwd: '/workspace/demo', actions: [] }]) {
+test('undisplayed permission scope and oversized file content cannot receive an affirmative', async () => {
+  for (const details of [{ filesystem: ['/workspace/demo'] }, { network: ['example.com'] }, { type: 'fileChange', changes: [{ path: 'demo.ts', kind: { type: 'add' }, diff: 'x'.repeat(8001) }] }]) {
     const s = rig(); Object.assign(s.approval, details)
     const [action] = await s.actions.read()
     assert.ok(action?.kind === 'worker-approval')
@@ -124,13 +122,14 @@ const standingRig = async () => {
   ]
   const state = records.reduce((state, event) => reduceLeadRecord(state, event), journal.state)
   const restored = await createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
-  const approval: any = { type: 'command', id: 'first', sessionId: 'session', requestedAt: 1, command: 'git status --short', cwd: project, actions: [], options: [{ id: 'yes', label: 'Yes', intent: 'approve' }, { id: 'no', label: 'No', intent: 'deny' }] }
+  const approval: any = { type: 'fileChange', id: 'first', sessionId: 'session', requestedAt: 1, changes: [{ path: join(project, 'demo.ts'), kind: { type: 'update' }, diff: 'export const demo = 1' }], options: [{ id: 'yes', label: 'Yes', intent: 'approve' }, { id: 'no', label: 'No', intent: 'deny' }] }
   const record = { runtime: 'fixture', session: { id: 'session' }, approvals: new Map([['first', approval]]) }
   const calls: unknown[] = []
+  const response: { fail: boolean; onAnswer?: () => Promise<void> } = { fail: false }
   const seat = { role: 'review', closed: null, session: { runtime: 'fixture', sessionId: 'session' }, board: 'team' }
-  const actions = new LeadPersonActions(restored, { registry: { all: () => [record] }, async call(method: string, params: any) { calls.push({ method, params }); record.approvals.delete(params.approvalId) } } as never,
+  const actions = new LeadPersonActions(restored, { registry: { all: () => [record] }, async call(method: string, params: any) { calls.push({ method, params }); await response.onAnswer?.(); if (response.fail) throw Error('fixture responder refused'); record.approvals.delete(params.approvalId) } } as never,
     { seats: { all: () => [seat] } } as never, async () => {})
-  return { actions, journal: restored, record, approval, calls, seat, project }
+  return { actions, journal: restored, record, approval, calls, seat, project, response }
 }
 
 test('a person saves an exact goal rule; later matching workers auto-answer and leave a thread line', async () => {
@@ -141,8 +140,8 @@ test('a person saves an exact goal rule; later matching workers auto-answer and 
   const next = { ...s.approval, id: 'second' }; s.record.approvals.set('second', next)
   assert.deepEqual(await Promise.all([s.actions.autoAnswer('fixture', 'session', 'second'), s.actions.autoAnswer('fixture', 'session', 'second')]), [true, true])
   assert.equal(s.calls.length, 2); assert.equal(s.journal.state.workerApprovals[0]!.count, 1)
-  assert.match(s.journal.state.messages.at(-1)!.text, /Allowed under your rule for this goal: git status --short/)
-  for (const changed of [{ command: 'git log' }, { cwd: s.project + '/other' }, { command: 'git push' }, { kind: 'stdin', input: 'yes' }]) {
+  assert.match(s.journal.state.messages.at(-1)!.text, /Allowed under your rule for this goal:/)
+  for (const changed of [{ changes: [{ ...s.approval.changes[0], path: join(s.project, 'other.ts') }] }, { type: 'command', command: 'git status', cwd: s.project }, { type: 'command', kind: 'stdin', input: 'yes', command: 'demo', cwd: s.project }]) {
     s.record.approvals.set('second', { ...next, ...changed })
     assert.equal(await s.actions.autoAnswer('fixture', 'session', 'second'), false)
   }
@@ -155,7 +154,7 @@ test('a person saves an exact goal rule; later matching workers auto-answer and 
 
 test('publication, free text and permission changes never offer Yes for this goal', async () => {
   const s = await standingRig()
-  for (const details of [{ command: 'git push' }, { kind: 'stdin', input: 'yes' }, { type: 'permission', summary: 'change permissions', gateway: true },
+  for (const details of [{ type: 'command', command: 'git push', cwd: s.project }, { type: 'command', kind: 'stdin', input: 'yes', command: 'demo', cwd: s.project }, { type: 'permission', summary: 'change permissions', gateway: true },
     { type: 'userInput', tool: 'question', questions: [] }, { type: 'elicitation', server: 'demo', message: 'Answer?', schema: {} }]) {
     s.record.approvals.set('first', { ...s.approval, ...details })
     const [action] = await s.actions.read()
@@ -168,7 +167,7 @@ test('publication, free text and permission changes never offer Yes for this goa
 test('linked folders and files cannot borrow authority outside the project or inside its permission storage', async () => {
   const s = await standingRig(), outside = tempDir('lead-worker-outside-')
   await symlink(outside, join(s.project, 'linked'))
-  s.record.approvals.set('first', { ...s.approval, cwd: join(s.project, 'linked') })
+  s.record.approvals.set('first', { ...s.approval, changes: [{ ...s.approval.changes[0], path: join(s.project, 'linked', 'demo.ts') }] })
   let [action] = await s.actions.read()
   assert.ok(action?.kind === 'worker-approval'); assert.ok(!action.choices.includes('yes-goal'))
   await mkdir(join(s.project, '.git')); await writeFile(join(s.project, '.git', 'config'), 'fixture')
@@ -202,4 +201,45 @@ test('one file path can be remembered with its complete diff, but another file d
   s.record.approvals.set('next', { ...file, id: 'next', changes: [{ path, kind: { type: 'update' }, diff: 'export const demo = 2' }] })
   assert.equal(await s.actions.autoAnswer('fixture', 'session', 'next'), true)
   assert.equal(s.journal.state.workerApprovals[0]!.count, 1)
+})
+
+test('a multiply linked regular file never offers a goal rule', async () => {
+  const s = await standingRig()
+  const path = s.approval.changes[0].path
+  await writeFile(path, 'fixture')
+  await link(path, join(s.project, 'alias.ts'))
+  const [action] = await s.actions.read()
+  assert.ok(action?.kind === 'worker-approval'); assert.ok(!action.choices.includes('yes-goal'))
+})
+
+test('an automatic answer records an acknowledged host notice with the exact bounded diff', async () => {
+  const s = await standingRig(), [first] = await s.actions.read(); assert.ok(first)
+  await s.actions.perform({ id: first.id, contractDigest: digest, choice: 'yes-goal' })
+  const diff = 'export const demo = 2 // worker-chosen text'
+  s.record.approvals.set('next', { ...s.approval, id: 'next', changes: [{ ...s.approval.changes[0], diff }] })
+  s.response.onAnswer = async () => { assert.equal(s.journal.state.messages.some(message => message.text.includes('Allowed under your rule')), false, 'no grant claimed before acknowledgement') }
+  assert.equal(await s.actions.autoAnswer('fixture', 'session', 'next'), true)
+  const notice = s.journal.state.messages.at(-1) as any
+  assert.equal(notice.role, 'notice')
+  assert.equal(notice.approval.diff, diff)
+  assert.equal(notice.approval.target, s.approval.changes[0].path)
+})
+
+test('a failed automatic responder leaves no allowed notice or count', async () => {
+  const s = await standingRig(), [first] = await s.actions.read(); assert.ok(first)
+  await s.actions.perform({ id: first.id, contractDigest: digest, choice: 'yes-goal' })
+  s.record.approvals.set('next', { ...s.approval, id: 'next' }); s.response.fail = true
+  await assert.rejects(s.actions.autoAnswer('fixture', 'session', 'next'))
+  assert.equal(s.journal.state.messages.some(message => message.text.includes('Allowed under your rule')), false)
+  assert.equal(s.journal.state.workerApprovals[0]!.count, 0)
+})
+
+test('one-time command cards show extra grants and never offer a goal rule', async () => {
+  for (const fact of [{ label: 'Additional permissions', value: '{"network":{"enabled":true},"fileSystem":{"write":["/"]}}' }, { label: 'Network approval context', value: '{"host":"example.com","protocol":"https"}' }]) {
+    const s = await standingRig()
+    s.record.approvals.set('first', { ...s.approval, type: 'command', command: 'git status', cwd: s.project, actions: [], extraGrants: [fact] })
+    const [action] = await s.actions.read()
+    assert.ok(action?.kind === 'worker-approval'); assert.deepEqual(action.choices, ['yes-once', 'no'])
+    assert.ok(action.details?.includes(fact.value)); assert.ok(action.details?.includes(fact.label))
+  }
 })

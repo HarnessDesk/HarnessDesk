@@ -252,3 +252,10 @@ it('fact labels alone never move a permission question into the gateway dock', (
   mount('pane-1', { ...approval, type: 'permission', summary: 'Inspect repository', facts: [{ label: 'Repository', value: 'acme/widgets' }] } as unknown as Approval)
   expect(container.querySelector('[role="dialog"]')).not.toBeNull()
 })
+
+it('shows extra grant facts on the person approval card', () => {
+  mount('pane-1', { ...approval, extraGrants: [{ label: 'Network approval context', value: 'https example.com' }] } as any)
+  expect(container.textContent).toContain('Network approval context')
+  expect(container.textContent).toContain('https example.com')
+  expect([...container.querySelectorAll('[data-slot="approval-code"]')].some(node => node.textContent === 'https example.com')).toBe(true)
+})

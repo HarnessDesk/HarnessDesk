@@ -321,7 +321,7 @@ export class LeadControls {
       try { await this.options.meterSpend?.() } catch { /* The Lead itself refuses while spend stays unknown. */ }
       // History is rebuilt from what the person can read, as plain text, so no reasoning block from an earlier
       // request is carried into a prefix that has changed since the provider wrote it.
-      const messages: MessagesTurn[] = journal.state.messages.filter(message => message.role !== 'system').map(message => ({
+      const messages: MessagesTurn[] = journal.state.messages.filter(message => message.role === 'user' || message.role === 'assistant').map(message => ({
         role: message.role as 'user' | 'assistant', content: [{ type: 'text' as const, text: message.text }],
       }))
       const waitReason = this.#requestWaitReason

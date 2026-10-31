@@ -11,7 +11,7 @@ import { leadOpeningJobs } from '../lib/lead-opening'
 import { LeadAway } from './LeadAway'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
-import { LeadMessage } from './LeadMessage'
+import { LeadHostNotice, LeadMessage } from './LeadMessage'
 import { LeadCards, leadDollars } from './LeadCards'
 import { leadRepeatTaskFor } from '../lib/lead-repeat'
 import { leadOriginText } from '../lib/lead-time'
@@ -254,7 +254,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
         {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{leadOriginText(origin)}</Button> : leadOriginText(origin)}</Text>}
         {entries.map(entry => entry.kind === 'message'
-          ? <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
+          ? entry.message.role === 'notice' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             proactive={entry.message.proactive} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />

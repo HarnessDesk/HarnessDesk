@@ -642,3 +642,26 @@ it('uncertain chat notice acknowledges with Stop only and preserves the draft', 
   expect(resume).not.toHaveBeenCalled()
   expect(composer.value).toBe('My separate next request')
 })
+
+it('renders saved approvals as a plain list with quiet row actions sharing the dock busy state', async () => {
+  const base = leadProjection(), action = { kind: 'worker-approval', id: 'worker', runId: 'run', role: 'worker', request: 'change demo.ts', choices: ['yes-once', 'yes-goal', 'no'] } as any
+  const { box, request } = await mount({ ...base, thread: { ...base.thread, state: 'running', contract: leadPlan.contract }, personActions: [action], savedApprovals: [{ id: 'saved', target: '/workspace/demo/demo.ts', count: 1 }] })
+  expect(box.querySelector('[data-lead-card="saved-approvals"]')).toBeNull()
+  const revoke = [...box.querySelectorAll('button')].find(button => button.textContent === 'Revoke')!
+  expect(revoke.dataset.variant).toBe('secondary')
+  let settle!: () => void
+  request.mockImplementation(async () => new Promise<any>(resolve => { settle = () => resolve(base) }))
+  await act(async () => revoke.click())
+  expect([...box.querySelectorAll('button')].find(button => button.textContent === 'Yes for this goal')!.disabled).toBe(true)
+  await act(async () => settle())
+})
+
+it('shows host approval notices separately and opens the exact allowed diff', async () => {
+  const base = leadProjection(), diff = '+export const demo = 2'
+  const notice: any = { version: 1, id: 'message-2', revision: 2, role: 'notice', text: 'Allowed under your rule for this goal: /workspace/demo/demo.ts', approval: { ruleId: 'saved', target: '/workspace/demo/demo.ts', diff } }
+  const { box } = await mount({ ...base, thread: { ...base.thread, messages: [notice] } })
+  expect(box.querySelector('article[aria-label="Desk"]')).not.toBeNull()
+  const open = [...box.querySelectorAll('button')].find(button => button.textContent === 'View allowed diff')!
+  await act(async () => open.click())
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(diff)
+})

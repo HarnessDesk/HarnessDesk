@@ -172,10 +172,14 @@ test('paired phone reads saved approvals and revokes through the answer tier', a
   try {
     await s.journal.offerCard(plan); await s.controls.decide(planClick)
     await s.journal.saveWorkerApproval({ id: 'rule-demo', contractDigest: contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq,
-      key: { kind: 'command', command: 'git log', cwd: project.path }, target: 'git log in /workspace/demo', count: 0 })
+      key: { kind: 'fileChange', path: project.path + '/demo.ts' }, target: '/workspace/demo/demo.ts', count: 0 })
+    await s.journal.useWorkerApproval('rule-demo', () => true, async () => {}, '+export const demo = 2')
     const phone = await s.pair()
     const read = await phone.request('lead/thread/read', {})
-    assert.deepEqual(read.result.savedApprovals, [{ id: 'rule-demo', target: 'git log in /workspace/demo', count: 0 }])
+    assert.deepEqual(read.result.savedApprovals, [{ id: 'rule-demo', target: '/workspace/demo/demo.ts', count: 1 }])
+    const notice = read.result.thread.messages.find((message: any) => message.role === 'notice')
+    assert.ok(notice)
+    assert.deepEqual(notice.approval, { ruleId: 'rule-demo', target: '/workspace/demo/demo.ts', diff: '+export const demo = 2' })
     assert.equal(read.result.personActions[0].choices.includes('yes-goal'), true)
     assert.equal(PHONE_POLICY.methods['lead/approval/revoke'], 'answer')
     const revoked = await phone.request('lead/approval/revoke', { id: 'rule-demo', contractDigest: contract.digest })

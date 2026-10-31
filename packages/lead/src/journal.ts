@@ -1,4 +1,4 @@
-import { parseLeadWorkerApprovalRule, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadApprovalAudit, parseLeadWorkerApprovalRule, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
   parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
   CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_MANAGEMENT_REASONS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
@@ -65,7 +65,8 @@ export const parseLeadPublicationOperation = (value: unknown): LeadPublicationOp
 }
 export type LeadJournalEvent =
   | { readonly type: 'worker-rule-saved'; readonly rule: LeadWorkerApprovalRule }
-  | { readonly type: 'worker-rule-used' | 'worker-rule-revoked'; readonly id: string }
+  | { readonly type: 'worker-rule-used'; readonly id: string; readonly diff: string | null }
+  | { readonly type: 'worker-rule-revoked'; readonly id: string }
   | { readonly type: 'wake'; readonly wake: LeadWakeRecord }
   | { readonly type: 'management'; readonly phase: 'planning' | 'waiting-for-user'; readonly reason?: string | null }
   | { readonly type: 'invalidate-results' | 'resume' }
@@ -178,7 +179,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    'worker-rule-saved': ['rule'], 'worker-rule-used': ['id'], 'worker-rule-revoked': ['id'], wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
+    'worker-rule-saved': ['rule'], 'worker-rule-used': ['id', 'diff'], 'worker-rule-revoked': ['id'], wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
     'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     'second-look-attempt': ['runId', 'stopKey', 'now'], 'second-look-restart': ['runId', 'stopKey', 'roundId', 'now'],
     'person-caps': ['logicalGoalId', 'caps', 'now'], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
@@ -190,7 +191,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   let event: LeadJournalEvent
   switch (type) {
     case 'worker-rule-saved': event = { type, rule: parseLeadWorkerApprovalRule(source.rule) }; break
-    case 'worker-rule-used': case 'worker-rule-revoked': event = { type, id: identifier(source.id) }; break
+    case 'worker-rule-used': event = { type, id: identifier(source.id), diff: source.diff === null ? null : parseLeadApprovalAudit({ ruleId: identifier(source.id), target: 'audit', diff: source.diff }).diff! }; break
+    case 'worker-rule-revoked': event = { type, id: identifier(source.id) }; break
     case 'wake': event = { type, wake: parseLeadWakeRecord(source.wake) }; break
     case 'handback': event = { type, operation: parseLeadHandback(source.operation) }; break
     case 'handback-limit': event = { type }; break
@@ -438,15 +440,12 @@ export class LeadJournal {
     if (this.#state.contract?.digest !== contractDigest) throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
     await this.#append({ type: 'worker-rule-revoked', id })
   }) }
-  useWorkerApproval(id: string, guard: () => boolean, answer: () => Promise<unknown>): Promise<boolean> { return this.#queue(async () => {
+  useWorkerApproval(id: string, guard: () => boolean, answer: () => Promise<unknown>, diff: string | null = null): Promise<boolean> { return this.#queue(async () => {
     if (!guard() || !this.#state.workerApprovals.some(rule => rule.id === id) || ['accepted', 'declined', 'stopped', 'following'].includes(this.#state.phase)) return false
-    // Validate admission, then retain the thread audit before dispatch. Count only acknowledged answers.
-    const rule = this.#state.workerApprovals.find(rule => rule.id === id)!
-    reduceLeadRecord(this.#state, { version: 1, seq: this.#state.seq + 1, type: 'worker-rule-used', id })
-    const revision = this.#state.seq + 1
-    await this.#append({ type: 'message', idempotencyKey: null, message: { version: 1, id: `message-${revision}`, revision, role: 'assistant', text: `Allowed under your rule for this goal: ${rule.target}` } })
+    // Validate the bounded audit before dispatch, then record only acknowledged answers.
+    reduceLeadRecord(this.#state, { version: 1, seq: this.#state.seq + 1, type: 'worker-rule-used', id, diff })
     await answer()
-    await this.#append({ type: 'worker-rule-used', id })
+    await this.#append({ type: 'worker-rule-used', id, diff })
     return true
   }) }
   appendReply(text: string, proactive?: LeadProactive): Promise<void> { return this.#queue(() => {

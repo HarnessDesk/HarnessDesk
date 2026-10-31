@@ -201,9 +201,18 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         !state.workerApprovals.some(old => old.id === rule.id || JSON.stringify(old.key) === JSON.stringify(rule.key)))
       state = { ...state, workerApprovals: [...state.workerApprovals, rule] }; break
     }
-    case 'worker-rule-used':
-      ensure(!hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && state.workerApprovals.some(rule => rule.id === event.id && rule.count < Number.MAX_SAFE_INTEGER))
-      state = { ...state, workerApprovals: state.workerApprovals.map(rule => rule.id === event.id ? { ...rule, count: rule.count + 1 } : rule) }; break
+    case 'worker-rule-used': {
+      const rule = state.workerApprovals.find(rule => rule.id === event.id)
+      ensure(!hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && rule && rule.count < Number.MAX_SAFE_INTEGER)
+      ensure((rule!.key.kind === 'fileChange') === (event.diff !== null))
+      const message: LeadMessage = { version: 1, id: `message-${event.seq}`, revision: event.seq, role: 'notice', text: `Allowed under your rule for this goal: ${rule!.target}`,
+        approval: { ruleId: rule!.id, target: rule!.target, ...(event.diff !== null ? { diff: event.diff } : {}) } }
+      const all = [...state.messages, message], excess = Math.max(0, all.length - 256)
+      const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
+        messages: all.slice(excess), olderMessages: state.olderMessages + excess, cards: [] }, 131072)
+      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages,
+        workerApprovals: state.workerApprovals.map(rule => rule.id === event.id ? { ...rule, count: rule.count + 1 } : rule) }; break
+    }
     case 'worker-rule-revoked':
       ensure(state.workerApprovals.some(rule => rule.id === event.id))
       state = { ...state, workerApprovals: state.workerApprovals.filter(rule => rule.id !== event.id) }; break

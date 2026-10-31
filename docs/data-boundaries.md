@@ -90,7 +90,11 @@ turn. These actions reuse the desk's host methods without changing session
 permissions or model settings. It can also send to the Lead, stop or resume
 it, answer its cards and permitted worker questions, and request required
 checks. Approval decisions require Answer. Read, Run and Answer grants bound its
-surface. The desk identity, paired-device keys, grants, revocations and port
+surface. Lead worker cards can carry complete bounded request details, including
+extra permissions. Saved approvals expose target descriptions and counts; each
+automatically allowed file change adds its exact bounded diff to a host notice
+in the paired phone's Lead thread. Those notices are excluded from the Lead
+provider conversation. The desk identity, paired-device keys, grants, revocations and port
 live under `phone-link/` in the local state folder. Removing a phone closes its
 connection and requires pairing again; starting without the opt-in closes the
 LAN lane. Account sign-out and deletion do not remove this separate registry.

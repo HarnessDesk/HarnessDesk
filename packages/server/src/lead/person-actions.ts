@@ -2,7 +2,7 @@ import { lstatSync, realpathSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createHash } from 'node:crypto'
 import { hasPendingLeadPlan, leadPlanRuns, type LeadJournal } from '@harnessdesk/lead'
-import { leadWorkerApprovalKey, leadWorkerApprovalTarget, type LeadWorkerApprovalKey } from '@harnessdesk/protocol'
+import { LEAD_APPROVAL_DETAIL_CHARS, leadWorkerApprovalKey, leadWorkerApprovalTarget, type LeadWorkerApprovalKey } from '@harnessdesk/protocol'
 import type { Approval, HostParams, LeadAction, LeadActionInput, Sha } from '@harnessdesk/protocol'
 import type { EvidencePlane } from '../evidence/plane.js'
 import type { Host } from '../host.js'
@@ -10,7 +10,7 @@ import { readChecksAt } from '../evidence/checks-file.js'
 import { leadContainsSecret } from './secrets.js'
 import { leadRefusal } from './controls.js'
 
-type Target = { readonly runtime?: string; readonly sessionId?: string; readonly approvalId?: string; readonly key?: LeadWorkerApprovalKey; readonly pending?: () => boolean; readonly action: LeadAction; readonly answer: (choice: LeadActionInput['choice']) => Promise<unknown> }
+type Target = { readonly runtime?: string; readonly sessionId?: string; readonly approvalId?: string; readonly key?: LeadWorkerApprovalKey; readonly diff?: string; readonly pending?: () => boolean; readonly action: LeadAction; readonly answer: (choice: LeadActionInput['choice']) => Promise<unknown> }
 const identity = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const wellFormed = (value: string): string => (value as string & { toWellFormed(): string }).toWellFormed()
 const roleOf = (role: string | null) => role === 'implement' ? 'implementer' : role === 'review' ? 'code reviewer' : 'worker'
@@ -28,9 +28,12 @@ const pathSafe = (key: LeadWorkerApprovalKey, project: string): boolean => {
   if (key.kind === 'tool') return true
   try {
     const root = realpathSync.native(project)
-    if (key.kind === 'command') return realpathSync.native(key.cwd) === join(root, relative(project, key.cwd)) && leadWorkerApprovalKey({ type: 'command', command: key.command, cwd: realpathSync.native(key.cwd) } as Approval, root) !== null
     let path: string
-    try { path = realpathSync.native(key.path) }
+    try {
+      const stat = lstatSync(key.path)
+      if (!stat.isFile() || stat.nlink > 1) return false
+      path = realpathSync.native(key.path)
+    }
     catch (error) {
       if ((error as { code?: string }).code !== 'ENOENT') return false
       try { lstatSync(key.path); return false } catch (missing) { if ((missing as { code?: string }).code !== 'ENOENT') return false }
@@ -59,11 +62,15 @@ export class LeadPersonActions {
         // Grants need the complete scope: exact command/folder, tool, or a path with its whole diff.
         let key = !hasPendingLeadPlan(state) && contract.project && leadPlanRuns(state).some(run => run.runId === owned.runId) && state.steps.some(step => step.attemptId === owned.correlationId && step.contractDigest === contract.digest) ? leadWorkerApprovalKey(approval, contract.project.path) : null
         if (key && !pathSafe(key, contract.project.path)) key = null
-        const details = approval.type === 'fileChange' && key ? approval.changes[0]!.diff : undefined
-        const whole = key !== null && !approval.reason && (!details || details.length <= 8000) || approval.type === 'permission' && !approval.reason && !approval.filesystem?.length && !approval.network?.length
-        if (key) request = raw = key.kind === 'command' ? `run ${leadWorkerApprovalTarget(key)}` : key.kind === 'fileChange' ? `change ${key.path}` : approval.type === 'permission' ? approval.summary : raw
+        const rawDiff = approval.type === 'fileChange' && approval.changes.length === 1 ? approval.changes[0]!.diff : undefined
+        const scope = [approval.reason, ...(approval.extraGrants ?? []).map(fact => `${fact.label}: ${fact.value}`)].filter(Boolean).join('\n')
+        const content = approval.type === 'command' ? `Command: ${approval.command}\nWorking folder: ${approval.cwd}${approval.kind === 'stdin' ? `\nInput: ${approval.input ?? ''}` : ''}` : rawDiff
+        const details = [content, scope].filter(value => value !== undefined && value !== '').join('\n') || undefined
+        const whole = (approval.type === 'command' || rawDiff !== undefined || approval.type === 'permission' && !approval.filesystem?.length && !approval.network?.length && !approval.facts?.length) &&
+          (!details || details.length <= LEAD_APPROVAL_DETAIL_CHARS)
+        if (key) request = raw = key.kind === 'fileChange' ? `change ${key.path}` : approval.type === 'permission' ? approval.summary : raw
         let safe = whole && request === raw && request.length <= 240 && !leadContainsSecret([raw, details ?? '']) &&
-          (!details || !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(details))
+          (!details || !/[\p{Cf}\p{Zl}\p{Zp}]|[^\P{Cc}\t\r\n]/u.test(details))
         try { await this.assertPublic([raw, details ?? '']) } catch { safe = false }
         request = safe ? request : 'Request details are hidden; the full request is on the desk.'
         const options = 'options' in approval ? approval.options : []
@@ -80,7 +87,7 @@ export class LeadPersonActions {
             this.evidence.seats.all().some(seat => !seat.closed && seat.board === owned.teamId && seat.session.runtime === record.runtime && seat.session.sessionId === record.session.id) &&
             leadPlanRuns(current).some(run => run.runId === owned.runId && run.teamId === owned.teamId)
         }
-        targets.push({ action, runtime: record.runtime, sessionId: record.session.id, approvalId: approval.id, ...(safe && yes && key ? { key, pending } : {}), answer: async choice => {
+        targets.push({ action, runtime: record.runtime, sessionId: record.session.id, approvalId: approval.id, ...(safe && yes && key ? { key, pending, ...(rawDiff !== undefined ? { diff: rawDiff } : {}) } : {}), answer: async choice => {
           const option = choice === 'yes-once' || choice === 'yes-goal' ? yes : choice === 'no' ? no : undefined
           if (!option) throw leadRefusal('lead-operation-refused')
           // This is exactly the window's normal approval path, including held ceilings and stopped questions.
@@ -139,7 +146,7 @@ export class LeadPersonActions {
     if (!target?.key || !target.pending) return false
     const rule = this.journal.state.workerApprovals.find(rule => JSON.stringify(rule.key) === JSON.stringify(target.key))
     if (!rule) return false
-    return this.journal.useWorkerApproval(rule.id, target.pending, () => target.answer('yes-once'))
+    return this.journal.useWorkerApproval(rule.id, target.pending, () => target.answer('yes-once'), target.diff ?? null)
   }
   async perform(input: LeadActionInput): Promise<void> {
     if (input.contractDigest !== this.journal.state.contract?.digest) throw leadRefusal('lead-card-stale')

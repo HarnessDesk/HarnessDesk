@@ -11,14 +11,16 @@ const start = () => replayLeadJournal([
   { version: 1, seq: 2, type: 'card', card: { version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: digest, contract } },
   { version: 1, seq: 3, type: 'card-decision', decision: { version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: digest, choice: 'approve' }, expiresAt: 200 },
 ])
-const key = { kind: 'command', command: 'git status --short', cwd: '/workspace/demo' }
-const save = (state = start()) => reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-saved', rule: { id: 'rule-1', contractDigest: digest, goalStartedSeq: state.goalStartedSeq, key, target: 'git status --short in /workspace/demo', count: 0 } })
+const key = { kind: 'fileChange', path: '/workspace/demo/demo.ts' }
+const save = (state = start()) => reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-saved', rule: { id: 'rule-1', contractDigest: digest, goalStartedSeq: state.goalStartedSeq, key, target: key.path, count: 0 } })
 
 test('goal worker rules create, count and revoke with strict checkpoint round trip', () => {
   let state = save()
   assert.equal(state.workerApprovals.length, 1)
-  state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-used', id: 'rule-1' })
+  state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-used', id: 'rule-1', diff: 'export const demo = 2' })
   assert.equal(state.workerApprovals[0]!.count, 1)
+  assert.equal(state.messages.at(-1)!.role, 'notice')
+  assert.equal((state.messages.at(-1) as any).approval.diff, 'export const demo = 2')
   const checkpoint = leadCheckpoint(state, 'b'.repeat(64))
   assert.deepEqual(parseLeadCheckpoint(JSON.parse(JSON.stringify(checkpoint))).state, state)
   for (const change of [(s: any) => s.workerApprovals[0].key.command = 'git push', (s: any) => s.workerApprovals[0].count = -1,
@@ -31,21 +33,15 @@ test('goal worker rules create, count and revoke with strict checkpoint round tr
 })
 
 test('worker rule keys are exact and reject questions, publication and authority changes', () => {
-  const approval = { type: 'command', command: key.command, cwd: key.cwd, options: [], actions: [] } as any
-  assert.deepEqual(leadWorkerApprovalKey(approval, key.cwd), key)
-  assert.notDeepEqual(leadWorkerApprovalKey({ ...approval, command: 'git log' }, key.cwd), key)
-  assert.notDeepEqual(leadWorkerApprovalKey({ ...approval, cwd: key.cwd + '/other' }, key.cwd), key)
-  for (const command of ['git push', 'git branch -D demo', 'git status; git push', 'git log --output=demo', 'chmod 777 demo', 'rm demo'])
-    assert.equal(leadWorkerApprovalKey({ ...approval, command }, key.cwd), null)
-  assert.equal(leadWorkerApprovalKey({ ...approval, kind: 'stdin', input: 'yes' }, key.cwd), null)
-  for (const type of ['userInput', 'elicitation']) assert.equal(leadWorkerApprovalKey({ type } as any, key.cwd), null)
-  assert.equal(leadWorkerApprovalKey({ type: 'permission', summary: 'publish', gateway: true } as any, key.cwd), null)
-  assert.equal(leadWorkerApprovalKey({ type: 'permission', summary: 'mcp__harnessdesk__git_log' } as any, key.cwd), null)
-  assert.deepEqual(leadWorkerApprovalKey({ type: 'permission', flowBoardTool: { server: 'harnessdesk', tool: 'get_team_status' } } as any, key.cwd), { kind: 'tool', tool: 'get_team_status' })
+  const project = '/workspace/demo'
+  for (const type of ['userInput', 'elicitation']) assert.equal(leadWorkerApprovalKey({ type } as any, project), null)
+  assert.equal(leadWorkerApprovalKey({ type: 'permission', summary: 'publish', gateway: true } as any, project), null)
+  assert.equal(leadWorkerApprovalKey({ type: 'permission', summary: 'mcp__harnessdesk__git_log' } as any, project), null)
+  assert.deepEqual(leadWorkerApprovalKey({ type: 'permission', flowBoardTool: { server: 'harnessdesk', tool: 'get_team_status' } } as any, project), { kind: 'tool', tool: 'get_team_status' })
   const file = { type: 'fileChange', changes: [{ path: '/workspace/demo/demo.ts', kind: { type: 'update' }, diff: 'demo' }] } as any
-  assert.deepEqual(leadWorkerApprovalKey(file, key.cwd), { kind: 'fileChange', path: '/workspace/demo/demo.ts' })
+  assert.deepEqual(leadWorkerApprovalKey(file, project), { kind: 'fileChange', path: '/workspace/demo/demo.ts' })
   for (const path of ['/workspace/else/demo.ts', '/workspace/demo/.harnessdesk/permissions.yml', '/workspace/demo/.git/config', '/workspace/demo/AGENTS.md'])
-    assert.equal(leadWorkerApprovalKey({ ...file, changes: [{ ...file.changes[0], path }] }, key.cwd), null)
+    assert.equal(leadWorkerApprovalKey({ ...file, changes: [{ ...file.changes[0], path }] }, project), null)
 })
 
 test('rules end on accepted, declined, stopped, a new goal, or a changed contract', () => {
@@ -73,4 +69,31 @@ test('a fresh goal including a scheduled repeat cannot inherit a saved rule', ()
   assert.deepEqual(state.workerApprovals, [])
   assert.equal(state.contract, null)
   assert.equal(state.budget!.logicalGoalId, 'repeat-next')
+})
+
+test('commands never receive a reusable key, even read-looking commands', () => {
+  for (const command of ['pwd', 'git status', 'git status --short', 'git log', 'git diff'])
+    assert.equal(leadWorkerApprovalKey({ type: 'command', command, cwd: '/workspace/demo' } as any, '/workspace/demo'), null)
+})
+
+test('the file allowlist excludes every authority and automation shape', () => {
+  const refused = ['.mcp.json', '.gitattributes', '.gitmodules', '.github/workflows/demo.md', '.vscode/tasks.json', '.envrc', '.husky/demo.ts', '.agents/demo.md',
+    'data.json', 'data.yaml', 'data.yml', 'config.toml', 'pnpm-lock.yaml', 'deps.lock', 'run.sh', 'run.zsh', 'package.json', 'Makefile', 'Dockerfile', 'demo.config.ts', 'postcss.config.js', 'myrc.ts',
+    'AGENTS.md', 'agents.MD', 'CLAUDE.md', 'GEMINI.md', 'AGENT.md', 'copilot-instructions.md']
+  for (const name of refused) {
+    const path = '/workspace/demo/' + name
+    assert.equal(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: 'demo' }] } as any, '/workspace/demo'), null, name)
+  }
+})
+
+for (const char of ['\u200b', '\ufeff', '\u2028', '\u2029']) test(`file targets reject hidden character ${char.codePointAt(0)}`, () => {
+  const path = `/workspace/demo/de${char}mo.ts`
+  assert.equal(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: 'demo' }] } as any, '/workspace/demo'), null)
+})
+
+test('extra grant facts and rationale exclude all otherwise eligible approval kinds', () => {
+  const approvals = [{ type: 'fileChange', changes: [{ path: '/workspace/demo/demo.ts', kind: { type: 'update' }, diff: 'demo' }] },
+    { type: 'permission', summary: 'get_team_status', flowBoardTool: { server: 'harnessdesk', tool: 'get_team_status' } }]
+  for (const approval of approvals) for (const scope of [{ extraGrants: [{ label: 'Network', value: 'example.com' }] }, { reason: 'Extra scope' }])
+    assert.equal(leadWorkerApprovalKey({ ...approval, ...scope } as any, '/workspace/demo'), null)
 })

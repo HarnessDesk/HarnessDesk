@@ -300,3 +300,14 @@ test('a user-verification elicitation (0.155.0) is cancelled and said, never dra
   assert.deepEqual(asked[0].schema, schema)
   assert.equal(answers.length, 1, 'a form waits for the person')
 })
+
+for (const extra of [
+  { additionalPermissions: { network: { enabled: true }, fileSystem: { read: null, write: ['/'] } } },
+  { networkApprovalContext: { host: 'example.com', protocol: 'https' as const } },
+]) test(`command approval retains extra grant ${Object.keys(extra)[0]} as runtime-neutral display facts`, () => {
+  const { approval } = mapCommandApproval('extra-grant', params({ command: 'git status', cwd: '/workspace/demo', ...extra }))
+  const grants = (approval as any).extraGrants
+  assert.ok(grants?.length, 'extra grants must reach the person and the reusable-key guard')
+  assert.ok(JSON.stringify(grants).includes('example.com') || JSON.stringify(grants).includes('write'))
+  assert.equal(JSON.stringify(grants).includes(Object.keys(extra)[0]!), false, 'the adapter supplies display labels, not vendor type names')
+})

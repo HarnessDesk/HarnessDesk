@@ -332,8 +332,9 @@ creating click. An absent list means no saved approvals.
 
 A `personActions` entry with `kind: "worker-approval"` may include `"yes-goal"`
 in `choices` beside `"yes-once"` and `"no"`. Render it as **Yes for this goal**
-only when present. Optional `details: string` contains the complete bounded file
-diff and must be shown with the request before granting it. The person sends:
+only when present. Optional `details: string` contains complete bounded request details, including
+file content, command/folder and any extra-grant facts, and must be shown before
+granting. Command approvals never include `"yes-goal"`. The person sends:
 
 ```json
 {"method":"lead/action/perform","params":{"id":"worker-demo","contractDigest":"<current contract digest>","choice":"yes-goal"}}
@@ -349,3 +350,24 @@ Both require the phone's `answer` tier and return a complete `LeadWindowProjecti
 Stale contracts or requests are refused. These are person controls; they are not
 on the worker client surface or the child RPC port. Rules end when the goal ends
 or its approved contract changes, and never transfer to the next repeated run.
+
+
+Acknowledged automatic answers are `thread.messages` entries with
+`role: "notice"` and optional new `approval` data (required on this role):
+
+```ts
+approval: { ruleId: string; target: string; diff?: string }
+```
+
+`diff` is the exact file diff, including an empty diff, bounded to 8,000
+characters. Tool notices omit it. Present these as Desk notices, never as the
+Lead's own words, and offer a diff reader when `diff` is present. The data is
+retained by the journal and strict checkpoint and delivered by the existing
+`lead/thread/read` result and `lead/changed` notification. No new method is
+needed. `savedApprovals` stays `{ id, target, count }`; counts advance only after
+the responder acknowledges the automatic answer.
+
+Ordinary worker phone cards cannot display extra-grant scope. When it is present,
+their existing `why` field says “Extra permissions need review on the desk.” and
+the host refuses approval from that card; the Lead card's complete `details`
+continues to support an informed one-time answer.
