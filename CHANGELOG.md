@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Trigger drafts stay open when their project folder becomes unavailable.** The selected project is retained while Flows are reread, so a draft does not move to another folder or disappear during recovery.
+
 - **Cleaning up saved accounts keeps the right files.** Duplicate saved identifiers no longer make cleanup remove another account's folder, and a folder still used by a retained account is kept.
 
 - **Accepting a Lead result no longer fails while the Lead is re-reading.** A click that lands in the moment the Lead takes its result back to read new observations waits for it and is made on the same result when it comes back unchanged; only a result that actually changed asks you to look again.

@@ -419,6 +419,45 @@ it.each([true, false])('retains the trigger editor when its root fails (another 
   expect(dialog.textContent).not.toContain('This project folder is unavailable')
 })
 
+it('retains the explicitly chosen trigger project when it becomes unavailable', async () => {
+  vi.spyOn(triggersView, 'ProjectTriggers').mockImplementation(({ root }) => <input aria-label="Trigger draft" defaultValue={root} />)
+  const { store, catalog } = await mount(store => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspaces: [
+      { path: '/work/demo', name: 'Demo', lastOpenedAt: 1 }, { path: '/work/other', name: 'Other', lastOpenedAt: 2 },
+    ] })
+  })
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Manage triggers'))!.click())
+  const dialog = document.querySelector('[role="dialog"][aria-label="Triggers"]')!
+  const select = dialog.querySelector<HTMLSelectElement>('select')!
+  await act(async () => { select.value = '/work/other'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  const draft = document.querySelector<HTMLInputElement>('[aria-label="Trigger draft"]')!
+  expect(draft.value).toBe('/work/other')
+  draft.value = 'Other project draft'
+  catalog.mockImplementation(async project => {
+    if (project === '/work/other') throw new Error('Unavailable')
+    return [entry('release', 'project')]
+  })
+  await act(async () => {
+    const workbench = store.getSnapshot().workbench
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'flows', root: null, id: null, origin: null } } } })
+  })
+  expect(select.value).toBe('/work/other')
+  expect(document.querySelector('[aria-label="Trigger draft"]')).toBe(draft)
+  expect(draft.value).toBe('Other project draft')
+  expect(dialog.textContent).toContain('This project folder is unavailable')
+  catalog.mockResolvedValue([entry('release', 'project')])
+  await act(async () => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspaces: [...store.getSnapshot().workspaces, { path: '/work/recovered', name: 'Recovered', lastOpenedAt: 3 }] })
+  })
+  expect(select.value).toBe('/work/other')
+  expect(document.querySelector('[aria-label="Trigger draft"]')).toBe(draft)
+  expect(draft.value).toBe('Other project draft')
+  expect(dialog.textContent).not.toContain('This project folder is unavailable')
+  await act(async () => { select.value = '/work/demo'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  expect(document.querySelector<HTMLInputElement>('[aria-label="Trigger draft"]')!.value).toBe('/work/demo')
+})
+
 it('keeps an actual unsaved trigger creation dialog when its project becomes unreadable', async () => {
   const { store, catalog } = await mount(store => {
     store.draftTrigger = async ({ id }) => prDefinition({ id })
