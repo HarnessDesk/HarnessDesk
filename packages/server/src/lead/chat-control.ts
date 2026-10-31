@@ -31,7 +31,7 @@ export class LeadChatControlStore {
   #problem: string | null = null
   #readProblem: LeadChatControlProblem | null = null
   #readFailures = 0
-  #holds = new Map<string, number>()
+  #holds = new Map<string, { readonly id: string; readonly epoch: number }>()
   #epoch = 0
   constructor(private readonly file: string) {}
 
@@ -46,10 +46,14 @@ export class LeadChatControlStore {
   #io(code: string, source: 'record' | 'project'): never {
     this.#loaded = false
     const retryable = ['EMFILE', 'ENFILE', 'EBUSY', 'EAGAIN', 'EINTR', 'ETIMEDOUT', 'EIO', 'I/O'].includes(code)
-    // Three failed reads cover the initial attempt, automatic retry and a manual retry.
-    // A persistent record failure needs explicit recovery; Reset cannot repair a project folder.
-    if (!retryable || ++this.#readFailures >= 3) return source === 'record' ? this.#unreadable() : this.#projectUnavailable()
-    this.#readProblem = { kind: 'transient', message: `The Lead chat control record is temporarily unavailable (${code}). Lead actions are blocked for this operation. Try again.` }
+    if (!retryable) return source === 'record' ? this.#unreadable() : this.#projectUnavailable()
+    // Escalation offers explicit Reset without latching a retryable I/O burst.
+    // Every later caller still reads disk; a successful read clears this state.
+    const persistent = ++this.#readFailures >= 3
+    if (persistent && source === 'project') return this.#projectUnavailable()
+    this.#readProblem = persistent
+      ? { kind: 'invalid', message: `The Lead chat control record is still temporarily unavailable (${code}). Lead actions are blocked. Read again when access recovers, or use Reset chat control to clear the record.` }
+      : { kind: 'transient', message: `The Lead chat control record is temporarily unavailable (${code}). Lead actions are blocked for this operation. Try again.` }
     throw new Error(this.#readProblem.message)
   }
   async #canonical(project: string, selectedProject?: string): Promise<boolean> {
@@ -58,6 +62,7 @@ export class LeadChatControlStore {
     try { resolved = await realpath(project) }
     catch (error) {
       const code = (error as NodeJS.ErrnoException).code
+      if (selectedProject !== undefined && (code === 'EACCES' || code === 'EPERM')) return true
       if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP') return selectedProject !== undefined
       return this.#io(code ?? 'I/O', selectedProject ? 'record' : 'project')
     }
@@ -115,15 +120,21 @@ export class LeadChatControlStore {
   /** Installs the person's fence before any I/O, including when a previous admission is awaiting a path check. */
   hold(project: string, id: string): void {
     if (!validId(id)) throw new Error('Invalid Lead chat record.')
-    this.#holds.set(projectKey(project, id), ++this.#epoch)
+    this.#holds.set(projectKey(project, id), { id, epoch: ++this.#epoch })
     const chats = this.#projects.get(project)
     if (chats) this.#projects.set(project, chats.map(chat => chat.id === id ? { ...chat, holder: 'person' } : chat))
   }
   current(project: string): LeadChatControlList { return { project, chats: this.#projects.get(project) ?? [] } }
+  /** Chat identity is global even when its cwd or selected project changes. */
+  #heldByPerson(id: string): boolean {
+    for (const hold of this.#holds.values()) if (hold.id === id) return true
+    for (const chats of this.#projects.values()) if (chats.some(chat => chat.id === id && chat.holder === 'person')) return true
+    return false
+  }
   /** Called synchronously at the actual runtime dispatch boundary. Never reads disk or returns a promise. */
   assertDispatch(project: string, id: string): void {
     if (this.#problem || !this.#loaded) throw new Error(this.#problem ?? this.#readProblem?.message ?? LEAD_CONTROL_UNREADABLE)
-    if (this.#holds.has(projectKey(project, id)) || this.#projects.get(project)?.some(chat => chat.id === id && chat.holder === 'person'))
+    if (this.#heldByPerson(id))
       throw new LeadChatHeldError()
   }
   async assertCanStart(project: string): Promise<void> {
@@ -147,7 +158,7 @@ export class LeadChatControlStore {
         if (!await this.#canonical(project)) return this.#projectUnavailable()
         await this.#disk(project) // Never replace a record that became unreadable during the write.
       })
-      const released = release && this.#holds.get(release.key) === release.epoch ? release.key : undefined
+      const released = release && this.#holds.get(release.key)?.epoch === release.epoch ? release.key : undefined
       if (released) this.#holds.delete(released)
       this.#projects = this.#merge(projects, released)
       return true
@@ -161,7 +172,7 @@ export class LeadChatControlStore {
   }
   async holder(project: string, id: string): Promise<LeadChatHolder | null> {
     const list = await this.list(project)
-    return this.#holds.has(projectKey(project, id)) ? 'person' : list.chats.find(chat => chat.id === id)?.holder ?? null
+    return this.#heldByPerson(id) ? 'person' : list.chats.find(chat => chat.id === id)?.holder ?? null
   }
   async noteSent(project: string, id: string, key: string): Promise<void> {
     if (!validId(id) || !validKey(key)) throw new Error('Invalid Lead chat record.')
@@ -176,7 +187,7 @@ export class LeadChatControlStore {
   async setHolder(project: string, id: string, holder: LeadChatHolder, knownChat = false): Promise<boolean> {
     if (!validId(id)) return false
     if (holder === 'person' && (knownChat || this.#projects.get(project)?.some(chat => chat.id === id))) this.hold(project, id)
-    const key = projectKey(project, id), epoch = this.#holds.get(key)
+    const key = projectKey(project, id), epoch = this.#holds.get(key)?.epoch
     return this.#write(project, chats => {
       const exists = chats.some(chat => chat.id === id)
       if (!exists && (holder !== 'person' || !knownChat)) return null
@@ -192,7 +203,7 @@ export class LeadChatControlStore {
       await writeAtomicJson(this.file, { version: 2, projects: {} }, async () => {})
       // The confirmed reset releases only holds that existed when it was
       // requested. A newer take-over wins and its queued write persists it.
-      for (const [key, epoch] of this.#holds) if (epoch <= through) this.#holds.delete(key)
+      for (const [key, hold] of this.#holds) if (hold.epoch <= through) this.#holds.delete(key)
       this.#projects = new Map([...this.#projects].map(([project, chats]) => [project,
         chats.filter(chat => this.#holds.has(projectKey(project, chat.id))).map(chat => ({ ...chat, holder: 'person' as const }))]))
       this.#loaded = true; this.#problem = null; this.#readProblem = null; this.#readFailures = 0

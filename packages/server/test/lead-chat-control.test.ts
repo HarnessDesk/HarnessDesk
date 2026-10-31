@@ -247,7 +247,8 @@ test('repeated busy reads offer explicit recovery after the automatic and manual
       assert.throws(() => store.assertDispatch(project, 'fixture:held'))
       if (i < 2) assert.equal(store.problem, null)
     }
-    assert.match(store.problem ?? '', /Reset chat control/)
+    assert.equal(store.problem, null, 'retryable failures never latch the corrupt-record fence')
+    assert.equal(store.failure?.kind, 'invalid', 'persistent unreadability still offers Reset')
   } finally { t.mock.restoreAll(); syncBuiltinESMExports() }
 })
 
@@ -272,7 +273,7 @@ test('a selected project becoming unavailable fences synchronous dispatch until 
   assert.doesNotThrow(() => store.assertDispatch(project, 'fixture:chat'))
 })
 
-test('persistent access denial on a stale root offers explicit reset instead of endless retry', async t => {
+for (const code of ['EACCES', 'EPERM']) test(`a stale ${code} root preserves its hold without blocking another project`, async t => {
   const { root, project, file } = await fixture(t)
   const stale = join(root, 'stale'); await mkdir(stale)
   const store = new LeadChatControlStore(file)
@@ -280,13 +281,75 @@ test('persistent access denial on a stale root offers explicit reset instead of 
   await store.setHolder(stale, 'fixture:held', 'person')
   const resolve = fsPromises.realpath
   t.mock.method(fsPromises, 'realpath', async (...args: Parameters<typeof resolve>) => {
-    if (String(args[0]) === stale) throw Object.assign(new Error('Synthetic stale access failure'), { code: 'EACCES' })
+    if (String(args[0]) === stale) throw Object.assign(new Error('Synthetic stale access failure'), { code })
     return resolve(...args)
   })
   syncBuiltinESMExports()
   try {
-    await assert.rejects(store.list(project))
-    assert.match(store.problem ?? '', /Reset chat control/)
-    assert.throws(() => store.assertDispatch(project, 'fixture:held'))
+    await store.noteSent(project, 'fixture:other', 'b'.repeat(64))
+    assert.equal(store.failure, undefined)
+    assert.equal(await store.holder(project, 'fixture:other'), 'lead')
+    assert.doesNotThrow(() => store.assertDispatch(project, 'fixture:other'))
+    assert.equal(JSON.parse(await readFile(file, 'utf8')).projects[stale][0].holder, 'person')
   } finally { t.mock.restoreAll(); syncBuiltinESMExports() }
+  assert.equal(await new LeadChatControlStore(file).holder(stale, 'fixture:held'), 'person')
+})
+
+for (const code of ['EMFILE', 'EBUSY']) for (const caller of ['window', 'lead', 'mixed'] as const) test(`three ${code} failures from ${caller} reads offer Reset but heal on the next successful read`, async t => {
+  const { project, file } = await fixture(t)
+  const store = new LeadChatControlStore(file)
+  await store.noteSent(project, 'fixture:chat', 'a'.repeat(64))
+  await store.setHolder(project, 'fixture:held', 'person', true)
+  const before = await readFile(file, 'utf8'), open = fsPromises.open
+  let failing = true, failures = 0
+  t.mock.method(fsPromises, 'open', async (...args: Parameters<typeof open>) => {
+    if (failing && String(args[0]) === file) { failures++; throw Object.assign(new Error('Synthetic retry burst'), { code }) }
+    return open(...args)
+  })
+  syncBuiltinESMExports()
+  try {
+    const leadReads = [() => store.holder(project, 'fixture:chat'), () => store.assertCanStart(project), () => store.noteSent(project, 'fixture:chat', 'b'.repeat(64))]
+    for (let i = 0; i < 3; i++) {
+      await assert.rejects(caller === 'window' || caller === 'mixed' && i === 0 ? store.list(project) : leadReads[i]!())
+      assert.throws(() => store.assertDispatch(project, 'fixture:chat'), /unavailable|read safely/)
+      assert.equal(store.failure?.kind, i < 2 ? 'transient' : 'invalid')
+    }
+    assert.equal(failures, 3)
+    assert.equal(store.problem, null, 'only corrupt content or permanent access failures latch')
+    failing = false
+    const recovered = await store.list(project)
+    const failureAfterRecovery = store.failure
+    assert.equal(failureAfterRecovery, undefined)
+    assert.equal(recovered.chats.find(chat => chat.id === 'fixture:held')?.holder, 'person')
+    assert.doesNotThrow(() => store.assertDispatch(project, 'fixture:chat'))
+    assert.equal(await readFile(file, 'utf8'), before, 'recovery never resets healthy data')
+    failing = true
+    await assert.rejects(store.list(project))
+    assert.equal(store.failure?.kind, 'transient', 'successful reads clear the failure count')
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports() }
+})
+
+for (const restart of [false, true]) for (const check of ['dispatch', 'holder'] as const) test(`a person hold in another project applies to the globally unique chat (${check}, restart=${restart})`, async t => {
+  const { root, project, file } = await fixture(t)
+  const old = join(root, 'old'); await mkdir(old)
+  const prior = new LeadChatControlStore(file)
+  await prior.noteSent(old, 'fixture:held', 'a'.repeat(64))
+  await prior.setHolder(old, 'fixture:held', 'person')
+  await prior.noteSent(project, 'fixture:other', 'b'.repeat(64))
+  const store = restart ? new LeadChatControlStore(file) : prior
+  await store.list(project)
+  if (check === 'dispatch') assert.throws(() => store.assertDispatch(project, 'fixture:held'), /taken this chat over/)
+  else assert.equal(await store.holder(project, 'fixture:held'), 'person')
+  await store.setHolder(old, 'fixture:held', 'lead')
+  assert.equal(await store.holder(project, 'fixture:held'), null)
+  assert.doesNotThrow(() => store.assertDispatch(project, 'fixture:held'))
+})
+
+test('an unpersisted person hold in another project fences the same chat id', async t => {
+  const { root, project, file } = await fixture(t)
+  const store = new LeadChatControlStore(file)
+  await store.list(project)
+  store.hold(join(root, 'old'), 'fixture:held')
+  assert.throws(() => store.assertDispatch(project, 'fixture:held'), /taken this chat over/)
+  assert.equal(await store.holder(project, 'fixture:held'), 'person')
 })

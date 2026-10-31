@@ -3610,7 +3610,12 @@ export class Host {
     this.#leadChatControl = chatControl
     this.#leadChatProject = project
     const checkedControl = async <T>(root: string, work: () => Promise<T>): Promise<T> => {
-      try { return await work() }
+      const failure = chatControl.failure
+      try {
+        const result = await work()
+        if (failure && !chatControl.failure) this.#push({ method: 'lead/chats/controlChanged', params: chatControl.current(root) })
+        return result
+      }
       catch (error) {
         if (chatControl.failure) this.#push({ method: 'lead/chats/controlChanged', params: { ...chatControl.current(root), problem: chatControl.failure } })
         throw error
@@ -9795,8 +9800,12 @@ export class Host {
     if (this.options.leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
     const project = this.#leadChatProject ?? await readRememberedLeadProject(this.#state.directory)
     if (!project) return { project: null, chats: [] }
-    const store = this.#chatControlStore()
-    try { return await store.list(project.path) }
+    const store = this.#chatControlStore(), failure = store.failure
+    try {
+      const list = await store.list(project.path)
+      if (failure && !store.failure) this.#push({ method: 'lead/chats/controlChanged', params: list })
+      return list
+    }
     catch (error) { return { ...store.current(project.path), problem: store.failure ?? { kind: 'unavailable', message: `Lead chat control cannot be read. Check the selected project folder and its access permissions, then try again. ${error instanceof Error ? error.message : String(error)}` } } }
   }
 

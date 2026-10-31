@@ -371,3 +371,67 @@ test('take over admits a symlink cwd alias before the first Lead record', async 
   assert.equal(list.chats.find(chat => chat.id === id)?.holder, 'person')
   await assert.rejects(h.execute({ method: 'lead/chat/send', params: { id, text: 'must not be delivered' } }), /taken this chat over/)
 })
+
+for (const reader of ['Lead', 'phone'] as const) test(`a retryable burst involving ${reader} reads fences sends but heals without Reset`, async t => {
+  const h = await boot(t)
+  const { id } = await h.execute({ method: 'lead/chat/start', params: { text: 'first task' } })
+  h.runtime.sessions.get(sessionId(id.slice(id.indexOf(':') + 1)))!.finish()
+  let sends = 0
+  h.runtime.onSend = () => { sends++ }
+  const open = fsPromises.open
+  t.mock.method(fsPromises, 'open', async (...args: Parameters<typeof open>) => {
+    if (String(args[0]).endsWith('chat-control.json')) throw Object.assign(new Error('Synthetic descriptor burst'), { code: 'EMFILE' })
+    return open(...args)
+  })
+  syncBuiltinESMExports()
+  try {
+    assert.equal((await h.host.call('lead/chats/control', {})).problem?.kind, 'transient')
+    if (reader === 'phone') await h.host.call('workspace/thread/read', { id })
+    else await assert.rejects(h.execute({ method: 'lead/chat/send', params: { id, text: 'refused during burst' } }))
+    await assert.rejects(h.execute({ method: 'lead/chat/send', params: { id, text: 'still refused' } }))
+    assert.equal(sends, 0)
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports() }
+  assert.equal((await h.host.call('lead/chats/control', {})).problem, undefined)
+  await h.execute({ method: 'lead/chat/send', params: { id, text: 'after recovery' } })
+  assert.equal(sends, 1)
+})
+
+test('Lead cannot send when a held chat cwd alias is repointed into the selected project', async t => {
+  const h = await boot(t)
+  const old = join(h.project.path, 'old'), alias = join(h.project.path, 'alias')
+  await mkdir(old); await symlink(old, alias)
+  const created = await h.host.call('session/create', { runtime: h.runtime.info.id, options: { cwd: alias } })
+  const id = `${h.runtime.info.id}:${created.id}`
+  const store = new LeadChatControlStore(join(h.stateDir, 'lead', 'chat-control.json'))
+  await store.noteSent(old, id, 'a'.repeat(64)); await store.setHolder(old, id, 'person')
+  await h.host.call('lead/chats/control', {})
+  await rm(alias); await symlink(h.project.path, alias)
+  let sends = 0
+  h.runtime.onSend = () => { sends++ }
+  await assert.rejects(h.execute({ method: 'lead/chat/send', params: { id, text: 'must stay held' } }), /taken this chat over/)
+  assert.equal(sends, 0)
+})
+
+for (const reader of ['Lead', 'phone'] as const) test(`${reader} recovery clears a published unreadable warning while preserving a person hold`, async t => {
+  const h = await boot(t)
+  const { id } = await h.execute({ method: 'lead/chat/start', params: { text: 'first task' } })
+  await h.host.call('lead/chat/takeOver', { id })
+  const open = fsPromises.open
+  t.mock.method(fsPromises, 'open', async (...args: Parameters<typeof open>) => {
+    if (String(args[0]).endsWith('chat-control.json')) throw Object.assign(new Error('Synthetic descriptor burst'), { code: 'EMFILE' })
+    return open(...args)
+  })
+  syncBuiltinESMExports()
+  try {
+    for (let i = 0; i < 3; i++) await h.host.call('lead/chats/control', {})
+    await assert.rejects(h.execute({ method: 'lead/chat/send', params: { id, text: 'publishes unreadable warning' } }))
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports() }
+  const latest = () => h.notifications.filter(n => n.method === 'lead/chats/controlChanged').at(-1)!
+  assert.equal(latest().method === 'lead/chats/controlChanged' && (latest().params as { problem?: { kind: string } }).problem?.kind, 'invalid')
+  if (reader === 'Lead') await assert.rejects(h.execute({ method: 'lead/chat/send', params: { id, text: 'still person-held' } }), /taken this chat over/)
+  else await h.host.call('workspace/thread/read', { id })
+  const changed = latest()
+  assert.ok(changed.method === 'lead/chats/controlChanged')
+  assert.equal(changed.params.problem, undefined)
+  assert.equal(changed.params.chats.find(chat => chat.id === id)?.holder, 'person')
+})

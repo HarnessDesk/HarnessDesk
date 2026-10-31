@@ -26,7 +26,7 @@ export const LeadChatNotice = ({ runtime, sessionId }: { runtime: RuntimeId; ses
     catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
     finally { setBusy(false) }
   }
-  if (!holder && (!problem || problem.kind === 'transient')) return null
+  if (!holder && problem?.kind !== 'invalid') return null
   return <>
     {problem?.kind === 'unavailable' && <ComposerNotice message={{ id: `lead-chat-project-${id}`, tone: 'warning', title: 'Lead project folder needs attention.', body: problem.message,
       action: { label: 'Try again', onSelect: () => void run(() => store.lead.readChatControl()) } }} />}

@@ -110,3 +110,8 @@ it('shows project repair guidance for an unavailable folder without offering Res
   expect(container.textContent).toContain('Restore the selected project folder')
   expect(container.textContent).not.toContain('Reset chat control')
 })
+
+it('does not show an unavailable warning on a chat without a Lead record', () => {
+  renderNotice(null, { kind: 'unavailable', message: 'Restore the selected project folder.' })
+  expect(container.textContent).toBe('')
+})
