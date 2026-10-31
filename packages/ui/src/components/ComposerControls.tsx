@@ -1222,6 +1222,25 @@ export const HandoffSheet = ({
   )
 }
 
+export type ProjectFolderChoice = (options?: { readonly preserveDraft?: boolean }) => void | Promise<boolean | void>
+
+export const chooseProjectForDraft = (store: ReturnType<typeof useStore>, chooseProject: ProjectFolderChoice): void => {
+  /* A folder chosen here is the person's say over where this draft starts, and
+     a hand-off only says where the work was. Opening a folder switches the
+     workspace and clears the draft's place, which would hand the choice back
+     to the hand-off's folder, so a folder that was chosen is recorded as the
+     place. Only while a hand-off folder is still outranking the workspace:
+     without one, the folder's own default (a new worktree, say) stays. */
+  const carried = store.getSnapshot().draftHandoff
+  // A saved target conversation must not replace the draft before the choice
+  // resolves: that would discard its carried context, text and attachments.
+  const choice = carried ? chooseProject({ preserveDraft: true }) : chooseProject()
+  void Promise.resolve(choice).then((chosen) => {
+    const now = store.getSnapshot()
+    if (chosen === true && carried?.cwd && now.draftHandoff === carried && now.draftPlace === null) store.startDraftIn(null)
+  })
+}
+
 /**
  * Where the conversation being written will run: the open folder, a
  * worktree of it, or — from a worktree — the main checkout.
@@ -1253,25 +1272,14 @@ export const HandoffSheet = ({
  * worktrees below: those are checkouts HarnessDesk cut, and this one was
  * here first.
  */
-export const PlaceControl = ({ onChooseProject: chooseProject }: { onChooseProject?: () => void | Promise<boolean | void> } = {}) => {
+export const PlaceControl = ({ onChooseProject: chooseProject }: { onChooseProject?: ProjectFolderChoice } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const { ref } = useNarrowToolbar('work-in')
   const workspace = snapshot.workspace
   const carried = snapshot.draftPlace === null ? snapshot.draftHandoff?.cwd : undefined
-  /* A folder chosen here is the person's say over where this draft starts, and
-     a hand-off only says where the work was. Opening a folder switches the
-     workspace and clears the draft's place, which would hand the choice back
-     to the hand-off's folder, so a folder that was chosen is recorded as the
-     place. Only while a hand-off folder is still outranking the workspace:
-     without one, the folder's own default (a new worktree, say) stays. */
-  const onChooseProject = chooseProject && (() => {
-    void Promise.resolve(chooseProject()).then((chosen) => {
-      const now = store.getSnapshot()
-      if (chosen === true && now.draftPlace === null && now.draftHandoff?.cwd) store.startDraftIn(null)
-    })
-  })
+  const onChooseProject = chooseProject && (() => chooseProjectForDraft(store, chooseProject))
   useEffect(() => { if (!session && workspace) void store.refreshWorkspaceGit(workspace.path) }, [store, workspace?.path, !!session])
   if (session) return null
   const folderPicker = <Popover title={carried ?? workspace?.path ?? `Starts in ${snapshot.chatsFolder}`} drop="up" align="left"
