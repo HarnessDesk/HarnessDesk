@@ -1,0 +1,57 @@
+{
+  "issue": 1850,
+  "head": "6c924f80d9d47e2688493313fdfe7532df6f9117",
+  "tree": "589df4a35924879d13572337384c06b01bd2de77",
+  "frames": [
+    {
+      "name": "native-before-light.png",
+      "sha256": "e35b9c2f154d3f7c72ce88bbf265fb21b24103376f82a844f141cbb90a2be9d8",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "native-before-dark.png",
+      "sha256": "b9deb7ef883232bbe7034140dd9963f5af86689c9230018c80040837adfe882e",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "native-picked-light.png",
+      "sha256": "b825b059269a587cc4bb8fb2b61d26a41f613d7897c0ca9acdebc68c153b4019",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "native-picked-dark.png",
+      "sha256": "add9de312e10e38fd92f1902452a332a8d364053bd49e747086b131465b01c48",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "in-app-before-light.png",
+      "sha256": "c83e2d97957b12a520a93987737362b02bd2bfff256b614a84b16e3b9d7192e8",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "in-app-before-dark.png",
+      "sha256": "b9deb7ef883232bbe7034140dd9963f5af86689c9230018c80040837adfe882e",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "in-app-picked-light.png",
+      "sha256": "c5b2f7a6fa909d9bcd0fdf7de66aa17a81fa8a3049341132f2ffd9387361cbc3",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "in-app-picked-dark.png",
+      "sha256": "d28625cead61e4cc6403ac76f6dc107b95db51ac1a945380158a54395eafcd7f",
+      "width": 2560,
+      "height": 1680
+    }
+  ],
+  "surface": "Production desktop bootstrap with isolated fake agents. Both controlled native-picker response and real in-app fallback UI exercised via trusted Add-menu clicks, with saved target conversation, source handoff, typed draft, note attachment and caret retained. Target sidebar restored from 224 to 312 and actual queued session cwd verified. No provider, real OS picker or UI-delivery claim.",
+  "privacy": "All eight final frames personally inspected; unmodified actual-username/account/path audit passed after synthetic path shortening."
+}
