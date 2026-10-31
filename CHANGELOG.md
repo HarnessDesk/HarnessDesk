@@ -53,6 +53,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Turn edits show their reported location.** Files outside known open workspace and conversation roots, or whose location is unknown, are labelled in the turn card and Changes pane. Git still reports the current working tree separately.
 
+- **Back and Forward stay reachable in a narrow floating sidebar.** The drawer keeps the history controls inside it while the covered content is inactive.
+
 ## 0.6.1 — 2026-10-23
 
 Customize brings Skills, MCP and Plugins into one place, agent sign-in reads what each agent actually reports, and Git, file and lane operations stay inside the folders they belong to. Lane removal and stalled network folders no longer hang.

@@ -88,18 +88,36 @@ for (const theme of ['light', 'dark'] as const) test(`floating native drawer kee
   const forward = top.getByRole('button', { name: 'Forward', exact: true })
   const barBox = (await top.locator('[data-slot="bar"]').boundingBox())!
   const brandBox = (await column.locator('[data-left-brand]').boundingBox())!
+  const columnBox = (await column.boundingBox())!
+  const headerControls = await top.locator('[data-slot="bar"] button:visible').all()
+  const boxes = []
   for (const arrow of [back, forward]) {
     await expect(arrow).toBeVisible()
     const box = (await arrow.boundingBox())!
-    expect(box.width).toBeGreaterThanOrEqual(24)
-    expect(box.height).toBeGreaterThanOrEqual(24)
-    expect(box.x + box.width).toBeLessThanOrEqual(200)
+    expect(box.width).toBeGreaterThanOrEqual(28)
+    expect(box.height).toBeGreaterThanOrEqual(28)
+    expect(box.x).toBeGreaterThanOrEqual(columnBox.x)
+    expect(box.x + box.width).toBeLessThanOrEqual(columnBox.x + columnBox.width)
     expect(box.y).toBeGreaterThanOrEqual(barBox.y + barBox.height)
     expect(box.y + box.height).toBeLessThanOrEqual(brandBox.y)
+    if (await arrow.isEnabled()) expect(await arrow.evaluate(el => { const r = el.getBoundingClientRect(); return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('button') === el })).toBe(true)
+    boxes.push(box)
+  }
+  for (const control of headerControls) {
+    if (['Back', 'Forward'].includes((await control.getAttribute('aria-label')) ?? '')) continue
+    const box = (await control.boundingBox())!
+    for (const arrow of boxes) expect(arrow.y >= box.y + box.height || box.y >= arrow.y + arrow.height || arrow.x >= box.x + box.width || box.x >= arrow.x + arrow.width).toBe(true)
   }
   await back.click()
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
   await applyLeftColumnActions(page, { leftOpen: true, leftWidth: FRAME.sidebar.min })
+  await expect(back).toBeEnabled()
+  await expect(forward).toBeEnabled()
+  await drawer.getByRole('button', { name: 'Search everything', exact: true }).focus()
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press('Tab')
+    expect(await drawer.evaluate(node => node.contains(document.activeElement))).toBe(true)
+  }
   await drawer.getByRole('button', { name: 'Search everything', exact: true }).focus()
   await page.keyboard.press('Tab')
   await expect(back).toBeFocused()
