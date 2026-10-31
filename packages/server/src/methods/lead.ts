@@ -2,6 +2,10 @@ import type { MethodsUnder } from './context.js'
 
 /** Person controls stay on the window wire; narrow project-pinned chat tools also serve the private Lead client. */
 export const leadMethods = {
+  'lead/chats/resetControl': ctx => ctx.leadChatControl.reset(),
+  'lead/chats/control': ctx => ctx.leadChatControl.list(),
+  'lead/chat/takeOver': (ctx, params) => ctx.leadChatControl.takeOver(params.id),
+  'lead/chat/handBack': (ctx, params) => ctx.leadChatControl.handBack(params.id),
   'lead/chat/list': (ctx, params) => ctx.leadChats.list(params),
   'lead/chat/read': (ctx, params) => ctx.leadChats.read(params),
   'lead/chat/start': (ctx, params) => ctx.leadChats.start(params),
@@ -17,6 +21,8 @@ export const leadMethods = {
   'lead/stop': (ctx, params) => ctx.leadStop(params),
   'lead/resume': (ctx, params) => ctx.leadResume(params),
   'lead/steer': (ctx, params) => ctx.leadSteer(params),
+  'lead/repeat/control': (ctx, params) => ctx.leadRepeatControl(params),
+  'lead/budget/raise': (ctx, params) => ctx.leadBudgetRaise(params),
   'lead/schedule/read': ctx => ctx.leadScheduleRead(),
   'lead/schedule/update': (ctx, params) => ctx.leadScheduleUpdate(params),
   'lead/memory/read': ctx => ctx.leadMemoryRead(),

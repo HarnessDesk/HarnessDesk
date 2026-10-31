@@ -253,7 +253,7 @@ const openInvestigation = async (page: Page, theme: 'light' | 'dark', width: num
 {
 
   for (const [item0, theme] of (['light', 'dark'] as const).entries()) for (const [item1, width] of ([1280, 720]).entries()) test(`R12.6 team approvals use the same short folder label and full-path title [item ${[item0, item1].join('-')}]`, async ({ page }) => {
-    const path = '/private/tmp/frame-fix6/fixture-run/storefront'
+    const path = '/work/storefront'
     await openFrame(page, 'team-overview', theme, width)
     const approval = page.locator('#team-overview-answer-approval [data-slot="request-answer"]')
     const folder = approval.locator('[data-slot="approval-meta"][data-kind="folder"]')

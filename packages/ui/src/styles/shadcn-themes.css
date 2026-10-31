@@ -414,3 +414,9 @@ body[data-hd-faces='square'] {
   --hd-face-radius: var(--hd-radius-sm);
   --hd-face-radius-lg: var(--hd-radius);
 }
+
+/* Until startup preferences answer, keep identity geometry in place without
+   painting a face in the wrong shape. Preview documents never set this flag. */
+body[data-hd-faces-pending] :is([data-shape='face'], [data-slot='avatar']:not([data-shape='square']):not([data-shape='round']), [data-slot='lead-avatar']) {
+  visibility: hidden;
+}

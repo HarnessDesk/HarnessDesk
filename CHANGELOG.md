@@ -7,11 +7,44 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- Messages the Lead sends into a chat now say so, and you can take a chat over from the Lead and hand it back.
+
+- **Renamed files no longer create a false ignored-file warning.** A staged rename whose original name starts with `!! ` is no longer mistaken for an ignored file when removing a worktree.
+
+- **Cleaning up saved accounts keeps the right files.** Duplicate saved identifiers no longer make cleanup remove another account's folder, and a folder still used by a retained account is kept.
+
+- **Accepting a Lead result no longer fails while the Lead is re-reading.** A click that lands in the moment the Lead takes its result back to read new observations waits for it and is made on the same result when it comes back unchanged; only a result that actually changed asks you to look again.
+
+- **Card evidence fits on one row.** A compact observed status opens the recorded facts and their details.
+
+- **Changing a hand-off draft's project folder sets where it starts.** The Add menu now honors the chosen folder while keeping the hand-off context.
+
+- **Trigger drafts stay open when their project folder becomes unavailable.** The selected project is retained while Flows are reread, so a draft does not move to another folder or disappear during recovery.
+
+- **A late Codex process exit no longer disrupts its replacement.** Restarting while the previous process drains keeps replies and shutdown with the new process.
+
+- **Lead respects a reached round allowance without losing its child.** A running round can finish, and the next round is stopped at the allowance even if the limit changes while a request is being admitted.
+
+- **Open Teams use less CPU.** The desk no longer asks git the same questions about the same project folders over and over while it reads evidence and findings, and asks where a branch stands only after it has moved: a measured Lead run started about a third as many git processes and finished in under half the time.
+
+- **Detached conversations can find their own pull request.** Omitting the number in view, checks, review or comment uses that conversation's unique recorded open PR. Ambiguous cases still ask for a number; detached updates remain refused.
+- **Lead can repeat an approved plan, take a second look at a stop, and warn at 80% of its allowance.** Manage repeats and their last runs in Settings; raise a running goal's limits directly while keeping every publishing decision separate.
+
+- **Backup restore counts what it saved.** A runtime configuration saved before setup fails is counted as restored once, rather than skipped or counted twice.
+
+- **Input patch previews keep their content and leave unknown lines blank.** Later file headers no longer appear as edits, and previews without reported locations no longer invent line numbers.
+
+- **New worktree explains when repository information is unavailable.** Unread facts no longer claim the folder is outside Git.
+
 - **Lead is a conversation first.** Ask questions directly, or ask it to start, read, message and stop ordinary chats in its project. Simple tasks no longer need an implementer and independent reviewer. Reviewed work keeps its approval gates; setup problems explain what to change instead of repeating Resume.
 
 - **The phone can reach older sessions and control ordinary conversations.** Paired phones page active and archived sessions, and the Run grant allows starting a session, replying and stopping a turn while keeping the desk's session settings. Approval answers still require Answer.
 
+- **Saved face shapes appear correctly at startup.** Faces wait for their saved shape, and remain visible if the initial connection fails.
+
 - **A large saved attribution history no longer crashes the desktop.** Obsolete checkpoints are removed within a bounded recovery pass. If retained history still exceeds the budget, capture pauses for that project, keeping its observations and leaving sign-in, capture controls and normal conversations available. Backups report omitted histories and continue with healthy projects.
+
+- **A replacement Agent shows its own installation details.** Removing and re-adding an Agent no longer carries over the previous Agent's cached version or a late installation check.
 
 - **Account sign-in says when the service is unavailable.** A server failure now explains that the account service is unavailable and asks you to try later, instead of reporting that the desk could not reach your account.
 
@@ -26,6 +59,12 @@ move is real work and is not news to a person weighing an upgrade.
 - **Pair a phone on the local network without an account link.** With local phone access enabled, Settings › Phone shows a code to scan; allow each phone at the desk and remove it from the same page.
 
 - **Git writes have one recorded path.** Approve pushes and steer an agent's own push through HarnessDesk, with a pinned project repository, PR and project Git records, and global or project preferences. Heads written elsewhere appear as Outside and name no one.
+
+- **Saved conversations open reliably during brief database contention.** The desk waits for a short lock when opening its conversation store and safely coordinates concurrent upgrades.
+
+- **Turn edits show their reported location.** Files outside known open workspace and conversation roots, or whose location is unknown, are labelled in the turn card and Changes pane. Git still reports the current working tree separately.
+
+- **Back and Forward stay reachable in a narrow floating sidebar.** The drawer keeps the history controls inside it while the covered content is inactive.
 
 ## 0.6.1 — 2026-10-23
 

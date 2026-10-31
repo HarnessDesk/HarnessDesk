@@ -7,7 +7,28 @@ import { test } from 'node:test'
 import type { AcpAgentConfig } from '@harnessdesk/adapter-acp'
 
 import { AgentRegistryStore } from '../../src/agent-registry.js'
-import { InstallService, matchesCommand } from '../../src/installs/service.js'
+import { InstallService as BaseInstallService, matchesCommand, type InstallServiceOptions } from '../../src/installs/service.js'
+
+class InstallService extends BaseInstallService {
+  readonly owners = new Map<string, object>()
+  constructor(options: InstallServiceOptions & { store: AgentRegistryStore }) {
+    super(options)
+    for (const config of options.store.configs()) {
+      const owner = {}
+      this.owners.set(config.id, owner)
+      this.register(config.id, owner)
+    }
+  }
+  override describe(config: Parameters<BaseInstallService['describe']>[0], judged?: Parameters<BaseInstallService['describe']>[1]) {
+    return super.describe(config, judged, this.owners.get(config.id)!)
+  }
+  override launchFor(config: Parameters<BaseInstallService['launchFor']>[0], occasion: Parameters<BaseInstallService['launchFor']>[1] = 'start') {
+    return super.launchFor(config, occasion, this.owners.get(config.id)!)
+  }
+  override executableFor(config: Parameters<BaseInstallService['executableFor']>[0], spec: Parameters<BaseInstallService['executableFor']>[1]) {
+    return super.executableFor(config, spec, this.owners.get(config.id)!)
+  }
+}
 
 /**
  * Which copy answers, decided from the machine. What these hold to: the
@@ -523,4 +544,3 @@ test('executableFor recognizes Windows executable paths with extensions (#464)',
   assert.equal(resolved?.path, 'C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.cmd')
   assert.equal(resolved?.version, '2.1.258')
 })
-

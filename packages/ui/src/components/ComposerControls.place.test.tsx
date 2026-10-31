@@ -7,6 +7,11 @@ import { runtimeId, sessionId, sessionKey, type HostMethodName, type Session, ty
 import { StoreProvider } from '../state/context'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { PlaceControl } from './ComposerControls'
+import { Composer } from './Composer'
+import { NEW_SESSION_DRAFT_KEY } from '../state/drafts'
+import { emptyWorkbench } from '../state/workbench'
+import { only } from '../state/layout'
+import { destinationOf, visitDestination } from '../state/destinations'
 
 /**
  * "Local, or a worktree?" — answered where the message is written.
@@ -354,6 +359,17 @@ it('keeps repository controls when fresh Git status arrives before repository id
   expect(row('New worktree')).toBeDefined()
 })
 
+it('gives the non-repository reason when repository identity is known', () => {
+  rig({ workspace: { ...MAIN, repo: null, git: { branch: null } } })
+  open()
+  expect(row('New worktree')?.textContent).toContain('This folder is not one.')
+})
+
+it('hides the place control for a confirmed non-repository with no Git facts', () => {
+  rig({ workspace: { ...MAIN, repo: null, git: null } })
+  expect(trigger()).toBeNull()
+})
+
 it('keeps the place control while repository facts have not been read', () => {
   rig({ workspace: { path: MAIN.path, name: MAIN.name, lastOpenedAt: 1 } as WorkspaceEntry })
   expect(trigger()).not.toBeNull()
@@ -362,6 +378,7 @@ it('keeps the place control while repository facts have not been read', () => {
   expect(row('Local')).toBeDefined()
   expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
   expect(row('New worktree')).toBeDefined()
+  expect(row('New worktree')?.textContent).toContain('Repository information is unavailable.')
 })
 
 it('keeps a linked worktree as the default without an explicit draftPlace', () => {
@@ -407,14 +424,14 @@ const CURRENT = { path: '/work/current-project', name: 'current-project', lastOp
 const PICKED = { path: '/work/picked-project', name: 'picked-project', lastOpenedAt: 2, git: { branch: 'main', sha: 'def5678' }, repo: { root: '/work/picked-project', worktree: false } } as WorkspaceEntry
 
 /** A real store with CURRENT open, optionally holding a draft handed off from a conversation that ran in SOURCE, and PlaceControl wired as the app wires it. */
-const pickerRig = async (handoff: boolean): Promise<AppStore> => {
+const pickerRig = async (handoff: boolean, composer = false, picked: WorkspaceEntry | null | 'failure' = PICKED, savedLayout = false, picker: 'native' | 'in-app' = 'native'): Promise<AppStore> => {
   const conversation = (id: string, cwd: string): Session =>
     ({ id: sessionId(id), runtime: AGENT, cwd, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }) as unknown as Session
   const answers: Partial<Record<HostMethodName, unknown>> = {
     'runtime/sessionDefaults': [],
     'workspace/open': CURRENT,
     'workspace/recent': [CURRENT, PICKED],
-    'workspace/pick': PICKED,
+    'workspace/pick': picked,
     'worktree/list': [],
     'git/status': { branch: 'main', headSha: 'abc', files: [] },
     'session/read': conversation('source', SOURCE),
@@ -422,9 +439,19 @@ const pickerRig = async (handoff: boolean): Promise<AppStore> => {
     'session/create': conversation('next', PICKED.path),
   }
   const store = new AppStore('ws://localhost:0/')
-  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => answers[method] ?? null) as never)
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params?: { path?: string }) => {
+    if (method === 'workspace/open' && params?.path === PICKED.path) return PICKED
+    if (method === 'workspace/pick' && picked === 'failure') throw new Error('picker unavailable')
+    return answers[method] ?? null
+  }) as never)
   await store.selectRuntime(AGENT)
   await store.openWorkspace(CURRENT.path)
+  if (savedLayout) {
+    const saved = emptyWorkbench()
+    const view = { kind: 'conversation' as const, session: sessionKey(AGENT, sessionId('saved-target')) }
+    answers['app/state/get'] = { layouts: { [PICKED.path]: { ...saved, sidebar: { ...saved.sidebar, size: 312 }, main: only(saved.main, view), navigation: visitDestination(saved.navigation, destinationOf(view)) } } }
+    await store.loadPreferences()
+  }
   if (handoff) {
     await store.openSession(sessionId('source'), { runtime: AGENT })
     await store.handOff(AGENT, 'summary', sessionKey(AGENT, sessionId('source')), { cwd: SOURCE })
@@ -433,12 +460,77 @@ const pickerRig = async (handoff: boolean): Promise<AppStore> => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <PlaceControl onChooseProject={() => store.pickWorkspace()} />
+        {composer ? <Composer onChooseProject={async (options) => { try { return picker === 'native' ? await store.pickWorkspace(options) : Boolean(await store.openWorkspace(PICKED.path, options)) } catch { return false } }} /> : <PlaceControl onChooseProject={options => store.pickWorkspace(options)} />}
       </StoreProvider>,
     )
   })
   return store
 }
+
+it.each([
+  { savedLayout: false, picker: 'native' as const }, { savedLayout: true, picker: 'native' as const },
+  { savedLayout: false, picker: 'in-app' as const }, { savedLayout: true, picker: 'in-app' as const },
+])('Add preserves a hand-off with $picker selection and saved layout $savedLayout', async ({ savedLayout, picker }) => {
+  const store = await pickerRig(true, true, PICKED, savedLayout, picker)
+  store.resizePanel('sidebar', 224)
+  const carried = store.getSnapshot().draftHandoff
+  const input = container.querySelector('textarea')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Keep the hand-off draft.')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { text: '', attachments: [{ name: 'Carry note', kind: 'note', path: 'note:handoff', text: 'Keep this context.' }] } }))
+    input.setSelectionRange(5, 8)
+  })
+  await act(async () => { container.querySelector<HTMLButtonElement>('button[title="Add"]')!.click() })
+  const choice = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent?.includes('Change project folder'))!
+  await act(async () => { choice.click() })
+  expect(store.getSnapshot().workspace?.path).toBe(PICKED.path)
+  expect(store.getSnapshot().draftHandoff).toBe(carried)
+  expect(store.getSnapshot().activeSessionKey).toBeNull()
+  expect(store.getSnapshot().workbench.sidebar.size).toBe(savedLayout ? 312 : emptyWorkbench().sidebar.size)
+  const current = container.querySelector('textarea')!
+  expect(current.value).toBe('Keep the hand-off draft.')
+  expect([current.selectionStart, current.selectionEnd]).toEqual([5, 8])
+  expect(store.drafts.live(NEW_SESSION_DRAFT_KEY)?.attachments).toEqual([expect.objectContaining({ name: 'Carry note', kind: 'note', path: 'note:handoff', text: 'Keep this context.' })])
+  await store.queue([{ type: 'text', text: current.value }])
+  const create = vi.mocked(store.transport.request).mock.calls.filter(([method]) => method === 'session/create').at(-1)
+  expect(create?.[1]).toMatchObject({ options: { cwd: PICKED.path } })
+})
+
+it.each(['native', 'in-app'] as const)('ordinary Add project selection still restores its saved conversation with %s', async picker => {
+  const store = await pickerRig(false, true, PICKED, true, picker)
+  await act(async () => { container.querySelector<HTMLButtonElement>('button[title="Add"]')!.click() })
+  const choice = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent?.includes('Change project folder'))!
+  await act(async () => { choice.click() })
+  expect(store.getSnapshot().workspace?.path).toBe(PICKED.path)
+  expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(AGENT, sessionId('saved-target')))
+  expect(store.getSnapshot().draftHandoff).toBeNull()
+})
+
+it.each(['success', 'cancel', 'failure'] as const)('Add preserves the hand-off draft on picker %s', async (result) => {
+  const success = result === 'success'
+  const store = await pickerRig(true, true, success ? PICKED : result === 'failure' ? 'failure' : null)
+  const input = container.querySelector('textarea')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Take it from here.')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.setSelectionRange(5, 7)
+  })
+  await act(async () => { container.querySelector<HTMLButtonElement>('button[title="Add"]')!.click() })
+  const choice = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent?.includes('Change project folder'))!
+  expect(choice).toBeTruthy()
+  await act(async () => {
+    choice.click()
+  })
+  expect(store.getSnapshot().draftHandoff?.cwd).toBe(SOURCE)
+  expect(input.value).toBe('Take it from here.')
+  expect([input.selectionStart, input.selectionEnd]).toEqual([5, 7])
+  const folderTitle = folderTrigger()?.title
+  await store.queue([{ type: 'text', text: input.value }])
+  const create = vi.mocked(store.transport.request).mock.calls.filter(([method]) => method === 'session/create').at(-1)
+  expect(create?.[1]).toMatchObject({ options: { cwd: success ? PICKED.path : SOURCE } })
+  expect(folderTitle).toBe(success ? PICKED.path : SOURCE)
+})
 
 const folderTrigger = (): HTMLButtonElement | null => container.querySelector<HTMLButtonElement>('button[title$="-project"]')
 
@@ -448,10 +540,6 @@ const chooseFolder = async (): Promise<void> => {
   expect(choose).toBeDefined()
   await act(async () => {
     choose!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    // The pick patches the workspace first and keeps reading the recent list
-    // after; the host double answers in microtasks, so one macrotask is the
-    // whole pick, not a half-way state.
-    await new Promise((resolve) => setTimeout(resolve, 0))
   })
 }
 

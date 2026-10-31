@@ -42,6 +42,7 @@ const rig = async (over: { configured?: boolean; manage?: boolean; service?: Rec
   const controls = new LeadControls({ journal, service, project, model: 'fixture-model', now: () => 100, nextId: () => `card-${++nextCard}`,
     push: (value: WireNotification) => notifications.push(value), decidePerson: async (...args: unknown[]) => { answers.push(args) }, decideResult: async (...args: unknown[]) => { answers.push(args) }, ...over.controls })
   const ctx = { leadWakesRead: () => controls.readWakes(), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p),
+    leadBudgetRaise: (p: unknown) => controls.raiseBudget(p),
     leadCardDecide: (p: unknown) => controls.decide(p), leadSettingsRead: () => controls.readSettings(),
     leadSettingsUpdate: (p: unknown) => controls.updateSettings(p), leadResume: (p: unknown) => controls.resume(p), leadStop: (p: unknown) => controls.stop(p) } as unknown as HostContext
   const call = (method: string, params: unknown = {}) => dispatch(ctx, method as never, params as never) as Promise<any>
@@ -218,6 +219,46 @@ test('a result click invokes the live person path instead of accepting only the 
   await s.call('lead/card/decide', { version: 1, cardId: 'result', cardType: 'result', expectedRevision: 1, contractDigest: contract.digest, choice: 'accept' })
   assert.equal(s.answers.length, 1)
   assert.equal(s.journal.state.phase, 'accepted')
+})
+
+test('a click on a result the Lead took back is made on that same card once it is offered again, and refused if another comes', async () => {
+  const s = await rig(); await s.journal.offerCard(plan); await s.call('lead/card/decide', planClick)
+  const budget = { version: 1, revision: 1, caps: contract.caps, leadUsdMicros: 0, workerUsdMicros: 0,
+    reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known', stop: null }
+  const result = (revision: number) => ({ version: 1, id: 'result', revision, type: 'result', outcome: 'reviewed', summary: 'Ready', assertions: [], budget, contractDigest: contract.digest } as any)
+  const click = (revision: number) => ({ version: 1, cardId: 'result', cardType: 'result', expectedRevision: revision, contractDigest: contract.digest, choice: 'accept' })
+  await s.journal.offerCard(result(1))
+
+  // Observations arrive: the Lead takes the result back, and the person clicks it in that moment.
+  await s.journal.invalidateResults()
+  const clicked = s.call('lead/card/decide', click(1))
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal(s.answers.length, 0, 'nothing is decided while the result is taken back')
+  // Read again and found as it was: the same card, same revision, offered again.
+  await s.journal.restoreResult('result', 1)
+  await clicked
+  assert.equal(s.answers.length, 1)
+  assert.equal(s.journal.state.phase, 'accepted')
+  // The same click again — a retry after a lost reply — is a person's decided card: refused at once.
+  const again = Date.now()
+  await assert.rejects(s.call('lead/card/decide', click(1)), code('lead-card-decided'))
+  assert.ok(Date.now() - again < 1_000)
+  assert.equal(s.answers.length, 1)
+
+  // A card offered at another revision is not the one the person saw.
+  const t = await rig(); await t.journal.offerCard(plan); await t.call('lead/card/decide', planClick)
+  await t.journal.offerCard(result(1))
+  await t.journal.invalidateResults()
+  const stale = t.call('lead/card/decide', click(1))
+  await t.journal.offerCard(result(2))
+  await assert.rejects(stale, code('lead-card-decided'))
+  assert.equal(t.answers.length, 0)
+  // And a card a person already decided is refused at once, never waited for.
+  await t.call('lead/card/decide', click(2))
+  const started = Date.now()
+  await assert.rejects(t.call('lead/card/decide', click(2)), code('lead-card-decided'))
+  assert.ok(Date.now() - started < 1_000)
+  assert.equal(t.answers.length, 1)
 })
 
 for (const action of ['resume', 'send'] as const) test(`the window ${action} resets the real loop no-progress counter`, async () => {
@@ -2014,3 +2055,29 @@ for (const method of ['lead/chat/start', 'lead/chat/send'] as const) for (const 
     assert.equal(journal.state.attempts.size, 0)
     assert.equal(s.records.filter(record => record.type === 'reconciliation').length, 0)
   })
+
+
+test('the person raises current allowances directly and a stopped goal stays stopped', async () => {
+  const s = await rig()
+  const current = s.journal.state.budget!.caps
+  const caps = { usdMicros: current.usdMicros + 100, rounds: current.rounds + 1 }
+  const view = await s.call('lead/budget/raise', { logicalGoalId: 'logical', caps, expectedRevision: s.journal.state.seq })
+  assert.deepEqual(view.thread.budget.caps, caps)
+  assert.equal(s.journal.state.cards.some(card => card.type === 'budget-change'), false)
+  await assert.rejects(s.call('lead/budget/raise', { logicalGoalId: 'other', caps: { ...caps, rounds: caps.rounds + 1 }, expectedRevision: s.journal.state.seq }))
+  await s.journal.stop()
+  const stop = s.journal.state.budget!.stop
+  await s.call('lead/budget/raise', { logicalGoalId: 'logical', caps: { usdMicros: caps.usdMicros + 100, rounds: caps.rounds }, expectedRevision: s.journal.state.seq })
+  assert.deepEqual(s.journal.state.budget!.stop, stop)
+  assert.equal(s.journal.state.phase, 'stopped')
+  s.controls.close()
+})
+
+test('a declined goal refuses a limit raise with a closed person-facing code', async () => {
+  const s = await rig()
+  try {
+    await s.journal.offerCard(plan)
+    await s.call('lead/card/decide', { ...planClick, choice: 'decline' })
+    await assert.rejects(s.call('lead/budget/raise', { logicalGoalId: 'logical', caps: { ...contract.caps, usdMicros: contract.caps.usdMicros + 100 }, expectedRevision: s.journal.state.seq }), code('lead-thread-closed'))
+  } finally { s.controls.close() }
+})

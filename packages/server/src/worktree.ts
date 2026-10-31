@@ -44,16 +44,23 @@ interface CheckoutIdentity {
 /** Live metadata is evidence of an unchanged identity, never new shell authority. */
 export const shellCheckoutIdentity = async (folder: string): Promise<CheckoutIdentity | null> => {
   try {
-    // rev-parse has no NUL path mode. Read each payload separately and remove
-    // only Git's final newline, preserving whitespace inside the path.
-    const [common, dir, top] = await Promise.all(['--git-common-dir', '--git-dir', '--show-toplevel'].map(async (flag) =>
-      (await run('git', ['-C', folder, ...HARDENED_GIT_CONFIG,
-        'rev-parse', '--path-format=absolute', flag,
-      ], {
-        env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))), GIT_OPTIONAL_LOCKS: '0' },
-        timeout: 20_000, maxBuffer: 1024 * 1024,
-      })).stdout.replace(/\n$/, ''),
-    ))
+    const flags = ['--git-common-dir', '--git-dir', '--show-toplevel']
+    const revParse = async (asked: readonly string[]) => (await run('git', ['-C', folder, ...HARDENED_GIT_CONFIG,
+      'rev-parse', '--path-format=absolute', ...asked,
+    ], {
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))), GIT_OPTIONAL_LOCKS: '0' },
+      timeout: 20_000, maxBuffer: 1024 * 1024,
+    })).stdout.replace(/\n$/, '')
+    // rev-parse has no NUL path mode: it ends each answer with a newline. One
+    // call answers all three exactly when no path holds a newline, which is
+    // exactly when it prints three lines. Otherwise read each payload
+    // separately and remove only Git's final newline, preserving whitespace
+    // inside the path. This runs on every project lookup, so it is one
+    // process rather than three.
+    const together = (await revParse(flags)).split('\n')
+    const [common, dir, top] = together.length === flags.length
+      ? together
+      : await Promise.all(flags.map((flag) => revParse([flag])))
     if (!common || !dir || !top) return null
     const [gitCommonDir, gitDir, checkoutRoot] = await Promise.all([realpath(common), realpath(dir), realpath(top)])
     return { gitCommonDir, gitDir, checkoutRoot }
@@ -155,9 +162,12 @@ export const managedWorktreePath = async (repoPath: string, stateDir: string, na
   return join(await worktreeHomePath(main, stateDir), slugify(name))
 }
 
-/** The main checkout for any path inside a repository or one of its worktrees. */
+/**
+ * The main checkout for any path inside a repository or one of its worktrees.
+ * Only the root: the remote that `repositoryOf` names is not asked for.
+ */
 export const repositoryRoot = async (path: string): Promise<string | null> =>
-  (await repositoryOf(path))?.root ?? null
+  (await located(path, false))?.root ?? null
 
 /**
  * Which repository a folder belongs to, and whether it is a linked worktree
@@ -175,16 +185,18 @@ export const repositoryRoot = async (path: string): Promise<string | null> =>
  * is that submodule's git directory, so it is put back through
  * `--show-toplevel` to reach the folder someone actually works in.
  */
-export const repositoryOf = async (path: string): Promise<RepoInfo | null> => {
+export const repositoryOf = (path: string): Promise<RepoInfo | null> => located(path, true)
+
+const located = async (path: string, origin: boolean): Promise<RepoInfo | null> => {
   const checkout = await shellCheckoutIdentity(path)
   if (!checkout) return null
   const { gitCommonDir: common, gitDir: dir, checkoutRoot: here } = checkout
   if (samePath(dir, common)) {
-    if (!await isMainCheckout(here, common)) return null
-    return { root: here, worktree: false, ...(await originOf(path)) }
+    if (!await isMainCheckout(here, common, await asked(path, checkout))) return null
+    return { root: here, worktree: false, ...(origin ? await originOf(path) : null) }
   }
   const main = await mainCheckoutOf(path, common)
-  return main === null ? null : { root: main, worktree: true, ...(await originOf(path)) }
+  return main === null ? null : { root: main, worktree: true, ...(origin ? await originOf(path) : null) }
 }
 
 /**
@@ -207,9 +219,19 @@ const originOf = async (path: string): Promise<{ readonly origin: string } | nul
   }
 }
 
+/**
+ * The identity already read for `path`, when `path` is itself the checkout
+ * root it names: asking git again from that same folder can only repeat it.
+ * Any other folder — a subfolder, or a root reached through `core.worktree` —
+ * is asked afresh, because the point of the second read is that the root's
+ * own metadata agrees.
+ */
+const asked = async (path: string, checkout: CheckoutIdentity): Promise<CheckoutIdentity | undefined> =>
+  samePath(await canonical(path), checkout.checkoutRoot) ? checkout : undefined
+
 /** A folder's own checkout metadata must agree with the repository that named it. */
-const isMainCheckout = async (folder: string, common: string): Promise<boolean> => {
-  const checkout = await shellCheckoutIdentity(folder)
+const isMainCheckout = async (folder: string, common: string, known?: CheckoutIdentity): Promise<boolean> => {
+  const checkout = known ?? await shellCheckoutIdentity(folder)
   return checkout !== null && samePath(checkout.checkoutRoot, folder) &&
     samePath(checkout.gitCommonDir, common) && samePath(checkout.gitDir, common)
 }
@@ -224,7 +246,7 @@ const mainCheckoutOf = async (path: string, common: string): Promise<string | nu
     const checkout = await shellCheckoutIdentity(listed)
     if (checkout) {
       const folder = checkout.checkoutRoot
-      return await isMainCheckout(folder, common) ? folder : null
+      return await isMainCheckout(folder, common, await asked(listed, checkout)) ? folder : null
     }
     // A separate git directory may not record its working folder. Keep that
     // existing listing behavior, but refuse a recorded folder that is missing.
@@ -971,10 +993,9 @@ const ignoredIn = async (path: string): Promise<string[]> => {
     // Keep ignored directories collapsed, even when the user's status preference
     // hides untracked files (which would also hide every ignored entry).
     const porcelain = await git(path, ['status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=normal'])
-    return porcelain
-      .split('\0')
-      .filter((line) => line.startsWith('!! '))
-      .map((line) => line.slice('!! '.length))
+    return parsePorcelain(porcelain)
+      .filter((entry) => entry.index === '!' && entry.worktree === '!')
+      .map((entry) => entry.path)
   } catch {
     return []
   }

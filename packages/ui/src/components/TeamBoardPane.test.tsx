@@ -1139,7 +1139,7 @@ it('a run stalled by one card leaves a sibling that already finished alone', asy
 const chipsOf = (id: number): HTMLButtonElement | null =>
   container.querySelector<HTMLButtonElement>(`button[aria-label^="What the desk observed on #${id}"]`)
 
-it('a card carries what the desk observed as chips, and they open all of it', async () => {
+it('a card summarizes what the desk observed and opens all of it', async () => {
   const { store } = rig(
     [intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
     {},
@@ -1147,8 +1147,7 @@ it('a card carries what the desk observed as chips, and they open all of it', as
   )
   await render(store)
   const chips = chipsOf(1)
-  expect(chips?.textContent).toContain('verify ✓ @a1b2c3d')
-  expect(chips?.textContent).toContain('PR #12 open')
+  expect(chips?.textContent).toBe('Checks recorded')
   act(() => chips?.click())
   await act(async () => {})
   const dialog = document.querySelector('[role="dialog"]')
@@ -1158,22 +1157,26 @@ it('a card carries what the desk observed as chips, and they open all of it', as
   expect(dialog?.textContent).toContain('pnpm verify')
 })
 
-it('a stale chip says how far behind it is', async () => {
+it('an optional refused project check does not turn a recorded pass into setup status', async () => {
+  const evidence = { ...observed(['verify'], [cardEvidence(1, [checkView()])]), refused: [{ name: 'optional', why: 'not offered' }] }
+  const { store } = rig([intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })], {}, evidence)
+  await render(store)
+  expect(chipsOf(1)?.textContent).toBe('Checks recorded')
+})
+
+it('a stale status opens the full reason', async () => {
   const { store } = rig(
     [intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
     {},
     observed(['verify'], [cardEvidence(1, [checkView({ freshness: { state: 'behind', commits: 2 } })])]),
   )
   await render(store)
-  // The card shows the fact whole; the distance is said aloud and in the chip's title.
-  expect(chipsOf(1)?.textContent).toBe('verify ✓ @a1b2c3d (stale)')
-  expect(chipsOf(1)?.querySelector('[data-stale]')?.getAttribute('title')).toBe('verify ✓ @a1b2c3d — 2 commits since')
-  expect(chipsOf(1)?.getAttribute('aria-label')).toBe(
-    'What the desk observed on #1: verify ✓ @a1b2c3d — 2 commits since (stale)',
-  )
+  expect(chipsOf(1)?.textContent).toBe('Out of date')
+  act(() => chipsOf(1)?.click())
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('2 commits landed on its branch since.')
 })
 
-it('a zero diff alone says "no changes" on a done card and nothing on a working one', async () => {
+it('a zero diff alone is observed on a done card and omitted on a working one', async () => {
   const none = () => factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
   const { store } = rig(
     [intent({ id: 1, state: 'done' }), intent({ id: 2, state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
@@ -1181,7 +1184,7 @@ it('a zero diff alone says "no changes" on a done card and nothing on a working 
     observed([], [cardEvidence(1, [none()]), cardEvidence(2, [none()])]),
   )
   await render(store)
-  expect(chipsOf(1)?.textContent).toBe('no changes')
+  expect(chipsOf(1)?.textContent).toBe('Observed')
   expect(chipsOf(2)).toBeNull()
 })
 

@@ -2,7 +2,7 @@ import { CLIENT_ACTION_TIERS, CLIENT_METHODS, type ClientMethodName } from './cl
 import type { CeilingLevel } from './evidence.js'
 import type { FlowSeat } from './flow.js'
 import { flowSeatValidator } from './flow-seat.js'
-import { isBoolean, isObject, literalUnion, optional, ValidationError, type Validator } from './validate.js'
+import { isBoolean, isObject, literalUnion, optional, optionalNullable, ValidationError, type Validator } from './validate.js'
 
 /** Versioned plain data only. Provider credentials and transport descriptors are private to the child bootstrap. */
 export const LEAD_VERSION = 1
@@ -64,6 +64,7 @@ export interface LeadAcceptanceContract {
   readonly steps: readonly LeadPlanStep[]
   readonly assertions: readonly LeadAssertion[]
   readonly caps: LeadCaps
+  readonly repeat?: { readonly every: LeadTaskRepeat; readonly at: string }
 }
 export interface LeadEvidenceReference {
   readonly kind: 'check' | 'review' | 'finding' | 'diff' | 'spend'
@@ -96,6 +97,8 @@ export interface LeadPermissionPolicy {
 export type LeadStopReason = 'budget' | 'rounds' | 'unknown-spend' | 'cancelled' | 'connection-lost' | 'recovery' | 'error'
 export interface LeadBudgetState {
   readonly version: 1
+  /** Present in host thread projections to fence controls to the current goal. */
+  readonly logicalGoalId?: string
   readonly revision: LeadRevision
   readonly caps: LeadCaps
   /** Non-overlapping attributed totals. Outstanding Lead requests reserve separately. */
@@ -153,6 +156,12 @@ export type LeadCard = (LeadCardBase & { readonly contractDigest: string } & (
   readonly type: 'budget-change'; readonly contractDigest: string | null; readonly logicalGoalId: string
   readonly previous: { readonly revision: LeadRevision; readonly caps: LeadCaps }; readonly proposed: LeadCaps
 }) | (LeadCardBase & {
+  readonly type: 'second-look'; readonly contractDigest: string | null; readonly logicalGoalId: string
+  readonly runId: string; readonly stopKey: string; readonly said: string; readonly found: string; readonly did: string
+}) | (LeadCardBase & {
+  readonly type: 'allowance-warning'; readonly contractDigest: string | null; readonly logicalGoalId: string
+  readonly usdMicros: number; readonly caps: LeadCaps
+}) | (LeadCardBase & {
   readonly type: 'permission-change'
   /** Null before there is an approved contract. The immutable card ID/revision binds the policy pair. */
   readonly contractDigest: string | null
@@ -162,13 +171,13 @@ export type LeadCard = (LeadCardBase & { readonly contractDigest: string } & (
 /** Private recipe choices: person/result acceptance maps accept/decline to accepted/declined. */
 export const LEAD_CARD_CHOICES = {
   plan: ['approve', 'decline'], 'permission-change': ['approve', 'decline'], 'budget-change': ['approve', 'decline'],
-  'branch-ownership': ['reclaim-branch', 'decline'], waiting: ['accept', 'decline'], result: ['accept', 'accept-open-pr', 'decline'], stopped: [],
+  'branch-ownership': ['reclaim-branch', 'decline'], waiting: ['accept', 'decline'], result: ['accept', 'accept-open-pr', 'decline'], stopped: [], 'second-look': [], 'allowance-warning': [],
 } as const
 /** Authenticated window input only. Never a child command or a worker approval answer. */
 export interface LeadCardDecision {
   readonly version: 1
   readonly cardId: string
-  readonly cardType: Exclude<LeadCard['type'], 'stopped'>
+  readonly cardType: Exclude<LeadCard['type'], 'stopped' | 'second-look' | 'allowance-warning'>
   readonly expectedRevision: LeadRevision
   readonly contractDigest: string | null
   readonly choice: 'approve' | 'decline' | 'accept' | 'accept-open-pr' | 'reclaim-branch'
@@ -210,7 +219,7 @@ export interface LeadThread {
   readonly olderMessages: number
   readonly messages: readonly LeadMessage[]
   readonly cards: readonly LeadCard[]
-  /** Read-only decided prose; it confers no person decision authority. */
+  /** Read-only past cards; informational records carry no person choice. */
   readonly decisions?: readonly LeadDecisionMessage[]
   /** Host journal positions remain fixed when a card gets a newer revision. */
   readonly cardPositions?: Readonly<Record<string, number>>
@@ -221,7 +230,24 @@ export interface LeadThread {
   readonly pr?: LeadPullRequest | null
 }
 export type LeadName = 'dex' | 'lex'
-export interface LeadDecisionMessage { readonly card: LeadCard; readonly choice: LeadCardDecision['choice']; readonly position: number }
+
+const LEAD_DISPLAY_NAMES: Readonly<Record<LeadName, string>> = { dex: 'Dex', lex: 'Lex' }
+/** The name the person picked, as both the receiving model and the transcript read it. */
+export const leadDisplayName = (name: LeadName): string => LEAD_DISPLAY_NAMES[name]
+
+/** Who directs one ordinary chat the Lead has written to. */
+export type LeadChatHolder = 'lead' | 'person'
+export interface LeadChatControl {
+  /** `runtime:session`, the id `lead/chat/*` uses. */
+  readonly id: string
+  readonly holder: LeadChatHolder
+  /** Keys (`leadMessageKey`) of the envelopes the host delivered, newest last. */
+  readonly sent: readonly string[]
+}
+/** Only chats the Lead has touched in the selected project; `project` is null when no Lead project is set. */
+export interface LeadChatControlList { readonly project: string | null; readonly chats: readonly LeadChatControl[]; readonly problem?: string }
+
+export interface LeadDecisionMessage { readonly card: LeadCard; readonly choice?: LeadCardDecision['choice']; readonly position: number }
 export interface LeadFollowPreferences { readonly checks: boolean; readonly reviews: boolean }
 export interface LeadPullRequest {
   readonly repository: string; readonly number: number; readonly branch: string; readonly head: string
@@ -277,12 +303,25 @@ export interface LeadWakeRecord {
 export interface LeadWakeLog { readonly revision: number; readonly wakes: readonly LeadWakeRecord[] }
 /** A goal the Lead opens on its own at a set time. It only ever reaches a plan card: the person still approves. */
 export type LeadTaskRepeat = 'day' | 'weekdays' | 'mondays' | 'fridays'
+export interface LeadScheduledRun {
+  readonly slot: number; readonly at: number; readonly state: 'started' | 'skipped' | 'needs-approval'
+  readonly reason?: string; readonly logicalGoalId?: string; readonly outcome?: 'accepted' | 'declined' | 'stopped'
+  readonly usdMicros?: number; readonly rounds?: number
+}
+export interface LeadRepeatControl { readonly taskId: string; readonly action: 'pause' | 'resume' | 'stop' | 'run-now' }
+export interface LeadBudgetRaise { readonly logicalGoalId: string; readonly caps: LeadCaps; readonly expectedRevision: number }
 export interface LeadScheduledTask {
   readonly project?: string
   readonly id: string; readonly title: string; readonly goal: string
   readonly every: LeadTaskRepeat; readonly at: string; readonly enabled: boolean
   /** When the host last opened it; null before the first time. */
   readonly lastRunAt: number | null
+  /** Host creation baseline: the first wake never redeems a slot before this task existed. */
+  readonly createdAt?: number
+  readonly approved?: { readonly contract: LeadAcceptanceContract; readonly contractDigest: string }
+  readonly perRunCaps?: LeadCaps
+  readonly paused?: boolean
+  readonly runs?: readonly LeadScheduledRun[]
 }
 /** Hours, in the desk's own clock, when the Lead opens nothing on its own. */
 export interface LeadQuietHours { readonly from: string; readonly to: string }
@@ -328,7 +367,7 @@ export const LEAD_CONTROL_REFUSALS = ['lead-runtime-unsupported', 'lead-unavaila
   'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
-  'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable'] as const
+  'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending'] as const
 export type LeadControlRefusal = typeof LEAD_CONTROL_REFUSALS[number]
 /** Window-only input. Credentials are consumed by the broker lifecycle, never persisted as settings. */
 export interface LeadSettingsUpdate {
@@ -468,12 +507,14 @@ const step: Validator<LeadPlanStep> = object({
   assignments: list(assignment, LEAD_LIMITS.assignments, 1, assignment => assignment.role),
 })
 const assertion: Validator<LeadAssertion> = object({ id, kind: literalUnion('check', 'review', 'blocking-findings', 'diff'), description: prose })
+const clockTime: Validator<string> = (value, path = '') => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fail(path, 'expected HH:MM')
+const repeat = object({ every: literalUnion('day', 'weekdays', 'mondays', 'fridays'), at: clockTime })
 const acceptanceContractParser: Validator<LeadAcceptanceContract> = object({
-  version, revision, digest, goal: prose, project, policyRevision: revision, publicationRepository: optional(nullable(opaque)),
+  version, revision, digest, goal: prose, project, policyRevision: revision, publicationRepository: optionalNullable(opaque), repeat: optional(repeat),
   steps: list(step, LEAD_LIMITS.steps, 1, step => step.id), assertions: list(assertion, LEAD_LIMITS.assertions, 1, assertion => assertion.id), caps: parseLeadCaps,
 })
 export const parseLeadAcceptanceContract: Validator<LeadAcceptanceContract> = (value, path = '') => {
-  const parsed = acceptanceContractParser(value, path)
+  const parsed = Object.fromEntries(Object.entries(acceptanceContractParser(value, path)).filter(([, item]) => item !== undefined)) as unknown as LeadAcceptanceContract
   if (parsed.publicationRepository === undefined) { const { publicationRepository: _, ...rest } = parsed; return rest }
   if (parsed.publicationRepository !== null && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(parsed.publicationRepository)) return fail(path, 'expected repository')
   return parsed
@@ -499,7 +540,7 @@ export const parseLeadPermissionPolicy: Validator<LeadPermissionPolicy> = object
 })
 const stopReason = literalUnion('budget', 'rounds', 'unknown-spend', 'cancelled', 'connection-lost', 'recovery', 'error')
 const budgetState: Validator<LeadBudgetState> = object({
-  version, revision, caps: parseLeadCaps, leadUsdMicros: micros, workerUsdMicros: micros, reservedUsdMicros: micros,
+  version, logicalGoalId: optional(id), revision, caps: parseLeadCaps, leadUsdMicros: micros, workerUsdMicros: micros, reservedUsdMicros: micros,
   roundsAdmitted: integer(0, LEAD_LIMITS.rounds), spend: literalUnion('known', 'unknown', 'stale', 'partial', 'ambiguous'),
   stop: nullable(object({ reason: stopReason, revision })),
 })
@@ -515,7 +556,8 @@ export const parseLeadBudgetState: Validator<LeadBudgetState> = (value, path = '
   if (parsed.stop === null && (parsed.roundsAdmitted > parsed.caps.rounds ||
     reported >= parsed.caps.usdMicros))
     fail(path, 'budget above allowance requires a stop latch')
-  return parsed
+  const { logicalGoalId, ...rest } = parsed
+  return logicalGoalId === undefined ? rest : parsed
 }
 const budgetBase = { version, now: integer() }
 type BudgetOf<T extends LeadBudgetEvent['type']> = Extract<LeadBudgetEvent, { type: T }>
@@ -563,6 +605,8 @@ const card = tag<LeadCard>({
     personCardId: nullable(id), summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions, 0, result => result.assertionId) }),
   result: object<CardOf<'result'>>({ ...cardBase, type: literalUnion('result'), publication: optional(literalUnion('push')), publicationSource: optional(object({ runId: id, reviewedHead: opaque, evidenceRevision: content })), outcome: literalUnion('reviewed', 'accepted', 'declined'),
     summary: content, assertions: list(parseLeadAssertionResult, LEAD_LIMITS.assertions, 0, result => result.assertionId), budget: parseLeadBudgetState }),
+  'second-look': object<CardOf<'second-look'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('second-look'), logicalGoalId: id, runId: id, stopKey: id, said: text(1000), found: text(1000), did: text(1000) }),
+  'allowance-warning': object<CardOf<'allowance-warning'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('allowance-warning'), logicalGoalId: id, usdMicros: micros, caps: parseLeadCaps }),
   stopped: object<CardOf<'stopped'>>({ ...cardBase, contractDigest: nullable(digest), type: literalUnion('stopped'), reason: stopReason, summary: content, budget: parseLeadBudgetState }),
 })
 export const parseLeadCard: Validator<LeadCard> = (value, path = '') => {
@@ -639,11 +683,18 @@ export const parseLeadPullRequest: Validator<LeadPullRequest> = (value, path = '
   if (parsed.check && parsed.check.head !== (parsed.observedHead ?? parsed.head) || parsed.review && parsed.review.head !== (parsed.observedHead ?? parsed.head)) return fail(path, 'PR status is for another head')
   return Object.fromEntries(Object.entries(parsed).filter(([, item]) => item !== undefined)) as unknown as LeadPullRequest
 }
+const pastCardParser: Validator<LeadDecisionMessage> = object({ card: parseLeadCard, choice: optional(literalUnion('approve', 'accept', 'accept-open-pr', 'decline')), position: revision })
+export const parseLeadDecisionMessage: Validator<LeadDecisionMessage> = (value, path = '') => {
+  const parsed = pastCardParser(value, path)
+  const informational = parsed.card.type === 'second-look' || parsed.card.type === 'allowance-warning'
+  if ((parsed.choice === undefined) !== informational) return fail(path, 'only informational history omits a person choice')
+  return parsed.choice === undefined ? { card: parsed.card, position: parsed.position } : parsed
+}
 const threadParser: Validator<LeadThread> = object({
   version, id, revision, state: literalUnion('draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'following', 'accepted', 'declined', 'stopped'),
   // One current snapshot per card. Revisions belong to each card, so different cards may
   // share revision 1; the state machine must compare old/new revisions when replacing a card.
-  project: nullable(project), olderMessages: integer(), cardPositions: optional(cardPositions), decisions: optional(list(object({ card: parseLeadCard, choice: literalUnion('approve', 'accept', 'accept-open-pr', 'decline'), position: revision }), 64)),
+  project: nullable(project), olderMessages: integer(), cardPositions: optional(cardPositions), decisions: optional(list(parseLeadDecisionMessage, 64)),
   contract: optional(nullable(parseLeadAcceptanceContract)), budget: optional(nullable(parseLeadBudgetState)), pr: optional(nullable(parseLeadPullRequest)), origin: optional(nullable(parseLeadOrigin)), handback: optional(nullable(parseLeadHandback)),
   messages: list(parseLeadMessage, LEAD_LIMITS.messages, 0, message => message.id), cards: list(parseLeadCard, LEAD_LIMITS.cards, 0, card => card.id),
 })
@@ -661,7 +712,7 @@ export const windowLeadThread = (value: unknown, maxBytes: number): LeadThread =
   let thread = parseLeadThread(value)
   const bytesOf = (data: LeadThread | LeadMessage) => new TextEncoder().encode(JSON.stringify(data)).byteLength
   let bytes = bytesOf(thread)
-  // Decided prose grants no authority. Older history gives way to live decisions
+  // Historical prose grants no authority. Older history gives way to live decisions
   // and messages before the message suffix needs to be shortened.
   while (bytes > limit && thread.decisions?.length) {
     thread = { ...thread, decisions: thread.decisions.slice(1) }
@@ -733,9 +784,18 @@ export const parseLeadPresence: Validator<LeadPresence> = object({
   readings: list(object<LeadRunReading>({ runId: id, kind: literalUnion('advanced', 'stuck', 'plan-only', 'blocked', 'done'), quietMinutes: optional(integer()) }), 64, 0, reading => reading.runId),
 })
 const parseLeadSteer: Validator<LeadSteer> = object({ id, text: text(4000), at: integer(0, Number.MAX_SAFE_INTEGER), state: literalUnion('acknowledged', 'refused'), after: optional(integer(0, Number.MAX_SAFE_INTEGER)) })
-const clockTime: Validator<string> = (value, path = '') => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : fail(path, 'expected HH:MM')
-const parseLeadScheduledTask: Validator<LeadScheduledTask> = object({ project: optional(opaque), id, title: text(80), goal: text(2000), every: literalUnion('day', 'weekdays', 'mondays', 'fridays'),
-  at: clockTime, enabled: isBoolean, lastRunAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)) })
+
+const scheduledRun: Validator<LeadScheduledRun> = object({ slot: integer(), at: integer(), state: literalUnion('started', 'skipped', 'needs-approval'), reason: optional(text(400)), logicalGoalId: optional(id), outcome: optional(literalUnion('accepted', 'declined', 'stopped')), usdMicros: optional(micros), rounds: optional(integer(0, LEAD_LIMITS.rounds)) })
+const approvedRepeat = object({ contract: parseLeadAcceptanceContract, contractDigest: digest })
+const scheduledTask = object<LeadScheduledTask>({ project: optional(opaque), id, title: text(80), goal: text(2000), every: literalUnion('day', 'weekdays', 'mondays', 'fridays'),
+  at: clockTime, enabled: isBoolean, lastRunAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), createdAt: optional(integer()), approved: optional(approvedRepeat), perRunCaps: optional(parseLeadCaps), paused: optional(isBoolean), runs: optional(list(scheduledRun, 12)) })
+export const parseLeadScheduledTask: Validator<LeadScheduledTask> = (value, path = '') => {
+  const parsed = scheduledTask(value, path)
+  if (parsed.approved && (parsed.approved.contractDigest !== parsed.approved.contract.digest || !parsed.approved.contract.repeat || parsed.approved.contract.repeat.every !== parsed.every || parsed.approved.contract.repeat.at !== parsed.at || !parsed.perRunCaps || JSON.stringify(parsed.perRunCaps) !== JSON.stringify(parsed.approved.contract.caps))) fail(path, 'repeat approval does not match its contract')
+  return Object.fromEntries(Object.entries(parsed).filter(([, item]) => item !== undefined)) as unknown as LeadScheduledTask
+}
+export const parseLeadRepeatControl: Validator<LeadRepeatControl> = object({ taskId: id, action: literalUnion('pause', 'resume', 'stop', 'run-now') })
+export const parseLeadBudgetRaise: Validator<LeadBudgetRaise> = object({ logicalGoalId: id, caps: parseLeadCaps, expectedRevision: revision })
 export const parseLeadSchedule: Validator<LeadSchedule> = object({ seedChoices: optional(list(opaque, 256, 0, key => key)), version, tasks: list(parseLeadScheduledTask, LEAD_SCHEDULE_LIMITS.tasks, 0, task => task.id),
   quiet: nullable(object<LeadQuietHours>({ from: clockTime, to: clockTime })) })
 const parseLeadMemoryItem: Validator<LeadMemoryItem> = object({ id, text: text(400), state: literalUnion('kept', 'suggested'), at: integer(0, Number.MAX_SAFE_INTEGER) })

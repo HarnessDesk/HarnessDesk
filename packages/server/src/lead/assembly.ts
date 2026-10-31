@@ -25,6 +25,11 @@ export const LEAD_DEFAULT_CAPS = Object.freeze({ usdMicros: 1_000_000, rounds: 1
 const FRESHNESS_MS = 60_000
 const PROJECT_FILE = 'project.json'
 
+export const leadContractDigest = (value: LeadAcceptanceContract): string => {
+  const { digest: _digest, ...scope } = value
+  return createHash('sha256').update(JSON.stringify(scope, (_key, value: unknown) => value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value)).digest('hex')
+}
+
 /** The digest every plan is frozen with: sha256 of its canonical JSON, the way the approval cards name it. */
 export const freezeLeadPlan = async (value: LeadAcceptanceContract): Promise<LeadAcceptanceContract> => {
   let publicationRepository: string | null = null
@@ -35,11 +40,23 @@ export const freezeLeadPlan = async (value: LeadAcceptanceContract): Promise<Lea
     if (remote) publicationRepository = githubRepositoryFromUrl(await rawPushUrl(value.project.path, remote))
   } catch { /* A local-only plan grants no publication destination. */ }
   const pinned = { ...value, publicationRepository }
-  return { ...pinned, digest: createHash('sha256').update(JSON.stringify(pinned)).digest('hex') }
+  return { ...pinned, digest: leadContractDigest(pinned) }
 }
 
 /** A project's identity is its path, so a restart names the same project without storing anything else. */
 export const leadProjectOf = (path: string): LeadProject => ({ id: `project-${createHash('sha256').update(path).digest('hex').slice(0, 16)}`, path })
+
+/** Passive lookup shared by boot restoration and control reads; never creates a service or pins a selection. */
+export const readRememberedLeadProject = async (home: string): Promise<LeadProject | null> => {
+  let text: string
+  try { text = await readFile(join(home, 'lead', PROJECT_FILE), 'utf8') }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error }
+  const value: unknown = JSON.parse(text)
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+    (value as { version?: unknown }).version !== 1 || typeof (value as { path?: unknown }).path !== 'string' ||
+    !isAbsolute((value as { path: string }).path)) throw new Error('The remembered Lead project cannot be read safely.')
+  return leadProjectOf((value as { path: string }).path)
+}
 
 type Fact = { readonly id: string; readonly fact: { readonly kind: string; readonly at?: string; readonly verdict?: string; readonly exit?: number | null; readonly timedOut?: boolean; readonly dirty?: boolean; readonly counted?: boolean; readonly name?: string; readonly run?: string; readonly digest?: string } }
 type Card = { readonly card: number; readonly facts: readonly { readonly record: Fact; readonly freshness: { readonly state: string } }[] }
@@ -147,9 +164,7 @@ export class LeadAssembly {
 
   /** A persisted thread restores its host watches at boot, without a provider request or a new goal. */
   async restore(): Promise<void> {
-    try { await readFile(join(this.options.home, 'lead', PROJECT_FILE), 'utf8') }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error }
-    await this.ensure()
+    if (await readRememberedLeadProject(this.options.home)) await this.ensure()
   }
 
   /** Releases the journal's lease once the host has closed the service; a restart reopens the same thread. */
@@ -162,8 +177,8 @@ export class LeadAssembly {
 
   async #project(preferred?: string): Promise<LeadProject> {
     const file = join(this.options.home, 'lead', PROJECT_FILE)
-    const remembered = await readFile(file, 'utf8').then(text => JSON.parse(text) as { path?: unknown }, () => null)
-    if (remembered && typeof remembered.path === 'string' && isAbsolute(remembered.path)) return leadProjectOf(remembered.path)
+    const remembered = await readRememberedLeadProject(this.options.home)
+    if (remembered) return remembered
     const path = preferred ?? await this.options.workspace()
     if (!path) throw leadRefusal('lead-project-missing')
     await mkdir(join(this.options.home, 'lead'), { recursive: true, mode: 0o700 })

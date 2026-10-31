@@ -6,7 +6,7 @@ import {
 import { compareLeadPolicyAuthority, sameLeadPolicyValues, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, type LeadState } from './state.js'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 
 const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
@@ -78,6 +78,9 @@ export type LeadJournalEvent =
   | { readonly type: 'message'; readonly idempotencyKey: string | null; readonly message: LeadMessage }
   | { readonly type: 'renew-plan'; readonly now: number; readonly cardId?: string }
   | { readonly type: 'restore-result' | 'retry-result'; readonly id: string; readonly revision: number }
+  | { readonly type: 'second-look-attempt'; readonly runId: string; readonly stopKey: string; readonly now: number }
+  | { readonly type: 'second-look-restart'; readonly runId: string; readonly stopKey: string; readonly roundId: string; readonly now: number }
+  | { readonly type: 'person-caps'; readonly logicalGoalId: string; readonly caps: LeadCaps; readonly now: number }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
@@ -174,7 +177,8 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   const keys: Record<string, readonly string[]> = {
     wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
     'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
-    policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
+    'second-look-attempt': ['runId', 'stopKey', 'now'], 'second-look-restart': ['runId', 'stopKey', 'roundId', 'now'],
+    'person-caps': ['logicalGoalId', 'caps', 'now'], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
   }
@@ -203,6 +207,9 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
       event = { type, id: identifier(source.id), identity, goalId, evidenceSeq: integer(source.evidenceSeq, 1) }; break
     }
     case 'stop-effects-done': event = { type, stopSeq: integer(source.stopSeq, 1) }; break
+    case 'second-look-attempt': event = { type, runId: identifier(source.runId), stopKey: identifier(source.stopKey), now: integer(source.now) }; break
+    case 'second-look-restart': event = { type, runId: identifier(source.runId), stopKey: identifier(source.stopKey), roundId: identifier(source.roundId), now: integer(source.now) }; break
+    case 'person-caps': event = { type, logicalGoalId: identifier(source.logicalGoalId), caps: parseLeadCaps(source.caps), now: integer(source.now) }; break
     case 'budget': event = { type, event: parseLeadBudgetEvent(source.event) }; break
     case 'policy': event = { type, policy: parseLeadPermissionPolicy(source.policy) }; break
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
@@ -278,6 +285,12 @@ export class LeadJournal {
   #tail: Promise<unknown> = Promise.resolve()
   #failed = false
   readonly #dispatchNotStarted = new Set<string>()
+  /**
+   * Result cards an invalidation took back while no one had decided them, by
+   * `id:revision`. Memory only: after a restart a click on one is refused as
+   * before. Never holds a card a person decided.
+   */
+  readonly #withdrawn = new Set<string>()
   #stopEffectFailure: { readonly reason: 'stop-effects-failed'; readonly stopSeq: number } | null = null
   private readonly security: LeadJournalSecurity
   constructor(private readonly storage: LeadJournalStorage, records: readonly LeadJournalRecord[], security: LeadJournalSecurity = {}, checkpoint: LeadState | null = null) {
@@ -295,6 +308,7 @@ export class LeadJournal {
   #budgetWrite<T>(operation: () => Promise<T>, stopEffects?: () => Promise<void>): Promise<T> {
     return this.#queue(async () => {
       const value = await operation()
+      await this.#allowanceWarning()
       return { value, stop: this.#state.stopEffectsPending !== null }
     }).then(async ({ value, stop }) => {
       // The latch is already durable. Effects run outside the writer queue so they
@@ -303,6 +317,35 @@ export class LeadJournal {
         try { await this.runStopEffects(stopEffects) } catch { /* Reported separately; the ledger write succeeded. */ }
       }
       return value
+    })
+  }
+  async #allowanceWarning(): Promise<void> {
+    const state = this.#state, ledger = state.budget
+    if (!ledger || state.cards.length >= 64) return
+    const budget = leadBudgetProjection(ledger, ledger.now), spent = budget.leadUsdMicros + budget.workerUsdMicros
+    if (budget.spend !== 'known' || !budget.caps.usdMicros || spent * 5 < budget.caps.usdMicros * 4 ||
+      state.cards.some(card => card.type === 'allowance-warning' && card.logicalGoalId === ledger.logicalGoalId && card.caps.usdMicros >= budget.caps.usdMicros)) return
+    await this.#append({ type: 'card', card: { version: 1, id: `allowance-${ledger.logicalGoalId}-${budget.caps.usdMicros}`, revision: 1,
+      type: 'allowance-warning', contractDigest: state.contract?.digest ?? null, logicalGoalId: ledger.logicalGoalId, usdMicros: spent, caps: budget.caps } })
+  }
+  /** Host-only claim before an effect, including failed attempts. Never exposed
+   * on the child journal port; repeated observation cannot buy a second try. */
+  secondLookAttempt(runId: string, stopKey: string, now: number): Promise<void> {
+    return this.#queue(() => this.#append({ type: 'second-look-attempt', runId, stopKey, now }))
+  }
+  reopenSecondLook(runId: string, stopKey: string, roundId: string, now: number): Promise<void> {
+    return this.#queue(() => this.#append({ type: 'second-look-restart', runId, stopKey, roundId, now }))
+  }
+  /** Authenticated person only. The child journal port deliberately has no such operation. */
+  raiseBudget(logicalGoalId: string, caps: LeadCaps, expectedRevision: number, now: number): Promise<void> {
+    return this.#budgetWrite(async () => {
+      this.#expectRevision(expectedRevision)
+      const budget = this.#state.budget
+      if (['accepted', 'declined'].includes(this.#state.phase) || budget && budget.logicalGoalId !== logicalGoalId)
+        throw Object.assign(new Error('lead-thread-closed'), { wireCode: 'lead-thread-closed' })
+      if (!budget || budget.logicalGoalId !== logicalGoalId || caps.usdMicros < budget.caps.usdMicros || caps.rounds < budget.caps.rounds ||
+        caps.usdMicros === budget.caps.usdMicros && caps.rounds === budget.caps.rounds) throw new Error('lead-budget-refused')
+      await this.#append({ type: 'person-caps', logicalGoalId, caps: parseLeadCaps(caps), now })
     })
   }
   async #append(event: LeadJournalEvent, committed?: () => void): Promise<void> {
@@ -316,6 +359,8 @@ export class LeadJournal {
     try { await this.storage.append(record) }
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
     this.#state = next
+    // A withdrawn card offered again is no longer withdrawn: a later decision on it is a person's.
+    for (const key of this.#withdrawn) if (!next.decidedCards.includes(key)) this.#withdrawn.delete(key)
     // The window marks paid work pending at this durable boundary, before projections observe it.
     committed?.()
     for (const listener of this.#listeners) { try { listener() } catch { /* Observers cannot undo a durable write. */ } }
@@ -444,9 +489,18 @@ export class LeadJournal {
     // Recheck on the writer queue: the child's snapshot predates this RPC.
     if (this.#resultFenced()) return
     if (op?.stage === 'needs-you' && op.effectStarted === false) await this.#append({ type: 'publication', operation: { ...op, stage: 'superseded' }, pr: null })
-    if (!this.#state.cards.some(card => card.type === 'result' && !this.#state.decidedCards.includes(`${card.id}:${card.revision}`))) return
+    const open = this.#state.cards.filter(card => card.type === 'result' && !this.#state.decidedCards.includes(`${card.id}:${card.revision}`))
+    if (!open.length) return
     await this.#append({ type: 'invalidate-results' })
+    for (const card of open) this.#withdrawn.add(`${card.id}:${card.revision}`)
+    // A goal offers a handful of results; keep the newest few hundred at most.
+    for (const key of this.#withdrawn) { if (this.#withdrawn.size <= 256) break; this.#withdrawn.delete(key) }
   }) }
+  /** Whether a result card is decided only because an invalidation took it back, not because anyone chose. */
+  withdrawn(cardId: string, revision: number): boolean {
+    const key = `${cardId}:${revision}`
+    return this.#withdrawn.has(key) && this.#state.decidedCards.includes(key)
+  }
   /** Host-only bookkeeping from a fresh owned execution read. Unlike crash
    * recovery this observes a completed start while the management child lives;
    * it cannot discover a new run, resolve an uncertain start or authorize work. */
@@ -515,7 +569,7 @@ export class LeadJournal {
       if (this.#state.decidedCards.includes(`${card.id}:${card.revision}`))
         throw Object.assign(new Error('lead-card-decided'), { wireCode: 'lead-card-decided' })
       if (card.type === 'plan' && decision.choice === 'approve' && this.#state.policy?.revision !== card.contract.policyRevision &&
-        !(this.#state.consent?.renewalCardRevision === card.revision && JSON.stringify(this.#state.contract) === JSON.stringify(card.contract)))
+        !isLeadPlanRenewal(this.#state, card))
         throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
       // Validate the immutable card and reducer transition before any human side effect.
       reduceLeadRecord(this.#state, { version: 1, seq: this.#state.seq + 1, type: 'card-decision', decision, expiresAt })

@@ -631,7 +631,7 @@ test.describe('preview coverage', () => {
       for (const file of result.covered) covered.add(file)
     })
 
-    for (const query of ['lead-synthetic=first-name', 'lead-synthetic=opening-jobs', 'lead-synthetic=wake-ledger', 'desk-account=pending', 'desk-account=settings']) test(`coverage Lead and account scene: ${query}`, async () => {
+    for (const query of ['lead-synthetic=first-name', 'lead-synthetic=opening-jobs', 'lead-synthetic=wake-ledger', 'lead-chat=lead', 'desk-account=pending', 'desk-account=settings']) test(`coverage Lead and account scene: ${query}`, async () => {
       test.setTimeout(360_000)
       // These app scenes own timers and subscriptions. Give each its own context
       // rather than retaining them on the inventory's long-lived page.

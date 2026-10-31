@@ -36,7 +36,7 @@ export const leadDeskFingerprint = (snapshot: ClientSnapshot | null, owned: Owne
     operations: run.operations.map(operation => `${operation.key}:${operation.state}`),
   })).sort((a, b) => a.id.localeCompare(b.id))
   // A board is where a run's person gate and its findings land; any change on an owned one is a fact, not chatter.
-  const boards = snapshot.boards.filter(board => owned.teams.includes(board.id)).map(board => JSON.stringify(board)).sort()
+  const boards = snapshot.boards.filter(board => owned.teams.includes(board.id)).map(board => JSON.stringify({ ...board, updatedAt: 0 })).sort()
   const waiting = (snapshot.waiting ?? []).filter(item => item.team === null || owned.teams.includes(item.team)).map(item => item.id).sort()
   const reviews = snapshot.reviews.filter(review => owned.runs.includes(review.run)).map(review => `${review.run}:${review.rounds.length}`).sort()
   return JSON.stringify({ runs, boards, waiting, reviews, actions: actions.map(action => action.id).sort() })
@@ -67,12 +67,39 @@ export const classifyLeadRuns = (snapshot: ClientSnapshot | null, owned: Owned, 
 export const createLeadWakeGate = (stuckMs = LEAD_STUCK_MS) => {
   let seen: string | null = null, counts: LeadWakeCounts = { checked: 0, quiet: 0, lastCheckedAt: null }
   const moved = new Map<string, number>(), lastRun = new Map<string, string>()
-  const stuckSaid = new Set<string>()
+  const stuckSaid = new Set<string>(), handledStops = new Set<string>()
   return {
     get counts(): LeadWakeCounts { return counts },
     get lastMoved(): ReadonlyMap<string, number> { return moved },
     /** Record what the model has now been shown; the counts start again from here. */
     shown(fingerprint: string) { seen = fingerprint; counts = { checked: 0, quiet: 0, lastCheckedAt: counts.lastCheckedAt } },
+    /** Consume one host-journaled intervention without waking for that stop.
+     * Only this fingerprint is consumed: another round or changed evidence wakes. */
+    handledStop(key: string, runId: string, snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[]) {
+      if (handledStops.has(key) || !snapshot) return
+      handledStops.add(key)
+      const current = JSON.parse(leadDeskFingerprint(snapshot, owned, actions)) as { runs: { id: string }[]; boards: string[]; waiting: string[]; reviews: string[]; actions: string[] }
+      const previous = seen && seen !== 'unsynchronized' ? JSON.parse(seen) as typeof current : { runs: [], boards: [], waiting: [], reviews: [], actions: [] }
+      const run = snapshot.runs.find(run => run.id === runId), reading = current.runs.find(run => run.id === runId)
+      if (!run || !reading) return
+      // Consume only the handled run and the worker cards that said this stop.
+      // Person actions, another run and unrelated board edits stay observable.
+      previous.runs = [...previous.runs.filter(run => run.id !== runId), reading].sort((a, b) => a.id.localeCompare(b.id))
+      const board = snapshot.boards.find(board => board.id === run.goal)
+      if (board) {
+        const currentBoard = { ...board, updatedAt: 0 }, index = previous.boards.findIndex(value => (JSON.parse(value) as { id: string }).id === board.id)
+        const prior = index < 0 ? { ...currentBoard, intents: [], channel: [] } : JSON.parse(previous.boards[index]!) as typeof currentBoard
+        const reopened = run.rounds.find(round => round.cause === `cause:lead:${key}`)
+        const stoppedRound = reopened ? run.rounds.find(round => round.n === reopened.n - 1) : run.rounds.at(-1)
+        const cards = new Set(stoppedRound?.cards ?? [])
+        const stopSignals = (entry: typeof board.channel[number]) => entry.kind === 'signal' && cards.has(entry.intent) && ['completed', 'blocked', 'released'].includes(entry.signal)
+        const channel = [...prior.channel.filter(entry => !stopSignals(entry)), ...currentBoard.channel.filter(stopSignals)].sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
+        const patched = JSON.stringify({ ...prior, channel, intents: [...prior.intents.filter(card => !cards.has(card.id)), ...currentBoard.intents.filter(card => cards.has(card.id))].sort((a, b) => a.id - b.id) })
+        if (index < 0) previous.boards.push(patched); else previous.boards[index] = patched
+        previous.boards.sort()
+      }
+      seen = JSON.stringify(previous)
+    },
     look(snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[], now: number): { readonly wake: boolean; readonly fingerprint: string; readonly why: 'changed' | 'stuck' | null } {
       for (const run of snapshot?.runs ?? []) {
         if (!owned.runs.includes(run.id)) continue

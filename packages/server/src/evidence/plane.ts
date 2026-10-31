@@ -746,6 +746,10 @@ export class EvidencePlane {
     const revision = await revisionOf(where.cwd)
     const beforeMark = revision ? await headMarkOf(where.cwd, revision.branch) : null
     const before = revision ? await headOf(where.cwd) : null
+    if (revision && before === revision.head && beforeMark !== null) {
+      this.running.target(card.goal, card.card, { at: revision.head, cwd: where.cwd, branch: revision.branch })
+      this.announce(card.goal)
+    }
     const result = await runCommand(command, {
       cwd: where.cwd, timeoutSec: where.timeoutSec, processDir: this.#checkProcessDir,
       processOwner: { board: card.goal, card: card.card },

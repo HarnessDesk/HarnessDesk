@@ -840,11 +840,28 @@ An association needs a locally observed diff fact, a matching checkout and a com
 
 ## Lead child runtime
 
+The host's schedule file is the single store for legacy scheduled requests and approved repeats. An approved repeat stores its digest-bound acceptance contract, per-run caps, pause state and at most 12 run records. The model may propose a timetable in a plan's frozen scope but cannot create or control a repeat. Only a person's plan decision or Settings edit creates one. Host slot handling coalesces missed calendar slots, records busy or paused slots as skipped without a queue, and holds quiet-hour work. Each admitted run gets fresh contract/step identities, logical goal, budget and 24-hour start consent; live project admission, policy, seats, independent review and source revisions are rechecked. Failure returns a plan card. Goal termination fills its run outcome and known spend and rounds.
+
+Second looks are host observations recorded in the Lead journal, projected as informational cards and fenced by the stop's identity. The host uses forge state for explicit issue/pull-request blockers and desk evidence for required checks, never model guesses. Recovery resumes an owned run using the existing Flow recovery/repair boundary and budget admission. Steers use the existing worker channel and cannot count as person-run check evidence. The wake gate consumes a handled stop once; a failure retains the ordinary person wait.
+
+At a new goal, second-look and allowance-warning records join the existing bounded read-only card history at their original journal positions, without a person choice. Replay and checkpoints retain that history. The thread's budget includes the current logical goal id; the renderer fences limit controls to it, and the serialized journal writer refuses raises after acceptance or decline.
+
+The budget projection decides the 80% step only for known Lead plus worker spend. One journaled informational card per reached dollar cap carries the observed total, and a desk conversation message narrows completion to the approved scope without changing standing instructions. The person-only direct caps raise shares journal serialization and preserves the stop latch. Repeat control and caps raise are absent from the Lead client door. Paired phones use the same thread projection and separate read/run/answer tiers; their exact JSON is in [the phone Lead contract](../packages/phone-link/lead.md). The relay transports opaque frames and has no Lead method dispatch.
+
 Lead's ordinary conversation and reviewed Flow authority are separate. The narrow `lead/chat/*` client methods list, read, start, message and stop ordinary sessions in the host's selected canonical project. `LeadChats` checks live project membership, actual session cwd, desk and project policy, recovery and budget admission independently of the child. Starts use `PhoneWork.startInProject`, sharing the desk's saved session defaults, creation and unconfirmed-first-send behavior. Replies use the ordinary queue; stops use the existing interrupt path. No tool changes permissions or answers approvals. Reviewed Flow starts still require their own approved contract and held preview.
 
 Cancellation admission, journal replay and recovery share one classification: Flow stop, intent abandon and ordinary chat Stop. An uncertain chat start/send receives a host-written recovery report without a Flow lookup or a claimed failure. Only empty, uncontested legacy reconciliation bookkeeping with no Flow or budget binding may be retired. The attempt remains uncertain and fences management in the old goal; explicit person Stop followed by a separate person message may replace it after existing recovery, cleanup and allowance fences settle. Automatic input cannot replace that uncertain request. A private checkpointed acknowledgement records the person Stop independently of automatic allowance stops; old checkpoints default to unacknowledged.
 
 Chat reads retain the provider's 12,000-byte result bound and disclose two separate omission counts: `omittedSourceTurns` for raw transcript turns excluded before phone projection, and `omittedPhoneEntries` for projected entries excluded by the result bound. Phone projection metadata remains nonserialized; `truncated` also covers shortened text and fold steps.
+
+The host also keeps `<state>/lead/chat-control.json`: at most 64 chats per canonical project and 32 envelope
+keys per chat, with a `lead` or `person` holder. The keys verify message
+provenance and confer no authority. Sends, stops and queued deliveries recheck
+the person's hold in the host. `lead/chats/control`, `lead/chats/resetControl`, `lead/chat/takeOver` and
+`lead/chat/handBack` are window-only methods. The phone's `workspace/thread/read`
+projects verified words in the `you` turn's `text`, with `lead: { name: string }`
+for its historical sender, and optional thread `leadChatHolder: 'lead' | 'person'`.
+An absent holder means the host has no Lead-managed chat record.
 
 The host stores at most 64 tracked chat ids in the Lead state folder’s `chats.json` watch file. Only meaningful running/waiting/idle transitions produce a metadata-only `lead/chat/changed` notification. The private client door rechecks project scope and current read authority, and supplies a bounded tracked-state baseline on subscription so a disconnected completion is observable. The Lead loop coalesces those changes, reads relevant conversations as untrusted observations, and reports only meaningful results or decisions. Ordinary sessions retain ordinary spend; they do not become approved Flow runs or consume its round accounting.
 

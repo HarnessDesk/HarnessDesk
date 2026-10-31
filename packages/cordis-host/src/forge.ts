@@ -1,6 +1,6 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 
-import type { ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult, ForgeVerb, ForgeReference, ScopeQuery } from '@harnessdesk/protocol'
+import type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult, ForgeVerb, ForgeReference, ScopeQuery } from '@harnessdesk/protocol'
 
 import { currentBrowserIdentity } from './browser-scopes.js'
 import { invocationScope } from './forge-invocation.js'
@@ -52,7 +52,7 @@ export interface ForgeScope {
   readonly plugin?: string
 }
 
-export type { ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult, ForgeVerb } from '@harnessdesk/protocol'
+export type { ForgeAssociatedPullRequest, ForgePush, ForgeCreate, ForgeUpdate, ForgeMerge, ForgeReview, ForgeComment, ForgeRecordQuery, ForgeAttribute, ForgeRequester, ForgeGitEntry, ForgeWriteResult, ForgeVerb } from '@harnessdesk/protocol'
 
 /** Shared by the in-process service and the untrusted child IPC boundary. */
 export function validateForgeArgs(verb: ForgeVerb, input: unknown): void {
@@ -66,7 +66,7 @@ export function validateForgeArgs(verb: ForgeVerb, input: unknown): void {
     x.split('/').every(part => !part.startsWith('.') && !part.endsWith('.lock'))
   const allowed: Record<ForgeVerb, string[]> = { push: ['branch', 'sha', 'expect'], create: ['head', 'base', 'title', 'body', 'draft'],
     update: ['number', 'title', 'body', 'base'], merge: ['number', 'head', 'method', 'body'], review: ['number', 'event', 'body'],
-    comment: ['subject', 'number', 'body'], record: ['branch', 'number', 'limit'], attribute: ['branch', 'sha'], repository: [] }
+    comment: ['subject', 'number', 'body'], record: ['branch', 'number', 'limit'], attribute: ['branch', 'sha'], repository: [], associatedPullRequest: [] }
   if (Object.keys(v).some(key => !allowed[verb].includes(key))) return fail()
   if (['update', 'merge', 'review', 'comment'].includes(verb) && (!Number.isSafeInteger(v.number) || Number(v.number) < 1)) return fail()
   if (v.number !== undefined && (!Number.isSafeInteger(v.number) || Number(v.number) < 1)) return fail()
@@ -88,6 +88,7 @@ export function validateForgeArgs(verb: ForgeVerb, input: unknown): void {
 
 export interface ForgeEngine {
   repository(scope: ForgeScope): Promise<string | null>
+  associatedPullRequest(scope: ForgeScope): Promise<ForgeAssociatedPullRequest>
   push(args: ForgePush, scope: ForgeScope): Promise<ForgeWriteResult>
   readonly pullRequest: {
     create(args: ForgeCreate, scope: ForgeScope): Promise<ForgeWriteResult>
@@ -158,14 +159,18 @@ export class ForgeService extends Service {
   }
 
   private callScope(verb: ForgeVerb, args: unknown, scope?: ScopeQuery): ForgeScope {
-    const plugin = this.gate(!['record', 'attribute', 'repository'].includes(verb))
+    const reads: readonly ForgeVerb[] = ['record', 'attribute', 'repository', 'associatedPullRequest']
+    const plugin = this.gate(!reads.includes(verb))
     const trusted = asForgeScope(scope, plugin)
     validateForgeArgs(verb, args)
-    if (!['record', 'attribute', 'repository'].includes(verb) && trusted.actor === 'context') throw new Error('Context resolution cannot write to the forge.')
+    if (!reads.includes(verb) && trusted.actor === 'context') throw new Error('Context resolution cannot write to the forge.')
     return trusted
   }
   async repository(scope?: ScopeQuery): Promise<string | null> {
     return engine().repository(this.callScope('repository', {}, scope))
+  }
+  async associatedPullRequest(scope?: ScopeQuery): Promise<ForgeAssociatedPullRequest> {
+    return engine().associatedPullRequest(this.callScope('associatedPullRequest', {}, scope))
   }
   async push(args: ForgePush, scope?: ScopeQuery): Promise<ForgeWriteResult> {
     args = structuredClone(args)

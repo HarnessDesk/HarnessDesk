@@ -11,6 +11,20 @@ const thread = (revision = 1, state = 'draft', cards: unknown[] = []) => ({ vers
   project: null, olderMessages: 0, messages: [], cards })
 const projection = (revision: number, state = 'running', cards: unknown[] = []) => ({ version: 1, revision, thread: thread(revision, state, cards), settings, waitReason: state === 'waiting-for-user' ? 'lead-request-failed' : null, planConsentExpiresAt: null, requestInFlight: false, wayOut: state === 'stopped' ? null : cards.length ? 'decide-plan' : state === 'waiting-for-user' ? 'resume' : null })
 
+it('sends person repeat controls and a revision-bound direct cap raise through their own methods', async () => {
+  const { createLeadState } = await load()
+  const schedule = { version: 1, tasks: [], quiet: null }
+  const request = vi.fn(async (method: string) => method === 'lead/repeat/control' ? schedule : projection(8))
+  const facade = createLeadState({ request }, () => true)
+  facade.changed({ method: 'lead/changed', params: projection(7) })
+  expect(await facade.controlRepeat('task-one', 'pause')).toEqual(schedule)
+  const caps = { usdMicros: 6000000, rounds: 5 }
+  await facade.raiseLimit('goal-one', caps)
+  expect(request).toHaveBeenCalledWith('lead/repeat/control', { taskId: 'task-one', action: 'pause' })
+  expect(request).toHaveBeenCalledWith('lead/budget/raise', { logicalGoalId: 'goal-one', caps, expectedRevision: 7 })
+  expect(facade.state.revision).toBe(8)
+})
+
 describe('Lead state facade', () => {
   it('ignores a readThread response that arrives after availability is dropped', async () => {
     const { createLeadState } = await load()
@@ -201,4 +215,30 @@ it('shows a second stale authority refusal without another retry', async () => {
   const facade = createLeadState({ request }, () => true); facade.changed({ method: 'lead/changed', params: projection(2) })
   await expect(facade.updateSettings({ caps: settings.caps })).rejects.toMatchObject({ code: 'lead-revision-stale' })
   expect(request).toHaveBeenCalledTimes(3)
+})
+
+
+import { createLeadState } from './lead'
+
+describe('Lead chat control', () => {
+  const list = (holder: 'lead' | 'person') => ({ project: '/w', chats: [{ id: 'codex:s1', holder, sent: ['a'.repeat(64)] }] })
+
+  it('reads, takes over, hands back, and follows the notification', async () => {
+    const request = vi.fn(async (method: string) =>
+      method === 'lead/chats/control' ? list('lead') : method === 'lead/chat/takeOver' ? list('person') : list('lead'))
+    const lead = createLeadState({ request } as never, () => true)
+    await lead.readChatControl()
+    expect(lead.state.chats[0]!.holder).toBe('lead')
+    await lead.takeOverChat('codex:s1')
+    expect(request).toHaveBeenLastCalledWith('lead/chat/takeOver', { id: 'codex:s1' })
+    expect(lead.state.chats[0]!.holder).toBe('person')
+    lead.changed({ method: 'lead/chats/controlChanged', params: list('lead') } as never)
+    expect(lead.state.chats[0]!.holder).toBe('lead')
+  })
+
+  it('stays empty while the Lead is unavailable', async () => {
+    const lead = createLeadState({ request: vi.fn() } as never, () => false)
+    lead.changed({ method: 'lead/chats/controlChanged', params: list('person') } as never)
+    expect(lead.state.chats).toEqual([])
+  })
 })

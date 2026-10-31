@@ -173,11 +173,21 @@ paths, real email addresses or credential shapes (it reuses the detector in
 never the value), and supports `--dry-run` to inspect the body and command
 before posting.
 
-It is a safety net on top of a human read, not a replacement for one. Known
-limits: names and handles are not machine-checked, an all-lowercase
-value after a weak key name (token, session id) reads as prose and is not recognised as a secret, and a determined
-evasion (look-alike characters, a bespoke encoding) can get past a pattern check. The
-poster reads the text before posting.
+It is a safety net on top of a human read, not a replacement for one. It also
+checks an opaque high-entropy token on a line by itself and an existing
+secret-named field followed immediately by a value on the next line. Exact
+40- and 64-character hexadecimal lines in longer text are exempt from the
+new line check because they commonly represent hashes; secrets of those
+shapes can pass it. The existing whole-body check still applies. Generated
+identifiers or ordinary words after strong field names can be refused; review
+and reword or use a placeholder when appropriate.
+
+Known limits include arbitrary inline opaque tokens and multiline blocks,
+lowercase prose-like values after weak keys (token, session id), values under
+four characters, unrecognized abbreviated or non-English field names,
+look-alike characters and bespoke encodings. Names and handles, and private
+repository, host or customer names, are not machine-checked. The poster reads
+the text before posting.
 
 **Prove the merge changed nothing**, so the build below doesn't have to wait
 on CI to finish before it can start:

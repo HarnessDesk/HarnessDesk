@@ -57,6 +57,13 @@ it needs and the size this panel has.
 Before a draft has its first message, Changes stays disabled with
 **Available after the first message** on hover. Activity appears as work is recorded.
 
+The turn card and Changes label a reported file path **Outside** when it is
+outside the known open workspace and conversation roots, and **Location
+unknown** when its spelling cannot be placed. These are lexical labels, not
+access decisions. Turn counts describe observed edits; Git counts describe the
+current working tree. Both the turn card and Changes summarize outside files;
+filtering Changes narrows its displayed turn total and outside count.
+
 Diffs wrap by default in the side pane and at full width. Modified lines keep
 their red/green ground and emphasize changed words with a stronger band on
 both sides. Line numbers, file paths and `+N −N` counts remain visible.
@@ -581,8 +588,9 @@ own icon in six colourways, from `assets/brand/faces`, and then the house
 mark's family, twenty-three whales from `assets/avatars`; the whale drawn in
 black is left out because a dark surface swallows it, and the default is the
 mark itself, drawn in the theme's own ink. Whichever you wear is also what the
-Dock wears, and clearing it puts the app's own icon back there. A face is a squared tile
-everywhere you appear, so its footprint never changes when the face does.
+Dock wears, and clearing it puts the app's own icon back there. A face is
+round by default and square when chosen, everywhere you appear; its footprint
+never changes when the face does.
 Clearing the name puts "HarnessDesk" back, picking the first face puts the
 mark back, and **Reset to default** puts back both. It stays on this Mac.
 What an avatar stores is its id — a short
@@ -1410,8 +1418,9 @@ along with what Settings still does not do — is recorded with the audit.
 
 ## What the desk observed
 
-**On a card.** A room's board draws each card's evidence as chips in its foot,
-and its columns — Needs you, Working, In review, To do, Ready, and Set aside
+**On a card.** A room's board draws one compact observation status in each card's foot.
+It opens the latest recorded facts and does not certify required checks; the
+Flow inspector separately keeps check attempt history. Board columns — Needs you, Working, In review, To do, Ready, and Set aside
 while anything is — come from those facts, so nothing on the board is dragged.
 A completed card is not placed until the first evidence read succeeds; while
 that read is pending or unavailable, the board says so rather than claiming
@@ -1550,7 +1559,8 @@ pixels. A 400px reading column is protected in this order:
   a wide window folds the same way. At 520px the branch's name, the status's
   word and the tasks chip's words fold to their marks — still read out, and
   on hover — while back and forward retain their title-row targets, moving
-  to the main bar if the sidebar has no room, and the plan meter shows its
+  to the main bar if a standing sidebar has no room, or into a second drawer
+  header row when it floats, and the plan meter shows its
   figure only when the runtime is running low. At 400px a resting status goes, the browser and
   terminal buttons fold into ⋯ › View where there is a ⋯ — a draft has none,
   and keeps its browser button — and the plan meter keeps its bar alone, low
@@ -2193,6 +2203,13 @@ no completion badge, activity, glow or motion.
 
 ## Lead
 
+A message the Lead sends into an ordinary chat uses the person's bubble shape
+under `Sent by <name>`. A chat the Lead has written to shows `<name> is managing this chat.` with **Take over**. After take over it shows **You have
+this chat.** with `Hand back to <name>`. Failed button actions show their reason inline. An unreadable control record blocks Lead actions and offers **Reset chat control**, with confirmation before clearing all projects' holds and message verification keys. Typing does not take over; only the
+button does. While the person holds the chat, the host refuses Lead sends,
+stops and queued delivery there, and removes the Lead's waiting messages.
+Hand back sends no message.
+
 Lead is one ongoing conversation. Questions, explanations and clarifications receive ordinary replies; they do not require a plan. A simple task can run in one ordinary chat, using the desk's selected agent and saved session permissions. Lead can find, read, message and stop ordinary chats in its selected project. Their approvals remain with the person. Ordinary chats have their own session spend; the Lead allowance covers its replies and reviewed Flow runs. The limits popover explains that distinction.
 
 While an ordinary reply is in flight the composer offers Stop reply. A completed reply leaves no planning banner or invented goal. Formal reviewed work retains its plan and approval cards. A setup failure keeps the composer available and explains the needed change without Resume; a new message carries that failure back to Lead so it can adjust. Transient interruptions retain Resume. Tracked ordinary chat state changes coalesce into a background check; results and decisions can return to the same Lead conversation, while unchanged work stays quiet.
@@ -2223,6 +2240,14 @@ ending in Approve to start, acceptance checks, the allowance and folder,
 and the separate-approval boundary for publishing, merging and deleting. Results
 show qualified check, review, findings and changes status, reasons and separately
 attributed Lead and reported worker spend. Unknown values remain unknown.
+
+A plan for recurring work carries a Repeats chip and a How it repeats block: its local timetable, that a slot is skipped while the previous run waits, and that an asleep desk makes one run when it wakes. The allowance is per run. Approve covers the stored contract for future runs; publishing, merging and deleting still ask on each run. A changed project, policy, seat, review independence or Flow source returns a plan card with the reason. Each run has its own result and acceptance. Plan and result Runs links open Settings › Lead, where each task's Runs view shows its next slot and last 12 runs, state, reason and known spend and rounds. Pause silently skips slots until Resume. Stop retains the history. Run once now requires an idle Lead. Settings tasks without an approved contract still ask for a plan approval each time.
+
+A host intervention on a worker stop shows one Second look entry with Said, Found and Did facts. A proven cleared issue or pull request can resume the existing run within its allowance; missing fresh check evidence can produce one steer asking the worker to show output. Such output remains advisory: required checks still need the person's own Run check action. Unchanged or unprovable claims reach the person as before.
+
+Known attributed spend at 80% shows one At 80% entry, its dollar total and cap in warning ink, and the unchanged stop threshold. Raise limit… opens the shared Dialog with dollar and round fields and applies the person's increase directly. A raised dollar cap can produce a new warning on reaching its own 80%; uncertain spend never produces a figure. Increasing a stopped goal's limits leaves it stopped. The Lead receives a desk message to finish only what the approved plan needs and list extra review asks in the result.
+
+Second look and At 80% entries stay in the bounded read-only thread history when the next goal begins. Raise limit… is available only for the current goal before acceptance or decline, including while stopped. Scheduled origins show a short local run time rather than internal identifiers.
 
 The shared ApprovalDialog docks the question and buttons above the composer.
 Plans and widenings offer Approve and Decline; a result offers Open changes,

@@ -1565,7 +1565,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
       onUse={() => store.returnToWork()} />}
     {section === 'permissions' && <PermissionsSection focus={focus} />}
     {section === 'browser' && <BrowserSection />}
-    {section === 'lead' && snapshot.leadAvailable && <LeadSettingsSection />}
+    {section === 'lead' && snapshot.leadAvailable && <LeadSettingsSection focus={focus} />}
     {section === 'phone' && <PhoneSettingsSection />}
   </Page>
 }

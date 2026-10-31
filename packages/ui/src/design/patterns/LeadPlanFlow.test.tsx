@@ -20,3 +20,14 @@ it('reads each ordered step and its responsible roles once, followed by approval
     expect(box.querySelector('img,[onerror]')).toBeNull()
   } finally { act(() => root.unmount()) }
 })
+
+it('renders a scheduled origin without exposing its idempotency key or raw timestamp', () => {
+  const box = document.createElement('div'), root = createRoot(box), slot = new Date(2026, 9, 26, 9).getTime()
+  act(() => root.render(<LeadPlanFlow steps={leadContract.steps} origin={{ source: 'schedule', event: 'schedule-repeat-internal-id', subject: String(slot), url: null }} />))
+  try {
+    expect(box.textContent).toContain('From: scheduled run, Mon, Oct 26')
+    expect(box.textContent).toContain('9:00 AM')
+    expect(box.textContent).not.toContain('internal-id')
+    expect(box.textContent).not.toContain(String(slot))
+  } finally { act(() => root.unmount()) }
+})

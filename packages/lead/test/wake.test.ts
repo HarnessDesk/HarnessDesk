@@ -50,3 +50,45 @@ test('a reply offers at most three lines to keep, each from its own line', () =>
   assert.deepEqual(lead.leadRememberLines('Nothing to remember: here'), [])
   assert.equal(lead.leadRememberLines(Array.from({ length: 5 }, (_, i) => `Remember: line ${i}`).join('\n')).length, 3)
 })
+
+
+test('a host second look consumes the same stop without suppressing a new round', () => {
+  const gate = lead.createLeadWakeGate(), stopped = desk([run({ state: 'settled', end: { kind: 'unrouted' } })])
+  gate.handledStop('stop-1', 'run-1', stopped, owned, [])
+  assert.equal(gate.look(stopped, owned, [], 100).wake, false)
+  const restarted = desk([run({ rounds: [{ n: 1, role: 'implement', state: 'closed' }, { n: 2, role: 'implement', state: 'running' }] })])
+  assert.equal(gate.look(restarted, owned, [], 200).wake, true)
+  gate.handledStop('stop-1', 'run-1', stopped, owned, [])
+  assert.equal(gate.look(restarted, owned, [], 300).wake, true, 'replaying the same claim never consumes later progress')
+})
+
+
+test('second look suppression preserves concurrent person actions and another run change', () => {
+  const gate = lead.createLeadWakeGate(), initial = desk([run()])
+  gate.shown(gate.look(initial, owned, [], 0).fingerprint)
+  const stopped = desk([run({ state: 'settled', end: { kind: 'unrouted' } })])
+  const actions = [{ kind: 'check' as const, id: 'new-check', runId: 'run-1', name: 'Unit', command: 'pnpm test' }]
+  gate.handledStop('stop-1', 'run-1', stopped, owned, actions)
+  assert.equal(gate.look(stopped, owned, actions, 100).wake, true)
+  const other = { runs: ['run-1', 'run-2'], teams: ['team-1', 'team-2'] }, next = desk([run({ state: 'settled' }), run({ id: 'run-2' })])
+  const independent = lead.createLeadWakeGate()
+  independent.shown(independent.look(initial, other, [], 0).fingerprint)
+  independent.handledStop('stop-1', 'run-1', next, other, [])
+  assert.equal(independent.look(next, other, [], 100).wake, true)
+})
+
+
+test('a handled worker completion consumes its board signal but preserves unrelated channel messages', () => {
+  const own = { ...owned }, worker = run({ goal: 'team-1', rounds: [{ n: 1, role: 'implement', state: 'closed', cards: [1] }] })
+  const actor = { kind: 'user' }, initialBoard = { id: 'team-1', name: 'Work', updatedAt: 1, members: [], root: '/workspace/acme-web', messaging: true,
+    intents: [{ id: 1, title: 'Dependencies', state: 'claimed' }], channel: [] }
+  const completed = { ...initialBoard, updatedAt: 2, intents: [{ ...initialBoard.intents[0], state: 'done', outcome: 'blocked' }],
+    channel: [{ id: 'completed-1', at: 2, kind: 'signal', by: actor, signal: 'completed', intent: 1, title: 'Dependencies' }] }
+  const before = { ...desk([worker]), boards: [initialBoard] }, stopped = { ...desk([{ ...worker, state: 'settled' }]), boards: [completed] }
+  const gate = lead.createLeadWakeGate(); gate.shown(gate.look(before, own, [], 0).fingerprint)
+  gate.handledStop('stop-1', 'run-1', stopped, own, [])
+  assert.equal(gate.look(stopped, own, [], 100).wake, false)
+  const message = { id: 'message-2', at: 3, kind: 'message', from: actor, text: 'New person request', state: 'shown' }
+  const changed = { ...stopped, boards: [{ ...completed, updatedAt: 3, channel: [...completed.channel, message] }] }
+  assert.equal(gate.look(changed, own, [], 200).wake, true)
+})

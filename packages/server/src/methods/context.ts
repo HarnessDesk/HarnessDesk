@@ -1,3 +1,4 @@
+import type { DispatchAdmission } from '../dispatch-admission.js'
 import type { HarnessDeskAccount } from '../harnessdesk-account.js'
 import type { GitGateway } from '../git-gateway/index.js'
 import type { ConversationLoadouts } from '@harnessdesk/protocol'
@@ -151,6 +152,13 @@ export interface HostContext {
   readonly phoneWorkspace: Pick<import('../phone-workspace.js').PhoneWorkspace, 'sessionsList' | 'teamsList' | 'dashboardRead'>
   /** The phone's projected work, ordinary session controls and approval answers. */
   readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'sessionsList' | 'sessionStart' | 'sessionSend' | 'stop' | 'threadRead' | 'approvalDecide'>
+  /** Person-owned controls, reachable from the window only. */
+  readonly leadChatControl: {
+    reset(): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+    list(): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+    takeOver(id: string): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+    handBack(id: string): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+  }
   readonly leadChats: Pick<import('../lead/chats.js').LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop'>
   leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
   leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
@@ -162,6 +170,8 @@ export interface HostContext {
   leadStop(params: HostParams<'lead/stop'>): Promise<HostResult<'lead/stop'>>
   leadResume(params: HostParams<'lead/resume'>): Promise<HostResult<'lead/resume'>>
   leadSteer(params: HostParams<'lead/steer'>): Promise<HostResult<'lead/steer'>>
+  leadRepeatControl(params: HostParams<'lead/repeat/control'>): Promise<HostResult<'lead/repeat/control'>>
+  leadBudgetRaise(params: HostParams<'lead/budget/raise'>): Promise<HostResult<'lead/budget/raise'>>
   leadScheduleRead(): Promise<HostResult<'lead/schedule/read'>>
   leadScheduleUpdate(params: HostParams<'lead/schedule/update'>): Promise<HostResult<'lead/schedule/update'>>
   leadMemoryRead(): Promise<HostResult<'lead/memory/read'>>
@@ -319,6 +329,8 @@ export interface HostContext {
     ids(): Set<string>
     /** The runtime's own `info` overlaid with what the host knows about it. */
     infoOf(runtime: AgentRuntime): RuntimeInfo
+    /** The captured registration behind this runtime, if it still owns the id. */
+    installOwner(runtime: AgentRuntime): AgentRuntime | undefined
     /** Runtimes whose usage the person has not switched off. */
     metered(): readonly AgentRuntime[]
     /** The runtime's extension plane, or a refusal that names the runtime. */
@@ -479,7 +491,7 @@ export interface HostContext {
      * Wrap fence is not asked a second time.
      */
     sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession, effectStarted?: () => void,
-      admitLive?: (live: AgentSession) => Promise<void>): Promise<TurnId>
+      admitLive?: DispatchAdmission<AgentSession>): Promise<TurnId>
   }
 
   readonly accounts: {

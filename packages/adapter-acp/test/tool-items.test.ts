@@ -5,8 +5,9 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { sessionId, type AgentEvent } from '@harnessdesk/protocol'
+import { itemId, sessionId, type AgentEvent } from '@harnessdesk/protocol'
 import { AcpRuntime } from '../src/index.js'
+import { projectToolItem } from '../src/tool-items.js'
 
 const FAKE = fileURLToPath(new URL('./fixtures/tool-items-acp.mjs', import.meta.url))
 const cwd = '/tmp/acp-edit-1670/workspace'
@@ -17,6 +18,26 @@ const finish = (extra: Record<string, unknown> = {}) => ({
   sessionUpdate: 'tool_call_update', toolCallId: 'edit', status: 'completed', ...extra,
 })
 const diff = (path = 'app.js') => ({ type: 'diff', path, oldText: 'return a - b\n', newText: 'return a + b\n' })
+
+test('input patches keep header-shaped hunk content but omit subsequent file headers', () => {
+  const patch = '--- a/one\n+++ b/one\n@@ -1,2 +1,2 @@\n--- old text\n+++ new text\n keep\n--- a/two\n+++ b/two\n@@ -1 +1 @@\n-before\n+after\n'
+  const call = { id: itemId('edit'), type: 'toolCall' as const, tool: 'edit', source: { kind: 'builtin' as const }, status: 'completed' as const, args: { path: 'one', patch } }
+  const item = projectToolItem(call, { toolCallId: 'edit', kind: 'edit' }, undefined, '/fixture').item
+  assert.equal(item.type, 'fileChange')
+  if (item.type !== 'fileChange') return
+  assert.deepEqual(item.changes, [{ path: '/fixture/one', kind: { type: 'update' }, diff: '--- old text\n+++ new text\n keep\n-before\n+after\n' }])
+})
+
+test('input patch zero-length hunks and later authoritative edits retain their semantics', () => {
+  const patch = '--- a/one\n+++ b/one\n@@ -0,0 +1 @@\n+first\n--- a/two\n+++ b/two\n@@ -1 +0,0 @@\n-gone\n'
+  const call = { id: itemId('edit'), type: 'toolCall' as const, tool: 'edit', source: { kind: 'builtin' as const }, status: 'completed' as const, args: { path: 'one', patch } }
+  const preview = projectToolItem(call, { toolCallId: 'edit', kind: 'edit' }, undefined, '/fixture')
+  assert.ok(preview.item.type === 'fileChange')
+  assert.equal(preview.item.changes[0]?.diff, '+first\n-gone\n')
+  const applied = projectToolItem(call, { toolCallId: 'edit', kind: 'edit', content: [{ type: 'diff', path: 'one', oldText: 'old\n', newText: 'new\n' }] }, preview, '/fixture')
+  assert.ok(applied.item.type === 'fileChange')
+  assert.equal(applied.item.changes[0]?.diff, '@@ -1,1 +1,1 @@\n-old\n+new\n')
+})
 
 async function run(t: TestContext, updates: readonly unknown[], replay = false) {
   mkdirSync(cwd, { recursive: true })

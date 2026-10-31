@@ -40,7 +40,9 @@ export const FlowsWindow = ({ onOpen, onNew }: {
   useEffect(() => { if (!active) { setNewTeam(null); setSelected(null); setStartFlow(null); setTriggersOpen(false); setTriggerRoot(null) } }, [active])
   const projectRoot = roots.find(root => root === origin) ?? roots[0] ?? null
   const selectedRoot = loading ? null : projectRoot
-  const currentTriggerRoot = roots.find(root => root === triggerRoot) ?? projectRoot
+  const currentTriggerRoot = triggerRoot ?? projectRoot
+  useEffect(() => { if (triggersOpen && !triggerRoot && projectRoot) setTriggerRoot(projectRoot) }, [triggersOpen, triggerRoot, projectRoot])
+  const triggerUnavailable = !!currentTriggerRoot && !loading && !roots.includes(currentTriggerRoot)
   const startBlocked = (root: string): string | null => loading ? 'Reading project Flows…' : roots.includes(root) ? null : 'This project folder is unavailable. Return to Flows and try again.'
   const words = query.trim().toLocaleLowerCase()
   const visible = rows.filter(({ root, entry }) =>
@@ -84,7 +86,8 @@ export const FlowsWindow = ({ onOpen, onNew }: {
     {active && newTeam && <FrontDoor context={{ kind: 'project', root: newTeam }} initialPlain startBlocked={startBlocked(newTeam)} onClose={() => setNewTeam(null)} onStarted={execution => { setNewTeam(null); store.openGoal(execution.goal) }} />}
     {active && triggersOpen && <Dialog title="Triggers" size="lg" onClose={() => setTriggersOpen(false)} footer={<Button variant="default" onClick={() => setTriggersOpen(false)}>Close</Button>}>
       {currentTriggerRoot && <>
-        <Field label="Project">{control => <NativeSelect {...control} value={currentTriggerRoot} onChange={event => setTriggerRoot(event.target.value)}>{roots.map(root => <option key={root} value={root}>{projectName(root)}</option>)}</NativeSelect>}</Field>
+        <Field label="Project">{control => <NativeSelect {...control} value={currentTriggerRoot} onChange={event => setTriggerRoot(event.target.value)}>{!roots.includes(currentTriggerRoot) && <option value={currentTriggerRoot}>{projectName(currentTriggerRoot)} (unavailable)</option>}{roots.map(root => <option key={root} value={root}>{projectName(root)}</option>)}</NativeSelect>}</Field>
+        {triggerUnavailable && <Note tone="warn">This project folder is unavailable. Close Triggers to return to Flows.</Note>}
         <ProjectTriggers key={currentTriggerRoot} root={currentTriggerRoot} />
       </>}
       <TriggerSettings />

@@ -1,3 +1,9 @@
+import type { DispatchAdmission } from './dispatch-admission.js'
+import { isLeadMessageSource, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
+import { LeadChatControlStore, LeadChatHeldError } from './lead/chat-control.js'
+import { decideLeadSecondLook, leadDoneStopId, leadSecondLookAuthorized, type LeadSecondLookInput } from './lead/second-look.js'
+import { readChecks } from './evidence/checks-file.js'
+import { LeadRepeats } from './lead/repeats.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { gitSteerContext } from './git-gateway/steer-context.js'
 import { redactGitCommand } from '@harnessdesk/protocol'
@@ -151,7 +157,7 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { LeadAssembly, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { leadContractDigest, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
@@ -642,8 +648,11 @@ export interface HostOptions {
 export interface AccountFactory {
   /** Whether one more account of this runtime is possible at all. */
   canAdd(info: RuntimeInfo): boolean
-  /** The primary this runtime is an account of, and where its credential sits. */
-  slotOf(info: RuntimeInfo): {
+  /**
+   * The primary and credential home. During setup only, allocation identifies
+   * the unregistered runtime whose own pending slot may be inspected.
+   */
+  slotOf(info: RuntimeInfo, allocation?: AgentRuntime): {
     agent: RuntimeId
     home: string | null
     removable: boolean
@@ -664,6 +673,10 @@ export interface AccountFactory {
    * knows a name, or the row is fine unnamed".
    */
   add(info: RuntimeInfo, gateway?: NewGatewayAccount, name?: string): Promise<AgentRuntime>
+  /** Publish an allocation's ownership only after the host registers it. */
+  commitAdd?(runtime: AgentRuntime): void
+  /** Undo a failed allocation after setup or commit, without touching its competitor. */
+  rollbackAdd?(runtime: AgentRuntime): Promise<void>
   remove(runtime: RuntimeId): Promise<void>
   /**
    * Who this account is signed in as, as a string the host only ever compares
@@ -824,8 +837,12 @@ export class Host {
   readonly #harnessDeskAccount: HarnessDeskAccount
   #leadService: LeadService | null = null
   #leadControls: LeadControls | null = null
+  #leadChatControl: LeadChatControlStore | null = null
+  #leadChatProject: LeadProject | null = null
+  #leadChatCancellation: ((id: string, count: number) => Promise<void>) | null = null
   #leadChats: LeadChats | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
+  #leadRepeats: LeadRepeats | null = null
   #leadPlannerFiles: LeadPlanner | null = null
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
   #phoneWorkspace: PhoneWorkspace | null = null
@@ -1281,7 +1298,7 @@ export class Host {
           return cwd && root ? { cwd, root } : null
         },
         admitWrite: async (verb, scope, args) => {
-          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '' }
+          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '', associatedPullRequest: '' }
           const result = await this.#ceilingGate.admit({ tool: verb === 'comment' && (args as { subject?: string })?.subject === 'issue' ? 'issue_comment' : names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
             scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!), ...(scope.turnId ? { turnId: scope.turnId as TurnId } : {}) }, publishes: true })
           if (!result.admitted) throw new Error(result.refusal)
@@ -2329,7 +2346,7 @@ export class Host {
         startTriggered: (request) => this.#flows.startTriggered(request),
         againTriggered: (run, key, evidence) => this.#flows.againTriggered(run, key, evidence),
         resumeTriggered: (run) => this.#flows.resumeTriggered(run),
-        supersedeTriggered: (run, why, next) => this.#flows.supersedeTriggered(run, why, next),
+        supersedeTriggered: (run, why, next, key) => this.#flows.supersedeTriggered(run, why, next, key),
         runs: (goal) => this.#flows.executionsFor(goal),
         execution: (run) => this.#flows.executionOf(run),
         stopRun: async (run, why) => { await this.#flows.stopRun(run, why, 'desk') },
@@ -2429,6 +2446,12 @@ export class Host {
     return this.#runtimes.has(id)
   }
 
+  /** Whether this exact runtime, rather than another with its id, was registered. */
+  ownsRuntime(runtime: AgentRuntime): boolean {
+    const registered = this.#runtimes.get(runtime.info.id)
+    return registered !== undefined && (this.#runtimeSources.get(String(runtime.info.id)) === runtime || registered === runtime)
+  }
+
   /**
    * Registers a runtime. Starting it is separate and allowed to fail: a machine
    * without Codex installed should still open the app and explain itself.
@@ -2439,6 +2462,7 @@ export class Host {
     if (this.#runtimes.has(id)) {
       throw new Error(`A runtime with id ${id} is already registered. Await unregister before registering it again.`)
     }
+    this.options.installs?.register?.(String(id), runtime)
     // These async surfaces belong to the same process as the runtime verbs.
     // Keep their receiver (including private fields) and share its lifecycle.
     const surfaces = new WeakMap<object, object>()
@@ -2556,6 +2580,7 @@ export class Host {
     this.#historyImport.cancel(id)
     const runtime = this.#runtimes.get(id)
     if (!runtime) return
+    this.options.installs?.forget?.(String(id))
     this.#invalidateDelegations(id)
     this.#settleHeld(id)
     this.registry.detachAll(id)
@@ -3581,6 +3606,17 @@ export class Host {
     if (!this.#leadReady) throw new Error('lead-host-starting')
     if (this.#leadService) throw new Error('lead-service-exists')
     const { journal, project } = options
+    const chatControl = this.#chatControlStore()
+    this.#leadChatControl = chatControl
+    this.#leadChatProject = project
+    const checkedControl = async <T>(root: string, work: () => Promise<T>): Promise<T> => {
+      try { return await work() }
+      catch (error) {
+        if (chatControl.problem) this.#push({ method: 'lead/chats/controlChanged', params: { ...chatControl.current(root), problem: chatControl.problem } })
+        throw error
+      }
+    }
+    this.#leadChatCancellation = async (id, count) => { await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${id}.`) }
     this.#leadChats = new LeadChats({ project, state: () => journal.state, now: () => Date.now(),
       managementAvailable: () => this.#leadService?.managementAvailable === true,
       noteDispatchNotStarted: id => journal.noteDispatchNotStarted(id),
@@ -3598,11 +3634,20 @@ export class Host {
         return { running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0 }
       },
       work: this.#phoneWorkView(),
+      control: {
+        assertDispatch: (project, id) => chatControl.assertDispatch(project, id),
+        assertCanStart: project => checkedControl(project, () => chatControl.assertCanStart(project)),
+        holder: (project, id) => checkedControl(project, () => chatControl.holder(project, id)),
+        noteSent: async (project, id, key) => {
+          await checkedControl(project, () => chatControl.noteSent(project, id, key))
+          this.#push({ method: 'lead/chats/controlChanged', params: await chatControl.list(project) })
+        },
+      },
       watches: new LeadChatWatches(join(this.#state.directory, 'lead', 'chats.json')),
       publish: params => this.#push({ method: 'lead/chat/changed', params }),
     })
     let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
-    this.onDispose(() => budgetOwner.close())
+    this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadChatCancellation = null })
     this.onDispose(journal.onChange(() => {
       const id = journal.state.budget!.logicalGoalId
       if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
@@ -3633,6 +3678,87 @@ export class Host {
     const detach = journal.onChange(trackOwned)
     this.onDispose(detach)
     const personActions = new LeadPersonActions(journal, this, this.#evidence, async value => { await this.#leadService!.assertPublic(value) })
+    const secondLooks = new Map<string, Promise<void>>()
+    const secondLook = (runId: string): Promise<void> => {
+      const pending = secondLooks.get(runId)
+      if (pending) return pending
+      const operation = (async () => {
+        const state = journal.state, contract = state.contract, ledger = state.budget
+        const run = this.#flows.leadRuns().find(one => one.id === runId)
+        // Evidence reads below await, so authority is asked again before each effect.
+        const authorized = () => !!contract && !!ledger && leadSecondLookAuthorized(journal.state, { contractDigest: contract.digest, logicalGoalId: ledger.logicalGoalId }, Date.now())
+        if (!run || !contract || !ledger || run.lead?.logicalGoalId !== ledger.logicalGoalId || !authorized()) return
+        const round = run.rounds.at(-1)
+        if (!round || round.role !== 'implement') return
+        const cards = this.#team.stateFor(run.goal).intents.filter(card => round.cards.includes(card.id))
+        const blocked = cards.find(card => card.outcome === 'blocked' || card.state === 'blocked')
+        const said = blocked ? [blocked.note, blocked.handoff].filter(Boolean).join(' ').slice(0, 1000) : 'Done'
+        const stopId = `${round.n}:${run.end?.kind === 'unrouted' ? run.end.card : blocked?.id ?? 'done'}:${run.currentEndedAt ?? blocked?.updatedAt ?? run.updatedAt}`
+        let observation: LeadSecondLookInput['observedBlocker']
+        let blocker: LeadSecondLookInput['stop']['blocker']
+        if (blocked) {
+          const repository = contract.publicationRepository
+          if (!repository || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) return
+          const named = /blocked on\s+(?:(?:pull request|issue|pr)\s*)?#([1-9]\d*)\b/i.exec(said)
+          const linked = /https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/(pull|issues)\/([1-9]\d*)\b/.exec(said)
+          if ((!named && !linked) || linked && (linked[1] !== repository || named && Number(named[1]) !== Number(linked[3]))) return
+          const number = Number(linked?.[3] ?? named?.[1])
+          if (!Number.isSafeInteger(number) || [...said.matchAll(/#([1-9]\d*)\b/g)].some(match => Number(match[1]) !== number) ||
+            [...said.matchAll(/https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/(?:pull|issues)\/([1-9]\d*)\b/g)].some(match => match[1] !== repository || Number(match[2]) !== number)) return
+          const gh = this.options.evidence?.gh ?? ghInCheckout
+          const answer = await gh(['api', '--method', 'GET', `repos/${repository}/issues/${number}`], project.path)
+          if (answer.exitCode !== 0) return
+          const issue = JSON.parse(answer.stdout) as { number?: number; state?: string; closed_at?: string; pull_request?: unknown }
+          if (issue.number !== number || !['open', 'closed'].includes(issue.state ?? '')) return
+          if (issue.pull_request) {
+            const pullAnswer = await gh(['api', '--method', 'GET', `repos/${repository}/pulls/${number}`], project.path)
+            if (pullAnswer.exitCode !== 0) return
+            const pull = JSON.parse(pullAnswer.stdout) as { number?: number; merged_at?: string | null }
+            if (pull.number !== number) return
+            blocker = { kind: 'pull-request', repository, number }
+            observation = { ...blocker, state: pull.merged_at ? 'merged' : issue.state as 'open' | 'closed', observedAt: Date.now(),
+              ...(pull.merged_at && Number.isSafeInteger(Date.parse(pull.merged_at)) ? { changedAt: Date.parse(pull.merged_at) } : {}) }
+          } else {
+            blocker = { kind: 'issue', repository, number }
+            observation = { ...blocker, state: issue.state as 'open' | 'closed', observedAt: Date.now(),
+              ...(issue.closed_at && Number.isSafeInteger(Date.parse(issue.closed_at)) ? { changedAt: Date.parse(issue.closed_at) } : {}) }
+          }
+        }
+        const seats = this.#evidence.seats.all().filter(seat => seat.board === run.goal && !seat.closed)
+        for (const seat of blocked ? [null] : seats) {
+          const record = seat && this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
+          const session = record?.session
+          const items = session?.turns.flatMap(turn => turn.items) ?? []
+          const done = [...items].reverse().find(item => item.type === 'assistantMessage' && item.phase === 'final' && /^\s*(?:done|finished|complete)\b/i.test(item.text))
+          if (!blocked && !done && !cards.some(card => card.state === 'done')) continue
+          const edits = items.filter(item => item.type === 'fileChange' && item.status === 'completed')
+          const lastEditAt = edits.length ? Math.max(...edits.map(item => item.completedAt ?? item.startedAt ?? 0)) : null
+          const checks = !blocked && session ? await readChecks(session.cwd) : null
+          const input: LeadSecondLookInput = { stop: { logicalGoalId: ledger.logicalGoalId, runId, stopId: blocked ? stopId : leadDoneStopId(round.n), kind: blocked ? 'blocked' : 'done', said,
+            at: blocked?.updatedAt ?? Date.now(), ...(blocker ? { blocker } : {}) }, now: Date.now(), approved: authorized(),
+            budget: leadBudgetProjection(journal.state.budget!, Date.now()), seen: journal.state.secondLooks.map(look => look.stopKey), runningWorker: !!record?.running.size,
+            ...(observation ? { observedBlocker: observation } : {}),
+            ...(checks && session ? { evidence: { complete: session.itemsLoaded && checks.problems.length === 0 && !checks.uncommitted && lastEditAt !== 0,
+              lastEditAt, requiredChecks: checks.checks.map(check => ({ name: check.run, runs: items.flatMap(item => item.type === 'command' && item.command === check.run && item.status !== 'inProgress' && item.completedAt !== undefined ? [{ at: item.completedAt }] : []) })) } } : {}) }
+          const decision = decideLeadSecondLook(input)
+          if (!decision) continue
+          if (!authorized()) return
+          if (decision.action === 'restart') await this.#flows.restartLeadStopped(runId, decision.key)
+          else {
+            await journal.secondLookAttempt(runId, decision.key, Date.now())
+            if (!authorized()) return
+            await this.call('turn/steer', { runtime: runtimeId(seat!.session.runtime), sessionId: makeSessionId(seat!.session.sessionId),
+              input: [{ type: 'text', text: `From the desk: ${decision.message}` }] })
+          }
+          await journal.offerCard({ version: 1, id: decision.key, revision: 1, type: 'second-look', contractDigest: contract.digest,
+            logicalGoalId: ledger.logicalGoalId, runId, stopKey: decision.key, said: decision.said, found: decision.found, did: decision.did })
+          return
+        }
+      })().catch(() => { /* Missing proof or a refused effect leaves the ordinary stop visible. */ })
+      secondLooks.set(runId, operation)
+      void operation.finally(() => { if (secondLooks.get(runId) === operation) secondLooks.delete(runId) })
+      return operation
+    }
     let leadPresence: LeadPresence | null = null
     this.#leadService = new LeadService({ ...options,
       ...(this.options.leadRuntimes ? { runtimes: this.options.leadRuntimes } : {}),
@@ -3642,7 +3768,7 @@ export class Host {
       onRemember: lines => {
         for (const line of lines) void this.#leadPlanner().suggest(line, `memory-${randomUUID()}`, Date.now()).catch(() => { this.#logger.warn('Lead memory suggestion was not saved') })
       },
-      readEvidence: async (runId, read) => ({ ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) }), broker: this.#credentials,
+      readEvidence: async (runId, read) => { await secondLook(runId); return { ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) } }, broker: this.#credentials,
       resolveTool: async call => {
         const scope = await options.resolveTool(call)
         // Derive readiness from host-owned runs and cards again for every journal
@@ -3768,6 +3894,26 @@ export class Host {
     // Recovery uses only journaled person authority and freshly verified worker/forge identity.
     void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
     this.#leadControls = new LeadControls({ journal,
+      approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
+      freezeRepeat: async contract => ({ ...contract, digest: leadContractDigest(contract) }),
+      validateRepeat: async contract => {
+        if (leadContractDigest(contract) !== contract.digest) return 'The approved contract could not be verified'
+        if (!await this.#leadBudgets.port.member(contract.project)) return 'The project is no longer admitted'
+        if (contract.project.id !== project.id || !samePath(contract.project.path, project.path)) return 'The selected project changed'
+        if (contract.policyRevision !== journal.state.policy?.revision) return 'The permissions changed'
+        for (const step of contract.steps) {
+          if (step.flow !== 'lead-reviewed-result' || step.sourceRevision !== 'recipe-1') return 'The Flow source changed'
+          const preview = await this.#flowPreviews.preview(project.path, leadReviewedResultSource, step.variables, undefined, undefined, {
+            seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])), attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
+          if (leadPreviewUnfit(preview)) return 'The agents can no longer hold the approved seats'
+          const [writer, reviewer] = await Promise.all(['implement', 'review'].map(role => {
+            const seat = step.assignments.find(one => one.role === role)?.seat
+            return seat ? this.#providerOf(seat.runtime, project.path) : Promise.resolve(null)
+          }))
+          if (!writer || !reviewer || writer === reviewer) return 'An independent review is no longer available'
+        }
+        return null
+      },
       automaticProject: async path => {
         const root = await this.#confineGitRoot(path)
         if (!samePath(root, resolve(path)) || !this.#leadAssembly) throw leadRefusal('lead-project-missing')
@@ -3810,19 +3956,25 @@ export class Host {
       quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
     })
     this.#leadAutomatic = { project, owner: automatic }
-    // A scheduled task is a message the person wrote ahead of time: it opens a new goal only when the Lead has
-    // nothing open, so it starts at a plan card like any other goal, and quiet hours hold it.
-    const scheduled = async () => {
-      const controls = this.#leadControls, state = journal.state
-      if (!controls || !(canBeginLeadGoal(state) || state.phase === 'draft' && !state.messages.length)) return
-      const planner = this.#leadPlanner(), due = leadDueTask(await planner.readSchedule(), new Date())
-      if (!due) return
-      const key = `schedule-${due.task.id}-${due.slot}`
-      const result = await automatic.offer({ key, ...(due.task.project ? { project: due.task.project } : {}), text: `Scheduled: ${due.task.title}\n${due.task.goal}`,
-        origin: { source: 'schedule', event: key, subject: String(due.slot), url: null } })
-      if (result.delivered) await planner.markRan(due.task.id, Date.now())
+    const repeats = new LeadRepeats({ planner: this.#leadPlanner(), journal, now: () => Date.now(),
+      start: (task, slot) => this.#leadControls!.runScheduled(task, slot) })
+    this.#leadRepeats = repeats
+    let lastSettled: string | null = null
+    const settleRepeat = async () => {
+      const state = journal.state, budget = state.budget
+      if (!budget || !['accepted', 'declined', 'stopped'].includes(state.phase)) return
+      const spend = leadBudgetProjection(budget, Date.now())
+      const signature = JSON.stringify([budget.logicalGoalId, state.phase, budget.revision, budget.requests.length, state.stopEffectsPending, spend.spend])
+      if (lastSettled === signature) return
+      lastSettled = signature
+      let settled
+      try { settled = await this.#leadPlanner().settleRun(budget.logicalGoalId, state.phase as 'accepted' | 'declined' | 'stopped',
+        spend.spend === 'known' && !budget.requests.length && state.stopEffectsPending === null ? spend.leadUsdMicros + spend.workerUsdMicros : undefined, spend.roundsAdmitted) }
+      catch (error) { if (lastSettled === signature) lastSettled = null; throw error }
+      if (!settled.tasks.some(task => task.runs?.some(run => run.logicalGoalId === budget.logicalGoalId)) && lastSettled === signature) lastSettled = null
     }
-    const timer = setInterval(() => { void scheduled().catch(() => { this.#logger.warn('A scheduled Lead task could not start') }) }, 60_000)
+    this.onDispose(journal.onChange(() => { void settleRepeat().catch(() => {}) }))
+    const timer = setInterval(() => { void settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') }) }, 60_000)
     timer.unref?.()
     this.onDispose(() => clearInterval(timer))
     return this.#leadService
@@ -5062,6 +5214,12 @@ export class Host {
       phoneWorkspace: this.#phoneWorkspaceView(),
       phoneWork: this.#phoneWorkView(),
       leadWakesRead: async () => (await this.#leadWindow()).readWakes(),
+      leadChatControl: {
+        reset: () => this.#resetChatControl(),
+        list: () => this.#chatControlList(),
+        takeOver: id => this.#setChatHolder(id, 'person'),
+        handBack: id => this.#setChatHolder(id, 'lead'),
+      },
       leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
@@ -5073,8 +5231,14 @@ export class Host {
       leadStop: async (params) => (await this.#leadWindow()).stop(params),
       leadResume: async (params) => (await this.#leadWindow()).resume(params),
       leadSteer: async (params) => (await this.#leadWindow()).steer(params),
+      leadBudgetRaise: async params => (await this.#leadWindow()).raiseBudget(params),
+      leadRepeatControl: async params => {
+        await this.#leadWindow()
+        if (params.action === 'run-now') { await this.#leadRepeats!.runNow(params.taskId); return this.#leadPlanner().readSchedule() }
+        return this.#leadRepeats ? this.#leadRepeats.control(params.taskId, params.action) : this.#leadPlanner().control(params.taskId, params.action)
+      },
       leadScheduleRead: async () => this.#leadPlanner().readSchedule(),
-      leadScheduleUpdate: async params => this.#leadPlanner().writeSchedule(params.schedule),
+      leadScheduleUpdate: async params => this.#leadRepeats ? this.#leadRepeats.write(params.schedule) : this.#leadPlanner().writeSchedule(params.schedule),
       leadMemoryRead: async () => this.#leadPlanner().readMemory(),
       leadMemoryUpdate: async params => this.#leadPlanner().writeMemory(params.memory),
       leadStarts: this.#leadBudgets,
@@ -5192,6 +5356,7 @@ export class Host {
         all: () => [...this.#runtimes.values()],
         ids: () => new Set(this.#runtimes.keys()),
         infoOf: (runtime) => this.#infoOf(runtime),
+        installOwner: (runtime) => this.ownsRuntime(runtime) ? this.#runtimeSources.get(String(runtime.info.id)) : undefined,
         metered: () => this.#meteredRuntimes(),
         extensionsOf: (params) => this.#extensionsOf(params),
         files: (runtime) => this.#files(runtime),
@@ -5748,19 +5913,15 @@ export class Host {
 
     const agents = { restored: 0, skipped: 0 }
     const directory = this.options.agents
+    const storedAgent = (id: string): boolean => directory?.entries().some(entry => entry['id'] === id) ?? false
     for (const entry of Array.isArray(file.agents) ? file.agents : []) {
       const id = (entry as Record<string, unknown>)['id']
-      if (!directory || typeof id !== 'string' || this.#runtimes.has(id as RuntimeId) || directory.owns(id)) {
+      if (!directory || typeof id !== 'string' || this.#runtimes.has(id as RuntimeId) || storedAgent(id)) {
         agents.skipped += 1
         continue
       }
       try {
         const adopted = directory.adopt(entry as Record<string, unknown>)
-        if (!directory.owns(id)) {
-          agents.skipped += 1
-          continue
-        }
-        agents.restored += 1
         if (adopted) {
           if (adopted.usage) this.bindUsage(adopted.runtime.info.id, adopted.usage)
           this.register(adopted.runtime)
@@ -5768,8 +5929,12 @@ export class Host {
           void this.#startOne(adopted.runtime)
         }
       } catch {
-        agents.skipped += 1
+        this.#logger.warn('an agent from a backup could not be brought up')
       }
+      // Adoption writes before it builds; registration can fail after that
+      // too. Count the persisted row once, independently of runtime startup.
+      if (storedAgent(id)) agents.restored += 1
+      else agents.skipped += 1
     }
 
     let preferences = 0
@@ -6050,15 +6215,17 @@ export class Host {
    * leave that account explaining itself on its own row, not stop the app —
    * the same bargain `#startOne` makes for an agent that will not launch.
    */
-  async #prepareGateway(runtime: AgentRuntime): Promise<void> {
-    const slot = this.options.accounts?.slotOf(runtime.info)
+  async #prepareGateway(runtime: AgentRuntime, acquired?: (release: () => Promise<void>) => void): Promise<void> {
+    const slot = this.options.accounts?.slotOf(runtime.info, runtime)
     if (!slot?.gateway) return
     const { name, endpoint, credentialRef } = slot.gateway
     try {
-      const gateway = await this.#gateways.ensure(runtime.info.id, {
+      const acquisition = await this.#gateways.acquire(runtime.info.id, {
         upstream: endpoint,
         resolveKey: () => this.#credentials.resolve(credentialRef),
       })
+      acquired?.(acquisition.release)
+      const gateway = acquisition.gateway
       await this.options.accounts?.prepare?.(runtime.info.id, {
         id: runtime.info.id,
         name,
@@ -6567,6 +6734,10 @@ export class Host {
   }
 
   async #askPerson(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'refused' | 'unanswered'> {
+    // A turn record can outlive an eventless close. Only a live handle may
+    // ask the person for a new tool approval.
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record?.live) return 'unanswered'
     const answer = await this.#askHeld(runtime, sessionId, question)
     return answer === 'standing' ? 'refused' : answer
   }
@@ -7250,7 +7421,7 @@ export class Host {
     return stable
   }
 
-  async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: (cwd: string) => Promise<void>): Promise<Session> {
+  async #readTranscript(runtime: AgentRuntime, id: SessionId, allowReopen = true, admitCwd?: DispatchAdmission<string>): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) {
       await admitCwd?.(held.live.settings().cwd)
@@ -7382,7 +7553,7 @@ export class Host {
    * a second one asking the same question again.
    */
   async #sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession, effectStarted?: () => void,
-    admitLive?: (live: AgentSession) => Promise<void>): Promise<TurnId> {
+    admitLive?: DispatchAdmission<AgentSession>): Promise<TurnId> {
     const key = recordKey(record)
     // The mark is owned: only the send that set it may take it off. A send
     // whose deadline passed, and whose agent then answered after a later send
@@ -7404,6 +7575,7 @@ export class Host {
     try {
       const send = async (live: AgentSession) => {
         if (admitLive) await admitLive(live)
+        admitLive?.assertDispatch?.()
         effectStarted?.()
         return live.send(input)
       }
@@ -7461,6 +7633,7 @@ export class Host {
           const admit = this.registry.queuedAdmission(record, sending.id)
           if (admit) await admit(current)
           if (!record.queue.messages.some(message => message.id === sending.id)) { cancelled = true; return }
+          admit?.assertDispatch?.()
           sendStarted = true
           return current.send(sending.input)
         })
@@ -7470,6 +7643,15 @@ export class Host {
         // An admission refusal cannot fail delivery of an already cancelled
         // item. Once send began, however, a missing id says nothing about effects.
         if (!sendStarted && !record.queue.messages.some(message => message.id === sending.id)) { cancelled = true; return }
+        // A take-over cancels this admitted Lead instruction permanently. Its
+        // surviving person tail must be free to drain, including after hand back.
+        if (!sendStarted && error instanceof LeadChatHeldError) {
+          this.registry.cancelQueued(record, sending.id)
+          this.#pushQueue(record)
+          cancelled = true
+          await this.#noteLeadChatCancellation(`${record.runtime}:${record.session.id}`, 1)
+          return
+        }
         // Put it back exactly where it was and stop: the message is the thing
         // worth keeping, and a queue that kept firing into a broken agent would
         // burn the rest of it the same way.
@@ -8955,11 +9137,40 @@ export class Host {
           credentialRef: await this.#credentials.store(`${gateway.name} key`, gateway.apiKey, { kind: 'gateway' }),
         }
       : undefined
-    const runtime = await accounts.add(of.info, spec, name)
-    // Before `register`, so the row never exists in a state where a turn could
-    // reach a Codex that has not been told where to send it.
-    await this.#prepareGateway(runtime)
-    this.register(runtime)
+    let runtime: AgentRuntime | undefined
+    let releaseGateway: (() => Promise<void>) | undefined
+    try {
+      const allocated = await accounts.add(of.info, spec, name)
+      if (this.ownsRuntime(allocated)) throw new Error('The account factory returned an already registered runtime.')
+      runtime = allocated
+      if (this.hasRuntime(runtime.info.id)) throw new Error('The account factory returned an already registered runtime id.')
+      // Before registration, so a turn cannot reach an unprepared gateway.
+      await this.#prepareGateway(runtime, release => { releaseGateway = release })
+      this.register(runtime)
+      accounts.commitAdd?.(runtime)
+    } catch (error) {
+      if (runtime) {
+        try {
+          if (this.ownsRuntime(runtime)) await this.unregister(runtime.info.id)
+        } catch (cleanupError) {
+          this.#logger.warn('a failed account setup could not stop its runtime', { runtime: runtime.info.id, error: String(cleanupError) })
+        }
+        try {
+          await releaseGateway?.()
+        } catch (cleanupError) {
+          this.#logger.warn('a failed account setup could not stop its gateway', { runtime: runtime.info.id, error: String(cleanupError) })
+        }
+        try { await accounts.rollbackAdd?.(runtime) } catch (cleanupError) {
+          this.#logger.warn('a failed account allocation could not be removed', { runtime: runtime.info.id, error: String(cleanupError) })
+        }
+      }
+      if (spec) {
+        try { await this.#credentials.delete(spec.credentialRef) } catch (cleanupError) {
+          this.#logger.warn('a failed account setup left its new key stored', { error: String(cleanupError) })
+        }
+      }
+      throw error
+    }
     const info = this.#infoOf(runtime)
     this.#push({ method: 'runtime/added', params: { info } })
     // Waited for, not left running behind the answer: the caller's very next
@@ -9563,15 +9774,83 @@ export class Host {
     return this.#leadChats
   }
 
-  #scopedLiveAdmission(params: { runtime: RuntimeId; sessionId: SessionId }, admitCwd?: (cwd: string) => Promise<void>): ((live: AgentSession) => Promise<void>) | undefined {
+  #scopedLiveAdmission(params: { runtime: RuntimeId; sessionId: SessionId }, admitCwd?: DispatchAdmission<string>): (DispatchAdmission<AgentSession>) | undefined {
     if (!admitCwd) return undefined
-    return async live => {
+    return Object.assign(async (live: AgentSession) => {
       const cwd = live.settings().cwd
       await admitCwd(cwd)
       // A changed handle/location during asynchronous scope checks must not
       // inherit the admission of the handle that was actually inspected.
       if (this.registry.get(params.runtime, params.sessionId)?.live !== live || !samePath(live.settings().cwd, cwd) ||
         !this.#sessionIndex.isOwn(params.runtime, params.sessionId)) throw new Error('The chat project scope changed before dispatch.')
+    }, { assertDispatch: admitCwd.assertDispatch })
+  }
+
+  #chatControlStore(): LeadChatControlStore {
+    return this.#leadChatControl ??= new LeadChatControlStore(join(this.#state.directory, 'lead', 'chat-control.json'))
+  }
+
+  /** A passive read never builds the Lead or pins a new project. */
+  async #chatControlList(): Promise<LeadChatControlList> {
+    if (this.options.leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
+    const project = this.#leadChatProject ?? await readRememberedLeadProject(this.#state.directory)
+    if (!project) return { project: null, chats: [] }
+    const store = this.#chatControlStore()
+    try { return await store.list(project.path) }
+    catch (error) { return { ...store.current(project.path), problem: error instanceof Error ? error.message : String(error) } }
+  }
+
+  async #resetChatControl(): Promise<LeadChatControlList> {
+    if (this.options.leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
+    await this.#chatControlStore().reset()
+    const list = await this.#chatControlList()
+    this.#push({ method: 'lead/chats/controlChanged', params: list })
+    return list
+  }
+
+  /** Drop only waiting messages whose Lead envelope the host recorded. */
+  #cancelLeadQueued(id: string, sent: readonly string[]): number {
+    const at = id.indexOf(':')
+    const record = this.registry.get(runtimeId(id.slice(0, at)), makeSessionId(id.slice(at + 1)))
+    if (!record) return 0
+    let cancelled = 0
+    const keys = new Set(sent)
+    for (const message of [...record.queue.messages]) {
+      if (message.state === 'sending') continue
+      const [block] = splitContextContent(message.input).injections
+      if (block && isLeadMessageSource(block.label) && keys.has(leadMessageKey(id, wrapContext(block.label, block.text))))
+        { this.registry.cancelQueued(record, message.id); cancelled++ }
+    }
+    this.#pushQueue(record)
+    return cancelled
+  }
+
+  async #noteLeadChatCancellation(id: string, count: number): Promise<void> {
+    try { await this.#leadChatCancellation?.(id, count) }
+    catch (error) { this.#logger.warn('Lead chat cancellation notice could not be saved', { error: String(error) }) }
+  }
+
+  async #setChatHolder(id: string, holder: LeadChatHolder): Promise<LeadChatControlList> {
+    if (this.options.leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
+    // An active Lead already has its selected project. Install its fence before
+    // yielding, even if a final path check is currently completing.
+    const project = this.#leadChatProject ?? await readRememberedLeadProject(this.#state.directory)
+    if (!project) return { project: null, chats: [] }
+    const store = this.#chatControlStore()
+    let cancelled = 0
+    if (holder === 'person') {
+      store.hold(project.path, id)
+      cancelled = this.#cancelLeadQueued(id, store.current(project.path).chats.find(chat => chat.id === id)?.sent ?? [])
+    }
+    try {
+      if (!await store.setHolder(project.path, id, holder)) throw new Error('The Lead has not written to this chat.')
+      const list = await store.list(project.path)
+      this.#push({ method: 'lead/chats/controlChanged', params: list })
+      if (cancelled) await this.#noteLeadChatCancellation(id, cancelled)
+      return list
+    } catch (error) {
+      this.#push({ method: 'lead/chats/controlChanged', params: { ...store.current(project.path), ...(store.problem ? { problem: store.problem } : {}) } })
+      throw error
     }
   }
 
@@ -9579,6 +9858,17 @@ export class Host {
   #phoneWorkView(): PhoneWork {
     return this.#phoneWork ??= new PhoneWork({
       workspace: this.#phoneWorkspaceView(),
+      chatControl: async (id, cwd) => {
+        try {
+          const list = await this.#chatControlList()
+          if (list.problem) throw new Error(list.problem)
+          if (!list.project || await realpath(cwd).catch(() => null) !== list.project) return undefined
+          return list.chats.find(chat => chat.id === id)
+        } catch (error) {
+          this.#logger.warn('phone thread chat control could not be read', { error: String(error) })
+          return undefined
+        }
+      },
       deskName: () => this.#phoneLink?.state().deskName ?? '',
       home: homedir(),
       seatName: (runtime) => {
@@ -9636,7 +9926,9 @@ export class Host {
       interrupt: async (params, effectStarted, admitCwd) => {
         this.#noteReach(params)
         const live = await this.#live(params)
-        await this.#scopedLiveAdmission(params, admitCwd)?.(live)
+        const admission = this.#scopedLiveAdmission(params, admitCwd)
+        await admission?.(live)
+        admission?.assertDispatch?.()
         effectStarted?.()
         await live.interrupt()
       },

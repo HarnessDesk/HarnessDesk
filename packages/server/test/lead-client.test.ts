@@ -470,11 +470,11 @@ for (const withdrawal of ['journal', 'membership'] as const) {
     peer.socket.close()
   })
 
-test('a Lead connection refuses all seven window controls before parsing their params', async t => {
+test('a Lead connection refuses all person window controls before parsing their params', async t => {
   const { host, peer, authority } = await rig(t)
   await host.call('app/state/set', { patch: { clientsMayAnswer: true } })
   await peer.hello()
-  for (const method of ['lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop']) {
+  for (const method of ['lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/repeat/control', 'lead/budget/raise']) {
     const result = await peer.call(method, { child: 'cannot impersonate a click' })
     assert.equal(result.ok, false)
     assert.equal(result.error.code, 'notOnClientSurface')
@@ -501,4 +501,12 @@ test('Lead run reads and live notifications do not wait for evidence-bearing Goa
   assert.equal(response.ok, true, 'scope authorization must use live ownership and project identity without reading evidence')
   assert.ok(peer.messages.slice(before).some(message => message.method === 'flow/execution-changed' && message.params.execution.id === owned.id && message.params.execution.state === 'stopped'))
   assert.deepEqual(richReads, [])
+})
+
+
+test('private Lead authority refuses repeat controls and allowance raises without any Flow start', async t => {
+  const project = await mkdtemp('/tmp/hd-lead-authority-')
+  t.after(() => rm(project, { recursive: true, force: true }))
+  const authority = await createLeadClientAuthority({ project, owned: [], host: { async call() { throw new Error('No host effect is authorized') }, clientScopeViews: () => [] } as unknown as LeadClientAuthorityOptions['host'] })
+  for (const method of ['lead/repeat/control', 'lead/budget/raise']) assert.equal(await authority.authorize({ id: 1, method, params: {} } as never), 'leadScope')
 })

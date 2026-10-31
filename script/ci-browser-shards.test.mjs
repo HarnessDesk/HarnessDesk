@@ -79,8 +79,8 @@ test('unsigned packaging proves the app builds without retaining an unused bundl
   assert.match(packaging, /name: Build app bundle/)
   assert.match(packaging, /electron-builder --mac dir/)
   assert.doesNotMatch(packaging, /actions\/upload-artifact@|HarnessDesk-unsigned/)
-  // Diagnostics of the three heavy jobs, and the two that carry a full run's records to the map.
-  assert.equal([...workflow.matchAll(/uses: actions\/upload-artifact@/g)].length, 7)
+  // Diagnostics of the three heavy jobs, the two that carry a full run’s records to the map, the Node tests’ measured seconds and the tree proof.
+  assert.equal([...workflow.matchAll(/uses: actions\/upload-artifact@/g)].length, 9)
 })
 
 // Execute the workflow's actual shell, so the required checks cannot report
@@ -214,7 +214,7 @@ test('only heavy UI jobs are conditional; required check names stay conclusive',
   // The shards and the page build they serve from run together, under the same condition.
   for (const name of ['ui-system-build', 'ui-system-browser']) assert.ok(job(name).includes("    if: needs.changes.outputs.browser == 'all'\n"), name)
   assert.match(job('ui-system-native'), /^    name: UI system native smoke$/m)
-  assert.match(job('ui-system-native'), /^    runs-on: macos-14$/m)
+  assert.match(job('ui-system-native'), /^    runs-on: macos-15$/m)
   // The gate check is the one that waits for the rest, so it must conclude
   // whatever they do: `always()`, and no other condition that could skip it.
   assert.match(job('verify'), /^    if: always\(\)$/m)
@@ -224,25 +224,22 @@ test('only heavy UI jobs are conditional; required check names stay conclusive',
   }
 })
 
-test('Lead runs on Node 26 separately from the Node 22 floor jobs', () => {
-  for (const part of ['node-tests', 'node-e2e']) {
-    assert.match(job(part), /^          node-version: 22$/m)
-    assert.doesNotMatch(job(part), /name: Lead end-to-end tests/)
-    assert.match(job(part), /sudo apt-get update && sudo apt-get install --yes zsh/)
-  }
-  const lead = job('lead-e2e')
-  assert.match(lead, /^          node-version: 26$/m)
-  assert.match(lead, /^    timeout-minutes: 40$/m)
-  assert.match(lead, /sudo apt-get update && sudo apt-get install --yes zsh/)
-  assert.match(lead, /name: Lead end-to-end tests/)
+test('Node tests run as the manifest deals them, each on its group’s runtime, with the fixture shell', () => {
+  const node = job('node-tests')
+  assert.match(node, /^    needs: changes$/m)
+  assert.match(node, /^        include: \$\{\{ fromJSON\(needs\.changes\.outputs\.node_jobs\) \}\}$/m)
+  assert.match(node, /^          node-version: \$\{\{ matrix\.node \}\}$/m)
+  assert.match(node, /sudo apt-get update && sudo apt-get install --yes zsh/)
+  assert.match(node, /^        run: node script\/node-tests\.mjs --job \$NODE_JOB$/m)
+  for (const gone of ['node-e2e', 'lead-e2e']) assert.throws(() => job(gone), undefined, `${gone} is dealt by the manifest now`)
 })
 
-const GATE_PARTS = [['node-tests', 'NODE_TESTS_RESULT'], ['node-e2e', 'NODE_E2E_RESULT'], ['lead-e2e', 'LEAD_E2E_RESULT'], ['ui-tests', 'UI_TESTS_RESULT'], ['gates', 'GATES_RESULT']]
+const GATE_PARTS = [['node-tests', 'NODE_TESTS_RESULT'], ['ui-tests', 'UI_TESTS_RESULT'], ['gates', 'GATES_RESULT']]
 
 test('the gate check waits for every part of the gate and packaging waits for it', () => {
   const gate = job('verify')
   assert.match(gate, /^    name: Build, typecheck, test$/m)
-  assert.match(gate, /^    needs: \[node-tests, node-e2e, lead-e2e, ui-tests, gates\]$/m)
+  assert.match(gate, /^    needs: \[node-tests, ui-tests, gates\]$/m)
   assert.match(gate, /^    runs-on: ubuntu-latest$/m)
   for (const [part, key] of GATE_PARTS) {
     assert.ok(gate.includes(`${key}: \${{ needs.${part}.result }}`), key)
@@ -312,7 +309,7 @@ test('the map is made from a clean full run, kept by main and development, and r
   assert.doesNotMatch(job('verify'), /ui-impact-map/)
 })
 
-test('a pull request runs the unit tests that depend on its change, and every other run runs them all', () => {
+test('a change that touches the UI runs the dealt unit suite, and one that does not skips it', () => {
   const changes = job('changes'), tests = job('ui-unit-tests')
   assert.match(changes, /node script\/ci-unit-tests\.mjs "\$list"/)
   assert.match(changes, /git diff --no-renames --name-only -z "\$base" HEAD > "\$list"/)
@@ -320,8 +317,7 @@ test('a pull request runs the unit tests that depend on its change, and every ot
   assert.match(tests, /id: deal\n        if: needs.changes.outputs.unit_mode == 'all'\n        run: \|/)
   assert.match(tests, /test -s "\$deal"/)
   assert.match(tests, /UNIT_DEAL: \$\{\{ steps.deal.outputs.files \}\}\n        run: pnpm --filter @harnessdesk\/ui run test \$UNIT_DEAL\n/)
-  assert.match(tests, /UNIT_FILES: \$\{\{ needs\.changes\.outputs\.unit_files \}\}/)
-  assert.match(tests, /if: needs\.changes\.outputs\.unit_mode == 'related'\n        run: pnpm --filter @harnessdesk\/ui exec vitest related --run \$UNIT_FILES\n/)
+  assert.doesNotMatch(tests, /vitest related|UNIT_FILES/)
 })
 
 
@@ -391,7 +387,7 @@ test('development push diff fetches before beyond checkout depth and computes th
     // disposable clone while finally removes it. Apply before the initial fetch too.
     git(['clone', '--config', 'maintenance.auto=false', '--config', 'gc.auto=0', '--depth=2', '--no-checkout', `file://${root}`, clone])
     assert.notEqual(spawnSync('git', ['cat-file', '-e', `${before}^{commit}`], { cwd: clone }).status, 0)
-    const block = job('changes').match(/        run: \|\n([\s\S]*?)          UI_THEME_TOUCHED=/)?.[1]
+    const block = job('changes').match(/        run: \|\n([\s\S]*?)          # A pushed tree that a full run already passed/)?.[1]
     assert.ok(block, 'workflow diff preparation')
     const execute = (event, revision, ref = 'development') => spawnSync('bash', ['-e', '-o', 'pipefail', '-c', block + '\nprintf "%s\\n" "$theme"'], {
       cwd: clone, encoding: 'utf8', env: { ...process.env, RUNNER_TEMP: directory, EVENT_NAME: event, CI_REF_NAME: ref, CI_BEFORE: revision },
@@ -425,4 +421,40 @@ test('impact cache restore falls back to legacy entries after development and ma
   assert.equal(restore([legacy]), legacy)
   assert.equal(restore([legacy, 'ui-impact-map-main-new', 'ui-impact-map-development-new']), 'ui-impact-map-development-new')
   assert.equal(restore([legacy, 'ui-impact-map-main-new']), 'ui-impact-map-main-new')
+})
+
+test('only a full run that passed every part, browser suite and native smoke included, writes a tree proof', () => {
+  const proof = job('proof')
+  assert.match(proof, /^    name: Tree proof$/m)
+  assert.match(proof, /^    needs: \[changes, verify, ui-system-browser-integration, ui-system-native-integration\]$/m)
+  // Without always() a skip by design upstream skips the proof, as in run 41229234634.
+  assert.match(proof, /^      always\(\) && needs\.changes\.outputs\.tier == 'full'/m)
+  for (const condition of ["needs.changes.outputs.tier == 'full'", "needs.changes.outputs.browser == 'all'", "needs.changes.outputs.browser_specs == 'all'",
+    "needs.changes.outputs.native == 'true'", "needs.verify.result == 'success'", "needs.ui-system-browser-integration.result == 'success'",
+    "needs.ui-system-native-integration.result == 'success'"]) assert.ok(proof.includes(condition), condition)
+  assert.match(proof, /name: proven-tree-\$\{\{ steps\.tree\.outputs\.tree \}\}/)
+  assert.ok(!REQUIRED_CHECKS.includes('Tree proof'), 'it gates nothing')
+})
+
+test('a push reads a proof for its own tree, from this repository only, and asking can only fail open', () => {
+  const step = job('changes').match(/          proven=""\n[^]*?          fi\n/)?.[0]
+  assert.ok(step, 'the lookup sits before the planner')
+  assert.match(job('changes'), /CI_PROVEN_BY="\$proven" UI_THEME_TOUCHED="\$theme" node script\/ci-changes\.mjs "\$list"/)
+  const dir = mkdtempSync(join(tmpdir(), 'ci-proof-'))
+  try {
+    const run = (event, gh) => spawnSync('bash', ['-e', '-o', 'pipefail', '-c', `git() { echo 4b825dc642cb6eb9a060e54bf8d69288fbee4904; }\ngh() { ${gh}; }\n${step}echo "proven=$proven"`],
+      { encoding: 'utf8', env: { ...process.env, EVENT_NAME: event, GITHUB_REPOSITORY: 'acme/widgets' } })
+    const found = run('push', 'echo "$@" > ' + join(dir, 'args') + '; echo 123')
+    assert.equal(found.status, 0, found.stderr)
+    assert.match(found.stdout, /proven=123/)
+    const args = readFileSync(join(dir, 'args'), 'utf8')
+    assert.match(args, /repos\/acme\/widgets\/actions\/artifacts\?name=proven-tree-4b825dc642cb6eb9a060e54bf8d69288fbee4904/)
+    assert.match(args, /head_repository_id == \.workflow_run\.repository_id/)
+    const failing = run('push', 'echo boom >&2; return 1')
+    assert.equal(failing.status, 0, 'a failed lookup does not fail the plan')
+    assert.match(failing.stdout, /proven=$/m)
+    assert.match(run('pull_request', 'echo 123').stdout, /proven=$/m, 'a pull request never reads a proof')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

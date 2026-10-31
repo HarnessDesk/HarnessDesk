@@ -13,6 +13,8 @@ import { useDestinationPage, useDestinationActive } from '../panels/destination-
 import { useSnapshot, useStore } from '../state/context'
 import { LeadMessage } from './LeadMessage'
 import { LeadCards, leadDollars } from './LeadCards'
+import { leadRepeatTaskFor } from '../lib/lead-repeat'
+import { leadOriginText } from '../lib/lead-time'
 import { LEAD_HANDBACK_LIMIT, LEAD_REPAIR_RECOVERY_FAILED } from './lead-wait-copy'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
@@ -224,8 +226,17 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   }, [active, selectedDecision, state.revision])
   const cardProps = {
     releasedBranch: pr,
+    knownContracts: [...cards, ...(state.thread?.decisions ?? []).map(decision => decision.card)].flatMap(card => card.type === 'plan' ? [card.contract] : []),
+    onRuns: (scope: NonNullable<typeof contract>) => {
+      const open = (id?: string) => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'lead', focus: id ? `repeat:${id}` : 'lead-runs' } })
+      void store.lead.readSchedule().then(schedule => {
+        const task = leadRepeatTaskFor(schedule, scope, contract?.digest, origin)
+        open(task?.id)
+      }).catch(() => open())
+    },
+    onRaiseLimit: (logicalGoalId: string, caps: Parameters<typeof store.lead.raiseLimit>[1]) => store.lead.raiseLimit(logicalGoalId, caps),
     onPerform: (input: Parameters<typeof store.lead.perform>[0]) => store.lead.perform(input),
-    focusCard: selectedDecision, decisionLock, decisionPending, setDecisionPending, expiry: state.planConsentExpiresAt, contract, budget: state.thread?.budget,
+    focusCard: selectedDecision, decisionLock, decisionPending, setDecisionPending, expiry: state.planConsentExpiresAt, contract, budget: state.thread?.budget, goalClosed: phase === 'accepted' || phase === 'declined',
     onDecide: (decision: Parameters<typeof store.lead.decide>[0]) => { setError(null); return store.lead.decide(decision) }, onError: refusal, onSettled: () => input.current?.focus(),
     onChanges: () => store.openDestination({ kind: 'changes-review', root: state.thread?.project?.path ?? null, returnTo: { kind: 'conversation', session: null } }),
     onApprovals: (runId: string) => { void (async () => { try { const run = snapshot.flowExecutions.get(runId) ?? await store.readFlowExecution(runId); store.openGoal(run.goal) } catch (error) { refusal(error) } })() },
@@ -241,7 +252,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         }} />}
         <LeadOpening jobs={openingJobs} pending={unavailable || requestPending || state.revision < 0} onStart={text => void send(text)} />
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
-        {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{`From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`}</Button> : `From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`}</Text>}
+        {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{leadOriginText(origin)}</Button> : leadOriginText(origin)}</Text>}
         {entries.map(entry => entry.kind === 'message'
           ? <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             proactive={entry.message.proactive} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
