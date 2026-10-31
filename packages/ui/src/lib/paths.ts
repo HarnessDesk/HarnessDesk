@@ -87,17 +87,27 @@ export const knownOpenRoots = (
   return candidates.flatMap(path => { const normalized = lexicalAbsolute(path); return normalized === null ? [] : [normalized] })
 }
 
-export const reportedLocation = (path: string, cwd: string | null | undefined, roots: readonly string[]): ReportedLocation => {
-  if (!path.trim() || path.startsWith('\\') || /[\x00-\x1f\x7f]/.test(path)) return 'unknown'
+export const reportedAbsolutePath = (path: string, cwd: string | null | undefined): string | null => {
+  if (!path.trim() || path.startsWith('\\') || /[\x00-\x1f\x7f]/.test(path)) return null
   const spelling = path.replace(/\\/g, '/')
   let absolute = lexicalAbsolute(path)
   if (!absolute) {
-    if (spelling.startsWith('/') || /^[a-zA-Z]:/.test(spelling)) return 'unknown'
+    if (spelling.startsWith('/') || /^[a-zA-Z]:/.test(spelling)) return null
     const base = cwd ? lexicalAbsolute(cwd) : null
-    if (!base) return 'unknown'
+    if (!base) return null
     absolute = lexicalAbsolute(`${base.replace(/\/$/, '')}/${spelling}`)
   }
+  return absolute
+}
+
+export const reportedLocation = (path: string, cwd: string | null | undefined, roots: readonly string[]): ReportedLocation => {
+  const absolute = reportedAbsolutePath(path, cwd)
   const validRoots = roots.flatMap(root => { const normalized = lexicalAbsolute(root); return normalized === null ? [] : [normalized] })
   if (!absolute || !validRoots.length) return 'unknown'
   return validRoots.some(root => isPathInside(absolute!, root)) ? 'inside' : 'outside'
+}
+
+export const reportedPathsLocation = (paths: readonly string[], cwd: string | null | undefined, roots: readonly string[]): ReportedLocation => {
+  const locations = paths.map(path => reportedLocation(path, cwd, roots))
+  return locations.includes('outside') ? 'outside' : locations.includes('unknown') ? 'unknown' : 'inside'
 }

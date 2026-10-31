@@ -52,3 +52,25 @@ it('classifies turn diff against the conversation, independently of Git and upda
     expect(host.textContent).toContain('Location unknown')
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+
+it('classifies both reported rename endpoints in the turn diff without changing Git counts', async () => {
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host)
+  const key = sessionKey('fixture', 'rename')
+  const changes = [
+    { path: '/work/app/src/a.ts', kind: { type: 'update', movePath: '/tmp/a.ts' }, diff: '@@ -1 +1 @@\n-a\n+b' },
+    { path: '/tmp/b.ts', kind: { type: 'update', movePath: '/work/app/src/b.ts' }, diff: '@@ -1 +1 @@\n-a\n+b' },
+  ]
+  const diff = ['diff --git a/src/a.ts b//tmp/a.ts', '@@ -1 +1 @@', '-a', '+b', 'diff --git a//tmp/b.ts b/src/b.ts', '@@ -1 +1 @@', '-a', '+b'].join('\n')
+  const session = { cwd: '/work/app', status: { type: 'idle' }, turns: [{ id: turnId('one'), status: 'completed', items: [{ type: 'fileChange', changes }], diff }] } as unknown as Session
+  const snapshot = { ...emptySnapshot(), activeSessionKey: key, sessions: new Map([[key, session]]), workspace: { path: '/work/app', name: 'app', lastOpenedAt: 1 } } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, notice: vi.fn(), transport: { request: vi.fn(async (method: string) => method === 'git/status' ? { root: '/work/app', branch: 'main', ahead: 0, behind: 0, files: [{ path: 'other.ts', status: 'modified', staged: false }] } : { diff: '' }) } } as unknown as AppStore
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><PaneProvider scope={{ paneId: 'owner', view: { kind: 'conversation', session: key }, sessionKey: key }}><ChangesView /></PaneProvider></StoreProvider>))
+    const summary = [...host.querySelectorAll('[data-slot="inspector-group"]')].find(el => el.textContent?.includes('This turn'))!
+    expect(summary.textContent).toContain('This turn · 2 files')
+    expect(summary.textContent).toContain('2 outside')
+    expect(host.textContent).toContain('Working tree · 1')
+    // Each file is labelled in the navigation and beside its diff.
+    expect([...host.querySelectorAll('[data-slot="chip"]')].filter(el => el.textContent === 'Outside')).toHaveLength(4)
+  } finally { await act(async () => root.unmount()); host.remove() }
+})

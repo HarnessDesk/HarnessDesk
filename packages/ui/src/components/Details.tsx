@@ -4,7 +4,7 @@ import { currentTurn, type GitStatus } from '@harnessdesk/protocol'
 
 import { handOverToComposer } from '../lib/compose'
 import { countChanges, splitByFile, DiffView, DiffFilesView } from '../editor'
-import { knownOpenRoots, reportedLocation } from '../lib/paths'
+import { knownOpenRoots, reportedAbsolutePath, reportedPathsLocation } from '../lib/paths'
 import { useActiveSession, usePane, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { inView } from '../lib/git-view'
@@ -346,7 +346,16 @@ const Changes = ({
       ),
     [turnDiff, needle],
   )
-  const outsideCount = turnFiles.filter(file => reportedLocation(file.path, session?.cwd, knownRoots) === 'outside').length
+  const locationForTurnPath = (path: string) => {
+    const absolute = reportedAbsolutePath(path, session?.cwd)
+    const endpoints = (turn?.items ?? []).flatMap(item => item.type === 'fileChange' ? item.changes.flatMap(change => {
+      if (change.kind.type !== 'update' || !change.kind.movePath) return []
+      const paths = [change.path, change.kind.movePath]
+      return absolute && paths.some(value => reportedAbsolutePath(value, session?.cwd) === absolute) ? paths : []
+    }) : [])
+    return reportedPathsLocation([path, ...endpoints], session?.cwd, knownRoots)
+  }
+  const outsideCount = turnFiles.filter(file => locationForTurnPath(file.path) === 'outside').length
 
   const total = files.reduce(
     (sum, file) => {
@@ -381,7 +390,7 @@ const Changes = ({
       {turnFiles.length > 0 && (
         <>
           <GroupLine left={`This turn · ${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'}`} right={outsideCount > 0 ? <Chip tone="neutral" size="sm" title="Reported path is outside the known open workspace and conversation roots.">{outsideCount} outside</Chip> : undefined} />
-          <DiffFilesView files={turnFiles} locationForPath={path => reportedLocation(path, session?.cwd, knownRoots)} />
+          <DiffFilesView files={turnFiles} locationForPath={locationForTurnPath} />
         </>
       )}
 

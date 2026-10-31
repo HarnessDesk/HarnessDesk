@@ -355,6 +355,26 @@ it('labels a single outside edit in its heading', async () => {
   expect(container.textContent).toContain('Outside')
 })
 
+it('labels both endpoints of a rename without changing file or line totals', async () => {
+  await rig([], [
+    { path: '/work/storefront/src/a.ts', kind: { type: 'update', movePath: '/tmp/a.ts' }, diff: '@@ -1 +1 @@\n-a\n+b' },
+    { path: '/tmp/b.ts', kind: { type: 'update', movePath: '/work/storefront/src/b.ts' }, diff: '@@ -1 +1 @@\n-a\n+b' },
+    { path: '/work/storefront/src/c.ts', kind: { type: 'update', movePath: '/work/storefront/src/d.ts' }, diff: '@@ -1 +1 @@\n-a\n+b' },
+  ])
+  expect(container.textContent).toContain('Edited 3 files')
+  expect(container.textContent).toContain('2 outside')
+  expect(container.querySelector('[data-slot="card"] [data-slot="change-stats"]')?.textContent).toBe('+3−3')
+  expect(container.querySelector('button[title="Open src/a.ts"]')?.textContent).toContain('Outside')
+  expect(container.querySelector('button[title="Open /tmp/b.ts"]')?.textContent).toContain('Outside')
+  expect(container.querySelector('button[title="Open src/c.ts"]')?.textContent).not.toContain('Outside')
+})
+
+it('labels a single rename outside when only its destination is outside', async () => {
+  await rig([], [{ path: '/work/storefront/src/a.ts', kind: { type: 'update', movePath: '/tmp/a.ts' }, diff: '@@ -1 +1 @@\n-a\n+b' }])
+  expect(container.textContent).toContain('Edited a.ts')
+  expect(container.textContent).toContain('Outside')
+})
+
 it('marks an ambiguous reported name unknown without counting it as outside', async () => {
   await rig([], [
     ...CHANGES,

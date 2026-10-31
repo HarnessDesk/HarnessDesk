@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { splitSessionKey, type FileChange, type Turn } from '@harnessdesk/protocol'
 
-import { knownOpenRoots, reportedLocation } from '../lib/paths'
+import { knownOpenRoots, reportedPathsLocation } from '../lib/paths'
 import { totalsByFile } from '../lib/turn-view'
 import { useSelect, useSessionKey, useSnapshotSelector, useStore } from '../state/context'
 import { closedTurnFilesKey } from '../state/snapshot'
@@ -81,9 +81,13 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
 
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
-  const outsideCount = files.filter(file => reportedLocation(file.path, root, roots) === 'outside').length
+  const locationForFile = (path: string) => {
+    const paths = [path, ...changes.flatMap(change => change.path === path && change.kind.type === 'update' && change.kind.movePath ? [change.kind.movePath] : [])]
+    return reportedPathsLocation(paths, root, roots)
+  }
+  const outsideCount = files.filter(file => locationForFile(file.path) === 'outside').length
   const locationChip = (path: string) => {
-    const location = reportedLocation(path, root, roots)
+    const location = locationForFile(path)
     return location === 'inside' ? null : <Chip tone="neutral" size="sm" title={location === 'outside' ? 'Reported path is outside the known open workspace and conversation roots.' : 'The reported path cannot be located against the known open roots.'}>{location === 'outside' ? 'Outside' : 'Location unknown'}</Chip>
   }
   const one = files.length === 1 ? files[0] : undefined
