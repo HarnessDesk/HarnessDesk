@@ -13,10 +13,12 @@ const describeInstall = async (
   runtime: AgentRuntime,
 ): Promise<InstallInfo | null> => {
   const installs = ctx.options.installs
+  const owner = ctx.runtimes.installOwner(runtime)
+  if (!owner) return null
   if (!ctx.options.agents?.owns(runtime.info.id)) return null
   const config = ctx.options.agents?.configOf(String(runtime.info.id))
   if (!installs || !config) return null
-  return installs.describe(config)
+  return installs.describe(config, undefined, owner)
 }
 
 /**

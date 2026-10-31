@@ -23,11 +23,15 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Detached conversations can find their own pull request.** Omitting the number in view, checks, review or comment uses that conversation's unique recorded open PR. Ambiguous cases still ask for a number; detached updates remain refused.
 
+- **Backup restore counts what it saved.** A runtime configuration saved before setup fails is counted as restored once, rather than skipped or counted twice.
+
 - **Lead is a conversation first.** Ask questions directly, or ask it to start, read, message and stop ordinary chats in its project. Simple tasks no longer need an implementer and independent reviewer. Reviewed work keeps its approval gates; setup problems explain what to change instead of repeating Resume.
 
 - **The phone can reach older sessions and control ordinary conversations.** Paired phones page active and archived sessions, and the Run grant allows starting a session, replying and stopping a turn while keeping the desk's session settings. Approval answers still require Answer.
 
 - **A large saved attribution history no longer crashes the desktop.** Obsolete checkpoints are removed within a bounded recovery pass. If retained history still exceeds the budget, capture pauses for that project, keeping its observations and leaving sign-in, capture controls and normal conversations available. Backups report omitted histories and continue with healthy projects.
+
+- **A replacement Agent shows its own installation details.** Removing and re-adding an Agent no longer carries over the previous Agent's cached version or a late installation check.
 
 - **Account sign-in says when the service is unavailable.** A server failure now explains that the account service is unavailable and asks you to try later, instead of reporting that the desk could not reach your account.
 
