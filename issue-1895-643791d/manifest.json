@@ -1,0 +1,57 @@
+{
+  "issue": 1895,
+  "head": "643791db320541cc6bbec79db0f0354b230fe1cb",
+  "tree": "6f23810ce6199d7494bc2cd521e8afb73fdb1665",
+  "frames": [
+    {
+      "name": "overview-light-420-0.png",
+      "viewport": 420,
+      "theme": "light",
+      "width": 356,
+      "height": 764,
+      "sha256": "7977cf363bd4dbdd5cfd1aa88cc838ee11d600a15f4aa6e13310fc3d332531d9"
+    },
+    {
+      "name": "overview-light-240-1.png",
+      "viewport": 240,
+      "theme": "light",
+      "width": 176,
+      "height": 1106,
+      "sha256": "e5f324e47a41dcbef5c3d17998ef9d7584d155c86e5edfb10c5f6ab4b18ca563"
+    },
+    {
+      "name": "overview-light-320-2.png",
+      "viewport": 320,
+      "theme": "light",
+      "width": 256,
+      "height": 910,
+      "sha256": "e9be1deeeff9395261b44a3247536fe3fdc710599144bca409799ce1d2492c0c"
+    },
+    {
+      "name": "overview-dark-420-4.png",
+      "viewport": 420,
+      "theme": "dark",
+      "width": 356,
+      "height": 764,
+      "sha256": "a779f68984938856e447880db8622ecb3180b937c360dd967d4f1bd27a7a3bd1"
+    },
+    {
+      "name": "overview-dark-240-5.png",
+      "viewport": 240,
+      "theme": "dark",
+      "width": 176,
+      "height": 1106,
+      "sha256": "7bc173d9f88bfe2bd3c2684997188418d641eb767bfd5d8d9fe0ace745d86685"
+    },
+    {
+      "name": "overview-dark-320-6.png",
+      "viewport": 320,
+      "theme": "dark",
+      "width": 256,
+      "height": 910,
+      "sha256": "e2519f321109641ac561ab477339db14a7f9eee4de1d28f0c71e9e0c53a741e8"
+    }
+  ],
+  "surface": "Production TeamOverview in synthetic focused preview,240/320/420 both themes. Entire document and both application stores audited before/after section captures.",
+  "privacy": "Current-head images byte-identical to personally inspected204 images. Unchanged text and account auditors, actual OS username, source-vouched history, no guests or real desk."
+}
