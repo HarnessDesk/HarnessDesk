@@ -258,6 +258,63 @@ test('stop leaves the server stopped and refuses further calls', async () => {
   )
 })
 
+test('a draining child cannot disturb its replacement', { skip: process.platform === 'win32', timeout: 15_000 }, async (t) => {
+  const server = make('overlap-stop', { maxRestarts: 0 })
+  let oldStop: Promise<void> | undefined
+  const owned = new Set<number>()
+  t.after(async () => {
+    // Reap tracked children through their process handles first. Only a child
+    // lost by the broken ownership guard still needs the recorded-PID fallback.
+    const current = server.processId
+    await Promise.all([server.stop(), oldStop])
+    if (current !== null) owned.delete(current)
+    t.diagnostic(`cleanup remaining owned child PIDs: ${[...owned].join(', ')}`)
+    for (const pid of owned) {
+      try { process.kill(pid, 'SIGKILL') } catch { /* already exited */ }
+    }
+    for (const pid of owned) {
+      const deadline = Date.now() + 5_000
+      while (true) {
+        try { process.kill(pid, 0) } catch { break }
+        if (Date.now() >= deadline) throw new Error(`child ${pid} did not exit`)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+    }
+  })
+  const notices: string[] = []
+  let pendingSeen!: () => void
+  const pendingNotice = new Promise<void>((resolve) => { pendingSeen = resolve })
+  server.onNotification((notice) => {
+    notices.push(notice.method)
+    if ((notice.method as string) === 'overlap/pending') pendingSeen()
+  })
+  await server.start()
+  const oldPid = server.processId!
+  owned.add(oldPid)
+  oldStop = server.stop().finally(() => { owned.delete(oldPid) })
+  await server.start()
+  const replacement = server.processId!
+  owned.add(replacement)
+  assert.notEqual(replacement, oldPid)
+  const pending = server.request('overlap/wait' as never, {} as never)
+  // Attach a rejection handler immediately, including on the red run.
+  const outcome = pending.then((value) => ({ value }), (error: unknown) => ({ error }))
+  await pendingNotice
+  t.diagnostic(`releasing old child ${oldPid}; replacement ${replacement} has a pending request`)
+  process.kill(oldPid, 'SIGUSR1')
+  await oldStop
+  assert.equal(server.processId, replacement)
+  assert.equal(server.state.type, 'ready')
+  assert.deepEqual(notices, ['overlap/pending'])
+  process.kill(replacement, 'SIGUSR2')
+  assert.deepEqual(await outcome, { value: { owner: 'replacement' } })
+  const finalStop = server.stop()
+  process.kill(replacement, 'SIGUSR1')
+  await finalStop
+  owned.delete(replacement)
+  assert.throws(() => process.kill(replacement, 0), { code: 'ESRCH' })
+})
+
 test('stop after a crash does not trigger another restart', async (t) => {
   const server = make('crash-on-request', { maxRestarts: 5 })
   t.after(() => server.stop())

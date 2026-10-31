@@ -227,7 +227,7 @@ export class CodexAppServer {
     this.#decoder.reset()
 
     child.stdout.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => this.#onStdout(chunk))
+    child.stdout.on('data', (chunk: string) => this.#onStdout(child, chunk))
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', (chunk: string) => {
       for (const line of chunk.split('\n')) {
@@ -235,7 +235,7 @@ export class CodexAppServer {
         for (const listener of this.#logListeners) listener(line)
       }
     })
-    child.on('exit', (code, signal) => this.#onExit(code, signal))
+    child.on('exit', (code, signal) => this.#onExit(child, code, signal))
     child.on('error', (error) => {
       this.options.logger?.error?.('app-server process error', { error: String(error) })
     })
@@ -375,7 +375,8 @@ export class CodexAppServer {
     child.stdin.write(encodeLine(message))
   }
 
-  #onStdout(chunk: string): void {
+  #onStdout(child: ChildProcessWithoutNullStreams, chunk: string): void {
+    if (this.#child !== child) return
     let messages: unknown[]
     try {
       messages = this.#decoder.push(chunk)
@@ -384,7 +385,10 @@ export class CodexAppServer {
       this.#decoder.reset()
       return
     }
-    for (const message of messages) this.#dispatch(message)
+    for (const message of messages) {
+      if (this.#child !== child) return
+      this.#dispatch(message)
+    }
   }
 
   #dispatch(message: unknown): void {
@@ -478,7 +482,9 @@ export class CodexAppServer {
     }
   }
 
-  #onExit(code: number | null, signal: NodeJS.Signals | null): void {
+  #onExit(child: ChildProcessWithoutNullStreams, code: number | null, signal: NodeJS.Signals | null): void {
+    // A stopped child can finish draining after a deliberate new start.
+    if (this.#child !== child) return
     const reason = `app-server exited (code=${code ?? 'null'} signal=${signal ?? 'null'})`
     this.#child = null
     this.#rejectAllPending(new CodexError('crashed', reason))
