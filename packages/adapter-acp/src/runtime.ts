@@ -929,7 +929,7 @@ export class AcpRuntime implements AgentRuntime {
   readonly #account: CliAccount | null
   /** Sign-ins started over ACP that nobody has cancelled; see `#authenticateOverAcp`. */
   readonly #acpLogins = new Set<string>()
-  readonly #cliLoginGenerations = new Map<string, symbol>()
+  readonly #cliLoginGenerations = new Map<string, AuthWorld>()
   readonly extensions: AcpExtensions | undefined
   /**
    * Set once the agent has shown it speaks the background-task extension —
@@ -2084,7 +2084,7 @@ export class AcpRuntime implements AgentRuntime {
       const status = freshRefusal
         ? { accounts: [], signInMethods: this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : [] }
         : await this.#account.status()
-      if (authGeneration !== this.#authGeneration) return this.getAccount()
+      if (!this.#currentAuthWorld(authGeneration)) return this.getAccount()
       this.#statusObservation = refusalGeneration
       if (!freshRefusal && this.#config.account?.status && this.#refusalGeneration === refusalGeneration && this.#signIn === beforeStatus && beforeStatus.state === 'required') {
         this.#noteSignIn({ state: 'observed' })
@@ -2219,7 +2219,7 @@ export class AcpRuntime implements AgentRuntime {
         const mine = this.#acpLogins.delete(loginId)
         // Before the events, so whoever reads the identity on `account/changed`
         // reads it signed in — the same ordering `#accountEvent` keeps.
-        if (authGeneration === this.#authGeneration) this.#noteSignIn({ state: 'observed' })
+        if (this.#currentAuthWorld(authGeneration)) this.#noteSignIn({ state: 'observed' })
         if (mine) this.emit({ type: 'account/loginCompleted', runtime, loginId, success: true })
         this.emit({ type: 'account/changed', runtime })
       },
@@ -2290,10 +2290,11 @@ export class AcpRuntime implements AgentRuntime {
     const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
     const before = this.#signIn
-    const beforeAuthGeneration = this.#authGeneration
-    // A failed logout may restore the previous identity, but a later logout
-    // must never reuse the identity captured by work begun during this one.
-    const signedOutAuthGeneration = this.#authGeneration = Symbol()
+    const beforeAuthGeneration = canonicalAuthWorld(this.#authGeneration)
+    // Each logout fences older work with its own identity. Failure joins its
+    // world to the preceding one without reusing an identity for a later logout.
+    const signedOutAuthGeneration: AuthWorld = {}
+    this.#authGeneration = signedOutAuthGeneration
     const beforeAccount = this.#lastAccount
     const beforeSignedOutIdentity = this.#signedOutIdentity
     this.#signedOutIdentity = this.#config.identityIsStatus ? this.#identityStatus() : null
@@ -2309,6 +2310,8 @@ export class AcpRuntime implements AgentRuntime {
     const signedOut: SignInObservation = { state: 'required', message: 'Signed out.', signedOut: true }
     this.#signIn = signedOut
     const signedOutGeneration = ++this.#refusalGeneration
+    const rollback: LogoutRollback = { before, beforeAccount, beforeSignedOutIdentity, beforeGeneration, beforeObservation }
+    this.#logoutRollbacks.add(rollback)
     this.#signingOut++
     try {
       if (overAcp) {
@@ -2321,18 +2324,31 @@ export class AcpRuntime implements AgentRuntime {
     } catch (error) {
       // Only what this sign-out wrote is taken back: an answer that landed
       // while the command ran is newer than the rollback and stands.
-      if (this.#authGeneration === signedOutAuthGeneration) this.#authGeneration = beforeAuthGeneration
+      signedOutAuthGeneration.parent = canonicalAuthWorld(beforeAuthGeneration)
+      // A later pending logout may have saved our temporary sign-out as its
+      // prior state. If we failed, it must roll back past us too.
+      for (const later of this.#logoutRollbacks) {
+        if (later.before !== signedOut) continue
+        later.before = rollback.before
+        later.beforeAccount = rollback.beforeAccount
+        later.beforeSignedOutIdentity = rollback.beforeSignedOutIdentity
+        if (later.beforeGeneration === signedOutGeneration) {
+          later.beforeGeneration = rollback.beforeGeneration
+          later.beforeObservation = rollback.beforeObservation
+        }
+      }
       if (this.#signIn === signedOut) {
-        this.#signIn = before
-        this.#signedOutIdentity = beforeSignedOutIdentity
-        this.#lastAccount = beforeAccount
+        this.#signIn = rollback.before
+        this.#signedOutIdentity = rollback.beforeSignedOutIdentity
+        this.#lastAccount = rollback.beforeAccount
       }
       if (this.#refusalGeneration === signedOutGeneration) {
-        this.#refusalGeneration = beforeGeneration
-        this.#statusObservation = beforeObservation
+        this.#refusalGeneration = rollback.beforeGeneration
+        this.#statusObservation = rollback.beforeObservation
       }
       throw error
     } finally {
+      this.#logoutRollbacks.delete(rollback)
       this.#signingOut--
     }
   }
@@ -2851,7 +2867,11 @@ export class AcpRuntime implements AgentRuntime {
   #restored: RuntimeObservations | null = null
   #lastAccount: AccountStatus | null = null
   /** Invalidates observations begun before a desk sign-out. */
-  #authGeneration = Symbol()
+  #authGeneration: AuthWorld = {}
+
+  #currentAuthWorld(world: AuthWorld | undefined): boolean {
+    return world !== undefined && canonicalAuthWorld(world) === canonicalAuthWorld(this.#authGeneration)
+  }
 
   // ACP has neither an archive nor a naming verb, even before negotiation.
   historyAuthorityKnown(): boolean { return true }
@@ -2875,6 +2895,7 @@ export class AcpRuntime implements AgentRuntime {
   }
   /** What the agent's answers showed about its sign-in; see `SignInObservation`. */
   #signIn: SignInObservation = { state: 'unknown' }
+  #logoutRollbacks = new Set<LogoutRollback>()
   /** Sign-outs whose command is still running: until it ends, the agent's record still names who is being signed out. */
   #signingOut = 0
   /** Identity at sign-out; null is proven absent, undefined means the read failed. */
@@ -3020,7 +3041,7 @@ export class AcpRuntime implements AgentRuntime {
       // it says about the sign-in, so neither classification can hide the
       // other.
       if (servers.length === 0 || !REFUSES_TOOL_SERVER.test(message)) {
-        if (authGeneration === this.#authGeneration) this.refusedForSignIn(error)
+        if (this.#currentAuthWorld(authGeneration)) this.refusedForSignIn(error)
         throw error
       }
       // Two opens can race into the same refusal — the eager probe and the
@@ -3041,7 +3062,7 @@ export class AcpRuntime implements AgentRuntime {
       try {
         return this.#opened(claim(await connection.request<T>(method, extend({ ...params, mcpServers: [] })), false), authGeneration)
       } catch (again) {
-        if (authGeneration === this.#authGeneration) this.refusedForSignIn(again)
+        if (this.#currentAuthWorld(authGeneration)) this.refusedForSignIn(again)
         throw again
       }
     } finally {
@@ -3056,13 +3077,13 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /** Record a session open when it can establish sign-in. */
-  #opened<T>(result: T, authGeneration: symbol): T {
+  #opened<T>(result: T, authGeneration: AuthWorld): T {
     // A probe or session may open without authenticating (including in a
     // fresh helper). When the agent's record is the status, opening alone
     // cannot undo our sign-out while that record still names the old account.
     // A changed record or an explicit successful login can lift it instead.
     const signedOutRecord = this.#config.identityIsStatus && this.#signIn.state === 'required' && this.#signIn.signedOut
-    if (authGeneration === this.#authGeneration && !signedOutRecord) this.#noteSignIn({ state: 'observed' })
+    if (this.#currentAuthWorld(authGeneration) && !signedOutRecord) this.#noteSignIn({ state: 'observed' })
     return result
   }
 
@@ -3115,7 +3136,7 @@ export class AcpRuntime implements AgentRuntime {
   #accountEvent(event: AgentEvent): void {
     const generation = event.type === 'account/loginCompleted' && event.loginId ? this.#cliLoginGenerations.get(event.loginId) : undefined
     if (event.type === 'account/loginCompleted' && event.loginId) this.#cliLoginGenerations.delete(event.loginId)
-    if (event.type === 'account/loginCompleted' && event.success && generation === this.#authGeneration) {
+    if (event.type === 'account/loginCompleted' && event.success && this.#currentAuthWorld(generation)) {
       // CliAccount emits account/changed immediately after this completion;
       // update first so the listener reads the new identity on that event.
       this.#signIn = { state: 'observed' }
@@ -3998,6 +4019,29 @@ const describeAcp = (error: unknown): string => {
     return `${error.message}: ${error.details}`
   }
   return error instanceof Error ? error.message : String(error)
+}
+
+// A failed logout aliases its world to the world before it. Pending work may
+// retain old nodes, so find iteratively and compress paths as they are read.
+type AuthWorld = { parent?: AuthWorld }
+
+type LogoutRollback = {
+  before: SignInObservation
+  beforeAccount: AccountStatus | null
+  beforeSignedOutIdentity: Account | null | undefined
+  beforeGeneration: number
+  beforeObservation: number
+}
+
+function canonicalAuthWorld(world: AuthWorld): AuthWorld {
+  let root = world
+  while (root.parent) root = root.parent
+  while (world.parent) {
+    const next = world.parent
+    world.parent = root
+    world = next
+  }
+  return root
 }
 
 /**
