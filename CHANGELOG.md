@@ -27,6 +27,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Backup restore counts what it saved.** A runtime configuration saved before setup fails is counted as restored once, rather than skipped or counted twice.
 
+- **Input patch previews keep their content and leave unknown lines blank.** Later file headers no longer appear as edits, and previews without reported locations no longer invent line numbers.
+
 - **Lead is a conversation first.** Ask questions directly, or ask it to start, read, message and stop ordinary chats in its project. Simple tasks no longer need an implementer and independent reviewer. Reviewed work keeps its approval gates; setup problems explain what to change instead of repeating Resume.
 
 - **The phone can reach older sessions and control ordinary conversations.** Paired phones page active and archived sessions, and the Run grant allows starting a session, replying and stopping a turn while keeping the desk's session settings. Approval answers still require Answer.
@@ -50,6 +52,8 @@ move is real work and is not news to a person weighing an upgrade.
 - **Pair a phone on the local network without an account link.** With local phone access enabled, Settings › Phone shows a code to scan; allow each phone at the desk and remove it from the same page.
 
 - **Git writes have one recorded path.** Approve pushes and steer an agent's own push through HarnessDesk, with a pinned project repository, PR and project Git records, and global or project preferences. Heads written elsewhere appear as Outside and name no one.
+
+- **Saved conversations open reliably during brief database contention.** The desk waits for a short lock when opening its conversation store and safely coordinates concurrent upgrades.
 
 - **Turn edits show their reported location.** Files outside known open workspace and conversation roots, or whose location is unknown, are labelled in the turn card and Changes pane. Git still reports the current working tree separately.
 
