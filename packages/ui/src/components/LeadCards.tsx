@@ -1,6 +1,6 @@
 import { OutsideHeadBanner } from './GitRecord'
 import { useRef, useState, type MutableRefObject } from 'react'
-import type { LeadProactive, LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage, LeadPullRequest } from '@harnessdesk/protocol'
+import type { LeadSavedApproval, LeadProactive, LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage, LeadPullRequest } from '@harnessdesk/protocol'
 import { LEAD_LIMITS, type LeadCaps } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, CodeText, Dialog, FormStack, Input, Row, Rows, LeadContract, LeadPlanFlow, Text } from '../design'
 import { leadRepeatWords } from '../lib/lead-repeat'
@@ -34,7 +34,9 @@ const ruleWords = (rule: { effect: string; method: keyof typeof PERMISSION_LABEL
 /** Window-owned details and revision-bound decisions. The child never receives a click. */
 type DecisionCard = Extract<LeadCard, { type: LeadCardDecision['cardType'] }>
 const decisionCard = (card: LeadCard): card is DecisionCard => !['stopped', 'second-look', 'allowance-warning'].includes(card.type)
-export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform, decisions = [], contract, budget, goalClosed = false, onDecide, onChanges, onApprovals, knownContracts = [], onRuns, onRaiseLimit, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, waitReason, placement = 'both' }: {
+export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform, savedApprovals = [], onRevoke, decisions = [], contract, budget, goalClosed = false, onDecide, onChanges, onApprovals, knownContracts = [], onRuns, onRaiseLimit, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, waitReason, placement = 'both' }: {
+  readonly savedApprovals?: readonly LeadSavedApproval[]
+  readonly onRevoke?: (input: { readonly id: string; readonly contractDigest: string }) => Promise<unknown>
   readonly goalClosed?: boolean
   readonly knownContracts?: readonly LeadAcceptanceContract[]
   readonly onRuns?: (contract: LeadAcceptanceContract) => void
@@ -61,6 +63,13 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
     if (busy.current || !onPerform || !contract || currentDigest.current !== contract.digest || !latestActions.current.some(current => current.id === action.id)) return
     busy.current = true; setPending(action.id)
     try { await onPerform({ id: action.id, contractDigest: contract.digest, choice }); onSettled?.() }
+    catch (error) { onError?.(error) }
+    finally { busy.current = false; setPending(null) }
+  }
+  const revoke = async (id: string) => {
+    if (busy.current || !onRevoke || !contract || currentDigest.current !== contract.digest) return
+    busy.current = true; setPending(id)
+    try { await onRevoke({ id, contractDigest: contract.digest }); onSettled?.() }
     catch (error) { onError?.(error) }
     finally { busy.current = false; setPending(null) }
   }
@@ -130,11 +139,18 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
     </div>
   })}{placement !== 'thread' && personActions.map(action => <Row key={action.id} kind="record" layout="record"
     title={action.kind === 'worker-approval' ? `The ${action.role} wants to ${action.request}` : `Run check ${action.name}`}
-    desc={action.kind === 'check' ? <CodeText block wrap>{action.command}</CodeText> : undefined}
+    desc={action.kind === 'check' ? <CodeText block wrap>{action.command}</CodeText> : action.details ? <CodeText block wrap>{sanitizeText(action.details)}</CodeText> : undefined}
     control={action.kind === 'worker-approval' ? <>
       {action.choices.includes('yes-once') && <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'yes-once')}>Yes once</Button>}
+      {action.choices.includes('yes-goal') && <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'yes-goal')}>Yes for this goal</Button>}
       {action.choices.includes('no') && <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'no')}>No</Button>}
-    </> : <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'run')}>{`Run check ${action.name}`}</Button>} />)}</>
+    </> : <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'run')}>{`Run check ${action.name}`}</Button>} />)}
+    {placement !== 'dock' && savedApprovals.length > 0 && <LeadContract cardType="waiting" cardId="saved-approvals">
+      <Text as="p" role="subject">Saved approvals for this goal</Text>
+      <Rows>{savedApprovals.map(rule => <Row key={rule.id} title={sanitizeText(rule.target)} desc={`${rule.count} ${rule.count === 1 ? 'request' : 'requests'} answered`}
+        control={<Button disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button>} />)}</Rows>
+    </LeadContract>}
+  </>
 }
 const LeadReason = ({ text }: { readonly text: string }) => <Markdown text={text} />
 

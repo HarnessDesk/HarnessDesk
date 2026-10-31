@@ -291,3 +291,16 @@ it('renders exactly three proactive parts and only maps existing navigation acti
     expect(open).toHaveBeenCalledWith('changes')
   } finally { act(() => root.unmount()) }
 })
+
+it('offers goal consent only when eligible and lists revocable saved approvals', async () => {
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  const perform = vi.fn(async () => {}), revoke = vi.fn(async () => {})
+  const actions = [{ kind: 'worker-approval', id: 'worker', runId: 'run', role: 'worker', request: 'run git status', choices: ['yes-once', 'yes-goal', 'no'] }] as any
+  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[]} personActions={actions} savedApprovals={[{ id: 'saved', target: 'git log in /workspace/demo', count: 3 }]} onRevoke={revoke} contract={leadContract} onPerform={perform} onDecide={vi.fn()} onChanges={() => {}} onApprovals={() => {}} /></StoreProvider>))
+  clean.push(() => { act(() => root.unmount()); box.remove() })
+  await act(async () => button(box, 'Yes for this goal').click())
+  expect(perform).toHaveBeenCalledWith({ id: 'worker', contractDigest: leadContract.digest, choice: 'yes-goal' })
+  expect(box.textContent).toContain('git log in /workspace/demo'); expect(box.textContent).toContain('3 requests answered')
+  await act(async () => button(box, 'Revoke').click())
+  expect(revoke).toHaveBeenCalledWith({ id: 'saved', contractDigest: leadContract.digest })
+})

@@ -261,6 +261,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
           : <LeadCards key={`card:${entry.card.id}`} {...cardProps} cards={[entry.card]} placement="thread" />)}
 
+        <LeadCards {...cardProps} cards={[]} savedApprovals={state.savedApprovals} onRevoke={input => store.lead.revokeApproval(input)} placement="thread" />
         {pr && <div data-slot="lead-pr-status"><InlineParts>
           <Button variant="link" size="inline-link" title={pr.observedHead ?? pr.head} onClick={() => openExternal(`https://github.com/${pr.repository}/pull/${pr.number}`)}>{`#${pr.number}`}</Button>
           <Text role="meta">{pr.state === 'merged' ? 'Merged' : pr.state === 'closed' ? 'Closed' : `Checks ${pr.check?.state ?? 'not confirmed'} · Review ${pr.review?.state?.replace(/-/g, ' ') ?? 'not confirmed'}`}</Text>
