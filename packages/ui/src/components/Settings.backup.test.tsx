@@ -11,7 +11,7 @@ import { BackupRows, GeneralSectionRows } from './Settings'
 /**
  * The Backup rows' outcome sentence, pinned after review found it still
  * calling the registered runtimes "agents" — the rename Task 11 made
- * everywhere else. It counts four things apart: the runtimes registered here,
+ * everywhere else. It counts four things apart: the runtime configurations saved here,
  * this Mac's own Agent files, this Mac's seats for them, and its
  * preferences/conversations, and records of seats and work evidence — never
  * folding runtimes and Agents into one word.
@@ -103,7 +103,7 @@ it('says the runtimes it exported are runtimes, and counts Agents and seats apar
   })
   expect(request).toHaveBeenCalledWith('backup/export', {})
   const text = container.textContent ?? ''
-  expect(text).toContain('Exported 2 runtimes, 3 Agents of yours, 1 conversation and 0 records of seats and work evidence.')
+  expect(text).toContain('Exported 2 runtime configurations, 3 Agents of yours, 1 conversation and 0 records of seats and work evidence.')
   expect(text).not.toMatch(/\b2 agents\b/)
 })
 
@@ -117,7 +117,7 @@ const REPORT: BackupReport = {
   evidence: { restored: 5, duplicate: 2, refused: 0, failed: 0 },
 }
 
-it('says the runtimes it restored are runtimes, and counts Agents and seats apart', async () => {
+it('counts saved runtime configurations separately from Agents and seats', async () => {
   const request = vi.fn(async () => REPORT)
   const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), transport: { request } } as unknown as AppStore
   render(store)
@@ -134,7 +134,7 @@ it('says the runtimes it restored are runtimes, and counts Agents and seats apar
   expect(request).toHaveBeenCalledWith('backup/import', { backup: {} })
   const text = container.textContent ?? ''
   expect(text).toContain(
-    'Restored 1 runtime, 3 Agents, 1 seat choice, 2 preferences, 4 conversations and 5 records of seats and work evidence. 3 already here or newer, left alone.',
+    'Restored 1 runtime configuration, 3 Agents, 1 seat choice, 2 preferences, 4 conversations and 5 records of seats and work evidence. 3 already here or newer, left alone.',
   )
   expect(text).not.toMatch(/\b1 agent\b/)
 })
