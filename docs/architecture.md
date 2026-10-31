@@ -846,7 +846,7 @@ Cancellation admission, journal replay and recovery share one classification: Fl
 
 Chat reads retain the provider's 12,000-byte result bound and disclose two separate omission counts: `omittedSourceTurns` for raw transcript turns excluded before phone projection, and `omittedPhoneEntries` for projected entries excluded by the result bound. Phone projection metadata remains nonserialized; `truncated` also covers shortened text and fold steps.
 
-The host also keeps `lead/chat-control.json`: at most 64 chats and 32 envelope
+The host also keeps `<state>/lead/chat-control.json`: at most 64 chats and 32 envelope
 keys per chat, with a `lead` or `person` holder. The keys verify message
 provenance and confer no authority. Sends, stops and queued deliveries recheck
 the person's hold in the host. `lead/chats/control`, `lead/chat/takeOver` and

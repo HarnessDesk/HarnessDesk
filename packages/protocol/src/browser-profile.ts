@@ -28,4 +28,3 @@ export const isBrowserProfile = (profile: unknown): profile is string => typeof 
 /** A filesystem component: Electron lowercases partitions, and filesystems cap component lengths. */
 export const browserProfileStorageName = (profile: string): string =>
   profile.startsWith('session-') ? `session-${sha256Hex(new TextEncoder().encode(profile))}` : profile
-
