@@ -270,7 +270,14 @@ export const missingFromCI = (gate, workflow) => {
         && parsed.command === command && parsed.args.length === args.length + 1
         && parsed.args.at(-1) === '$UNIT_DEAL'
         && args.every((arg, index) => parsed.args[index] === arg)
-      return dealtUnit || (
+      // CI runs the Node test groups dealt into jobs: one command per job,
+      // naming the job the plan gave it. node-tests.test.mjs proves the jobs
+      // together run every group's files, each in its group's invocation.
+      const dealtNode = /^node script\/node-tests\.mjs --group [a-z0-9-]+$/.test(line)
+        && parsed.inline !== false
+        && parsed.command === 'node' && parsed.args.length === 3
+        && parsed.args[0] === 'script/node-tests.mjs' && parsed.args[1] === '--job' && parsed.args[2] === '$NODE_JOB'
+      return dealtUnit || dealtNode || (
         parsed.command === command &&
         parsed.args.length === args.length &&
         parsed.args.every((arg, index) => arg === args[index])

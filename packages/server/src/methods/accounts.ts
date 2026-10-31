@@ -13,6 +13,7 @@ const describeInstall = async (
   runtime: AgentRuntime,
 ): Promise<InstallInfo | null> => {
   const installs = ctx.options.installs
+  if (!ctx.options.agents?.owns(runtime.info.id)) return null
   const config = ctx.options.agents?.configOf(String(runtime.info.id))
   if (!installs || !config) return null
   return installs.describe(config)

@@ -204,7 +204,7 @@ export const TeamOverview = ({ attention, uncheckedDone = 0, onBoard, onTask, mo
               {rows.map(row => (
                 <ListRow key={row.seat} data-seat={row.seat} interactive={opens(row)} className="relative isolate" onClick={opens(row) ? event => { if (event.currentTarget.contains(event.target as Node) && !(event.target as Element).closest('button')) onOpen?.(row.seat) } : undefined} lead={face(row)}
                   title={<div className="flex min-w-0 items-center justify-between gap-2"><span className="min-w-0 flex-1">{openName(row)}</span><span className="inline-flex shrink-0 items-center gap-2">{seatState(row)}{showCost && <Cost row={row} metered={metered?.get(row.seat)} />}</span></div>}
-                  subtitle={unavailableReason(row) ?? (row.done ? role(row) : doing(row, true) ?? role(row))} wrapSubtitle trail={opens(row) ? <ChevronIcon /> : undefined} />
+                  subtitle={unavailableReason(row) ?? (row.done ? role(row) : doing(row, true) ?? role(row))} wrapSubtitle subtitleLayout="below" trail={opens(row) ? <ChevronIcon /> : undefined} />
               ))}
             </ListRows>
           ) : (

@@ -3,10 +3,11 @@ import { test } from 'node:test'
 
 
 
-import { ExtensionKernel, setForgeEngine, type ForgeEngine } from '../src/index.js'
+import { ExtensionKernel, setForgeEngine, type ForgeEngine, type ForgeScope } from '../src/index.js'
 import { describePermissions, readPermissions } from '../src/manifest.js'
 
 const unavailableWrites = {
+  associatedPullRequest: async () => ({ status: 'none' as const }),
   repository: async () => 'acme/widgets',
   push: async () => { throw new Error('No gateway in this fixture') },
   pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
@@ -175,7 +176,21 @@ test('forge.write is an explicit grant and true remains publish-only', () => {
 test('all writes require forge.write and every forge verb needs its own live invocation', async t => {
   let calls = 0
   const write = async () => { calls++; return { output: '', repository: 'acme/widgets' } }
-  setForgeEngine({ ...engine(), push: write, pullRequest: { create: write, update: write, merge: write }, review: write, comment: write, record: async () => [], attribute: async () => 'outside' })
+  const associatedScopes: ForgeScope[] = []
+  setForgeEngine({
+    ...engine(),
+    push: write,
+    pullRequest: { create: write, update: write, merge: write },
+    review: write,
+    comment: write,
+    record: async () => [],
+    attribute: async () => 'outside',
+    associatedPullRequest: async scope => {
+      assert.ok(scope.signal && !scope.signal.aborted)
+      associatedScopes.push(scope)
+      return { status: 'found', number: 17, repository: 'acme/widgets' }
+    },
+  })
   t.after(() => setForgeEngine(null))
   const kernel = new ExtensionKernel(); t.after(() => kernel.dispose())
   const saved: Record<string, (() => Promise<unknown>) | undefined> = {}
@@ -187,6 +202,7 @@ test('all writes require forge.write and every forge verb needs its own live inv
     review: () => ctx.forge.review({ number: 1, event: 'approve', body: '' }, scope),
     comment: () => ctx.forge.comment({ subject: 'issue', number: 1, body: 'Body' }, scope),
     repository: () => ctx.forge.repository(scope),
+    associatedPullRequest: () => ctx.forge.associatedPullRequest(scope),
     record: () => ctx.forge.record({}, scope), attribute: () => ctx.forge.attribute({ branch: 'feature/widgets', sha: 'a'.repeat(40) }, scope),
     seat: () => ctx.forge.seat(scope), identity: () => ctx.forge.identity(scope),
     publish: () => ctx.forge.publish({ kind: 'issue', repo: 'acme/widgets', number: 1, url: 'https://github.com/acme/widgets/issues/1', via: 'gh' }, scope),
@@ -209,7 +225,15 @@ test('all writes require forge.write and every forge verb needs its own live inv
     assert.equal(denied.ok, false); assert.match(JSON.stringify(denied), /forge.write/)
     assert.equal(calls, 0)
   }
-  for (const verb of ['repository', 'record', 'attribute']) assert.equal((await call('legacy', { verb })).ok, true)
+  for (const verb of ['repository', 'record', 'attribute', 'associatedPullRequest']) {
+    assert.equal((await call('legacy', { verb })).ok, true, verb)
+  }
+  assert.equal(associatedScopes.length, 1)
+  assert.equal(associatedScopes[0]?.runtime, 'fixture')
+  assert.equal(associatedScopes[0]?.sessionId, 's1')
+  assert.equal(associatedScopes[0]?.actor, 'agent')
+  assert.match(associatedScopes[0]?.plugin ?? '', /^legacy#\d+$/)
+  assert.equal(associatedScopes[0]?.signal?.aborted, true)
   for (const verb of ['push', 'create', 'update', 'merge', 'review', 'comment']) assert.equal((await call('writer', { verb })).ok, true, verb)
   assert.equal(calls, 6)
   assert.match(JSON.stringify(await call('writer', { spoof: true })), /live invocation/)
@@ -259,4 +283,62 @@ test('forge scopes distinguish commands from tools and refuse context writes', a
   assert.deepEqual(heard, ['agent', 'human'])
   await kernel.resolveContext(scope)
   assert.deepEqual(heard, ['agent', 'human'], 'context resolvers never reach a write engine')
+})
+
+
+test('associated pull request requires forge and refuses forged argument fields', async t => {
+  const scopes: ForgeScope[] = []
+  setForgeEngine({
+    ...engine(),
+    associatedPullRequest: async scope => {
+      assert.ok(scope.signal && !scope.signal.aborted)
+      scopes.push(scope)
+      return { status: 'none' }
+    },
+  })
+  t.after(() => setForgeEngine(null))
+
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  for (const granted of [false, true]) {
+    const id = granted ? 'association_granted' : 'association_ungranted'
+    await kernel.load({
+      manifest: { id, name: id, ...(granted ? { permissions: { forge: true } } : {}) },
+      plugin: {
+        name: id,
+        inject: ['tools', 'forge'],
+        apply(ctx: any) {
+          ctx.tools.register({
+            name: id,
+            description: 'Fixture',
+            inputSchema: { type: 'object' },
+            execute: async (_args: unknown, scope: unknown) =>
+              JSON.stringify(await ctx.forge.associatedPullRequest(scope)),
+          })
+        },
+      },
+    })
+  }
+  await settle()
+
+  const invoke = (name: string) => kernel.invokeTool(
+    kernel.list('tool').find(one => one.name === name)!.id,
+    {},
+    { runtime: 'fixture', sessionId: 's1' } as never,
+  )
+  assert.equal((await invoke('association_ungranted')).ok, false)
+  assert.equal(scopes.length, 0)
+  assert.equal((await invoke('association_granted')).ok, true)
+  assert.equal(scopes.length, 1)
+  assert.match(scopes[0]?.plugin ?? '', /^association_granted#\d+$/)
+
+  const { validateForgeArgs } = await import('../src/index.js')
+  validateForgeArgs('associatedPullRequest', {})
+  for (const args of [
+    { runtime: 'other' },
+    { sessionId: 'other' },
+    { repository: 'acme/other' },
+  ]) {
+    assert.throws(() => validateForgeArgs('associatedPullRequest', args), /Invalid forge associatedPullRequest/)
+  }
 })

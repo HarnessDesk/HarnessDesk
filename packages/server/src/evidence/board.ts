@@ -9,7 +9,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { factKey } from './records.js'
-import { freshnessOf } from './revision.js'
+import { freshnessOf, tipOf } from './revision.js'
 
 /**
  * A board's evidence, as a surface draws it: the latest fact of each kind on
@@ -120,6 +120,17 @@ export interface BoardEvidenceInput {
  */
 export const freshnessReader = (project: string): ((record: EvidenceRecord) => Promise<Freshness>) => {
   const standing = new Map<string, Promise<Freshness>>()
+  // Facts bound to different revisions of one branch all measure against the
+  // same tip: within this one read, ask for it once.
+  const tips = new Map<string, Promise<Sha | null>>()
+  const tip = (cwd: string, branch: string | null): Promise<Sha | null> => {
+    const key = JSON.stringify([cwd, branch])
+    const known = tips.get(key)
+    if (known) return known
+    const reading = tipOf(cwd, branch)
+    tips.set(key, reading)
+    return reading
+  }
   return (record: EvidenceRecord): Promise<Freshness> => {
     if (record.restored) return Promise.resolve({ state: 'unknown', why: RESTORED_WHY })
     if (record.fact.kind === 'check' && record.fact.counted === false) {
@@ -133,7 +144,7 @@ export const freshnessReader = (project: string): ((record: EvidenceRecord) => P
     const key = JSON.stringify([record.checkout.cwd, record.checkout.branch, at, dirty, merged])
     const known = standing.get(key)
     if (known) return known
-    const reading = freshnessOf(record.checkout, at, { dirty, merged, project })
+    const reading = freshnessOf(record.checkout, at, { dirty, merged, project, tip })
     standing.set(key, reading)
     return reading
   }

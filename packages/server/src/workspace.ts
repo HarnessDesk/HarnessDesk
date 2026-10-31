@@ -149,7 +149,7 @@ const volumeSilent = (target: string): PathUnresolvableError =>
 const unanswered = new Map<string, number>()
 
 /** Holds `roots` until every one of `walks` has come back, whichever way it ends. */
-const holdRoots = (roots: readonly string[], walks: readonly Promise<unknown>[]): void => {
+export const holdRoots = (roots: readonly string[], walks: readonly Promise<unknown>[]): void => {
   for (const root of roots) unanswered.set(root, (unanswered.get(root) ?? 0) + 1)
   void Promise.allSettled(walks).then(() => {
     for (const root of roots) {
@@ -159,6 +159,8 @@ const holdRoots = (roots: readonly string[], walks: readonly Promise<unknown>[])
     }
   })
 }
+
+export const rootHeld = (root: string): boolean => unanswered.has(resolve(root))
 
 const confinedTarget = async (
   path: string,
@@ -170,7 +172,7 @@ const confinedTarget = async (
   const named = [...new Set(roots.map((root) => resolve(root)).filter((base) => isWithinPath(base, target)))]
   if (named.length === 0) throw outsideEveryWorkspace(target)
   // A root with a call still out on its volume is not asked again.
-  if (named.some((root) => unanswered.has(root))) throw volumeSilent(target)
+  if (named.some(rootHeld)) throw volumeSilent(target)
   const stop = new AbortController()
   let walks: readonly Promise<string>[] = []
   const answered = await within(() => {
@@ -179,9 +181,10 @@ const confinedTarget = async (
   }, deadlineMs)
   if (answered.settled === 'late') {
     stop.abort()
-    // Nested roots name distinct volumes; hold the closest root to this target.
+    // The target belongs to its closest root; each root walk belongs to that root.
     const closest = named.reduce((inner, root) => root.length > inner.length ? root : inner)
-    holdRoots([closest], walks)
+    holdRoots([closest], [walks[0]!])
+    named.forEach((root, index) => holdRoots([root], [walks[index + 1]!]))
     throw volumeSilent(target)
   }
   if (answered.settled === 'error') throw new PathUnresolvableError(target, answered.error)

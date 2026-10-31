@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import childProcess from 'node:child_process'
+import { syncBuiltinESMExports } from 'node:module'
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -456,6 +458,52 @@ const hostWithAccounts = async (options: {
   host.register(own)
   await host.start()
   return { host, stateDir, primary, slots, accounts, created, names, own }
+}
+
+for (const failure of ['allocation', 'already registered', 'registration', 'observation restore', 'partial registration', 'commit'] as const) {
+  test(`a failed account ${failure} rolls back its allocation and only its new gateway key`, async t => {
+    const { host, stateDir, slots, accounts, created, own } = await hostWithAccounts({ gateways: true })
+    t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+    await host.credentials.store('Existing gateway', 'fixture-existing', { kind: 'gateway' })
+    const before = await host.credentials.describe()
+    let commits = 0
+    const rolledBack: RuntimeId[] = []
+    accounts.commitAdd = runtime => {
+      commits += 1
+      assert.equal(host.ownsRuntime(runtime), true, 'ownership commits only after registration')
+      if (failure === 'commit') throw new Error('fixture commit failed')
+    }
+    accounts.rollbackAdd = async runtime => {
+      assert.equal(host.ownsRuntime(runtime), false, 'a rejected allocation is unregistered before rollback')
+      rolledBack.push(runtime.info.id)
+      slots.remove(runtime.info.id)
+    }
+    if (failure === 'registration') t.mock.method(host, 'register', () => { throw new Error('fixture registration failed') })
+    if (failure === 'allocation') t.mock.method(accounts, 'add', async () => { throw new Error('fixture allocation failed') })
+    if (failure === 'already registered') t.mock.method(accounts, 'add', async () => own)
+    if (failure === 'observation restore') {
+      const add = accounts.add.bind(accounts)
+      t.mock.method(accounts, 'add', async (...args: Parameters<AccountFactory['add']>) => {
+        const runtime = await add(...args)
+        runtime.restoreObservations = () => { throw new Error('fixture observation restore failed') }
+        return runtime
+      })
+    }
+    if (failure === 'partial registration') {
+      const register = host.register.bind(host)
+      t.mock.method(host, 'register', (runtime: AgentRuntime) => { register(runtime); throw new Error('fixture partial registration failed') })
+    }
+    await assert.rejects(host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+      gateway: { name: 'New gateway', endpoint: 'http://127.0.0.1:9/v1', apiKey: 'fixture-new' } }), failure === 'already registered'
+        ? /already registered runtime/ : /fixture (allocation|registration|observation restore|partial registration|commit) failed/)
+    assert.equal(commits, failure === 'commit' ? 1 : 0)
+    assert.deepEqual(rolledBack, [...created.keys()], 'a failed allocation invokes rollback for its own runtime')
+    assert.equal(slots.list().length, 0)
+    for (const id of created.keys()) assert.equal(existsSync(join(stateDir, 'accounts', id)), false)
+    for (const runtime of created.values()) assert.equal(host.ownsRuntime(runtime), false, 'failed registration never owns a runtime')
+    assert.deepEqual(await host.credentials.describe(), before, 'cleanup keeps the existing key')
+    assert.deepEqual(host.syncPayload().params.runtimes.map(info => info.id), [FAKE_RUNTIME_ID])
+  })
 }
 
 test('adding an account registers a second runtime and tells every client', async (t) => {
@@ -1228,6 +1276,190 @@ test('removing a gateway account destroys the key it was the only user of', asyn
   // would be a key on disk that no screen in the app can name or remove.
   await host.call('runtime/account/remove', { runtime: added.runtime })
   assert.deepEqual(await host.call('credentials/list', {}), [])
+})
+
+for (const failure of ['commit', 'partial registration', 'unregister throws'] as const) {
+  test(`failed gateway ${failure} stops forwarding before its runtime id is reused`, async t => {
+    const { host, stateDir, accounts, own } = await hostWithAccounts({ gateways: true })
+    const seen: string[] = []
+    const upstream = createServer((request, response) => {
+      seen.push(`${request.url} ${request.headers.authorization}`)
+      request.resume()
+      response.end('{}')
+    })
+    await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+    t.after(async () => {
+      await host.dispose()
+      await new Promise<void>(resolve => upstream.close(() => resolve()))
+      await rm(stateDir, { recursive: true, force: true })
+    })
+    const port = (upstream.address() as AddressInfo).port
+    await host.credentials.store('Existing gateway', 'fixture-existing', { kind: 'gateway' })
+    const before = await host.credentials.describe()
+    const id = 'fake-reused-gateway' as RuntimeId
+    let slot: ReturnType<AccountFactory['slotOf']> = null
+    let base = ''
+    let rollbacks = 0
+    accounts.add = async (_info, gateway) => {
+      slot = { agent: FAKE_RUNTIME_ID, home: stateDir, removable: true, gateway: gateway! }
+      return new FakeRuntime({ id })
+    }
+    const originalSlotOf = accounts.slotOf.bind(accounts)
+    accounts.slotOf = (info, runtime) => info.id === id ? slot : originalSlotOf(info, runtime)
+    accounts.prepare = async (_id, resolved) => { base = resolved.endpoint }
+    accounts.rollbackAdd = async () => { rollbacks++; slot = null }
+    accounts.commitAdd = () => { throw new Error('fixture setup failed') }
+    if (failure === 'partial registration') {
+      const register = host.register.bind(host)
+      t.mock.method(host, 'register', (runtime: AgentRuntime) => { register(runtime); throw new Error('fixture setup failed') })
+    }
+    if (failure === 'unregister throws') {
+      const unregister = host.unregister.bind(host)
+      t.mock.method(host, 'unregister', async (runtimeId: RuntimeId) => { await unregister(runtimeId); throw new Error('fixture cleanup failed') })
+    }
+    await assert.rejects(host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+      gateway: { name: 'Old', endpoint: `http://127.0.0.1:${port}/old`, apiKey: 'fixture-old' } }), /fixture setup failed/)
+    const oldBase = base
+    assert.ok(oldBase)
+    assert.equal(rollbacks, 1)
+    assert.equal(host.ownsRuntime(own), true)
+    assert.deepEqual(await host.credentials.describe(), before)
+    // stop closes the child asynchronously; wait for the old listener to close.
+    let closed = false
+    for (let attempt = 0; attempt < 50 && !closed; attempt++) {
+      try { await fetch(`${oldBase}/responses`, { method: 'POST', body: '{}' }) }
+      catch { closed = true; break }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    assert.equal(closed, true, 'failed gateway still forwards requests')
+    assert.deepEqual(seen, [])
+    t.mock.restoreAll()
+    accounts.commitAdd = () => {}
+    const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+      gateway: { name: 'New', endpoint: `http://127.0.0.1:${port}/new`, apiKey: 'fixture-new' } })
+    assert.equal(added.runtime, id)
+    assert.notEqual(base, oldBase, 'reused id must receive a fresh gateway')
+    const response = await fetch(`${base}/responses`, { method: 'POST', body: '{}' })
+    assert.equal(response.status, 200)
+    assert.deepEqual(seen, ['/new/responses Bearer fixture-new'])
+  })
+}
+
+test('a competitor registered while preparing a gateway cannot keep the failed allocation forwarding', async t => {
+  const { host, stateDir, accounts } = await hostWithAccounts({ gateways: true })
+  const seen: string[] = []
+  const upstream = createServer((request, response) => {
+    seen.push(`${request.url} ${request.headers.authorization}`)
+    request.resume()
+    response.end('{}')
+  })
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  const port = (upstream.address() as AddressInfo).port
+  const id = 'fake-late-owner' as RuntimeId
+  const allocated = new FakeRuntime({ id })
+  const competitor = new FakeRuntime({ id })
+  let slot: ReturnType<AccountFactory['slotOf']> = null
+  let base = ''
+  let rollbacks = 0
+  let endRequested!: () => void
+  const endObserved = new Promise<void>(resolve => { endRequested = resolve })
+  let releaseEnd: (() => void) | undefined
+  let closeCaptured: (() => void) | undefined
+  let childClosed: Promise<void> | undefined
+  const spawn = childProcess.spawn
+  t.mock.method(childProcess, 'spawn', ((...args: Parameters<typeof spawn>) => {
+    const child = spawn(...args)
+    if (String(args[1]?.[0]).endsWith('/responses-gateway/dist/src/child.js')) {
+      childClosed = new Promise(resolve => child.once('close', () => resolve()))
+      const stdin = child.stdin!
+      const end = stdin.end.bind(stdin)
+      let inputClosed = false
+      closeCaptured = () => {
+        if (!inputClosed) { inputClosed = true; end() }
+      }
+      stdin.end = (() => {
+        releaseEnd = closeCaptured
+        endRequested()
+        return stdin
+      }) as typeof stdin.end
+    }
+    return child
+  }) as typeof spawn)
+  syncBuiltinESMExports()
+  t.after(async () => {
+    closeCaptured?.()
+    t.mock.restoreAll()
+    syncBuiltinESMExports()
+    await childClosed
+    await host.dispose()
+    await new Promise<void>(resolve => upstream.close(() => resolve()))
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  const originalSlotOf = accounts.slotOf.bind(accounts)
+  accounts.slotOf = (info, runtime) => info.id === id ? (runtime === allocated ? slot : null) : originalSlotOf(info, runtime)
+  accounts.add = async (_info, gateway) => {
+    slot = { agent: FAKE_RUNTIME_ID, home: stateDir, removable: true, gateway: gateway! }
+    return allocated
+  }
+  accounts.prepare = async (_id, resolved) => {
+    assert.equal(base, '', 'competitor must not prepare the pending allocation')
+    base = resolved.endpoint
+    host.register(competitor)
+  }
+  accounts.rollbackAdd = async runtime => { assert.equal(runtime, allocated); rollbacks++; slot = null }
+  const before = await host.credentials.describe()
+  const operation = host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+    gateway: { name: 'Old', endpoint: `http://127.0.0.1:${port}/old`, apiKey: 'fixture-old' } })
+  const outcome = operation.then(() => 'resolved', () => 'rejected')
+  try {
+    await endObserved
+    assert.ok(base)
+    const response = await fetch(`${base}/responses`, { method: 'POST', body: '{}' })
+    await response.arrayBuffer()
+    assert.deepEqual(seen, ['/old/responses Bearer fixture-old'])
+    const state = await Promise.race([outcome, new Promise<string>(resolve => setImmediate(() => resolve('pending')))])
+    assert.equal(state, 'pending', 'failed account answered before its owned gateway closed')
+  } finally {
+    releaseEnd?.()
+  }
+  await assert.rejects(operation, /already registered/)
+  await childClosed
+  assert.equal(rollbacks, 1)
+  assert.equal(host.ownsRuntime(competitor), true)
+  assert.deepEqual(await host.credentials.describe(), before)
+  await assert.rejects(fetch(`${base}/responses`, { method: 'POST', body: '{}' }))
+  assert.deepEqual(seen, ['/old/responses Bearer fixture-old'])
+})
+
+test('a failed allocation with a competing runtime id leaves its gateway running', async t => {
+  const { host, stateDir, accounts, slots } = await hostWithAccounts({ gateways: true })
+  const seen: string[] = []
+  const upstream = createServer((request, response) => {
+    seen.push(request.headers.authorization ?? '')
+    request.resume()
+    response.end('{}')
+  })
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+  t.after(async () => {
+    await host.dispose()
+    await new Promise<void>(resolve => upstream.close(() => resolve()))
+    await rm(stateDir, { recursive: true, force: true })
+  })
+  const port = (upstream.address() as AddressInfo).port
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+    gateway: { name: 'Existing', endpoint: `http://127.0.0.1:${port}/existing`, apiKey: 'fixture-existing' } })
+  const before = await host.credentials.describe()
+  const config = await readFile(join(slots.find(added.runtime)!.home, 'config.toml'), 'utf8')
+  const base = /base_url = "([^"]+)"/.exec(config)?.[1]
+  assert.ok(base)
+  accounts.add = async () => new FakeRuntime({ id: added.runtime })
+  accounts.rollbackAdd = async () => {}
+  await assert.rejects(host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID,
+    gateway: { name: 'Other', endpoint: `http://127.0.0.1:${port}/other`, apiKey: 'fixture-other' } }))
+  assert.deepEqual(await host.credentials.describe(), before)
+  assert.equal(host.hasRuntime(added.runtime), true)
+  assert.equal((await fetch(`${base}/responses`, { method: 'POST', body: '{}' })).status, 200)
+  assert.deepEqual(seen, ['Bearer fixture-existing'])
 })
 
 test('a gateway account reaches its upstream with the real key, which it never held', async (t) => {

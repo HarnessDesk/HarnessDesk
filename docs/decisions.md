@@ -7,6 +7,30 @@ the rule is the last line of its section.
 
 ---
 
+## A self-hosted runner takes work only while it is shown to be up — 2026-10-30
+
+The organisation's hosted runners run twenty jobs at once. A full run is over
+thirty, so its browser shards waited three to ten minutes for a slot while the
+project's own Linux machine, paid for by the hour it is on, sat idle: no job
+named it.
+
+The first job, `CI runners`, asks whether one of that machine's runners is
+online and sends the typecheck and gates jobs there if so. Those two start at
+once and take minutes, so they free two hosted slots for the shards. A job
+sent to a runner that is down waits in the queue for a day rather than moving,
+so every doubt answers "hosted": no `RUNNER_STATUS_TOKEN` secret (forks never
+get one), a pull request from another repository, any failure to ask, or less
+than half an hour before the machine's scheduled stop (`SELF_HOSTED_UNTIL`).
+Jobs that start later in a run, like the bookkeeping checks, stay hosted for
+the same reason: the machine may have stopped by the time they are created.
+
+The pick is made once per run. "Re-run failed jobs" keeps it, so after the
+machine has stopped, re-run a failed typecheck or gates job with "Re-run all
+jobs", which asks again.
+
+**The rule:** a job reaches a self-hosted runner only through a pick made at
+the start of the run that defaults to the hosted runner.
+
 ## Customize is the shared capability destination — 2026-10-21
 
 Skills, MCP and Plugins share one Customize entrance and a common section navigation. Existing Library and Plugins destination identities remain valid for saved history, command links and capability detail pages. Settings' skill-management requests open Customize, scoped to the active runtime; Hooks retains a separate Settings page. Runtime-owned commands not covered by the scanned inventory remain browsable in Customize, under the active runtime’s name, with their enable switches and composer action. A different runtime scope never borrows the active runtime’s commands. Legacy command detail routes remain readable; the obsolete Settings list route replaces itself in navigation rather than leaving a redirect in Back history.
@@ -108,6 +132,10 @@ as the required checks, so an old full result cannot stand in for a newer
 bounded run.
 
 **Rule:** bounded green is feedback, and only full green is landing evidence.
+
+> Narrowed by [CI is dealt from manifests and measurements, not hand-carved jobs](#ci-is-dealt-from-manifests-and-measurements-not-hand-carved-jobs--2026-10-30):
+> outside main and development the full tier reads every spec in the
+> pull-request theme matrix.
 
 ## Team seats nest under their Team, and running rows spin — 2026-10-18 (owner)
 
@@ -945,7 +973,8 @@ directory with an immutable configuration snapshot. Included and global settings
 flattened into that snapshot; include paths and the repository's filter
 definitions are omitted. Global and system includes are evaluated from the
 repository's folder, so a conditional include for that repository applies;
-only those two scopes contribute filter definitions, with other Git environment
+an `onbranch` include selects using the repository's HEAD. Only those two scopes
+contribute filter definitions, with other Git environment
 configuration removed. The filters the person's own configuration defines are
 the one thing added: they are read apart from repository configuration by the
 `--system` and `--global` scopes alone (the system file only where `GIT_CONFIG_NOSYSTEM` would let git read it), and a file that is not
@@ -4453,6 +4482,8 @@ before their sources disappear; a new host rebuilds those readings before it can
 admit work.
 ## Every git write goes through one gateway, and the host holds the credential
 
+`Detached default PR selection belongs to the creating conversation.` When a detached conversation omits a PR number, view, checks, review and comment select only its intact successful creation records in the current pinned repository. Every recorded candidate is fetched explicitly and must retain its creation head; exactly one open match is required. Ambiguous or unavailable evidence requires an explicit number. Selection survives a host restart for the same runtime/session and does not transfer to another conversation. Attached and explicit selection retain their existing meaning, and detached PR updates remain refused. The host and repository remain pinned through the associated reads; lookup grants no write authority. The journal snapshot is serialized with repository work; network reads do not hold up other repository writes, and an interrupted caller schedules no further candidates after its current bounded read.
+
 The git-gateway design reverses the shell-reach part of
 [A pull request is published through the desk](#a-pull-request-is-published-through-the-desk-and-the-desk-signs-it).
 A worker controls its checkout's remotes, URL rewrites, hooks and credential
@@ -4592,3 +4623,161 @@ The host checks every ordinary chat against canonical project membership, actual
 Tracked chat state transitions are metadata, scoped and reauthorized by the client door. A bounded subscription baseline covers changes during a disconnect, and the model's wake gate coalesces them. Conversations are not Flow runs and never appear as fabricated reviewed results. Setup failures show the change needed and leave chat usable; transient interruptions may offer Resume. A new message includes trusted feedback about the prior rejected plan so that the model can correct it. Direct conversation turns do not park an unrelated approved plan for failing to start it.
 
 The screen, composer and navigation stay familiar. An ordinary active reply has its own Stop control; a finished reply leaves no planning banner. This supersedes the universal plan-first behavior, not the reviewed workflow's admission rules.
+
+## An earned description can take a narrow row's full width — 2026-10-29
+
+In the narrow Team Overview, the face and trailing control left a descriptive
+line with too little reading width. `ListRow` now offers `subtitleLayout="below"`:
+the face, name and control share a centred heading, followed by a description
+across the row's inner width. Narrow Overview seats use this composition for
+their role, work or unavailable reason. The shared list catalogue shows the
+same option. The face centres on the heading, keeping it beside the name even
+when the description wraps; ordinary rows retain whole-row centring. Metadata
+follows the description at full width, and both row sizes keep a line gap.
+The browser regression measures visible word ranges at 240, 280
+and 320px preview viewports in both themes, including clipping and overflow.
+
+## CI is dealt from manifests and measurements, not hand-carved jobs — 2026-10-30
+
+Measured over 200 CI runs (2026-10-21 to 10-30, 42,000 runner minutes), and
+the failure logs of the 128 jobs that failed in them:
+
+- **Every pull request waited on one file.** The Lead end-to-end file's 31
+  cases ran in series for 21-29 minutes while every other job finished in
+  eleven. Profiled locally, 65% of a case was the host starting git: about
+  12,000 processes in 94 seconds, mostly re-asking which repository the same
+  few folders belong to, and re-reading one commit's checks file 313 times.
+  The host now asks `rev-parse` once instead of three times, reuses a
+  checkout identity it has just read for that same folder, keeps a project
+  answer for a second while its folder is still where it was, and keeps reads
+  of immutable objects. The same case went from 116 to 64 seconds; the desk a
+  person runs does the same work less often. The largest source left was every
+  evidence reader asking where each fact's branch stands. A branch's tip is now
+  asked again only once a file its ref is kept in has changed — the loose ref,
+  `packed-refs` or a reftable list, marked by `stat` and trusted only once it
+  has been still for longer than a filesystem tick — and how two commits stand
+  is kept per repository (`evidence/tips.ts`). That case now starts about
+  4,250 git processes in about 55 seconds, against about 6,300 in 64.
+- **Node tests are one manifest.** `script/node-tests.mjs` names each group —
+  unit, Node end-to-end, retention, the Lead's, the Lead's end-to-end — with its
+  per-file deadline and runtime, and deals the files into jobs of about five
+  minutes by `script/node-test-durations.json`. Verify, `pnpm test`,
+  `check:push` and CI read it; the `find … ! -path …` list kept in three copies
+  is gone. The Lead end-to-end cases are four files. Every job reports with
+  `spec`: on Node 22 the default TAP output left 19 failed jobs in nine days
+  without the failing test named anywhere in the last 5,000 lines of the log.
+- **The full tier's two themes and its recording belong to main and
+  development.** Every one of the 21 dark-theme failures of a geometry spec
+  in those nine days came with the same case failing in light, and a
+  recording made on a batch branch, a `full-ci` run or the release pull
+  request was never saved (only main and development keep the map). Those
+  runs still read every spec, in the pull-request matrix, on the built pages:
+  14 shards instead of 17 instrumented ones. The nightly run and main pushes
+  keep both themes and the recording.
+- **A tree is proven once.** A batch head's full run tested the merge of its
+  branch into `development`; squash-landed onto a `development` that had not
+  moved, the push is that same tree, and it ran the reached browser specs
+  again (40 pushes, 2,000 runner minutes in nine days); a release pull
+  request's full run and the `main` push after it did the same at 480 minutes
+  each. A full run that passes every part, the whole browser suite and native
+  smoke included, now uploads a `proven-tree-<tree>` artifact, and a push to
+  `main` or `development` whose tree has one from this repository's own
+  branches runs core CI only. The nightly run never reads a proof.
+- **CI runs the dealt UI unit suite.** A related selection took as long on one
+  runner as the four dealt shards (p50 4.8 against 5.1 minutes, p90 8.7
+  against 6.7). Local `check:push` still uses it, where a laptop is the cost.
+
+**Rule:** a job's contents come from a manifest and the last measurement, never
+from a list in the workflow; a check that never finds anything another check
+does not is measured, then removed from the place it costs most.
+
+> Superseded in part by [A checkout root's project answer stands while what git reads to give it is unchanged](#a-checkout-roots-project-answer-stands-while-what-git-reads-to-give-it-is-unchanged--2026-10-31):
+> the one-second window is gone; a folder can join or leave a repository
+> without moving.
+
+## Full CI label admission — 2026-10-30
+
+A label worker rechecks the live pull request and can reuse a matching PR run
+created no earlier than the latest full-ci label application only when that run
+has a successful full-tier marker. This avoids admitting an old or bounded event
+snapshot; the marker is admission evidence, not a claim that CI passed. A push
+can still move the branch after the recheck, so this is not atomic deduplication.
+Events have second-resolution timestamps; a labeled and unlabeled event in the
+same second are ambiguous, so the worker treats removal as latest and dispatches.
+The same-repository-only `pull_request` workflow checks out the immutable event
+merge commit (`github.sha`) so its helper is present before the PR is merged.
+This keeps the existing fork condition and actions write permission; it does not
+use `pull_request_target` or expand the workflow's trust boundary.
+
+## A click on a result the Lead took back is made when that same result returns — 2026-10-31
+
+The Lead withdraws every undecided result as soon as an observation that may
+change it arrives ("invalidate first"), and restores or re-offers it once it
+has read the desk again. A person's click that landed in between was refused
+(`lead-card-stale`, `lead-card-decided`), though the result came back exactly
+as it was. With the host's reads faster, the Lead publication end-to-end cases
+hit that window on most runs; a person hits it as an accept that fails for no
+reason they can see.
+
+The fence stays: nothing is decided while a result is withdrawn. The journal
+remembers, in memory only, which results an invalidation took back while
+undecided. A refused click on one of those waits, outside the controls queue,
+for that same card — same id and revision, so the same contract and evidence —
+to be offered again, then is made on it; a new revision, the card gone, or no
+return within `LEAD_REOFFER_WAIT_MS` (fifteen seconds) is refused as before. A
+card a person decided is never waited for, and a click whose publication began
+is never made twice: an invalidation is fenced while a publication is in
+flight. Not invalidating on quiet events was rejected: whether an event
+changes a result is only known after the read the fence exists to wait for.
+
+The same refusal came from a second writer. Once a repair's CI passes, the
+host offers the result itself; the Lead loop, not having offered that card,
+offered an identical one at the next revision (only the summary line and
+bookkeeping revisions differed), so a click on the host's card was refused.
+The loop now takes a stored result whose contract, evidence and spend are
+exactly what it read as the current result — unless it has itself seen that
+card stand for other evidence, so a result taken back while its evidence
+moved away and back is still offered afresh.
+
+**Rule:** a refusal says something changed; when nothing did, the click stands.
+
+## A checkout root's project answer stands while what git reads to give it is unchanged — 2026-10-31
+
+The one-second window `projectOf` kept an answer for, on the folder's real
+path alone, was wrong: a folder can join or leave a repository without
+moving. A lane folder torn down mid-read, or a directory a checkout is then
+made in, kept its old answer, and the Lead publication end-to-end cases
+decided a result card against it and were refused (`lead-card-stale`,
+`lead-card-decided`) — in CI on most runs once the reads around them got
+faster. The window was removed (`4081d37`); only callers asking at once share
+an answer.
+
+Asking afresh every time put `projectOf` back at about a fifth of a Lead
+run's git processes. A folder that is the root of a checkout of its own (a
+project, or a Team's worktree) now keeps its answer while a stat mark reads
+the same, and the mark is read on every call: the folder; its `.git`, a
+directory or a `gitdir:` file read whole; that git directory and its
+`commondir`; the common directory with the configuration that can move or
+empty its working tree (`config`, `config.worktree`); and the answer's own
+`<root>/.git`. Directories and pointers are marked by identity and text, a
+configuration file by identity, size and times, and one changed within
+`RACY_MS` of the read vouches for nothing — the parts and the rule are the
+ones `tips.ts` marks a branch tip with. The folder's side is read before git
+answers and must agree after, so a checkout made meanwhile is not marked as
+it was. A subfolder, a folder in no repository and a folder that has gone are
+asked every time. `repositoryRoot` no longer asks for the origin it discarded.
+
+Measured on the Lead end-to-end case `the model gets one standing text…`,
+with every git process counted: without a cache, `projectOf` started about
+4,600 of its 7,800 git processes and the case took 90–97 seconds; with the
+mark, it started 26 of 3,300, in 65–69 seconds.
+
+The faster host also showed the Lead publication cases racing the Lead
+itself: the Lead withdraws a result on every desk event that may change it and
+offers it again, so a click on a result card read a moment earlier was
+refused. That is a person's race too, and is fixed in the Lead, not the test
+([a click on a result the Lead took back](#a-click-on-a-result-the-lead-took-back-is-made-when-that-same-result-returns--2026-10-31)).
+
+**Rule:** an answer about the filesystem stands on a mark of exactly what was
+read to give it, read again on every use, never on time or a path alone; a
+mark too new to tell the next change from is no mark.

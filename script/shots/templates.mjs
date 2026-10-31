@@ -10,10 +10,11 @@ import { chromium, expect } from '@playwright/test'
 import { serve } from '../../packages/server/dist/src/index.js'
 import { FRAME } from '../../packages/ui/src/design/frame.ts'
 import { COLLECT, TILDIFY, USER, textReasons } from './audit.mjs'
-import { createTemplateRig, TEMPLATE_CHECK, TEMPLATE_PUBLISH_BRANCH, TEMPLATE_TASK } from './template-rig.mjs'
+import { createTemplateRig, templateJourneyCases, TEMPLATE_CHECK, TEMPLATE_PUBLISH_BRANCH, TEMPLATE_TASK } from './template-rig.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const flag = (name, fallback) => { const at = process.argv.indexOf(`--${name}`); return at === -1 ? fallback : process.argv[at + 1] }
+const journeys = templateJourneyCases(process.argv)
 const out = resolve(flag('out', join(tmpdir(), 'hd-template-frames')))
 const ui = resolve(flag('ui', join(root, 'packages/ui/dist')))
 mkdirSync(out, { recursive: true })
@@ -22,7 +23,6 @@ let browser
 const frames = [], evidence = []
 try {
   browser = await chromium.launch({ headless: true })
-  const journeys = process.argv.includes('--contest') ? [['mechanical-contest', 'skipped'], ['mechanical-contest', 'declared']] : [['comparison', 'edited'], ['fix-and-review', 'none']]
   for (const [template, checkMode] of journeys) {
     const contest = template === 'mechanical-contest'
     const scene = contest ? `${template}-${checkMode}` : template
@@ -161,17 +161,34 @@ try {
         const execution = [...snapshot.flowExecutions.values()].find(one => one.document.flow.name === name && snapshot.goals.has(one.goal))
         return { id: execution.id, goal: execution.goal }
       }, name)
+      // The browser regression advances only this observer's clock. Host and
+      // renderer keep running normally; the first referee read is held for one
+      // poll, making the two phases exceed one window but fit separately.
+      const phaseClock = process.argv.includes('--observation-clock-test') && template === 'comparison'
+        ? { offset: 0, active: false, judge: false, transition: false } : null
+      const now = () => Date.now() + (phaseClock?.offset ?? 0)
       const observe = async (matches, label) => {
         let view, execution
-        const until = Date.now() + 30000
+        const until = now() + 30000
         do {
           view = await rig.host.call('goal/read', { goal: run.goal })
           execution = await rig.host.call('flow/execution', { run: run.id })
+          if (phaseClock?.active && !phaseClock.judge && view.board.intents.some(one => one.role === 'judge' && one.state === 'done' && one.outcome === 'picked')) {
+            phaseClock.judge = true
+            phaseClock.offset += 25000
+          }
+          if (phaseClock?.judge && !phaseClock.transition) {
+            view = { ...view, board: { ...view.board, intents: view.board.intents.filter(one => one.role !== 'referee') } }
+          }
           assert.deepEqual(rig.errors, [], 'no scripted agent tool failure')
           assert.notEqual(execution.state, 'stalled', execution.reason ?? 'the template stalled')
           if (matches(view.board.intents, execution)) break
           await new Promise(done => setTimeout(done, 50))
-        } while (Date.now() < until)
+          if (phaseClock?.judge && !phaseClock.transition) {
+            phaseClock.transition = true
+            phaseClock.offset += 8000
+          }
+        } while (now() < until)
         if (!matches(view.board.intents, execution)) {
           const facts = await rig.host.call('evidence/board', { room: run.goal })
           writeFileSync(join(out, `${template}-local-flow-diagnostic.json`), `${JSON.stringify({ label, execution, cards: view.board.intents, facts }, null, 2)}\n`)
@@ -380,9 +397,11 @@ try {
         await expect(passedChecks).toHaveCount(2)
         for (let index = 0; index < 2; index += 1) await expect(passedChecks.nth(index)).toBeVisible()
         await photograph('09-judging-board')
+        if (phaseClock) phaseClock.active = true
         rig.release('judge')
         await observe(cards => cards.some(one => one.role === 'judge' && one.state === 'done' && one.outcome === 'picked'), 'judge picked')
         const picked = await observe(cards => cards.some(one => one.role === 'referee' && one.state === 'open'), 'person merge step')
+        if (phaseClock) assert.deepEqual([phaseClock.judge, phaseClock.transition, phaseClock.offset], [true, true, 33000], 'both controlled observation phases ran')
         await expect(boardTitle('Merge the picked change')).toBeVisible()
         await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge the picked change$/ })).toBeVisible()
         await photograph('10-referee-board')

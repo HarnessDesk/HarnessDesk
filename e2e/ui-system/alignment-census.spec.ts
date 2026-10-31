@@ -14,6 +14,23 @@ const UPDATE = process.env.UPDATE_ALIGNMENT === '1'
 const CHECKS: Check[] = ['lead-off-line', 'trailing-glyph-off-column', 'header-off-body']
 const staged = new Map<string, string[]>()
 
+test('sparse compact below ListRow centres its heading within the minimum height', async ({ page }) => {
+  await page.goto('/design.html?view=list')
+  await page.evaluate(() => document.fonts.ready)
+  const row = page.locator('[data-catalog-case="compact-below-sparse"]')
+  await expect(row).toHaveCount(1)
+  const geometry = await row.evaluate(element => {
+    const bounds = element.getBoundingClientRect()
+    const heading = element.querySelector('[data-slot="list-row-heading"]')!.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    return { rowHeight: bounds.height, headingHeight: heading.height,
+      padding: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom),
+      delta: (heading.top + heading.bottom - bounds.top - bounds.bottom) / 2 }
+  })
+  expect(geometry.rowHeight - geometry.headingHeight - geometry.padding, JSON.stringify(geometry)).toBeGreaterThan(1)
+  expect(Math.abs(geometry.delta), JSON.stringify(geometry)).toBeLessThan(1)
+})
+
 for (const theme of ['light', 'dark'] as const) {
 
   for (const [item0, shape] of (['comparison', 'fix-and-review']).entries()) test(`New Team graph seats keep aligned role headers and full-width controls in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
@@ -256,9 +273,11 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       (leadRect.width <= 40 && leadRect.height <= 40 && hasIcon(lead) && !hasText(lead)))
     // A surface child is its own panel, not this row's text column.
     if (iconLike && hasText(text) && !boxSurface(text) && line && line.left >= leadRect.left && line.left - leadRect.right < row.getBoundingClientRect().width) {
-      // Tables, default/small lists and settings now centre on the whole row.
+      // Tables, default/small lists and settings centre on the whole row.
+      // A below-layout list instead centres on its explicit heading.
       // Other compositions still answer to their first text line.
-      const familyRow = row.matches('[data-slot="list-row"]') || lead.matches('[data-slot="row-mark"], [data-slot="row-face"], [data-slot="row-choice-mark"], [data-slot="table-cell-lead"]')
+      const listHeading = row.matches('[data-slot="list-row-heading"]') && row.parentElement?.matches('[data-slot="list-row"][data-subtitle-layout="below"]')
+      const familyRow = row.matches('[data-slot="list-row"]') || listHeading || lead.matches('[data-slot="row-mark"], [data-slot="row-face"], [data-slot="row-choice-mark"], [data-slot="table-cell-lead"]')
       const target = familyRow ? row.getBoundingClientRect() : line
       const delta = Math.abs((leadRect.top + leadRect.bottom) / 2 - (target.top + target.bottom) / 2)
       const rowStyle = getComputedStyle(row)
@@ -611,6 +630,20 @@ test('a bare bar label shares a search lead while an icon tab shares its text', 
 
   })
 }
+
+test('a below-layout list face centres on its heading and a displaced face is caught', async ({ page }) => {
+  await page.setContent(`<main id="root"><div data-slot="list-row" data-subtitle-layout="below" style="display:flex;flex-direction:column;width:400px">
+    <div data-slot="list-row-heading" style="display:flex;align-items:center;gap:12px;height:60px">
+      <span data-slot="list-row-lead" style="display:flex;width:32px;height:32px"><svg width="20" height="20"></svg></span>
+      <div style="line-height:20px">Alpha<br>Waiting</div>
+    </div>
+    <div data-slot="list-row-subtitle" style="height:100px">A longer description below the heading</div>
+  </div></main>`)
+  const read = () => measure(page, '#root', 'fixture', 'below-list', 'Below list')
+  expect((await read()).findings['lead-off-line']).toEqual([])
+  await page.locator('[data-slot="list-row-lead"]').evaluate(element => { (element as HTMLElement).style.transform = 'translateY(-12px)' })
+  expect((await read()).findings['lead-off-line']).toHaveLength(1)
+})
 
 // An entry's own name is not a heading over its trailing reading.
 test('a selected list entry does not promote its name to a surface header', async ({ page }) => {

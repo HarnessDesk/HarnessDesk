@@ -1,7 +1,7 @@
 import type { AcpAgentConfig } from '@harnessdesk/adapter-acp'
 
 import { usageRecordFor } from '../usage/antigravity-store.js'
-import { identityReaderFor } from './identity.js'
+import { identityReaderFor, identityStatusReaderFor } from './identity.js'
 import { providerReaderFor } from './provider.js'
 import { currentNameOf, knownAgentByCommand, type KnownAgent } from './known-agents.js'
 import { commandName } from './service.js'
@@ -30,12 +30,16 @@ export const knowledgeOverlay = (
     /** Where a changed vendor format is reported; see `AntigravityStoreOptions.warn`. */
     readonly warn?: (message: string, details?: unknown) => void
   } = {},
-): Pick<AcpAgentConfig, 'name' | 'coAuthor' | 'resolveIdentity' | 'identityIsStatus' | 'resolveProvider' | 'usageRecord' | 'account' | 'sharedSessionProcess' | 'secrets' | 'authMethodNotes'> => {
+): Pick<AcpAgentConfig, 'name' | 'coAuthor' | 'resolveIdentity' | 'resolveIdentityStatus' | 'identityIsStatus' | 'resolveProvider' | 'usageRecord' | 'account' | 'sharedSessionProcess' | 'secrets' | 'authMethodNotes'> => {
   const env = options.env ?? { ...process.env, ...agent.env }
   const measuredKeys = agent.secrets ? [] : (known?.auth?.secrets ?? []).filter((secret) => secret.acpMethod !== undefined)
   const resolveIdentity = identityReaderFor(known, {
     ...(agent.args ? { args: agent.args } : {}),
     ...(agent.cwd ? { cwd: agent.cwd } : {}),
+    env,
+    ...(env['HOME'] ? { home: env['HOME'] } : {}),
+  })
+  const resolveIdentityStatus = identityStatusReaderFor(known, {
     env,
     ...(env['HOME'] ? { home: env['HOME'] } : {}),
   })
@@ -56,6 +60,7 @@ export const knowledgeOverlay = (
     coAuthor: knownAgentByCommand(commandName(agent.executable?.command ?? agent.command))?.coAuthor ?? null,
     ...(known?.acp?.sharedSessionProcess ? { sharedSessionProcess: true } : {}),
     ...(resolveIdentity ? { resolveIdentity } : {}),
+    ...(resolveIdentityStatus ? { resolveIdentityStatus } : {}),
     ...(known?.id === 'opencode' ? { identityIsStatus: true } : {}),
     ...(resolveProvider ? { resolveProvider } : {}),
     ...(usageRecord ? { usageRecord } : {}),
