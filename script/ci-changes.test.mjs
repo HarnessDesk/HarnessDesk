@@ -17,7 +17,7 @@ const cliPlan = (paths, event = 'pull_request', env = {}) => {
     const list = join(directory, 'paths')
     if (paths !== null) writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
     const result = spawnSync(process.execPath, [script, list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', CI_HEAD_BRANCH: '', CI_REF_NAME: '', CI_LABELS: '', ...env },
+      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', CI_HEAD_BRANCH: '', CI_REF_NAME: '', CI_LABELS: '', CI_PROVEN_BY: '', ...env },
     })
     assert.equal(result.status, 0, result.stderr)
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
@@ -236,16 +236,25 @@ test('a stylesheet that names a theme before or after the change reads both them
   assert.equal(themeInputs(root, ['packages/ui/src/components/Row.tsx'], () => 'dark'), false, 'only stylesheets are read for the word')
 })
 
-test('main and a run on demand read both themes of every spec', () => {
-  for (const event of ['push', 'workflow_dispatch']) {
-    const run = plan(['packages/ui/src/App.tsx'], {}, event)
-    assert.deepEqual([run.browser, run.browser_specs, run.matrix], ['all', 'all', 'full'], event)
+test('main and development full runs read both themes of every spec; elsewhere the full tier reads every spec in the PR matrix', () => {
+  for (const [event, ref] of [['push', 'main'], ['workflow_dispatch', 'main'], ['workflow_dispatch', 'development']]) {
+    const run = plan(['packages/ui/src/App.tsx'], { CI_REF_NAME: ref }, event)
+    assert.deepEqual([run.browser, run.browser_specs, run.matrix], ['all', 'all', 'full'], `${event} ${ref}`)
     assert.ok(Number(run.shard_count) >= Number(plan(['packages/ui/src/App.tsx']).shard_count), event)
+  }
+  for (const [event, env] of [
+    ['workflow_dispatch', { CI_REF_NAME: 'codex/feature' }],
+    ['pull_request', { CI_HEAD_BRANCH: 'batch/reviewed', CI_REF_NAME: '12/merge' }],
+    ['pull_request', { CI_LABELS: '["full-ci"]', CI_REF_NAME: '12/merge' }],
+    ['pull_request', { CI_HEAD_BRANCH: 'development', CI_REF_NAME: '12/merge' }],
+  ]) {
+    const run = plan(['packages/ui/src/App.tsx'], env, event)
+    assert.deepEqual([run.tier, run.browser, run.browser_specs, run.matrix, run.record], ['full', 'all', 'all', 'pr', 'false'], JSON.stringify(env))
   }
 })
 
 test('manual dispatch always runs full CI, and PRs cannot change tier with the obsolete matrix input', () => {
-  assert.equal(plan(['packages/ui/src/App.tsx'], { UI_SYSTEM_MATRIX_REQUEST: 'pr' }, 'workflow_dispatch').matrix, 'full')
+  assert.equal(plan(['packages/ui/src/App.tsx'], { UI_SYSTEM_MATRIX_REQUEST: 'pr', CI_REF_NAME: 'development' }, 'workflow_dispatch').matrix, 'full')
   assert.equal(plan(['packages/ui/src/App.tsx'], { UI_SYSTEM_MATRIX_REQUEST: 'bogus' }).matrix, 'pr')
 })
 
@@ -394,10 +403,11 @@ test('a spec the map has not seen run runs, whatever else changed', () => {
 
 test('only a run of the whole suite in both themes records what each spec ran', () => {
   const ui = ['packages/ui/src/App.tsx']
-  for (const event of ['push', 'workflow_dispatch']) assert.equal(plan(ui, {}, event).record, 'true', event)
+  for (const event of ['push', 'workflow_dispatch']) assert.equal(plan(ui, { CI_REF_NAME: 'main' }, event).record, 'true', event)
+  assert.equal(plan(ui, { CI_REF_NAME: 'codex/feature' }, 'workflow_dispatch').record, 'false', 'a map made off main and development would never be saved')
   assert.equal(plan(ui, { UI_THEME_TOUCHED: 'true' }).record, 'false', 'a theme diff is still bounded')
   assert.equal(plan(ui).record, 'false', 'a pull request that reads one theme')
-  assert.equal(plan(ui, { UI_SYSTEM_MATRIX_REQUEST: 'pr' }, 'workflow_dispatch').record, 'true', 'manual runs always record the full tier')
+  assert.equal(plan(ui, { UI_SYSTEM_MATRIX_REQUEST: 'pr', CI_REF_NAME: 'development' }, 'workflow_dispatch').record, 'true', 'manual runs of development always record the full tier')
   assert.equal(plan(['e2e/ui-system/row-box.spec.ts']).record, 'false', 'a part of the suite')
   assert.equal(plan(['docs/architecture.md']).record, 'false', 'no browser at all')
 })
@@ -507,10 +517,11 @@ test('a narrow source selection wins over a widely rendered input when both chan
   assert.ok(run.deferred.length > 0)
 })
 
-for (const options of [
-  { event: 'push' }, { event: 'workflow_dispatch', request: 'pr' },
-  { event: 'pull_request', headBranch: 'batch/reviewed' },
-  { event: 'pull_request', labels: ['full-ci'] },
+for (const [options, thorough] of [
+  [{ event: 'push', refName: 'main' }, true], [{ event: 'workflow_dispatch', request: 'pr', refName: 'development' }, true],
+  [{ event: 'workflow_dispatch', refName: 'codex/feature' }, false],
+  [{ event: 'pull_request', headBranch: 'batch/reviewed' }, false],
+  [{ event: 'pull_request', labels: ['full-ci'] }, false],
 ]) {
   test(`full tier runs everything for ${JSON.stringify(options)}, even for docs`, () => {
     const run = planChange(real, { paths: ['docs/architecture.md'], ...options })
@@ -518,8 +529,8 @@ for (const options of [
     assert.equal(run.browser, 'all')
     assert.equal(run.native, true)
     assert.equal(run.browser_specs, 'all')
-    assert.equal(run.matrix, 'full')
-    assert.equal(run.record, true)
+    assert.equal(run.matrix, thorough ? 'full' : 'pr')
+    assert.equal(run.record, thorough)
     assert.match(run.summary, /CI tier: full/)
   })
 }
@@ -527,14 +538,14 @@ for (const options of [
 test('CLI reads full-tier branch and label metadata without evaluating branch text', () => {
   for (const env of [{ CI_HEAD_BRANCH: 'batch/reviewed' }, { CI_LABELS: '["full-ci"]' }]) {
     const run = cliPlan(['packages/ui/src/App.tsx'], 'pull_request', env)
-    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs, run.record], ['full', 'all', 'true', 'full', 'all', 'true'])
+    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs, run.record], ['full', 'all', 'true', 'pr', 'all', 'false'])
     assert.equal(run.summary, plan(['packages/ui/src/App.tsx'], env).summary)
   }
 })
 
 for (const event of ['push', 'workflow_dispatch']) {
   test(`CLI keeps full CI for ${event}`, () => {
-    const run = cliPlan(['docs/architecture.md'], event)
+    const run = cliPlan(['docs/architecture.md'], event, { CI_REF_NAME: 'main' })
     assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs], ['full', 'all', 'true', 'full', 'all'])
   })
 }
@@ -613,7 +624,9 @@ for (const event of ['pull_request', 'workflow_dispatch']) {
   test(`development runs the full tier on ${event}`, () => {
     const env = { CI_REF_NAME: 'development', CI_HEAD_BRANCH: event === 'pull_request' ? 'development' : '' }
     const run = cliPlan(['docs/architecture.md'], event, env)
-    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs, run.record], ['full', 'all', 'true', 'full', 'all', 'true'])
+    // The release pull request reads every spec; development's own full run reads both themes and records.
+    const thorough = event === 'workflow_dispatch'
+    assert.deepEqual([run.tier, run.browser, run.native, run.matrix, run.browser_specs, run.record], ['full', 'all', 'true', thorough ? 'full' : 'pr', 'all', String(thorough)])
     assert.equal(plan(['docs/architecture.md'], env, event).tier, 'full')
   })
 }
@@ -842,3 +855,17 @@ for (const path of ['packages/ui/src/components/BringHome.tsx', 'e2e/ui-system/a
     assert.match(run.summary, /running every browser spec/)
   })
 }
+
+test('a push of a tree a full run already passed runs core CI only', () => {
+  for (const env of [{ CI_REF_NAME: 'development' }, { CI_REF_NAME: 'main' }]) {
+    const run = cliPlan(['packages/ui/src/App.tsx'], 'push', { ...env, CI_PROVEN_BY: '41119214274' })
+    assert.deepEqual([run.browser, run.native, run.browser_specs, run.shard_count, run.record], ['none', 'false', '[]', '0', 'false'], env.CI_REF_NAME)
+    assert.match(run.summary, /Full run 41119214274 passed this exact tree/)
+  }
+  // Only a push reads a proof, and only a run id stands for one.
+  assert.equal(cliPlan(['packages/ui/src/App.tsx'], 'workflow_dispatch', { CI_REF_NAME: 'development', CI_PROVEN_BY: '41119214274' }).browser, 'all', 'the nightly run never skips')
+  assert.equal(cliPlan(['packages/ui/src/App.tsx'], 'pull_request', { CI_HEAD_BRANCH: 'batch/x', CI_PROVEN_BY: '41119214274' }).browser, 'all')
+  for (const proof of ['', '0', 'yes', '12 34', '$(id)']) {
+    assert.equal(cliPlan(['packages/ui/src/App.tsx'], 'push', { CI_REF_NAME: 'main', CI_PROVEN_BY: proof }).browser, 'all', JSON.stringify(proof))
+  }
+})

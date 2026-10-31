@@ -7,6 +7,30 @@ the rule is the last line of its section.
 
 ---
 
+## A self-hosted runner takes work only while it is shown to be up — 2026-10-30
+
+The organisation's hosted runners run twenty jobs at once. A full run is over
+thirty, so its browser shards waited three to ten minutes for a slot while the
+project's own Linux machine, paid for by the hour it is on, sat idle: no job
+named it.
+
+The first job, `CI runners`, asks whether one of that machine's runners is
+online and sends the typecheck and gates jobs there if so. Those two start at
+once and take minutes, so they free two hosted slots for the shards. A job
+sent to a runner that is down waits in the queue for a day rather than moving,
+so every doubt answers "hosted": no `RUNNER_STATUS_TOKEN` secret (forks never
+get one), a pull request from another repository, any failure to ask, or less
+than half an hour before the machine's scheduled stop (`SELF_HOSTED_UNTIL`).
+Jobs that start later in a run, like the bookkeeping checks, stay hosted for
+the same reason: the machine may have stopped by the time they are created.
+
+The pick is made once per run. "Re-run failed jobs" keeps it, so after the
+machine has stopped, re-run a failed typecheck or gates job with "Re-run all
+jobs", which asks again.
+
+**The rule:** a job reaches a self-hosted runner only through a pick made at
+the start of the run that defaults to the hosted runner.
+
 ## Customize is the shared capability destination — 2026-10-21
 
 Skills, MCP and Plugins share one Customize entrance and a common section navigation. Existing Library and Plugins destination identities remain valid for saved history, command links and capability detail pages. Settings' skill-management requests open Customize, scoped to the active runtime; Hooks retains a separate Settings page. Runtime-owned commands not covered by the scanned inventory remain browsable in Customize, under the active runtime’s name, with their enable switches and composer action. A different runtime scope never borrows the active runtime’s commands. Legacy command detail routes remain readable; the obsolete Settings list route replaces itself in navigation rather than leaving a redirect in Back history.
@@ -108,6 +132,10 @@ as the required checks, so an old full result cannot stand in for a newer
 bounded run.
 
 **Rule:** bounded green is feedback, and only full green is landing evidence.
+
+> Narrowed by [CI is dealt from manifests and measurements, not hand-carved jobs](#ci-is-dealt-from-manifests-and-measurements-not-hand-carved-jobs--2026-10-30):
+> outside main and development the full tier reads every spec in the
+> pull-request theme matrix.
 
 ## Team seats nest under their Team, and running rows spin — 2026-10-18 (owner)
 
@@ -4606,3 +4634,57 @@ when the description wraps; ordinary rows retain whole-row centring. Metadata
 follows the description at full width, and both row sizes keep a line gap.
 The browser regression measures visible word ranges at 240, 280
 and 320px preview viewports in both themes, including clipping and overflow.
+
+## CI is dealt from manifests and measurements, not hand-carved jobs — 2026-10-30
+
+Measured over 200 CI runs (2026-10-21 to 10-30, 42,000 runner minutes), and
+the failure logs of the 128 jobs that failed in them:
+
+- **Every pull request waited on one file.** The Lead end-to-end file's 31
+  cases ran in series for 21-29 minutes while every other job finished in
+  eleven. Profiled locally, 65% of a case was the host starting git: about
+  12,000 processes in 94 seconds, mostly re-asking which repository the same
+  few folders belong to, and re-reading one commit's checks file 313 times.
+  The host now asks `rev-parse` once instead of three times, reuses a
+  checkout identity it has just read for that same folder, keeps a project
+  answer for a second while its folder is still where it was, and keeps reads
+  of immutable objects. The same case went from 116 to 64 seconds; the desk a
+  person runs does the same work less often. The largest source left was every
+  evidence reader asking where each fact's branch stands. A branch's tip is now
+  asked again only once a file its ref is kept in has changed — the loose ref,
+  `packed-refs` or a reftable list, marked by `stat` and trusted only once it
+  has been still for longer than a filesystem tick — and how two commits stand
+  is kept per repository (`evidence/tips.ts`). That case now starts about
+  4,250 git processes in about 55 seconds, against about 6,300 in 64.
+- **Node tests are one manifest.** `script/node-tests.mjs` names each group —
+  unit, Node end-to-end, retention, the Lead's, the Lead's end-to-end — with its
+  per-file deadline and runtime, and deals the files into jobs of about five
+  minutes by `script/node-test-durations.json`. Verify, `pnpm test`,
+  `check:push` and CI read it; the `find … ! -path …` list kept in three copies
+  is gone. The Lead end-to-end cases are four files. Every job reports with
+  `spec`: on Node 22 the default TAP output left 19 failed jobs in nine days
+  without the failing test named anywhere in the last 5,000 lines of the log.
+- **The full tier's two themes and its recording belong to main and
+  development.** Every one of the 21 dark-theme failures of a geometry spec
+  in those nine days came with the same case failing in light, and a
+  recording made on a batch branch, a `full-ci` run or the release pull
+  request was never saved (only main and development keep the map). Those
+  runs still read every spec, in the pull-request matrix, on the built pages:
+  14 shards instead of 17 instrumented ones. The nightly run and main pushes
+  keep both themes and the recording.
+- **A tree is proven once.** A batch head's full run tested the merge of its
+  branch into `development`; squash-landed onto a `development` that had not
+  moved, the push is that same tree, and it ran the reached browser specs
+  again (40 pushes, 2,000 runner minutes in nine days); a release pull
+  request's full run and the `main` push after it did the same at 480 minutes
+  each. A full run that passes every part, the whole browser suite and native
+  smoke included, now uploads a `proven-tree-<tree>` artifact, and a push to
+  `main` or `development` whose tree has one from this repository's own
+  branches runs core CI only. The nightly run never reads a proof.
+- **CI runs the dealt UI unit suite.** A related selection took as long on one
+  runner as the four dealt shards (p50 4.8 against 5.1 minutes, p90 8.7
+  against 6.7). Local `check:push` still uses it, where a laptop is the cost.
+
+**Rule:** a job's contents come from a manifest and the last measurement, never
+from a list in the workflow; a check that never finds anything another check
+does not is measured, then removed from the place it costs most.
