@@ -278,7 +278,7 @@ const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated:
     if (part.type === 'localImage') return [scrub(basename(part.path), 60) || 'Image']
     return []
   })
-  return text === '' && attachments.length === 0 ? null : { type: 'you', id: String(item.id), text, attachments, ...(verified.length === 1 ? { lead: { name: scrub(verified[0]!.label.slice(LEAD_MESSAGE_PREFIX.length), 60) } } : {}) }
+  return text === '' && attachments.length === 0 ? null : { type: 'you', id: String(item.id), text, attachments, ...(verified.length === 1 && split.injections.length === 1 && split.text === '' && attachments.length === 0 ? { lead: { name: scrub(verified[0]!.label.slice(LEAD_MESSAGE_PREFIX.length), 60) } } : {}) }
 }
 
 interface Timed { readonly id: string; readonly startedAt?: number; readonly completedAt?: number; readonly durationMs?: number }

@@ -530,3 +530,16 @@ test('a phone read rechecks session ownership after the host control read', asyn
   const r = rig({ isOwn: () => own, chatControl: async () => { own = false; return undefined } })
   await assert.rejects(r.work.threadRead({ id: key }), /not a session this desk can show/)
 })
+
+test('a verified block never attributes additional person words to the Lead on the phone', async () => {
+  const envelope = leadMessageEnvelope('Dex', 'Run the tests.')
+  const r = rig({ chatControl: async () => ({ id: key, holder: 'lead', sent: [leadMessageKey(envelope)] }) })
+  r.setSession(session([{ id: turnId('mixed-t'), status: 'completed', items: [{ id: itemId('mixed-u'), type: 'userMessage',
+    content: [deskContextContent(envelope), { type: 'text', text: 'Also check the docs.' }] }] }]))
+  const message = (await r.work.threadRead({ id: key })).turns[0]!
+  assert.equal(message.type, 'you')
+  if (message.type !== 'you') return
+  assert.equal(message.lead, undefined)
+  assert.equal(message.text, 'Run the tests.\nAlso check the docs.')
+  assert.equal(message.text.includes('<context'), false)
+})
