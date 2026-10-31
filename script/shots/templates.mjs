@@ -10,10 +10,11 @@ import { chromium, expect } from '@playwright/test'
 import { serve } from '../../packages/server/dist/src/index.js'
 import { FRAME } from '../../packages/ui/src/design/frame.ts'
 import { COLLECT, TILDIFY, USER, textReasons } from './audit.mjs'
-import { createTemplateRig, TEMPLATE_CHECK, TEMPLATE_PUBLISH_BRANCH, TEMPLATE_TASK } from './template-rig.mjs'
+import { createTemplateRig, templateJourneyCases, TEMPLATE_CHECK, TEMPLATE_PUBLISH_BRANCH, TEMPLATE_TASK } from './template-rig.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const flag = (name, fallback) => { const at = process.argv.indexOf(`--${name}`); return at === -1 ? fallback : process.argv[at + 1] }
+const journeys = templateJourneyCases(process.argv)
 const out = resolve(flag('out', join(tmpdir(), 'hd-template-frames')))
 const ui = resolve(flag('ui', join(root, 'packages/ui/dist')))
 mkdirSync(out, { recursive: true })
@@ -22,7 +23,6 @@ let browser
 const frames = [], evidence = []
 try {
   browser = await chromium.launch({ headless: true })
-  const journeys = process.argv.includes('--contest') ? [['mechanical-contest', 'skipped'], ['mechanical-contest', 'declared']] : [['comparison', 'edited'], ['fix-and-review', 'none']]
   for (const [template, checkMode] of journeys) {
     const contest = template === 'mechanical-contest'
     const scene = contest ? `${template}-${checkMode}` : template
