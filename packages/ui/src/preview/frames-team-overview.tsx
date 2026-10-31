@@ -32,7 +32,7 @@ export const NeedsYouExample = ({ scene }: { scene: NeedsYouScene }) => {
 export const OverviewExample = ({scene}:{scene:OverviewScene}) => {
  const [opened, setOpened] = useState<string[]>([])
  const probe = scene === 'narrow' ? new URLSearchParams(location.search).get('seat-facts-test') : null
- const source = overviewModel(probe === 'done' ? 'done' : scene)
+ const source = probe === 'done' ? overviewModel('done') : overviewModel(scene)
  const model = probe ? { ...source, run: probe === 'stopped' && source.run ? { ...source.run, state: 'stopped' as const } : source.run,
    seats: source.seats.map(row => row.seat === 'seat-0'
      ? { ...row, name: 'A', cost: { unit: 'turns' as const, value: 123456, estimated: false } }
