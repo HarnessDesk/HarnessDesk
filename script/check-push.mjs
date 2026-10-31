@@ -17,8 +17,8 @@ import { planChange, sharedInputs, themeDiff } from './ci-changes.mjs'
 import { recordedSeconds } from './ci-browser-shards.mjs'
 import { IMPORT, SPEC, uiPackages } from './ci-imports.mjs'
 import { unitPlan } from './ci-unit-tests.mjs'
+import { groupOf } from './node-tests.mjs'
 import { readMap } from './ui-impact.mjs'
-import { ciCommands } from './check-verify-drift.mjs'
 
 const gate = (file, paths, scope, args = []) => ({
   name: file, command: 'node', args: [`script/${file}.mjs`, ...args], scope,
@@ -45,7 +45,7 @@ export const GATES = [
   gate('check-alignment-census', [/^packages\/ui\/src\/design\/alignment-census\.json$/, /^e2e\/ui-system\/alignment-census\.spec\.ts$/], 'the census table and its spec'),
   gate('design-doc', [/^packages\/ui\/src\/design\//, /^packages\/ui\/src\/styles\//, /^docs\/design-system\.md$/, designScripts], 'design source and generated reference', ['--check']),
   gate('cli-doc', [/^packages\/cli\//, /^docs\/cli\.md$/], 'CLI source and generated reference', ['--check']),
-  gate('check-verify-drift', [/^script\/verify\.mjs$/, /^\.github\/workflows\/ci\.yml$/], 'the full gate and workflow commands'),
+  gate('check-verify-drift', [/^script\/verify\.mjs$/, /^\.github\/workflows\/ci\.yml$/, /^script\/node-tests\.mjs$/, /^script\/node-test-durations\.json$/], 'the full gate, the Node test manifest and workflow commands'),
   gate('check-verify-steps', [/^(?:AGENTS|CONTRIBUTING)\.md$/, /^script\/verify\.mjs$/], 'the full gate and its two descriptions'),
 ]
 
@@ -95,8 +95,6 @@ const files = directory => !existsSync(directory) ? [] : readdirSync(directory, 
 const manifests = root => readdirSync(join(root, 'packages'), { withFileTypes: true })
   .filter(entry => entry.isDirectory() && existsSync(join(root, 'packages', entry.name, 'package.json')))
   .map(entry => ({ directory: entry.name, ...JSON.parse(readFileSync(join(root, 'packages', entry.name, 'package.json'), 'utf8')) }))
-const globPattern = glob => new RegExp(`^${glob.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`)
-const workflow = root => readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8')
 
 function packageTests(root, paths) {
   const entries = manifests(root)
@@ -115,16 +113,15 @@ function packageTests(root, paths) {
       }
     }
   }
-  const source = workflow(root)
-  const exclusions = ['node-e2e', 'lead-e2e'].flatMap(job => ciCommands(workflowJob(source, job)))
-    .filter(step => step.command === 'node' && step.args.includes('--test'))
-    .flatMap(step => step.args.filter(arg => arg.startsWith('packages/') && arg.endsWith('.test.js'))).map(globPattern)
+  // The end-to-end and Lead groups run in CI: their wider deadlines and the
+  // Lead's runtime exceed the local budget (script/node-tests.mjs).
+  const local = new Set(['unit', 'retention'])
   return { changed, tests: entries.filter(entry => reached.has(entry.directory) && existsSync(join(root, 'packages', entry.directory, 'tsconfig.json')))
     .map(entry => {
       const base = join(root, 'packages', entry.directory)
       const sources = [...files(join(base, 'test')), ...files(join(base, 'src/test'))].filter(file => /\.test\.ts$/.test(file))
       const tests = sources.map(file => `packages/${entry.directory}/dist/test/${relative(file.includes(`${join(base, 'src/test')}/`) ? join(base, 'src/test') : join(base, 'test'), file).replace(/\.ts$/, '.js')}`)
-        .filter(file => !exclusions.some(pattern => pattern.test(file))).sort()
+        .filter(file => local.has(groupOf(file).name)).sort()
       return { name: entry.directory, direct: changed.has(entry.directory), files: tests }
     }).filter(entry => entry.files.length > 0) }
 }
@@ -245,7 +242,7 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
   for (const step of consumers) if (step.status === 'run') step.needs = [build.name]
   for (const entry of node.tests) {
     const reason = nodeReason || (!entry.direct && totalTests > 60 ? `${totalTests} test files across changed packages and dependants exceed the local limit of 60; CI runs dependent tests.` : '')
-    const retention = entry.files.filter(file => file === 'packages/server/dist/test/host-retention.test.js')
+    const retention = entry.files.filter(file => groupOf(file).name === 'retention')
     const ordinary = entry.files.filter(file => !retention.includes(file))
     if (ordinary.length) add(`Node tests: ${entry.name}`, 'node', ['--test', '--test-timeout=120000', ...ordinary], reason, { needs: [build.name] })
     // Match CI and verify: this real-Flow measurement must not compete with

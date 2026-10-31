@@ -302,7 +302,7 @@ const job = name => {
 
 test('changes computes one unit plan and supplies every shard the same mode, files and count', () => {
   const changes = job('changes'), units = job('ui-unit-tests')
-  for (const output of ['unit_mode', 'unit_files', 'unit_shard_count', 'unit_shards']) {
+  for (const output of ['unit_mode', 'unit_shard_count', 'unit_shards']) {
     assert.ok(changes.includes(`      ${output}: \${{ steps.paths.outputs.${output} }}`), output)
     assert.ok(units.includes(`needs.changes.outputs.${output}`), output)
   }
@@ -322,7 +322,7 @@ test('changes computes one unit plan and supplies every shard the same mode, fil
   assert.ok(units.includes('node script/ci-unit-shards.mjs ${{ matrix.shard }}/${{ needs.changes.outputs.unit_shard_count }} > "$deal"'))
   assert.ok(units.includes('test -s "$deal"'))
   assert.match(units, /- name: UI tests\n        if: needs.changes.outputs.unit_mode == 'all'\n        env:\n          UNIT_DEAL: \$\{\{ steps.deal.outputs.files \}\}\n        run: pnpm --filter @harnessdesk\/ui run test \$UNIT_DEAL\n/)
-  assert.ok(units.includes('pnpm --filter @harnessdesk/ui exec vitest related --run $UNIT_FILES'))
+  assert.doesNotMatch(units, /vitest related|UNIT_FILES/, 'CI runs the dealt suite, not a related selection')
   assert.match(units, /timeout-minutes: 15/)
   const once = job('ui-typecheck')
   assert.doesNotMatch(once, /needs:|if:|matrix:/)
@@ -333,7 +333,7 @@ test('changes computes one unit plan and supplies every shard the same mode, fil
   assert.match(once, /timeout-minutes: 15/)
 })
 
-test('the change job produces the planner matrix for all, one for related and a safe skipped matrix for none', () => {
+test('the change job produces the planner matrix for all and related, and a safe skipped matrix for none', () => {
   const block = job('changes').match(/          node script\/ci-unit-tests\.mjs[^]*/)?.[0]
   assert.ok(block)
   const dir = mkdtempSync(join(tmpdir(), 'ci-unit-matrix-'))
@@ -347,10 +347,10 @@ test('the change job produces the planner matrix for all, one for related and a 
       } })
       assert.equal(result.status, 0, result.stderr)
       const values = Object.fromEntries(readFileSync(output, 'utf8').trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
-      assert.equal(values.unit_mode, mode)
-      assert.equal(values.unit_files, 'src/a.ts')
-      assert.equal(Number(values.unit_shard_count), mode === 'all' ? count : mode === 'related' ? 1 : 0)
-      assert.deepEqual(JSON.parse(values.unit_shards), mode === 'all' ? shards.map((_, i) => i + 1) : [1])
+      assert.equal(values.unit_mode, mode === 'none' ? 'none' : 'all')
+      assert.equal(values.unit_files, undefined)
+      assert.equal(Number(values.unit_shard_count), mode === 'none' ? 0 : count)
+      assert.deepEqual(JSON.parse(values.unit_shards), mode === 'none' ? [1] : shards.map((_, i) => i + 1))
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -393,7 +393,7 @@ test('UI tests stays the aggregate and only accepts the exact requested result t
       const result = spawnSync('bash', ['-e', '-c', shell], { encoding: 'utf8', env: {
         ...process.env, CHANGES_RESULT: 'success', UNIT_MODE: mode, TYPECHECK_RESULT: typecheck, SHARDS_RESULT: units,
       } })
-      const passes = typecheck === 'success' && ((['all', 'related'].includes(mode) && units === 'success') || (mode === 'none' && units === 'skipped'))
+      const passes = typecheck === 'success' && ((mode === 'all' && units === 'success') || (mode === 'none' && units === 'skipped'))
       assert.equal(result.status, passes ? 0 : 1, `${mode}/${typecheck}/${units}: ${result.stdout} ${result.stderr}`)
     }
   }
