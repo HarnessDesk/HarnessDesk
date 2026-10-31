@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import type { Freshness, Sha } from '@harnessdesk/protocol'
 
@@ -9,7 +9,7 @@ import { repositoryRoot } from '../worktree.js'
 import { isSha } from './records.js'
 import { readGit } from '../git-read.js'
 import { sameCanonicalPath } from '../path-identity.js'
-import { keptBetween, sharedTip, type Asked } from './tips.js'
+import { ABSENT, keep, keptBetween, markFrom, partOf, sharedTip, type Asked, type Part } from './tips.js'
 
 /**
  * What git says about a checkout, for evidence: which commit a fact is bound
@@ -221,6 +221,9 @@ export const canonical = async (path: string): Promise<string> => {
 /** Folders being asked about now, so callers asking at once share one answer. */
 const asking = new Map<string, Promise<string>>()
 
+/** Checkout roots' answers, each with the mark it stands on (`checkoutMarkAt`); bounded by `keep`. */
+const kept = new Map<string, { readonly answer: string; readonly mark: string }>()
+
 /**
  * The project a folder belongs to: its repository's main checkout, or the
  * folder itself when it is in no repository. The key a store is kept under.
@@ -231,6 +234,13 @@ const asking = new Map<string, Promise<string>>()
  * question already being asked shares its answer rather than starting git
  * again. A folder that is gone uses the fallback, or answers as written
  * without asking git — a wrapped Team's checkout is usually in the Trash.
+ *
+ * A folder that is the root of a checkout of its own — a project, or a Team's
+ * worktree — keeps its answer while its mark reads the same, and the mark is
+ * read on every call: a stat of what git itself reads to give that answer,
+ * never the folder's path alone, since a folder can gain or lose a `.git`
+ * without moving. Any other folder, and a root whose mark is too new to vouch
+ * for it (`RACY_MS`), is asked afresh each time.
  */
 export const projectOf = (folder: string, fallback?: string): Promise<string> => {
   // Lexical normalisation erases symlink traversal before `..`.
@@ -239,13 +249,84 @@ export const projectOf = (folder: string, fallback?: string): Promise<string> =>
   if (known) return known
   const answer = (async () => {
     const real = await realpath(folder).catch(() => null)
-    if (real === null) return fallback !== undefined && fallback !== folder ? projectOf(fallback) : resolve(folder)
-    return (await repositoryRoot(folder)) ?? real
+    if (real === null) {
+      kept.delete(key)
+      return fallback !== undefined && fallback !== folder ? projectOf(fallback) : resolve(folder)
+    }
+    const was = kept.get(key)
+    if (was) {
+      const now = await checkoutMarkAt(real, was.answer)
+      if (now?.trusted && now.text === was.mark) return was.answer
+      kept.delete(key)
+    }
+    const before = await checkoutMarkAt(real)
+    // Asked of the path the mark describes, never through a link that could point elsewhere while git answers.
+    const root = await repositoryRoot(real)
+    if (root === null) return real
+    // Read again once git has answered: a checkout made or moved meanwhile must not leave a mark of after on an answer of before.
+    if (before?.trusted) {
+      const after = await checkoutMarkAt(real, root)
+      if (after?.trusted && after.text.startsWith(`${before.text}|`)) keep(kept, key, { answer: root, mark: after.text })
+    }
+    return root
   })().finally(() => asking.delete(key))
   asking.set(key, answer)
   return answer
 }
 
+/** A part whose text is identity alone — a directory, a pointer read whole — has no time to be racy about. */
+const still = (part: Part | null): Part | null => part === null ? null : { ...part, changed: 0 }
+
+/**
+ * Whether git trusts these folders on their owner alone. A checkout another
+ * user owns is trusted only through `safe.directory`, read from configuration
+ * outside the checkout and outside any mark here, so it is never kept: it is
+ * asked every time. Without a user id to compare (Windows), nothing is kept.
+ */
+const ownedHere = async (paths: readonly string[]): Promise<boolean> => {
+  if (typeof process.getuid !== 'function') return false
+  const uid = process.getuid()
+  const owners = await Promise.all(paths.map((path) => stat(path).then((info) => info.uid, () => null)))
+  return owners.every((owner) => owner === uid)
+}
+
+/**
+ * What git reads, from a folder that is the root of its own checkout, to say
+ * which repository it is in: the folder; its `.git`, a directory or a
+ * `gitdir:` file read whole; that git directory and its `commondir`; the
+ * common directory; and the configuration that can move or empty its working
+ * tree (`core.worktree`, `core.bare`). With `root`, the answer's own side is
+ * added: the main checkout is still where git named it, with the same
+ * `.git`. Null when the folder has no `.git` of its own — a subfolder, or no
+ * checkout — when another user owns any of it (`ownedHere`), or when anything
+ * in it cannot be read.
+ */
+const checkoutMarkAt = async (real: string, root?: string): Promise<{ readonly text: string; readonly trusted: boolean } | null> => {
+  // Taken before any file is read, so a write after this moment is always in a later tick than a trusted part's.
+  const since = Date.now()
+  const dot = join(real, '.git')
+  const [here, own] = await Promise.all([partOf(real, false, true), partOf(dot, true, true)])
+  if (own === null || own === ABSENT) return null
+  const pointer = own.text.startsWith('d:') ? null : /^gitdir: (.+?)\r?\n?$/.exec(own.body)?.[1]
+  if (pointer === undefined) return null
+  const gitDir = pointer === null ? dot : resolve(real, pointer)
+  const [dir, commondir] = await Promise.all([partOf(gitDir, false, true), partOf(join(gitDir, 'commondir'), true, true)])
+  const commonDir = commondir === null || commondir === ABSENT ? gitDir : resolve(gitDir, commondir.body.replace(/\r?\n$/, ''))
+  if (!await ownedHere([real, gitDir, commonDir, ...(root === undefined ? [] : [root])])) return null
+  const parts = [still(here), still(own), still(dir), still(commondir), ...await Promise.all([
+    partOf(commonDir, false, true).then(still),
+    partOf(join(commonDir, 'config'), false),
+    partOf(join(commonDir, 'config.worktree'), false),
+    ...(gitDir !== commonDir ? [partOf(join(gitDir, 'config.worktree'), false)] : []),
+  ])]
+  if (root !== undefined) {
+    if (await realpath(root).catch(() => null) !== root) return null
+    const rootDot = await partOf(join(root, '.git'), true, true)
+    if (rootDot === null || rootDot === ABSENT) return null
+    parts.push({ text: root, body: '', changed: 0 }, still(rootDot))
+  }
+  return markFrom(parts, since)
+}
 /**
  * How a fact bound to `at` stands now, against its branch in its checkout.
  *

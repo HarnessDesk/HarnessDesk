@@ -476,7 +476,14 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       if (options.offlineForge && choice === 'accept-open-pr') personPublication = true
       try { return await host.call('lead/card/decide', {
       version: 1, cardId: card.id, cardType: card.type, expectedRevision: card.revision, contractDigest: card.contractDigest, choice,
-      }) } finally { personPublication = false }
+      }) } catch (error) {
+        // A refused decision names what moved under it: the card, the contract or the phase.
+        const state = journal.state, now = state.cards.find(one => one.id === card.id)
+        throw Object.assign(new Error(`${(error as Error).message}: decided ${card.type} ${card.id}@${card.revision} (${card.contractDigest}) as ${choice}; ` +
+          `now ${now ? `@${now.revision} (${now.contractDigest})` : 'gone'}, contract ${state.contract?.digest ?? 'none'}, phase ${state.phase}, ` +
+          `decided [${state.decidedCards.join(', ')}], recoveryBlocked ${!!state.recoveryBlocked}, budgetStop ${!!state.budget?.stop}, ` +
+          `publication ${state.publication?.stage ?? 'none'}, card changed ${JSON.stringify(now) !== JSON.stringify(card)}`), { cause: error, wireCode: (error as { wireCode?: unknown }).wireCode })
+      } finally { personPublication = false }
     }
     const sendGoal = () => host.call('lead/thread/send', { idempotencyKey: `goal-${journal.state.seq}`, text: task })
     const settle = async () => { await host.flowsPlane.flush(); await sleep(150); await host.flowsPlane.flush() }

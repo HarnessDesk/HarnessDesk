@@ -4691,6 +4691,10 @@ the failure logs of the 128 jobs that failed in them:
 from a list in the workflow; a check that never finds anything another check
 does not is measured, then removed from the place it costs most.
 
+> Superseded in part by [A checkout root's project answer stands while what git reads to give it is unchanged](#a-checkout-roots-project-answer-stands-while-what-git-reads-to-give-it-is-unchanged--2026-10-31):
+> the one-second window is gone; a folder can join or leave a repository
+> without moving.
+
 ## Full CI label admission — 2026-10-30
 
 A label worker rechecks the live pull request and can reuse a matching PR run
@@ -4736,3 +4740,44 @@ card stand for other evidence, so a result taken back while its evidence
 moved away and back is still offered afresh.
 
 **Rule:** a refusal says something changed; when nothing did, the click stands.
+
+## A checkout root's project answer stands while what git reads to give it is unchanged — 2026-10-31
+
+The one-second window `projectOf` kept an answer for, on the folder's real
+path alone, was wrong: a folder can join or leave a repository without
+moving. A lane folder torn down mid-read, or a directory a checkout is then
+made in, kept its old answer, and the Lead publication end-to-end cases
+decided a result card against it and were refused (`lead-card-stale`,
+`lead-card-decided`) — in CI on most runs once the reads around them got
+faster. The window was removed (`4081d37`); only callers asking at once share
+an answer.
+
+Asking afresh every time put `projectOf` back at about a fifth of a Lead
+run's git processes. A folder that is the root of a checkout of its own (a
+project, or a Team's worktree) now keeps its answer while a stat mark reads
+the same, and the mark is read on every call: the folder; its `.git`, a
+directory or a `gitdir:` file read whole; that git directory and its
+`commondir`; the common directory with the configuration that can move or
+empty its working tree (`config`, `config.worktree`); and the answer's own
+`<root>/.git`. Directories and pointers are marked by identity and text, a
+configuration file by identity, size and times, and one changed within
+`RACY_MS` of the read vouches for nothing — the parts and the rule are the
+ones `tips.ts` marks a branch tip with. The folder's side is read before git
+answers and must agree after, so a checkout made meanwhile is not marked as
+it was. A subfolder, a folder in no repository and a folder that has gone are
+asked every time. `repositoryRoot` no longer asks for the origin it discarded.
+
+Measured on the Lead end-to-end case `the model gets one standing text…`,
+with every git process counted: without a cache, `projectOf` started about
+4,600 of its 7,800 git processes and the case took 90–97 seconds; with the
+mark, it started 26 of 3,300, in 65–69 seconds.
+
+The faster host also showed the Lead publication cases racing the Lead
+itself: the Lead withdraws a result on every desk event that may change it and
+offers it again, so a click on a result card read a moment earlier was
+refused. That is a person's race too, and is fixed in the Lead, not the test
+([a click on a result the Lead took back](#a-click-on-a-result-the-lead-took-back-is-made-when-that-same-result-returns--2026-10-31)).
+
+**Rule:** an answer about the filesystem stands on a mark of exactly what was
+read to give it, read again on every use, never on time or a path alone; a
+mark too new to tell the next change from is no mark.
