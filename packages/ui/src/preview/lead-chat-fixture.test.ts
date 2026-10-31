@@ -14,3 +14,13 @@ it('previews verified Lead words with working button-only hand over', async () =
   await store.lead.handBackChat(id)
   expect(store.lead.state.chats[0]!.holder).toBe('lead')
 })
+
+it('previews an offline action and explicit recovery without a desk', async () => {
+  const offline = createLeadChatFixture('lead', 'light', 'offline')
+  await expect(offline.store.lead.takeOverChat(offline.id)).rejects.toThrow('offline')
+  const broken = createLeadChatFixture('lead', 'dark', 'unreadable')
+  expect(broken.store.lead.state.chatControlProblem).toContain('Reset chat control')
+  await broken.store.lead.resetChatControl()
+  expect(broken.store.lead.state.chatControlProblem).toBeNull()
+  expect(broken.store.lead.state.chats).toEqual([])
+})

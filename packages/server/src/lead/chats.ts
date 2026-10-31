@@ -1,3 +1,4 @@
+import type { DispatchAdmission } from '../dispatch-admission.js'
 import { deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
 import type { LeadChatControlStore } from './chat-control.js'
 import { randomUUID } from 'node:crypto'
@@ -14,7 +15,7 @@ export const LEAD_CHAT_HELD = 'The person has taken this chat over. Wait until t
 export interface LeadChatActivity { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle' }
 
 export interface LeadChatsPorts {
-  readonly control?: Pick<LeadChatControlStore, 'holder' | 'noteSent'>
+  readonly control?: Pick<LeadChatControlStore, 'holder' | 'noteSent'> & Partial<Pick<LeadChatControlStore, 'assertDispatch' | 'assertCanStart'>>
   readonly project: LeadProject
   readonly state: () => LeadState
   readonly managementAvailable?: () => boolean
@@ -244,7 +245,8 @@ export class LeadChats {
   start(params: HostParams<'lead/chat/start'>): Promise<HostResult<'lead/chat/start'>> {
     const call = { method: 'lead/chat/start', params } as const
     const envelope = this.#envelope(params.text)
-    return this.#mutate(call, (admit, effectStarted, attemptId) => {
+    return this.#mutate(call, async (admit, effectStarted, attemptId) => {
+      await this.ports.control?.assertCanStart?.(this.ports.project.path)
       let createdId: string | undefined
       const scope = this.#liveScope(call, attemptId, () => createdId)
       return this.ports.work.startInProject(params, this.ports.project.path, async id => {
@@ -274,12 +276,12 @@ export class LeadChats {
     })
   }
 
-  #liveScope(call: LeadPermissionCall, attemptId: string, target: () => string | undefined): (cwd: string) => Promise<void> {
+  #liveScope(call: LeadPermissionCall, attemptId: string, target: () => string | undefined): DispatchAdmission<string> {
     const selected = { ...this.ports.project }
     const requestGoal = this.ports.state().budget?.logicalGoalId ?? null
     // An accepted queue item outlives its journal attempt. Keep its pinned
     // scope and current policy checks, without requiring an unfinished attempt.
-    return async cwd => {
+    return Object.assign(async (cwd: string) => {
       if (this.ports.project.path !== selected.path || this.ports.project.id !== selected.id) refuse('Lead project scope changed.')
       const id = target()
       if (!id) refuse('The chat identity is unavailable.')
@@ -294,6 +296,11 @@ export class LeadChats {
       await this.#notHeld(id!)
       if (call.method !== 'lead/chat/stop' && (this.ports.state().budget?.logicalGoalId ?? null) !== requestGoal)
         refuse('The Lead request changed. Cancel this queued reply and send a new message.')
-    }
+    }, { assertDispatch: () => {
+      if (this.ports.project.path !== selected.path || this.ports.project.id !== selected.id) refuse('Lead project scope changed.')
+      const id = target()
+      if (!id) refuse('The chat identity is unavailable.')
+      this.ports.control?.assertDispatch?.(selected.path, id!)
+    } })
   }
 }

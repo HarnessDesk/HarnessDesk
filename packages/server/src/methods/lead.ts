@@ -2,6 +2,7 @@ import type { MethodsUnder } from './context.js'
 
 /** Person controls stay on the window wire; narrow project-pinned chat tools also serve the private Lead client. */
 export const leadMethods = {
+  'lead/chats/resetControl': ctx => ctx.leadChatControl.reset(),
   'lead/chats/control': ctx => ctx.leadChatControl.list(),
   'lead/chat/takeOver': (ctx, params) => ctx.leadChatControl.takeOver(params.id),
   'lead/chat/handBack': (ctx, params) => ctx.leadChatControl.handBack(params.id),

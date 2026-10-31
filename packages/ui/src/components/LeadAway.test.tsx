@@ -5,7 +5,7 @@ import { LEAD_AWAY_MS, leadAwayDigest } from './LeadAway'
 
 const stateOf = (scene: Parameters<typeof leadSceneProjection>[0]): LeadState => {
   const projection = leadSceneProjection(scene)
-  return { chats: [], personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings,
+  return { chats: [], chatControlProblem: null, personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings,
     requestInFlight: projection.requestInFlight, wayOut: projection.wayOut, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt,
     progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null }
 }

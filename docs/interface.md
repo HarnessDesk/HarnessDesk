@@ -2203,7 +2203,7 @@ no completion badge, activity, glow or motion.
 
 A message the Lead sends into an ordinary chat uses the person's bubble shape
 under `Sent by <name>`. A chat the Lead has written to shows `<name> is managing this chat.` with **Take over**. After take over it shows **You have
-this chat.** with `Hand back to <name>`. Typing does not take over; only the
+this chat.** with `Hand back to <name>`. Failed button actions show their reason inline. An unreadable control record blocks Lead actions and offers **Reset chat control**, with confirmation before clearing all projects' holds and message verification keys. Typing does not take over; only the
 button does. While the person holds the chat, the host refuses Lead sends,
 stops and queued delivery there, and removes the Lead's waiting messages.
 Hand back sends no message.

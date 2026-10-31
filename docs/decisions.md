@@ -4908,11 +4908,26 @@ rewrites an old sender.
 The host checks chat holders at Lead send and stop admission and at queue
 delivery. A prompt is advice; a host refusal enforces the person's decision.
 Take over removes waiting Lead messages and preserves the person's queue.
-A message already sending was admitted before take over and may finish, as
-with the person's ordinary queue. Hand back sends nothing and the Lead reads
+A message already dispatched to the agent may finish, as with the person's
+ordinary queue. A take-over installed during admission wins before dispatch. Hand back sends nothing and the Lead reads
 the chat on its next activity wake.
 
 Only the button takes over. A person's message is not a hand-over: they can add
 a word to the Lead's work without ending its hold. The composer stays usable
 under either holder. These controls grant no permissions, approval answers or
 Flow authority.
+
+The host keeps up to 32 verified envelope keys per chat. Older Lead messages
+fall back to the folded “Lead message from …” context block. On the phone, a
+mixed message containing both Lead context and ordinary user content drops the
+Lead label rather than attributing the whole message to the Lead.
+
+Control records retain up to 64 chats per project; person holds are never
+evicted. An unreadable or invalid record fails closed for every Lead send,
+stop and queued delivery until the person confirms **Reset chat control** in
+the composer notice. That explicit reset clears all projects' holds and
+verification keys; no read or Lead operation repairs the record. Missing
+records alone mean no holds. While the host runs, a synchronous in-memory
+person hold survives disk failures and is checked at the actual dispatch
+boundary. Control reads are passive and never construct the Lead or select a
+project. Cancelled waiting Lead messages are noted in the Lead thread.

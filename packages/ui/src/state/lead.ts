@@ -8,6 +8,7 @@ interface LeadTransport {
 export interface LeadState {
   /** Chats the Lead has written to, their holders and its envelope keys. */
   readonly chats: readonly LeadChatControl[]
+  readonly chatControlProblem: string | null
   readonly wakes?: readonly LeadWakeRecord[]
   readonly personActions: readonly LeadAction[]
   readonly revision: number
@@ -29,7 +30,7 @@ export interface LeadState {
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
-  const initial = (): LeadState => ({ chats: [], personActions: [], revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, presence: null, steers: null, error: null })
+  const initial = (): LeadState => ({ chats: [], chatControlProblem: null, personActions: [], revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, presence: null, steers: null, error: null })
   let state = initial(), wakeRevision = -1
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
@@ -48,13 +49,13 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     }
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
-      : structuredClone({ chats: state.chats, wakes: state.wakes ?? [], personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
+      : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
         requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }
   const applyChats = (list: LeadChatControlList) => {
     if (!available()) return
-    state = { ...state, chats: list.chats }
+    state = { ...state, chats: list.chats, chatControlProblem: list.problem ?? null }
     for (const listener of listeners) listener()
   }
   return {
@@ -67,6 +68,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       else if (notification.method === 'lead/chats/controlChanged') applyChats(notification.params)
     },
     async readChatControl() { check(); applyChats(await transport.request('lead/chats/control', {})) },
+    async resetChatControl() { check(); applyChats(await transport.request('lead/chats/resetControl', {})) },
     async takeOverChat(id: string) { check(); applyChats(await transport.request('lead/chat/takeOver', { id })) },
     async handBackChat(id: string) { check(); applyChats(await transport.request('lead/chat/handBack', { id })) },
     async readWakes() {

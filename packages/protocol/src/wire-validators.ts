@@ -1042,6 +1042,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/chat/read': phoneShape({ id: phoneText(300) }),
   'lead/chat/start': phoneShape({ text: phoneText(16_384) }),
   'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384) }),
+  'lead/chats/resetControl': parseLeadEmpty,
   'lead/chats/control': parseLeadEmpty,
   'lead/chat/takeOver': phoneShape({ id: phoneText(300) }),
   'lead/chat/handBack': phoneShape({ id: phoneText(300) }),

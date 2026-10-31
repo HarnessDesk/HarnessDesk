@@ -1,3 +1,4 @@
+import type { DispatchAdmission } from '../dispatch-admission.js'
 import { recordDeskInput, approvalId as makeApprovalId, sessionId as makeSessionId } from '@harnessdesk/protocol'
 
 import type { AgentSession, HostParams, HostResult } from '@harnessdesk/protocol'
@@ -5,14 +6,14 @@ import type { HostContext, MethodsUnder } from './context.js'
 
 /** Host callers may scope the actual handle after dispatch reopens it. */
 export async function sendTurn(ctx: HostContext, params: HostParams<'turn/send'>,
-  admitLive?: (live: AgentSession) => Promise<void>): Promise<HostResult<'turn/send'>> {
+  admitLive?: DispatchAdmission<AgentSession>): Promise<HostResult<'turn/send'>> {
   const turnId = await ctx.sessions.dispatch(params, live => ctx.queue.sendNow(ctx.sessions.record(params), recordDeskInput(params.input), live, undefined, admitLive))
   return { turnId: String(turnId) }
 }
 
 /** Shared ordinary queue dispatch. Only host callers can supply the effect receipt. */
 export async function queueTurn(ctx: HostContext, params: HostParams<'turn/queue'>, effectStarted?: () => void,
-  admitLive?: (live: AgentSession) => Promise<void>): Promise<HostResult<'turn/queue'>> {
+  admitLive?: DispatchAdmission<AgentSession>): Promise<HostResult<'turn/queue'>> {
   ctx.sessions.assertDispatchable(params)
   const record = ctx.sessions.record(params)
   if (admitLive && record.live) {
@@ -29,6 +30,7 @@ export async function queueTurn(ctx: HostContext, params: HostParams<'turn/queue
     await ctx.queue.sendNow(record, recordDeskInput(params.input), undefined, effectStarted, admitLive)
     return { queuedId: null, sent: true }
   }
+  admitLive?.assertDispatch?.()
   const message = ctx.registry.enqueue(record, ctx.queue.nextId(), recordDeskInput(params.input), effectStarted, admitLive)
   ctx.queue.push(record)
   return { queuedId: message.id, sent: false }

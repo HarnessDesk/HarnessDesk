@@ -19,3 +19,8 @@ test('take over and hand back take one bounded chat id and nothing else', () => 
   }
   assert.deepEqual(parseClientMessage({ id: 1, method: 'lead/chats/control', params: {} }).params, {})
 })
+
+test('reset control is an explicit empty window action', () => {
+  assert.deepEqual(parseClientMessage({ id: 1, method: 'lead/chats/resetControl', params: {} }).params, {})
+  assert.throws(() => parseClientMessage({ id: 1, method: 'lead/chats/resetControl', params: { id: 'fixture:s1' } }))
+})

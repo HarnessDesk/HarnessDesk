@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile, mkdir, readFile, symlink, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -44,12 +44,97 @@ test('bounded: 64 chats, 32 keys a chat, oldest out first', async t => {
   assert.equal((await store.list(project)).chats.at(-1)!.sent.length, 32)
 })
 
-test('another project, a malformed file or a bad key reads as empty, never as a grant', async t => {
+
+test('project switches preserve independent person holds', async t => {
   const { root, project, file } = await fixture(t)
+  const other = join(root, 'other'); await mkdir(other)
   const store = new LeadChatControlStore(file)
-  await store.noteSent(project, 'codex:s1', 'a'.repeat(64))
-  assert.deepEqual(await store.list(root), { project: root, chats: [] })
-  await writeFile(file, '{"version":1,"project":"' + project + '","chats":[{"id":"codex:s1","holder":"lead","sent":["nothex"]}]}')
+  await store.noteSent(project, 'fixture:a', 'a'.repeat(64))
+  await store.setHolder(project, 'fixture:a', 'person')
+  await store.noteSent(other, 'fixture:b', 'b'.repeat(64))
+  assert.equal(await store.holder(project, 'fixture:a'), 'person')
+  assert.equal(await new LeadChatControlStore(file).holder(project, 'fixture:a'), 'person')
+  assert.equal(await store.holder(other, 'fixture:b'), 'lead')
+})
+
+test('eviction drops Lead entries first and never removes a person hold', async t => {
+  const { project, file } = await fixture(t)
+  const store = new LeadChatControlStore(file)
+  await store.noteSent(project, 'fixture:held', 'a'.repeat(64))
+  await store.setHolder(project, 'fixture:held', 'person')
+  for (let i = 0; i < 70; i++) await store.noteSent(project, `fixture:s${i}`, 'b'.repeat(64))
+  assert.equal(await store.holder(project, 'fixture:held'), 'person')
+  assert.equal((await store.list(project)).chats.length, 64)
+})
+
+test('64 person holds refuse another Lead chat without losing any hold', async t => {
+  const { project, file } = await fixture(t)
+  const chats = Array.from({ length: 64 }, (_, i) => ({ id: `fixture:s${i}`, holder: 'person', sent: ['a'.repeat(64)] }))
+  await mkdir(join(file, '..'), { recursive: true })
+  await writeFile(file, JSON.stringify({ version: 1, project, chats }))
+  const store = new LeadChatControlStore(file)
+  const before = await readFile(file, 'utf8')
+  await assert.rejects(store.noteSent(project, 'fixture:new', 'b'.repeat(64)), /64|full|hand back/i)
+  assert.equal(await readFile(file, 'utf8'), before)
+  assert.equal((await store.list(project)).chats.filter(c => c.holder === 'person').length, 64)
+})
+
+for (const shape of ['truncated', 'oversize', 'symlink', 'bad key', 'duplicate ids', 'too many chats', 'project mismatch', 'extra field', 'duplicate keys', 'bad holder', 'bad projects', 'noncanonical project'] as const) {
+  test(`an existing ${shape} control record refuses reads and writes without replacing it`, async t => {
+    const { root, project, file } = await fixture(t)
+    await mkdir(join(file, '..'), { recursive: true })
+    const chat = { id: 'fixture:s1', holder: 'person', sent: ['a'.repeat(64)] }
+    let value: unknown = { version: 1, project, chats: [chat] }
+    if (shape === 'bad key') value = { version: 1, project, chats: [{ ...chat, sent: ['nothex'] }] }
+    if (shape === 'duplicate ids') value = { version: 1, project, chats: [chat, chat] }
+    if (shape === 'too many chats') value = { version: 1, project, chats: Array.from({ length: 65 }, (_, i) => ({ ...chat, id: `fixture:s${i}` })) }
+    if (shape === 'project mismatch') value = { version: 1, project: root, chats: [chat] }
+    if (shape === 'extra field') value = { version: 1, project, chats: [chat], repaired: true }
+    if (shape === 'duplicate keys') value = { version: 1, project, chats: [{ ...chat, sent: ['a'.repeat(64), 'a'.repeat(64)] }] }
+    if (shape === 'bad holder') value = { version: 1, project, chats: [{ ...chat, holder: 'unknown' }] }
+    if (shape === 'bad projects') value = { version: 2, projects: [] }
+    if (shape === 'noncanonical project') value = { version: 2, projects: { [join(project, '..') + '/w/../w']: [chat] } }
+    const bytes = shape === 'truncated' ? '{' : shape === 'oversize' ? ' '.repeat(256 * 1024 + 1) : JSON.stringify(value)
+    if (shape === 'symlink') { const target = join(root, 'target.json'); await writeFile(target, bytes); await symlink(target, file) }
+    else await writeFile(file, bytes)
+    const store = new LeadChatControlStore(file)
+    await assert.rejects(store.holder(project, 'fixture:s1'), /control record.*reset|reset.*control record/i)
+    await assert.rejects(store.noteSent(project, 'fixture:new', 'b'.repeat(64)), /control record.*reset|reset.*control record/i)
+    assert.equal(await readFile(file, 'utf8'), bytes)
+  })
+}
+
+test('a failed person hold persistence keeps the synchronous hold until explicit recovery', async t => {
+  const { project, file } = await fixture(t)
+  const store = new LeadChatControlStore(file)
+  await store.noteSent(project, 'fixture:s1', 'a'.repeat(64))
+  const old = `${file}.old`; await rename(file, old); await mkdir(file)
+  const pending = store.setHolder(project, 'fixture:s1', 'person')
+  assert.throws(() => store.assertDispatch(project, 'fixture:s1'), /taken|control record/i)
+  await assert.rejects(pending)
+  assert.throws(() => store.assertDispatch(project, 'fixture:s1'), /taken|control record/i)
+})
+
+test('explicit reset is the only recovery from a damaged record', async t => {
+  const { project, file } = await fixture(t)
+  const store = new LeadChatControlStore(file)
+  await store.noteSent(project, 'fixture:s1', 'a'.repeat(64))
+  await writeFile(file, '{')
+  await assert.rejects(store.holder(project, 'fixture:s1'))
+  await store.reset()
   assert.deepEqual(await store.list(project), { project, chats: [] })
-  await assert.rejects(store.noteSent(project, 'codex:s1', 'nothex'))
+  await store.noteSent(project, 'fixture:s2', 'b'.repeat(64))
+  assert.equal(await store.holder(project, 'fixture:s2'), 'lead')
+})
+
+test('a new take-over during explicit reset keeps its fence and is persisted afterwards', async t => {
+  const { project, file } = await fixture(t)
+  const store = new LeadChatControlStore(file)
+  await store.noteSent(project, 'fixture:s1', 'a'.repeat(64))
+  const resetting = store.reset()
+  const taking = store.setHolder(project, 'fixture:s1', 'person')
+  await resetting
+  assert.equal(await taking, true)
+  assert.throws(() => store.assertDispatch(project, 'fixture:s1'), /taken this chat over/)
+  assert.equal(await new LeadChatControlStore(file).holder(project, 'fixture:s1'), 'person')
 })
