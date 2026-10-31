@@ -42,6 +42,7 @@ const rig = async (over: { configured?: boolean; manage?: boolean; service?: Rec
   const controls = new LeadControls({ journal, service, project, model: 'fixture-model', now: () => 100, nextId: () => `card-${++nextCard}`,
     push: (value: WireNotification) => notifications.push(value), decidePerson: async (...args: unknown[]) => { answers.push(args) }, decideResult: async (...args: unknown[]) => { answers.push(args) }, ...over.controls })
   const ctx = { leadWakesRead: () => controls.readWakes(), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p),
+    leadBudgetRaise: (p: unknown) => controls.raiseBudget(p),
     leadCardDecide: (p: unknown) => controls.decide(p), leadSettingsRead: () => controls.readSettings(),
     leadSettingsUpdate: (p: unknown) => controls.updateSettings(p), leadResume: (p: unknown) => controls.resume(p), leadStop: (p: unknown) => controls.stop(p) } as unknown as HostContext
   const call = (method: string, params: unknown = {}) => dispatch(ctx, method as never, params as never) as Promise<any>
@@ -2054,3 +2055,29 @@ for (const method of ['lead/chat/start', 'lead/chat/send'] as const) for (const 
     assert.equal(journal.state.attempts.size, 0)
     assert.equal(s.records.filter(record => record.type === 'reconciliation').length, 0)
   })
+
+
+test('the person raises current allowances directly and a stopped goal stays stopped', async () => {
+  const s = await rig()
+  const current = s.journal.state.budget!.caps
+  const caps = { usdMicros: current.usdMicros + 100, rounds: current.rounds + 1 }
+  const view = await s.call('lead/budget/raise', { logicalGoalId: 'logical', caps, expectedRevision: s.journal.state.seq })
+  assert.deepEqual(view.thread.budget.caps, caps)
+  assert.equal(s.journal.state.cards.some(card => card.type === 'budget-change'), false)
+  await assert.rejects(s.call('lead/budget/raise', { logicalGoalId: 'other', caps: { ...caps, rounds: caps.rounds + 1 }, expectedRevision: s.journal.state.seq }))
+  await s.journal.stop()
+  const stop = s.journal.state.budget!.stop
+  await s.call('lead/budget/raise', { logicalGoalId: 'logical', caps: { usdMicros: caps.usdMicros + 100, rounds: caps.rounds }, expectedRevision: s.journal.state.seq })
+  assert.deepEqual(s.journal.state.budget!.stop, stop)
+  assert.equal(s.journal.state.phase, 'stopped')
+  s.controls.close()
+})
+
+test('a declined goal refuses a limit raise with a closed person-facing code', async () => {
+  const s = await rig()
+  try {
+    await s.journal.offerCard(plan)
+    await s.call('lead/card/decide', { ...planClick, choice: 'decline' })
+    await assert.rejects(s.call('lead/budget/raise', { logicalGoalId: 'logical', caps: { ...contract.caps, usdMicros: contract.caps.usdMicros + 100 }, expectedRevision: s.journal.state.seq }), code('lead-thread-closed'))
+  } finally { s.controls.close() }
+})

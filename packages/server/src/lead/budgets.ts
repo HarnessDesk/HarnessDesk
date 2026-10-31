@@ -100,6 +100,30 @@ export class LeadBudgets implements FlowLeadGuard {
     if (this.#journals.get(journal.state.budget!.logicalGoalId) !== journal || this.#pending.has(startId)) throw new Error('lead-budget-owner')
     this.#pending.set(startId, { journal, stepId, params: structuredClone(params), project: structuredClone(project) })
   }
+  async prepareSecondLook(run: StoredFlowExecution, key: string, round: number): Promise<void> {
+    const journal = this.#journal(run), contract = journal.state.contract
+    if (!contract || !await this.port.member(contract.project)) throw new Error('lead-second-look-not-approved')
+    await this.meter(journal)
+    const state = journal.state, consent = state.consent, budget = state.budget!, roundId = leadRoundId(run.id, round)
+    const owned = state.runs.some(owned => owned.runId === run.id && owned.teamId === run.goal && owned.correlationId === run.lead!.startId)
+    if (!owned || state.contract?.digest !== contract.digest || !consent || consent.contractDigest !== contract.digest ||
+      consent.contractRevision !== contract.revision || consent.policyRevision !== state.policy?.revision || consent.expiresAt <= this.port.now() ||
+      consent.renewalCardRevision !== undefined || state.phase !== 'running' || state.recoveryBlocked || budget.stop ||
+      state.stopEffectsPending !== null || leadWorkerDispatchBlockedByOpenPr(state, run.id)) throw new Error('lead-second-look-not-approved')
+    const previous = state.secondLooks.find(look => look.stopKey === key)
+    if (previous) {
+      // Recovery may finish an opening round, never spend a second round.
+      if (previous.runId !== run.id || !budget.rounds.some(item => item.executionId === run.id && item.roundId === roundId) ||
+        !run.rounds.some(item => item.n === round && item.cause === `cause:lead:${key}` && item.state === 'opening'))
+        throw new Error('lead-second-look-already-attempted')
+      return
+    }
+    if (round !== run.rounds.length + 1) throw new Error('lead-second-look-round-changed')
+    // The journal atomically claims the stop and admits one round from the
+    // original known projection. Flow marks the run active next; its existing
+    // dispatch gate then meters cumulative usage afresh before any new work.
+    await journal.reopenSecondLook(run.id, key, roundId, this.port.now())
+  }
   async prepareRepair(run: StoredFlowExecution, key: string, round: number): Promise<void> {
     const journal = this.#journal(run), state = journal.state, op = state.handbacks.at(-1)
     await this.meter(journal)

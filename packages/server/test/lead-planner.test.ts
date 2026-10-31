@@ -56,7 +56,10 @@ test('seed choices and project-bound accepted tasks survive a new planner', asyn
   const accepted = { version: 1 as const, quiet: { from: '22:00', to: '07:00' }, seedChoices: ['ci:/workspace/widgets', 'ci:/workspace/docs'],
     tasks: [{ ...task(), project: '/workspace/widgets' }] }
   await new LeadPlanner(home).writeSchedule(accepted)
-  assert.deepEqual(await new LeadPlanner(home).readSchedule(), accepted)
+  const saved = await new LeadPlanner(home).readSchedule()
+  assert.ok(saved.tasks[0]!.createdAt! > 0)
+  const { createdAt: _created, ...savedTask } = saved.tasks[0]!
+  assert.deepEqual({ ...saved, tasks: [savedTask] }, accepted)
   const schedule = await new LeadPlanner(home).readSchedule()
   assert.equal(leadDueTask(schedule, at(21, '23:00')), null)
 })

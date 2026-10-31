@@ -1,3 +1,6 @@
+import { decideLeadSecondLook, leadDoneStopId, leadSecondLookAuthorized, type LeadSecondLookInput } from './lead/second-look.js'
+import { readChecks } from './evidence/checks-file.js'
+import { LeadRepeats } from './lead/repeats.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { gitSteerContext } from './git-gateway/steer-context.js'
 import { redactGitCommand } from '@harnessdesk/protocol'
@@ -151,7 +154,7 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { LeadAssembly, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { leadContractDigest, LeadAssembly, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
 import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
@@ -833,6 +836,7 @@ export class Host {
   #leadControls: LeadControls | null = null
   #leadChats: LeadChats | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
+  #leadRepeats: LeadRepeats | null = null
   #leadPlannerFiles: LeadPlanner | null = null
   #phoneLink: import('./phone-link.js').PhoneLinkControl | null = null
   #phoneWorkspace: PhoneWorkspace | null = null
@@ -3646,6 +3650,87 @@ export class Host {
     const detach = journal.onChange(trackOwned)
     this.onDispose(detach)
     const personActions = new LeadPersonActions(journal, this, this.#evidence, async value => { await this.#leadService!.assertPublic(value) })
+    const secondLooks = new Map<string, Promise<void>>()
+    const secondLook = (runId: string): Promise<void> => {
+      const pending = secondLooks.get(runId)
+      if (pending) return pending
+      const operation = (async () => {
+        const state = journal.state, contract = state.contract, ledger = state.budget
+        const run = this.#flows.leadRuns().find(one => one.id === runId)
+        // Evidence reads below await, so authority is asked again before each effect.
+        const authorized = () => !!contract && !!ledger && leadSecondLookAuthorized(journal.state, { contractDigest: contract.digest, logicalGoalId: ledger.logicalGoalId }, Date.now())
+        if (!run || !contract || !ledger || run.lead?.logicalGoalId !== ledger.logicalGoalId || !authorized()) return
+        const round = run.rounds.at(-1)
+        if (!round || round.role !== 'implement') return
+        const cards = this.#team.stateFor(run.goal).intents.filter(card => round.cards.includes(card.id))
+        const blocked = cards.find(card => card.outcome === 'blocked' || card.state === 'blocked')
+        const said = blocked ? [blocked.note, blocked.handoff].filter(Boolean).join(' ').slice(0, 1000) : 'Done'
+        const stopId = `${round.n}:${run.end?.kind === 'unrouted' ? run.end.card : blocked?.id ?? 'done'}:${run.currentEndedAt ?? blocked?.updatedAt ?? run.updatedAt}`
+        let observation: LeadSecondLookInput['observedBlocker']
+        let blocker: LeadSecondLookInput['stop']['blocker']
+        if (blocked) {
+          const repository = contract.publicationRepository
+          if (!repository || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) return
+          const named = /blocked on\s+(?:(?:pull request|issue|pr)\s*)?#([1-9]\d*)\b/i.exec(said)
+          const linked = /https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/(pull|issues)\/([1-9]\d*)\b/.exec(said)
+          if ((!named && !linked) || linked && (linked[1] !== repository || named && Number(named[1]) !== Number(linked[3]))) return
+          const number = Number(linked?.[3] ?? named?.[1])
+          if (!Number.isSafeInteger(number) || [...said.matchAll(/#([1-9]\d*)\b/g)].some(match => Number(match[1]) !== number) ||
+            [...said.matchAll(/https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/(?:pull|issues)\/([1-9]\d*)\b/g)].some(match => match[1] !== repository || Number(match[2]) !== number)) return
+          const gh = this.options.evidence?.gh ?? ghInCheckout
+          const answer = await gh(['api', '--method', 'GET', `repos/${repository}/issues/${number}`], project.path)
+          if (answer.exitCode !== 0) return
+          const issue = JSON.parse(answer.stdout) as { number?: number; state?: string; closed_at?: string; pull_request?: unknown }
+          if (issue.number !== number || !['open', 'closed'].includes(issue.state ?? '')) return
+          if (issue.pull_request) {
+            const pullAnswer = await gh(['api', '--method', 'GET', `repos/${repository}/pulls/${number}`], project.path)
+            if (pullAnswer.exitCode !== 0) return
+            const pull = JSON.parse(pullAnswer.stdout) as { number?: number; merged_at?: string | null }
+            if (pull.number !== number) return
+            blocker = { kind: 'pull-request', repository, number }
+            observation = { ...blocker, state: pull.merged_at ? 'merged' : issue.state as 'open' | 'closed', observedAt: Date.now(),
+              ...(pull.merged_at && Number.isSafeInteger(Date.parse(pull.merged_at)) ? { changedAt: Date.parse(pull.merged_at) } : {}) }
+          } else {
+            blocker = { kind: 'issue', repository, number }
+            observation = { ...blocker, state: issue.state as 'open' | 'closed', observedAt: Date.now(),
+              ...(issue.closed_at && Number.isSafeInteger(Date.parse(issue.closed_at)) ? { changedAt: Date.parse(issue.closed_at) } : {}) }
+          }
+        }
+        const seats = this.#evidence.seats.all().filter(seat => seat.board === run.goal && !seat.closed)
+        for (const seat of blocked ? [null] : seats) {
+          const record = seat && this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
+          const session = record?.session
+          const items = session?.turns.flatMap(turn => turn.items) ?? []
+          const done = [...items].reverse().find(item => item.type === 'assistantMessage' && item.phase === 'final' && /^\s*(?:done|finished|complete)\b/i.test(item.text))
+          if (!blocked && !done && !cards.some(card => card.state === 'done')) continue
+          const edits = items.filter(item => item.type === 'fileChange' && item.status === 'completed')
+          const lastEditAt = edits.length ? Math.max(...edits.map(item => item.completedAt ?? item.startedAt ?? 0)) : null
+          const checks = !blocked && session ? await readChecks(session.cwd) : null
+          const input: LeadSecondLookInput = { stop: { logicalGoalId: ledger.logicalGoalId, runId, stopId: blocked ? stopId : leadDoneStopId(round.n), kind: blocked ? 'blocked' : 'done', said,
+            at: blocked?.updatedAt ?? Date.now(), ...(blocker ? { blocker } : {}) }, now: Date.now(), approved: authorized(),
+            budget: leadBudgetProjection(journal.state.budget!, Date.now()), seen: journal.state.secondLooks.map(look => look.stopKey), runningWorker: !!record?.running.size,
+            ...(observation ? { observedBlocker: observation } : {}),
+            ...(checks && session ? { evidence: { complete: session.itemsLoaded && checks.problems.length === 0 && !checks.uncommitted && lastEditAt !== 0,
+              lastEditAt, requiredChecks: checks.checks.map(check => ({ name: check.run, runs: items.flatMap(item => item.type === 'command' && item.command === check.run && item.status !== 'inProgress' && item.completedAt !== undefined ? [{ at: item.completedAt }] : []) })) } } : {}) }
+          const decision = decideLeadSecondLook(input)
+          if (!decision) continue
+          if (!authorized()) return
+          if (decision.action === 'restart') await this.#flows.restartLeadStopped(runId, decision.key)
+          else {
+            await journal.secondLookAttempt(runId, decision.key, Date.now())
+            if (!authorized()) return
+            await this.call('turn/steer', { runtime: runtimeId(seat!.session.runtime), sessionId: makeSessionId(seat!.session.sessionId),
+              input: [{ type: 'text', text: `From the desk: ${decision.message}` }] })
+          }
+          await journal.offerCard({ version: 1, id: decision.key, revision: 1, type: 'second-look', contractDigest: contract.digest,
+            logicalGoalId: ledger.logicalGoalId, runId, stopKey: decision.key, said: decision.said, found: decision.found, did: decision.did })
+          return
+        }
+      })().catch(() => { /* Missing proof or a refused effect leaves the ordinary stop visible. */ })
+      secondLooks.set(runId, operation)
+      void operation.finally(() => { if (secondLooks.get(runId) === operation) secondLooks.delete(runId) })
+      return operation
+    }
     let leadPresence: LeadPresence | null = null
     this.#leadService = new LeadService({ ...options,
       ...(this.options.leadRuntimes ? { runtimes: this.options.leadRuntimes } : {}),
@@ -3655,7 +3740,7 @@ export class Host {
       onRemember: lines => {
         for (const line of lines) void this.#leadPlanner().suggest(line, `memory-${randomUUID()}`, Date.now()).catch(() => { this.#logger.warn('Lead memory suggestion was not saved') })
       },
-      readEvidence: async (runId, read) => ({ ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) }), broker: this.#credentials,
+      readEvidence: async (runId, read) => { await secondLook(runId); return { ...await options.readEvidence(runId, read), personActions: (await personActions.read()).filter(action => action.runId === runId) } }, broker: this.#credentials,
       resolveTool: async call => {
         const scope = await options.resolveTool(call)
         // Derive readiness from host-owned runs and cards again for every journal
@@ -3781,6 +3866,26 @@ export class Host {
     // Recovery uses only journaled person authority and freshly verified worker/forge identity.
     void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
     this.#leadControls = new LeadControls({ journal,
+      approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
+      freezeRepeat: async contract => ({ ...contract, digest: leadContractDigest(contract) }),
+      validateRepeat: async contract => {
+        if (leadContractDigest(contract) !== contract.digest) return 'The approved contract could not be verified'
+        if (!await this.#leadBudgets.port.member(contract.project)) return 'The project is no longer admitted'
+        if (contract.project.id !== project.id || !samePath(contract.project.path, project.path)) return 'The selected project changed'
+        if (contract.policyRevision !== journal.state.policy?.revision) return 'The permissions changed'
+        for (const step of contract.steps) {
+          if (step.flow !== 'lead-reviewed-result' || step.sourceRevision !== 'recipe-1') return 'The Flow source changed'
+          const preview = await this.#flowPreviews.preview(project.path, leadReviewedResultSource, step.variables, undefined, undefined, {
+            seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])), attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
+          if (leadPreviewUnfit(preview)) return 'The agents can no longer hold the approved seats'
+          const [writer, reviewer] = await Promise.all(['implement', 'review'].map(role => {
+            const seat = step.assignments.find(one => one.role === role)?.seat
+            return seat ? this.#providerOf(seat.runtime, project.path) : Promise.resolve(null)
+          }))
+          if (!writer || !reviewer || writer === reviewer) return 'An independent review is no longer available'
+        }
+        return null
+      },
       automaticProject: async path => {
         const root = await this.#confineGitRoot(path)
         if (!samePath(root, resolve(path)) || !this.#leadAssembly) throw leadRefusal('lead-project-missing')
@@ -3823,19 +3928,25 @@ export class Host {
       quiet: async () => leadQuietAt(await this.#leadPlanner().readSchedule(), new Date()),
     })
     this.#leadAutomatic = { project, owner: automatic }
-    // A scheduled task is a message the person wrote ahead of time: it opens a new goal only when the Lead has
-    // nothing open, so it starts at a plan card like any other goal, and quiet hours hold it.
-    const scheduled = async () => {
-      const controls = this.#leadControls, state = journal.state
-      if (!controls || !(canBeginLeadGoal(state) || state.phase === 'draft' && !state.messages.length)) return
-      const planner = this.#leadPlanner(), due = leadDueTask(await planner.readSchedule(), new Date())
-      if (!due) return
-      const key = `schedule-${due.task.id}-${due.slot}`
-      const result = await automatic.offer({ key, ...(due.task.project ? { project: due.task.project } : {}), text: `Scheduled: ${due.task.title}\n${due.task.goal}`,
-        origin: { source: 'schedule', event: key, subject: String(due.slot), url: null } })
-      if (result.delivered) await planner.markRan(due.task.id, Date.now())
+    const repeats = new LeadRepeats({ planner: this.#leadPlanner(), journal, now: () => Date.now(),
+      start: (task, slot) => this.#leadControls!.runScheduled(task, slot) })
+    this.#leadRepeats = repeats
+    let lastSettled: string | null = null
+    const settleRepeat = async () => {
+      const state = journal.state, budget = state.budget
+      if (!budget || !['accepted', 'declined', 'stopped'].includes(state.phase)) return
+      const spend = leadBudgetProjection(budget, Date.now())
+      const signature = JSON.stringify([budget.logicalGoalId, state.phase, budget.revision, budget.requests.length, state.stopEffectsPending, spend.spend])
+      if (lastSettled === signature) return
+      lastSettled = signature
+      let settled
+      try { settled = await this.#leadPlanner().settleRun(budget.logicalGoalId, state.phase as 'accepted' | 'declined' | 'stopped',
+        spend.spend === 'known' && !budget.requests.length && state.stopEffectsPending === null ? spend.leadUsdMicros + spend.workerUsdMicros : undefined, spend.roundsAdmitted) }
+      catch (error) { if (lastSettled === signature) lastSettled = null; throw error }
+      if (!settled.tasks.some(task => task.runs?.some(run => run.logicalGoalId === budget.logicalGoalId)) && lastSettled === signature) lastSettled = null
     }
-    const timer = setInterval(() => { void scheduled().catch(() => { this.#logger.warn('A scheduled Lead task could not start') }) }, 60_000)
+    this.onDispose(journal.onChange(() => { void settleRepeat().catch(() => {}) }))
+    const timer = setInterval(() => { void settleRepeat().then(() => repeats.tick()).catch(() => { this.#logger.warn('A scheduled Lead task could not start') }) }, 60_000)
     timer.unref?.()
     this.onDispose(() => clearInterval(timer))
     return this.#leadService
@@ -5086,8 +5197,14 @@ export class Host {
       leadStop: async (params) => (await this.#leadWindow()).stop(params),
       leadResume: async (params) => (await this.#leadWindow()).resume(params),
       leadSteer: async (params) => (await this.#leadWindow()).steer(params),
+      leadBudgetRaise: async params => (await this.#leadWindow()).raiseBudget(params),
+      leadRepeatControl: async params => {
+        await this.#leadWindow()
+        if (params.action === 'run-now') { await this.#leadRepeats!.runNow(params.taskId); return this.#leadPlanner().readSchedule() }
+        return this.#leadRepeats ? this.#leadRepeats.control(params.taskId, params.action) : this.#leadPlanner().control(params.taskId, params.action)
+      },
       leadScheduleRead: async () => this.#leadPlanner().readSchedule(),
-      leadScheduleUpdate: async params => this.#leadPlanner().writeSchedule(params.schedule),
+      leadScheduleUpdate: async params => this.#leadRepeats ? this.#leadRepeats.write(params.schedule) : this.#leadPlanner().writeSchedule(params.schedule),
       leadMemoryRead: async () => this.#leadPlanner().readMemory(),
       leadMemoryUpdate: async params => this.#leadPlanner().writeMemory(params.memory),
       leadStarts: this.#leadBudgets,

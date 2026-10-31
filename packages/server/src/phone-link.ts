@@ -32,6 +32,8 @@ export const PHONE_POLICY: PhonePolicy = {
   methods: {
     'lead/thread/read': 'read',
     'lead/settings/read': 'read',
+    // Exact repeat/card JSON and method results: packages/phone-link/lead.md.
+    'lead/schedule/read': 'read',
     // The work itself, read-only and redacted: projections written for the phone, never the desk's own records.
     'phone/sessions/list': 'read',
     'phone/teams/list': 'read',
@@ -46,8 +48,10 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/thread/send': 'run',
     'lead/stop': 'run',
     'lead/resume': 'run',
+    'lead/repeat/control': 'run',
     'lead/card/decide': 'answer',
     'lead/action/perform': 'answer',
+    'lead/budget/raise': 'answer',
   },
   topics: { lead: 'read', workspace: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.

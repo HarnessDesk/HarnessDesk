@@ -22,6 +22,20 @@ it.each(LEAD_SCENES.filter(scene => scene !== 'app-shell').flatMap(scene => (['l
   } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
 })
 
+it('opens the matching Runs view from a repeating plan through the real Settings route', async () => {
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  try {
+    await act(async () => root.render(<LeadFrame scene="repeating-plan" />))
+    await act(async () => {
+      [...box.querySelectorAll('button')].find(node => node.textContent === 'Runs')!.click()
+      await new Promise(resolve => requestAnimationFrame(resolve))
+    })
+    expect(box.querySelector('[data-repeat-runs="repeat-repeat-plan"]')).not.toBeNull()
+    expect(box.textContent).toContain('Next run:')
+    expect([...box.querySelectorAll('button')].some(node => node.textContent === 'Pause')).toBe(true)
+  } finally { act(() => root.unmount()); box.remove() }
+})
+
 it.each(['light', 'dark'])('shows the selected Lead in the enabled app shell in %s', async theme => {
   const url = window.location.href; window.history.replaceState(null, '', `?theme=${theme}`)
   const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)

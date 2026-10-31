@@ -41,6 +41,7 @@ class RigRuntime extends CodexRuntime {
   override async providerAt() { return this.provider }
 }
 export interface LeadRigOptions {
+  readonly repeat?: boolean
   readonly enabled?: boolean
   /** Ordinary session tools, with one runtime and no reviewed plan. */
   readonly ordinaryChats?: boolean
@@ -92,6 +93,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
   let currentStep = '', preview: { token: string; source: string; expiresAt: number } | undefined
   let deskSocketPath = ''
   let supervisorOptions!: LeadSupervisorOptions
+  let supervisor: LeadSupervisor | undefined
   const eagerResults: { tool_use_id: string; is_error: boolean }[] = []
   let eagerStart = false, eagerApproval = false, prematureStart = false
   let ordinaryForeign = ''
@@ -222,7 +224,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       { role: 'implement', agent: 'implementer', seat: { runtime: 'rig-writer', model: 'gpt-5.5' }, ceiling: 'edit' },
       { role: 'review', agent: 'code-reviewer', seat: { runtime: 'rig-reviewer', model: 'gpt-5.5' }, ceiling: 'read' },
     ]
-    const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1, ...(options.publication ? { publicationRepository: 'acme/widgets' } : {}),
+    const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1, ...(options.repeat ? { repeat: { every: 'day', at: '09:00' } } : {}), ...(options.publication ? { publicationRepository: 'acme/widgets' } : {}),
       steps: (options.manualChecks || options.publication ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments })),
       assertions: [{ id: 'unit', kind: 'check', description: 'Required check passes' }, { id: 'review', kind: 'review', description: 'Independent review approves' },
         { id: 'blockers', kind: 'blocking-findings', description: 'No unresolved blockers' }], caps: { usdMicros: 10_000_000, rounds: 20 } })
@@ -421,7 +423,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         }, readEvidence,
         createSupervisor: settings => {
           supervisorOptions = settings
-          const supervisor = new LeadSupervisor({ ...settings,
+          supervisor = new LeadSupervisor({ ...settings,
           connectDesk: async (descriptor, signal) => {
             deskSocketPath = descriptor.socketPath
             // A byte-for-byte socket bridge injects a real connection loss. No
@@ -472,7 +474,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       else await releaseWorkers()
     }
     const decide = async (card: LeadCard, choice: LeadCardDecision['choice']) => {
-      if (card.type === 'stopped') throw new Error('stopped cards have no decision')
+      if (card.type === 'stopped' || card.type === 'second-look' || card.type === 'allowance-warning') throw new Error('stopped cards have no decision')
       if (options.offlineForge && choice === 'accept-open-pr') personPublication = true
       try { return await host.call('lead/card/decide', {
       version: 1, cardId: card.id, cardType: card.type, expectedRevision: card.revision, contractDigest: card.contractDigest, choice,
@@ -524,7 +526,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       const creates = forgeCalls.filter(args => args[0] === 'pr' && args[1] === 'create')
       assert.ok(creates.length <= 1, 'at most the one person-authorized PR creation')
     }
-    return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service },
+    return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service }, get childLive() { return supervisor?.live ?? false },
       provider, children, calls, windowNotifications, get latestEvidence() { return latestEvidence }, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
       offline: options.offlineForge ? {
         read: readForge,

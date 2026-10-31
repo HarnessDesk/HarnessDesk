@@ -302,14 +302,26 @@ export class LeadService {
     void task.finally(() => { if (this.#exiting === task) this.#exiting = null }).catch(() => {})
     return task
   }
-  async #halt(reason: string): Promise<void> {
+  async #halt(reason: string, finishExitedRecovery = false): Promise<void> {
     this.#activity(false)
     try { await this.#latch(reason) }
     catch (error) { this.#cleanupFailed = true; throw error }
     finally {
       // A broken journal must never keep the key-bearing pid alive.
       try { await this.#supervisor.stop(reason) }
-      catch (error) { this.#cleanupFailed = true; throw error }
+      catch (error) {
+        this.#cleanupFailed = true
+        // The process deadline also covers onExit's host recovery. Once the
+        // child has exited, finish that same recovery before replacing its goal.
+        // Capture it before release can finish and clear the exit promise.
+        if (!(finishExitedRecovery && error instanceof Error && error.message === 'lead-child-shutdown-timeout' && !this.#supervisor.live && this.#exiting)) throw error
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([this.#exiting, new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error('lead-exit-recovery-pending')), 30_000)
+          })])
+        } finally { if (timer) clearTimeout(timer) }
+      }
       finally { await this.#release() }
     }
   }
@@ -436,7 +448,7 @@ export class LeadService {
   /** Stop the model process too, so no old reply or dispatch can reach a new goal. */
   stopGoal(): Promise<void> {
     ++this.#generation
-    return this.#queue(async () => { await this.#halt('lead-request-cancelled'); await this.#recoverRequests() }).then(() => this.recover())
+    return this.#queue(async () => { await this.#halt('lead-request-cancelled', true); await this.#recoverRequests() }).then(() => this.recover())
   }
   close(): Promise<void> {
     if (this.#closed) return this.#tail.then(() => {})

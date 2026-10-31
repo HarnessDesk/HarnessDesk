@@ -1,4 +1,4 @@
-import { parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
+import { parseLeadDecisionMessage, parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy, parseLeadCaps } from '@harnessdesk/protocol'
 import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
 import { initialLeadState, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
@@ -26,7 +26,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // cards after that message and before the next journal write.
   const namedSource = threadSource && { ...threadSource, completedBudgets: Object.hasOwn(threadSource, 'completedBudgets') ? threadSource.completedBudgets : [], decisionRevision: threadSource.decisionRevision ?? threadSource.seq, wakes: threadSource.wakes ?? [], nameChosen: threadSource.nameChosen ?? (threadSource.messages.length > 0 || threadSource.olderMessages > 0), name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
   const followSource = namedSource && { ...namedSource, follow: Object.hasOwn(namedSource, 'follow') ? namedSource.follow : { checks: true, reviews: true }, pr: Object.hasOwn(namedSource, 'pr') ? namedSource.pr : null, publication: Object.hasOwn(namedSource, 'publication') ? namedSource.publication : null, ownedPush: Object.hasOwn(namedSource, 'ownedPush') ? namedSource.ownedPush : null }
-  const repairSource = followSource && { ...followSource, goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, chatEffectsAcknowledged: followSource.chatEffectsAcknowledged ?? false, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
+  const repairSource = followSource && { ...followSource, goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, chatEffectsAcknowledged: followSource.chatEffectsAcknowledged ?? false, secondLooks: followSource.secondLooks ?? [], raisedFrom: followSource.raisedFrom ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
   const source = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
     ? { ...repairSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : repairSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
@@ -34,6 +34,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   assert(Number.isSafeInteger(source.goalStartedSeq) && source.goalStartedSeq >= 0 && source.goalStartedSeq <= source.seq)
   if (source.origin !== null) parseLeadOrigin(source.origin)
   assert(source.originKey === null || typeof source.originKey === 'string' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(source.originKey))
+  assert(Array.isArray(source.secondLooks) && source.secondLooks.length <= 128 && new Set(source.secondLooks.map(look => look.stopKey)).size === source.secondLooks.length && source.secondLooks.every(look => typeof look.runId === 'string' && typeof look.stopKey === 'string' && /^[A-Za-z0-9._:/@-]{1,256}$/.test(look.stopKey) && Number.isSafeInteger(look.at) && look.at >= 0))
   assert(Array.isArray(source.handbacks) && source.handbacks.length <= 64 && new Set(source.handbacks.map(op => op.key)).size === source.handbacks.length)
   source.handbacks.forEach(op => parseLeadHandback(op))
   assert(typeof source.handbackLimit === 'boolean' && Array.isArray(source.ciPassed) && source.ciPassed.length <= 64 && source.ciPassed.every(head => /^[a-f0-9]{40,64}$/.test(head)))
@@ -46,9 +47,8 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   assert(source.name === 'dex' || source.name === 'lex')
   assert(Array.isArray(source.decisionMessages) && source.decisionMessages.length <= 64)
   for (const message of source.decisionMessages) {
-    assert(Object.keys(message).sort().join() === ['card', 'choice', 'position'].sort().join())
-    parseLeadCard(message.card)
-    assert(['approve', 'accept', 'accept-open-pr', 'decline'].includes(message.choice) && Number.isSafeInteger(message.position) && message.position > 0 && message.position <= source.seq)
+    parseLeadDecisionMessage(message)
+    assert(Number.isSafeInteger(message.position) && message.position > 0 && message.position <= source.seq)
   }
   assert(Number.isSafeInteger(source.seq) && source.seq > 0 && source.seq === checkpoint.seq)
   assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'following', 'accepted', 'declined', 'stopped'].includes(source.phase))
@@ -71,6 +71,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // an allowance or an unconfirmed spend, or been accepted with no stop at all.
   assert(completedBudgets.every(budget => budget.requests.length === 0))
   const budget = source.budget === null ? null : parseLeadBudgetLedger(source.budget)
+  if (source.raisedFrom !== null) parseLeadCaps(source.raisedFrom)
   assert(!budget?.stop || ['stopped', 'accepted', 'declined'].includes(source.phase))
   assert(typeof source.chatEffectsAcknowledged === 'boolean')
   assert(source.stopEffectsPending === null || Number.isSafeInteger(source.stopEffectsPending) && source.stopEffectsPending > 0 && source.stopEffectsPending <= source.seq && (budget?.stop || source.phase === 'stopped'))
