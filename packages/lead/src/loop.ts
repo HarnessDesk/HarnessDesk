@@ -305,6 +305,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       result = delivered
     }
     if (!['completed'].includes(result.status)) {
+      if (result.reason === 'lead-messages-capacity') {
+        await waitForUser('lead-request-failed')
+        return result
+      }
       await writeOffUncertain()
       await waitForUser(`lead-request-${result.status}`)
       return result
