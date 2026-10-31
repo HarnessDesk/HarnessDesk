@@ -332,12 +332,18 @@ it('shows a matching downstream check retry as running while preserving its reco
   const flow = { id: 'run', state: 'running', document: { format: 'agents', flow: { roles: [{ id: 'writer', kind: 'agent' }, { id: 'verify', kind: 'check' }] } }, rounds: [{ role: 'writer', cards: [1] }, { role: 'verify', cards: [2] }] } as unknown as FlowExecution
   const diff = diffView({ card: 1 })
   const failed = checkView({ card: 2, exit: 1 })
-  const retry = { name: 'verify', since: 2 }
+  const retry = { name: 'verify', since: 2, target: { at: (failed.record.fact as { at: string }).at, ...failed.record.checkout! } }
   const board = { room: 'board', stamp: 1, checks: [], refused: [], unreadable: null, cards: [cardEvidence(1, [diff]), cardEvidence(2, [failed], [retry])] } as import('@harnessdesk/protocol').BoardEvidence
   const read = (value: typeof board, cards = [writer, check]) => evidenceForCard(writer, cards, value, undefined, [flow])
   const inherited = read(board)
   expect(inherited?.facts).toEqual([diff, failed])
   expect(evidenceSummary(inherited, true)?.label).toBe('Running')
+  for (const target of [undefined, { ...retry.target, at: 'new-revision' }, { ...retry.target, cwd: '/repo/new' }, { ...retry.target, branch: 'new-branch' }]) {
+    const marker = { name: 'verify', since: 2, ...(target ? { target } : {}) }
+    const changed = cardEvidence(2, [failed], [marker])
+    expect(evidenceSummary(read({ ...board, cards: [board.cards[0]!, changed] }), true)?.label).toBe('Failed')
+    expect(evidenceSummary(changed, true)?.label).toBe('Running')
+  }
   expect(evidenceSummary(read({ ...board, cards: [board.cards[0]!, cardEvidence(2, [failed])] }), true)?.label).toBe('Failed')
   const other = { ...failed, record: { ...failed.record, checkout: { cwd: '/repo/other', branch: 'other' } } }
   expect(read({ ...board, cards: [board.cards[0]!, cardEvidence(2, [other], [retry])] })?.running).toEqual([])

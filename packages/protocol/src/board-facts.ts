@@ -157,6 +157,8 @@ export const evidenceForCard = (intent: Intent, intents: readonly Intent[], evid
   const own = evidence?.cards.find(one => one.card === intent.id)
   const diff = own?.facts.find(one => one.record.fact.kind === 'diff')?.record
   if (!diff || diff.fact.kind !== 'diff' || !diff.checkout) return own
+  const { to } = diff.fact
+  const checkout = diff.checkout
   const facts = [...(own?.facts ?? [])]
   const retries = new Map<EvidenceView, CardEvidence['running'][number]>()
   for (const check of intents) {
@@ -167,7 +169,8 @@ export const evidenceForCard = (intent: Intent, intents: readonly Intent[], evid
       if (record.fact.kind !== 'check' || record.restored || record.fact.advisory || record.fact.at !== diff.fact.to ||
         record.checkout?.cwd !== diff.checkout.cwd || record.checkout.branch !== diff.checkout.branch) continue
       const name = record.fact.name
-      const retry = source?.running.find(one => one.name === name)
+      const retry = source?.running.find(one => one.name === name && one.target && one.target.at === to &&
+        one.target.cwd === checkout.cwd && one.target.branch === checkout.branch)
       if (retry) retries.set(view, retry)
       const previous = facts.findIndex(one => one.record.fact.kind === 'check' && one.record.fact.name === name)
       if (previous < 0) facts.push(view)
