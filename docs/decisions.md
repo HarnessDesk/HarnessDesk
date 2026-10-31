@@ -4923,3 +4923,52 @@ Model-inferred blockers, repeated retries, a second start of an already started 
 Known Lead and worker spend reaching 80% produces a journaled At 80% entry with the observed figure and unchanged hard stop. A desk conversation message tells the Lead to finish only what its approved plan needs and leave additional review asks in the result. Standing instructions remain stable throughout the goal. A higher dollar cap re-arms the warning for its own threshold. Unknown, stale, partial and ambiguous spend produce no warning figure.
 
 Raise limit… is a person-only direct caps update in the shared Dialog. It can increase dollars, rounds or both and preserves an existing stop latch. The raise belongs to its goal: the next goal starts from the caps in force before it, and a fresh approval of a stopped repeat turns that repeat back on. A second Lead approval card for the person's own choice, changing the standing prompt mid-goal, estimating unknown spend and automatically clearing a stopped goal were rejected: none is needed to make the remaining allowance useful.
+
+## Lead message provenance is verified and chat control belongs to the person — 2026-10-30
+
+A sender label is text anyone can type. The host composes the Lead envelope and
+records its exact digest; only a matching record earns `Sent by <name>`. An
+unknown envelope stays folded context. Failing closed loses a label, not a
+boundary. The envelope keeps the name at send time, so a later rename never
+rewrites an old sender.
+
+The host checks chat holders at Lead send and stop admission and at queue
+delivery. A prompt is advice; a host refusal enforces the person's decision.
+Take over removes waiting Lead messages and preserves the person's queue.
+A message already dispatched to the agent may finish, as with the person's
+ordinary queue. A take-over installed during admission wins before dispatch. Hand back sends nothing and the Lead reads
+the chat on its next activity wake.
+
+Only the button takes over. A person's message is not a hand-over: they can add
+a word to the Lead's work without ending its hold. The composer stays usable
+under either holder. These controls grant no permissions, approval answers or
+Flow authority.
+
+The host keeps up to 32 verified envelope keys per chat. Older Lead messages
+fall back to the folded “Lead message from …” context block. On the phone, a
+mixed message containing both Lead context and ordinary user content drops the
+Lead label rather than attributing the whole message to the Lead.
+
+Control records retain up to 64 chats per project; person holds are never
+evicted. An unreadable or invalid record fails closed for every Lead send,
+stop and queued delivery until the person confirms **Reset chat control** in
+the composer notice. That explicit reset clears all projects' holds and
+verification keys; no read or Lead operation repairs the record. Missing
+records alone mean no holds. While the host runs, a synchronous in-memory
+person hold survives disk failures and is checked at the actual dispatch
+boundary. Control reads are passive and never construct the Lead or select a
+project. Cancelled waiting Lead messages are noted in the Lead thread.
+
+Lead verification keys bind the exact envelope to its runtime and chat id.
+Receipts from another chat, and older unbound digests, never earn a sender
+label; those messages remain folded context. Phone projection uses the same
+chat-bound verification without changing its wire fields.
+
+Invalid control content requires explicit reset. Transient I/O failures refuse
+that operation and allow a later retry; they do not latch a reset requirement.
+Records for deleted project folders remain intact without blocking another
+project. A person can hold a chat before its first Lead record. Take over
+persists and publishes the hold before attempting its cancellation notice;
+notice failures are logged. A Lead instruction still in admission when the
+person takes over is cancelled on refusal, freeing the person's queued replies
+and preventing replay after Hand back.

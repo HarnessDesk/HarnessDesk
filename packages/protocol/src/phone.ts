@@ -319,7 +319,7 @@ export interface PhoneWorkFileChange {
 export type PhoneApprovalState = 'pending' | 'allowed' | 'allowedForSession' | 'denied'
 
 export type PhoneWorkTurn =
-  | { readonly type: 'you'; readonly id: string; readonly text: string; readonly attachments: readonly string[] }
+  | { readonly type: 'you'; readonly id: string; readonly text: string; readonly attachments: readonly string[]; readonly lead?: { readonly name: string } }
   | { readonly type: 'agent'; readonly id: string; readonly markdown: string }
   | { readonly type: 'work'; readonly id: string; readonly seconds: number; readonly summary: string; readonly steps: readonly PhoneWorkStep[] }
   | { readonly type: 'changes'; readonly id: string; readonly files: readonly PhoneWorkFileChange[] }
@@ -337,6 +337,8 @@ export type PhoneWorkTurn =
     }
 
 export interface PhoneWorkThread {
+  /** Present only for chats the host records as Lead-managed. */
+  readonly leadChatHolder?: 'lead' | 'person'
   readonly id: string
   readonly title: string
   readonly project?: string

@@ -114,7 +114,7 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     if (notification.method === 'lead/changed') service.publish('lead', notification.params)
     // Session pages extend beyond the metadata snapshot's bounded session portion. Every index change invalidates
     // them, even when that snapshot is byte-for-byte identical.
-    else if (notification.method === 'session/indexChanged') feed.poke(true)
+    else if (notification.method === 'session/indexChanged' || notification.method === 'lead/chats/controlChanged') feed.poke(true)
     else if (WORKSPACE_METHODS.has(notification.method) || (notification.method === 'event' && WORKSPACE_EVENTS.has(notification.params.event.type))) feed.poke()
   })
   const state = (): PhoneLinkState => ({

@@ -1,3 +1,5 @@
+import type { DispatchAdmission } from './dispatch-admission.js'
+import type { LeadChatControl, UserContent } from '@harnessdesk/protocol'
 import {
   findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
@@ -13,6 +15,8 @@ import type { PhoneWorkspace } from './phone-workspace.js'
  */
 
 export interface PhoneWorkPorts {
+  /** Host-only provenance, never supplied by the phone. */
+  readonly chatControl?: (id: string, cwd: string) => Promise<LeadChatControl | undefined>
   readonly workspace: Pick<PhoneWorkspace, 'workItems' | 'workUsage' | 'workSessions'>
   /** What the desk is called to the phone that paired with it. */
   readonly deskName: () => string
@@ -22,7 +26,7 @@ export interface PhoneWorkPorts {
   readonly isOwn: (runtime: RuntimeId, id: SessionId, includeArchived?: boolean) => boolean
   readonly summary: (runtime: RuntimeId, id: SessionId) => SessionSummary | null
   /** Scoped callers validate the same raw transcript's cwd before display-path normalization. */
-  readonly read: (runtime: RuntimeId, id: SessionId, admitCwd?: (cwd: string) => Promise<void>) => Promise<Session>
+  readonly read: (runtime: RuntimeId, id: SessionId, admitCwd?: DispatchAdmission<string>) => Promise<Session>
   /** What this host holds of a conversation right now. */
   readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly pending: readonly Approval[]; readonly cwd: string | null; readonly queued?: number }
   readonly respond: (params: HostParams<'approval/respond'>) => Promise<void>
@@ -35,9 +39,9 @@ export interface PhoneWorkPorts {
   /** Host-only receipts: invoke after preflight, immediately before the actual
    * allocation, queue mutation, send or interrupt. Never take these from wire data. */
   readonly create: (params: HostParams<'session/create'>, effectStarted?: () => void) => Promise<HostResult<'session/create'>>
-  readonly send: (params: HostParams<'turn/send'>, admitCwd?: (cwd: string) => Promise<void>) => Promise<void>
-  readonly queue: (params: HostParams<'turn/queue'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>) => Promise<HostResult<'turn/queue'>>
-  readonly interrupt: (params: HostParams<'turn/interrupt'>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>) => Promise<void>
+  readonly send: (params: HostParams<'turn/send'>, admitCwd?: DispatchAdmission<string>) => Promise<void>
+  readonly queue: (params: HostParams<'turn/queue'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>) => Promise<HostResult<'turn/queue'>>
+  readonly interrupt: (params: HostParams<'turn/interrupt'>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>) => Promise<void>
   /** Whether a piece of text could hold a secret. */
   readonly hasSecret: (text: string) => boolean
   readonly now: () => number
@@ -158,7 +162,7 @@ export class PhoneWork {
     return { runtime, session, key: `${runtime}:${session}` }
   }
 
-  async threadRead(params: { id: string }, admit?: (cwd: string) => Promise<void>): Promise<PhoneWorkThread> {
+  async threadRead(params: { id: string }, admit?: DispatchAdmission<string>): Promise<PhoneWorkThread> {
     const { runtime, session, key } = this.#target(params.id, true)
     const read = await guarded(() => this.#ports.read(runtime, session, admit))
     await admit?.(read.cwd)
@@ -170,7 +174,10 @@ export class PhoneWork {
       .filter(one => one.session === key && now - one.at < DECISION_TTL)
       .slice(-SHOW_DECISIONS).map(one => one.turn)
       .filter(turn => !live.pending.some(approval => String(approval.id) === turn.id))
+    const control = await this.#ports.chatControl?.(key, read.cwd)
+    this.#target(params.id, true)
     return buildThread({
+      ...(control ? { leadControl: control } : {}),
       id: key, session: read, running: live.running, pending: live.pending,
       project: summary?.repo ? folderName(summary.repo.root) : null, title: summary?.title, decided,
     }, this.#context(runtime))
@@ -191,8 +198,8 @@ export class PhoneWork {
     return this.startInProject(params, cwd)
   }
 
-  /** Host-owned exact project root. It never resolves an untrusted folder basename. */
-  async startInProject(params: { text: string }, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>): Promise<HostResult<'workspace/session/start'>> {
+  /** Host-owned exact project root. `input` is a host-only envelope override, never phone params. */
+  async startInProject(params: { text: string }, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/start'>> {
     const runtime = this.#ports.defaultRuntime()
     if (runtime === null) return refuse('No agent is available to start a session.')
     return guarded(async () => {
@@ -202,7 +209,7 @@ export class PhoneWork {
       const id = `${runtime}:${session.id}`
       try {
         await admit?.(id)
-        await this.#ports.send({ runtime, sessionId: session.id, input: [{ type: 'text', text: params.text }] }, admitCwd)
+        await this.#ports.send({ runtime, sessionId: session.id, input: input ?? [{ type: 'text', text: params.text }] }, admitCwd)
       }
       catch {
         // The runtime may have accepted the prompt before losing its reply.
@@ -213,13 +220,13 @@ export class PhoneWork {
     })
   }
 
-  async sessionSend(params: HostParams<'workspace/session/send'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>): Promise<HostResult<'workspace/session/send'>> {
+  async sessionSend(params: HostParams<'workspace/session/send'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/send'>> {
     const { runtime, session } = this.#target(params.id)
-    const result = await guarded(() => this.#ports.queue({ runtime, sessionId: session, input: [{ type: 'text', text: params.text }] }, admit, effectStarted, admitCwd))
+    const result = await guarded(() => this.#ports.queue({ runtime, sessionId: session, input: input ?? [{ type: 'text', text: params.text }] }, admit, effectStarted, admitCwd))
     return result.sent ? {} : { queued: true }
   }
 
-  async stop(params: HostParams<'workspace/stop'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>): Promise<HostResult<'workspace/stop'>> {
+  async stop(params: HostParams<'workspace/stop'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>): Promise<HostResult<'workspace/stop'>> {
     const { runtime, session } = this.#target(params.id)
     if (!this.#ports.canInterrupt(runtime)) return refuse('This agent cannot stop a session from the phone.')
     if (!this.#ports.live(runtime, session).running) return this.#ports.live(runtime, session).queued ? { queued: true } : {}

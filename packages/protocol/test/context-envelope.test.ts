@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { agentMessageCeilingNotice, agentMessageSource, deskContextContent, isAgentMessageSource, isCompactionSummary, openingOf, openingOfContent, opensEnvelope, splitContext, splitContextContent, withoutCompaction, wrapContext } from '../src/context-envelope.js'
+import { isLeadMessageSource, leadMessageEnvelope, leadMessageKey, leadMessageSource, leadMessageWords, LEAD_MESSAGE_NOTICE, agentMessageCeilingNotice, agentMessageSource, deskContextContent, isAgentMessageSource, isCompactionSummary, openingOf, openingOfContent, opensEnvelope, splitContext, splitContextContent, withoutCompaction, wrapContext } from '../src/context-envelope.js'
 import { userContentValidator } from '../src/wire-validators.js'
 
 /**
@@ -323,4 +323,51 @@ test('unrecorded parts beside a record stay typed and typed parts retain their l
     { type: 'text', text: pasted },
     { type: 'text', text: 'Next line', deskContext: { prefixLength: 0 } },
   ]), { injections: [{ label: 'Git', text: 'desk words' }], text: `${pasted}\nNext line` })
+})
+
+/**
+ * A message the Lead sends into an ordinary chat. The receiving model is told
+ * who wrote it, and the renderer can tell it from the person's own words, but
+ * only the host can vouch for it: the key is what the host records.
+ */
+test('a Lead message names its sender and is never read as an inter-agent message', () => {
+  const label = leadMessageSource('Dex')
+  assert.equal(label, 'Lead message from Dex')
+  assert.ok(isLeadMessageSource(label))
+  assert.equal(isAgentMessageSource(label), false, 'Lead messages are the person\'s delegate, not a peer')
+})
+
+test('a Lead envelope round-trips as one desk injection carrying the words and the notice', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Run the tests and tell me what fails.')
+  const split = splitContextContent([deskContextContent(envelope)])
+  assert.equal(split.text, '')
+  assert.equal(split.injections.length, 1)
+  const [block] = split.injections
+  assert.equal(block!.label, 'Lead message from Dex')
+  assert.ok(block!.text.endsWith(LEAD_MESSAGE_NOTICE))
+  assert.equal(leadMessageWords(block!.text), 'Run the tests and tell me what fails.')
+  assert.equal(wrapContext(block!.label, block!.text), envelope, 'the renderer can rebuild the exact envelope')
+})
+
+test('the key is stable, hex, and differs for different words', () => {
+  const a = leadMessageKey('fixture:s1', leadMessageEnvelope('Dex', 'one'))
+  assert.match(a, /^[0-9a-f]{64}$/)
+  assert.equal(a, leadMessageKey('fixture:s1', leadMessageEnvelope('Dex', 'one')))
+  assert.notEqual(a, leadMessageKey('fixture:s1', leadMessageEnvelope('Dex', 'two')))
+  assert.notEqual(a, leadMessageKey('fixture:s1', leadMessageEnvelope('Lex', 'one')))
+})
+
+test('words without the notice come back unchanged', () => {
+  assert.equal(leadMessageWords('typed by hand'), 'typed by hand')
+})
+
+test('a chat the Lead opened previews by its label', () => {
+  assert.equal(openingOfContent([deskContextContent(leadMessageEnvelope('Dex', 'Fix the flaky test'))]), 'Lead message from Dex')
+})
+
+test('a Lead receipt is bound to the chat identity, including the runtime', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Inspect the tests.')
+  assert.notEqual(leadMessageKey('fixture:a', envelope), leadMessageKey('fixture:b', envelope))
+  assert.notEqual(leadMessageKey('fixture:a', envelope), leadMessageKey('other:a', envelope))
+  assert.notEqual(leadMessageKey('fixture:a', envelope), leadMessageKey('fixture:a', leadMessageEnvelope('Dex', 'Different words.')))
 })

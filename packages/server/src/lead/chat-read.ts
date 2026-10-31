@@ -23,7 +23,7 @@ const shorten = (turn: PhoneWorkTurn, length: number): PhoneWorkTurn => {
  * available in the ordinary chat on the desk and phone. */
 export const boundLeadChatRead = (thread: PhoneWorkThread): PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } => {
   const projection = threadProjection(thread), omittedSourceTurns = projection?.omittedSourceTurns ?? 0
-  const result = { id: thread.id, title: excerpt(thread.title, 160), agent: { name: excerpt(thread.agent.name, 80),
+  const result = { ...(thread.leadChatHolder ? { leadChatHolder: thread.leadChatHolder } : {}), id: thread.id, title: excerpt(thread.title, 160), agent: { name: excerpt(thread.agent.name, 80),
     ...(thread.agent.model ? { model: excerpt(thread.agent.model, 100) } : {}) },
     ...(thread.project ? { project: excerpt(thread.project, 120) } : {}), status: thread.status,
     turns: [] as PhoneWorkTurn[], omittedSourceTurns, omittedPhoneEntries: thread.turns.length, truncated: projection?.truncated ?? false }

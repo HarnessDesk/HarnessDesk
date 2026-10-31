@@ -9,6 +9,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Overview seat states and costs stay readable in narrow panes.** Facts move below the name when they need more room.
 
+- Messages the Lead sends into a chat now say so, and you can take a chat over from the Lead and hand it back.
+
 - **Renamed files no longer create a false ignored-file warning.** A staged rename whose original name starts with `!! ` is no longer mistaken for an ignored file when removing a worktree.
 
 - **Cleaning up saved accounts keeps the right files.** Duplicate saved identifiers no longer make cleanup remove another account's folder, and a folder still used by a retained account is kept.

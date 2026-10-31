@@ -72,3 +72,5 @@ export { sessionIndexCursorOf, sessionIndexCompare } from './session-index-curso
 
 export type * from './forge.js'
 export * from './git-steer.js'
+
+export * from './digest.js'

@@ -155,3 +155,20 @@ it('only the active conversation mounts its dock', async () => {
   await act(async () => { store.returnToWork(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
   expect(box.querySelectorAll('[data-slot="conversation-dock"]')).toHaveLength(1)
 })
+
+for (const entry of ['connect', 'reconnect'] as const) it(`surfaces a failed chat-control read on ${entry} and logs it without a conversation`, async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  vi.spyOn(store.transport, 'connect').mockImplementation(() => handlers.onStatus('open'))
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'lead/chats/control') throw new Error('Synthetic control read is offline')
+    return method === 'host/hello' ? { runtimes: [], home: '/home/user', stateDir: '/desk', credentialProtection: '', goalMigrationPending: false, capabilities: { lead: true } } : {}
+  }) as never)
+  for (const method of ['loadHistory', 'loadPreferences', 'refreshRuntime', 'loadWorkspaces', 'loadPlugins', 'loadAccounts', 'loadGoals', 'loadUsage'] as const)
+    vi.spyOn(store, method).mockResolvedValue(undefined as never)
+  if (entry === 'connect') await store.connect()
+  else { handlers.onStatus('reconnecting'); handlers.onStatus('open') }
+  await vi.waitFor(() => expect(store.lead.state.chatControlProblem).toContain('Synthetic control read is offline'))
+  expect(warning).toHaveBeenCalledWith('Lead chat control could not be read', expect.any(Error))
+})
