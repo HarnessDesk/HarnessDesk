@@ -238,6 +238,11 @@ test('a click on a result the Lead took back is made on that same card once it i
   await clicked
   assert.equal(s.answers.length, 1)
   assert.equal(s.journal.state.phase, 'accepted')
+  // The same click again — a retry after a lost reply — is a person's decided card: refused at once.
+  const again = Date.now()
+  await assert.rejects(s.call('lead/card/decide', click(1)), code('lead-card-decided'))
+  assert.ok(Date.now() - again < 1_000)
+  assert.equal(s.answers.length, 1)
 
   // A card offered at another revision is not the one the person saw.
   const t = await rig(); await t.journal.offerCard(plan); await t.call('lead/card/decide', planClick)

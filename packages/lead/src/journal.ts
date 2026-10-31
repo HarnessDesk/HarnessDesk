@@ -322,6 +322,8 @@ export class LeadJournal {
     try { await this.storage.append(record) }
     catch { this.#failed = true; throw new Error('lead-journal-append-failed') }
     this.#state = next
+    // A withdrawn card offered again is no longer withdrawn: a later decision on it is a person's.
+    for (const key of this.#withdrawn) if (!next.decidedCards.includes(key)) this.#withdrawn.delete(key)
     // The window marks paid work pending at this durable boundary, before projections observe it.
     committed?.()
     for (const listener of this.#listeners) { try { listener() } catch { /* Observers cannot undo a durable write. */ } }
