@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
+import type { ForgeAssociatedPullRequest } from '@harnessdesk/protocol'
 import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 import { GitRecord, canonicalRepository, validateRepository, isGitRequester, type GitApproval, type GitRecordEntry, type GitRecordQuery, type GitRequester, type SucceededPushQuery } from './record.js'
 import { GitPins } from './pins.js'
@@ -373,6 +374,44 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
   }
   hasSucceededPush(query: SucceededPushQuery): boolean { return this.gitRecord.hasSucceededPush(query) }
   record(query: GitRecordQuery): Promise<GitRecordEntry[]> { return this.#queue(query.repository, () => this.gitRecord.list(query)) }
+  async associatedPullRequest(
+    repository: string,
+    caller: { readonly runtime: string; readonly sessionId: string },
+    signal?: AbortSignal,
+  ): Promise<ForgeAssociatedPullRequest> {
+    try {
+      signal?.throwIfAborted()
+      const pinned = canonicalRepository(repository)
+      const rows = await this.#queue(pinned, () => {
+        signal?.throwIfAborted()
+        return this.gitRecord.successfulPullRequests(pinned, caller)
+      })
+      const branches = new Map<number, Set<string>>()
+      for (const row of rows) {
+        const names = branches.get(row.number) ?? new Set<string>()
+        names.add(row.branch)
+        branches.set(row.number, names)
+      }
+      const matches: number[] = []
+      for (const [number, names] of branches) {
+        signal?.throwIfAborted()
+        const value: unknown = JSON.parse(await this.#gh(pinned, [
+          'pr', 'view', String(number), '--json', 'number,state,headRefName',
+        ]))
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return { status: 'unavailable' }
+        const pr = value as Record<string, unknown>
+        if (pr.number !== number || typeof pr.state !== 'string' || !['OPEN', 'CLOSED', 'MERGED'].includes(pr.state) ||
+            typeof pr.headRefName !== 'string' || pr.headRefName.trim() === '') return { status: 'unavailable' }
+        if (pr.state === 'OPEN' && names.has(pr.headRefName)) matches.push(number)
+      }
+      signal?.throwIfAborted()
+      if (matches.length === 0) return { status: 'none' }
+      if (matches.length > 1) return { status: 'ambiguous' }
+      return { status: 'found', number: matches[0]!, repository: pinned }
+    } catch {
+      return { status: 'unavailable' }
+    }
+  }
   async #gh(repository: string, args: readonly string[]): Promise<string> {
     repository = canonicalRepository(repository)
     await this.#init()
@@ -405,8 +444,10 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       try { await this.#validateWrite(target, op) }
       catch (error) { await this.gitRecord.append({ ...entry, ...this.#failure(error) }); throw error }
       return this.#effect(entry, async () => { await target.beforeWrite?.(); return this.#gh(target.repository, args) }, op === 'pr.create' ? output => {
-        const url = output.split(/\r?\n/).find(line => line.startsWith(`https://github.com/${canonicalRepository(target.repository)}/pull/`))
-        const number = Number(url?.split('/').at(-1))
+        const prefix = `https://github.com/${canonicalRepository(target.repository)}/pull/`
+        const url = output.split(/\r?\n/).map(line => line.trim()).find(line => line.toLowerCase().startsWith(prefix))
+        const numberText = url?.slice(prefix.length)
+        const number = numberText !== undefined && /^[1-9]\d*$/.test(numberText) ? Number(numberText) : NaN
         return Number.isSafeInteger(number) && number > 0 ? { number } : {}
       } : undefined)
     })

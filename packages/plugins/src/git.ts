@@ -940,6 +940,31 @@ export const gitPlugin: HarnessPlugin = {
         }
       }
 
+      type PullRequestSelection = { readonly pr: GhPullRequest; readonly detachedPinnedReadRepo?: string }
+      const associatedPullRequestFor = async (
+        number: unknown, scope: ScopeQuery, repository?: string,
+      ): Promise<PullRequestSelection> => {
+        const selector = selectorOf(number)
+        if (selector !== null) return { pr: await viewPullRequest(selector, repository) }
+        const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'])
+        if (branch !== 'HEAD') return { pr: await pullRequestFor(number, repository) }
+        const association = await ctx.forge.associatedPullRequest(scope)
+        switch (association.status) {
+          case 'found': {
+            if (repository && repository !== association.repository) {
+              throw new Error('The pinned repository changed while resolving the pull request.')
+            }
+            const detachedPinnedReadRepo = `github.com/${association.repository}`
+            const pr = await viewPullRequest(String(association.number), detachedPinnedReadRepo)
+            if (pr.number !== association.number) throw new Error('The recorded pull request could not be confirmed.')
+            return { pr, detachedPinnedReadRepo }
+          }
+          case 'none': throw new Error('No recorded open pull request belongs to this conversation. Give a pull request number.')
+          case 'ambiguous': throw new Error('This conversation has more than one recorded open pull request. Give a pull request number.')
+          case 'unavailable': throw new Error('The recorded pull request association is unavailable. Give a pull request number or retry.')
+        }
+      }
+
       /**
        * The seat this call is made from, or null when the desk cannot say —
        * a call with no conversation behind it, or a host with no forge plane.
@@ -1343,11 +1368,11 @@ export const gitPlugin: HarnessPlugin = {
         name: 'pr_review',
         title: 'Review a pull request',
         description:
-          'Post a review on a pull request — approve, request changes, or comment — through HarnessDesk. The review opens with a line naming this conversation’s seat; do not add one. Names the pull request by number, or takes the one open for the current branch.',
+          'Post a review on a pull request — approve, request changes, or comment — through HarnessDesk. The review opens with a line naming this conversation’s seat; do not add one. Names the pull request by number, takes the current branch\'s open PR, or finds this detached conversation\'s recorded PR. Give a number when ambiguous.',
         inputSchema: {
           type: 'object',
           properties: {
-            number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' },
+            number: { type: 'number', description: 'The pull request number. Omit for the current branch or this detached conversation\'s unique recorded PR.' },
             event: { type: 'string', enum: ['approve', 'request_changes', 'comment'], description: 'The verdict.' },
             body: { type: 'string', description: 'The review, in GitHub Markdown.' },
           },
@@ -1370,7 +1395,8 @@ export const gitPlugin: HarnessPlugin = {
           const body = String(args.body ?? '').trim()
           if (body === '' && flag !== '--approve') throw new Error('A review that is not an approval needs a body.')
           await publicationAllowed(scope)
-          const pr = await pullRequestFor(args.number, repository)
+          const selection = await associatedPullRequestFor(args.number, scope, repository)
+          const { pr } = selection
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.reviewSignature, DEFAULT_REVIEW_SIGNATURE)
           const review = signed.line === null ? body : body === '' ? signed.line : `${signed.line}\n\n${body}`
@@ -1378,7 +1404,8 @@ export const gitPlugin: HarnessPlugin = {
           // `gh pr review` prints no address for what it posted; the API knows.
           let url = pr.url
           try {
-            const last = await pinnedGh(['api', `repos/${repository}/pulls/${pr.number}/reviews`, '--jq', '.[-1].html_url'])
+            const reviewArgs = ['api', `repos/${repository}/pulls/${pr.number}/reviews`, '--jq', '.[-1].html_url']
+            const last = await pinnedGh(selection.detachedPinnedReadRepo ? [...reviewArgs, '--hostname', 'github.com'] : reviewArgs)
             if (/^https?:\/\//.test(last)) url = last
           } catch {
             // The pull request's own address is a fine second best.
@@ -1398,11 +1425,11 @@ export const gitPlugin: HarnessPlugin = {
         name: 'pr_comment',
         title: 'Comment on a pull request',
         description:
-          'Leave a comment on a pull request’s conversation, through HarnessDesk. The desk signs the opening line for this conversation’s role and seat. Names the pull request by number, or takes the one open for the current branch.',
+          'Leave a comment on a pull request’s conversation, through HarnessDesk. The desk signs the opening line for this conversation’s role and seat. Names the pull request by number, takes the current branch\'s open PR, or finds this detached conversation\'s recorded PR. Give a number when ambiguous.',
         inputSchema: {
           type: 'object',
           properties: {
-            number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' },
+            number: { type: 'number', description: 'The pull request number. Omit for the current branch or this detached conversation\'s unique recorded PR.' },
             body: { type: 'string', description: 'The comment, in GitHub Markdown.' },
           },
           required: ['body'],
@@ -1414,7 +1441,7 @@ export const gitPlugin: HarnessPlugin = {
           const body = String(args.body ?? '').trim()
           if (body === '') throw new Error('A comment needs a body.')
           await publicationAllowed(scope)
-          const pr = await pullRequestFor(args.number, repository)
+          const { pr } = await associatedPullRequestFor(args.number, scope, repository)
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.commentSignature, DEFAULT_COMMENT_SIGNATURE)
           const { output: posted } = await ctx.forge.comment({ subject: 'pullRequest', number: pr.number, body: deskMarked(signComment(body, signed.line)) }, scope)
@@ -1430,29 +1457,30 @@ export const gitPlugin: HarnessPlugin = {
         name: 'pr_view',
         title: 'Read a pull request',
         description:
-          'Read a pull request: title, state, author, branches, size and description. Names it by number, or takes the one open for the current branch.',
+          'Read a pull request: title, state, author, branches, size and description. Names the pull request by number, takes the current branch\'s open PR, or finds this detached conversation\'s recorded PR. Give a number when ambiguous.',
         inputSchema: {
           type: 'object',
-          properties: { number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' } },
+          properties: { number: { type: 'number', description: 'The pull request number. Omit for the current branch or this detached conversation\'s unique recorded PR.' } },
         },
-        execute: async (args: { number?: number }) => cap(describePullRequest(await pullRequestFor(args?.number))),
+        execute: async (args: { number?: number }, scope) => cap(describePullRequest((await associatedPullRequestFor(args?.number, scope)).pr)),
       })
 
       ctx.tools.register({
         name: 'pr_checks',
         title: 'Read pull request checks',
-        description: 'The CI checks on a pull request, each with its state and link. Names it by number, or takes the one open for the current branch.',
+        description: 'The CI checks on a pull request, each with its state and link. Names the pull request by number, takes the current branch\'s open PR, or finds this detached conversation\'s recorded PR. Give a number when ambiguous.',
         inputSchema: {
           type: 'object',
-          properties: { number: { type: 'number', description: 'The pull request number. Omit for the current branch’s.' } },
+          properties: { number: { type: 'number', description: 'The pull request number. Omit for the current branch or this detached conversation\'s unique recorded PR.' } },
         },
-        execute: async (args: { number?: number }) => {
-          const pr = await pullRequestFor(args?.number)
+        execute: async (args: { number?: number }, scope) => {
+          const { pr, detachedPinnedReadRepo } = await associatedPullRequestFor(args?.number, scope)
           // `gh pr checks` exits non-zero when a check failed; the list is
           // still the answer, so the exit code is read only when there is none.
           const result = await ctx.shell.run(
             'gh',
-            ['pr', 'checks', String(pr.number), '--json', 'name,state,bucket,link,workflow'],
+            ['pr', 'checks', String(pr.number), '--json', 'name,state,bucket,link,workflow',
+              ...(detachedPinnedReadRepo ? ['--repo', detachedPinnedReadRepo] : [])],
             { timeoutMs: 60_000 },
           )
           const raw = result.stdout.trim()

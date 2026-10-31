@@ -14,6 +14,7 @@ import type { SupervisedExtensionHost, SupervisedExtensionHostOptions } from '..
 import { childrenGone, childrenUp, Hosts } from './hosts.js'
 
 const unavailableWrites = {
+  associatedPullRequest: async () => ({ status: 'none' as const }),
   repository: async () => 'acme/widgets',
   push: async () => { throw new Error('No gateway in this fixture') },
   pullRequest: { create: async () => { throw new Error('No gateway in this fixture') }, update: async () => { throw new Error('No gateway in this fixture') }, merge: async () => { throw new Error('No gateway in this fixture') } },
