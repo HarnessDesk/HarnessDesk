@@ -1,3 +1,4 @@
+import { leadDisplayName } from '@harnessdesk/protocol'
 import { useEffect, useSyncExternalStore } from 'react'
 import { useSnapshot, useStore } from '../state/context'
 
@@ -8,4 +9,4 @@ export const useLeadName = () => {
   return state.settings?.name ?? null
 }
 
-export const LEAD_NAME_CHOICES = [{ name: 'dex', label: 'Dex' }, { name: 'lex', label: 'Lex' }] as const
+export const LEAD_NAME_CHOICES = [{ name: 'dex', label: leadDisplayName('dex') }, { name: 'lex', label: leadDisplayName('lex') }] as const

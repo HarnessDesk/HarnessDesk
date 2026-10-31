@@ -221,6 +221,23 @@ export interface LeadThread {
   readonly pr?: LeadPullRequest | null
 }
 export type LeadName = 'dex' | 'lex'
+
+const LEAD_DISPLAY_NAMES: Readonly<Record<LeadName, string>> = { dex: 'Dex', lex: 'Lex' }
+/** The name the person picked, as both the receiving model and the transcript read it. */
+export const leadDisplayName = (name: LeadName): string => LEAD_DISPLAY_NAMES[name]
+
+/** Who directs one ordinary chat the Lead has written to. */
+export type LeadChatHolder = 'lead' | 'person'
+export interface LeadChatControl {
+  /** `runtime:session`, the id `lead/chat/*` uses. */
+  readonly id: string
+  readonly holder: LeadChatHolder
+  /** Keys (`leadMessageKey`) of the envelopes the host delivered, newest last. */
+  readonly sent: readonly string[]
+}
+/** Only chats the Lead has touched in the selected project; `project` is null when no Lead project is set. */
+export interface LeadChatControlList { readonly project: string | null; readonly chats: readonly LeadChatControl[] }
+
 export interface LeadDecisionMessage { readonly card: LeadCard; readonly choice: LeadCardDecision['choice']; readonly position: number }
 export interface LeadFollowPreferences { readonly checks: boolean; readonly reviews: boolean }
 export interface LeadPullRequest {

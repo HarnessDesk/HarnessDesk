@@ -3,7 +3,7 @@ import type {
   PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
   PhoneWorkItem, PhoneWorkSnapshot, PhoneWorkThread,
 } from './phone.js'
-import type { LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory } from './lead.js'
+import type { LeadChatControlList, LeadWakeLog, LeadActionInput, LeadCardDecision, LeadWindowProjection, LeadNameReceipt, LeadSettingsUpdate, LeadThreadSend, LeadSendReceipt, LeadChanged, LeadSchedule, LeadMemory } from './lead.js'
 import type { ConversationLoadouts } from './loadout.js'
 import type { RuntimeInboxEntry } from './notices.js'
 import type { SeatDoing, SeatActivityState } from './tool-activity.js'
@@ -824,6 +824,12 @@ export interface HostMethods {
   'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
   'lead/chat/start': { params: { readonly text: string }; result: { readonly id: string; readonly problem?: string } }
   'lead/chat/send': { params: { readonly id: string; readonly text: string }; result: { readonly queued?: boolean } }
+  /** Window only. Which Lead-touched chats the person holds, and the keys of what the Lead sent. */
+  'lead/chats/control': { params: Record<string, never>; result: LeadChatControlList }
+  /** Window only. The person takes one chat back from the Lead; Lead sends to it are refused until handed back. */
+  'lead/chat/takeOver': { params: { id: string }; result: LeadChatControlList }
+  'lead/chat/handBack': { params: { id: string }; result: LeadChatControlList }
+
   'lead/chat/stop': { params: { readonly id: string }; result: { readonly queued?: boolean } }
   'lead/wakes/read': { params: Record<string, never>; result: LeadWakeLog }
   'lead/thread/read': { params: Record<string, never>; result: LeadWindowProjection }
@@ -2920,6 +2926,10 @@ export interface SeatActivity {
 export type WireNotification =
   | {
       /** A tracked ordinary chat changed state; transcript content stays behind read. */
+      readonly method: 'lead/chats/controlChanged'
+      readonly params: LeadChatControlList
+    }
+  | {
       readonly method: 'lead/chat/changed'
       readonly params: { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle' }
     }
