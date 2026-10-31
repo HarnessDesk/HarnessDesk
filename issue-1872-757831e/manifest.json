@@ -1,0 +1,43 @@
+{
+  "issue": 1872,
+  "head": "757831e349cd8bccace8037a9455adbc514e6212",
+  "frames": [
+    {
+      "name": "1872-triggers-light.png",
+      "sha256": "2ec529867931154d7c940d5cb63caecd773ca417d53c36cd3904181a6985f726",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "1872-triggers-dark.png",
+      "sha256": "ddeb34b1a7b79de5f63f0e334ad7924ed42be4386ec2b01cd5f27f5082c02bf6",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "1872-unavailable-light.png",
+      "sha256": "83787808044990ad2ea7b86087e51812c8294859b19229571e389ed4ef057ec9",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "1872-unavailable-dark.png",
+      "sha256": "a2f3817e9e740fa078318b5ff02490532a0157fd35e3f9aeac93b75769d487ae",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "1872-team-light.png",
+      "sha256": "b59122f985bcb0429b3e8d49cacebb173ab7b019c9c79814b1c5b0713ff4a8a1",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "1872-team-dark.png",
+      "sha256": "feeed31642002c201d958beb113ecb591afbf12d7f601c909b39c679ec29d16a",
+      "width": 1280,
+      "height": 900
+    }
+  ],
+  "surface": "Production desktop with synthetic agents and controlled project-catalogue read failures."
+}
