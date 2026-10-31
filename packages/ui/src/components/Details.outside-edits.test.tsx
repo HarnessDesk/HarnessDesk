@@ -74,3 +74,29 @@ it('classifies both reported rename endpoints in the turn diff without changing 
     expect([...host.querySelectorAll('[data-slot="chip"]')].filter(el => el.textContent === 'Outside')).toHaveLength(4)
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+
+it.each([
+  { name: 'Windows outside to inside', cwd: 'C:/Repo', source: 'C:/Elsewhere/a.ts', destination: 'c:/repo/src/a.ts', diffPath: 'src/A.ts', location: 'outside' },
+  { name: 'Windows inside to outside', cwd: 'C:/Repo', source: 'C:/Repo/src/b.ts', destination: 'c:/elsewhere/b.ts', diffPath: 'C:/Elsewhere/B.ts', location: 'outside' },
+  { name: 'POSIX names remain case sensitive', cwd: '/work/app', source: '/tmp/c.ts', destination: '/work/app/src/c.ts', diffPath: 'src/C.ts', location: 'inside' },
+  { name: 'a descendant is not the same path', cwd: 'C:/Repo', source: 'C:/Elsewhere/d.ts', destination: 'C:/Repo/src/dir', diffPath: 'src/dir/file.ts', location: 'inside' },
+  { name: 'unlocatable diff paths remain unknown', cwd: 'C:/Repo', source: 'C:/Elsewhere/e.ts', destination: 'C:relative.ts', diffPath: 'C:relative.ts', location: 'unknown' },
+])('matches rename paths with the existing path rules: $name', async ({ cwd, source, destination, diffPath, location }) => {
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host)
+  const key = sessionKey('fixture', 'case-rename')
+  const changes = [{ path: source, kind: { type: 'update', movePath: destination }, diff: '@@ -1 +1 @@\n-a\n+b' }]
+  const diff = `diff --git a/${diffPath} b/${diffPath}\n@@ -1 +1 @@\n-a\n+b`
+  const session = { cwd, status: { type: 'idle' }, turns: [{ id: turnId('one'), status: 'completed', items: [{ type: 'fileChange', changes }], diff }] } as unknown as Session
+  const snapshot = { ...emptySnapshot(), activeSessionKey: key, sessions: new Map([[key, session]]), workspace: { path: cwd, name: 'repo', lastOpenedAt: 1 } } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, notice: vi.fn(), transport: { request: vi.fn(async (method: string) => method === 'git/status' ? { root: cwd, branch: 'main', ahead: 0, behind: 0, files: [{ path: 'other.ts', status: 'modified', staged: false }] } : { diff: '' }) } } as unknown as AppStore
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><PaneProvider scope={{ paneId: 'owner', view: { kind: 'conversation', session: key }, sessionKey: key }}><ChangesView /></PaneProvider></StoreProvider>))
+    const summary = [...host.querySelectorAll('[data-slot="inspector-group"]')].find(el => el.textContent?.includes('This turn'))!
+    expect(summary.textContent).toContain('This turn · 1 file')
+    expect(host.textContent).toContain('Working tree · 1')
+    expect(summary.textContent?.includes('1 outside')).toBe(location === 'outside')
+    const chips = [...host.querySelectorAll('[data-slot="chip"]')].map(el => el.textContent)
+    expect(chips.includes('Outside')).toBe(location === 'outside')
+    expect(chips.includes('Location unknown')).toBe(location === 'unknown')
+  } finally { await act(async () => root.unmount()); host.remove() }
+})

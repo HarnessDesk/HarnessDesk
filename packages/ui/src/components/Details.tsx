@@ -4,7 +4,7 @@ import { currentTurn, type GitStatus } from '@harnessdesk/protocol'
 
 import { handOverToComposer } from '../lib/compose'
 import { countChanges, splitByFile, DiffView, DiffFilesView } from '../editor'
-import { knownOpenRoots, reportedAbsolutePath, reportedPathsLocation } from '../lib/paths'
+import { isPathInside, knownOpenRoots, reportedAbsolutePath, reportedPathsLocation } from '../lib/paths'
 import { useActiveSession, usePane, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { inView } from '../lib/git-view'
@@ -351,7 +351,12 @@ const Changes = ({
     const endpoints = (turn?.items ?? []).flatMap(item => item.type === 'fileChange' ? item.changes.flatMap(change => {
       if (change.kind.type !== 'update' || !change.kind.movePath) return []
       const paths = [change.path, change.kind.movePath]
-      return absolute && paths.some(value => reportedAbsolutePath(value, session?.cwd) === absolute) ? paths : []
+      return absolute && paths.some(value => {
+        const candidate = reportedAbsolutePath(value, session?.cwd)
+        // Containment in both directions is equality under the path helper's
+        // Windows-aware rules, without matching a parent to its descendant.
+        return candidate !== null && isPathInside(candidate, absolute) && isPathInside(absolute, candidate)
+      }) ? paths : []
     }) : [])
     return reportedPathsLocation([path, ...endpoints], session?.cwd, knownRoots)
   }
