@@ -198,6 +198,35 @@ test('a checkout root keeps its answer while its mark stands, and a moved, remov
   assert.equal(await projectOf(plain), await realpath(other.dir), 'a folder that becomes a checkout is seen by the next read')
 })
 
+test('a checkout another user owns, trusted only through safe.directory, is asked every time', async (t) => {
+  if (process.getuid?.() !== 0) { t.skip('needs to make a checkout another user owns'); return }
+  const repo = await makeRepo()
+  const cwd = join(tempDir('hd-project-foreign-'), 'checkout')
+  await repo.git('worktree', 'add', '-q', '-b', 'foreign', cwd)
+  // Git trusts it only because this person's global configuration says so — configuration no mark covers.
+  const home = tempDir('hd-project-home-')
+  await writeFile(join(home, '.gitconfig'), '[safe]\n\tdirectory = *\n')
+  const previousHome = process.env.HOME
+  process.env.HOME = home
+  t.after(() => { process.env.HOME = previousHome })
+  await run('chown', ['-R', '4242:4242', repo.dir, cwd])
+  const bin = tempDir('hd-evidence-bin-')
+  const calls = join(bin, 'calls')
+  const git = (await run('sh', ['-c', 'command -v git'])).stdout.trim()
+  await writeFile(join(bin, 'git'), `#!/bin/sh\necho "$*" >> '${calls}'\nexec '${git}' "$@"\n`, { mode: 0o755 })
+  const path = process.env.PATH
+  process.env.PATH = `${bin}:${path}`
+  t.after(() => { process.env.PATH = path })
+  const asked = async () => (await readFile(calls, 'utf8').catch(() => '')).split('\n').length - 1
+  await new Promise((resolve) => setTimeout(resolve, RACY_MS + 50))
+
+  const root = await realpath(repo.dir)
+  assert.equal(await projectOf(cwd), root)
+  const first = await asked()
+  assert.equal(await projectOf(cwd), root)
+  assert.ok(await asked() > first, 'another user\'s checkout is asked again, never kept')
+})
+
 test('concurrent project reads preserve traversal through a symlink before its parent', async () => {
   const first = await makeRepo()
   const second = await makeRepo()

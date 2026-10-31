@@ -277,6 +277,19 @@ export const projectOf = (folder: string, fallback?: string): Promise<string> =>
 const still = (part: Part | null): Part | null => part === null ? null : { ...part, changed: 0 }
 
 /**
+ * Whether git trusts these folders on their owner alone. A checkout another
+ * user owns is trusted only through `safe.directory`, read from configuration
+ * outside the checkout and outside any mark here, so it is never kept: it is
+ * asked every time. Without a user id to compare (Windows), nothing is kept.
+ */
+const ownedHere = async (paths: readonly string[]): Promise<boolean> => {
+  if (typeof process.getuid !== 'function') return false
+  const uid = process.getuid()
+  const owners = await Promise.all(paths.map((path) => stat(path).then((info) => info.uid, () => null)))
+  return owners.every((owner) => owner === uid)
+}
+
+/**
  * What git reads, from a folder that is the root of its own checkout, to say
  * which repository it is in: the folder; its `.git`, a directory or a
  * `gitdir:` file read whole; that git directory and its `commondir`; the
@@ -284,7 +297,8 @@ const still = (part: Part | null): Part | null => part === null ? null : { ...pa
  * tree (`core.worktree`, `core.bare`). With `root`, the answer's own side is
  * added: the main checkout is still where git named it, with the same
  * `.git`. Null when the folder has no `.git` of its own — a subfolder, or no
- * checkout — or when anything in it cannot be read.
+ * checkout — when another user owns any of it (`ownedHere`), or when anything
+ * in it cannot be read.
  */
 const checkoutMarkAt = async (real: string, root?: string): Promise<{ readonly text: string; readonly trusted: boolean } | null> => {
   // Taken before any file is read, so a write after this moment is always in a later tick than a trusted part's.
@@ -297,6 +311,7 @@ const checkoutMarkAt = async (real: string, root?: string): Promise<{ readonly t
   const gitDir = pointer === null ? dot : resolve(real, pointer)
   const [dir, commondir] = await Promise.all([partOf(gitDir, false, true), partOf(join(gitDir, 'commondir'), true, true)])
   const commonDir = commondir === null || commondir === ABSENT ? gitDir : resolve(gitDir, commondir.body.replace(/\r?\n$/, ''))
+  if (!await ownedHere([real, gitDir, commonDir, ...(root === undefined ? [] : [root])])) return null
   const parts = [still(here), still(own), still(dir), still(commondir), ...await Promise.all([
     partOf(commonDir, false, true).then(still),
     partOf(join(commonDir, 'config'), false),
