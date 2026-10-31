@@ -4,7 +4,8 @@ import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { initialLeadState, reduceLeadBudget, summarizeLeadArguments, type LeadState, type LeadPermissionContext } from '@harnessdesk/lead'
-import { runtimeId, sessionId, type SessionSummary } from '@harnessdesk/protocol'
+import { leadMessageEnvelope, leadMessageKey, type UserContent, runtimeId, sessionId, type SessionSummary } from '@harnessdesk/protocol'
+import { LEAD_CHAT_HELD } from '../src/lead/chats.js'
 import { SessionIndex } from '../src/session-index.js'
 
 const modulePath = '../src/lead/chats.js'
@@ -37,18 +38,24 @@ const rig = async (t: TestContext) => {
 
     return id
   }
-  const service = new LeadChats({ noteDispatchNotStarted: () => {}, project, state: () => state, member: async () => member, now: () => 100,
+  const sentInput: (readonly UserContent[] | undefined)[] = []
+  const holders = new Map<string, 'lead' | 'person'>(), sentKeys: { id: string; key: string }[] = []
+  const control = {
+    holder: async (_project: string, id: string) => holders.get(id) ?? null,
+    noteSent: async (_project: string, id: string, key: string) => { sentKeys.push({ id, key }); if (!holders.has(id)) holders.set(id, 'lead') },
+  }
+  const service = new LeadChats({ noteDispatchNotStarted: () => {}, control, project, state: () => state, member: async () => member, now: () => 100,
     context: async (): Promise<LeadPermissionContext> => ({ desk: state.policy!, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' }),
     index, cwd: async (runtime: any, id: any) => { await cwdRead?.(); return index.get(runtime, id)?.cwd ?? null },
     live: () => live, publish: (event: any) => { published.push(event) },
     work: {
       threadRead: async (params: any) => { calls.push({ method: 'read', params }); return { id: params.id, title: 'Project chat', agent: { name: 'Agent' }, status: 'done', turns: [] } },
-      startInProject: async (params: any, root: string, admit: (id?: string) => Promise<void>) => { await admit(); calls.push({ method: 'start', params: { ...params, root } }); return { id: 'fixture:created' } },
-      sessionSend: async (params: any, admit: () => Promise<void>, _effect: unknown, scope: (cwd: string) => Promise<void>) => { await admit(); queuedScope = scope; calls.push({ method: 'send', params }); return { queued: true } },
+      startInProject: async (params: any, root: string, admit: (id?: string) => Promise<void>, _effect: unknown, _scope: unknown, input?: readonly UserContent[]) => { await admit(); row('created'); await admit('fixture:created'); sentInput.push(input); calls.push({ method: 'start', params: { ...params, root } }); return { id: 'fixture:created' } },
+      sessionSend: async (params: any, admit: () => Promise<void>, _effect: unknown, scope: (cwd: string) => Promise<void>, input?: readonly UserContent[]) => { await admit(); sentInput.push(input); queuedScope = scope; calls.push({ method: 'send', params }); return { queued: true } },
       stop: async (params: any, admit: () => Promise<void>) => { await admit(); calls.push({ method: 'stop', params }); return {} },
     },
   })
-  return { service, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
+  return { service, sentInput, holders, sentKeys, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
     withdraw: () => { member = false }, onCwd: (callback: () => Promise<void>) => { cwdRead = callback } }
 }
 
@@ -208,4 +215,34 @@ test('final queued admission ignores healthy dispatch but preserves every unreso
     await assert.rejects(r.queuedScope()(r.root), /recovery/i)
     r.setState(healthy)
   }
+})
+
+test('Lead sends and starts use the verified envelope and record its exact key', async t => {
+  const r = await rig(t); r.row('own')
+  const params = { id: 'fixture:own', text: 'Run the tests.' }
+  r.authorize('lead/chat/send', params); await r.service.send(params)
+  const envelope = leadMessageEnvelope('Dex', params.text)
+  assert.deepEqual(r.sentInput.at(-1), [{ type: 'text', text: envelope, deskContext: { prefixLength: envelope.length } }])
+  assert.deepEqual(r.sentKeys.at(-1), { id: params.id, key: leadMessageKey(envelope) })
+  r.authorize('lead/chat/start', { text: 'Fix the flaky test.' }); const { id } = await r.service.start({ text: 'Fix the flaky test.' })
+  assert.equal((r.sentInput.at(-1)![0] as { text: string }).text, leadMessageEnvelope('Dex', 'Fix the flaky test.'))
+  assert.equal(r.sentKeys.at(-1)!.id, id)
+})
+
+test('a person-held chat refuses Lead send and stop before dispatch, and hand back restores send', async t => {
+  const r = await rig(t); r.row('own'); r.holders.set('fixture:own', 'person')
+  const params = { id: 'fixture:own', text: 'Run the tests.' }
+  r.authorize('lead/chat/send', params); await assert.rejects(r.service.send(params), { message: LEAD_CHAT_HELD })
+  r.authorize('lead/chat/stop', { id: params.id }); await assert.rejects(r.service.stop({ id: params.id }), { message: LEAD_CHAT_HELD })
+  assert.equal(r.sentInput.length, 0); assert.equal(r.calls.length, 0)
+  r.holders.set(params.id, 'lead'); r.authorize('lead/chat/send', params); await r.service.send(params)
+  assert.equal(r.sentInput.length, 1)
+})
+
+test('queued Lead replies recheck the holder before delivery', async t => {
+  const r = await rig(t); r.row('own')
+  const params = { id: 'fixture:own', text: 'Continue' }
+  r.authorize('lead/chat/send', params); await r.service.send(params)
+  r.holders.set(params.id, 'person')
+  await assert.rejects(r.queuedScope()(r.root), { message: LEAD_CHAT_HELD })
 })

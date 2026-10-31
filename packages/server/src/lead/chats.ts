@@ -1,3 +1,5 @@
+import { deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
+import type { LeadChatControlStore } from './chat-control.js'
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import { decideLeadPermission, leadBudgetProjection, summarizeLeadArguments, type LeadPermissionCall, type LeadPermissionContext, type LeadState } from '@harnessdesk/lead'
@@ -7,9 +9,12 @@ import type { PhoneWork } from '../phone-work.js'
 import { scrub } from '../phone-redact.js'
 import { boundLeadChatRead } from './chat-read.js'
 
+export const LEAD_CHAT_HELD = 'The person has taken this chat over. Wait until they hand it back.'
+
 export interface LeadChatActivity { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle' }
 
 export interface LeadChatsPorts {
+  readonly control?: Pick<LeadChatControlStore, 'holder' | 'noteSent'>
   readonly project: LeadProject
   readonly state: () => LeadState
   readonly managementAvailable?: () => boolean
@@ -228,28 +233,45 @@ export class LeadChats {
     if (this.ports.project.path !== root) refuse('Lead project scope changed.')
     return boundLeadChatRead(result)
   }
+  #envelope(text: string): string { return leadMessageEnvelope(leadDisplayName(this.ports.state().name), text) }
+  async #notHeld(id: string): Promise<void> {
+    if (await this.ports.control?.holder(this.ports.project.path, id) === 'person') refuse(LEAD_CHAT_HELD)
+  }
+  async #record(id: string, envelope: string): Promise<void> {
+    await this.ports.control?.noteSent(this.ports.project.path, id, leadMessageKey(envelope))
+  }
+
   start(params: HostParams<'lead/chat/start'>): Promise<HostResult<'lead/chat/start'>> {
     const call = { method: 'lead/chat/start', params } as const
+    const envelope = this.#envelope(params.text)
     return this.#mutate(call, (admit, effectStarted, attemptId) => {
       let createdId: string | undefined
       const scope = this.#liveScope(call, attemptId, () => createdId)
       return this.ports.work.startInProject(params, this.ports.project.path, async id => {
         createdId = id
         await admit(id)
-        if (id) { await this.#watch(id); await admit(id) }
-      }, effectStarted, scope)
+        // Recorded before the first message leaves, so the transcript can vouch for it on first render.
+        if (id) { await this.#watch(id); await this.#record(id, envelope); await admit(id) }
+      }, effectStarted, scope, [deskContextContent(envelope)])
     })
   }
   send(params: HostParams<'lead/chat/send'>): Promise<HostResult<'lead/chat/send'>> {
     const call = { method: 'lead/chat/send', params } as const
+    const envelope = this.#envelope(params.text)
     return this.#mutate(call, (admit, effectStarted, attemptId) => {
       const scope = this.#liveScope(call, attemptId, () => params.id)
-      return this.ports.work.sessionSend(params, async () => { await admit(); await this.#watch(params.id); await admit() }, effectStarted, scope)
+      return this.ports.work.sessionSend(params, async () => {
+        await admit(); await this.#notHeld(params.id); await this.#watch(params.id); await this.#record(params.id, envelope); await admit()
+      }, effectStarted, scope, [deskContextContent(envelope)])
     })
   }
   stop(params: HostParams<'lead/chat/stop'>): Promise<HostResult<'lead/chat/stop'>> {
     const call = { method: 'lead/chat/stop', params } as const
-    return this.#mutate(call, (admit, effectStarted, attemptId) => this.ports.work.stop(params, admit, effectStarted, this.#liveScope(call, attemptId, () => params.id)))
+    return this.#mutate(call, async (admit, effectStarted, attemptId) => {
+      // Stop may return early for an idle chat, before PhoneWork calls admission.
+      await this.#notHeld(params.id)
+      return this.ports.work.stop(params, async () => { await admit(); await this.#notHeld(params.id) }, effectStarted, this.#liveScope(call, attemptId, () => params.id))
+    })
   }
 
   #liveScope(call: LeadPermissionCall, attemptId: string, target: () => string | undefined): (cwd: string) => Promise<void> {
@@ -268,6 +290,7 @@ export class LeadChats {
       if (this.ports.project.path !== selected.path || this.ports.project.id !== selected.id) refuse('Lead project scope changed.')
       // Queue drains run independently of the mutation tail. Healthy concurrent
       // dispatch is not recovery; every unresolved effect and live policy fence is.
+      await this.#notHeld(id!)
       await this.#gate(call, attemptId, true)
       if (call.method !== 'lead/chat/stop' && (this.ports.state().budget?.logicalGoalId ?? null) !== requestGoal)
         refuse('The Lead request changed. Cancel this queued reply and send a new message.')

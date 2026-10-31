@@ -1,3 +1,5 @@
+import { isLeadMessageSource, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
+import { LeadChatControlStore } from './lead/chat-control.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { gitSteerContext } from './git-gateway/steer-context.js'
 import { redactGitCommand } from '@harnessdesk/protocol'
@@ -831,6 +833,8 @@ export class Host {
   readonly #harnessDeskAccount: HarnessDeskAccount
   #leadService: LeadService | null = null
   #leadControls: LeadControls | null = null
+  #leadChatControl: LeadChatControlStore | null = null
+  #leadChatProject: string | null = null
   #leadChats: LeadChats | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
   #leadPlannerFiles: LeadPlanner | null = null
@@ -3596,6 +3600,9 @@ export class Host {
     if (!this.#leadReady) throw new Error('lead-host-starting')
     if (this.#leadService) throw new Error('lead-service-exists')
     const { journal, project } = options
+    const chatControl = new LeadChatControlStore(join(this.#state.directory, 'lead', 'chat-control.json'))
+    this.#leadChatControl = chatControl
+    this.#leadChatProject = project.path
     this.#leadChats = new LeadChats({ project, state: () => journal.state, now: () => Date.now(),
       managementAvailable: () => this.#leadService?.managementAvailable === true,
       noteDispatchNotStarted: id => journal.noteDispatchNotStarted(id),
@@ -3613,11 +3620,18 @@ export class Host {
         return { running: (held?.running.size ?? 0) > 0, waiting: (held?.approvals.size ?? 0) > 0 || held?.queue.status === 'paused' && held.queue.messages.length > 0 }
       },
       work: this.#phoneWorkView(),
+      control: {
+        holder: (project, id) => chatControl.holder(project, id),
+        noteSent: async (project, id, key) => {
+          await chatControl.noteSent(project, id, key)
+          this.#push({ method: 'lead/chats/controlChanged', params: await chatControl.list(project) })
+        },
+      },
       watches: new LeadChatWatches(join(this.#state.directory, 'lead', 'chats.json')),
       publish: params => this.#push({ method: 'lead/chat/changed', params }),
     })
     let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
-    this.onDispose(() => budgetOwner.close())
+    this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null })
     this.onDispose(journal.onChange(() => {
       const id = journal.state.budget!.logicalGoalId
       if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
@@ -5077,6 +5091,11 @@ export class Host {
       phoneWorkspace: this.#phoneWorkspaceView(),
       phoneWork: this.#phoneWorkView(),
       leadWakesRead: async () => (await this.#leadWindow()).readWakes(),
+      leadChatControl: {
+        list: () => this.#chatControlList(),
+        takeOver: id => this.#setChatHolder(id, 'person'),
+        handBack: id => this.#setChatHolder(id, 'lead'),
+      },
       leadChats: { list: params => this.leadChats.list(params), read: params => this.leadChats.read(params),
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
@@ -9626,10 +9645,46 @@ export class Host {
     }
   }
 
+  /** The window's bounded record of Lead-managed chats in the selected project. */
+  async #chatControlList(): Promise<LeadChatControlList> {
+    const store = this.#leadChatControl, project = this.#leadChatProject
+    return store && project ? store.list(project) : { project: null, chats: [] }
+  }
+
+  /** Drop only waiting messages whose Lead envelope the host recorded. */
+  #cancelLeadQueued(id: string, sent: readonly string[]): void {
+    const at = id.indexOf(':')
+    const record = this.registry.get(runtimeId(id.slice(0, at)), makeSessionId(id.slice(at + 1)))
+    if (!record) return
+    const keys = new Set(sent)
+    for (const message of [...record.queue.messages]) {
+      if (message.state === 'sending') continue
+      const [block] = splitContextContent(message.input).injections
+      if (block && isLeadMessageSource(block.label) && keys.has(leadMessageKey(wrapContext(block.label, block.text))))
+        this.registry.cancelQueued(record, message.id)
+    }
+    this.#pushQueue(record)
+  }
+
+  async #setChatHolder(id: string, holder: LeadChatHolder): Promise<LeadChatControlList> {
+    const store = this.#leadChatControl, project = this.#leadChatProject
+    if (!store || !project) return { project: null, chats: [] }
+    if (!await store.setHolder(project, id, holder)) throw new Error('The Lead has not written to this chat.')
+    const list = await store.list(project)
+    if (holder === 'person') this.#cancelLeadQueued(id, list.chats.find(chat => chat.id === id)?.sent ?? [])
+    this.#push({ method: 'lead/chats/controlChanged', params: list })
+    return list
+  }
+
   /** The phone's snapshot, conversation and approval answers, built on first use over the same planes. */
   #phoneWorkView(): PhoneWork {
     return this.#phoneWork ??= new PhoneWork({
       workspace: this.#phoneWorkspaceView(),
+      chatControl: async (id, cwd) => {
+        const project = this.#leadChatProject
+        if (!project || await realpath(cwd).catch(() => null) !== project) return undefined
+        return (await this.#chatControlList()).chats.find(chat => chat.id === id)
+      },
       deskName: () => this.#phoneLink?.state().deskName ?? '',
       home: homedir(),
       seatName: (runtime) => {

@@ -1,3 +1,4 @@
+import type { LeadChatControl, UserContent } from '@harnessdesk/protocol'
 import {
   findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
@@ -13,6 +14,8 @@ import type { PhoneWorkspace } from './phone-workspace.js'
  */
 
 export interface PhoneWorkPorts {
+  /** Host-only provenance, never supplied by the phone. */
+  readonly chatControl?: (id: string, cwd: string) => Promise<LeadChatControl | undefined>
   readonly workspace: Pick<PhoneWorkspace, 'workItems' | 'workUsage' | 'workSessions'>
   /** What the desk is called to the phone that paired with it. */
   readonly deskName: () => string
@@ -170,7 +173,10 @@ export class PhoneWork {
       .filter(one => one.session === key && now - one.at < DECISION_TTL)
       .slice(-SHOW_DECISIONS).map(one => one.turn)
       .filter(turn => !live.pending.some(approval => String(approval.id) === turn.id))
+    const control = await this.#ports.chatControl?.(key, read.cwd)
+    this.#target(params.id, true)
     return buildThread({
+      ...(control ? { leadControl: control } : {}),
       id: key, session: read, running: live.running, pending: live.pending,
       project: summary?.repo ? folderName(summary.repo.root) : null, title: summary?.title, decided,
     }, this.#context(runtime))
@@ -191,8 +197,8 @@ export class PhoneWork {
     return this.startInProject(params, cwd)
   }
 
-  /** Host-owned exact project root. It never resolves an untrusted folder basename. */
-  async startInProject(params: { text: string }, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>): Promise<HostResult<'workspace/session/start'>> {
+  /** Host-owned exact project root. `input` is a host-only envelope override, never phone params. */
+  async startInProject(params: { text: string }, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/start'>> {
     const runtime = this.#ports.defaultRuntime()
     if (runtime === null) return refuse('No agent is available to start a session.')
     return guarded(async () => {
@@ -202,7 +208,7 @@ export class PhoneWork {
       const id = `${runtime}:${session.id}`
       try {
         await admit?.(id)
-        await this.#ports.send({ runtime, sessionId: session.id, input: [{ type: 'text', text: params.text }] }, admitCwd)
+        await this.#ports.send({ runtime, sessionId: session.id, input: input ?? [{ type: 'text', text: params.text }] }, admitCwd)
       }
       catch {
         // The runtime may have accepted the prompt before losing its reply.
@@ -213,9 +219,9 @@ export class PhoneWork {
     })
   }
 
-  async sessionSend(params: HostParams<'workspace/session/send'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>): Promise<HostResult<'workspace/session/send'>> {
+  async sessionSend(params: HostParams<'workspace/session/send'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: (cwd: string) => Promise<void>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/send'>> {
     const { runtime, session } = this.#target(params.id)
-    const result = await guarded(() => this.#ports.queue({ runtime, sessionId: session, input: [{ type: 'text', text: params.text }] }, admit, effectStarted, admitCwd))
+    const result = await guarded(() => this.#ports.queue({ runtime, sessionId: session, input: input ?? [{ type: 'text', text: params.text }] }, admit, effectStarted, admitCwd))
     return result.sent ? {} : { queued: true }
   }
 

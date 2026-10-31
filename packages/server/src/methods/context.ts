@@ -151,6 +151,12 @@ export interface HostContext {
   readonly phoneWorkspace: Pick<import('../phone-workspace.js').PhoneWorkspace, 'sessionsList' | 'teamsList' | 'dashboardRead'>
   /** The phone's projected work, ordinary session controls and approval answers. */
   readonly phoneWork: Pick<import('../phone-work.js').PhoneWork, 'snapshot' | 'sessionsList' | 'sessionStart' | 'sessionSend' | 'stop' | 'threadRead' | 'approvalDecide'>
+  /** Person-owned controls, reachable from the window only. */
+  readonly leadChatControl: {
+    list(): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+    takeOver(id: string): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+    handBack(id: string): Promise<import('@harnessdesk/protocol').LeadChatControlList>
+  }
   readonly leadChats: Pick<import('../lead/chats.js').LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop'>
   leadWakesRead(): Promise<HostResult<'lead/wakes/read'>>
   leadThreadRead(): Promise<HostResult<'lead/thread/read'>>
