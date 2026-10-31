@@ -7,6 +7,30 @@ the rule is the last line of its section.
 
 ---
 
+## A self-hosted runner takes work only while it is shown to be up — 2026-10-30
+
+The organisation's hosted runners run twenty jobs at once. A full run is over
+thirty, so its browser shards waited three to ten minutes for a slot while the
+project's own Linux machine, paid for by the hour it is on, sat idle: no job
+named it.
+
+The first job, `CI runners`, asks whether one of that machine's runners is
+online and sends the typecheck and gates jobs there if so. Those two start at
+once and take minutes, so they free two hosted slots for the shards. A job
+sent to a runner that is down waits in the queue for a day rather than moving,
+so every doubt answers "hosted": no `RUNNER_STATUS_TOKEN` secret (forks never
+get one), a pull request from another repository, any failure to ask, or less
+than half an hour before the machine's scheduled stop (`SELF_HOSTED_UNTIL`).
+Jobs that start later in a run, like the bookkeeping checks, stay hosted for
+the same reason: the machine may have stopped by the time they are created.
+
+The pick is made once per run. "Re-run failed jobs" keeps it, so after the
+machine has stopped, re-run a failed typecheck or gates job with "Re-run all
+jobs", which asks again.
+
+**The rule:** a job reaches a self-hosted runner only through a pick made at
+the start of the run that defaults to the hosted runner.
+
 ## Customize is the shared capability destination — 2026-10-21
 
 Skills, MCP and Plugins share one Customize entrance and a common section navigation. Existing Library and Plugins destination identities remain valid for saved history, command links and capability detail pages. Settings' skill-management requests open Customize, scoped to the active runtime; Hooks retains a separate Settings page. Runtime-owned commands not covered by the scanned inventory remain browsable in Customize, under the active runtime’s name, with their enable switches and composer action. A different runtime scope never borrows the active runtime’s commands. Legacy command detail routes remain readable; the obsolete Settings list route replaces itself in navigation rather than leaving a redirect in Back history.
@@ -4667,6 +4691,20 @@ does not is measured, then removed from the place it costs most.
 > Superseded in part by [A checkout root's project answer stands while what git reads to give it is unchanged](#a-checkout-roots-project-answer-stands-while-what-git-reads-to-give-it-is-unchanged--2026-10-31):
 > the one-second window is gone; a folder can join or leave a repository
 > without moving.
+
+## Full CI label admission — 2026-10-30
+
+A label worker rechecks the live pull request and can reuse a matching PR run
+created no earlier than the latest full-ci label application only when that run
+has a successful full-tier marker. This avoids admitting an old or bounded event
+snapshot; the marker is admission evidence, not a claim that CI passed. A push
+can still move the branch after the recheck, so this is not atomic deduplication.
+Events have second-resolution timestamps; a labeled and unlabeled event in the
+same second are ambiguous, so the worker treats removal as latest and dispatches.
+The same-repository-only `pull_request` workflow checks out the immutable event
+merge commit (`github.sha`) so its helper is present before the PR is merged.
+This keeps the existing fork condition and actions write permission; it does not
+use `pull_request_target` or expand the workflow's trust boundary.
 
 ## A checkout root's project answer stands while what git reads to give it is unchanged — 2026-10-31
 
