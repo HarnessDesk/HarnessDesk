@@ -141,6 +141,40 @@ jobs:
           sed -n 's/^node_jobs=/node_jobs=/p' "$RUNNER_TEMP/node-plan" >> "$GITHUB_OUTPUT"
           sed -n 's/^summary=//p' "$RUNNER_TEMP/node-plan" >> "$GITHUB_STEP_SUMMARY"
 
+  # The project's own Linux runner takes the two jobs that start at once, while
+  # it is up, which leaves two hosted slots for the shards behind them. A job
+  # sent to a runner that is down waits in the queue for a day, so the hosted
+  # runner is the answer whenever this cannot show the self-hosted one online:
+  # no token (forks never get one), any failure to ask, or less than half an
+  # hour before the runner's scheduled stop (`SELF_HOSTED_UNTIL`, Pacific).
+  runners:
+    name: CI runners
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      linux: ${{ steps.pick.outputs.linux }}
+    steps:
+      - name: Pick the Linux runner
+        id: pick
+        env:
+          RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
+          # A pull request whose fork was deleted has no head repository; it
+          # must not pass for one of this repository's own branches.
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || (github.event.pull_request && 'deleted-fork' || github.repository) }}
+          SELF_HOSTED_UNTIL: ${{ vars.SELF_HOSTED_UNTIL || '1830' }}
+        run: |
+          linux='"ubuntu-latest"'
+          now=$(TZ=America/Los_Angeles date +%H%M)
+          if [ -n "$RUNNER_STATUS_TOKEN" ] && [ "$HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" ] && (( 10#$now < 10#$SELF_HOSTED_UNTIL )); then
+            online=$(GH_TOKEN="$RUNNER_STATUS_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" \
+              --jq '[.runners[] | select(.status == "online" and any(.labels[]; .name == "azure-linux"))] | length' 2>/dev/null || echo 0)
+            if [ "${online:-0}" -gt 0 ]; then
+              linux='["self-hosted","azure-linux"]'
+            fi
+          fi
+          echo "linux=$linux" >> "$GITHUB_OUTPUT"
+          echo "Linux runner for typecheck and gates: $linux" >> "$GITHUB_STEP_SUMMARY"
+
   # A separate check names the tier without changing branch protection's check
   # names. land-safe matches this proof to the required checks' check-suite id.
   ci-tier:
@@ -224,7 +258,8 @@ jobs:
 
   ui-typecheck:
     name: UI typecheck and desktop tests
-    runs-on: ubuntu-latest
+    needs: runners
+    runs-on: ${{ fromJSON(needs.runners.outputs.linux) }}
     # These run once, alongside the shards. Fifteen minutes leaves ample room
     # for install/build/typecheck and desktop tests while bounding a runaway.
     timeout-minutes: 15
@@ -328,7 +363,8 @@ jobs:
 
   gates:
     name: Gates
-    runs-on: ubuntu-latest
+    needs: runners
+    runs-on: ${{ fromJSON(needs.runners.outputs.linux) }}
     timeout-minutes: 25
 
     steps:
@@ -456,7 +492,7 @@ jobs:
 
   package:
     name: Package (unsigned)
-    runs-on: macos-14
+    runs-on: macos-15
     needs: verify
     timeout-minutes: 30
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
@@ -744,7 +780,7 @@ jobs:
     name: UI system native smoke
     needs: changes
     if: needs.changes.outputs.native == 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 20
 
     steps:
