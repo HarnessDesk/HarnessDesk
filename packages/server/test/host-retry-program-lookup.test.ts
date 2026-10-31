@@ -325,12 +325,14 @@ const relaunchFixture = async (t: TestContext, prefix: string) => {
   const dir = await mkdtemp(join(tmpdir(), prefix))
   const hosts: Host[] = []
   // Register before any launch; failed starts and manually closed hosts still belong here.
-  t.after(async () => {
+  let cleanup: Promise<void> | undefined
+  t.after(() => (cleanup ??= (async () => {
     const results = await Promise.allSettled(hosts.map(host => host.dispose()))
     const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    // Keep state for inspection when a failed shutdown may leave writers alive.
     if (failures.length) throw new AggregateError(failures.map(result => result.reason), 'host cleanup failed')
     await rm(dir, { recursive: true, force: true })
-  })
+  })()))
   return { dir, relaunch: (...runtimes: AgentRuntime[]) => relaunch(dir, host => {
     const dispose = host.dispose.bind(host)
     let closing: Promise<void> | undefined
@@ -339,10 +341,11 @@ const relaunchFixture = async (t: TestContext, prefix: string) => {
   }, ...runtimes) }
 }
 
-test('relaunch fixture waits for every host before removing its directory', async () => {
+test('relaunch fixture waits for every host before removing its directory', async (t) => {
   const hooks: Array<() => unknown> = []
   const context = { after: (hook: () => unknown) => { hooks.push(hook) } } as unknown as TestContext
   const fixture = await relaunchFixture(context, 'hd-retry-cleanup-')
+  t.after(() => hooks[0]!())
   const first = await fixture.relaunch()
   await first.dispose()
   const second = await fixture.relaunch()
@@ -370,6 +373,25 @@ test('relaunch fixture waits for every host before removing its directory', asyn
     await cleanup
     await rm(fixture.dir, { recursive: true, force: true })
   }
+})
+
+test('relaunch fixture owns a host whose start fails', async (t) => {
+  const hooks: Array<() => unknown> = []
+  const context = { after: (hook: () => unknown) => { hooks.push(hook) } } as unknown as TestContext
+  const fixture = await relaunchFixture(context, 'hd-retry-failed-start-')
+  t.after(() => hooks[0]!())
+  const disposed: Host[] = []
+  const dispose = Host.prototype.dispose
+  t.mock.method(Host.prototype, 'start', async () => { throw new Error('controlled start failure') })
+  t.mock.method(Host.prototype, 'dispose', async function (this: Host) {
+    disposed.push(this)
+    await dispose.call(this)
+  })
+
+  await assert.rejects(fixture.relaunch(), /controlled start failure/)
+  await hooks[0]!()
+  assert.equal(disposed.length, 1, 'the host whose start failed was disposed once')
+  await assert.rejects(stat(fixture.dir), { code: 'ENOENT' })
 })
 
 const ask = async (host: Host, runtime: AgentRuntime): Promise<void> => {
