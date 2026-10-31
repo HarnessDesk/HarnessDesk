@@ -89,11 +89,12 @@ export class LeadPlanner {
   async markRan(id: string, at: number): Promise<void> {
     await this.#mutate(schedule => ({ ...schedule, tasks: schedule.tasks.map(task => task.id === id ? { ...task, lastRunAt: at } : task) }))
   }
-  approveRepeat(id: string, contract: LeadAcceptanceContract, logicalGoalId?: string, now = Date.now()): Promise<LeadSchedule> {
+  /** A fresh approval of a recurring plan turns a stopped or paused match back on; a consent renewal leaves its state alone. */
+  approveRepeat(id: string, contract: LeadAcceptanceContract, logicalGoalId?: string, now = Date.now(), reactivate = true): Promise<LeadSchedule> {
     if (!contract.repeat) throw new Error('lead-repeat-required')
     return this.#mutate(schedule => {
       const existing = schedule.tasks.find(task => task.approved?.contractDigest === contract.digest || task.project === contract.project.path && task.goal === contract.goal && task.every === contract.repeat!.every && task.at === contract.repeat!.at)
-      if (existing) return { ...schedule, tasks: schedule.tasks.map(task => task.id !== existing.id ? task : { ...task, approved: { contract, contractDigest: contract.digest }, perRunCaps: contract.caps,
+      if (existing) return { ...schedule, tasks: schedule.tasks.map(task => task.id !== existing.id ? task : { ...task, ...(reactivate ? { enabled: true, paused: false } : {}), approved: { contract, contractDigest: contract.digest }, perRunCaps: contract.caps,
         runs: logicalGoalId ? [...(task.runs ?? []).filter(run => run.logicalGoalId !== logicalGoalId), { slot: task.runs?.find(run => run.logicalGoalId === logicalGoalId)?.slot ?? now, at: now, state: 'started' as const, logicalGoalId }].slice(-12) : task.runs }) }
       return { ...schedule, tasks: [...schedule.tasks, { id, project: contract.project.path, title: contract.goal.slice(0, 80), goal: contract.goal.slice(0, 2000),
         ...contract.repeat!, enabled: true, paused: false, createdAt: now, lastRunAt: now, approved: { contract, contractDigest: contract.digest }, perRunCaps: contract.caps, runs: logicalGoalId ? [{ slot: now, at: now, state: 'started' as const, logicalGoalId }] : [] }] }

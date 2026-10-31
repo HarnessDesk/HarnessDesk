@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createLeadJournal } from '../src/journal.js'
 import { leadBudgetProjection } from '../src/budget.js'
+import { canBeginLeadGoal } from '../src/state.js'
+import { leadCheckpoint, parseLeadCheckpoint } from '../src/checkpoint.js'
 
 const rig = async () => {
   const records: any[] = [], journal = await createLeadJournal({ async read() { return records }, async append(record) { records.push(record) } })
@@ -45,4 +47,18 @@ test('direct person raises are revision and goal fenced and preserve a stop latc
   await s.journal.raiseBudget('goal-1', { usdMicros: 6_000_000, rounds: 4 }, s.journal.state.seq, 100)
   assert.deepEqual(s.journal.state.budget!.stop, latch)
   assert.equal(s.journal.state.phase, 'stopped')
+})
+
+test('a raise applies to its own goal; the next goal starts from the caps in force before it', async () => {
+  const s = await rig()
+  await s.journal.raiseBudget('goal-1', { usdMicros: 6_000_000, rounds: 3 }, s.journal.state.seq, 100)
+  await s.journal.raiseBudget('goal-1', { usdMicros: 7_000_000, rounds: 4 }, s.journal.state.seq, 100)
+  assert.deepEqual(s.journal.state.budget!.caps, { usdMicros: 7_000_000, rounds: 4 })
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(s.journal.state, 'a'.repeat(64))).state.raisedFrom, { usdMicros: 5_000_000, rounds: 3 })
+  await s.journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 6_500_000, rounds: 2 } })
+  await s.journal.stop(async () => {})
+  assert.ok(canBeginLeadGoal(s.journal.state))
+  await s.journal.beginGoal('goal-2', 200)
+  assert.deepEqual(s.journal.state.budget!.caps, { usdMicros: 5_000_000, rounds: 2 }, 'a tightening still lowers the next goal')
+  assert.equal(s.journal.state.raisedFrom, null)
 })

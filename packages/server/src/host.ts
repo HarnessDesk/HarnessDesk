@@ -3853,7 +3853,7 @@ export class Host {
     // Recovery uses only journaled person authority and freshly verified worker/forge identity.
     void follow.reconcile().then(refreshRepairs).catch(() => { this.#logger.warn('Lead publication needs attention') })
     this.#leadControls = new LeadControls({ journal,
-      approveRepeat: async (id, contract) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now()) },
+      approveRepeat: async (id, contract, reactivate) => { await this.#leadPlanner().approveRepeat(`repeat-${id}`, contract, journal.state.budget!.logicalGoalId, Date.now(), reactivate) },
       freezeRepeat: async contract => ({ ...contract, digest: leadContractDigest(contract) }),
       validateRepeat: async contract => {
         if (leadContractDigest(contract) !== contract.digest) return 'The approved contract could not be verified'

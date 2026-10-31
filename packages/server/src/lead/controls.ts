@@ -46,7 +46,7 @@ interface LeadControlsOptions {
   readonly decideResult: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly publishResult?: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly reclaimBranch?: (card: Extract<LeadCard, { type: 'branch-ownership' }>, decision: LeadCardDecision) => Promise<void>
-  readonly approveRepeat?: (cardId: string, contract: LeadAcceptanceContract) => Promise<void>
+  readonly approveRepeat?: (cardId: string, contract: LeadAcceptanceContract, reactivate: boolean) => Promise<void>
   readonly validateRepeat?: (contract: LeadAcceptanceContract) => Promise<string | null>
   readonly freezeRepeat?: (contract: LeadAcceptanceContract) => Promise<LeadAcceptanceContract>
   readonly stopRequest?: () => Promise<void>
@@ -368,7 +368,8 @@ export class LeadControls {
         else if (!(card.publication === 'push' && decision.choice === 'decline')) await this.options.decideResult(card, decision, contract)
       } : undefined, committed)
       if (card.type === 'plan' && decision.choice === 'approve' && card.contract.repeat) {
-        try { await this.options.approveRepeat?.(card.id, card.contract) }
+        const renewal = state.consent?.renewalCardRevision === card.revision && JSON.stringify(state.contract) === JSON.stringify(card.contract)
+        try { await this.options.approveRepeat?.(card.id, card.contract, !renewal) }
         catch { await journal.appendReply('The repeat could not be saved. This approval applies to this run only.') }
       }
     }

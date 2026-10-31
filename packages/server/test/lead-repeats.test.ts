@@ -26,6 +26,20 @@ const memoryJournal = async () => {
   return journal
 }
 
+test('a fresh approval of a stopped repeat turns it back on, keeping its history; a renewal does not', async () => {
+  const planner = new LeadPlanner(await mkdtemp(join(tmpdir(), 'lead-repeat-')))
+  await planner.approveRepeat(task.id, approved, 'goal-first', 100)
+  await planner.control(task.id, 'stop')
+  await planner.approveRepeat('repeat-other', approved, 'goal-second', 200, false)
+  assert.equal((await planner.readSchedule()).tasks[0]!.enabled, false, 'a consent renewal leaves a stopped repeat stopped')
+  const saved = (await planner.approveRepeat('repeat-other', approved, 'goal-third', 300)).tasks
+  assert.equal(saved.length, 1)
+  assert.equal(saved[0]!.id, task.id)
+  assert.equal(saved[0]!.enabled, true)
+  assert.equal(saved[0]!.paused, false)
+  assert.deepEqual(saved[0]!.runs!.map(run => run.logicalGoalId), ['goal-first', 'goal-second', 'goal-third'])
+})
+
 test('a desk asleep over several slots coalesces to one newest slot, including a wake on another day', () => {
   const schedule: LeadSchedule = { version: 1, tasks: [task], quiet: null }, wake = new Date(2026, 9, 27, 8)
   const due = leadDueTask(schedule, wake)!
