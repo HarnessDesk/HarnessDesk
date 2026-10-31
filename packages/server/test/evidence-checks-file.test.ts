@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
-import { mkdir, open, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { CHECK_LIMIT, readChecks } from '../src/evidence/checks-file.js'
+import { CHECK_LIMIT, readChecks, readChecksAt } from '../src/evidence/checks-file.js'
 import { makeRepo, type Repo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -206,4 +206,29 @@ test('a file too large to be a list of commands is refused', async () => {
   const read = await readChecks(await project(`# ${'x'.repeat(70 * 1024)}\nverify: { run: pnpm verify }\n`))
   assert.deepEqual(read.checks, [])
   assert.match(read.problems[0]?.text ?? '', /at most 64 KB/)
+})
+
+test('a commit read twice is read from git once, and the working copy is still read each time', async (t) => {
+  const repo = await committed('verify:\n  run: npm test\n')
+  const at = (await repo.git('rev-parse', 'HEAD')).trim()
+  const bin = tempDir('hd-checks-bin-')
+  const calls = join(bin, 'calls')
+  const git = (await promisify(execFile)('sh', ['-c', 'command -v git'])).stdout.trim()
+  await writeFile(join(bin, 'git'), `#!/bin/sh\necho "$*" >> '${calls}'\nexec '${git}' "$@"\n`, { mode: 0o755 })
+  const path = process.env.PATH
+  process.env.PATH = `${bin}:${path}`
+  t.after(() => { process.env.PATH = path })
+  const asked = async () => readFile(calls, 'utf8').then((text) => text.split('\n').filter(Boolean).length, () => 0)
+
+  const first = await readChecksAt(repo.dir, at)
+  const once = await asked()
+  assert.ok(once > 0, 'the first read asks git')
+  assert.deepEqual(first.checks.map((check) => check.name), ['verify'])
+  assert.equal(first.uncommitted, false)
+
+  await writeFile(join(repo.dir, '.harnessdesk', 'checks.yml'), 'verify:\n  run: npm run other\n')
+  const second = await readChecksAt(repo.dir, at)
+  assert.equal(await asked(), once, 'the same commit is not read from git again')
+  assert.deepEqual(second.checks, first.checks, 'what runs is still what that commit holds')
+  assert.equal(second.uncommitted, true, 'the working copy is read afresh')
 })
