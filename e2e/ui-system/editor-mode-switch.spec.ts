@@ -71,6 +71,7 @@ for (const theme of ['light', 'dark'] as const) for (const windowWidth of [1440,
     await editor.click()
     // A real visit and return enable Forward, so a stolen pointer has an observable consequence.
     await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
+    await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
     await page.keyboard.press('Meta+[')
     await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(0)
     for (const width of [239, 240, 256, 267, 268, 280]) {
