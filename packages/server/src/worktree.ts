@@ -44,16 +44,23 @@ interface CheckoutIdentity {
 /** Live metadata is evidence of an unchanged identity, never new shell authority. */
 export const shellCheckoutIdentity = async (folder: string): Promise<CheckoutIdentity | null> => {
   try {
-    // rev-parse has no NUL path mode. Read each payload separately and remove
-    // only Git's final newline, preserving whitespace inside the path.
-    const [common, dir, top] = await Promise.all(['--git-common-dir', '--git-dir', '--show-toplevel'].map(async (flag) =>
-      (await run('git', ['-C', folder, ...HARDENED_GIT_CONFIG,
-        'rev-parse', '--path-format=absolute', flag,
-      ], {
-        env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))), GIT_OPTIONAL_LOCKS: '0' },
-        timeout: 20_000, maxBuffer: 1024 * 1024,
-      })).stdout.replace(/\n$/, ''),
-    ))
+    const flags = ['--git-common-dir', '--git-dir', '--show-toplevel']
+    const revParse = async (asked: readonly string[]) => (await run('git', ['-C', folder, ...HARDENED_GIT_CONFIG,
+      'rev-parse', '--path-format=absolute', ...asked,
+    ], {
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))), GIT_OPTIONAL_LOCKS: '0' },
+      timeout: 20_000, maxBuffer: 1024 * 1024,
+    })).stdout.replace(/\n$/, '')
+    // rev-parse has no NUL path mode: it ends each answer with a newline. One
+    // call answers all three exactly when no path holds a newline, which is
+    // exactly when it prints three lines. Otherwise read each payload
+    // separately and remove only Git's final newline, preserving whitespace
+    // inside the path. This runs on every project lookup, so it is one
+    // process rather than three.
+    const together = (await revParse(flags)).split('\n')
+    const [common, dir, top] = together.length === flags.length
+      ? together
+      : await Promise.all(flags.map((flag) => revParse([flag])))
     if (!common || !dir || !top) return null
     const [gitCommonDir, gitDir, checkoutRoot] = await Promise.all([realpath(common), realpath(dir), realpath(top)])
     return { gitCommonDir, gitDir, checkoutRoot }
@@ -180,7 +187,7 @@ export const repositoryOf = async (path: string): Promise<RepoInfo | null> => {
   if (!checkout) return null
   const { gitCommonDir: common, gitDir: dir, checkoutRoot: here } = checkout
   if (samePath(dir, common)) {
-    if (!await isMainCheckout(here, common)) return null
+    if (!await isMainCheckout(here, common, await asked(path, checkout))) return null
     return { root: here, worktree: false, ...(await originOf(path)) }
   }
   const main = await mainCheckoutOf(path, common)
@@ -207,9 +214,19 @@ const originOf = async (path: string): Promise<{ readonly origin: string } | nul
   }
 }
 
+/**
+ * The identity already read for `path`, when `path` is itself the checkout
+ * root it names: asking git again from that same folder can only repeat it.
+ * Any other folder — a subfolder, or a root reached through `core.worktree` —
+ * is asked afresh, because the point of the second read is that the root's
+ * own metadata agrees.
+ */
+const asked = async (path: string, checkout: CheckoutIdentity): Promise<CheckoutIdentity | undefined> =>
+  samePath(await canonical(path), checkout.checkoutRoot) ? checkout : undefined
+
 /** A folder's own checkout metadata must agree with the repository that named it. */
-const isMainCheckout = async (folder: string, common: string): Promise<boolean> => {
-  const checkout = await shellCheckoutIdentity(folder)
+const isMainCheckout = async (folder: string, common: string, known?: CheckoutIdentity): Promise<boolean> => {
+  const checkout = known ?? await shellCheckoutIdentity(folder)
   return checkout !== null && samePath(checkout.checkoutRoot, folder) &&
     samePath(checkout.gitCommonDir, common) && samePath(checkout.gitDir, common)
 }
@@ -224,7 +241,7 @@ const mainCheckoutOf = async (path: string, common: string): Promise<string | nu
     const checkout = await shellCheckoutIdentity(listed)
     if (checkout) {
       const folder = checkout.checkoutRoot
-      return await isMainCheckout(folder, common) ? folder : null
+      return await isMainCheckout(folder, common, await asked(listed, checkout)) ? folder : null
     }
     // A separate git directory may not record its working folder. Keep that
     // existing listing behavior, but refuse a recorded folder that is missing.
