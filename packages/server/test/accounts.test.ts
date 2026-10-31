@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import childProcess from 'node:child_process'
 import { syncBuiltinESMExports } from 'node:module'
-import { existsSync } from 'node:fs'
-import { mkdtemp, mkdir, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises'
+import { existsSync, realpathSync } from 'node:fs'
+import { mkdtemp, mkdir, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
@@ -198,6 +198,210 @@ const chatgptAuth = (
     },
   })
 }
+
+for (const cleanup of ['empty', 'duplicate'] as const) {
+  for (const problemFirst of [false, true]) {
+    for (const otherAgent of [false, true]) {
+      test(`startup removes the selected repeated-id row: ${cleanup}, problem ${problemFirst ? 'first' : 'last'}, ${otherAgent ? 'different agents' : 'same agent'}`, async t => {
+        const root = await home()
+        t.after(() => rm(root, { recursive: true, force: true }))
+        const primary = join(root, 'agent')
+        await mkdir(primary, { recursive: true })
+        const ownAuth = chatgptAuth('fixture-person', 'workspace-a')
+        await writeFile(join(primary, 'auth.json'), ownAuth)
+        const rows = [false, true].map((second) => ({
+          id: FAKE_RUNTIME_ID,
+          agent: second && otherAgent ? 'other-agent' as RuntimeId : FAKE_RUNTIME_ID,
+          home: join(root, 'accounts', second ? 'second' : 'first'),
+          createdAt: second ? 2 : 1,
+        }))
+        const credentials: (string | null)[] = []
+        for (const [index, row] of rows.entries()) {
+          await mkdir(row.home, { recursive: true })
+          await writeFile(join(row.home, 'keep.txt'), 'retained home')
+          const problem = (index === 0) === problemFirst
+          const credential = problem
+            ? cleanup === 'empty' ? null : ownAuth
+            : chatgptAuth('fixture-person', 'workspace-b')
+          credentials.push(credential)
+          if (credential !== null) await writeFile(join(row.home, 'auth.json'), credential)
+        }
+        const file = join(root, 'accounts.json')
+        const original = JSON.stringify({ accounts: rows })
+        await writeFile(file, original)
+        const slots = new AccountSlots(file)
+        const problemIndex = problemFirst ? 0 : 1
+        const problem = rows[problemIndex]!
+        const retained = rows[1 - problemIndex]!
+        const removed = cleanup === 'empty'
+          ? slots.pruneEmpty(problem.agent)
+          : slots.pruneDuplicates(problem.agent, primary)
+        assert.deepEqual([...removed], [problem.id])
+        assert.deepEqual(slots.list(), [retained], 'only the selected row is removed')
+        assert.deepEqual(new AccountSlots(file).list(), [retained])
+        assert.equal(existsSync(problem.home), false, 'the selected unshared home is purged')
+        assert.equal(await readFile(join(retained.home, 'keep.txt'), 'utf8'), 'retained home')
+        assert.equal(await readFile(join(retained.home, 'auth.json'), 'utf8'), credentials[1 - problemIndex])
+        assert.equal(await readFile(join(primary, 'auth.json'), 'utf8'), ownAuth)
+      })
+    }
+  }
+}
+
+for (const cleanup of ['empty', 'duplicate'] as const) {
+  test(`startup ${cleanup} pruning keeps a home shared by a retained row`, async t => {
+    const root = await home()
+    t.after(() => rm(root, { recursive: true, force: true }))
+    const primary = join(root, 'primary')
+    const shared = join(root, 'accounts', 'shared')
+    await mkdir(primary, { recursive: true })
+    await mkdir(shared, { recursive: true })
+    const auth = chatgptAuth('fixture-person', 'workspace-a')
+    await writeFile(join(primary, 'auth.json'), auth)
+    await writeFile(join(shared, 'keep.txt'), 'shared home')
+    if (cleanup === 'duplicate') await writeFile(join(shared, 'auth.json'), auth)
+    const rows = [
+      { id: FAKE_RUNTIME_ID, agent: 'other-agent' as RuntimeId, home: shared, createdAt: 1 },
+      { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: shared, createdAt: 2 },
+    ]
+    const file = join(root, 'accounts.json')
+    await writeFile(file, JSON.stringify({ accounts: rows }))
+    const slots = new AccountSlots(file)
+    const removed = cleanup === 'empty' ? slots.pruneEmpty(FAKE_RUNTIME_ID) : slots.pruneDuplicates(FAKE_RUNTIME_ID, primary)
+    assert.deepEqual([...removed], [FAKE_RUNTIME_ID])
+    assert.deepEqual(new AccountSlots(file).list(), [rows[0]])
+    assert.equal(await readFile(join(shared, 'keep.txt'), 'utf8'), 'shared home')
+    if (cleanup === 'duplicate') assert.equal(await readFile(join(shared, 'auth.json'), 'utf8'), auth)
+    assert.equal(await readFile(join(primary, 'auth.json'), 'utf8'), auth)
+  })
+}
+
+for (const purge of [false, true]) {
+  for (const arrangement of ['separate', 'same', 'target contains retained', 'target contains dotdot-named retained', 'retained contains target', 'alias'] as const) {
+    test(`removing the first duplicate-id row preserves the retained row and its ${arrangement} home, purge=${purge}`, async t => {
+      const root = await home()
+      t.after(() => rm(root, { recursive: true, force: true }))
+      const accounts = join(root, 'accounts')
+      const target = join(accounts, arrangement === 'retained contains target' ? 'parent/child' : 'target')
+      const retained = arrangement === 'same' ? target
+        : arrangement === 'target contains retained' ? join(target, 'nested')
+        : arrangement === 'target contains dotdot-named retained' ? join(target, '..saved')
+        : arrangement === 'retained contains target' ? join(accounts, 'parent')
+        : join(accounts, 'retained')
+      await mkdir(target, { recursive: true })
+      if (arrangement === 'alias') await symlink(target, retained)
+      else await mkdir(retained, { recursive: true })
+      const targetAuth = chatgptAuth('fixture-person', 'workspace-b')
+      const retainedAuth = arrangement === 'same' || arrangement === 'alias' ? targetAuth : chatgptAuth('fixture-person', 'workspace-c')
+      await writeFile(join(target, 'auth.json'), targetAuth)
+      await writeFile(join(retained, 'auth.json'), retainedAuth)
+      const rows = [
+        { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: target, createdAt: 1 },
+        { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: retained, createdAt: 2 },
+      ]
+      const file = join(root, 'accounts.json')
+      await writeFile(file, JSON.stringify({ accounts: rows }))
+      const slots = new AccountSlots(file)
+      assert.equal(slots.remove(FAKE_RUNTIME_ID, purge)?.home, target)
+      assert.deepEqual(slots.list(), [rows[1]], 'removing one account never forgets another saved row with its id')
+      assert.deepEqual(new AccountSlots(file).list(), [rows[1]], 'the retained row survives a roster reload')
+      assert.equal(await readFile(join(retained, 'auth.json'), 'utf8'), retainedAuth, 'the retained credential home stays intact')
+      if (purge && arrangement === 'separate') assert.equal(existsSync(target), false, 'an unshared removed home is purged')
+      else assert.equal(await readFile(join(target, 'auth.json'), 'utf8'), targetAuth, 'overlapping homes are retained for their surviving owner')
+    })
+  }
+}
+
+test('an unresolved retained alias conservatively keeps the removed home', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const target = join(root, 'accounts', 'target')
+  const alias = join(root, 'accounts', 'alias')
+  await mkdir(target, { recursive: true })
+  await writeFile(join(target, 'keep.txt'), 'retained data')
+  await symlink(target, alias)
+  const rows = [
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: target, createdAt: 1 },
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: alias, createdAt: 2 },
+  ]
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: rows }))
+  const slots = new AccountSlots(file)
+  const original = realpathSync.native
+  try {
+    realpathSync.native = ((path: Parameters<typeof original>[0], options?: Parameters<typeof original>[1]) => {
+      if (path === alias) throw Object.assign(new Error('synthetic failure'), { code: 'EACCES' })
+      return original(path, options as never)
+    }) as typeof original
+    slots.remove(FAKE_RUNTIME_ID)
+  } finally { realpathSync.native = original }
+  assert.deepEqual(new AccountSlots(file).list(), [rows[1]])
+  assert.equal(await readFile(join(alias, 'keep.txt'), 'utf8'), 'retained data')
+})
+
+test('a dangling retained alias conservatively keeps an otherwise unshared home', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const target = join(root, 'accounts', 'target')
+  const alias = join(root, 'accounts', 'alias')
+  await mkdir(target, { recursive: true })
+  await writeFile(join(target, 'keep.txt'), 'retained conservatively')
+  await symlink(target, alias)
+  const rows = [
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: target, createdAt: 1 },
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: alias, createdAt: 2 },
+  ]
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: rows }))
+  const slots = new AccountSlots(file)
+  assert.equal(slots.list().length, 2)
+  await rm(alias)
+  await symlink(join(root, 'accounts', 'missing'), alias)
+  slots.remove(FAKE_RUNTIME_ID)
+  assert.deepEqual(slots.list(), [rows[1]])
+  assert.equal(await readFile(join(target, 'keep.txt'), 'utf8'), 'retained conservatively')
+})
+
+test('a real parent-directory escape is refused even with a dotdot-prefixed sibling', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const outside = join(root, '..saved')
+  await mkdir(outside, { recursive: true })
+  await writeFile(join(outside, 'keep.txt'), 'outside')
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: [
+    { id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: join(root, 'accounts', '..', '..saved'), createdAt: 1 },
+  ] }))
+  const slots = new AccountSlots(file)
+  assert.deepEqual(slots.list(), [])
+  slots.pruneEmpty(FAKE_RUNTIME_ID)
+  assert.equal(await readFile(join(outside, 'keep.txt'), 'utf8'), 'outside')
+})
+
+test('account removal requires the saved slot object and refuses copies, mismatches and stale selectors', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const rows = ['retained', 'selected'].map((name, index) => ({
+    id: FAKE_RUNTIME_ID, agent: FAKE_RUNTIME_ID, home: join(root, 'accounts', name), createdAt: index,
+  }))
+  for (const row of rows) {
+    await mkdir(row.home, { recursive: true })
+    await writeFile(join(row.home, 'auth.json'), chatgptAuth('fixture-person', row.home))
+  }
+  const file = join(root, 'accounts.json')
+  await writeFile(file, JSON.stringify({ accounts: rows }))
+  const slots = new AccountSlots(file)
+  const selected = slots.list()[1]!
+  const untouched = await readFile(file, 'utf8')
+  assert.equal(slots.remove(FAKE_RUNTIME_ID, true, { ...selected }), null, 'a copied selector cannot choose another saved row')
+  assert.equal(slots.remove('other-runtime' as RuntimeId, true, selected), null, 'the selected row must match the runtime')
+  assert.equal(await readFile(file, 'utf8'), untouched)
+  assert.equal(slots.remove(FAKE_RUNTIME_ID, true, selected), selected)
+  assert.equal(existsSync(selected.home), false)
+  assert.equal(slots.remove(FAKE_RUNTIME_ID, true, selected), null, 'a stale selector cannot remove the surviving peer')
+  assert.deepEqual(new AccountSlots(file).list(), [rows[0]])
+  assert.equal(existsSync(join(rows[0]!.home, 'auth.json')), true)
+})
 
 test('an identity is the person and the workspace, never the email alone', async (t) => {
   const root = await home()
