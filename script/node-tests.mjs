@@ -58,10 +58,14 @@ export const GROUPS = [
     // 240s, #1003, #1289), so the file cap has to be wide enough for one case
     // stuck to its ceiling plus the rest of the file run slow under load, or
     // the runner cuts the file before the case can say what did not move.
+    // The Lead journal's disk-rotation file is here for the same cap: about
+    // 90s of real checkpoint and reopen cycles measured in CI, which a loaded
+    // nightly carried past 120s.
     patterns: [
       'packages/server/dist/test/flow-host-evidence-*.test.js',
       'packages/server/dist/test/intake-*.test.js',
       'packages/cli/dist/test/e2e*.test.js',
+      'packages/server/dist/test/lead-journal.test.js',
     ],
     timeout: 600_000, node: 22,
   },
