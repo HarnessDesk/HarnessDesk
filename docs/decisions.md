@@ -4849,3 +4849,49 @@ reading, proving each fails as the live check did, and adding its reads to the
 same visit. The families that open the same wall destinations (the leads, page
 layout and navigation) are next, and are where one visit per destination pays
 most.
+
+## The non-work window leads are captured once too — 2026-10-31
+
+The B10 lead contract — a non-work page titles itself in its content column,
+and the bar's fixed lead carries exactly the window's controls — was the
+next-largest frame family: 4,277 recorded test-seconds in the full matrix and
+805 in the pull-request matrix, over three window states (sidebar hidden at
+1440, 720, sidebar standing at 1440). Each of its 456 tests loaded two
+documents in a fresh context: the work conversation, for the place origin
+every non-work lead is held to, then the destination.
+
+It now runs the way the popup contracts do
+(`frame-snapshot-batch.ts`, shared by both families):
+
+- The work conversation's origin is read once per batch of ten
+  destinations, and each destination once, through one page.
+- `frame-contract-leads-snapshot.ts` reads the lead. The live check waited
+  before most assertions — for a title to leave the bar, the lead to gain its
+  buttons, a long title to find its room — and each wait is kept under the
+  same condition and deadline; only the assertion moved, to
+  `frame-contract-leads-rules.ts`. `expectLead`, which the B6 work leads
+  still call live, reads and checks through the same rule.
+- It is geometry, so it reads light only, in every matrix: the decision of
+  2026-10-31 above, accepted by the owner for this family as well.
+- `lead-contract-rules.spec.ts` breaks each fact of a synthesised reading,
+  21 cases, and expects the rule to name it.
+
+Measured on built pages, two workers:
+
+- A reused page read what the old test's fresh context read (the
+  conversation first, then the destination): 228 of 228 destination-states
+  and 12 of 12 batch references were identical.
+- Old and new failed on exactly the same destinations in 1,140 of 1,140
+  cases, over the unmutated page and CSS mutations of the title's column edge
+  (caught at 70 destinations in each state), a hidden title (70), a missing
+  Back control (50; Settings carries none) and the bar's height (the 26
+  Settings pages).
+- The branch that holds a bar title to the work origin and its title room is
+  reached by no destination today — all 76 title themselves in a column, six
+  of them canvases — so neither version asserted it on the live app, and
+  mutations of the place and the title changed nothing in either. Its rule is
+  held by the synthesised cases alone, and runs when a destination reaches it.
+- Time: from 1,070 test-seconds (the old light half, what a pull request
+  read) and 2,116 (both themes) to 368; wall time for the whole family went
+  from 1,067 seconds to 190. The durations tables scale the recorded times by
+  these ratios until CI records them.
