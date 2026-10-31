@@ -642,8 +642,11 @@ export interface HostOptions {
 export interface AccountFactory {
   /** Whether one more account of this runtime is possible at all. */
   canAdd(info: RuntimeInfo): boolean
-  /** The primary this runtime is an account of, and where its credential sits. */
-  slotOf(info: RuntimeInfo): {
+  /**
+   * The primary and credential home. During setup only, allocation identifies
+   * the unregistered runtime whose own pending slot may be inspected.
+   */
+  slotOf(info: RuntimeInfo, allocation?: AgentRuntime): {
     agent: RuntimeId
     home: string | null
     removable: boolean
@@ -664,6 +667,10 @@ export interface AccountFactory {
    * knows a name, or the row is fine unnamed".
    */
   add(info: RuntimeInfo, gateway?: NewGatewayAccount, name?: string): Promise<AgentRuntime>
+  /** Publish an allocation's ownership only after the host registers it. */
+  commitAdd?(runtime: AgentRuntime): void
+  /** Undo a failed allocation after setup or commit, without touching its competitor. */
+  rollbackAdd?(runtime: AgentRuntime): Promise<void>
   remove(runtime: RuntimeId): Promise<void>
   /**
    * Who this account is signed in as, as a string the host only ever compares
@@ -1281,7 +1288,7 @@ export class Host {
           return cwd && root ? { cwd, root } : null
         },
         admitWrite: async (verb, scope, args) => {
-          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '' }
+          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '', associatedPullRequest: '' }
           const result = await this.#ceilingGate.admit({ tool: verb === 'comment' && (args as { subject?: string })?.subject === 'issue' ? 'issue_comment' : names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
             scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!), ...(scope.turnId ? { turnId: scope.turnId as TurnId } : {}) }, publishes: true })
           if (!result.admitted) throw new Error(result.refusal)
@@ -2329,7 +2336,7 @@ export class Host {
         startTriggered: (request) => this.#flows.startTriggered(request),
         againTriggered: (run, key, evidence) => this.#flows.againTriggered(run, key, evidence),
         resumeTriggered: (run) => this.#flows.resumeTriggered(run),
-        supersedeTriggered: (run, why, next) => this.#flows.supersedeTriggered(run, why, next),
+        supersedeTriggered: (run, why, next, key) => this.#flows.supersedeTriggered(run, why, next, key),
         runs: (goal) => this.#flows.executionsFor(goal),
         execution: (run) => this.#flows.executionOf(run),
         stopRun: async (run, why) => { await this.#flows.stopRun(run, why, 'desk') },
@@ -2429,6 +2436,12 @@ export class Host {
     return this.#runtimes.has(id)
   }
 
+  /** Whether this exact runtime, rather than another with its id, was registered. */
+  ownsRuntime(runtime: AgentRuntime): boolean {
+    const registered = this.#runtimes.get(runtime.info.id)
+    return registered !== undefined && (this.#runtimeSources.get(String(runtime.info.id)) === runtime || registered === runtime)
+  }
+
   /**
    * Registers a runtime. Starting it is separate and allowed to fail: a machine
    * without Codex installed should still open the app and explain itself.
@@ -2439,6 +2452,7 @@ export class Host {
     if (this.#runtimes.has(id)) {
       throw new Error(`A runtime with id ${id} is already registered. Await unregister before registering it again.`)
     }
+    this.options.installs?.register?.(String(id), runtime)
     // These async surfaces belong to the same process as the runtime verbs.
     // Keep their receiver (including private fields) and share its lifecycle.
     const surfaces = new WeakMap<object, object>()
@@ -2556,6 +2570,7 @@ export class Host {
     this.#historyImport.cancel(id)
     const runtime = this.#runtimes.get(id)
     if (!runtime) return
+    this.options.installs?.forget?.(String(id))
     this.#invalidateDelegations(id)
     this.#settleHeld(id)
     this.registry.detachAll(id)
@@ -5192,6 +5207,7 @@ export class Host {
         all: () => [...this.#runtimes.values()],
         ids: () => new Set(this.#runtimes.keys()),
         infoOf: (runtime) => this.#infoOf(runtime),
+        installOwner: (runtime) => this.ownsRuntime(runtime) ? this.#runtimeSources.get(String(runtime.info.id)) : undefined,
         metered: () => this.#meteredRuntimes(),
         extensionsOf: (params) => this.#extensionsOf(params),
         files: (runtime) => this.#files(runtime),
@@ -5748,19 +5764,15 @@ export class Host {
 
     const agents = { restored: 0, skipped: 0 }
     const directory = this.options.agents
+    const storedAgent = (id: string): boolean => directory?.entries().some(entry => entry['id'] === id) ?? false
     for (const entry of Array.isArray(file.agents) ? file.agents : []) {
       const id = (entry as Record<string, unknown>)['id']
-      if (!directory || typeof id !== 'string' || this.#runtimes.has(id as RuntimeId) || directory.owns(id)) {
+      if (!directory || typeof id !== 'string' || this.#runtimes.has(id as RuntimeId) || storedAgent(id)) {
         agents.skipped += 1
         continue
       }
       try {
         const adopted = directory.adopt(entry as Record<string, unknown>)
-        if (!directory.owns(id)) {
-          agents.skipped += 1
-          continue
-        }
-        agents.restored += 1
         if (adopted) {
           if (adopted.usage) this.bindUsage(adopted.runtime.info.id, adopted.usage)
           this.register(adopted.runtime)
@@ -5768,8 +5780,12 @@ export class Host {
           void this.#startOne(adopted.runtime)
         }
       } catch {
-        agents.skipped += 1
+        this.#logger.warn('an agent from a backup could not be brought up')
       }
+      // Adoption writes before it builds; registration can fail after that
+      // too. Count the persisted row once, independently of runtime startup.
+      if (storedAgent(id)) agents.restored += 1
+      else agents.skipped += 1
     }
 
     let preferences = 0
@@ -6050,15 +6066,17 @@ export class Host {
    * leave that account explaining itself on its own row, not stop the app —
    * the same bargain `#startOne` makes for an agent that will not launch.
    */
-  async #prepareGateway(runtime: AgentRuntime): Promise<void> {
-    const slot = this.options.accounts?.slotOf(runtime.info)
+  async #prepareGateway(runtime: AgentRuntime, acquired?: (release: () => Promise<void>) => void): Promise<void> {
+    const slot = this.options.accounts?.slotOf(runtime.info, runtime)
     if (!slot?.gateway) return
     const { name, endpoint, credentialRef } = slot.gateway
     try {
-      const gateway = await this.#gateways.ensure(runtime.info.id, {
+      const acquisition = await this.#gateways.acquire(runtime.info.id, {
         upstream: endpoint,
         resolveKey: () => this.#credentials.resolve(credentialRef),
       })
+      acquired?.(acquisition.release)
+      const gateway = acquisition.gateway
       await this.options.accounts?.prepare?.(runtime.info.id, {
         id: runtime.info.id,
         name,
@@ -6567,6 +6585,10 @@ export class Host {
   }
 
   async #askPerson(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'refused' | 'unanswered'> {
+    // A turn record can outlive an eventless close. Only a live handle may
+    // ask the person for a new tool approval.
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record?.live) return 'unanswered'
     const answer = await this.#askHeld(runtime, sessionId, question)
     return answer === 'standing' ? 'refused' : answer
   }
@@ -8955,11 +8977,40 @@ export class Host {
           credentialRef: await this.#credentials.store(`${gateway.name} key`, gateway.apiKey, { kind: 'gateway' }),
         }
       : undefined
-    const runtime = await accounts.add(of.info, spec, name)
-    // Before `register`, so the row never exists in a state where a turn could
-    // reach a Codex that has not been told where to send it.
-    await this.#prepareGateway(runtime)
-    this.register(runtime)
+    let runtime: AgentRuntime | undefined
+    let releaseGateway: (() => Promise<void>) | undefined
+    try {
+      const allocated = await accounts.add(of.info, spec, name)
+      if (this.ownsRuntime(allocated)) throw new Error('The account factory returned an already registered runtime.')
+      runtime = allocated
+      if (this.hasRuntime(runtime.info.id)) throw new Error('The account factory returned an already registered runtime id.')
+      // Before registration, so a turn cannot reach an unprepared gateway.
+      await this.#prepareGateway(runtime, release => { releaseGateway = release })
+      this.register(runtime)
+      accounts.commitAdd?.(runtime)
+    } catch (error) {
+      if (runtime) {
+        try {
+          if (this.ownsRuntime(runtime)) await this.unregister(runtime.info.id)
+        } catch (cleanupError) {
+          this.#logger.warn('a failed account setup could not stop its runtime', { runtime: runtime.info.id, error: String(cleanupError) })
+        }
+        try {
+          await releaseGateway?.()
+        } catch (cleanupError) {
+          this.#logger.warn('a failed account setup could not stop its gateway', { runtime: runtime.info.id, error: String(cleanupError) })
+        }
+        try { await accounts.rollbackAdd?.(runtime) } catch (cleanupError) {
+          this.#logger.warn('a failed account allocation could not be removed', { runtime: runtime.info.id, error: String(cleanupError) })
+        }
+      }
+      if (spec) {
+        try { await this.#credentials.delete(spec.credentialRef) } catch (cleanupError) {
+          this.#logger.warn('a failed account setup left its new key stored', { error: String(cleanupError) })
+        }
+      }
+      throw error
+    }
     const info = this.#infoOf(runtime)
     this.#push({ method: 'runtime/added', params: { info } })
     // Waited for, not left running behind the answer: the caller's very next

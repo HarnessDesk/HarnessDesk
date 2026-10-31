@@ -43,14 +43,28 @@ const inputChangesOf = (call: ToolCallItem, cwd: string): readonly FileChange[] 
   if (diff === undefined) {
     const content = stringOf(input.content, input.file_text, input.file_content, input.streamContent, input.code_edit, input.diff, input.patch, input.new_source)
     if (content !== undefined) {
-      const hunk = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(?:[ \r]|$)/m
+      const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?:[ \r]|$)/m
       if (hunk.test(content)) {
         // Keep patch marks for the preview, but not input-only line positions
         // that would let Undo treat the agent's intention as an applied edit.
         let inHunk = false
-        diff = (content.match(/[^\n]*\n|[^\n]+$/g) ?? []).filter(line => {
-          if (hunk.test(line)) { inHunk = true; return false }
+        let oldRemaining = 0
+        let newRemaining = 0
+        const lines = content.match(/[^\n]*\n|[^\n]+$/g) ?? []
+        diff = lines.filter((line, index) => {
+          const header = hunk.exec(line)
+          if (header) {
+            inHunk = true
+            oldRemaining = Number(header[1] ?? 1)
+            newRemaining = Number(header[2] ?? 1)
+            return false
+          }
           if (line.startsWith('diff ')) inHunk = false
+          if (inHunk && oldRemaining <= 0 && newRemaining <= 0 && line.startsWith('--- ') && lines[index + 1]?.startsWith('+++ ')) inHunk = false
+          if (inHunk) {
+            if (line.startsWith('-') || line.startsWith(' ')) oldRemaining--
+            if (line.startsWith('+') || line.startsWith(' ')) newRemaining--
+          }
           return inHunk && /^[ +\-]/.test(line)
         }).join('')
       } else diff = marked('+', content)

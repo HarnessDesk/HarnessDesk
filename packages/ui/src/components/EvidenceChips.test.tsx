@@ -85,35 +85,40 @@ it('a check still running is said, and a card with nothing observed yet says wha
   expect(dialog?.textContent).toContain('Nothing an agent says is recorded here.')
 })
 
-it("each chip's tone is the one the state map gives its outcome, and stale and unknown are the Chip's own", async () => {
-  const card = cardEvidence(
-    1,
-    [
-      checkView(),
-      checkView({ name: 'lint', freshness: { state: 'behind', commits: 2 } }),
-      ciView(['passed', 'cancelled']),
-      prView('merged', { freshness: { state: 'unknown', why: 'its checkout is gone' } }),
-    ],
-    [{ name: 'e2e', since: 1 }],
-  )
-  await mount(<EvidenceChips id={1} title="Retry on a 502" card={card} />)
-  const chips = [...container.querySelectorAll<HTMLElement>('[data-slot="chip-words"]')].map((words) => {
+it('the observed facts retain their tone, freshness marks and stale distance', async () => {
+  const card = cardEvidence(1, [
+    checkView(),
+    checkView({ name: 'lint', freshness: { state: 'behind', commits: 2 } }),
+    ciView(['passed', 'cancelled']),
+    prView('merged', { freshness: { state: 'unknown', why: 'its checkout is gone' } }),
+  ], [{ name: 'e2e', since: 1 }])
+  await mount(<ObservedDialog id={1} title="Retry on a 502" card={card} onClose={() => {}} />)
+  const dialog = document.querySelector('[role="dialog"]')!
+  const chips = [...dialog.querySelectorAll<HTMLElement>('[data-slot="chip-words"]')].map(words => {
     const chip = words.parentElement as HTMLElement
     return [words.textContent, chip.dataset['tone'], 'stale' in chip.dataset, 'unknown' in chip.dataset]
   })
   expect(chips).toEqual([
-    ['e2e running', 'info', false, false],
     ['verify ✓ @a1b2c3d', 'success', false, false],
     ['lint ✓ @a1b2c3d', 'neutral', true, false],
     ['CI cancelled', 'neutral', false, false],
     ['PR #12 merged', 'neutral', false, true],
   ])
-  // The distance a stale fact is behind rides in its title, not on the chip.
-  const stale = container.querySelector<HTMLElement>('[data-stale]')
-  expect(stale?.getAttribute('title')).toBe('lint ✓ @a1b2c3d — 2 commits since')
-  expect(container.querySelector('button')?.getAttribute('aria-label')).toBe(
-    'What the desk observed on #1: e2e running, verify ✓ @a1b2c3d, lint ✓ @a1b2c3d — 2 commits since (stale), CI cancelled, PR #12 merged (unknown)',
-  )
+  expect(dialog.querySelector<HTMLElement>('[data-stale]')?.getAttribute('title')).toBe('lint ✓ @a1b2c3d — 2 commits since')
+  expect(dialog.textContent).toContain('e2e is running')
+  expect(dialog.textContent).toContain('Unknown: its checkout is gone.')
+})
+
+it('one status opens all recorded facts and their output', async () => {
+  const card = cardEvidence(1, [checkView({ exit: 1, tail: 'failed output' }), ciView(['passed', 'skipped'])])
+  await mount(<EvidenceChips id={1} title="Retry on a 502" card={card} />)
+  const button = container.querySelector<HTMLButtonElement>('button[aria-label="What the desk observed on #1: Failed"]')
+  expect(button).not.toBeNull()
+  expect(button?.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
+  expect(button?.textContent).toBe('Failed')
+  act(() => button?.click())
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('failed output')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('build: passed · lint: skipped')
 })
 
 it('draws a zero diff alone only when the caller says the card is finished', async () => {
@@ -125,7 +130,7 @@ it('draws a zero diff alone only when the caller says the card is finished', asy
       <div data-card="3"><EvidenceChips id={3} title="Unsaid" card={cardEvidence(3, [none])} /></div>
     </>,
   )
-  expect(container.querySelector('[data-card="1"]')?.textContent).toBe('no changes')
+  expect(container.querySelector('[data-card="1"]')?.textContent).toBe('Observed')
   expect(container.querySelector('[data-card="2"]')?.innerHTML).toBe('')
   expect(container.querySelector('[data-card="3"]')?.innerHTML).toBe('')
 })

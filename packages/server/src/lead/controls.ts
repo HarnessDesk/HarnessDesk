@@ -10,6 +10,8 @@ import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindow
 import { leadContainsSecret } from './secrets.js'
 
 export const LEAD_PLAN_CONSENT_MS = 86_400_000
+/** How long a click on a withdrawn result waits for the Lead to offer that same card again: one read of the desk. */
+export const LEAD_REOFFER_WAIT_MS = 15_000
 
 /** Trusted host feedback survives the resume transition that clears the wait.
  * It is supplied as current context, rather than fabricated assistant history. */
@@ -346,7 +348,43 @@ export class LeadControls {
       if (journal.state.seq === revision) await journal.settingsChanged()
     }
   }
-  decide(decision: LeadCardDecision): Promise<LeadWindowProjection> { return this.#queue(async () => {
+  /**
+   * A person's decision on a card. The Lead withdraws every undecided result
+   * while observations coalesce and restores it once it has read them again,
+   * so a click can land on a result taken back a moment before. Then the
+   * decision waits, outside the queue, for that same card — same id and
+   * revision, so the same evidence — to be offered again, and is made on it;
+   * a card offered at another revision, or not again within
+   * `LEAD_REOFFER_WAIT_MS`, is refused as before. A card a person decided is
+   * never waited for, and nothing whose effect began is decided again.
+   */
+  async decide(decision: LeadCardDecision): Promise<LeadWindowProjection> {
+    for (let attempt = 1; ; attempt++) {
+      try { return await this.#decideOnce(decision) } catch (error) {
+        const code = (error as { wireCode?: unknown })?.wireCode
+        if ((code !== 'lead-card-stale' && code !== 'lead-card-decided') || attempt >= 3 ||
+          !this.options.journal.withdrawn(decision.cardId, decision.expectedRevision) || !await this.#offeredAgain(decision)) throw error
+      }
+    }
+  }
+  /** Resolves true once the card is undecided again at the same revision; false when it moved on or did not come back in time. */
+  #offeredAgain(decision: LeadCardDecision): Promise<boolean> {
+    const { journal } = this.options, key = `${decision.cardId}:${decision.expectedRevision}`
+    return new Promise(resolve => {
+      let timer: ReturnType<typeof setTimeout> | undefined, detach = () => {}
+      const done = (again: boolean) => { if (timer) clearTimeout(timer); detach(); resolve(again) }
+      const check = () => {
+        const state = journal.state, card = state.cards.find(one => one.id === decision.cardId)
+        if (this.#closed || !card || card.revision !== decision.expectedRevision) done(false)
+        else if (!state.decidedCards.includes(key)) done(true)
+      }
+      detach = journal.onChange(check)
+      timer = setTimeout(() => done(false), LEAD_REOFFER_WAIT_MS)
+      timer.unref?.()
+      check()
+    })
+  }
+  #decideOnce(decision: LeadCardDecision): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const { journal } = this.options, state = journal.state
     if (this.options.readWorkerApprovals?.().some(card => card.id === decision.cardId)) throw leadRefusal('lead-worker-approval')
     if ((await this.options.readPersonActions?.() ?? []).some(action => action.kind === 'worker-approval' && action.id === decision.cardId)) throw leadRefusal('lead-worker-approval')
