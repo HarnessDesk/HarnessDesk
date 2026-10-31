@@ -5,7 +5,7 @@ import type { MessagesTransport } from '@harnessdesk/lead'
 export const LEAD_RIG_KEY = 'sk-ant-test-not-real-0000' // hd-secrets-ok: brief-mandated synthetic key, accepted only by the loopback fixture
 export interface ScriptedRequest { readonly id: string; readonly body: Record<string, any>; delivered: boolean }
 /** A real loopback Messages endpoint. There is no fallback to a vendor URL. */
-export async function leadMessagesServer(reply: (body: Record<string, any>) => unknown[], holdFirst: boolean | (() => boolean) = false) {
+export async function leadMessagesServer(reply: (body: Record<string, any>) => unknown[], holdFirst: boolean | (() => boolean) = false, holdRepeated = false) {
   const requests: ScriptedRequest[] = []
   let held: { response: ServerResponse; finish: () => void } | null = null
   let interrupted = false, heldOnce = false
@@ -25,7 +25,7 @@ export async function leadMessagesServer(reply: (body: Record<string, any>) => u
         response.end(JSON.stringify({ type: 'message', role: 'assistant', content, stop_reason: content.some((one: any) => one.type === 'tool_use') ? 'tool_use' : 'end_turn',
           usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30, cache_creation_input_tokens: 40 } }))
       }
-      if (!heldOnce && !interrupted && (typeof holdFirst === 'function' ? holdFirst() : holdFirst && requests.length === 1)) { heldOnce = true; held = { response, finish } }
+      if ((!heldOnce || holdRepeated) && !interrupted && (typeof holdFirst === 'function' ? holdFirst() : holdFirst && requests.length === 1)) { heldOnce = true; held = { response, finish } }
       else finish()
     } catch { response.writeHead(400); response.end() }
   })

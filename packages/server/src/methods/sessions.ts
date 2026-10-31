@@ -76,7 +76,12 @@ const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sess
   // reopen, as the quiet release and archive keep them. A pane closes at
   // once, whatever is happening in it, so there is no quiet to wait for.
   ctx.sessions.holdPicks({ runtime: params.runtime, sessionId: makeSessionId(params.sessionId) })
-  await record?.live?.close()
+  try {
+    await record?.live?.close()
+  } finally {
+    // In-flight tools can ask while the asynchronous close is still pending.
+    ctx.ceilings.settleHeld(params.runtime, params.sessionId)
+  }
   if (record) {
     record.live = null
     /* Closed on purpose, so the handle was not *lost* — which is all

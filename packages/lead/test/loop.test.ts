@@ -69,6 +69,28 @@ test('uncertain requests and budget stops halt without another model call', asyn
   }
 })
 
+test('a capacity refusal while running leaves a durable wait without stopping the budget', async () => {
+  const s = await fixture()
+  await s.approve()
+  const update = s.journal.updateBudget.bind(s.journal)
+  s.journal.updateBudget = async (event: Parameters<typeof update>[0], ...rest: [Parameters<typeof update>[1]?]) => {
+    if (event.type === 'reserve') throw Object.assign(new Error('refused'), { wireCode: 'lead-budget-admission' })
+    return update(event, ...rest)
+  }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.equal(s.journal.state.phase, 'waiting-for-user')
+    assert.equal(s.journal.state.managementReason, 'lead-request-failed')
+    assert.equal(s.journal.state.budget!.stop, null)
+    assert.equal(s.journal.state.budget!.requests.length, 0)
+    assert.equal(s.fake.requests.length, 0)
+    const reopened = await lead.createLeadJournal(s.storage)
+    assert.equal(reopened.state.phase, 'waiting-for-user')
+    assert.equal(reopened.state.managementReason, 'lead-request-failed')
+  } finally { await loop.close() }
+})
+
 test('replay converts a crash-mid-send reservation to uncertain without settling or retrying', async () => {
   const s = await fixture()
   await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'lost-request', inputTokens: 100, maxOutputTokens: 100,
@@ -473,6 +495,20 @@ test('fresh same-dollar spend samples preserve one live result at its original r
   assert.equal(loop.state.reason, 'lead-result-awaiting-person')
   assert.equal(s.records.filter(record => record.type === 'management').length, managementCount)
   await loop.close()
+})
+
+test('a result already offered with the same evidence and spend is kept, not offered again, by a loop that did not offer it', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  const first = s.journal.state.cards.find(card => card.type === 'result')!
+  await loop.close()
+  // A loop that did not offer it — as for the host's result once a repair's CI passed — finds this same result.
+  const next = exported('createLeadLoop')(s.options)
+  await next.refresh(); await next.idle()
+  assert.equal(liveResults(s).length, 1)
+  assert.equal(liveResults(s)[0]!.revision, first.revision, 'a click on the card already offered still stands')
+  await next.close()
 })
 
 test('notices and seat/team changes refresh observations without waking the model', async () => {

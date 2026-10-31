@@ -187,10 +187,13 @@ export const EVIDENCE_BOARD: BoardEvidence = {
   unreadable: null,
   cards: [
     cardEvidence(1, [
-      checkView({ card: 1 }),
-      ciView(['passed', 'passed', 'skipped'], { card: 1 }),
+      checkView({ card: 1, exit: 1, tail: 'synthetic failure output' }),
+      ciView(['passed', 'skipped'], { card: 1 }),
       prView('open', { card: 1 }),
       diffView({ card: 1 }),
+      factView({ kind: 'review', verdict: 'request-changes', by: 'seat-judge', at: HEAD }, { card: 1 }),
+      factView({ kind: 'finding', id: 'finding-1', state: 'open', at: HEAD }, { card: 1 }),
+      checkView({ card: 1, name: 'lint', freshness: { state: 'behind', commits: 2 } }),
     ]),
     cardEvidence(2, [
       checkView({ card: 2, freshness: { state: 'behind', commits: 2 } }),

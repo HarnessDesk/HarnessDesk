@@ -376,12 +376,13 @@ The desk records what it observed, never what an agent said: a named check it
 ran, the branch's diff, and its pull request with the forge's checks on that
 pull request's head — each bound to the commit it was true at, and kept under
 `~/.harnessdesk/evidence/`, one append-only store per project, never in the
-repository. A card carries its facts as chips — *verify ✓ @a1b2c3d*, *CI ✓*,
-*PR #12 open*, *+120 −30 in 6 files* — and a fact no longer about its
-branch's head says how far behind it is (*verify ✓ @a1b2c3d — 2 commits
-since*), struck through and never green; one the desk cannot place is drawn
-neutral, and its dialog says why. The chips open *What the desk observed*:
-when, at which commit, by which Seat, and how each stands now.
+repository. A card carries one compact status describing its recorded observations,
+with current failures, requests and open findings taking priority. The status is
+not a certification that all required checks passed. It opens *What the desk
+observed*: the latest facts, when they were recorded, their revisions, commands,
+output, individual CI jobs, and how each stands now. The Flow inspector keeps
+the separate check attempt history, including earlier failures and incomplete
+or unreadable history. Cards without displayed observations omit the status.
 
 Staleness is read, not watched: the board reads its evidence when it is shown,
 when the window comes back to the front, and every thirty seconds while it is

@@ -20,4 +20,10 @@ export interface ForgeGitEntry {
   readonly outcome: 'intent' | 'ok' | 'refused' | 'failed' | 'rejected'; readonly reason?: string
 }
 export interface ForgeWriteResult { readonly output: string; readonly repository: string }
-export type ForgeVerb = 'push' | 'create' | 'update' | 'merge' | 'review' | 'comment' | 'record' | 'attribute' | 'repository'
+export type ForgeVerb = 'push' | 'create' | 'update' | 'merge' | 'review' | 'comment' | 'record' | 'attribute' | 'repository' | 'associatedPullRequest'
+
+export type ForgeAssociatedPullRequest =
+  | { readonly status: 'found'; readonly number: number; readonly repository: string }
+  | { readonly status: 'none' }
+  | { readonly status: 'ambiguous' }
+  | { readonly status: 'unavailable' }

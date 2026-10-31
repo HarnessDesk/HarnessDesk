@@ -64,14 +64,14 @@ pnpm verify
 Run it bare — never piped into anything, because a pipe eats the exit code
 and a red run reads green. It is the whole pre-commit gate: the lockfile
 install, the build, every test suite (Node packages, gate scripts, UI and
-desktop) plus the server's Lead end-to-end test file, flow-host-evidence and
-intake test files and the command line's end-to-end file in runs of their own, at a wider per-file
-timeout than the rest (Node 22 caps
-`--test-timeout` per file, cumulatively, where these legitimately run long; it
-is a per-test default on newer Node), the host-retention test file alone at the
-ordinary timeout (its heap and CPU workload runs without competing server
-fixtures), the Lead supervisor, service and client tests separately, the Lead
-assembly child and host repair tests, the UI typecheck, the layering rules,
+desktop) with the Node packages' tests in the groups `script/node-tests.mjs`
+declares — the Node end-to-end group (flow-host-evidence, intake and the
+command line's end-to-end files) and the Lead end-to-end group at a wider
+per-file timeout than the rest (Node 22 caps `--test-timeout` per file,
+cumulatively, where these legitimately run long), the host-retention test file
+in an invocation of its own (its heap and CPU workload runs without competing
+server fixtures), and the Lead group (supervisor, service, client, assembly
+child and host repair) on its runtime — the UI typecheck, the layering rules,
 the half-applied-fixes check, a tracked-secrets scan, the
 reachable-methods check, the third-party notices check, the design-system
 gates, the UI-system architecture gate, interface drift, the command-line reference check, the recorded-claims link, the doc-paths check, the
@@ -82,17 +82,27 @@ also runs selected browser integration and native smoke checks. A passing
 local gate does not replace those CI results.
 
 On pull requests, “Build, typecheck, test” always runs. It stands for the whole
-gate and is green only when each of five jobs that run side by side is: the
-Node tests and Node end-to-end tests on Node 22, the Lead tests on Node 26,
-the UI tests, and the checks.
+gate and is green only when every part that runs side by side is: the Node
+test jobs, the UI tests, and the checks. `node script/node-tests.mjs --plan`
+deals the Node groups into jobs of about five minutes each by the seconds
+`script/node-test-durations.json` records — three on Node 22, four on Node 26
+for the Lead's groups — and `--job <name>` runs one of them locally exactly as
+CI does. Each job uploads its files' measured seconds; fold a run's into the
+table with `node script/node-tests.mjs --refresh <files>` when the deal drifts.
 
 Browser integration has two tiers. Ordinary pull requests use the **bounded**
 tier, as do pushes to `development`. A push to `main`, a pull request whose
 head branch is `development` or starts with `batch/`, a pull request labelled
 `full-ci`, the nightly run and a manual dispatch use the **full** tier.
 Adding `full-ci` starts one full run on the head commit (`full-ci-label.yml`); no other label starts anything. The full tier runs every browser
-spec in both themes, with the existing matrix of up to sixteen shards, and
-native smoke. A check named `CI tier: bounded` or `CI tier: full`, the browser
+spec and native smoke. Its runs on `main` and `development` (main pushes, the
+nightly run and manual dispatches of either) read every spec in both themes on
+the dev server, recording what each spec ran; its other runs (batch branches,
+`full-ci`, the release pull request, dispatches of other branches) read every
+spec in the `UI_SYSTEM_MATRIX=pr` matrix on the built pages. In nine days of
+full runs every dark-theme failure of a geometry spec came with the same case
+failing in light (21 of 21), and a recording made off those two branches was
+never saved. A check named `CI tier: bounded` or `CI tier: full`, the browser
 aggregate's log and the job summary identify what ran. Required check names stay
 the same; bounded success satisfies branch protection, but landing requires full
 CI. The development release PR supplies full evidence; batch branches and
@@ -110,6 +120,13 @@ two-commit history lacks it. Missing, all-zero or unavailable before commits
 run every browser spec with the bounded theme matrix. Native smoke stays
 full-tier only. Required check names stay the same and accept intentional
 skips, including browser jobs for docs-only pushes.
+
+A full run that passes every part, the whole browser suite and native smoke
+included, uploads a `proven-tree-<tree>` artifact (the `Tree proof` job). A push
+to `main` or `development` of a tree with such a proof from this repository's own
+branches — a batch head or the release pull request landing on a branch that had
+not moved — runs core CI only, and its summary names the run that proved it. The
+nightly run never reads a proof.
 
 Development pushes and local `check:push` keep added and edited specs, follow
 suite helpers, and resolve files read by specs to their readers. A reader alone
@@ -129,19 +146,24 @@ deferred spec. Other stale map evidence also ranks a conservative capped sample.
 On a development push, an unknown or unfetchable change range, no impact map
 when one is needed, an unreadable input graph, or an unresolvable read runs
 every spec without the cap. The `UI_SYSTEM_MATRIX=pr` matrix reads geometry
-contracts in light and colour contracts in both themes. Local checks have their
+contracts in light and colour contracts in both themes. The popup contracts
+(`frame-contract-popup-*`) read both themes in every matrix: each destination is
+rendered once per width, read, switched to dark in place and read again, and
+their rules run in Node over those readings. The non-work window leads
+(`frame-contract-nonwork-leads-*`) are geometry and read light only, in every
+matrix, the same way. Local checks have their
 own execution budget and report anything left to full CI. Each development
 push has a commit-keyed concurrency group, preserving running and pending
 coverage of earlier ranges; dispatches have a separate group, so pushes cannot
 cancel the nightly full run.
 
-The full tier uses `UI_SYSTEM_MATRIX=full` everywhere. Regressions beyond core
+Full-tier runs on `main` and `development` use `UI_SYSTEM_MATRIX=full`. Regressions beyond core
 CI, reached browser specs and local checks are caught by the nightly
 development run and the full release PR before main (or a batch or labelled pull request). Main also runs
 the full suite. `script/land-safe.mjs` refuses a bounded run even if all required checks pass; its newest full-tier
 proof must share the required checks' workflow check suite.
 
-Every full browser run records the UI modules each spec loaded and ran.
+Every full browser run on `main` or `development` records the UI modules each spec loaded and ran.
 `script/ui-impact.mjs merge` folds the records into a map; main and development
 cache it after clean full runs.
 A changed module selects the specs in which it ran; stylesheets and constants
