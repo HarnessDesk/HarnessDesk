@@ -11,12 +11,20 @@ import './styles/app.css'
 installPanelComponent()
 installOverlayScrollbarTracking()
 
+// Hold only faces until the saved shape has been applied before paint.
+document.body.setAttribute('data-hd-faces-pending', '')
 const store = new AppStore()
 // Development probe surface; harmless in production and priceless in a bug.
 ;(window as unknown as { __hdStore?: AppStore }).__hdStore = store
 const ready = store.connect()
 ;(window as unknown as { __hdReady?: Promise<void> }).__hdReady = ready
 void ready.catch((error: unknown) => {
+  // Once preferences arrived, the layout effect owns the reveal even if a
+  // later startup task fails before React has painted the chosen shape.
+  if (!store.getSnapshot().preferencesLoaded) {
+    document.body.setAttribute('data-hd-faces-startup-failed', '')
+    document.body.removeAttribute('data-hd-faces-pending')
+  }
   store.backgroundFailure(error instanceof Error ? error.message : String(error))
 })
 

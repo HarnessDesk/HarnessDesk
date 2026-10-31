@@ -3219,7 +3219,9 @@ revision, sequence and open-card checks apply to both paths.
 The owner chose the face shape for runtimes: a runtime is who does the work
 in these lists, and one meaning keeps one shape everywhere. Settings,
 setup, Add a runtime, gateway rows and the runtime card all follow the
-person's Faces setting — square corners by default, round when chosen.
+person's Faces setting. At the time, square corners were the default and round
+was chosen; the superseding decision above makes round the default and square
+the choice.
 Accounts keep their rings; plugins, skills, files and sections keep their
 square tiles.
 

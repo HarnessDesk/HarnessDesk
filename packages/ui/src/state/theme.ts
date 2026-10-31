@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { setNativeTheme } from '../lib/desktop'
 import { useSnapshot } from './context'
@@ -22,7 +22,8 @@ export type ResolvedTheme = 'light' | 'dark'
 const query = (): MediaQueryList => window.matchMedia('(prefers-color-scheme: dark)')
 
 export const useTheme = (): ResolvedTheme => {
-  const { theme: preference, palette, accent, corners, faces, look } = useSnapshot()
+  const { theme: preference, palette, accent, corners, faces, look, preferencesLoaded, status } = useSnapshot()
+  const faceStartup = useRef(document.body.hasAttribute('data-hd-faces-pending'))
   const [system, setSystem] = useState<ResolvedTheme>(() => (query().matches ? 'dark' : 'light'))
 
   useEffect(() => {
@@ -63,10 +64,17 @@ export const useTheme = (): ResolvedTheme => {
   }, [corners])
 
   // Faces are the fourth dial, round by default and so an absent attribute.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (faces === 'round') document.body.removeAttribute('data-hd-faces')
     else document.body.setAttribute('data-hd-faces', faces)
-  }, [faces])
+    if (preferencesLoaded) document.body.removeAttribute('data-hd-faces-pending')
+    else if (faceStartup.current && !document.body.hasAttribute('data-hd-faces-startup-failed')) {
+      // An initial outage must not hide faces forever. Re-arm before paint if
+      // the socket returns while the original preference read is still due.
+      if (status === 'reconnecting') document.body.removeAttribute('data-hd-faces-pending')
+      else if (status === 'open') document.body.setAttribute('data-hd-faces-pending', '')
+    }
+  }, [faces, preferencesLoaded, status])
 
   // The interface is the same mechanism again, and for the same reason: Desk
   // is the absence of the attribute, so it is what the token file already

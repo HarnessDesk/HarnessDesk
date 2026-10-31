@@ -588,8 +588,9 @@ own icon in six colourways, from `assets/brand/faces`, and then the house
 mark's family, twenty-three whales from `assets/avatars`; the whale drawn in
 black is left out because a dark surface swallows it, and the default is the
 mark itself, drawn in the theme's own ink. Whichever you wear is also what the
-Dock wears, and clearing it puts the app's own icon back there. A face is a squared tile
-everywhere you appear, so its footprint never changes when the face does.
+Dock wears, and clearing it puts the app's own icon back there. A face is
+round by default and square when chosen, everywhere you appear; its footprint
+never changes when the face does.
 Clearing the name puts "HarnessDesk" back, picking the first face puts the
 mark back, and **Reset to default** puts back both. It stays on this Mac.
 What an avatar stores is its id — a short

@@ -1449,7 +1449,9 @@ export const PlaceControl = ({ onChooseProject: chooseProject }: { onChooseProje
               hint={armed ? `Made when you send, from ${armed.fromDefault ? 'the default branch' : armed.base ?? 'HEAD'}.` : undefined}
               title={armedBranch ?? 'A checkout of its own, on a branch of its own.'}
               selected={automatic || armed !== null}
-              disabled={branch ? false : 'Worktrees need a git repository. This folder is not one.'}
+              disabled={branch ? false : workspace.repo === undefined && workspace.git === undefined
+                ? 'Repository information is unavailable.'
+                : 'Worktrees need a git repository. This folder is not one.'}
               onSelect={() => {
                 close()
                 store.askNewWorktree(workspace.path)
