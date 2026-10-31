@@ -4663,3 +4663,27 @@ the failure logs of the 128 jobs that failed in them:
 **Rule:** a job's contents come from a manifest and the last measurement, never
 from a list in the workflow; a check that never finds anything another check
 does not is measured, then removed from the place it costs most.
+
+## A click on a result the Lead took back is made when that same result returns — 2026-10-31
+
+The Lead withdraws every undecided result as soon as an observation that may
+change it arrives ("invalidate first"), and restores or re-offers it once it
+has read the desk again. A person's click that landed in between was refused
+(`lead-card-stale`, `lead-card-decided`), though the result came back exactly
+as it was. With the host's reads faster, the Lead publication end-to-end cases
+hit that window on most runs; a person hits it as an accept that fails for no
+reason they can see.
+
+The fence stays: nothing is decided while a result is withdrawn. The journal
+remembers, in memory only, which results an invalidation took back while
+undecided. A refused click on one of those waits, outside the controls queue,
+for that same card — same id and revision, so the same contract and evidence —
+to be offered again, then is made on it; a new revision, the card gone, or no
+return within `LEAD_REOFFER_WAIT_MS` (fifteen seconds) is refused as before. A
+card a person decided is never waited for, and a click whose publication began
+is never made twice: an invalidation is fenced while a publication is in
+flight. Not invalidating on quiet events was rejected: whether an event
+changes a result is only known after the read the fence exists to wait for.
+
+**Rule:** a refusal says something changed; when nothing did, the click stands.
+

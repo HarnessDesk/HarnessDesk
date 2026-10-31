@@ -278,6 +278,12 @@ export class LeadJournal {
   #tail: Promise<unknown> = Promise.resolve()
   #failed = false
   readonly #dispatchNotStarted = new Set<string>()
+  /**
+   * Result cards an invalidation took back while no one had decided them, by
+   * `id:revision`. Memory only: after a restart a click on one is refused as
+   * before. Never holds a card a person decided.
+   */
+  readonly #withdrawn = new Set<string>()
   #stopEffectFailure: { readonly reason: 'stop-effects-failed'; readonly stopSeq: number } | null = null
   private readonly security: LeadJournalSecurity
   constructor(private readonly storage: LeadJournalStorage, records: readonly LeadJournalRecord[], security: LeadJournalSecurity = {}, checkpoint: LeadState | null = null) {
@@ -444,9 +450,18 @@ export class LeadJournal {
     // Recheck on the writer queue: the child's snapshot predates this RPC.
     if (this.#resultFenced()) return
     if (op?.stage === 'needs-you' && op.effectStarted === false) await this.#append({ type: 'publication', operation: { ...op, stage: 'superseded' }, pr: null })
-    if (!this.#state.cards.some(card => card.type === 'result' && !this.#state.decidedCards.includes(`${card.id}:${card.revision}`))) return
+    const open = this.#state.cards.filter(card => card.type === 'result' && !this.#state.decidedCards.includes(`${card.id}:${card.revision}`))
+    if (!open.length) return
     await this.#append({ type: 'invalidate-results' })
+    for (const card of open) this.#withdrawn.add(`${card.id}:${card.revision}`)
+    // A goal offers a handful of results; keep the newest few hundred at most.
+    for (const key of this.#withdrawn) { if (this.#withdrawn.size <= 256) break; this.#withdrawn.delete(key) }
   }) }
+  /** Whether a result card is decided only because an invalidation took it back, not because anyone chose. */
+  withdrawn(cardId: string, revision: number): boolean {
+    const key = `${cardId}:${revision}`
+    return this.#withdrawn.has(key) && this.#state.decidedCards.includes(key)
+  }
   /** Host-only bookkeeping from a fresh owned execution read. Unlike crash
    * recovery this observes a completed start while the management child lives;
    * it cannot discover a new run, resolve an uncertain start or authorize work. */

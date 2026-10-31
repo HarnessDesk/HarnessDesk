@@ -220,6 +220,41 @@ test('a result click invokes the live person path instead of accepting only the 
   assert.equal(s.journal.state.phase, 'accepted')
 })
 
+test('a click on a result the Lead took back is made on that same card once it is offered again, and refused if another comes', async () => {
+  const s = await rig(); await s.journal.offerCard(plan); await s.call('lead/card/decide', planClick)
+  const budget = { version: 1, revision: 1, caps: contract.caps, leadUsdMicros: 0, workerUsdMicros: 0,
+    reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known', stop: null }
+  const result = (revision: number) => ({ version: 1, id: 'result', revision, type: 'result', outcome: 'reviewed', summary: 'Ready', assertions: [], budget, contractDigest: contract.digest } as any)
+  const click = (revision: number) => ({ version: 1, cardId: 'result', cardType: 'result', expectedRevision: revision, contractDigest: contract.digest, choice: 'accept' })
+  await s.journal.offerCard(result(1))
+
+  // Observations arrive: the Lead takes the result back, and the person clicks it in that moment.
+  await s.journal.invalidateResults()
+  const clicked = s.call('lead/card/decide', click(1))
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal(s.answers.length, 0, 'nothing is decided while the result is taken back')
+  // Read again and found as it was: the same card, same revision, offered again.
+  await s.journal.restoreResult('result', 1)
+  await clicked
+  assert.equal(s.answers.length, 1)
+  assert.equal(s.journal.state.phase, 'accepted')
+
+  // A card offered at another revision is not the one the person saw.
+  const t = await rig(); await t.journal.offerCard(plan); await t.call('lead/card/decide', planClick)
+  await t.journal.offerCard(result(1))
+  await t.journal.invalidateResults()
+  const stale = t.call('lead/card/decide', click(1))
+  await t.journal.offerCard(result(2))
+  await assert.rejects(stale, code('lead-card-decided'))
+  assert.equal(t.answers.length, 0)
+  // And a card a person already decided is refused at once, never waited for.
+  await t.call('lead/card/decide', click(2))
+  const started = Date.now()
+  await assert.rejects(t.call('lead/card/decide', click(2)), code('lead-card-decided'))
+  assert.ok(Date.now() - started < 1_000)
+  assert.equal(t.answers.length, 1)
+})
+
 for (const action of ['resume', 'send'] as const) test(`the window ${action} resets the real loop no-progress counter`, async () => {
   const s = await rig({ configured: true }), scheduled: (() => void)[] = []
   let requests = 0, sequence = 0, end: (() => void) | undefined
