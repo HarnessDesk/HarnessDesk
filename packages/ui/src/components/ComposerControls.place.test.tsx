@@ -373,7 +373,7 @@ it('keeps the place control while repository facts have not been read', () => {
   expect(row('Local')).toBeDefined()
   expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
   expect(row('New worktree')).toBeDefined()
-  expect(row('New worktree')?.textContent).toContain('Checking this folder…')
+  expect(row('New worktree')?.textContent).toContain('Repository information is unavailable.')
 })
 
 it('keeps a linked worktree as the default without an explicit draftPlace', () => {

@@ -40,7 +40,7 @@ it('keeps the unread reason when both composer refreshes fail', async () => {
   expect(store.getSnapshot().workspace?.repo).toBeUndefined()
   const row = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent?.startsWith('New worktree'))!
   expect(row.getAttribute('aria-disabled')).toBe('true')
-  expect(row.textContent).toContain('Checking this folder…')
+  expect(row.textContent).toContain('Repository information is unavailable.')
 })
 
 it.each(['composer', 'sidebar', 'project', 'palette'] as const)('%s re-reads an external first commit on reopening', async (surface) => {

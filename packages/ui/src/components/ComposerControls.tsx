@@ -1450,7 +1450,7 @@ export const PlaceControl = ({ onChooseProject: chooseProject }: { onChooseProje
               title={armedBranch ?? 'A checkout of its own, on a branch of its own.'}
               selected={automatic || armed !== null}
               disabled={branch ? false : workspace.repo === undefined && workspace.git == null
-                ? 'Checking this folder…'
+                ? 'Repository information is unavailable.'
                 : 'Worktrees need a git repository. This folder is not one.'}
               onSelect={() => {
                 close()
