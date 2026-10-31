@@ -4,6 +4,7 @@ import { currentTurn, type GitStatus } from '@harnessdesk/protocol'
 
 import { handOverToComposer } from '../lib/compose'
 import { countChanges, splitByFile, DiffView, DiffFilesView } from '../editor'
+import { isPathInside, knownOpenRoots, reportedAbsolutePath, reportedPathsLocation } from '../lib/paths'
 import { useActiveSession, usePane, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { inView } from '../lib/git-view'
@@ -11,7 +12,7 @@ import { Activity } from './Activity'
 import { Agents, hasSessionAgents } from './Agents'
 import { SeatRecordBlock } from './SeatRecordBlock'
 import { FileIcon, ReviewIcon } from './Icons'
-import { Button, ListRowDetail, ToolBodyControls, ToolBodySections, ToolFooterSuppressed, ToolSection, Switch, Tabs, TabsList, TabsTrigger } from '../design'
+import { Button, Chip, ListRowDetail, ToolBodyControls, ToolBodySections, ToolFooterSuppressed, ToolSection, Switch, Tabs, TabsList, TabsTrigger } from '../design'
 import {
   Counts,
   GroupLine,
@@ -264,6 +265,7 @@ const Changes = ({
   const root = session?.cwd ?? snapshot.workspace?.path ?? null
   const turn = session ? currentTurn(session) : undefined
   const turnDiff = turn?.diff ?? null
+  const knownRoots = knownOpenRoots(snapshot.workspaces, snapshot.workspace, [...snapshot.sessions.values()].map(item => item.cwd), session?.cwd)
 
   // Refresh git whenever the agent stops working, since that is when the tree
   // has just changed and the user is most likely to look.
@@ -344,6 +346,21 @@ const Changes = ({
       ),
     [turnDiff, needle],
   )
+  const locationForTurnPath = (path: string) => {
+    const absolute = reportedAbsolutePath(path, session?.cwd)
+    const endpoints = (turn?.items ?? []).flatMap(item => item.type === 'fileChange' ? item.changes.flatMap(change => {
+      if (change.kind.type !== 'update' || !change.kind.movePath) return []
+      const paths = [change.path, change.kind.movePath]
+      return absolute && paths.some(value => {
+        const candidate = reportedAbsolutePath(value, session?.cwd)
+        // Containment in both directions is equality under the path helper's
+        // Windows-aware rules, without matching a parent to its descendant.
+        return candidate !== null && isPathInside(candidate, absolute) && isPathInside(absolute, candidate)
+      }) ? paths : []
+    }) : [])
+    return reportedPathsLocation([path, ...endpoints], session?.cwd, knownRoots)
+  }
+  const outsideCount = turnFiles.filter(file => locationForTurnPath(file.path) === 'outside').length
 
   const total = files.reduce(
     (sum, file) => {
@@ -377,8 +394,8 @@ const Changes = ({
     <>
       {turnFiles.length > 0 && (
         <>
-          <GroupLine left={`This turn · ${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'}`} />
-          <DiffFilesView files={turnFiles} />
+          <GroupLine left={`This turn · ${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'}`} right={outsideCount > 0 ? <Chip tone="neutral" size="sm" title="Reported path is outside the known open workspace and conversation roots.">{outsideCount} outside</Chip> : undefined} />
+          <DiffFilesView files={turnFiles} locationForPath={locationForTurnPath} />
         </>
       )}
 
