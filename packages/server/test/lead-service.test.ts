@@ -1010,6 +1010,23 @@ test('a host-journaled repair resumes without starting or waiting for a manageme
   assert.equal(s.spawns(), 0)
 })
 
+test('recovery and evidence changes leave a person wait childless until the next send', async t => {
+  const s = await rig(t, { probeRuntime: async () => ({ supported: true }) })
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
+  await s.service.setEnabled(true)
+  await s.service.recover()
+  assert.equal(s.process().live, false)
+  assert.equal(s.spawns(), 0)
+  assert.equal(s.bootstrap.length, 0)
+  s.service.evidenceChanged()
+  assert.equal(s.process().live, false, 'an evidence hint does not create a management observer')
+  assert.equal(s.service.requestInFlight, false)
+  assert.equal(s.journal.state.managementReason, 'lead-result-awaiting-person')
+  await s.service.send(input)
+  assert.equal(s.process().live, true)
+  assert.equal(s.spawns(), 1, 'the next person request starts the child through the ordinary bootstrap')
+})
+
 test('live child activity keeps the service cancellable after send returns and clears independently of durable reservations', async t => {
   const s = await rig(t)
   await s.service.setEnabled(true); await s.service.send(input)

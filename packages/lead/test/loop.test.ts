@@ -369,6 +369,40 @@ test('a final person-gate notification briefly fences even an unchanged reviewed
   } finally { await loop.close() }
 })
 
+test('a late repair notification invalidates a post-green result after hand-back completion', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const first = exported('createLeadLoop')(s.options)
+  await first.request(input); await first.close()
+  const old = s.journal.state.cards.find(card => card.type === 'result')!
+  const state: lead.LeadState = { ...s.journal.state, phase: 'running', managementReason: null,
+    decidedCards: [...s.journal.state.decidedCards, `${old.id}:${old.revision}`],
+    pr: { repository: 'acme/widgets', number: 7, branch: 'worker', head: 'head-1', branchOwner: 'lead', state: 'open', at: 100,
+      check: { head: 'head-1', state: 'passed', total: 1 } },
+    ciPassed: ['head-1'], handbacks: [{ key: 'repair-1', event: 'checks-failed', kind: 'checks', head: 'old-head', runId: 'run-1', teamId: 'team-1', round: 4, at: 100, stage: 'completed', publishedHead: 'head-1' }] }
+  const records: lead.LeadJournalRecord[] = []
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append(record) { records.push(record) }, checkpoint() { return state } })
+  const observation = await fixture(); observation.setEvidence(spendEvidence())
+  let next = 0
+  const loop = exported('createLeadLoop')({ ...observation.options, journal, nextId: () => `repair-observation-${++next}` })
+  try {
+    await loop.start()
+    assert.equal(lead.leadRepairResultReady(journal.state), true)
+    const card = journal.state.cards.find(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))!
+    assert.ok(card)
+    const afterOffer = records.length
+    observation.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'settled', flow: 'lead-reviewed-result', round: 4, reason: null })
+    await observation.drain()
+    assert.deepEqual(records.slice(afterOffer).map(record => record.type), ['invalidate-results'], 'the notification fence retires the exact fresh card, without a later hand-back or person decision')
+    assert.ok(journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
+    assert.equal(journal.state.handbacks.at(-1)!.stage, 'completed')
+    assert.deepEqual(journal.state.ciPassed, ['head-1'])
+    await observation.tick(); await loop.idle()
+    assert.equal(journal.state.decidedCards.includes(`${card.id}:${card.revision}`), false, 'the final observation restores the unchanged post-green card')
+    assert.equal(journal.state.cards.find(current => current.id === card.id)!.revision, card.revision)
+  } finally { await loop.close() }
+})
+
 test('an ordinary event prevents an older in-flight evidence read from restoring an invalidated result', async () => {
   const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
   await s.approve(); s.setEvidence(spendEvidence())

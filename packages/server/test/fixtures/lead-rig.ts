@@ -93,6 +93,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
   let currentStep = '', preview: { token: string; source: string; expiresAt: number } | undefined
   let deskSocketPath = ''
   let supervisorOptions!: LeadSupervisorOptions
+  let supervisor: LeadSupervisor | undefined
   const eagerResults: { tool_use_id: string; is_error: boolean }[] = []
   let eagerStart = false, eagerApproval = false, prematureStart = false
   let ordinaryForeign = ''
@@ -422,7 +423,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         }, readEvidence,
         createSupervisor: settings => {
           supervisorOptions = settings
-          const supervisor = new LeadSupervisor({ ...settings,
+          supervisor = new LeadSupervisor({ ...settings,
           connectDesk: async (descriptor, signal) => {
             deskSocketPath = descriptor.socketPath
             // A byte-for-byte socket bridge injects a real connection loss. No
@@ -518,7 +519,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       const creates = forgeCalls.filter(args => args[0] === 'pr' && args[1] === 'create')
       assert.ok(creates.length <= 1, 'at most the one person-authorized PR creation')
     }
-    return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service },
+    return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service }, get childLive() { return supervisor?.live ?? false },
       provider, children, calls, windowNotifications, get latestEvidence() { return latestEvidence }, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
       offline: options.offlineForge ? {
         read: readForge,
