@@ -6,6 +6,7 @@ import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, 
   type LeadBudgetEvent, type LeadCard, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy, type LeadPresence, parseLeadPresence } from '@harnessdesk/protocol'
 import { preferUnpackedPath, type DeskPointer } from '@harnessdesk/client/node'
 import { parseLeadRunIdentity, type LeadJournal, type LeadDispatchResult } from './journal.js'
+import { LeadBudgetAdmissionRefused } from './budget.js'
 import type { LeadPermissionCall } from './permissions.js'
 import type { LeadResolvedTool } from './tools.js'
 import type { LeadAcceptanceEvidence } from './acceptance.js'
@@ -155,6 +156,7 @@ export interface LeadSupervisorOptions {
   readonly readEvidence: (runId: string, read: (call: LeadPermissionCall) => Promise<unknown>) => Promise<LeadAcceptanceEvidence>
   readonly admitCardOffer?: (card: LeadCard) => void
   readonly admitBudgetEvent?: (event: LeadBudgetEvent) => void
+  readonly committedBudgetEvent?: (event: LeadBudgetEvent) => void
   /** The host's last word on a model text before it is written down for the person: throw to refuse it. */
   readonly admitReply?: (text: string) => Promise<void>
   readonly providerSend?: (requestId: string, body: string, signal: AbortSignal) => Promise<MessagesHttpResponse>
@@ -412,7 +414,13 @@ export class LeadSupervisor {
         case 'updateBudget': {
           const event = parseLeadBudgetEvent(args[0])
           this.options.admitBudgetEvent?.(event)
-          value = await durable(journal.updateBudget(event)); break
+          try { value = await durable(journal.updateBudget(event)) }
+          catch (failure) {
+            if (event.type !== 'reserve' || !(failure instanceof LeadBudgetAdmissionRefused)) throw failure
+            if (!running.exited) write(running, { type: 'reply', id, ok: false, value: 'lead-budget-admission', state: journal.state })
+            return
+          }
+          this.options.committedBudgetEvent?.(event); break
         }
         case 'setManagementPhase':
           if (!['planning', 'waiting-for-user'].includes(args[0] as string) || !(args[1] === null || typeof args[1] === 'string')) throw error('protocol')
