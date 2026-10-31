@@ -26,7 +26,7 @@ const agent = (id: string, name: string, tagline: string, over: Record<string, u
 const RUNTIMES: readonly RuntimeInfo[] = [
   agent('codex', 'Codex', 'Coding agent that reads, edits and runs code', {
     presentation: { name: 'Codex', tagline: 'Coding agent that reads, edits and runs code', configLocation: '~/.codex' },
-    slot: { agent: runtimeId('codex'), home: '/home/dev/agents/codex-primary', removable: false, canAdd: true, gateways: true },
+    slot: { agent: runtimeId('codex'), home: '/home/dev/.codex', removable: false, canAdd: true, gateways: true },
   }),
   agent('claude', 'Claude Code', 'Agentic coding in your terminal'),
   agent('cursor', 'Cursor', 'The agent from the Cursor editor'),

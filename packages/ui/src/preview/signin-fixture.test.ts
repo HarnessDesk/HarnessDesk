@@ -1,7 +1,14 @@
 import { expect, it } from 'vitest'
 import { runtimeId } from '@harnessdesk/protocol'
 
+import { credentialHome } from '../lib/accounts'
 import { runtimesSeed } from './signin-fixture'
+
+it('shows the primary Codex credential home used by a default host', () => {
+  const primary = (runtimesSeed().runtimes ?? []).find(row => row.id === runtimeId('codex'))
+  expect(primary).toBeDefined()
+  expect(credentialHome(primary!)).toBe('~/.codex')
+})
 
 it('gives every Codex row the gateway fact a real host sets', () => {
   // The host attaches `gateways: true` to every Codex slot (bootstrap.ts's
