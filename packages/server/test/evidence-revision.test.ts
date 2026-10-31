@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { checkoutMarkOf, DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, RACY_MS, revisionOf, SETTLED_MS, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
+import { checkoutMarkOf, DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, projectsHeld, PROJECTS_KEPT, RACY_MS, revisionOf, SETTLED_MS, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -187,6 +187,15 @@ test('a checkout root keeps its answer while it stands, and a moved, removed or 
   await mkdir(cwd)
   await later()
   assert.equal(await projectOf(cwd), await realpath(cwd), 'a checkout replaced by a plain folder is its own project')
+})
+
+test('more folders asked at once than are kept leave no more than the bound once they settle', async () => {
+  const parent = tempDir('hd-project-bound-')
+  const folders = Array.from({ length: PROJECTS_KEPT + 44 }, (_, i) => join(parent, `f${i}`))
+  await Promise.all(folders.map((folder) => mkdir(folder)))
+  const answers = await Promise.all(folders.map((folder) => projectOf(folder)))
+  assert.deepEqual(answers, await Promise.all(folders.map((folder) => realpath(folder))))
+  assert.ok(projectsHeld() <= PROJECTS_KEPT, `${projectsHeld()} answers held`)
 })
 
 test('a settled project answer is not kept for a folder that has gone since', async () => {

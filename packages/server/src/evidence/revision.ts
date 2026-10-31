@@ -235,6 +235,9 @@ export const RACY_MS = 2_000
 /** At most this many folders' answers are kept; the least recently used settled one goes first. */
 export const PROJECTS_KEPT = 256
 
+/** How many folders' answers are held now, asked or settled: what `PROJECTS_KEPT` bounds. */
+export const projectsHeld = (): number => asking.size
+
 /**
  * The project a folder belongs to: its repository's main checkout, or the
  * folder itself when it is in no repository. The key a store is kept under.
@@ -267,7 +270,8 @@ export const projectOf = (folder: string, fallback?: string): Promise<string> =>
     known.check ??= (async () => {
       const mark = await markOf(folder, await known.answer)
       known.check = null
-      if (mark === null || mark.mark !== known.mark) return again(key, known, folder, fallback)
+      // Equal and trusted: a mark that matches but reads as fresh means a clock moved, not that nothing did.
+      if (mark === null || mark.mark !== known.mark || !mark.trusted) return again(key, known, folder, fallback)
       known.until = Date.now() + SETTLED_MS
       asking.delete(key)
       asking.set(key, known)
@@ -303,16 +307,22 @@ const ask = (key: string, folder: string, fallback?: string, seen?: string | nul
     () => {
       entry.until = Date.now() + SETTLED_MS
       if (entry.mark === null) setTimeout(() => { if (asking.get(key) === entry) asking.delete(key) }, SETTLED_MS).unref()
+      trim()
     },
     () => { if (asking.get(key) === entry) asking.delete(key) },
   )
   asking.delete(key)
   asking.set(key, entry)
-  for (const [old, kept] of asking) {
-    if (asking.size <= PROJECTS_KEPT) break
-    if (kept.until !== Infinity) asking.delete(old)
-  }
+  trim()
   return entry.answer
+}
+
+/** Past `PROJECTS_KEPT`, drop settled answers, least recently used first; one still being asked waits until it settles. */
+const trim = (): void => {
+  for (const [key, kept] of asking) {
+    if (asking.size <= PROJECTS_KEPT) break
+    if (kept.until !== Infinity) asking.delete(key)
+  }
 }
 
 interface Mark {
