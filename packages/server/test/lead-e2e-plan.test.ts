@@ -128,6 +128,30 @@ test('accepting step 1 before the model starts step 2 seeds its reviewed revisio
   await rig.assertNoForbiddenEffects()
 })
 
+test('real child survives a cap tightened after its request preflight', async t => {
+  const rig = await createLeadRig({ holdWorkers: true }); t.after(() => rig.dispose())
+  const update = rig.journal.updateBudget.bind(rig.journal)
+  let raced = false
+  t.mock.method(rig.journal, 'updateBudget', async (event: Parameters<typeof update>[0], ...rest: [Parameters<typeof update>[1]?]) => {
+    if (event.type === 'reserve' && !raced) {
+      raced = true
+      await update({ version: 1, type: 'tighten', now: event.now, caps: { usdMicros: 1, rounds: rig.journal.state.budget!.caps.rounds } })
+    }
+    return update(event, ...rest)
+  })
+  await rig.sendGoal()
+  await rig.waitFor(() => raced, 'raced reservation')
+  await rig.settle()
+  assert.equal(rig.provider.requests.length, 0)
+  assert.equal((await rig.workerCalls()).filter(one => one.method === 'turn/start').length, 0)
+  assert.equal(rig.journal.state.budget!.requests.length, 0)
+  assert.equal(rig.journal.state.budget!.caps.usdMicros, 1)
+  assert.notEqual(rig.journal.state.managementReason, 'lead-child-exited')
+  assert.equal(rig.children.at(-1)!.exitCode, null)
+  assert.equal(rig.children.at(-1)!.signalCode, null)
+  await rig.assertNoForbiddenEffects()
+})
+
 for (const cap of ['dollars', 'rounds', 'unknown'] as const) test(`full fixture stops dispatch at ${cap} equality or unknown spend`, async t => {
   const rig = await createLeadRig({ holdWorkers: true, workerSpend: cap === 'dollars' }); t.after(() => rig.dispose())
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')

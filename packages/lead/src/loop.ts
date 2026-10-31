@@ -253,7 +253,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     if (state.phase === 'waiting-for-user') { waitingForResume = true; return true }
     if (waitingForResume) { noProgressTurns = 0; waitingForResume = false }
     if (state.recoveryBlocked || !synchronized || closed) return true
-    if (!budget || budget.stop || budget.spend !== 'known' || state.budget!.requests.length) {
+    if (!budget || budget.stop || budget.spend !== 'known' || budget.roundsAdmitted >= budget.caps.rounds || state.budget!.requests.length) {
       if (budget?.spend !== 'known') reason = 'lead-budget-unknown'
       return true
     }
@@ -305,6 +305,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       result = delivered
     }
     if (!['completed'].includes(result.status)) {
+      if (result.reason === 'lead-messages-capacity') return result
       await writeOffUncertain()
       await waitForUser(`lead-request-${result.status}`)
       return result
