@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { promisify } from 'node:util'
 
 import { checkoutMarkOf, DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
+import { RACY_MS } from '../src/evidence/tips.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -133,6 +134,15 @@ test('a checkout that is gone is its own project without asking git, and callers
   assert.equal((await asked()).split('\n').length, 3 * once - 2, 'and a later question is asked afresh')
 })
 
+test('a project answer is not kept for a folder that has gone since', async () => {
+  const repo = await makeRepo()
+  const cwd = join(tempDir('hd-project-settled-'), 'checkout')
+  await repo.git('worktree', 'add', '-q', '-b', 'settled', cwd)
+  assert.equal(await projectOf(cwd), await realpath(repo.dir))
+  await rm(cwd, { recursive: true })
+  assert.equal(await projectOf(cwd), cwd, 'a removed checkout is its own project at once')
+})
+
 test('concurrent project reads preserve traversal through a symlink before its parent', async () => {
   const first = await makeRepo()
   const second = await makeRepo()
@@ -166,6 +176,156 @@ test('a merged pull request is final only when its branch is gone; commits after
   assert.deepEqual(await freshnessOf(checkout, head), { state: 'unknown', why: 'the branch work is gone' })
   // And a detached checkout has no branch to be gone.
   assert.deepEqual(await freshnessOf({ cwd: dir, branch: null }, head, { merged: true }), { state: 'moved' })
+})
+
+/** Every git command the code under test starts from now on, one line each. */
+const countingGit = async (t: { after(fn: () => void): void }): Promise<() => Promise<string[]>> => {
+  const bin = tempDir('hd-evidence-bin-')
+  const calls = join(bin, 'calls')
+  const git = (await run('sh', ['-c', 'command -v git'])).stdout.trim()
+  await writeFile(join(bin, 'git'), `#!/bin/sh\necho "$*" >> '${calls}'\nexec '${git}' "$@"\n`, { mode: 0o755 })
+  const path = process.env.PATH
+  process.env.PATH = `${bin}:${path}`
+  t.after(() => { process.env.PATH = path })
+  return () => readFile(calls, 'utf8').then((text) => text.split('\n').filter(Boolean), () => [])
+}
+
+/** Long enough that the files a ref was just written to vouch for their marks. */
+const still = () => new Promise((resolve) => setTimeout(resolve, RACY_MS + 100))
+
+test('a branch tip is asked of git once while it stands, and the very next read after it moves sees the move', async (t) => {
+  const { dir, git } = await makeRepo()
+  const first = await git('rev-parse', 'HEAD')
+  await still()
+  const asked = await countingGit(t)
+  const tips = () => asked().then((lines) => lines.filter((line) => line.includes('rev-parse --verify --quiet refs/heads/main')).length)
+
+  assert.equal(await tipOf(dir, 'main'), first)
+  assert.equal(await tips(), 1)
+  assert.deepEqual(new Set(await Promise.all(Array.from({ length: 20 }, () => tipOf(dir, 'main')))), new Set([first]))
+  assert.equal(await tips(), 1, 'readers while it stands share the one answer')
+
+  // A commit moves it: the next read, at once, says where it is now.
+  await writeFile(join(dir, 'README.md'), 'second\n')
+  await git('commit', '-q', '-am', 'second')
+  const second = await git('rev-parse', 'HEAD')
+  assert.equal(await tipOf(dir, 'main'), second)
+  assert.deepEqual(await freshnessOf({ cwd: dir, branch: 'main' }, first), { state: 'behind', commits: 1 })
+
+  // A ref packed away and then moved back, by plumbing that writes no commit, is seen just the same.
+  await still()
+  assert.equal(await tipOf(dir, 'main'), second)
+  await git('pack-refs', '--all')
+  assert.equal(await tipOf(dir, 'main'), second, 'packing changes the files, never the answer')
+  await still()
+  assert.equal(await tipOf(dir, 'main'), second)
+  const settled = await tips()
+  assert.equal(await tipOf(dir, 'main'), second)
+  assert.equal(await tips(), settled, 'a packed branch is shared like a loose one')
+  await git('update-ref', 'refs/heads/main', first)
+  assert.equal(await tipOf(dir, 'main'), first)
+  assert.deepEqual(await freshnessOf({ cwd: dir, branch: 'main' }, second), { state: 'moved' })
+
+  // A branch deleted is gone at the next read; one made again is back.
+  await git('checkout', '-q', '--detach')
+  await still()
+  assert.equal(await tipOf(dir, 'main'), first)
+  await git('branch', '-q', '-D', 'main')
+  assert.equal(await tipOf(dir, 'main'), null)
+  await git('branch', '-q', 'main', second)
+  assert.equal(await tipOf(dir, 'main'), second)
+})
+
+test('HEAD is shared until it moves, whether it is detached or names a branch that moves under it', async (t) => {
+  const { dir, git } = await makeRepo()
+  const first = await git('rev-parse', 'HEAD')
+  await writeFile(join(dir, 'README.md'), 'second\n')
+  await git('commit', '-q', '-am', 'second')
+  const second = await git('rev-parse', 'HEAD')
+  await still()
+  const asked = await countingGit(t)
+  const heads = () => asked().then((lines) => lines.filter((line) => line.includes('HEAD^{commit}')).length)
+
+  assert.equal(await tipOf(dir, null), second)
+  assert.equal(await tipOf(dir, null), second)
+  assert.equal(await heads(), 1)
+  // The branch HEAD names moves, and HEAD's own file does not.
+  await git('update-ref', 'refs/heads/main', first)
+  assert.equal(await tipOf(dir, null), first)
+  await git('checkout', '-q', '--detach', second)
+  assert.equal(await tipOf(dir, null), second)
+  await still()
+  const before = await heads()
+  assert.equal(await tipOf(dir, null), second)
+  assert.equal(await tipOf(dir, null), second)
+  assert.equal(await heads(), before + 1, 'a detached HEAD is shared too')
+  await git('checkout', '-q', '--detach', first)
+  assert.equal(await tipOf(dir, null), first)
+})
+
+test('a ref written moments ago is asked again on every read until it has been still long enough to vouch for itself', async (t) => {
+  const { dir } = await makeRepo()
+  const asked = await countingGit(t)
+  const tips = () => asked().then((lines) => lines.filter((line) => line.includes('refs/heads/main^{commit}')).length)
+  await tipOf(dir, 'main')
+  await tipOf(dir, 'main')
+  assert.equal(await tips(), 2, 'a mark younger than a filesystem tick is never trusted')
+  await still()
+  await tipOf(dir, 'main')
+  await tipOf(dir, 'main')
+  assert.equal(await tips(), 3)
+})
+
+test('how two commits stand is asked once per repository, and a linked checkout shares it', async (t) => {
+  const { dir, git } = await makeRepo()
+  const at = await git('rev-parse', 'HEAD')
+  await writeFile(join(dir, 'README.md'), 'second\n')
+  await git('commit', '-q', '-am', 'second')
+  const lane = join(tempDir('hd-between-lane-'), 'checkout')
+  await git('worktree', 'add', '-q', '--detach', lane)
+  const asked = await countingGit(t)
+  const between = () => asked().then((lines) => lines.filter((line) => / (merge-base|rev-list) /.test(line)).length)
+  assert.deepEqual(await freshnessOf({ cwd: dir, branch: 'main' }, at), { state: 'behind', commits: 1 })
+  assert.equal(await between(), 2)
+  assert.deepEqual(await freshnessOf({ cwd: dir, branch: 'main' }, at), { state: 'behind', commits: 1 })
+  assert.deepEqual(await freshnessOf({ cwd: lane, branch: null }, at), { state: 'behind', commits: 1 })
+  assert.equal(await between(), 2)
+})
+
+test('a branch that is a symbolic ref follows the branch it names, read through HEAD or by name', async () => {
+  const { dir, git } = await makeRepo()
+  await git('symbolic-ref', 'refs/heads/alias', 'refs/heads/main')
+  await git('symbolic-ref', 'HEAD', 'refs/heads/alias')
+  await still()
+  const first = await git('rev-parse', 'HEAD')
+  assert.equal(await tipOf(dir, 'alias'), first)
+  assert.equal(await tipOf(dir, null), first)
+  // Only main's file changes: neither alias's nor HEAD's does.
+  await writeFile(join(dir, 'README.md'), 'second\n')
+  await git('commit', '-q', '-am', 'second')
+  const second = await git('rev-parse', 'refs/heads/main')
+  assert.notEqual(second, first)
+  assert.equal(await tipOf(dir, 'alias'), second)
+  assert.equal(await tipOf(dir, null), second)
+})
+
+test('a replacement that gives a commit new parents changes how two commits stand at the next read', async () => {
+  const { dir, git } = await makeRepo()
+  const at = await git('rev-parse', 'HEAD')
+  await git('checkout', '-q', '--orphan', 'other')
+  await writeFile(join(dir, 'README.md'), 'unrelated\n')
+  await git('commit', '-q', '-am', 'unrelated')
+  const tip = await git('rev-parse', 'HEAD')
+  await still()
+  const checkout = { cwd: dir, branch: 'other' }
+  assert.deepEqual(await freshnessOf(checkout, at), { state: 'moved' })
+  assert.deepEqual(await freshnessOf(checkout, at), { state: 'moved' })
+  await git('replace', '--graft', tip, at)
+  assert.deepEqual(await freshnessOf(checkout, at), { state: 'behind', commits: 1 })
+  await still()
+  assert.deepEqual(await freshnessOf(checkout, at), { state: 'behind', commits: 1 })
+  await git('replace', '-d', tip)
+  assert.deepEqual(await freshnessOf(checkout, at), { state: 'moved' })
 })
 
 test('a branch name that could be read as an option never reaches git', async () => {

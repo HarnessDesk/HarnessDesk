@@ -456,7 +456,8 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       await service.setEnabled(true)
     }
     if (options.workerSpend) {
-      // This process-wide patch requires all tests in lead-e2e.test.ts to stay sequential (concurrency: false).
+      // This process-wide patch requires the cases of each lead-e2e-*.test.ts file to stay sequential (concurrency: false);
+      // the files run in processes of their own.
       // The Lead's meter reads its Seats' sessions; the patch covers that read and the whole-project one.
       const readInsight = Ledger.prototype.readInsight, readSessions = Ledger.prototype.readSessions
       restoreUsage = () => { Ledger.prototype.readInsight = readInsight; Ledger.prototype.readSessions = readSessions }
