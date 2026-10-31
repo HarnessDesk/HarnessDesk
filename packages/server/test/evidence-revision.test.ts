@@ -296,6 +296,42 @@ test('how two commits stand is asked once per repository, and a linked checkout 
   assert.equal(await between(), 2)
 })
 
+test('a branch that is a symbolic ref follows the branch it names, read through HEAD or by name', async () => {
+  const { dir, git } = await makeRepo()
+  await git('symbolic-ref', 'refs/heads/alias', 'refs/heads/main')
+  await git('symbolic-ref', 'HEAD', 'refs/heads/alias')
+  await still()
+  const first = await git('rev-parse', 'HEAD')
+  assert.equal(await tipOf(dir, 'alias'), first)
+  assert.equal(await tipOf(dir, null), first)
+  // Only main's file changes: neither alias's nor HEAD's does.
+  await writeFile(join(dir, 'README.md'), 'second\n')
+  await git('commit', '-q', '-am', 'second')
+  const second = await git('rev-parse', 'refs/heads/main')
+  assert.notEqual(second, first)
+  assert.equal(await tipOf(dir, 'alias'), second)
+  assert.equal(await tipOf(dir, null), second)
+})
+
+test('a replacement that gives a commit new parents changes how two commits stand at the next read', async () => {
+  const { dir, git } = await makeRepo()
+  const at = await git('rev-parse', 'HEAD')
+  await git('checkout', '-q', '--orphan', 'other')
+  await writeFile(join(dir, 'README.md'), 'unrelated\n')
+  await git('commit', '-q', '-am', 'unrelated')
+  const tip = await git('rev-parse', 'HEAD')
+  await still()
+  const checkout = { cwd: dir, branch: 'other' }
+  assert.deepEqual(await freshnessOf(checkout, at), { state: 'moved' })
+  assert.deepEqual(await freshnessOf(checkout, at), { state: 'moved' })
+  await git('replace', '--graft', tip, at)
+  assert.deepEqual(await freshnessOf(checkout, at), { state: 'behind', commits: 1 })
+  await still()
+  assert.deepEqual(await freshnessOf(checkout, at), { state: 'behind', commits: 1 })
+  await git('replace', '-d', tip)
+  assert.deepEqual(await freshnessOf(checkout, at), { state: 'moved' })
+})
+
 test('a branch name that could be read as an option never reaches git', async () => {
   const { dir } = await makeRepo()
   assert.equal(await tipOf(dir, '--output=/tmp/x'), null)

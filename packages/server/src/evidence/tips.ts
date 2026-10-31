@@ -26,7 +26,8 @@ import { readGit } from '../git-read.js'
  *
  * Nothing is kept that a mark cannot vouch for: a folder that is not the root
  * of its own checkout, a ref name git would read as an expression, a HEAD
- * naming anything but a branch, or a file that cannot be read.
+ * naming anything but a branch, a branch that is itself a symbolic ref, or a
+ * file that cannot be read.
  */
 
 /**
@@ -118,11 +119,21 @@ const dirsOf = async (cwd: string): Promise<Dirs | null> => {
   return asked
 }
 
+/** Parts read since `since`, as one mark; null when any could not be read. */
+const markFrom = (parts: readonly (Part | null)[], since: number): { readonly text: string; readonly trusted: boolean } | null => {
+  if (parts.some((part) => part === null)) return null
+  return {
+    text: (parts as Part[]).map((part) => part.text).join('|'),
+    trusted: (parts as Part[]).every((part) => part.changed < since - RACY_MS),
+  }
+}
+
 /**
  * The mark of every file git reads to resolve a checkout's branch — or its
  * HEAD, and the branch HEAD names — and whether it vouches for itself: every
  * part still for longer than `RACY_MS` when it was read. Null when nothing
- * can vouch for an answer, and the caller asks git.
+ * can vouch for an answer, and the caller asks git — among them a branch that
+ * is itself a symbolic ref, whose tip is another file's.
  */
 const markOf = async (cwd: string, branch: string | null): Promise<{ readonly text: string; readonly trusted: boolean } | null> => {
   if (branch !== null && !plainBranch(branch)) return null
@@ -131,28 +142,48 @@ const markOf = async (cwd: string, branch: string | null): Promise<{ readonly te
   const { gitDir, commonDir } = found
   // Taken before any file is read, so a write after this moment is always in a later tick than a trusted part's.
   const since = Date.now()
-  const reads: Promise<Part | null>[] = []
+  const parts: (Part | null)[] = []
+  let named = branch
   if (branch === null) {
     const head = await partOf(join(gitDir, 'HEAD'), true)
     if (head === null || head === ABSENT) return null
-    reads.push(Promise.resolve(head))
+    parts.push(head)
     if (head.body.startsWith('ref:')) {
-      const named = /^ref: refs\/heads\/(\S+)\n?$/.exec(head.body)?.[1]
-      if (named === undefined || !plainBranch(named)) return null
-      reads.push(partOf(join(commonDir, 'refs', 'heads', named), true))
+      named = /^ref: refs\/heads\/(\S+)\n?$/.exec(head.body)?.[1] ?? null
+      if (named === null || !plainBranch(named)) return null
     }
-  } else {
-    reads.push(partOf(join(commonDir, 'refs', 'heads', branch), true))
   }
-  reads.push(partOf(join(commonDir, 'packed-refs'), false), partOf(join(commonDir, 'reftable', 'tables.list'), false))
-  // A linked checkout's reftable keeps its own HEAD in a stack of its own.
-  if (gitDir !== commonDir) reads.push(partOf(join(gitDir, 'reftable', 'tables.list'), false))
-  const parts = await Promise.all(reads)
-  if (parts.some((part) => part === null)) return null
-  return {
-    text: (parts as Part[]).map((part) => part.text).join('|'),
-    trusted: (parts as Part[]).every((part) => part.changed < since - RACY_MS),
+  if (named !== null) {
+    const loose = await partOf(join(commonDir, 'refs', 'heads', named), true)
+    // A symbolic branch's tip lives in the file it names, and that one in the next.
+    if (loose?.body.startsWith('ref:')) return null
+    parts.push(loose)
   }
+  parts.push(...await Promise.all([
+    partOf(join(commonDir, 'packed-refs'), false),
+    partOf(join(commonDir, 'reftable', 'tables.list'), false),
+    // A linked checkout's reftable keeps its own HEAD in a stack of its own.
+    ...(gitDir !== commonDir ? [partOf(join(gitDir, 'reftable', 'tables.list'), false)] : []),
+  ]))
+  return markFrom(parts, since)
+}
+
+/**
+ * The mark of what can change how two commits stand to each other without
+ * either changing: a replacement or graft gives a commit other parents, and a
+ * shallow boundary cuts history short. Replacement refs live loose under
+ * `refs/replace/` — a folder whose times move as one is added, swapped or
+ * removed — or packed, or in a reftable.
+ */
+const graphMarkOf = async (commonDir: string): Promise<{ readonly text: string; readonly trusted: boolean } | null> => {
+  const since = Date.now()
+  return markFrom(await Promise.all([
+    partOf(join(commonDir, 'refs', 'replace'), false),
+    partOf(join(commonDir, 'packed-refs'), false),
+    partOf(join(commonDir, 'reftable', 'tables.list'), false),
+    partOf(join(commonDir, 'info', 'grafts'), false),
+    partOf(join(commonDir, 'shallow'), false),
+  ]), since)
 }
 
 /** An answer from git, and whether it is one: a refusal for want of a ref or an ancestor is; a timeout is not. */
@@ -196,13 +227,20 @@ const WHOLE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 /**
  * An answer about two commits of a checkout's repository — whether `tip`
  * descends from `at`, and by how many commits — which cannot change while
- * both name the commits they do: kept once git has given it definitely.
+ * both name the commits they do and no replacement, graft or shallow boundary
+ * has changed history between them: kept, once git has given it definitely,
+ * until one of those does.
  */
 export const keptBetween = async <T>(cwd: string, at: Sha, tip: Sha, read: () => Promise<Asked<T>>): Promise<T> => {
   const repository = WHOLE.test(at) && WHOLE.test(tip) ? (await dirsOf(cwd))?.commonDir : undefined
-  if (repository === undefined) return (await read()).answer
+  const mark = repository === undefined ? null : await graphMarkOf(repository)
+  if (mark === null) return (await read()).answer
   const key = JSON.stringify([repository, at, tip])
   const known = between.get(key)
-  if (known) return known.answer as Promise<T>
-  return share(between as Map<string, { readonly mark: string; readonly answer: Promise<T> }>, key, '', read())
+  if (known && known.mark === mark.text) return known.answer as Promise<T>
+  if (!mark.trusted) {
+    between.delete(key)
+    return (await read()).answer
+  }
+  return share(between as Map<string, { readonly mark: string; readonly answer: Promise<T> }>, key, mark.text, read())
 }

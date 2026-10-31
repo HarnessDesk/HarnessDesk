@@ -308,7 +308,7 @@ export const freshnessOf = async (
     return { state: 'unknown', why: checkout.branch === null ? 'it is not a repository any more' : `the branch ${checkout.branch} is gone` }
   }
   if (tip === at) return { state: 'fresh' }
-  // Two commits stand the same way to each other for good: kept, per repository, once git has said.
+  // Two commits stand the same way to each other until history between them is replaced: kept, per repository, until then.
   return keptBetween(checkout.cwd, at, tip, async (): Promise<Asked<Freshness>> => {
     const ancestor = await asked(checkout.cwd, ['merge-base', '--is-ancestor', at, tip])
     if (ancestor.answer === null) return { answer: { state: 'moved' }, definite: ancestor.definite }
