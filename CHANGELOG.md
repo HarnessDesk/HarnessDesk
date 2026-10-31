@@ -7,8 +7,6 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **Input patch previews keep their content and leave unknown lines blank.** Later file headers no longer appear as edits, and previews without reported locations no longer invent line numbers.
-
 - **Cleaning up saved accounts keeps the right files.** Duplicate saved identifiers no longer make cleanup remove another account's folder, and a folder still used by a retained account is kept.
 
 - **Accepting a Lead result no longer fails while the Lead is re-reading.** A click that lands in the moment the Lead takes its result back to read new observations waits for it and is made on the same result when it comes back unchanged; only a result that actually changed asks you to look again.
@@ -24,6 +22,8 @@ move is real work and is not news to a person weighing an upgrade.
 - **Detached conversations can find their own pull request.** Omitting the number in view, checks, review or comment uses that conversation's unique recorded open PR. Ambiguous cases still ask for a number; detached updates remain refused.
 
 - **Backup restore counts what it saved.** A runtime configuration saved before setup fails is counted as restored once, rather than skipped or counted twice.
+
+- **Input patch previews keep their content and leave unknown lines blank.** Later file headers no longer appear as edits, and previews without reported locations no longer invent line numbers.
 
 - **Lead is a conversation first.** Ask questions directly, or ask it to start, read, message and stop ordinary chats in its project. Simple tasks no longer need an implementer and independent reviewer. Reviewed work keeps its approval gates; setup problems explain what to change instead of repeating Resume.
 
