@@ -4701,10 +4701,10 @@ mark, it started 26 of 3,300, in 65–69 seconds.
 
 The faster host also showed the Lead publication cases racing the Lead
 itself: the Lead withdraws a result on every desk event that may change it and
-offers it again, so a click on a result card read a moment earlier can be
-refused. The rig now decides the result that is current
-(`decideResult`), deciding again only after that refusal, never once a
-publication for the card began.
+offers it again, so a click on a result card read a moment earlier was
+refused. That is a person's race too, and is fixed in the Lead, not the test:
+a click on a result the Lead took back is made when that same result returns
+(HarnessDesk/HarnessDesk#1930), which this change lands after.
 
 **Rule:** an answer about the filesystem stands on a mark of exactly what was
 read to give it, read again on every use, never on time or a path alone; a

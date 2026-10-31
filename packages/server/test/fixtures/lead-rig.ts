@@ -485,27 +485,6 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
           `publication ${state.publication?.stage ?? 'none'}, card changed ${JSON.stringify(now) !== JSON.stringify(card)}`), { cause: error, wireCode: (error as { wireCode?: unknown }).wireCode })
       } finally { personPublication = false }
     }
-    /**
-     * Decides the result card that is current, as a person clicks the one in
-     * front of them. The Lead withdraws a result on every observation that may
-     * change it and offers it again, so a click can land on a card withdrawn a
-     * moment before: refused, with nothing done. Only that refusal is decided
-     * again, on the card offered next (a new revision, or the same one
-     * restored) — never one whose publication began.
-     */
-    const decideResult = async (choice: LeadCardDecision['choice']) => {
-      for (let attempt = 1; ; attempt++) {
-        await waitFor(() => !!pending('result'), 'current result card')
-        const card = pending('result')!, key = `${card.id}:${card.revision}`
-        try { return await decide(card, choice) } catch (error) {
-          const code = (error as { wireCode?: unknown }).wireCode, publication = journal.state.publication
-          const began = publication?.decision.cardId === card.id && publication.decision.expectedRevision === card.revision
-          if ((code !== 'lead-card-stale' && code !== 'lead-card-decided') || began || !journal.state.decidedCards.includes(key) || attempt >= 5) throw error
-          // Offered again: a new revision, or the same one restored once the Lead finds its evidence as it was.
-          await waitFor(() => !!pending('result'), `result offered again after ${key}`)
-        }
-      }
-    }
     const sendGoal = () => host.call('lead/thread/send', { idempotencyKey: `goal-${journal.state.seq}`, text: task })
     const settle = async () => { await host.flowsPlane.flush(); await sleep(150); await host.flowsPlane.flush() }
     const assertAccounting = async () => {
@@ -546,7 +525,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       assert.ok(creates.length <= 1, 'at most the one person-authorized PR creation')
     }
     return { get host() { return host }, logger, home, project, get journal() { return journal }, get service() { return service },
-      provider, children, calls, windowNotifications, get latestEvidence() { return latestEvidence }, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, decideResult, sendGoal, settle, dispose,
+      provider, children, calls, windowNotifications, get latestEvidence() { return latestEvidence }, pending, waitFor, workerCalls, worktrees, personGates, releaseWorkers, decide, sendGoal, settle, dispose,
       offline: options.offlineForge ? {
         read: readForge,
         async pushes() { return (await new GitRecord(join(home, 'offline-gateway')).list({ repository: 'acme/widgets', limit: 1000 })).filter(row => row.op === 'push' && row.outcome === 'ok') },
