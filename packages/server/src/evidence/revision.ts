@@ -9,6 +9,7 @@ import { repositoryRoot } from '../worktree.js'
 import { isSha } from './records.js'
 import { readGit } from '../git-read.js'
 import { sameCanonicalPath } from '../path-identity.js'
+import { keptBetween, sharedTip, type Asked } from './tips.js'
 
 /**
  * What git says about a checkout, for evidence: which commit a fact is bound
@@ -34,6 +35,19 @@ const gitOr = async (cwd: string, args: readonly string[]): Promise<string | nul
     return await git(cwd, args)
   } catch {
     return null
+  }
+}
+
+/**
+ * A command's answer, and whether git gave one: exit status 1 — no such ref,
+ * not an ancestor — is an answer; a timeout or a refusal of any other kind
+ * is not, and is never kept as one.
+ */
+const asked = async (cwd: string, args: readonly string[]): Promise<Asked<string | null>> => {
+  try {
+    return { answer: await git(cwd, args), definite: true }
+  } catch (error) {
+    return { answer: null, definite: (error as { code?: unknown }).code === 1 }
   }
 }
 
@@ -181,12 +195,18 @@ export const revisionOf = async (cwd: string): Promise<Revision | null> => {
  * on a detached HEAD. Null when the branch is gone, or the folder is not a
  * repository any more. A branch name read back from a record is checked before
  * git sees it.
+ *
+ * Asked of git once per move of the ref, however many readers ask between
+ * (`sharedTip`): every evidence read measures every fact against it.
  */
 export const tipOf = async (cwd: string, branch: string | null): Promise<Sha | null> => {
   if (branch !== null && !isRevisionName(branch)) return null
   const ref = branch === null ? 'HEAD^{commit}' : `refs/heads/${branch}^{commit}`
-  const tip = (await gitOr(cwd, ['rev-parse', '--verify', '--quiet', ref]))?.trim() ?? ''
-  return isSha(tip) ? tip : null
+  return sharedTip(cwd, branch, async () => {
+    const read = await asked(cwd, ['rev-parse', '--verify', '--quiet', ref])
+    const tip = read.answer?.trim() ?? ''
+    return { answer: isSha(tip) ? tip : null, definite: read.definite }
+  })
 }
 
 /** A path as the filesystem resolves it, or as written when it is not there. */
@@ -288,10 +308,17 @@ export const freshnessOf = async (
     return { state: 'unknown', why: checkout.branch === null ? 'it is not a repository any more' : `the branch ${checkout.branch} is gone` }
   }
   if (tip === at) return { state: 'fresh' }
-  const ancestor = await gitOr(checkout.cwd, ['merge-base', '--is-ancestor', at, tip])
-  if (ancestor === null) return { state: 'moved' }
-  const count = Number((await gitOr(checkout.cwd, ['rev-list', '--count', `${at}..${tip}`]))?.trim())
-  return Number.isInteger(count) && count > 0 ? { state: 'behind', commits: count } : { state: 'moved' }
+  // Two commits stand the same way to each other for good: kept, per repository, once git has said.
+  return keptBetween(checkout.cwd, at, tip, async (): Promise<Asked<Freshness>> => {
+    const ancestor = await asked(checkout.cwd, ['merge-base', '--is-ancestor', at, tip])
+    if (ancestor.answer === null) return { answer: { state: 'moved' }, definite: ancestor.definite }
+    const counted = await asked(checkout.cwd, ['rev-list', '--count', `${at}..${tip}`])
+    const count = Number(counted.answer?.trim())
+    return {
+      answer: Number.isInteger(count) && count > 0 ? { state: 'behind', commits: count } : { state: 'moved' },
+      definite: counted.answer !== null,
+    }
+  })
 }
 
 /**
