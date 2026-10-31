@@ -218,18 +218,8 @@ export const canonical = async (path: string): Promise<string> => {
   }
 }
 
-/** Folders being asked about now, or answered within `SETTLED_MS`, so callers share one answer. */
-const asking = new Map<string, { readonly answer: Promise<string>; real: string | null; until: number }>()
-
-/**
- * How long a settled answer stands. A desk with open Teams asks this from
- * every evidence, findings and intake read — measured at more than a dozen
- * times a second for the same folder during one Lead run, each answer costing
- * several git processes. Which repository a folder belongs to changes when a
- * person moves, removes or re-creates it, not between two reads of one page;
- * a folder that has gone or now resolves elsewhere is asked afresh at once.
- */
-export const SETTLED_MS = 1_000
+/** Folders being asked about now, so callers asking at once share one answer. */
+const asking = new Map<string, Promise<string>>()
 
 /**
  * The project a folder belongs to: its repository's main checkout, or the
@@ -238,38 +228,22 @@ export const SETTLED_MS = 1_000
  *
  * Each read of a Team's review asks this several times, and a page reads
  * every open Team's at once, mostly about the same few project folders: a
- * question already being asked, or answered a moment ago about a folder that
- * is still where it was, shares its answer rather than starting git again. A
- * folder that is gone uses the fallback, or answers as written without asking
- * git — a wrapped Team's checkout is usually in the Trash.
+ * question already being asked shares its answer rather than starting git
+ * again. A folder that is gone uses the fallback, or answers as written
+ * without asking git — a wrapped Team's checkout is usually in the Trash.
  */
 export const projectOf = (folder: string, fallback?: string): Promise<string> => {
   // Lexical normalisation erases symlink traversal before `..`.
   const key = JSON.stringify([folder, fallback])
   const known = asking.get(key)
-  if (known && known.until >= Date.now()) {
-    if (known.until === Infinity) return known.answer
-    return realpath(folder).catch(() => null).then((real) =>
-      real !== null && real === known.real ? known.answer : ask(key, folder, fallback, real))
-  }
-  return ask(key, folder, fallback)
-}
-
-const ask = (key: string, folder: string, fallback?: string, seen?: string | null): Promise<string> => {
-  const entry = { answer: Promise.resolve(''), real: null as string | null, until: Infinity }
-  entry.answer = (async () => {
-    const real = seen !== undefined ? seen : await realpath(folder).catch(() => null)
-    entry.real = real
+  if (known) return known
+  const answer = (async () => {
+    const real = await realpath(folder).catch(() => null)
     if (real === null) return fallback !== undefined && fallback !== folder ? projectOf(fallback) : resolve(folder)
     return (await repositoryRoot(folder)) ?? real
-  })()
-  // A failure is never kept, and an answer is kept only briefly once it settles.
-  entry.answer.then(
-    () => { entry.until = Date.now() + SETTLED_MS; setTimeout(() => { if (asking.get(key) === entry) asking.delete(key) }, SETTLED_MS).unref() },
-    () => { if (asking.get(key) === entry) asking.delete(key) },
-  )
-  asking.set(key, entry)
-  return entry.answer
+  })().finally(() => asking.delete(key))
+  asking.set(key, answer)
+  return answer
 }
 
 /**
