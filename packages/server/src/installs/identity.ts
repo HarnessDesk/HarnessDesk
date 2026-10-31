@@ -36,6 +36,14 @@ export interface IdentityContext {
 
 export type IdentityReader = () => Account | null
 
+/** Undefined is an unreadable record, distinct from a verified empty one. */
+export type IdentityStatusReader = () => Account | null | undefined
+
+export const identityStatusReaderFor = (
+  known: Pick<KnownAgent, 'id'> | undefined,
+  context: IdentityContext = {},
+): IdentityStatusReader | undefined => known?.id === 'opencode' ? () => openCodeIdentity(context, true) : undefined
+
 /** The reader for the agent a row drives, when the desk knows where that agent writes it down. */
 export const identityReaderFor = (
   known: Pick<KnownAgent, 'id'> | undefined,
@@ -47,7 +55,7 @@ export const identityReaderFor = (
     case 'antigravity-acp':
       return () => antigravityIdentity(context)
     case 'opencode':
-      return () => openCodeIdentity(context)
+      return () => openCodeIdentity(context) ?? null
     case 'cline':
       return () => clineIdentity(context)
     case 'devin':
@@ -164,14 +172,28 @@ const antigravityIdentity = (context: IdentityContext): Account | null => {
  * the whole folder (checked by pointing it at an empty one, which listed
  * zero credentials).
  */
-const openCodeIdentity = (context: IdentityContext): Account | null => {
+const openCodeIdentity = (context: IdentityContext, status = false): Account | null | undefined => {
   const env = context.env ?? process.env
   const data = nonEmpty(env['XDG_DATA_HOME']) ?? join(context.home ?? homedir(), '.local', 'share')
-  const auth = readJson(join(data, 'opencode', 'auth.json'))
+  const path = join(data, 'opencode', 'auth.json')
+  let auth: unknown
+  if (status) {
+    try {
+      auth = JSON.parse(readFileSync(path, 'utf8')) as unknown
+      if (typeof auth !== 'object' || auth === null || Array.isArray(auth)) return undefined
+    } catch (error) {
+      if (!isMissing(error)) return undefined
+      auth = {}
+    }
+  } else {
+    auth = readJson(path)
+  }
   // Only the keys. The values are the credentials themselves, and nothing
   // here reads one — see the note at the top of this file.
   const files = typeof auth === 'object' && auth !== null && !Array.isArray(auth) ? Object.keys(auth) : []
-  const providers = [...new Set([...files, ...openCodeSignIns(join(data, 'opencode', 'opencode.db'))])]
+  const database = openCodeSignIns(join(data, 'opencode', 'opencode.db'), status)
+  if (database === null && status) return undefined
+  const providers = [...new Set([...files, ...(database ?? [])])]
     .filter((name) => name.trim() !== '')
   if (providers.length === 0) return null
   return signedInWith(
@@ -194,14 +216,17 @@ const openCodeIdentity = (context: IdentityContext): Account | null => {
  * copies a live one to read. The account is asked for on every read of a
  * row, so an answer is kept until the database changes size or time, or its
  * side files do and `LOG_INTERVAL_MS` has passed, so a live OpenCode's
- * database is not copied each time. One that is missing, unreadable or
- * shaped otherwise names nobody.
+ * database is not copied each time. A display read names nobody if the
+ * database cannot be read. A status read instead distinguishes a missing
+ * database from an unreadable one and reads a changed log without the delay:
+ * only a complete answer from both sources can establish absence.
  */
-const openCodeSignIns = (path: string): readonly string[] => {
-  const stamp = openCodeStamp(path)
+const openCodeSignIns = (path: string, status = false): readonly string[] | null => {
+  let stamp: OpenCodeStamp | null
+  try { stamp = openCodeStamp(path, status) } catch { return status ? null : [] }
   if (stamp === null) return []
   const kept = openCodeRead.get(path)
-  if (kept && (kept.stamp === stamp.stamp || (kept.database === stamp.database && Date.now() - kept.at < LOG_INTERVAL_MS))) {
+  if (kept && (kept.stamp === stamp.stamp || (!status && kept.database === stamp.database && Date.now() - kept.at < LOG_INTERVAL_MS))) {
     return kept.providers
   }
   try {
@@ -210,13 +235,13 @@ const openCodeSignIns = (path: string): readonly string[] => {
         .flatMap((row) => typeof row['provider'] === 'string' ? [row['provider']] : []))
     // Null is not a database, or not one that could be opened — found from
     // its first bytes, so it is cheap to ask again and is not kept.
-    if (providers === null) return []
+    if (providers === null) return status ? null : []
     openCodeRead.set(path, { ...stamp, at: Date.now(), providers })
     return providers
   } catch {
-    // Too large, changing under the read, or shaped otherwise: nobody for
-    // now, and asked again next time rather than kept.
-    return []
+    // Too large, changing under the read, or shaped otherwise: unknown for
+    // status, and asked again next time rather than kept.
+    return status ? null : []
   }
 }
 
@@ -238,19 +263,23 @@ interface OpenCodeStamp {
 const openCodeRead = new Map<string, OpenCodeStamp & { readonly at: number; readonly providers: readonly string[] }>()
 
 /** Sizes and times of the database and its side files; null when there is no database. */
-const openCodeStamp = (path: string): OpenCodeStamp | null => {
+const openCodeStamp = (path: string, status = false): OpenCodeStamp | null => {
   const parts: string[] = []
   for (const file of [path, `${path}-wal`, `${path}-shm`]) {
     try {
       const stat = statSync(file)
       parts.push(`${stat.size}:${stat.mtimeMs}`)
-    } catch {
+    } catch (error) {
+      if (status && !isMissing(error)) throw error
       if (file === path) return null
       parts.push('-')
     }
   }
   return { stamp: parts.join('|'), database: parts[0]! }
 }
+
+const isMissing = (error: unknown): boolean =>
+  typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT'
 
 /**
  * Cline writes every provider it has signed in to into
