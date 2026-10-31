@@ -4709,5 +4709,14 @@ is never made twice: an invalidation is fenced while a publication is in
 flight. Not invalidating on quiet events was rejected: whether an event
 changes a result is only known after the read the fence exists to wait for.
 
+The same refusal came from a second writer. Once a repair's CI passes, the
+host offers the result itself; the Lead loop, not having offered that card,
+offered an identical one at the next revision (only the summary line and
+bookkeeping revisions differed), so a click on the host's card was refused.
+The loop now takes a stored result whose contract, evidence and spend are
+exactly what it read as the current result — unless it has itself seen that
+card stand for other evidence, so a result taken back while its evidence
+moved away and back is still offered afresh.
+
 **Rule:** a refusal says something changed; when nothing did, the click stands.
 
