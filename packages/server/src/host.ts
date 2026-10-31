@@ -5776,8 +5776,8 @@ export class Host {
           this.#push({ method: 'runtime/added', params: { info: this.#infoOf(adopted.runtime) } })
           void this.#startOne(adopted.runtime)
         }
-      } catch (error) {
-        this.#logger.warn('an agent from a backup could not be brought up', { agent: id, error: String(error) })
+      } catch {
+        this.#logger.warn('an agent from a backup could not be brought up')
       }
       // Adoption writes before it builds; registration can fail after that
       // too. Count the persisted row once, independently of runtime startup.
