@@ -1,0 +1,33 @@
+{
+  "issue": 1680,
+  "head": "76685aa3a0cba44ed248ad30183299e813027600",
+  "tree": "a5316fc5f887b80ef98365165bd72726a10be24e",
+  "frames": [
+    {
+      "name": "square-light.png",
+      "sha256": "a66480f1e085525a6cd63328761a6dbdb5c0426bdd26860ec92d2013de467229",
+      "width": 2800,
+      "height": 1936
+    },
+    {
+      "name": "square-dark.png",
+      "sha256": "81d4da70136ee1d1c9b76c1bc25a58956591ee3d7dad0141596f5d51eaa32ac1",
+      "width": 2800,
+      "height": 1936
+    },
+    {
+      "name": "outage-light.png",
+      "sha256": "3f82bcdcc540c6eb28cb958cbcfbcb9e9800d3f6f8f16a31176cf53a1841e6d8",
+      "width": 2800,
+      "height": 1936
+    },
+    {
+      "name": "outage-dark.png",
+      "sha256": "f6bbcf16eabb14650875d78fee876b8795bca0d994a4d93c012ae5e09652d290",
+      "width": 2800,
+      "height": 1936
+    }
+  ],
+  "surface": "Real Host and StateStore, public scripted ACP fixture, test-owned loopback response gate and shipping renderer in isolated Electron. Not production desktop bootstrap, provider or unmounted avatar-family proof.",
+  "privacy": "All four original frames personally inspected; unmodified full username/path audit passed after synthetic path shortening."
+}
