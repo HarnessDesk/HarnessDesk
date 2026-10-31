@@ -205,3 +205,27 @@ export const cardChips = (card: CardEvidence | undefined, finished = false): rea
   const kept = said.length > 0 || !finished ? said : chips.slice(0, 1)
   return kept.map((one) => ('chip' in one ? one.chip : one))
 }
+
+export type EvidenceSummaryLabel = 'Failed' | 'Changes requested' | 'Finding open' | 'Running' | 'Out of date' | 'Unknown' | 'Incomplete' | 'Checks recorded' | 'Observed'
+export interface EvidenceSummary {
+  readonly label: EvidenceSummaryLabel
+  readonly tone: 'danger' | 'warning' | 'info' | 'neutral'
+}
+
+/** A compact description of observations, never a certification of required checks. */
+export const evidenceSummary = (card: CardEvidence | undefined, finished = false): EvidenceSummary | null => {
+  if (!card || cardChips(card, finished).length === 0) return null
+  const running = new Set(card.running.map(one => one.name))
+  const facts = card.facts.filter(view => !(view.record.fact.kind === 'check' && running.has(view.record.fact.name)))
+  const relevant = facts.filter(({ record: { fact } }) => fact.kind === 'check' || fact.kind === 'ci' || (fact.kind === 'review' && fact.verdict === 'request-changes') || (fact.kind === 'finding' && fact.state === 'open'))
+  const current = relevant.filter(view => isCurrent(view.freshness)).map(view => view.record.fact)
+  if (current.some(fact => fact.kind === 'check' ? fact.timedOut || (fact.exit !== null && fact.exit !== 0) : fact.kind === 'ci' && ciVerdict(fact.checks) === 'failed')) return { label: 'Failed', tone: 'danger' }
+  if (current.some(fact => fact.kind === 'review' && fact.verdict === 'request-changes')) return { label: 'Changes requested', tone: 'warning' }
+  if (current.some(fact => fact.kind === 'finding' && fact.state === 'open')) return { label: 'Finding open', tone: 'warning' }
+  if (running.size > 0 || current.some(fact => fact.kind === 'ci' && ciVerdict(fact.checks) === 'running')) return { label: 'Running', tone: 'info' }
+  if (relevant.some(view => isStale(view.freshness))) return { label: 'Out of date', tone: 'neutral' }
+  if (relevant.some(view => view.freshness.state === 'unknown')) return { label: 'Unknown', tone: 'neutral' }
+  if (current.some(fact => fact.kind === 'check' ? fact.exit === null && !fact.timedOut : fact.kind === 'ci' && ['cancelled', 'skipped'].includes(ciVerdict(fact.checks)))) return { label: 'Incomplete', tone: 'neutral' }
+  if (current.some(fact => fact.kind === 'check' ? checkPassed(fact) : fact.kind === 'ci' && ciVerdict(fact.checks) === 'passed')) return { label: 'Checks recorded', tone: 'neutral' }
+  return { label: 'Observed', tone: 'neutral' }
+}

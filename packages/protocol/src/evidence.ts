@@ -333,7 +333,7 @@ export interface EvidenceView {
 export interface CardEvidence {
   readonly card: number
   readonly facts: readonly EvidenceView[]
-  readonly running: readonly { readonly name: string; readonly since: number }[]
+  readonly running: readonly { readonly name: string; readonly since: number; readonly target?: { readonly at: Sha; readonly cwd: string; readonly branch: string | null } }[]
 }
 
 /** A board's evidence, whole. */

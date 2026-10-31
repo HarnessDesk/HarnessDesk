@@ -146,7 +146,12 @@ deferred spec. Other stale map evidence also ranks a conservative capped sample.
 On a development push, an unknown or unfetchable change range, no impact map
 when one is needed, an unreadable input graph, or an unresolvable read runs
 every spec without the cap. The `UI_SYSTEM_MATRIX=pr` matrix reads geometry
-contracts in light and colour contracts in both themes. Local checks have their
+contracts in light and colour contracts in both themes. The popup contracts
+(`frame-contract-popup-*`) read both themes in every matrix: each destination is
+rendered once per width, read, switched to dark in place and read again, and
+their rules run in Node over those readings. The non-work window leads
+(`frame-contract-nonwork-leads-*`) are geometry and read light only, in every
+matrix, the same way. Local checks have their
 own execution budget and report anything left to full CI. Each development
 push has a commit-keyed concurrency group, preserving running and pending
 coverage of earlier ranges; dispatches have a separate group, so pushes cannot
