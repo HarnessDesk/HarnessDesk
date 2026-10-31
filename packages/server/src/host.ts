@@ -5773,11 +5773,6 @@ export class Host {
       }
       try {
         const adopted = directory.adopt(entry as Record<string, unknown>)
-        if (!storedAgent(id)) {
-          agents.skipped += 1
-          continue
-        }
-        agents.restored += 1
         if (adopted) {
           if (adopted.usage) this.bindUsage(adopted.runtime.info.id, adopted.usage)
           this.register(adopted.runtime)
@@ -5785,8 +5780,12 @@ export class Host {
           void this.#startOne(adopted.runtime)
         }
       } catch {
-        agents.skipped += 1
+        this.#logger.warn('an agent from a backup could not be brought up')
       }
+      // Adoption writes before it builds; registration can fail after that
+      // too. Count the persisted row once, independently of runtime startup.
+      if (storedAgent(id)) agents.restored += 1
+      else agents.skipped += 1
     }
 
     let preferences = 0
