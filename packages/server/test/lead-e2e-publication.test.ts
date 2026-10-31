@@ -22,8 +22,7 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   await rig.decide(rig.pending('plan')!, 'approve'); await rig.releaseWorkers()
   await rig.waitFor(() => !!rig.pending('result'), 'reviewed result')
   await rig.waitFor(() => { const last = rig.host.flowsPlane.leadRuns()[0]?.rounds.at(-1); return last?.role === 'accept' && last.state === 'running' }, 'live person gate')
-  await rig.waitFor(() => !!rig.pending('result'), 'stable reviewed result after person gate opens')
-  await rig.decide(rig.pending('result')!, 'accept-open-pr')
+  await rig.decideResult('accept-open-pr')
   t.diagnostic(`initial reviewed PR published after ${Date.now() - started}ms`)
   const initial = structuredClone(rig.journal.state.pr)!, team = rig.journal.state.runs[0]!.teamId
   assert.equal(rig.journal.state.phase, 'following')
@@ -54,7 +53,7 @@ for (const restart of [false, true]) test(`E3/E4 ${restart ? 'across host restar
   const green = evidence.lines.flatMap(line => line.type === 'evidence' && line.record.intake?.goal === team && line.record.fact.kind === 'ci' && line.record.fact.at === repaired ? [line.record.fact] : [])
   assert.equal(green.length, 1, 'one durable green CI fact for this Team and published head')
   assert.ok(green[0]!.kind === 'ci' && green[0]!.checks.some(check => check.name === 'CI passed' && check.state === 'passed'))
-  await rig.decide(rig.pending('result')!, 'accept')
+  await rig.decideResult('accept')
   assert.equal(rig.journal.state.phase, 'following')
   await offline.mergeExternally(); await offline.poll()
   assert.equal(rig.journal.state.phase, 'accepted'); assert.equal(rig.journal.state.pr?.state, 'merged')

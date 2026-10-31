@@ -4664,33 +4664,48 @@ the failure logs of the 128 jobs that failed in them:
 from a list in the workflow; a check that never finds anything another check
 does not is measured, then removed from the place it costs most.
 
-> Extended by [A checkout root's project answer stands while what git reads to give it is unchanged](#a-checkout-roots-project-answer-stands-while-what-git-reads-to-give-it-is-unchanged--2026-10-31):
-> the one-second window still governs subfolders and folders in no repository.
+> Superseded in part by [A checkout root's project answer stands while what git reads to give it is unchanged](#a-checkout-roots-project-answer-stands-while-what-git-reads-to-give-it-is-unchanged--2026-10-31):
+> the one-second window is gone; a folder can join or leave a repository
+> without moving.
 
 ## A checkout root's project answer stands while what git reads to give it is unchanged — 2026-10-31
 
-After the one-second window, the profiled Lead end-to-end case (`the model gets
-one standing text…`) still started 1,096 of its 6,248 git processes asking which
-project the same few checkout roots belong to — `rev-parse`, `worktree list` and
-`remote get-url`, again every second. A folder that is the root of a checkout
-of its own (a project, or a Team's worktree) now keeps its answer past the
-window while a stat mark reads the same: where the folder resolves; its `.git`,
-with the `gitdir:` text a worktree's holds; that git directory and its
+The one-second window `projectOf` kept an answer for, on the folder's real
+path alone, was wrong: a folder can join or leave a repository without
+moving. A lane folder torn down mid-read, or a directory a checkout is then
+made in, kept its old answer, and the Lead publication end-to-end cases
+decided a result card against it and were refused (`lead-card-stale`,
+`lead-card-decided`) — in CI on most runs once the reads around them got
+faster. The window was removed (`4081d37`); only callers asking at once share
+an answer.
+
+Asking afresh every time put `projectOf` back at about a fifth of a Lead
+run's git processes. A folder that is the root of a checkout of its own (a
+project, or a Team's worktree) now keeps its answer while a stat mark reads
+the same, and the mark is read on every call: the folder; its `.git`, a
+directory or a `gitdir:` file read whole; that git directory and its
 `commondir`; the common directory with the configuration that can move or
-empty its working tree (`core.worktree`, `core.bare`, `config.worktree`); and
-the answer's own `<root>/.git`. A directory is marked by its identity alone,
-since git writes inside its own constantly; a file by identity, size and
-times. A mark holding a file changed less than `RACY_MS` (two seconds, FAT's
-granularity) before it was read is not trusted, so a write in the same
-timestamp tick cannot hide. The folder's side is read before git is asked and
-must agree after, so a checkout made while git answers is not marked as it
-was. Subfolders, folders in no repository and folders that have gone keep the
-one-second rule. At most 256 answers are kept. `repositoryRoot` no longer asks
-for the origin `repositoryOf` names, which it discarded.
+empty its working tree (`config`, `config.worktree`); and the answer's own
+`<root>/.git`. Directories and pointers are marked by identity and text, a
+configuration file by identity, size and times, and one changed within
+`RACY_MS` of the read vouches for nothing — the parts and the rule are the
+ones `tips.ts` marks a branch tip with. The folder's side is read before git
+answers and must agree after, so a checkout made meanwhile is not marked as
+it was. A subfolder, a folder in no repository and a folder that has gone are
+asked every time. `repositoryRoot` no longer asks for the origin it discarded.
 
-The same case went from 1,096 to 50 git processes from `projectOf`, and from
-6,248 to 5,298 in all.
+Measured on the Lead end-to-end case `the model gets one standing text…`,
+with every git process counted: without a cache, `projectOf` started about
+4,600 of its 7,800 git processes and the case took 90–97 seconds; with the
+mark, it started 26 of 3,300, in 65–69 seconds.
 
-**Rule:** a cached answer about the filesystem stands on a mark of exactly what
-was read to give it, never on time alone; a mark too new to tell the next
-change from is no mark.
+The faster host also showed the Lead publication cases racing the Lead
+itself: the Lead withdraws a result on every desk event that may change it and
+offers it again, so a click on a result card read a moment earlier can be
+refused. The rig now decides the result that is current
+(`decideResult`), deciding again only after that refusal, never once a
+publication for the card began.
+
+**Rule:** an answer about the filesystem stands on a mark of exactly what was
+read to give it, read again on every use, never on time or a path alone; a
+mark too new to tell the next change from is no mark.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
@@ -122,15 +122,18 @@ test('a checkout that is gone is its own project without asking git, and callers
   const gone = join(tempDir('hd-evidence-gone-'), 'trashed-checkout')
   assert.equal(await projectOf(gone), gone)
   assert.equal(await asked(), '', 'a folder that is not there is answered without git')
-  assert.equal(await projectOf(join(dir, '.')), await realpath(dir))
+  // A subfolder, which is always asked: a checkout root's answer can stand on its mark (below).
+  const sub = join(dir, 'sub')
+  await mkdir(sub)
+  assert.equal(await projectOf(join(sub, '.')), await realpath(dir))
   const once = (await asked()).split('\n').length
   assert.ok(once > 1, 'a folder that is there is still asked about')
 
   // Asked about at once, as every open Team's review read does: one set of questions.
-  const answers = await Promise.all(Array.from({ length: 20 }, () => projectOf(dir)))
+  const answers = await Promise.all(Array.from({ length: 20 }, () => projectOf(sub)))
   assert.deepEqual(new Set(answers), new Set([await realpath(dir)]))
   assert.equal((await asked()).split('\n').length, 2 * once - 1, 'twenty callers at once start git as one does')
-  await projectOf(dir)
+  await projectOf(sub)
   assert.equal((await asked()).split('\n').length, 3 * once - 2, 'and a later question is asked afresh')
 })
 
@@ -141,6 +144,58 @@ test('a project answer is not kept for a folder that has gone since', async () =
   assert.equal(await projectOf(cwd), await realpath(repo.dir))
   await rm(cwd, { recursive: true })
   assert.equal(await projectOf(cwd), cwd, 'a removed checkout is its own project at once')
+})
+
+test('a checkout root keeps its answer while its mark stands, and a moved, removed or re-created checkout is seen by the next read', async (t) => {
+  const repo = await makeRepo()
+  const other = await makeRepo()
+  const cwd = join(tempDir('hd-project-kept-'), 'checkout')
+  await repo.git('worktree', 'add', '-q', '-b', 'kept', cwd)
+  const bin = tempDir('hd-evidence-bin-')
+  const calls = join(bin, 'calls')
+  const git = (await run('sh', ['-c', 'command -v git'])).stdout.trim()
+  await writeFile(join(bin, 'git'), `#!/bin/sh\necho "$*" >> '${calls}'\nexec '${git}' "$@"\n`, { mode: 0o755 })
+  const path = process.env.PATH
+  process.env.PATH = `${bin}:${path}`
+  t.after(() => { process.env.PATH = path })
+  const asked = async () => (await readFile(calls, 'utf8').catch(() => '')).split('\n').length - 1
+  /** Once git's own writes have stood for RACY_MS, a read marks the answer and the next starts no git. */
+  const kept = async (folders: readonly string[], answer: string) => {
+    await new Promise((resolve) => setTimeout(resolve, RACY_MS + 50))
+    assert.deepEqual(await Promise.all(folders.map((folder) => projectOf(folder))), folders.map(() => answer))
+    const before = await asked()
+    assert.deepEqual(await Promise.all(folders.map((folder) => projectOf(folder))), folders.map(() => answer))
+    assert.equal(await asked(), before, 'a checkout root whose mark stands is not asked again')
+  }
+
+  await kept([cwd, repo.dir], await realpath(repo.dir))
+  // Moved: the main checkout goes elsewhere and its worktree is told where; where it was is gone.
+  const moved = join(tempDir('hd-project-moved-'), 'project')
+  await rename(repo.dir, moved)
+  await run('git', ['-C', moved, 'worktree', 'repair', cwd])
+  assert.equal(await projectOf(cwd), await realpath(moved), 'a moved project is seen by the next read')
+  assert.equal(await projectOf(repo.dir), repo.dir, 'and a removed one too')
+
+  // Re-created in the same place, as a worktree of another repository.
+  await kept([cwd], await realpath(moved))
+  await rm(cwd, { recursive: true })
+  await run('git', ['-C', moved, 'worktree', 'prune'])
+  await other.git('worktree', 'add', '-q', '-b', 'again', cwd)
+  assert.equal(await projectOf(cwd), await realpath(other.dir), 'a re-created checkout is seen by the next read')
+
+  // Its .git taken away without the folder moving: in no repository at once.
+  await kept([cwd], await realpath(other.dir))
+  await rm(join(cwd, '.git'))
+  assert.equal(await projectOf(cwd), await realpath(cwd), 'a folder that loses its .git is its own project at once')
+
+  // And a plain folder that becomes a checkout without moving is asked, never kept as it was.
+  const plain = join(tempDir('hd-project-joins-'), 'later')
+  await mkdir(plain)
+  assert.equal(await projectOf(plain), await realpath(plain))
+  await other.git('worktree', 'prune')
+  await rm(plain, { recursive: true })
+  await other.git('worktree', 'add', '-q', '-b', 'joins', plain)
+  assert.equal(await projectOf(plain), await realpath(other.dir), 'a folder that becomes a checkout is seen by the next read')
 })
 
 test('concurrent project reads preserve traversal through a symlink before its parent', async () => {
