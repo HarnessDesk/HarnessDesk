@@ -524,6 +524,8 @@ export class AgentDirectory {
     private readonly options: {
       readonly store: AgentRegistryStore
       readonly build: (config: AcpAgentConfig) => AgentRuntime
+      /** Bootstrap can skip a stored row when another runtime already owns its id. */
+      readonly ownsRuntime?: (id: RuntimeId | string) => boolean
       /** The usage sources this agent's CLI earns, if any. See `localUsageFor`. */
       readonly usageFor: (config: AcpAgentConfig) => AgentUsageBinding | null
       /**
@@ -747,7 +749,7 @@ export class AgentDirectory {
   }
 
   owns(id: RuntimeId | string): boolean {
-    return this.options.store.has(String(id))
+    return this.options.store.has(String(id)) && (this.options.ownsRuntime?.(id) ?? true)
   }
 
   /** Deletes one version of a download the desk made; nothing else. */
