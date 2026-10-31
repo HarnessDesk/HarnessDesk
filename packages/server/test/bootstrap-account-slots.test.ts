@@ -33,6 +33,13 @@ const extraCodex = slots.add('codex', codexHome, root)
 writeFileSync(join(extraCodex.home, 'auth.json'), '{}')
 const ignoredHome = join(root, 'accounts', 'ignored-acp')
 const trashed = []
+if (process.env.HD_REMOVE_FOREIGN_FIRST === '1') {
+  mkdirSync(ignoredHome, { recursive: true })
+  writeFileSync(join(ignoredHome, 'auth.json'), '{"marker":"preserved"}')
+  const saved = JSON.parse(readFileSync(join(root, 'accounts.json'), 'utf8'))
+  saved.accounts.unshift({ ...extraCodex, agent: 'future-runtime', home: ignoredHome })
+  writeFileSync(join(root, 'accounts.json'), JSON.stringify(saved))
+}
 if (process.env.HD_DUPLICATE_SLOTS) {
   const saved = JSON.parse(readFileSync(join(root, 'accounts.json'), 'utf8'))
   saved.accounts.push({ ...extraCodex, id: process.env.HD_DUPLICATE_SLOTS === 'primary' ? 'codex' : extraCodex.id })
@@ -56,7 +63,7 @@ if (process.env.HD_DUPLICATE_IDS === '1') {
 }
 const { createDefaultHost } = await import(process.env.HD_BOOTSTRAP)
 const { host, extensions, pathReady } = createDefaultHost({
-  stateDir: root, codexHome, codexBinaryPath: process.env.HD_DUPLICATE_IDS === '1' || process.env.HD_DUPLICATE_SLOTS ? process.env.HD_NATIVE_FIXTURE : sentinel,
+  stateDir: root, codexHome, codexBinaryPath: process.env.HD_DUPLICATE_IDS === '1' || process.env.HD_DUPLICATE_SLOTS || process.env.HD_REMOVE_FOREIGN_FIRST === '1' ? process.env.HD_NATIVE_FIXTURE : sentinel,
   ...(process.env.HD_ACCOUNT_LIFECYCLE === '1' ? { trashPath: async home => { trashed.push(home); renameSync(home, home + '.trashed') } } : {}),
   console: false, logLevel: process.env.HD_DUPLICATE_IDS === '1' || process.env.HD_DUPLICATE_SLOTS ? 'warn' : 'error'
 })
@@ -116,6 +123,20 @@ try {
       assert.equal(host.syncPayload().params.runtimes.find(info => info.id === id).install ?? null, null)
     }
     assert.equal(existsSync(marker), false, 'an ignored install command is never scanned')
+  }
+  if (process.env.HD_REMOVE_FOREIGN_FIRST === '1') {
+    await host.start()
+    await host.call('runtime/account/remove', { runtime: extraCodex.id })
+    const retained = new AccountSlots(join(root, 'accounts.json')).list()
+    assert.equal(retained.length, 1, 'only the registered native slot is forgotten')
+    assert.equal(retained[0].agent, 'future-runtime', 'the foreign row is preserved')
+    assert.equal(retained[0].home, ignoredHome)
+    assert.equal(existsSync(extraCodex.home), false, 'the registered native home is purged')
+    assert.equal(readFileSync(join(ignoredHome, 'auth.json'), 'utf8'), '{"marker":"preserved"}', 'the foreign home is untouched')
+    const remaining = host.syncPayload().params.runtimes
+    assert.equal(remaining.some(info => info.id === extraCodex.id), false)
+    assert.equal(remaining.find(info => info.id === 'codex').slot.removable, false)
+    assert.equal(existsSync(marker), false, 'only the requested fake runtime was invoked')
   }
   if (process.env.HD_DUPLICATE_IDS === '1' || process.env.HD_DUPLICATE_SLOTS) {
     assert.equal(new Set(infos.map(info => info.id)).size, infos.length)
@@ -245,6 +266,7 @@ for (const scenario of [
   { name: 'native install reads ignore retained colliding ACP configuration', agents: true, slots: '', installRead: true },
   { name: 'native slot allocation preserves occupied homes and bounds exhaustion', agents: false, slots: '', allocatorControl: true },
   { name: 'a pending native gateway account is prepared before registration', agents: true, slots: '', lifecycle: true, gatewayAdd: true },
+  { name: 'native account removal preserves a foreign slot that precedes its registered slot with the same id', agents: false, slots: '', foreignFirst: true },
 ]) {
   test(scenario.name, { timeout: 30_000 }, async () => {
     const root = tempDir('hd-slot-wiring-')
@@ -263,6 +285,7 @@ for (const scenario of [
       HD_INSTALL_READ: 'installRead' in scenario && scenario.installRead ? '1' : '0',
       HD_ALLOCATOR_CONTROL: 'allocatorControl' in scenario && scenario.allocatorControl ? '1' : '0',
       HD_GATEWAY_ADD: 'gatewayAdd' in scenario && scenario.gatewayAdd ? '1' : '0',
+      HD_REMOVE_FOREIGN_FIRST: 'foreignFirst' in scenario && scenario.foreignFirst ? '1' : '0',
       HD_NATIVE_FIXTURE: new URL('../../../adapter-codex/test/fixtures/fake-codex.mjs', import.meta.url).pathname,
       HD_ACP_FIXTURE: new URL('../../../adapter-acp/test/fixtures/fake-acp-agent.mjs', import.meta.url).pathname,
       HD_FAKE_RUNTIME: new URL('./fixtures/fake-runtime.js', import.meta.url).href,
