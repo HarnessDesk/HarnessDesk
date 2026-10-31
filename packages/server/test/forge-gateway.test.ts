@@ -66,6 +66,20 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
     answer: (value: typeof answer) => { answer = value }, mergeStep: (value: boolean) => { mergeStep = value }, ceiling: (value: typeof ceiling) => { ceiling = value } }
 }
 
+test('a detached conversation resolves only its own recorded PR through the plugin', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  await f.run('pr_create', { title: 'Widgets', body: 'Body' })
+  git(f.checkout, 'checkout', '--detach', 'HEAD')
+  assert.match(await f.run('pr_view', {}), /#1/)
+  assert.ok(f.trace().some(call => call.cwd === f.checkout &&
+    call.argv.slice(0, 3).join(' ') === 'pr view 1' &&
+    call.argv.slice(-2).join(' ') === '--repo github.com/acme/widgets'))
+  const before = f.trace().filter(call => ['comment', 'review', 'edit'].includes(call.argv[1] ?? '')).length
+  await assert.rejects(f.run('pr_comment', { body: 'Unrelated conversation' }, 'another-session'), /No recorded open pull request/)
+  assert.equal(f.trace().filter(call => ['comment', 'review', 'edit'].includes(call.argv[1] ?? '')).length, before)
+})
+
 test('kernel pushes pin once, continue without a question, ask for rewrites, and record protected refusals', async t => {
   const f = await fixture(t)
   await f.run('git_push', { set_upstream: true })
