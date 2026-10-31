@@ -162,9 +162,12 @@ export const managedWorktreePath = async (repoPath: string, stateDir: string, na
   return join(await worktreeHomePath(main, stateDir), slugify(name))
 }
 
-/** The main checkout for any path inside a repository or one of its worktrees. */
+/**
+ * The main checkout for any path inside a repository or one of its worktrees.
+ * Only the root: the remote that `repositoryOf` names is not asked for.
+ */
 export const repositoryRoot = async (path: string): Promise<string | null> =>
-  (await repositoryOf(path))?.root ?? null
+  (await located(path, false))?.root ?? null
 
 /**
  * Which repository a folder belongs to, and whether it is a linked worktree
@@ -182,16 +185,18 @@ export const repositoryRoot = async (path: string): Promise<string | null> =>
  * is that submodule's git directory, so it is put back through
  * `--show-toplevel` to reach the folder someone actually works in.
  */
-export const repositoryOf = async (path: string): Promise<RepoInfo | null> => {
+export const repositoryOf = (path: string): Promise<RepoInfo | null> => located(path, true)
+
+const located = async (path: string, origin: boolean): Promise<RepoInfo | null> => {
   const checkout = await shellCheckoutIdentity(path)
   if (!checkout) return null
   const { gitCommonDir: common, gitDir: dir, checkoutRoot: here } = checkout
   if (samePath(dir, common)) {
     if (!await isMainCheckout(here, common, await asked(path, checkout))) return null
-    return { root: here, worktree: false, ...(await originOf(path)) }
+    return { root: here, worktree: false, ...(origin ? await originOf(path) : null) }
   }
   const main = await mainCheckoutOf(path, common)
-  return main === null ? null : { root: main, worktree: true, ...(await originOf(path)) }
+  return main === null ? null : { root: main, worktree: true, ...(origin ? await originOf(path) : null) }
 }
 
 /**
