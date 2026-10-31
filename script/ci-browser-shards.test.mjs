@@ -427,6 +427,8 @@ test('only a full run that passed every part, browser suite and native smoke inc
   const proof = job('proof')
   assert.match(proof, /^    name: Tree proof$/m)
   assert.match(proof, /^    needs: \[changes, verify, ui-system-browser-integration, ui-system-native-integration\]$/m)
+  // Without always() a skip by design upstream skips the proof, as in run 41229234634.
+  assert.match(proof, /^      always\(\) && needs\.changes\.outputs\.tier == 'full'/m)
   for (const condition of ["needs.changes.outputs.tier == 'full'", "needs.changes.outputs.browser == 'all'", "needs.changes.outputs.browser_specs == 'all'",
     "needs.changes.outputs.native == 'true'", "needs.verify.result == 'success'", "needs.ui-system-browser-integration.result == 'success'",
     "needs.ui-system-native-integration.result == 'success'"]) assert.ok(proof.includes(condition), condition)
