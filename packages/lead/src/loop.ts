@@ -94,6 +94,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   let history: readonly MessagesTurn[] | null = null, requestTemplate: LeadMessagesRequest | null = null
   let publicationSources: { runId: string; reviewedHead: string; evidenceRevision: string }[] = []
   let lastResultSignature: string | null = null
+  /** Result cards this loop has seen stand for other evidence or spend than it read: never taken as current again. */
+  const movedResults = new Set<string>()
   let noProgressTurns = 0, waitingForResume = false
   const chatStates = new Map<string, string>(), changedChats = new Map<string, string>()
   const gate = createLeadWakeGate(options.stuckMs)
@@ -212,6 +214,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         })
         const signature = resultSignature(contract.digest, assertions, budget!)
         const stored = journal.state.cards.find(card => card.id === `result-${contract.revision}`)
+        if (stored?.type === 'result') {
+          const key = `${stored.id}:${stored.revision}`
+          // Offered elsewhere — by the host once a repair's CI passed — with exactly what this read found, and
+          // never seen standing for anything else: it is this result, and a click made on it stands.
+          if (resultSignature(stored.contractDigest, stored.assertions, stored.budget) !== signature) movedResults.add(key)
+          else if (!movedResults.has(key)) lastResultSignature = signature
+        }
         if (signature !== lastResultSignature || stored?.type !== 'result' ||
           resultSignature(stored.contractDigest, stored.assertions, stored.budget) !== signature) {
           await invalidate()
