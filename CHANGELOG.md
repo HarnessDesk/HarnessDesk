@@ -7,6 +7,16 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Accepting a Lead result no longer fails while the Lead is re-reading.** A click that lands in the moment the Lead takes its result back to read new observations waits for it and is made on the same result when it comes back unchanged; only a result that actually changed asks you to look again.
+
+- **A late Codex process exit no longer disrupts its replacement.** Restarting while the previous process drains keeps replies and shutdown with the new process.
+
+- **Lead respects a reached round allowance without losing its child.** A running round can finish, and the next round is stopped at the allowance even if the limit changes while a request is being admitted.
+
+- **Open Teams use less CPU.** The desk no longer asks git the same questions about the same project folders over and over while it reads evidence and findings, and asks where a branch stands only after it has moved: a measured Lead run started about a third as many git processes and finished in under half the time.
+
+- **Detached conversations can find their own pull request.** Omitting the number in view, checks, review or comment uses that conversation's unique recorded open PR. Ambiguous cases still ask for a number; detached updates remain refused.
+
 - **Lead is a conversation first.** Ask questions directly, or ask it to start, read, message and stop ordinary chats in its project. Simple tasks no longer need an implementer and independent reviewer. Reviewed work keeps its approval gates; setup problems explain what to change instead of repeating Resume.
 
 - **The phone can reach older sessions and control ordinary conversations.** Paired phones page active and archived sessions, and the Run grant allows starting a session, replying and stopping a turn while keeping the desk's session settings. Approval answers still require Answer.

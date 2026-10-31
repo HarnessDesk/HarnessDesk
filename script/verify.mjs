@@ -67,124 +67,19 @@ const run = (command, args) =>
 step('lockfile installs', () => run('pnpm', ['install', '--frozen-lockfile']), { stop: true })
 
 step('build', () => run('pnpm', ['run', 'build']))
-step('node tests', () =>
-  run('bash', [
-    '-c',
-    // Same deadline CI uses: a hung test should say its name, not time out
-    // the run. On Node 22 this flag caps each test *file*'s cumulative
-    // time, not a single test's own — measured directly (#1000's review,
-    // round 2: three files each holding two 1.5s tests, each with its own
-    // `{ timeout: 10000 }`, still failed as a whole file at the flag's
-    // value). A per-test option can only ever narrow that file-cumulative
-    // ceiling, never widen it. The four flow-host-evidence end-to-end files,
-    // the server's Lead e2e and intake files and the command line's end-to-end file
-    // legitimately need more than this, so they run in their own invocations
-    // below instead of sharing this one. Retention keeps this deadline, but
-    // runs alone so concurrent fixtures cannot consume its workload guard.
-    //
-    // The exclusion is a `find`, not a second glob, because node's own glob
-    // matching has no negation syntax. It names each carved-out run by the
-    // very path glob that run is given (`-path`, not `-name`): a bare name
-    // also dropped `packages/protocol`'s `intake-wire.test.js`, which the
-    // server-only run below never picks up, so it ran nowhere. Still the same
-    // glob CI runs, minus the files the dedicated steps cover, so a package
-    // that gains tests is covered here the day it does — a hand-kept list of
-    // packages once left one out. It matches what was built rather than what
-    // exists, which is why `build:node` ends by pruning dist of every output
-    // whose source is gone (script/prune-dist.mjs).
-    "node --test --test-timeout=120000 $(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js' ! -path 'packages/server/dist/test/host-retention.test.js' ! -path 'packages/server/dist/test/lead-e2e.test.js' ! -path 'packages/lead/dist/test/supervisor.test.js' ! -path 'packages/server/dist/test/lead-service.test.js' ! -path 'packages/server/dist/test/lead-client.test.js' ! -path 'packages/server/dist/test/lead-assembly-child.test.js' ! -path 'packages/server/dist/test/lead-repair-host.test.js')",
-  ]),
-  // What it reads is what the build writes: over the dist a failed build left, it ran and printed ok (#208).
-  { needs: 'build' },
-)
-// Keep the 20 real Flow runs and their deadlines; give the measurement the
-// process to itself rather than co-scheduling hundreds of server fixtures.
-step('host-retention tests', () =>
-  run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/host-retention.test.js']),
-  { needs: 'build' },
-)
-// The supervisor and service/client fixtures require a runtime that passes the Lead probe (Node 26).
-step('lead supervisor tests', () =>
-  run('node', ['--test', '--test-timeout=120000', 'packages/lead/dist/test/supervisor.test.js']),
-  { needs: 'build' },
-)
-step('lead service tests', () =>
-  run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/lead-service.test.js']),
-  { needs: 'build' },
-)
-step('lead client tests', () =>
-  run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/lead-client.test.js']),
-  { needs: 'build' },
-)
-step('lead assembly child tests', () =>
-  run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/lead-assembly-child.test.js']),
-  { needs: 'build' },
-)
-step('lead repair host tests', () =>
-  run('node', ['--test', '--test-timeout=120000', 'packages/server/dist/test/lead-repair-host.test.js']),
-  { needs: 'build' },
-)
-step('lead e2e tests', () =>
-  // The real host/child/Flow suite requires Node 26 and its own run.
-  run('node', ['--test', '--test-timeout=600000', 'packages/server/dist/test/lead-e2e.test.js']),
-  { needs: 'build' },
-)
-step('flow-host-evidence tests', () =>
-  run('node', [
-    '--test',
-    // The worst of these four files, flow-host-evidence-review.test.ts, has
-    // 7 end-to-end cases and took 33s measured with nothing else running.
-    // Each case's own ceiling is 260s (`E2E`) behind an internal 200s safety
-    // dump (`SAFETY_MS`) that names exactly what did not move on the desk —
-    // both in `test/fixtures/flow-host-evidence.ts`. On Node 22 this flag
-    // caps the *file's* cumulative time (see the comment above), so it has
-    // to cover the worst realistic combination for that file: its own
-    // measured normal total, one case that is genuinely stuck reaching its
-    // full 260s outer bound, and headroom for several others running as
-    // slow as this suite has actually observed under load (92-100s each,
-    // #972) — all without the file being cut before its own diagnostic
-    // fires.
-    '--test-timeout=600000',
-    'packages/server/dist/test/flow-host-evidence-*.test.js',
-  ]),
-  { needs: 'build' },
-)
-step('intake tests', () =>
-  run('node', [
-    '--test',
-    // The server's intake end-to-end files (7 of its 21 intake test files)
-    // give each case a 120s ceiling of its own (`E2E` in each file), which
-    // sat exactly at the 120s the run above caps a whole file at: on Node 22
-    // a slow file was cut by the runner before any case's own ceiling, or its
-    // message, could fire (#1003). The worst, intake-comments.test.ts and
-    // intake-host.test.ts, took 14s and 12s measured at a load average of 9 —
-    // but with a second full gate running beside it, intake-host's cases took
-    // 38-97s each. Sized like the step above, and measured on Node 22: one
-    // case genuinely stuck to its full 120s, failing on its own ceiling, and
-    // the rest of the worst file that slow: at 600s it ran every other case
-    // and ended in 397s; at 360s it was cut before its last two. The other
-    // intake files are unit tests that run in seconds; one glob keeps a new
-    // intake file in this run the day it is added.
-    '--test-timeout=600000',
-    'packages/server/dist/test/intake-*.test.js',
-  ]),
-  { needs: 'build' },
-)
-step('cli e2e tests', () =>
-  run('node', [
-    '--test',
-    // The command line's end-to-end file starts a real host and the built CLI
-    // for each case. It took 33s measured at a load average of 25, and 41-75s
-    // with every core also kept busy; its cases carry their own 120s and 240s
-    // ceilings, sized for a starved machine (#1289). On Node 22 the flag
-    // above would cut the whole file at 120s before those ceilings, or their
-    // messages, could fire, so it runs here at the same wider cap as the two
-    // steps above.
-    '--test-timeout=600000',
-    'packages/cli/dist/test/e2e*.test.js',
-  ]),
-  { needs: 'build' },
-)
+/*
+ * The Node-package tests, one step per group of `script/node-tests.mjs`: the
+ * manifest says which file runs in which invocation, under which deadline and
+ * on which runtime, and CI deals the same groups into jobs that run side by
+ * side. Each reads what the build writes: over the dist a failed build left,
+ * it ran and printed ok (#208).
+ */
+step('node tests', () => run('node', ['script/node-tests.mjs', '--group', 'unit']), { needs: 'build' })
+step('node end-to-end tests', () => run('node', ['script/node-tests.mjs', '--group', 'end-to-end']), { needs: 'build' })
+step('host-retention tests', () => run('node', ['script/node-tests.mjs', '--group', 'retention']), { needs: 'build' })
+// The Lead's groups require a runtime that passes the Lead probe (Node 26).
+step('lead tests', () => run('node', ['script/node-tests.mjs', '--group', 'lead']), { needs: 'build' })
+step('lead e2e tests', () => run('node', ['script/node-tests.mjs', '--group', 'lead-e2e']), { needs: 'build' })
 /* The gates' own parsers, and whatever else in `script/` has a test beside
    it. `script/` had no test runner, so the two functions that decide what the
    layering check and the doc generator *see* were the only code in the repo

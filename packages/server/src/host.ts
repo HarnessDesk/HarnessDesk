@@ -1288,7 +1288,7 @@ export class Host {
           return cwd && root ? { cwd, root } : null
         },
         admitWrite: async (verb, scope, args) => {
-          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '' }
+          const names = { push: 'git_push', create: 'pr_create', update: 'pr_update', merge: 'pr_merge', review: 'pr_review', comment: 'pr_comment', record: '', attribute: '', repository: '', associatedPullRequest: '' }
           const result = await this.#ceilingGate.admit({ tool: verb === 'comment' && (args as { subject?: string })?.subject === 'issue' ? 'issue_comment' : names[verb], needs: verb === 'merge' ? 'merge' : 'publish',
             scope: { runtime: runtimeId(scope.runtime!), sessionId: makeSessionId(scope.sessionId!), ...(scope.turnId ? { turnId: scope.turnId as TurnId } : {}) }, publishes: true })
           if (!result.admitted) throw new Error(result.refusal)
@@ -2336,7 +2336,7 @@ export class Host {
         startTriggered: (request) => this.#flows.startTriggered(request),
         againTriggered: (run, key, evidence) => this.#flows.againTriggered(run, key, evidence),
         resumeTriggered: (run) => this.#flows.resumeTriggered(run),
-        supersedeTriggered: (run, why, next) => this.#flows.supersedeTriggered(run, why, next),
+        supersedeTriggered: (run, why, next, key) => this.#flows.supersedeTriggered(run, why, next, key),
         runs: (goal) => this.#flows.executionsFor(goal),
         execution: (run) => this.#flows.executionOf(run),
         stopRun: async (run, why) => { await this.#flows.stopRun(run, why, 'desk') },
@@ -6064,15 +6064,17 @@ export class Host {
    * leave that account explaining itself on its own row, not stop the app —
    * the same bargain `#startOne` makes for an agent that will not launch.
    */
-  async #prepareGateway(runtime: AgentRuntime): Promise<void> {
+  async #prepareGateway(runtime: AgentRuntime, acquired?: (release: () => Promise<void>) => void): Promise<void> {
     const slot = this.options.accounts?.slotOf(runtime.info, runtime)
     if (!slot?.gateway) return
     const { name, endpoint, credentialRef } = slot.gateway
     try {
-      const gateway = await this.#gateways.ensure(runtime.info.id, {
+      const acquisition = await this.#gateways.acquire(runtime.info.id, {
         upstream: endpoint,
         resolveKey: () => this.#credentials.resolve(credentialRef),
       })
+      acquired?.(acquisition.release)
+      const gateway = acquisition.gateway
       await this.options.accounts?.prepare?.(runtime.info.id, {
         id: runtime.info.id,
         name,
@@ -8974,21 +8976,27 @@ export class Host {
         }
       : undefined
     let runtime: AgentRuntime | undefined
+    let releaseGateway: (() => Promise<void>) | undefined
     try {
       const allocated = await accounts.add(of.info, spec, name)
       if (this.ownsRuntime(allocated)) throw new Error('The account factory returned an already registered runtime.')
       runtime = allocated
+      if (this.hasRuntime(runtime.info.id)) throw new Error('The account factory returned an already registered runtime id.')
       // Before registration, so a turn cannot reach an unprepared gateway.
-      await this.#prepareGateway(runtime)
+      await this.#prepareGateway(runtime, release => { releaseGateway = release })
       this.register(runtime)
       accounts.commitAdd?.(runtime)
     } catch (error) {
       if (runtime) {
         try {
           if (this.ownsRuntime(runtime)) await this.unregister(runtime.info.id)
-          else if (spec) this.#gateways.stop(runtime.info.id)
         } catch (cleanupError) {
           this.#logger.warn('a failed account setup could not stop its runtime', { runtime: runtime.info.id, error: String(cleanupError) })
+        }
+        try {
+          await releaseGateway?.()
+        } catch (cleanupError) {
+          this.#logger.warn('a failed account setup could not stop its gateway', { runtime: runtime.info.id, error: String(cleanupError) })
         }
         try { await accounts.rollbackAdd?.(runtime) } catch (cleanupError) {
           this.#logger.warn('a failed account allocation could not be removed', { runtime: runtime.info.id, error: String(cleanupError) })

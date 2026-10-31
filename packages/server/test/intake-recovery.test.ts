@@ -5,7 +5,7 @@ import { test } from 'node:test'
 
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { git } from './fixtures/flow-host-evidence.js'
-import { child, onDisk, prFact, sha, type CrashAt } from './fixtures/intake-restart.js'
+import { child, desk, onDisk, prFact, sha, type CrashAt } from './fixtures/intake-restart.js'
 import { ForgeSource } from '../src/intake/forge.js'
 import { SourceCursors } from '../src/intake/poll.js'
 import { FakeForge, iso } from './fixtures/intake-forge.js'
@@ -91,6 +91,39 @@ test('a new head after a crash lands in the same Goal as one more round', async 
   assert.equal(after.rounds.length, 2)
   assert.equal(count(after.events, 'open:'), 2)
   assert.equal(count(after.events, 'order:'), 2)
+})
+
+test('supersession replay across a process restart keeps the new round rearmable', async () => {
+  for (const boundary of ['round', 'superseded'] as const) {
+    const home = tempDir(`hd-intake-supersede-${boundary}-`)
+    const opened = prFact(7, sha('a'), 'opened')
+    const pushed = prFact(7, sha('b'), 'pushed')
+    await child(home, [opened])
+    assert.equal((await child(home, [pushed], boundary)).exited, 'crash')
+    const pending = (await journal(home)).operations[0]!
+    assert.equal(pending.state, 'prepared')
+    assert.equal((await child(home, [])).exited, 'done')
+    const d = await desk(home)
+    await d.flows.reArm('alpha', 's1')
+    await d.flows.reArm('alpha', 's2')
+    await d.settle()
+    const after = await onDisk(home)
+    assert.equal(after.rounds.length, 2)
+    assert.deepEqual(after.events.filter((one) => one.startsWith('order:')), ['order:seat-1', 'order:seat-2', 'order:seat-2'], boundary)
+
+    // A distinct firing retires round 2. A delayed replay of round 2 cannot retire round 3.
+    await d.admission.offer(d.arm, prFact(7, sha('c'), 'pushed'))
+    await d.settle()
+    assert.equal(await d.flows.supersedeTriggered(pending.run, 'A newer head arrived.', 'round', pending.key), false)
+    await d.flows.reArm('alpha', 's2')
+    await d.flows.reArm('alpha', 's3')
+    await d.settle()
+    const later = await onDisk(home)
+    assert.equal(later.rounds.length, 3)
+    assert.deepEqual(later.events.filter((one) => one.startsWith('order:')), [
+      'order:seat-1', 'order:seat-2', 'order:seat-2', 'order:seat-3', 'order:seat-3',
+    ], boundary)
+  }
 })
 
 test('offline Intake recovery refuses a fetch interrupted before its pin was journaled without fetching again', async () => {

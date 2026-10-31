@@ -460,17 +460,6 @@ export class AccountSlots {
     }
   }
 
-  /** An ambiguous id cannot select a credential home safely, even across agents. */
-  #cleanupCandidates(agent: RuntimeId): readonly AccountSlot[] {
-    const seen = new Set<RuntimeId>()
-    const repeated = new Set<RuntimeId>()
-    for (const slot of this.#slots) {
-      if (seen.has(slot.id)) repeated.add(slot.id)
-      else seen.add(slot.id)
-    }
-    return this.of(agent).filter(slot => !repeated.has(slot.id))
-  }
-
   /**
    * Drops slots that never got a credential.
    *
@@ -481,8 +470,8 @@ export class AccountSlots {
    * abandoned rather than in flight.
    */
   pruneEmpty(agent: RuntimeId): readonly RuntimeId[] {
-    const empty = this.#cleanupCandidates(agent).filter((slot) => !slotConfigured(slot))
-    for (const slot of empty) this.remove(slot.id)
+    const empty = this.of(agent).filter((slot) => !slotConfigured(slot))
+    for (const slot of empty) this.remove(slot.id, true, slot)
     if (empty.length > 0) this.log?.('abandoned account slots removed', { count: empty.length })
     return empty.map((slot) => slot.id)
   }
@@ -510,18 +499,18 @@ export class AccountSlots {
     const seen = new Set<string>()
     const own = accountIdentity(primary)
     if (own !== null) seen.add(own)
-    const folded: RuntimeId[] = []
-    for (const slot of this.#cleanupCandidates(agent)) {
+    const folded: AccountSlot[] = []
+    for (const slot of this.of(agent)) {
       const identity = accountIdentity(slot.home)
       if (identity === null) continue // Cannot tell is never the same.
-      if (seen.has(identity)) folded.push(slot.id)
+      if (seen.has(identity)) folded.push(slot)
       else seen.add(identity)
     }
-    for (const id of folded) this.remove(id)
+    for (const slot of folded) this.remove(slot.id, true, slot)
     if (folded.length > 0) {
-      this.log?.('duplicate account slots removed', { count: folded.length, slots: folded })
+      this.log?.('duplicate account slots removed', { count: folded.length, slots: folded.map(slot => slot.id) })
     }
-    return folded
+    return folded.map(slot => slot.id)
   }
 
   #write(): void {

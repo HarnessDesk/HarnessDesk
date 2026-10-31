@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -277,4 +278,47 @@ test('every unmerged pair a merge can leave is one conflicted path, in the worki
     'worktree conflicted ours-name.txt',
     'worktree conflicted theirs-name.txt',
   ])
+})
+
+
+test('timed out inventory holds its root and starts no queued descendant reads', async (t) => {
+  const dir = await realpath(await repoWithACopy(t))
+  const parent = join(dir, 'untracked')
+  await mkdir(parent)
+  await writeFile(join(parent, 'one'), 'one')
+  await writeFile(join(parent, 'two'), 'two')
+  const fs = createRequire(import.meta.url)('node:fs/promises') as typeof import('node:fs/promises')
+  const original = fs.lstat
+  const calls: string[] = []
+  let release: (() => void) | undefined
+  fs.lstat = ((path: Parameters<typeof original>[0], options: Parameters<typeof original>[1]) => {
+    const name = String(path)
+    if (name.startsWith(parent)) calls.push(name)
+    if (name === parent) return new Promise((resolve, reject) => { release = () => { original(path, options as never).then(resolve, reject) } })
+    return original(path, options as never)
+  }) as typeof original
+  syncBuiltinESMExports()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const first = assert.rejects(inventory(dir, { deadlineMs: 1000 }), /nothing was removed/)
+    while (!release) await new Promise<void>((resolve) => setImmediate(resolve))
+    t.mock.timers.tick(1000)
+    await first
+    assert.ok(release, 'the parent metadata read stalled')
+    const before = calls.length
+    await assert.rejects(inventory(dir, { deadlineMs: 1000 }), /nothing was removed/)
+    assert.equal(calls.length, before, 'a second inventory must not start another batch')
+    release!()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.deepEqual(calls.slice(before), [], 'resuming a stalled parent does not launch descendant reads')
+    fs.lstat = original
+    syncBuiltinESMExports()
+    t.mock.timers.reset()
+    const recovered = await inventory(dir)
+    assert.ok(recovered.changeCount >= 2, 'the root is usable once the disk answers')
+  } finally {
+    release?.()
+    fs.lstat = original
+    syncBuiltinESMExports()
+  }
 })
