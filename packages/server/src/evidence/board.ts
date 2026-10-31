@@ -38,7 +38,7 @@ export const ADVISORY_CHECK_WHY = 'A Seat ran this declared check on the committ
  * other's work. In memory: a run does not outlive the desk that started it.
  */
 export class RunningChecks {
-  readonly #runs = new Map<string, { readonly room: string; readonly card: number; readonly name: string; readonly since: number }>()
+  readonly #runs = new Map<string, { readonly room: string; readonly card: number } & CardEvidence['running'][number]>()
 
   /** Marks a check running on a card, or answers the one already running there. */
   start(room: string, card: number, name: string, since: number): { readonly name: string } | null {
@@ -49,11 +49,18 @@ export class RunningChecks {
     return null
   }
 
+  /** Bind a reserved run after its checkout has been read, before the command starts. */
+  target(room: string, card: number, target: NonNullable<CardEvidence['running'][number]['target']>): void {
+    const key = JSON.stringify([room, card])
+    const run = this.#runs.get(key)
+    if (run) this.#runs.set(key, { ...run, target })
+  }
+
   end(room: string, card: number): void {
     this.#runs.delete(JSON.stringify([room, card]))
   }
 
-  of(room: string): { readonly card: number; readonly name: string; readonly since: number }[] {
+  of(room: string): ({ readonly card: number } & CardEvidence['running'][number])[] {
     return [...this.#runs.values()].filter((run) => run.room === room)
   }
 }
@@ -104,7 +111,7 @@ export interface BoardEvidenceInput {
   readonly refused: readonly { readonly name: string; readonly why: string }[]
   /** Why its checks file cannot be read at all, or null. */
   readonly unreadable: string | null
-  readonly running: readonly { readonly card: number; readonly name: string; readonly since: number }[]
+  readonly running: readonly ({ readonly card: number } & CardEvidence['running'][number])[]
   /** A Seat in words, or null when the desk knows no such Seat. */
   readonly seatWords: (id: SeatId) => { readonly agent: string | null; readonly seat: string } | null
 }
@@ -181,7 +188,7 @@ export const boardEvidence = async (input: BoardEvidenceInput): Promise<BoardEvi
       facts,
       running: input.running
         .filter((run) => run.card === id)
-        .map((run) => ({ name: run.name, since: run.since }))
+        .map((run) => ({ name: run.name, since: run.since, ...(run.target ? { target: run.target } : {}) }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     })
   }
