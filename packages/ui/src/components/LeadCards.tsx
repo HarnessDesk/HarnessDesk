@@ -53,6 +53,8 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
   readonly onDecide: (decision: LeadCardDecision) => Promise<unknown>; readonly onChanges: () => void
   readonly onApprovals: (runId: string) => void; readonly onError?: (error: unknown) => void; readonly onSettled?: () => void
 }) => {
+  const [readingRule, setReadingRule] = useState<string | null>(null)
+  const reading = savedApprovals.find(rule => rule.id === readingRule)
   const latest = useRef(cards); latest.current = cards
   const localBusy = useRef(false), [localPending, setLocalPending] = useState<string | null>(null)
   const busy = decisionLock ?? localBusy, pending = decisionPending === undefined ? localPending : decisionPending
@@ -148,8 +150,12 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
     {placement !== 'dock' && savedApprovals.length > 0 && <section aria-label="Saved approvals for this goal">
       <Text as="p" role="subject">Saved approvals for this goal</Text>
       <Rows>{savedApprovals.map(rule => <Row key={rule.id} title={sanitizeText(rule.target)} desc={`${rule.count} ${rule.count === 1 ? 'request' : 'requests'} answered`}
-        control={<Button variant="secondary" disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button>} />)}</Rows>
+        control={<>{!!rule.entries?.length && <Button variant="secondary" onClick={() => setReadingRule(rule.id)}>View allowed diffs</Button>}<Button variant="secondary" disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button></>} />)}</Rows>
     </section>}
+    {reading && <Dialog title="Allowed diffs" description={sanitizeText(reading.target)} onClose={() => setReadingRule(null)} footer={<Button onClick={() => setReadingRule(null)}>Close</Button>}>
+      <Text as="p" role="meta">{`Newest first · ${reading.entries?.length ?? 0} retained of ${reading.count} automatic answers`}</Text>
+      <Rows>{reading.entries?.map(entry => <Row key={entry.id} kind="record" layout="record" title={`Request ${entry.number}`} desc={<CodeText block wrap>{sanitizeText(entry.diff)}</CodeText>} />)}</Rows>
+    </Dialog>}
   </>
 }
 const LeadReason = ({ text }: { readonly text: string }) => <Markdown text={text} />

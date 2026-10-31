@@ -1,8 +1,11 @@
-import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, boundLeadApprovalHistory, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import { clientTierFor, parseLeadCardDecisionFor, type LeadWakeRecord, type LeadOrigin, type LeadHandback, type LeadName, type LeadFollowPreferences, type LeadPullRequest, type LeadDecisionMessage, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadCaps, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
 import { applyLeadPolicyDecision, compareLeadPolicyAuthority, sameLeadPolicyValues } from './permissions.js'
 import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity, type LeadPublicationOperation, type LeadOwnedPush } from './journal.js'
 import { reopenLeadBudgetRound, reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
+
+/** A finite migration warning, separate from the per-request audit store. */
+export const removedWorkerApprovalNotice = (messages: readonly LeadMessage[], seq: number): readonly LeadMessage[] => messages.some(message => message.id === 'worker-rules-removed') ? messages : [...messages.slice(-255), { version: 1, id: 'worker-rules-removed', revision: seq, role: 'notice', text: 'Some saved approvals were removed because their targets no longer qualify. Review new requests on the desk.' }]
 
 export const LEAD_SEND_RECEIPTS = 4096
 
@@ -193,8 +196,11 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     state = { ...state, steps: state.steps.map(step => step.attemptId === id ? { ...step, state: 'pending' as const, attemptId: null, contractDigest: null } : step) }
   }
   switch (event.type) {
+    case 'worker-rule-obsolete':
+      state = { ...state, messages: removedWorkerApprovalNotice(state.messages, event.seq) }; break
     case 'worker-rule-saved': {
       const rule = parseLeadWorkerApprovalRule(event.rule)
+      if (state.contract && !leadWorkerRuleInProject(rule.key, state.contract.project.path)) { state = { ...state, messages: removedWorkerApprovalNotice(state.messages, event.seq) }; break }
       ensure(state.contract && state.consent && !hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) &&
         rule.contractDigest === state.contract.digest && rule.goalStartedSeq === state.goalStartedSeq && rule.count === 0 &&
         leadWorkerRuleInProject(rule.key, state.contract.project.path) && state.workerApprovals.length < 128 &&
@@ -203,18 +209,14 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     }
     case 'worker-rule-used': {
       const rule = state.workerApprovals.find(rule => rule.id === event.id)
-      ensure(!hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && rule && rule.count < Number.MAX_SAFE_INTEGER)
-      ensure((rule!.key.kind === 'fileChange') === (event.diff !== null))
-      const message: LeadMessage = { version: 1, id: `message-${event.seq}`, revision: event.seq, role: 'notice', text: `Allowed under your rule for this goal: ${rule!.target}`,
-        approval: { ruleId: rule!.id, target: rule!.target, ...(event.diff !== null ? { diff: event.diff } : {}) } }
-      const all = [...state.messages, message], excess = Math.max(0, all.length - 256)
-      const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
-        messages: all.slice(excess), olderMessages: state.olderMessages + excess, cards: [] }, 131072)
-      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages,
-        workerApprovals: state.workerApprovals.map(rule => rule.id === event.id ? { ...rule, count: rule.count + 1 } : rule) }; break
+      // Historical use records for removed legacy rules carry no current authority.
+      if (!rule) break
+      ensure(!hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && rule.count < Number.MAX_SAFE_INTEGER)
+      if (event.diff !== undefined) ensure((rule.key.kind === 'fileChange') === (event.diff !== null))
+      const updated = { ...rule, count: rule.count + 1, ...(typeof event.diff === 'string' ? { entries: boundLeadApprovalEntries([{ id: `audit-${event.seq}`, number: rule.count + 1, diff: event.diff }, ...rule.entries ?? []]) } : {}) }
+      state = { ...state, workerApprovals: boundLeadApprovalHistory(state.workerApprovals.map(old => old.id === event.id ? updated : old)) }; break
     }
     case 'worker-rule-revoked':
-      ensure(state.workerApprovals.some(rule => rule.id === event.id))
       state = { ...state, workerApprovals: state.workerApprovals.filter(rule => rule.id !== event.id) }; break
     case 'origin':
       ensure(state.contract === null && state.runs.length === 0 && state.origin === null)

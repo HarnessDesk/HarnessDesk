@@ -206,7 +206,8 @@ export class LeadFileJournal implements LeadJournalStorage {
       } else {
         if (bytes.length > LEAD_JOURNAL_BYTES + 256) throw new Error('lead-journal-line-limit')
         const record = parseLeadJournalRecord(source.record)
-        const hash = checksum(record, this.#checksum)
+        // Authenticate the stored bytes before applying parser migrations (obsolete rules and legacy use records).
+        const hash = checksum(source.record as LeadJournalRecord, this.#checksum)
         if (source.previous !== this.#checksum || source.checksum !== hash) throw new Error('lead-journal-checksum')
         this.#state = reduceLeadRecord(this.#state, record)
         this.#records.push(record); this.#checksum = hash

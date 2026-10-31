@@ -665,3 +665,30 @@ it('shows host approval notices separately and opens the exact allowed diff', as
   await act(async () => open.click())
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain(diff)
 })
+
+it('updates one rule notice in place and reads newest diffs from its saved row', async () => {
+  const base = leadProjection(), saved = { id: 'saved', target: '/workspace/demo/panel.tsx', count: 20, entries: [{ id: 'audit-20', number: 20, diff: '+newest whole diff' }, { id: 'audit-19', number: 19, diff: '+previous whole diff' }] }
+  const { box, update } = await mount({ ...base, thread: { ...base.thread, messages: [goalMessage] }, savedApprovals: [saved] } as any)
+  const line = box.querySelector('article[aria-label="Desk"]')!
+  expect(line?.textContent).toContain('20 times')
+  expect(box.querySelectorAll('article[aria-label="Desk"]')).toHaveLength(1)
+  await update({ savedApprovals: [{ ...saved, count: 21 }] } as any)
+  expect(box.querySelector('article[aria-label="Desk"]')).toBe(line)
+  expect(line.textContent).toContain('21 times')
+  const list = box.querySelector('section[aria-label="Saved approvals for this goal"]')!
+  const open = [...list.querySelectorAll('button')].find(button => button.textContent === 'View allowed diffs')!
+  await act(async () => open.click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.textContent).toContain('+newest whole diff')
+  expect(dialog.textContent!.indexOf('+newest')).toBeLessThan(dialog.textContent!.indexOf('+previous'))
+})
+
+it('sanitizes host notice text, target and retained diff text', async () => {
+  const base = leadProjection(), escape = '\x1b[31m', diff = escape + '+whole diff'
+  const notice: any = { version: 1, id: 'host', revision: 1, role: 'notice', text: escape + 'Host fact', approval: { ruleId: 'old', target: escape + '/workspace/demo/demo.ts', diff } }
+  const { box } = await mount({ ...base, thread: { ...base.thread, messages: [notice] } })
+  expect(box.textContent).not.toContain(escape)
+  await act(async () => button('View allowed diff').click())
+  expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain(escape)
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('+whole diff')
+})

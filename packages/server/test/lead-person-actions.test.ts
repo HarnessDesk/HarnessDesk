@@ -140,7 +140,8 @@ test('a person saves an exact goal rule; later matching workers auto-answer and 
   const next = { ...s.approval, id: 'second' }; s.record.approvals.set('second', next)
   assert.deepEqual(await Promise.all([s.actions.autoAnswer('fixture', 'session', 'second'), s.actions.autoAnswer('fixture', 'session', 'second')]), [true, true])
   assert.equal(s.calls.length, 2); assert.equal(s.journal.state.workerApprovals[0]!.count, 1)
-  assert.match(s.journal.state.messages.at(-1)!.text, /Allowed under your rule for this goal:/)
+  assert.equal(s.journal.state.messages.length, 0)
+  assert.equal(s.journal.state.workerApprovals[0]!.entries![0]!.diff, s.approval.changes[0].diff)
   for (const changed of [{ changes: [{ ...s.approval.changes[0], path: join(s.project, 'other.ts') }] }, { type: 'command', command: 'git status', cwd: s.project }, { type: 'command', kind: 'stdin', input: 'yes', command: 'demo', cwd: s.project }]) {
     s.record.approvals.set('second', { ...next, ...changed })
     assert.equal(await s.actions.autoAnswer('fixture', 'session', 'second'), false)
@@ -212,17 +213,16 @@ test('a multiply linked regular file never offers a goal rule', async () => {
   assert.ok(action?.kind === 'worker-approval'); assert.ok(!action.choices.includes('yes-goal'))
 })
 
-test('an automatic answer records an acknowledged host notice with the exact bounded diff', async () => {
+test('an automatic answer records acknowledged rule history with the exact bounded diff', async () => {
   const s = await standingRig(), [first] = await s.actions.read(); assert.ok(first)
   await s.actions.perform({ id: first.id, contractDigest: digest, choice: 'yes-goal' })
   const diff = 'export const demo = 2 // worker-chosen text'
   s.record.approvals.set('next', { ...s.approval, id: 'next', changes: [{ ...s.approval.changes[0], diff }] })
-  s.response.onAnswer = async () => { assert.equal(s.journal.state.messages.some(message => message.text.includes('Allowed under your rule')), false, 'no grant claimed before acknowledgement') }
+  s.response.onAnswer = async () => { assert.equal(s.journal.state.workerApprovals[0]!.entries, undefined, 'no grant claimed before acknowledgement') }
   assert.equal(await s.actions.autoAnswer('fixture', 'session', 'next'), true)
-  const notice = s.journal.state.messages.at(-1) as any
-  assert.equal(notice.role, 'notice')
-  assert.equal(notice.approval.diff, diff)
-  assert.equal(notice.approval.target, s.approval.changes[0].path)
+  assert.equal(s.journal.state.messages.length, 0)
+  assert.equal(s.journal.state.workerApprovals[0]!.entries![0]!.diff, diff)
+  assert.equal(s.journal.state.workerApprovals[0]!.target, s.approval.changes[0].path)
 })
 
 test('a failed automatic responder leaves no allowed notice or count', async () => {

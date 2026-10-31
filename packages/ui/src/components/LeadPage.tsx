@@ -52,6 +52,7 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-chat-effect-uncertain': 'The chat operation may have started. Inspect that chat on the desk, then start a new request when ready.',
   'lead-tools-refused': 'The requested desk operation was refused.',
   'lead-card-too-large': 'The request is too large to display safely.',
+  'lead-worker-audit-failed': 'A worker approval succeeded, but its audit could not be saved. Automatic work is paused. Inspect the worker changes and restart the desk before continuing.',
   'lead-budget-unknown': "HarnessDesk can't confirm what the workers have spent, so the Lead won't make another request. Sending a message tries again.",
   'lead-run-not-started': 'The plan is approved, but no work has started. Sending a message also continues.',
   'lead-request-failed': 'The request was interrupted. Sending a message also continues.',
@@ -261,6 +262,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
           : <LeadCards key={`card:${entry.card.id}`} {...cardProps} cards={[entry.card]} placement="thread" />)}
 
+        {(state.savedApprovals ?? []).filter(rule => rule.count > 0).map(rule => <LeadHostNotice key={`approval:${rule.id}`} message={{ version: 1, id: `approval:${rule.id}`, revision: state.revision, role: 'notice', text: `Allowed under your rule for this goal: ${rule.target} · ${rule.count} ${rule.count === 1 ? 'time' : 'times'}` }} />)}
         <LeadCards {...cardProps} cards={[]} savedApprovals={state.savedApprovals} onRevoke={input => store.lead.revokeApproval(input)} placement="thread" />
         {pr && <div data-slot="lead-pr-status"><InlineParts>
           <Button variant="link" size="inline-link" title={pr.observedHead ?? pr.head} onClick={() => openExternal(`https://github.com/${pr.repository}/pull/${pr.number}`)}>{`#${pr.number}`}</Button>

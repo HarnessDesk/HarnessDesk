@@ -1,7 +1,7 @@
-import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject } from '@harnessdesk/protocol'
+import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import { parseLeadDecisionMessage, parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy, parseLeadCaps } from '@harnessdesk/protocol'
 import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
-import { initialLeadState, type LeadState, type LeadAttemptState } from './state.js'
+import { initialLeadState, removedWorkerApprovalNotice, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
 
 export interface LeadJournalCheckpoint {
@@ -55,7 +55,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   assert(['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'following', 'accepted', 'declined', 'stopped'].includes(source.phase))
   parseLeadJournalRecord({ version: 1, seq: 1, type: 'management', phase: 'waiting-for-user', reason: source.managementReason })
   assert(Array.isArray(source.messages) && source.messages.length <= 256 && Number.isSafeInteger(source.olderMessages) && source.olderMessages >= 0)
-  const messages = source.messages.map(message => parseLeadMessage(message))
+  let messages = source.messages.map(message => parseLeadMessage(message))
   assert(new Set(messages.map(message => message.id)).size === messages.length && messages.every(message => message.revision <= source.seq))
   assert(Array.isArray(source.sends) && source.sends.length <= 4096 && new Set(source.sends.map(send => send.key)).size === source.sends.length)
   for (const send of source.sends) {
@@ -66,9 +66,23 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const policy = source.policy === null ? null : parseLeadPermissionPolicy(source.policy)
   const contract = source.contract === null ? null : parseLeadAcceptanceContract(source.contract)
   assert(Array.isArray(source.workerApprovals) && source.workerApprovals.length <= 128)
-  const workerApprovals = source.workerApprovals.map(rule => parseLeadWorkerApprovalRule(rule))
+  let removed = false
+  const workerApprovals = source.workerApprovals.flatMap(stored => {
+    let rule: LeadWorkerApprovalRule
+    try { rule = parseLeadWorkerApprovalRule(stored) }
+    catch (error) { if ((error as Error).message !== 'lead-worker-approval-obsolete') throw error; removed = true; return [] }
+    assert(contract && source.consent && !['stopped', 'accepted', 'declined', 'following'].includes(source.phase) && rule.contractDigest === contract.digest && rule.goalStartedSeq === source.goalStartedSeq)
+    if (!leadWorkerRuleInProject(rule.key, contract!.project.path)) { removed = true; return [] }
+    // Upgrade the retained portion of round-one notices without keeping them in conversation history.
+    const old = messages.filter(message => message.approval?.ruleId === rule.id && message.approval?.diff !== undefined).reverse()
+    if (rule.key.kind === 'fileChange' && rule.entries === undefined && old.length) rule = { ...rule, entries: boundLeadApprovalEntries(old.map((message, index) => ({ id: `audit-${message.revision}`, number: rule.count - index, diff: message.approval!.diff! })).filter(entry => entry.number > 0)) }
+    assert(!rule.entries || rule.entries.every(entry => Number(entry.id.slice(6)) <= source.seq))
+    return [rule]
+  })
   assert(new Set(workerApprovals.map(rule => rule.id)).size === workerApprovals.length && new Set(workerApprovals.map(rule => JSON.stringify(rule.key))).size === workerApprovals.length)
-  assert(workerApprovals.every(rule => contract && source.consent && !['stopped', 'accepted', 'declined', 'following'].includes(source.phase) && rule.contractDigest === contract.digest && rule.goalStartedSeq === source.goalStartedSeq && leadWorkerRuleInProject(rule.key, contract.project.path)))
+  assert(new TextEncoder().encode(JSON.stringify(workerApprovals.map(rule => rule.entries ?? []))).byteLength <= LEAD_APPROVAL_HISTORY_BYTES)
+  messages = messages.filter(message => !message.approval)
+  if (removed) messages = [...removedWorkerApprovalNotice(messages, source.seq)]
   assert(Array.isArray(source.completedBudgets) && source.completedBudgets.length <= 64)
   const completedBudgets = source.completedBudgets.map(value => parseLeadBudgetLedger(value))
   assert(new Set(completedBudgets.map(budget => budget.logicalGoalId)).size === completedBudgets.length)

@@ -2248,13 +2248,17 @@ through the same revision-bound decision. A worker request names its role and wh
 and No when those choices are supported. An eligible request also offers Yes for
 this goal: the person answers once and the host remembers that exact target for
 this goal and approved contract. Saved approvals for this goal lists each target,
-the number of later requests answered, and Revoke. After an automatic answer is acknowledged, a Desk notice records “Allowed under
-your rule for this goal”. View allowed diff opens the exact bounded file diff
-in a shared dialog; it is not assistant text. Revoke applies to
+the number of later requests answered, and Revoke. Each used rule has one Desk
+notice line, updated in place: “Allowed under your rule for this goal: <target> ·
+N times”. It never consumes conversation history. A file rule’s row offers View
+allowed diffs, opening its bounded retained history newest first in a shared
+dialog. Counts remain exact when older diffs are dropped. Revoke applies to
 the next request. Accepted, declined, stopped and fresh goals clear these rules,
 as does changing the approved contract. The person can use these controls on a
 paired phone with answer permission; Lead cannot create or revoke a rule.
-Commands offer only Yes once and No, with additional grants shown in full.
+Commands offer only Yes once and No, with additional grants shown in full. If an
+automatic answer succeeds but its audit cannot be saved, a host error pauses
+automatic work and asks the person to inspect the changes before restarting.
 Questions, stdin, publication, irreversible actions and changes to permissions,
 allowances or branch ownership always ask separately. After an approving review, each required
 check without counted evidence offers Run check with its whole command. That

@@ -4928,15 +4928,25 @@ Commands never receive a reusable key because repository configuration and gitfi
 
 File rules match one exact absolute path for an add or update under the approved
 project. The closed source/document extension allowlist is: `c`, `cc`, `cpp`,
-`cxx`, `h`, `hpp`, `cs`, `fs`, `go`, `rs`, `java`, `kt`, `kts`, `swift`, `m`,
-`mm`, `py`, `rb`, `php`, `js`, `jsx`, `ts`, `tsx`, `css`, `scss`, `sass`, `less`,
-`html`, `htm`, `xml`, `svg`, `vue`, `svelte`, `md`, `mdx`. Every path segment
-must be visible and must not start with a dot. JSON, YAML, TOML, lockfiles and
-shell scripts are outside this list. Basenames containing `rc` or `.config.`,
-`package.json`, `Makefile`, `Dockerfile`, and agent instructions (`AGENT.md`,
-`AGENTS.md`, their dotted variants, `CLAUDE.md`, `GEMINI.md`, `INSTRUCTIONS.md`,
-`RULES.md`, `SKILL.md`, `copilot-instructions.md`) are refused in any case.
-The implementation is `LEAD_APPROVAL_FILE_EXTENSIONS` and `safeFile` in
+`cxx`, `h`, `hpp`, `cs`, `fs`, `go`, `rs`, `java`, `kt`, `swift`, `m`, `mm`,
+`py`, `rb`, `php`, `js`, `jsx`, `ts`, `tsx`, `css`, `scss`, `sass`, `less`,
+`html`, `htm`, `vue`, `svelte`, `md`, `mdx`. XML, Kotlin scripts and SVG are
+excluded because they commonly define builds or carry executable content. JSON,
+YAML, TOML, lockfiles and shell scripts are also outside this list.
+
+Eligibility is checked on the path relative to the approved project, allowing a
+project itself to live below a dot folder. No relative segment may start with a
+dot, or name a `script`, `scripts`, `bin` or `hooks` directory (case insensitive).
+Basenames refuse rc files (`rc$` or `rc.`), `*.local.*`, `*.config.*`,
+`*.setup.*`, `*.gradle*`, `*file.js`, `*file.ts`, `*file.mjs`, `*.gemspec`,
+`*.podspec`, `package.json`, `Makefile`, `Dockerfile`, `pom.xml`, `Package.swift`,
+`build.*`, `setup.py`, `setup.cfg`, `conftest.py`, `noxfile.py`, `tasks.py`,
+`fabfile.py`, `manage.py`, `Rakefile`, `Gemfile`, `Podfile`, `CMakeLists.txt` and
+`meson.build`. Agent instructions (`AGENT.md`, `AGENTS.md`, their dotted variants,
+`CLAUDE.md`, `GEMINI.md`, `INSTRUCTIONS.md`, `RULES.md`, `SKILL.md`,
+`copilot-instructions.md`, `CONVENTIONS.md`) are refused in any case. Ordinary
+names such as `resource.ts` and `source.ts` remain eligible. The implementation
+is `LEAD_APPROVAL_FILE_EXTENSIONS` and `safeFile` in
 `packages/protocol/src/goal-worker-approval.ts`.
 
 Only regular existing files with one hard link, or new files with an existing
@@ -4955,17 +4965,36 @@ Lead's complete one-time request. Questions, elicitations and stdin never get a
 key. Targets and paths containing Unicode control, format or line/paragraph
 separator characters are refused.
 
-Every automatically allowed file diff is bounded by the same 8,000-character
-limit as the card and retained exactly in its journaled host notice. The thread
-shows that notice as Desk data with View allowed diff; the full diff opens in
-the shared Dialog. A successful acknowledgement writes the notice and count in
-one journal event. Failed responders produce no Allowed notice and no count;
-a crash between acknowledgement and the journal write can omit that receipt.
-These notices never enter the Lead's prompt or appear as assistant prose.
+Audit traffic never enters the conversation message window or the Lead's prompt.
+Each rule keeps its exact acknowledged-answer count; file rules separately keep
+newest-first entries containing the answer number and exact diff (including an
+empty diff). Each diff is limited to the card's 8,000 characters. History retains
+at most eight entries and 32 KiB of UTF-8 JSON per rule, with a 256 KiB goal-wide
+cap; oldest entries drop first and never change the count. Tool rules retain no
+diffs. Revocation, goal expiry and contract changes clear history with its rule.
+
+The conversation derives one host notice line per active used rule, updating it
+in place with its count. View allowed diffs belongs to the saved rule's row and
+opens retained entries newest first in the shared Dialog. These values pass the
+transcript text sanitizer and never appear as assistant prose. A successful
+acknowledgement writes history and count in one journal event. Failed responders
+produce no allowed entry and no count. If acknowledgement succeeds but the audit
+append fails, the failed writer stops further automatic work and exposes
+`lead-worker-audit-failed` as a waiting-for-user host error. This error is an
+in-process latch because the failed storage cannot persist it; the person must
+inspect the worker changes before restarting, and the acknowledged diff may be
+absent after restart.
+
+Strict checkpoint loading drops structurally valid but obsolete rules with one
+host removal notice, rather than refusing the whole checkpoint. Other malformed
+state remains an error. Former command keys are recognized only for removal;
+legacy use records retain counts without inventing missing diffs. Retained
+round-one diff notices migrate into file history and leave the message window.
+Journal authentication checks the original stored record before migration.
 
 Saved approvals use a plain Rows/Row list with secondary Revoke controls and the
 dock's shared busy state. Revocation and automatic admission share the journal
 writer queue. Accepted, declined, stopped and fresh or repeated goals, or an
 approved contract change, discard the rules. A pending plan suspends automatic
 answers. Strict journal and checkpoint parsers retain only the closed keys;
-older command keys are refused rather than widened or reinterpreted.
+obsolete keys are removed rather than widened or reinterpreted.

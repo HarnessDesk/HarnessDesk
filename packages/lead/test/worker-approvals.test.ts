@@ -19,8 +19,8 @@ test('goal worker rules create, count and revoke with strict checkpoint round tr
   assert.equal(state.workerApprovals.length, 1)
   state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-used', id: 'rule-1', diff: 'export const demo = 2' })
   assert.equal(state.workerApprovals[0]!.count, 1)
-  assert.equal(state.messages.at(-1)!.role, 'notice')
-  assert.equal((state.messages.at(-1) as any).approval.diff, 'export const demo = 2')
+  assert.equal(state.messages.length, 0)
+  assert.equal(state.workerApprovals[0]!.entries![0]!.diff, 'export const demo = 2')
   const checkpoint = leadCheckpoint(state, 'b'.repeat(64))
   assert.deepEqual(parseLeadCheckpoint(JSON.parse(JSON.stringify(checkpoint))).state, state)
   for (const change of [(s: any) => s.workerApprovals[0].key.command = 'git push', (s: any) => s.workerApprovals[0].count = -1,
@@ -96,4 +96,95 @@ test('extra grant facts and rationale exclude all otherwise eligible approval ki
     { type: 'permission', summary: 'get_team_status', flowBoardTool: { server: 'harnessdesk', tool: 'get_team_status' } }]
   for (const approval of approvals) for (const scope of [{ extraGrants: [{ label: 'Network', value: 'example.com' }] }, { reason: 'Extra scope' }])
     assert.equal(leadWorkerApprovalKey({ ...approval, ...scope } as any, '/workspace/demo'), null)
+})
+
+for (const kind of ['tool', 'fileChange'] as const) test(`${kind} audit traffic leaves conversation messages intact and keeps bounded newest diffs`, () => {
+  let state = start()
+  for (const [role, text] of [['user', 'Keep my steering'], ['assistant', 'I will preserve it']] as const) {
+    const seq = state.seq + 1
+    state = reduceLeadRecord(state, { version: 1, seq, type: 'message', idempotencyKey: role === 'user' ? 'steering' : null, message: { version: 1, id: `message-${seq}`, revision: seq, role, text } })
+  }
+  const messages = state.messages
+  const ruleKey = kind === 'tool' ? { kind, tool: 'get_team_status' } : key
+  state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-saved', rule: { id: 'traffic', contractDigest: digest, goalStartedSeq: state.goalStartedSeq, key: ruleKey, target: kind === 'tool' ? 'get_team_status' : key.path, count: 0 } })
+  const count = kind === 'tool' ? 300 : 20
+  for (let i = 1; i <= count; i++) state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-used', id: 'traffic', diff: kind === 'tool' ? null : `${i}:` + 'x'.repeat(7800) })
+  assert.deepEqual(state.messages, messages)
+  assert.equal(state.olderMessages, 0)
+  const rule = state.workerApprovals[0] as any
+  assert.equal(rule.count, count)
+  if (kind === 'tool') assert.equal(rule.entries, undefined)
+  else {
+    assert.ok(rule.entries.length > 0 && rule.entries.length <= 8)
+    assert.ok(Buffer.byteLength(JSON.stringify(rule.entries)) <= 32768)
+    assert.equal(rule.entries[0].number, 20)
+    assert.equal(rule.entries[0].diff, '20:' + 'x'.repeat(7800))
+    assert.equal(rule.entries[1].number, 19)
+  }
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(state, 'b'.repeat(64))).state, state)
+})
+
+for (const name of ['demo.xml', 'demo.kts', 'demo.svg', 'CLAUDE.local.md', 'CONVENTIONS.md', 'pom.xml', 'build.gradle.kts', 'settings.gradle.kts', 'Package.swift', 'build.rs', 'build.py', 'setup.py', 'setup.cfg', 'conftest.py', 'noxfile.py', 'tasks.py', 'fabfile.py', 'manage.py', 'gulpfile.js', 'Gruntfile.js', 'jakefile.ts', 'taskfile.mjs', 'jest.setup.ts', 'vitest.setup.ts', 'demo.config.ts', 'Rakefile', 'Gemfile', 'Podfile', 'demo.gemspec', 'demo.podspec', 'CMakeLists.txt', 'meson.build', 'scripts/demo.ts', 'script/demo.ts', 'bin/demo.ts', 'hooks/demo.ts']) test(`file rules refuse automation or instruction file ${name}`, () => {
+  const path = '/workspace/demo/' + name
+  assert.equal(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: 'demo' }] } as any, '/workspace/demo'), null)
+})
+for (const path of ['src/panel.tsx', 'src/resource.ts', 'docs/guide.md']) test(`file rules allow ordinary ${path} under a dot-folder project`, () => {
+  const project = '/workspace/.claude/worktrees/demo', target = `${project}/${path}`
+  assert.deepEqual(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path: target, kind: { type: 'update' }, diff: 'demo' }] } as any, project), { kind: 'fileChange', path: target })
+})
+for (const obsolete of [{ kind: 'fileChange', path: '/workspace/demo/build.rs' }, { kind: 'command', command: 'git status', cwd: '/workspace/demo' }]) test(`obsolete ${obsolete.kind} rules are dropped on checkpoint load with a host notice`, () => {
+  const checkpoint = leadCheckpoint(save(), 'b'.repeat(64)) as any
+  checkpoint.state.workerApprovals[0].key = obsolete
+  checkpoint.state.workerApprovals[0].target = obsolete.kind === 'fileChange' ? obsolete.path : 'git status in /workspace/demo'
+  const loaded = parseLeadCheckpoint(checkpoint).state
+  assert.deepEqual(loaded.workerApprovals, [])
+  assert.ok(loaded.messages.some(message => message.role === 'notice' && /saved approvals.*removed/i.test(message.text)))
+})
+
+test('an acknowledged answer with a failed audit append stops automatic work and reports a host error', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, async append() { throw Error('fixture disk failure') } })
+  let answered = false, notified = false
+  journal.onChange(() => { notified = true })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { answered = true }, '+demo'))
+  assert.equal(answered, true)
+  assert.equal(journal.state.phase, 'waiting-for-user')
+  assert.equal(journal.state.managementReason, 'lead-worker-audit-failed')
+  assert.equal(notified, true)
+})
+
+test('resume finds the last conversational message through a trailing notice', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  let state = start(), seq = state.seq + 1
+  state = reduceLeadRecord(state, { version: 1, seq, type: 'message', idempotencyKey: 'person', message: { version: 1, id: `message-${seq}`, revision: seq, role: 'user', text: 'Inspect' } })
+  state = { ...state, messages: [...state.messages, { version: 1, id: 'notice-host', revision: seq, role: 'notice', text: 'Host notice', approval: { ruleId: 'old', target: 'get_team_status' } }] }
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return state }, async append() {} })
+  await journal.resume(undefined, true)
+  assert.equal(journal.state.phase, 'running')
+})
+
+
+test('legacy journal rules are removed without losing the conversation or repeating warnings', () => {
+  let state = start()
+  for (let i = 0; i < 2; i++) {
+    state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-saved', rule: { id: `old-${i}`, contractDigest: digest, goalStartedSeq: state.goalStartedSeq, key: { kind: 'command', command: 'git status', cwd: '/workspace/demo' }, target: 'git status in /workspace/demo', count: 0 } })
+    state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-used', id: `old-${i}` })
+  }
+  assert.deepEqual(state.workerApprovals, [])
+  assert.equal(state.messages.filter(message => message.role === 'notice').length, 1)
+})
+
+test('a legacy file-use record retains its exact count without inventing an unavailable diff', () => {
+  const state = reduceLeadRecord(save(), { version: 1, seq: 5, type: 'worker-rule-used', id: 'rule-1' })
+  assert.equal(state.workerApprovals[0]!.count, 1)
+  assert.equal(state.workerApprovals[0]!.entries, undefined)
+})
+
+test('an audit preparation failure after acknowledgement also latches further automatic answers', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  let answers = 0
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, prepare() { throw Error('fixture full journal') }, async append() {} })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { answers++ }, '+demo'))
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { answers++ }, '+demo'))
+  assert.equal(answers, 1)
 })

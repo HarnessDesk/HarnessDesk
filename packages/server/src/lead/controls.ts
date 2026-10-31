@@ -179,7 +179,7 @@ export class LeadControls {
     if (this.#steers.goal !== goal) this.#steers = { goal, list: [] }
     const steers = this.#steers.list.slice(-64)
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, savedApprovals: state.workerApprovals.map(({ id, target, count }) => ({ id, target, count })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, savedApprovals: state.workerApprovals.map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }
@@ -205,7 +205,7 @@ export class LeadControls {
   }
   #unanswered(): boolean {
     const state = this.options.journal.state
-    return !this.#continuation && state.messages.at(-1)?.role === 'user'
+    return !this.#continuation && state.messages.findLast(message => message.role === 'user' || message.role === 'assistant')?.role === 'user'
   }
   workerApprovalsChanged(): Promise<void> {
     this.#actionsGeneration++

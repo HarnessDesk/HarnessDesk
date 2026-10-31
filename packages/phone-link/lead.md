@@ -326,7 +326,7 @@ The cloud relay's Room forwards phone binary payloads through a connection-id fr
 ### Goal worker approval rules
 
 `lead/thread/read` and `lead/changed` add optional
-`savedApprovals: [{ id: string, target: string, count: number }]` on the window
+`savedApprovals: LeadSavedApproval[]` (shape below) on the window
 projection. `count` is later acknowledged automatic answers, excluding the
 creating click. An absent list means no saved approvals.
 
@@ -352,20 +352,45 @@ on the worker client surface or the child RPC port. Rules end when the goal ends
 or its approved contract changes, and never transfer to the next repeated run.
 
 
-Acknowledged automatic answers are `thread.messages` entries with
-`role: "notice"` and optional new `approval` data (required on this role):
+Acknowledged automatic answers update `savedApprovals` without adding messages
+to the conversation window. The additive shape is:
 
 ```ts
-approval: { ruleId: string; target: string; diff?: string }
+interface LeadApprovalEntry {
+  readonly id: string;     // stable audit id
+  readonly number: number; // this rule's acknowledged automatic-answer number
+  readonly diff: string;
+}
+interface LeadSavedApproval {
+  readonly id: string;
+  readonly target: string;
+  readonly count: number;
+  readonly entries?: readonly LeadApprovalEntry[];
+}
 ```
 
-`diff` is the exact file diff, including an empty diff, bounded to 8,000
-characters. Tool notices omit it. Present these as Desk notices, never as the
-Lead's own words, and offer a diff reader when `diff` is present. The data is
-retained by the journal and strict checkpoint and delivered by the existing
-`lead/thread/read` result and `lead/changed` notification. No new method is
-needed. `savedApprovals` stays `{ id, target, count }`; counts advance only after
-the responder acknowledges the automatic answer.
+File entries are newest first. Each diff is whole, includes an empty diff, and
+is at most 8,000 characters. History retains at most eight entries and 32,768
+UTF-8 JSON bytes per rule, with a 262,144-byte goal-wide history cap. Oldest
+entries drop first; `count` remains exact and excludes the creating click. Tool
+rules omit `entries`. An absent list means no retained diffs. Revoke or goal
+expiry clears history with the rule.
+
+Render at most one host notice per used rule, keyed by its `id`, updating the
+line “Allowed under your rule for this goal: <target> · N times” from `count`.
+Offer View allowed diffs on the saved row, newest first, with complete text.
+Do not insert these notices into assistant history. The entries arrive through
+the existing `lead/thread/read` and `lead/changed`; no new method is needed.
+Legacy `thread.messages` notices may still have `approval: { ruleId, target,
+diff? }`; `approval` is optional on host notices, and current automatic answers
+do not create those message entries.
+
+`LeadWindowProjection.waitReason` additionally accepts
+`"lead-worker-audit-failed"`. It accompanies `thread.state: "waiting-for-user"`
+when a responder acknowledged an answer but journal persistence failed. Show a
+host error: automatic work is paused; inspect the worker changes and restart
+the desk before continuing. This failure latch is in memory because the writer
+cannot persist it. The acknowledged diff may be absent after restart.
 
 Ordinary worker phone cards cannot display extra-grant scope. When it is present,
 their existing `why` field says “Extra permissions need review on the desk.” and
