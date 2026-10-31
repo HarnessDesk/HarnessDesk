@@ -992,6 +992,75 @@ test('a sign-in begun before a failed sign-out can still establish sign-in', asy
   } finally { releaseLogout(); releaseLogin(); await runtime.dispose() }
 })
 
+test('an ACP sign-in begun during a failed sign-out cannot undo a later successful sign-out', async (t) => {
+  let releaseLogout!: () => void
+  const logoutHeld = new Promise<void>((resolve) => { releaseLogout = resolve })
+  let calls = 0
+  t.mock.method(CliAccount.prototype, 'logout', async () => {
+    if (++calls === 1) { await logoutHeld; throw new Error('sign-out failed') }
+  })
+  const runtime = statusIsRecord(() => DEV, {}, { logout: { command: FAKE_CLI, args: ['logout'] } })
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  await runtime.start()
+  let releaseLogin!: () => void
+  let arrived!: () => void
+  const loginHeld = new Promise<void>((resolve) => { releaseLogin = resolve })
+  const received = new Promise<void>((resolve) => { arrived = resolve })
+  const request = runtime.connection.request.bind(runtime.connection)
+  t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+    const answer = await request<T>(method, params, timeout)
+    if (method === 'authenticate') { arrived(); await loginHeld }
+    return answer
+  })
+  try {
+    const first = runtime.logout()
+    const rejected = assert.rejects(first, /sign-out failed/)
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+    await runtime.login('acp:device')
+    await received
+    releaseLogout()
+    await rejected
+    await runtime.logout()
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+    releaseLogin()
+    const completion = await until(events, (event) => event.type === 'account/loginCompleted')
+    assert.equal(completion.type === 'account/loginCompleted' && completion.success, true)
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  } finally { releaseLogout(); releaseLogin(); await runtime.dispose() }
+})
+
+test('a CLI sign-in begun during a failed sign-out cannot undo a later successful sign-out', async (t) => {
+  let releaseLogout!: () => void
+  const held = new Promise<void>((resolve) => { releaseLogout = resolve })
+  let calls = 0
+  t.mock.method(CliAccount.prototype, 'logout', async () => {
+    if (++calls === 1) { await held; throw new Error('sign-out failed') }
+  })
+  const runtime = statusIsRecord(() => DEV, {}, {
+    login: { command: FAKE_CLI, args: ['login'], env: { FAKE_CLI_LOGIN: 'paste' }, pasteCode: 'Paste code here if prompted' },
+    logout: { command: FAKE_CLI, args: ['logout'] },
+  })
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  await runtime.start()
+  try {
+    const first = runtime.logout()
+    const rejected = assert.rejects(first, /sign-out failed/)
+    const login = await runtime.login('cli-browser')
+    assert.equal(login.type, 'browser')
+    if (login.type !== 'browser') throw new Error('expected browser login')
+    if (!login.pasteCode) await until(events, (event) => event.type === 'account/loginAwaitsCode' && event.loginId === login.loginId)
+    releaseLogout()
+    await rejected
+    await runtime.logout()
+    await runtime.submitLoginCode(login.loginId, 'right-code#state')
+    const completion = await until(events, (event) => event.type === 'account/loginCompleted' && event.loginId === login.loginId)
+    assert.equal(completion.type === 'account/loginCompleted' && completion.success, true)
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  } finally { releaseLogout(); await runtime.dispose() }
+})
+
 test('a failed older sign-out cannot undo the epoch of a newer successful sign-out', async (t) => {
   let releaseLogout!: () => void
   const held = new Promise<void>((resolve) => { releaseLogout = resolve })

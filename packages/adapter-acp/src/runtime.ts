@@ -929,7 +929,7 @@ export class AcpRuntime implements AgentRuntime {
   readonly #account: CliAccount | null
   /** Sign-ins started over ACP that nobody has cancelled; see `#authenticateOverAcp`. */
   readonly #acpLogins = new Set<string>()
-  readonly #cliLoginGenerations = new Map<string, number>()
+  readonly #cliLoginGenerations = new Map<string, symbol>()
   readonly extensions: AcpExtensions | undefined
   /**
    * Set once the agent has shown it speaks the background-task extension —
@@ -2291,7 +2291,9 @@ export class AcpRuntime implements AgentRuntime {
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
     const before = this.#signIn
     const beforeAuthGeneration = this.#authGeneration
-    const signedOutAuthGeneration = ++this.#authGeneration
+    // A failed logout may restore the previous identity, but a later logout
+    // must never reuse the identity captured by work begun during this one.
+    const signedOutAuthGeneration = this.#authGeneration = Symbol()
     const beforeAccount = this.#lastAccount
     const beforeSignedOutIdentity = this.#signedOutIdentity
     this.#signedOutIdentity = this.#config.identityIsStatus ? this.#identityStatus() : null
@@ -2849,7 +2851,7 @@ export class AcpRuntime implements AgentRuntime {
   #restored: RuntimeObservations | null = null
   #lastAccount: AccountStatus | null = null
   /** Invalidates observations begun before a desk sign-out. */
-  #authGeneration = 0
+  #authGeneration = Symbol()
 
   // ACP has neither an archive nor a naming verb, even before negotiation.
   historyAuthorityKnown(): boolean { return true }
@@ -3054,7 +3056,7 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   /** Record a session open when it can establish sign-in. */
-  #opened<T>(result: T, authGeneration: number): T {
+  #opened<T>(result: T, authGeneration: symbol): T {
     // A probe or session may open without authenticating (including in a
     // fresh helper). When the agent's record is the status, opening alone
     // cannot undo our sign-out while that record still names the old account.
