@@ -993,10 +993,9 @@ const ignoredIn = async (path: string): Promise<string[]> => {
     // Keep ignored directories collapsed, even when the user's status preference
     // hides untracked files (which would also hide every ignored entry).
     const porcelain = await git(path, ['status', '--porcelain=v1', '-z', '--ignored=matching', '--untracked-files=normal'])
-    return porcelain
-      .split('\0')
-      .filter((line) => line.startsWith('!! '))
-      .map((line) => line.slice('!! '.length))
+    return parsePorcelain(porcelain)
+      .filter((entry) => entry.index === '!' && entry.worktree === '!')
+      .map((entry) => entry.path)
   } catch {
     return []
   }
