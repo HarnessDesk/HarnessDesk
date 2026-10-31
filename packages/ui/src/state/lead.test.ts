@@ -242,3 +242,46 @@ describe('Lead chat control', () => {
     expect(lead.state.chats).toEqual([])
   })
 })
+
+for (const source of ['wire', 'connect', 'push'] as const) it(`retries a transient ${source} control failure once and retains holders`, async () => {
+  vi.useFakeTimers()
+  try {
+    const good = { project: '/w', chats: [{ id: 'fixture:s1', holder: 'person', sent: [] }] }
+    const bad = { ...good, problem: { kind: 'transient', message: 'Synthetic I/O failure' } }
+    const request = vi.fn().mockResolvedValue(good)
+    const lead = createLeadState({ request } as never, () => true)
+    await lead.readChatControl()
+    if (source === 'connect') {
+      request.mockRejectedValueOnce(new Error('Synthetic connect failure'))
+      await expect(lead.readChatControl()).rejects.toThrow('Synthetic connect failure')
+    } else if (source === 'wire') { request.mockResolvedValueOnce(bad); await lead.readChatControl() }
+    else lead.changed({ method: 'lead/chats/controlChanged', params: bad } as never)
+    expect(lead.state.chatControlProblem).toMatchObject({ kind: 'transient' })
+    expect(lead.state.chats[0]!.holder).toBe('person')
+    const before = request.mock.calls.length
+    request.mockResolvedValue(bad)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(request).toHaveBeenCalledTimes(before + 1)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(request).toHaveBeenCalledTimes(before + 1)
+    request.mockResolvedValue(good)
+    await lead.readChatControl()
+    expect(lead.state.chatControlProblem).toBeNull()
+    lead.reset()
+  } finally { vi.useRealTimers() }
+})
+
+it('does not retry invalid control data or let a pending retry outlive reset', async () => {
+  vi.useFakeTimers()
+  try {
+    const request = vi.fn()
+    const lead = createLeadState({ request } as never, () => true)
+    lead.changed({ method: 'lead/chats/controlChanged', params: { project: '/w', chats: [], problem: { kind: 'invalid', message: 'Reset required' } } } as never)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(request).not.toHaveBeenCalled()
+    lead.changed({ method: 'lead/chats/controlChanged', params: { project: '/w', chats: [], problem: { kind: 'transient', message: 'Try later' } } } as never)
+    lead.reset()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(request).not.toHaveBeenCalled()
+  } finally { vi.useRealTimers() }
+})

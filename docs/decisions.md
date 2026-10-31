@@ -4950,14 +4950,14 @@ mixed message containing both Lead context and ordinary user content drops the
 Lead label rather than attributing the whole message to the Lead.
 
 Control records retain up to 64 chats per project; person holds are never
-evicted. An unreadable or invalid record fails closed for every Lead send,
+evicted. An invalid record fails closed for every Lead send,
 stop and queued delivery until the person confirms **Reset chat control** in
 the composer notice. That explicit reset clears all projects' holds and
 verification keys; no read or Lead operation repairs the record. Missing
 records alone mean no holds. While the host runs, a synchronous in-memory
 person hold survives disk failures and is checked at the actual dispatch
 boundary. Control reads are passive and never construct the Lead or select a
-project. Cancelled waiting Lead messages are noted in the Lead thread.
+project. Temporary I/O failures refuse the operation without latching invalid state; the window offers Try again and retries once, retaining the known holder controls. Stale project roots retain their records without blocking available projects. Only a chat in the host’s chat list can gain a person hold before its first Lead record. Cancelled waiting Lead messages are noted in the Lead thread immediately after the hold is saved, before a follow-up read.
 
 Lead verification keys bind the exact envelope to its runtime and chat id.
 Receipts from another chat, and older unbound digests, never earn a sender

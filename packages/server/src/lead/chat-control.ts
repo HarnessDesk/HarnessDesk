@@ -29,19 +29,26 @@ export class LeadChatControlStore {
   #projects: Projects = new Map()
   #loaded = false
   #problem: string | null = null
+  #readProblem: string | null = null
   #holds = new Map<string, number>()
   #epoch = 0
   constructor(private readonly file: string) {}
 
   get problem(): string | null { return this.#problem }
+  get transientProblem(): string | null { return this.#readProblem }
   #unreadable(): never { this.#problem = LEAD_CONTROL_UNREADABLE; throw new Error(LEAD_CONTROL_UNREADABLE) }
-  #io(code: string): never { throw new Error(`The Lead chat control record is temporarily unavailable (${code}). Lead actions are blocked for this operation. Try again.`) }
-  async #canonical(project: string, allowMissing = false): Promise<boolean> {
+  #io(code: string): never {
+    this.#readProblem = `The Lead chat control record is temporarily unavailable (${code}). Lead actions are blocked for this operation. Try again.`
+    this.#loaded = false
+    throw new Error(this.#readProblem)
+  }
+  async #canonical(project: string, allowStale = false): Promise<boolean> {
     if (project.length > 4096 || !isAbsolute(project) || normalize(project) !== project) return false
-    try { return await realpath(project) === project }
+    // Keep stale roots under their original keys; never retarget their holds.
+    try { return await realpath(project) === project || allowStale }
     catch (error) {
       const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT') return allowMissing
+      if (code === 'ENOENT' || code === 'ENOTDIR') return allowStale
       return this.#io(code ?? 'I/O')
     }
   }
@@ -85,7 +92,7 @@ export class LeadChatControlStore {
     if (this.#problem) throw new Error(this.#problem)
     if (!await this.#canonical(project)) throw new Error('The Lead project folder is unavailable or changed. Choose an available project.')
     this.#projects = this.#merge(await this.#disk(project))
-    this.#loaded = true
+    this.#loaded = true; this.#readProblem = null
     return this.#projects
   }
   /** Installs the person's fence before any I/O, including when a previous admission is awaiting a path check. */
@@ -98,7 +105,7 @@ export class LeadChatControlStore {
   current(project: string): LeadChatControlList { return { project, chats: this.#projects.get(project) ?? [] } }
   /** Called synchronously at the actual runtime dispatch boundary. Never reads disk or returns a promise. */
   assertDispatch(project: string, id: string): void {
-    if (this.#problem || !this.#loaded) throw new Error(this.#problem ?? LEAD_CONTROL_UNREADABLE)
+    if (this.#problem || !this.#loaded) throw new Error(this.#problem ?? this.#readProblem ?? LEAD_CONTROL_UNREADABLE)
     if (this.#holds.has(projectKey(project, id)) || this.#projects.get(project)?.some(chat => chat.id === id && chat.holder === 'person'))
       throw new LeadChatHeldError()
   }
@@ -148,12 +155,17 @@ export class LeadChatControlStore {
       return [...chats.filter(chat => chat.id !== id), entry]
     })
   }
-  async setHolder(project: string, id: string, holder: LeadChatHolder): Promise<boolean> {
+  /** Only the host may admit an unrecorded chat, after finding it in its chat list. */
+  async setHolder(project: string, id: string, holder: LeadChatHolder, knownChat = false): Promise<boolean> {
     if (!validId(id)) return false
-    if (holder === 'person') this.hold(project, id)
+    if (holder === 'person' && (knownChat || this.#projects.get(project)?.some(chat => chat.id === id))) this.hold(project, id)
     const key = projectKey(project, id), epoch = this.#holds.get(key)
-    return this.#write(project, chats => chats.some(chat => chat.id === id) ? chats.map(chat => chat.id === id ? { ...chat, holder } : chat)
-      : holder === 'person' ? [...chats, { id, holder, sent: [] }] : null,
+    return this.#write(project, chats => {
+      const exists = chats.some(chat => chat.id === id)
+      if (!exists && (holder !== 'person' || !knownChat)) return null
+      if (holder === 'person') this.hold(project, id)
+      return exists ? chats.map(chat => chat.id === id ? { ...chat, holder } : chat) : [...chats, { id, holder, sent: [] }]
+    },
       holder === 'lead' ? { key, epoch } : undefined)
   }
   /** Explicit window-only recovery; a failure keeps every in-memory hold and the unreadable fence. */
@@ -166,7 +178,7 @@ export class LeadChatControlStore {
       for (const [key, epoch] of this.#holds) if (epoch <= through) this.#holds.delete(key)
       this.#projects = new Map([...this.#projects].map(([project, chats]) => [project,
         chats.filter(chat => this.#holds.has(projectKey(project, chat.id))).map(chat => ({ ...chat, holder: 'person' as const }))]))
-      this.#loaded = true; this.#problem = null
+      this.#loaded = true; this.#problem = null; this.#readProblem = null
     })
     this.#tail = reset.catch(() => {})
     return reset

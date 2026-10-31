@@ -27,12 +27,14 @@ export const LeadChatNotice = ({ runtime, sessionId }: { runtime: RuntimeId; ses
   }
   if (!holder && !problem) return null
   return <>
-    {problem
-      ? <ComposerNotice message={{ id: `lead-chat-${id}`, tone: 'warning', title: 'Lead chat control is unavailable.', body: problem,
+    {problem?.kind === 'transient' && <ComposerNotice message={{ id: `lead-chat-retry-${id}`, tone: 'neutral', title: 'Lead chat control could not be read.', body: problem.message,
+      action: { label: 'Try again', onSelect: () => void run(() => store.lead.readChatControl()) } }} />}
+    {problem?.kind === 'invalid'
+      ? <ComposerNotice message={{ id: `lead-chat-${id}`, tone: 'warning', title: 'Lead chat control is unavailable.', body: problem.message,
         action: { label: 'Reset chat control', onSelect: () => { if (!busy) { setError(null); setConfirmReset(true) } } } }} />
       : holder === 'lead'
         ? <ComposerNotice message={{ id: `lead-chat-${id}`, tone: 'info', title: `${name} is managing this chat.`, action: { label: 'Take over', onSelect: () => void run(() => store.lead.takeOverChat(id)) } }} />
-        : <ComposerNotice message={{ id: `lead-chat-${id}`, tone: 'neutral', title: 'You have this chat.', action: { label: `Hand back to ${name}`, onSelect: () => void run(() => store.lead.handBackChat(id)) } }} />}
+        : holder === 'person' ? <ComposerNotice message={{ id: `lead-chat-${id}`, tone: 'neutral', title: 'You have this chat.', action: { label: `Hand back to ${name}`, onSelect: () => void run(() => store.lead.handBackChat(id)) } }} /> : null}
     {error && !confirmReset && <ActionError>{error}</ActionError>}
     {confirmReset && <ConfirmDialog title="Reset chat control?" confirmLabel="Reset chat control" tone="destructive" busy={busy}
       onConfirm={() => void run(() => store.lead.resetChatControl())} onCancel={() => setConfirmReset(false)}>

@@ -24,11 +24,11 @@ afterEach(() => {
   container.remove()
 })
 
-const renderNotice = (holder: 'lead' | 'person' | null, problem: string | null = null) => {
+const renderNotice = (holder: 'lead' | 'person' | null, problem: { kind: 'invalid' | 'transient'; message: string } | null = null) => {
   const snapshot = emptySnapshot()
   const lead = {
     state: { chatControlProblem: problem, chats: holder ? [{ id: 'codex:s1', holder, sent: [] }] : [], settings: { name: 'dex' }, revision: 1 },
-    resetChatControl: vi.fn(async () => {}), subscribe: () => () => {}, takeOverChat: vi.fn(async () => {}), handBackChat: vi.fn(async () => {}),
+    readChatControl: vi.fn(async () => {}), resetChatControl: vi.fn(async () => {}), subscribe: () => () => {}, takeOverChat: vi.fn(async () => {}), handBackChat: vi.fn(async () => {}),
   }
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, lead } as unknown as AppStore
   act(() => { root.render(<StoreProvider store={store}><LeadChatNotice runtime={'codex' as never} sessionId={'s1' as never} /></StoreProvider>) })
@@ -66,7 +66,7 @@ for (const holder of ['lead', 'person'] as const) it(`shows a refused ${holder =
 })
 
 it('offers explicit confirmed recovery of an unreadable record and displays a reset refusal', async () => {
-  const lead = renderNotice(null, 'The control record cannot be read. Use Reset chat control.')
+  const lead = renderNotice(null, { kind: 'invalid', message: 'The control record cannot be read. Use Reset chat control.' })
   expect(container.textContent).toContain('Reset chat control')
   await act(async () => { (container.querySelector('button') as HTMLButtonElement).click() })
   expect(lead.resetChatControl).not.toHaveBeenCalled()
@@ -75,4 +75,14 @@ it('offers explicit confirmed recovery of an unreadable record and displays a re
   lead.resetChatControl.mockRejectedValueOnce(new Error('The control record could not be saved.'))
   await act(async () => { (Array.from(dialog.querySelectorAll('button')).find(button => button.textContent === 'Reset chat control') as HTMLButtonElement).click() })
   expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('The control record could not be saved.')
+})
+
+for (const holder of ['lead', 'person'] as const) it(`keeps ${holder} controls and retries a transient read without offering Reset`, async () => {
+  const lead = renderNotice(holder, { kind: 'transient', message: 'The desk connection was lost.' })
+  expect(container.textContent).toContain(holder === 'lead' ? 'Take over' : 'Hand back to Dex')
+  expect(container.textContent).not.toContain('Reset chat control')
+  const retry = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Try again')!
+  expect(retry).toBeDefined()
+  await act(async () => { retry.click() })
+  expect(lead.readChatControl).toHaveBeenCalledOnce()
 })

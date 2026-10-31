@@ -20,7 +20,7 @@ test('a chat the Lead never wrote to can be held before its first Lead record', 
   const { project, file } = await fixture(t)
   const store = new LeadChatControlStore(file)
   assert.equal(await store.holder(project, 'codex:s1'), null)
-  assert.equal(await store.setHolder(project, 'fixture:s1', 'person'), true)
+  assert.equal(await store.setHolder(project, 'fixture:s1', 'person', true), true)
   await store.noteSent(project, 'fixture:s1', 'a'.repeat(64))
   assert.equal(await new LeadChatControlStore(file).holder(project, 'fixture:s1'), 'person')
   assert.throws(() => store.assertDispatch(project, 'fixture:s1'), /taken this chat over/)
@@ -158,6 +158,7 @@ for (const code of ['EMFILE', 'EBUSY']) test(`a transient ${code} read refuses o
   try {
     await assert.rejects(store.list(project))
     assert.equal(store.problem, null, 'transient I/O does not require a destructive reset')
+    assert.throws(() => store.assertDispatch(project, 'fixture:other'), /temporarily unavailable/, 'unknown state refuses synchronous dispatch too')
     assert.equal(await store.holder(project, 'fixture:held'), 'person')
     await store.noteSent(project, 'fixture:other', 'b'.repeat(64))
   } finally { t.mock.restoreAll(); syncBuiltinESMExports() }
@@ -176,4 +177,29 @@ test('a deleted project keeps its holds without blocking another project', async
   assert.equal(saved.projects[stale][0].holder, 'person')
   await mkdir(stale)
   assert.equal(await new LeadChatControlStore(file).holder(stale, 'fixture:old'), 'person')
+})
+
+for (const staleKind of ['not-directory', 'symlink'] as const) test(`a stale ${staleKind} project keeps its record without blocking other projects`, async t => {
+  const { root, project, file } = await fixture(t)
+  const parent = join(root, 'old-parent'), stale = join(parent, 'stale')
+  await mkdir(stale, { recursive: true })
+  const store = new LeadChatControlStore(file)
+  await store.noteSent(stale, 'fixture:old', 'b'.repeat(64))
+  await store.setHolder(stale, 'fixture:old', 'person')
+  await rm(parent, { recursive: true })
+  if (staleKind === 'not-directory') await writeFile(parent, 'replaced')
+  else { await mkdir(parent); await symlink(project, stale) }
+  await store.noteSent(project, 'fixture:current', 'a'.repeat(64))
+  assert.equal(await store.holder(project, 'fixture:current'), 'lead')
+  assert.equal(JSON.parse(await readFile(file, 'utf8')).projects[stale][0].holder, 'person')
+  await rm(parent, { recursive: true, force: true }); await mkdir(stale, { recursive: true })
+  assert.equal(await new LeadChatControlStore(file).holder(stale, 'fixture:old'), 'person')
+})
+
+test('a valid-shaped unknown chat cannot reserve a person slot', async t => {
+  const { project, file } = await fixture(t)
+  const store = new LeadChatControlStore(file)
+  assert.equal(await store.setHolder(project, 'fixture:invented', 'person'), false)
+  assert.deepEqual((await store.list(project)).chats, [])
+  assert.equal(await store.holder(project, 'fixture:invented'), null)
 })

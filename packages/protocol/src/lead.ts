@@ -244,8 +244,9 @@ export interface LeadChatControl {
   /** Keys (`leadMessageKey`) of the envelopes the host delivered, newest last. */
   readonly sent: readonly string[]
 }
-/** Only chats the Lead has touched in the selected project; `project` is null when no Lead project is set. */
-export interface LeadChatControlList { readonly project: string | null; readonly chats: readonly LeadChatControl[]; readonly problem?: string }
+export interface LeadChatControlProblem { readonly kind: 'invalid' | 'transient'; readonly message: string }
+/** Chat holders and verification keys in the selected project; `project` is null when no Lead project is set. */
+export interface LeadChatControlList { readonly project: string | null; readonly chats: readonly LeadChatControl[]; readonly problem?: LeadChatControlProblem }
 
 export interface LeadDecisionMessage { readonly card: LeadCard; readonly choice?: LeadCardDecision['choice']; readonly position: number }
 export interface LeadFollowPreferences { readonly checks: boolean; readonly reviews: boolean }

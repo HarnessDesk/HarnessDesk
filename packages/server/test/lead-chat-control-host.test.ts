@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import { LeadChatControlStore } from '../src/lead/chat-control.js'
 import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import test from 'node:test'
+import fsPromises from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { createLeadJournal, type LeadPermissionContext, type LeadPermissionCall } from '@harnessdesk/lead'
 import { runtimeId, sessionId, type AgentSession, type WireNotification } from '@harnessdesk/protocol'
 import { clientRefusal, topicsOf } from '../src/client-door.js'
@@ -124,8 +126,10 @@ test('an unreadable control record blocks every Lead mutation until an explicit 
   ] as const) await assert.rejects(h.execute(call), /Reset chat control/)
   assert.equal(await readFile(file, 'utf8'), '{')
   const recovery = h.notifications.filter(n => n.method === 'lead/chats/controlChanged').at(-1)
-  assert.match((recovery?.params as { problem?: string }).problem ?? '', /Reset chat control/, 'a Lead refusal exposes the recovery button without reconnecting')
-  assert.match((await h.host.call('lead/chats/control', {})).problem!, /Reset chat control/)
+  assert.match((recovery?.params as { problem?: { message: string } }).problem?.message ?? '', /Reset chat control/, 'a Lead refusal exposes the recovery button without reconnecting')
+  const invalid = (await h.host.call('lead/chats/control', {})).problem!
+  assert.equal(invalid.kind, 'invalid')
+  assert.match(invalid.message, /Reset chat control/)
   // An ordinary phone read still works, with no holder assertion.
   assert.equal((await h.host.call('workspace/thread/read', { id })).leadChatHolder, undefined)
   await h.host.call('lead/chats/resetControl', {})
@@ -274,4 +278,38 @@ test('take over drops an admitted stale Lead reply and drains the person tail wi
   live.finish()
   await h.host.call('turn/queue/flush', target)
   assert.deepEqual(delivered, ['Person follow-up'], 'hand back never revives a cancelled instruction')
+})
+
+for (const code of ['EMFILE', 'EBUSY']) test(`window control marks ${code} as transient and can recover without reset`, async t => {
+  const h = await boot(t)
+  const { id } = await h.execute({ method: 'lead/chat/start', params: { text: 'first task' } })
+  const open = fsPromises.open
+  t.mock.method(fsPromises, 'open', async (...args: Parameters<typeof open>) => {
+    if (String(args[0]).endsWith('chat-control.json')) throw Object.assign(new Error('Synthetic read failure'), { code })
+    return open(...args)
+  })
+  syncBuiltinESMExports()
+  try {
+    const list = await h.host.call('lead/chats/control', {})
+    assert.equal(list.problem?.kind, 'transient')
+    assert.equal(list.chats[0]?.id, id)
+    await assert.rejects(h.execute({ method: 'lead/chat/send', params: { id, text: 'blocked while unknown' } }), /temporarily unavailable/)
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports() }
+  assert.equal((await h.host.call('lead/chats/control', {})).problem, undefined)
+})
+
+test('take over saves its cancellation notice even when the subsequent control list fails', async t => {
+  const h = await boot(t)
+  const { id } = await h.execute({ method: 'lead/chat/start', params: { text: 'first task' } })
+  await h.execute({ method: 'lead/chat/send', params: { id, text: 'waiting task' } })
+  t.mock.method(LeadChatControlStore.prototype, 'list', async () => { throw new Error('Synthetic list failure') })
+  await assert.rejects(h.host.call('lead/chat/takeOver', { id }), /Synthetic list failure/)
+  assert.ok(h.journal.state.messages.some(message => /not delivered.*took over/.test(message.text)))
+})
+
+test('take over refuses invented chat ids without filling control slots', async t => {
+  const h = await boot(t)
+  for (let i = 0; i < 65; i++) await assert.rejects(h.host.call('lead/chat/takeOver', { id: `fixture:invented-${i}` }))
+  assert.deepEqual((await h.host.call('lead/chats/control', {})).chats, [])
+  await h.execute({ method: 'lead/chat/start', params: { text: 'still has room' } })
 })
