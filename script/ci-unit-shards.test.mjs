@@ -325,7 +325,9 @@ test('changes computes one unit plan and supplies every shard the same mode, fil
   assert.doesNotMatch(units, /vitest related|UNIT_FILES/, 'CI runs the dealt suite, not a related selection')
   assert.match(units, /timeout-minutes: 15/)
   const once = job('ui-typecheck')
-  assert.doesNotMatch(once, /needs:|if:|matrix:/)
+  // It waits only for the runner pick, never for the change plan.
+  assert.match(once, /^    needs: runners$/m)
+  assert.doesNotMatch(once, /needs: (?!runners$)|if:|matrix:/m)
   for (const command of ['pnpm --filter @harnessdesk/ui run typecheck', 'pnpm --filter @harnessdesk/desktop run test']) {
     assert.ok(once.includes(command))
     assert.equal(workflow.split(command).length - 1, 1)
