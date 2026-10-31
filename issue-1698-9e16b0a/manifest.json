@@ -1,0 +1,21 @@
+{
+  "issue": 1698,
+  "head": "9e16b0a1298194fb6fb2f19198d242bf63970312",
+  "tree": "f507c69277b10a8a974ff4a21831bed43ce757ba",
+  "frames": [
+    {
+      "name": "history-light.png",
+      "sha256": "520e932c8913094988a9692df45825ef84ad73e88499c8a33ebed909de391d77",
+      "width": 1440,
+      "height": 1800
+    },
+    {
+      "name": "history-dark.png",
+      "sha256": "dbafcf9215795cb8b23c052ec54ad95cd7ea1217e95b4b65d406cd427fbbea34",
+      "width": 1440,
+      "height": 1800
+    }
+  ],
+  "surface": "Production desktop with isolated fake agents, real saved native window bounds 720x900 and 200px floating sidebar. Pointer and keyboard exercise actual store/history; main content remains inert, focus stays within drawer. No renderer fixture or transport override; no provider claim.",
+  "privacy": "All two final frames personally inspected; unmodified actual-username/account/path audit passed after synthetic path shortening."
+}
