@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { checkoutMarkOf, DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, revisionOf, SETTLED_MS, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
+import { checkoutMarkOf, DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, RACY_MS, revisionOf, SETTLED_MS, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -121,20 +121,72 @@ test('a checkout that is gone is its own project without asking git, and callers
   const gone = join(tempDir('hd-evidence-gone-'), 'trashed-checkout')
   assert.equal(await projectOf(gone), gone)
   assert.equal(await asked(), '', 'a folder that is not there is answered without git')
-  assert.equal(await projectOf(join(dir, '.')), await realpath(dir))
+  // A subfolder: a checkout root's answer can stand longer (below), and this is about the settle window.
+  const sub = join(dir, 'sub')
+  await mkdir(sub)
+  assert.equal(await projectOf(join(sub, '.')), await realpath(dir))
   const once = (await asked()).split('\n').length
   assert.ok(once > 1, 'a folder that is there is still asked about')
   await new Promise((resolve) => setTimeout(resolve, SETTLED_MS + 50))
 
   // Asked about at once, as every open Team's review read does: one set of questions.
-  const answers = await Promise.all(Array.from({ length: 20 }, () => projectOf(dir)))
+  const answers = await Promise.all(Array.from({ length: 20 }, () => projectOf(sub)))
   assert.deepEqual(new Set(answers), new Set([await realpath(dir)]))
   assert.equal((await asked()).split('\n').length, 2 * once - 1, 'twenty callers at once start git as one does')
-  await projectOf(dir)
+  await projectOf(sub)
   assert.equal((await asked()).split('\n').length, 2 * once - 1, 'a question a moment later shares the settled answer')
   await new Promise((resolve) => setTimeout(resolve, SETTLED_MS + 50))
-  await projectOf(dir)
+  await projectOf(sub)
   assert.equal((await asked()).split('\n').length, 3 * once - 2, 'and a later question is asked afresh')
+})
+
+test('a checkout root keeps its answer while it stands, and a moved, removed or re-created checkout is seen by the next read', async (t) => {
+  const repo = await makeRepo()
+  const other = await makeRepo()
+  const cwd = join(tempDir('hd-project-kept-'), 'checkout')
+  await repo.git('worktree', 'add', '-q', '-b', 'kept', cwd)
+  const bin = tempDir('hd-evidence-bin-')
+  const calls = join(bin, 'calls')
+  const git = (await run('sh', ['-c', 'command -v git'])).stdout.trim()
+  await writeFile(join(bin, 'git'), `#!/bin/sh\necho "$*" >> '${calls}'\nexec '${git}' "$@"\n`, { mode: 0o755 })
+  const path = process.env.PATH
+  process.env.PATH = `${bin}:${path}`
+  t.after(() => { process.env.PATH = path })
+  const asked = async () => (await readFile(calls, 'utf8').catch(() => '')).split('\n').length - 1
+  const later = () => new Promise((resolve) => setTimeout(resolve, SETTLED_MS + 50))
+  /** Reads `folder` once git's own writes have stood for RACY_MS, then shows the answer is kept past the settle window. */
+  const kept = async (folders: readonly string[], answer: string) => {
+    await new Promise((resolve) => setTimeout(resolve, RACY_MS + 50))
+    assert.deepEqual(await Promise.all(folders.map((folder) => projectOf(folder))), folders.map(() => answer))
+    const before = await asked()
+    await later()
+    assert.deepEqual(await Promise.all(folders.map((folder) => projectOf(folder))), folders.map(() => answer))
+    assert.equal(await asked(), before, 'past the settle window, a checkout root that has not changed is not asked again')
+  }
+
+  await kept([cwd, repo.dir], await realpath(repo.dir))
+  // Moved: the main checkout goes elsewhere and its worktree is told where; where it was is gone.
+  const moved = join(tempDir('hd-project-moved-'), 'project')
+  await rename(repo.dir, moved)
+  await run('git', ['-C', moved, 'worktree', 'repair', cwd])
+  await later()
+  assert.equal(await projectOf(cwd), await realpath(moved), 'a moved project is seen by the next read')
+  assert.equal(await projectOf(repo.dir), repo.dir, 'and a removed one too')
+
+  // Re-created in the same place, as a worktree of another repository.
+  await kept([cwd], await realpath(moved))
+  await rm(cwd, { recursive: true })
+  await run('git', ['-C', moved, 'worktree', 'prune'])
+  await other.git('worktree', 'add', '-q', '-b', 'again', cwd)
+  await later()
+  assert.equal(await projectOf(cwd), await realpath(other.dir), 'a re-created checkout is seen by the next read')
+
+  // Re-created as a plain folder: in no repository at all.
+  await kept([cwd], await realpath(other.dir))
+  await rm(cwd, { recursive: true })
+  await mkdir(cwd)
+  await later()
+  assert.equal(await projectOf(cwd), await realpath(cwd), 'a checkout replaced by a plain folder is its own project')
 })
 
 test('a settled project answer is not kept for a folder that has gone since', async () => {

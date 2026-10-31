@@ -4657,3 +4657,34 @@ the failure logs of the 128 jobs that failed in them:
 **Rule:** a job's contents come from a manifest and the last measurement, never
 from a list in the workflow; a check that never finds anything another check
 does not is measured, then removed from the place it costs most.
+
+> Extended by [A checkout root's project answer stands while what git reads to give it is unchanged](#a-checkout-roots-project-answer-stands-while-what-git-reads-to-give-it-is-unchanged--2026-10-31):
+> the one-second window still governs subfolders and folders in no repository.
+
+## A checkout root's project answer stands while what git reads to give it is unchanged — 2026-10-31
+
+After the one-second window, the profiled Lead end-to-end case (`the model gets
+one standing text…`) still started 1,096 of its 6,248 git processes asking which
+project the same few checkout roots belong to — `rev-parse`, `worktree list` and
+`remote get-url`, again every second. A folder that is the root of a checkout
+of its own (a project, or a Team's worktree) now keeps its answer past the
+window while a stat mark reads the same: where the folder resolves; its `.git`,
+with the `gitdir:` text a worktree's holds; that git directory and its
+`commondir`; the common directory with the configuration that can move or
+empty its working tree (`core.worktree`, `core.bare`, `config.worktree`); and
+the answer's own `<root>/.git`. A directory is marked by its identity alone,
+since git writes inside its own constantly; a file by identity, size and
+times. A mark holding a file changed less than `RACY_MS` (two seconds, FAT's
+granularity) before it was read is not trusted, so a write in the same
+timestamp tick cannot hide. The folder's side is read before git is asked and
+must agree after, so a checkout made while git answers is not marked as it
+was. Subfolders, folders in no repository and folders that have gone keep the
+one-second rule. At most 256 answers are kept. `repositoryRoot` no longer asks
+for the origin `repositoryOf` names, which it discarded.
+
+The same case went from 1,096 to 50 git processes from `projectOf`, and from
+6,248 to 5,298 in all.
+
+**Rule:** a cached answer about the filesystem stands on a mark of exactly what
+was read to give it, never on time alone; a mark too new to tell the next
+change from is no mark.

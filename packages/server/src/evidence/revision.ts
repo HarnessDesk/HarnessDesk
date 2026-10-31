@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import type { BigIntStats } from 'node:fs'
+import { readFile, realpath, stat } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 
 import type { Freshness, Sha } from '@harnessdesk/protocol'
 
@@ -198,18 +199,41 @@ export const canonical = async (path: string): Promise<string> => {
   }
 }
 
-/** Folders being asked about now, or answered within `SETTLED_MS`, so callers share one answer. */
-const asking = new Map<string, { readonly answer: Promise<string>; real: string | null; until: number }>()
+/** Folders being asked about now, or answered and still standing, so callers share one answer. */
+const asking = new Map<string, Asked>()
+
+interface Asked {
+  answer: Promise<string>
+  real: string | null
+  until: number
+  /** What must stay as it is for a checkout root's answer to stand past `until`; null for any other folder. */
+  mark: string | null
+  /** A look at `mark` in progress, shared by the callers that arrive during it. */
+  check: Promise<string> | null
+}
 
 /**
- * How long a settled answer stands. A desk with open Teams asks this from
- * every evidence, findings and intake read — measured at more than a dozen
- * times a second for the same folder during one Lead run, each answer costing
- * several git processes. Which repository a folder belongs to changes when a
- * person moves, removes or re-creates it, not between two reads of one page;
- * a folder that has gone or now resolves elsewhere is asked afresh at once.
+ * How long a settled answer stands on the folder's real path alone. A desk
+ * with open Teams asks this from every evidence, findings and intake read —
+ * measured at more than a dozen times a second for the same folder during one
+ * Lead run, each answer costing several git processes. Which repository a
+ * folder belongs to changes when a person moves, removes or re-creates it,
+ * not between two reads of one page; a folder that has gone or now resolves
+ * elsewhere is asked afresh at once.
  */
 export const SETTLED_MS = 1_000
+
+/**
+ * How long a file must have stood unchanged before its stat is trusted as a
+ * mark. A write within the same timestamp tick as the read can leave its
+ * size and times as they were; once a file is older than the coarsest
+ * granularity a desk's disk may have (FAT's two seconds), any later write
+ * moves them.
+ */
+export const RACY_MS = 2_000
+
+/** At most this many folders' answers are kept; the least recently used settled one goes first. */
+export const PROJECTS_KEPT = 256
 
 /**
  * The project a folder belongs to: its repository's main checkout, or the
@@ -222,6 +246,13 @@ export const SETTLED_MS = 1_000
  * is still where it was, shares its answer rather than starting git again. A
  * folder that is gone uses the fallback, or answers as written without asking
  * git — a wrapped Team's checkout is usually in the Trash.
+ *
+ * A folder that is the root of a checkout of its own — a project, or a Team's
+ * worktree — keeps its answer past `SETTLED_MS` for as long as its mark
+ * (`checkoutMarkAt`, `rootMarkAt`) reads the same: a stat of what git itself
+ * would read to answer again. A subfolder, a folder in no repository, and one
+ * whose mark was read while a file in it was still settling (`RACY_MS`) are
+ * asked afresh after `SETTLED_MS`, as before.
  */
 export const projectOf = (folder: string, fallback?: string): Promise<string> => {
   // Lexical normalisation erases symlink traversal before `..`.
@@ -230,26 +261,129 @@ export const projectOf = (folder: string, fallback?: string): Promise<string> =>
   if (known && known.until >= Date.now()) {
     if (known.until === Infinity) return known.answer
     return realpath(folder).catch(() => null).then((real) =>
-      real !== null && real === known.real ? known.answer : ask(key, folder, fallback, real))
+      real !== null && real === known.real ? known.answer : again(key, known, folder, fallback, real))
+  }
+  if (known && known.mark !== null) {
+    known.check ??= (async () => {
+      const mark = await markOf(folder, await known.answer)
+      known.check = null
+      if (mark === null || mark.mark !== known.mark) return again(key, known, folder, fallback)
+      known.until = Date.now() + SETTLED_MS
+      asking.delete(key)
+      asking.set(key, known)
+      return known.answer
+    })()
+    return known.check
   }
   return ask(key, folder, fallback)
 }
 
+/** Ask afresh in place of a stale answer, unless another caller already has. */
+const again = (key: string, stale: Asked, folder: string, fallback?: string, seen?: string | null): Promise<string> =>
+  asking.get(key) === stale ? ask(key, folder, fallback, seen) : projectOf(folder, fallback)
+
 const ask = (key: string, folder: string, fallback?: string, seen?: string | null): Promise<string> => {
-  const entry = { answer: Promise.resolve(''), real: null as string | null, until: Infinity }
+  const entry: Asked = { answer: Promise.resolve(''), real: null, until: Infinity, mark: null, check: null }
   entry.answer = (async () => {
     const real = seen !== undefined ? seen : await realpath(folder).catch(() => null)
     entry.real = real
     if (real === null) return fallback !== undefined && fallback !== folder ? projectOf(fallback) : resolve(folder)
-    return (await repositoryRoot(folder)) ?? real
+    // Read before git is: a checkout made or moved while git answers must not leave a mark of after on an answer of before.
+    const before = await checkoutMarkAt(folder)
+    const root = await repositoryRoot(folder)
+    if (root === null) return real
+    if (before?.trusted) {
+      const after = await markOf(folder, root)
+      if (after?.trusted && after.mark.startsWith(`${before.mark}\0`)) entry.mark = after.mark
+    }
+    return root
   })()
-  // A failure is never kept, and an answer is kept only briefly once it settles.
+  // A failure is never kept; a checkout root's answer is kept while its mark stands, any other briefly.
   entry.answer.then(
-    () => { entry.until = Date.now() + SETTLED_MS; setTimeout(() => { if (asking.get(key) === entry) asking.delete(key) }, SETTLED_MS).unref() },
+    () => {
+      entry.until = Date.now() + SETTLED_MS
+      if (entry.mark === null) setTimeout(() => { if (asking.get(key) === entry) asking.delete(key) }, SETTLED_MS).unref()
+    },
     () => { if (asking.get(key) === entry) asking.delete(key) },
   )
+  asking.delete(key)
   asking.set(key, entry)
+  for (const [old, kept] of asking) {
+    if (asking.size <= PROJECTS_KEPT) break
+    if (kept.until !== Infinity) asking.delete(old)
+  }
   return entry.answer
+}
+
+interface Mark {
+  readonly mark: string
+  /** Whether every file in it had stood for `RACY_MS` when it was read: only then can it stand for an answer. */
+  readonly trusted: boolean
+}
+
+/** A `.git` pointer or `commondir` is one path; anything longer is not one. */
+const POINTER_BYTES = 64 * 1024
+
+/**
+ * One path's part of a mark, and its text when it is a small file. A
+ * directory is its identity alone, since git writes inside its own all the
+ * time; a file is its identity, size and times.
+ */
+const partOf = async (path: string, newest: { at: number }): Promise<readonly [string, string | null]> => {
+  const info: BigIntStats | null = await stat(path, { bigint: true }).catch(() => null)
+  if (info === null) return ['-', null]
+  if (info.isDirectory()) return [`d${info.dev}:${info.ino}:${info.birthtimeNs}`, null]
+  newest.at = Math.max(newest.at, Number(info.mtimeNs / 1_000_000n), Number(info.ctimeNs / 1_000_000n))
+  const text = info.isFile() && info.size <= POINTER_BYTES ? await readFile(path, 'utf8').catch(() => null) : null
+  return [`f${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`, text]
+}
+
+/**
+ * What git reads, from a folder that is the root of its own checkout, to say
+ * which repository it is in: where the folder resolves, its `.git` — a
+ * directory, or a file and the `gitdir:` it names — that git directory and
+ * its `commondir`, the common directory, and the configuration that can move
+ * or empty its working tree (`core.worktree`, `core.bare`). Null when the
+ * folder has no `.git` of its own: a subfolder, or no checkout at all.
+ */
+const checkoutMarkAt = async (folder: string): Promise<Mark | null> => {
+  try {
+    const started = Date.now()
+    const newest = { at: 0 }
+    const real = await realpath(folder)
+    const dot = join(real, '.git')
+    const [[here], [own, pointer]] = await Promise.all([partOf(real, newest), partOf(dot, newest)])
+    if (own === '-') return null
+    const named = own.startsWith('d') ? null : /^gitdir: (.+?)\r?\n?$/.exec(pointer ?? '')?.[1]
+    if (named === undefined) return null
+    const gitdir = named === null ? dot : resolve(real, named)
+    const [[dir], [shared, commondir]] = await Promise.all([partOf(gitdir, newest), partOf(join(gitdir, 'commondir'), newest)])
+    const common = commondir === null ? gitdir : resolve(gitdir, commondir.replace(/\r?\n$/, ''))
+    const [[store], [config], [shareable], [local]] = await Promise.all([
+      partOf(common, newest), partOf(join(common, 'config'), newest),
+      partOf(join(common, 'config.worktree'), newest), partOf(join(gitdir, 'config.worktree'), newest),
+    ])
+    const mark = JSON.stringify([real, here, own, pointer, dir, shared, commondir, store, config, shareable, local])
+    return { mark, trusted: started - newest.at > RACY_MS }
+  } catch {
+    return null
+  }
+}
+
+/** The answer's own side: the main checkout is still where git named it, with the same `.git`. */
+const rootMarkAt = async (root: string): Promise<Mark | null> => {
+  const started = Date.now()
+  const newest = { at: 0 }
+  if (await realpath(root).catch(() => null) !== root) return null
+  const [dot, pointer] = await partOf(join(root, '.git'), newest)
+  return dot === '-' ? null : { mark: JSON.stringify([root, dot, pointer]), trusted: started - newest.at > RACY_MS }
+}
+
+/** A checkout root's whole mark, its folder's side first; null for any folder whose answer is not kept on one. */
+const markOf = async (folder: string, root: string): Promise<Mark | null> => {
+  const [checkout, rooted] = await Promise.all([checkoutMarkAt(folder), rootMarkAt(root)])
+  return checkout === null || rooted === null ? null
+    : { mark: `${checkout.mark}\0${rooted.mark}`, trusted: checkout.trusted && rooted.trusted }
 }
 
 /**
