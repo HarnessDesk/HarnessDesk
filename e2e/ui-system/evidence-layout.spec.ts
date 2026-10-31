@@ -1,76 +1,49 @@
 import { expect, test } from '@playwright/test'
 
-test('evidence chips show their whole fact on one line, inside a 202px board card', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/preview.html')
-  // Isolate the column floor; scrollbar reservation is covered by team-board-widths.
-  await page.addStyleTag({ content: '*::-webkit-scrollbar { display: none; }' })
-
-  const frame = page.getByRole('heading', { name: 'Board — what the desk observed' }).locator('..')
-  await frame.locator('[data-slot="tool-pane"]').evaluate(el => { el.style.width = '1164px' })
-  // The frame redesign intentionally keeps default canvas columns at 280px.
-  // Exercise BoardColumn's supported explicit width at its 220px fit floor.
-  await expect(frame.locator('[data-slot="board-column"]').first()).toHaveCSS('width', '280px')
-  await frame.locator('[data-slot="board-column"]').evaluateAll(columns => {
-    for (const column of columns) (column as HTMLElement).style.width = '220px'
-  })
-  const card = frame.locator('[data-slot="board-card"]').filter({ hasText: 'Cap the backoff and add jitter' })
-  const evidence = card.getByRole('button', { name: /What the desk observed on #2:/ })
-
-  await card.scrollIntoViewIfNeeded()
-  await expect(evidence).toContainText('verify ✓')
-  // At this fit threshold each column is 220px; its border and dense inset leave a 202px card.
-  expect(Math.round((await card.locator('..').locator('..').boundingBox())?.width ?? 0)).toBe(220)
-  expect(Math.round((await card.boundingBox())?.width ?? 0)).toBe(202)
-
-  const cardBox = await card.boundingBox()
-  const evidenceBox = await evidence.boundingBox()
-  if (!cardBox || !evidenceBox) throw new Error('the stale evidence card was not laid out')
-
-  expect(evidenceBox.x).toBeGreaterThanOrEqual(cardBox.x)
-  expect(evidenceBox.x + evidenceBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
-
-  const chips = await evidence.locator('[data-slot="chip"]').all()
-  expect(chips.length).toBeGreaterThan(0)
-  for (const chip of chips) {
-    const chipBox = await chip.boundingBox()
-    if (!chipBox) throw new Error('an evidence chip was not laid out')
-    expect(chipBox.x).toBeGreaterThanOrEqual(cardBox.x)
-    expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
-
-    // The fact is whole: the words before any "—" are never cut on a 202px card.
-    const words = chip.locator('[data-slot="chip-words"] > span')
-    expect(await words.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(0)
-    expect((await words.textContent())?.includes('—')).toBe(false)
-
-    // One line: the pill is its own height, whatever the words are.
-    const drawn = await chip.evaluate((node) => {
-      const style = getComputedStyle(node)
-      const words = node.querySelector('[data-slot="chip-words"]') as HTMLElement
-      return {
-        height: node.getBoundingClientRect().height,
-        chipHeight: Number.parseFloat(style.height),
-        whiteSpace: style.whiteSpace,
-        struck: [node, words, ...words.querySelectorAll('*')].some((one) => getComputedStyle(one).textDecorationLine.includes('line-through')),
-        stale: node.hasAttribute('data-stale'),
-        glyph: node.firstElementChild?.tagName.toLowerCase() === 'svg',
-      }
+for (const theme of ['light', 'dark'] as const) for (const width of [700, 1440]) {
+  test(`dense card keeps one complete evidence row and keyboard details at ${width} in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto(`/preview.html?theme=${theme}`)
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    const frame = page.getByRole('heading', { name: 'Board — what the desk observed' }).locator('..')
+    await frame.locator('[data-slot="tool-pane"]').evaluate(el => { (el as HTMLElement).style.width = '1164px' })
+    await frame.locator('[data-slot="board-column"]').evaluateAll(columns => {
+      for (const column of columns) (column as HTMLElement).style.width = '220px'
     })
-    expect(drawn.whiteSpace).toBe('nowrap')
-    expect(Math.abs(drawn.height - drawn.chipHeight)).toBeLessThanOrEqual(1)
-    expect(drawn.struck).toBe(false)
-    if (drawn.stale) expect(drawn.glyph).toBe(true)
-  }
-
-  // A stale chip names how far behind it is in its title, not on the card.
-  const stale = evidence.locator('[data-slot="chip"][data-stale]').first()
-  await expect(stale).toHaveAttribute('title', 'verify ✓ @a1b2c3d — 2 commits since')
-
-  // The ⋯ keeps the end of the foot's last line, beside the card's age.
-  const more = card.getByRole('button', { name: /What to do with #2/ })
-  const moreBox = await more.boundingBox()
-  const evidenceEnd = await evidence.boundingBox()
-  if (!moreBox || !evidenceEnd) throw new Error('the card foot was not laid out')
-  expect(moreBox.y).toBeGreaterThanOrEqual(evidenceEnd.y + evidenceEnd.height - 1)
-  expect(moreBox.x + moreBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
-})
+    const card = frame.locator('[data-slot="board-card"]').filter({ hasText: 'Retry the checkout call on a 502' })
+    await card.scrollIntoViewIfNeeded()
+    const button = card.getByRole('button', { name: /What the desk observed on #1:/ })
+    await expect(button).toHaveText('Failed')
+    await expect(button.locator('[data-slot="chip"]')).toHaveCount(1)
+    const bounds = await button.evaluate(el => {
+      const chip = el.querySelector<HTMLElement>('[data-slot="chip"]')!
+      const words = chip.querySelector<HTMLElement>('[data-slot="chip-words"]')!
+      const card = el.closest<HTMLElement>('[data-slot="board-card"]')!
+      const b = el.getBoundingClientRect(), c = chip.getBoundingClientRect(), outer = card.getBoundingClientRect()
+      return { buttonHeight: b.height, chipHeight: c.height, clipped: words.scrollWidth > words.clientWidth, whiteSpace: getComputedStyle(chip).whiteSpace, inside: c.left >= outer.left && c.right <= outer.right, cardWidth: outer.width }
+    })
+    expect(Math.round(bounds.cardWidth)).toBe(202)
+    expect(bounds.inside).toBe(true)
+    expect(bounds.clipped).toBe(false)
+    expect(bounds.whiteSpace).toBe('nowrap')
+    expect(bounds.buttonHeight).toBeLessThanOrEqual(32)
+    const more = card.getByRole('button', { name: /What to do with #1/ })
+    const moreBox = await more.boundingBox()
+    const evidenceBox = await button.boundingBox()
+    const cardBox = await card.boundingBox()
+    if (!moreBox || !evidenceBox || !cardBox) throw new Error('the card foot was not laid out')
+    expect(moreBox.y).toBeGreaterThanOrEqual(evidenceBox.y + evidenceBox.height - 1)
+    expect(moreBox.x + moreBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
+    for (const key of ['Enter', 'Space']) {
+      await button.focus()
+      await page.keyboard.press(key)
+      const dialog = page.getByRole('dialog', { name: 'What the desk observed on #1' })
+      await expect(dialog).toBeVisible()
+      await expect(dialog.locator('section')).toHaveCount(7)
+      for (const text of ['synthetic failure output', 'pnpm verify', 'build: passed · lint: skipped', '2 commits landed', 'review: request-changes', 'finding open', 'PR #12 open']) await expect(dialog).toContainText(text)
+      if (key === 'Enter') await page.keyboard.press('Escape')
+      else await dialog.getByRole('button', { name: 'Done' }).click()
+      await expect(button).toBeFocused()
+    }
+  })
+}

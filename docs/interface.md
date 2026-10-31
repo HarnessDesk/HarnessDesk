@@ -1417,8 +1417,9 @@ along with what Settings still does not do — is recorded with the audit.
 
 ## What the desk observed
 
-**On a card.** A room's board draws each card's evidence as chips in its foot,
-and its columns — Needs you, Working, In review, To do, Ready, and Set aside
+**On a card.** A room's board draws one compact observation status in each card's foot.
+It opens the latest recorded facts and does not certify required checks; the
+Flow inspector separately keeps check attempt history. Board columns — Needs you, Working, In review, To do, Ready, and Set aside
 while anything is — come from those facts, so nothing on the board is dragged.
 A completed card is not placed until the first evidence read succeeds; while
 that read is pending or unavailable, the board says so rather than claiming

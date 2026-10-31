@@ -12,6 +12,7 @@ import { diff, status } from '../src/git.js'
 import { parsePorcelain } from '../src/porcelain.js'
 import { inventory, list } from '../src/git-worktree.js'
 import { changes } from '../src/worktree.js'
+import { rootHeld } from '../src/workspace.js'
 
 /**
  * `git status --porcelain=v1 -z` and the second path.
@@ -291,10 +292,11 @@ test('timed out inventory holds its root and starts no queued descendant reads',
   const original = fs.lstat
   const calls: string[] = []
   let release: (() => void) | undefined
+  let heldRead: ReturnType<typeof original> | undefined
   fs.lstat = ((path: Parameters<typeof original>[0], options: Parameters<typeof original>[1]) => {
     const name = String(path)
     if (name.startsWith(parent)) calls.push(name)
-    if (name === parent) return new Promise((resolve, reject) => { release = () => { original(path, options as never).then(resolve, reject) } })
+    if (name === parent) return new Promise((resolve, reject) => { release = () => { heldRead ??= original(path, options as never); heldRead.then(resolve, reject) } })
     return original(path, options as never)
   }) as typeof original
   syncBuiltinESMExports()
@@ -309,7 +311,8 @@ test('timed out inventory holds its root and starts no queued descendant reads',
     await assert.rejects(inventory(dir, { deadlineMs: 1000 }), /nothing was removed/)
     assert.equal(calls.length, before, 'a second inventory must not start another batch')
     release!()
-    await new Promise<void>((resolve) => setImmediate(resolve))
+    await heldRead
+    while (rootHeld(dir)) await new Promise<void>((resolve) => setImmediate(resolve))
     assert.deepEqual(calls.slice(before), [], 'resuming a stalled parent does not launch descendant reads')
     fs.lstat = original
     syncBuiltinESMExports()
@@ -318,6 +321,8 @@ test('timed out inventory holds its root and starts no queued descendant reads',
     assert.ok(recovered.changeCount >= 2, 'the root is usable once the disk answers')
   } finally {
     release?.()
+    await heldRead?.catch(() => {})
+    while (rootHeld(dir)) await new Promise<void>((resolve) => setImmediate(resolve))
     fs.lstat = original
     syncBuiltinESMExports()
   }
