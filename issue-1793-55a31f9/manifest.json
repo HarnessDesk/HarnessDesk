@@ -1,0 +1,37 @@
+{
+  "issue": 1793,
+  "head": "55a31f9cdd5006999bf96dd2047fecf46a78be0e",
+  "tree": "c47975fea0b0de14ef17246ab5786a9253186192",
+  "surface": "Existing Runtimes page and gateway dialog in the synthetic focused runtime-cost preview, both actual themes. No account or gateway was created.",
+  "privacy": "Parent personally inspected all4frames. Unchanged whole-document text/attribute and independent account auditors, actual OS username, both mounted App stores, source-vouched history and no guests. Two hidden synthetic-account controls were rejected and original fixture maps restored. All getSnapshot providers/props classified; only source-vouched UI registries excluded from account-data classification; unknown objects refused.",
+  "frames": [
+    {
+      "name": "primary-light.png",
+      "theme": "light",
+      "width": 1100,
+      "height": 900,
+      "sha256": "1932a58cb202bd251dea895efeedb7c1b7d9a60dfb11e0565a5facb7421cfbfa"
+    },
+    {
+      "name": "gateway-light.png",
+      "theme": "light",
+      "width": 1100,
+      "height": 900,
+      "sha256": "003bcf2f611e46d292dc8e75bfd65502b384d0d878c607c2232e3dd962775267"
+    },
+    {
+      "name": "primary-dark.png",
+      "theme": "dark",
+      "width": 1100,
+      "height": 900,
+      "sha256": "1b7648978fb6d5f228cacf20cb4df617a1c9ada167518f17dd44502adf3fb08b"
+    },
+    {
+      "name": "gateway-dark.png",
+      "theme": "dark",
+      "width": 1100,
+      "height": 900,
+      "sha256": "ff85983a15ded99780112209d36f43ab31dfd3790711568a34c6abc8df6bb156"
+    }
+  ]
+}
