@@ -572,3 +572,61 @@ for (const theme of ['light', 'dark'] as const) {
     })
   }
 }
+
+test('Overview idle ticks retain heading observers while facts and width still reflow', async ({ page }) => {
+  await page.clock.install()
+  await page.addInitScript(() => {
+    const NativeResizeObserver = window.ResizeObserver
+    const counts = { created: 0, disconnected: 0 }
+    const observed = new WeakSet<Element>()
+    Object.assign(window, { __headingObserverCounts: counts, __headingObserved: observed })
+    window.ResizeObserver = class extends NativeResizeObserver {
+      private heading = false
+      override observe(target: Element, options?: ResizeObserverOptions) {
+        if (!this.heading && target.matches('[data-slot="list-row-heading"]')) {
+          this.heading = true
+          counts.created++
+        }
+        if (this.heading) observed.add(target)
+        super.observe(target, options)
+      }
+      override disconnect() {
+        if (this.heading) counts.disconnected++
+        super.disconnect()
+      }
+    }
+  })
+  await page.setViewportSize({ width: 420, height: 1100 })
+  await page.goto('/preview.html?team-overview=narrow&seat-facts-test=unavailable&theme=light')
+  await page.evaluate(() => document.fonts.ready)
+  const row = page.locator('#team-overview-narrow [data-seat="seat-0"]')
+  const facts = row.locator('[data-slot="list-row-heading-facts"]')
+  await page.clock.runFor(500)
+  await expect(facts).toHaveAttribute('data-placement', 'inline')
+  const counts = () => page.evaluate(() => ({ ...(window as unknown as { __headingObserverCounts: { created: number; disconnected: number } }).__headingObserverCounts }))
+  const before = await counts()
+  expect(before.created - before.disconnected).toBe(4)
+  await page.clock.runFor(3000)
+  expect(await counts()).toEqual(before)
+
+  await row.locator('[data-slot="seat-cost"]').evaluate(el => { el.textContent = '999999999999999999999999999 turns' })
+  await page.clock.runFor(100)
+  await expect(facts).toHaveAttribute('data-placement', 'below')
+  await facts.locator('[data-slot="seat-cost"]').evaluate(el => {
+    const replacement = document.createElement('span')
+    replacement.setAttribute('data-slot', 'seat-cost')
+    replacement.textContent = '999999999999999999999999999 turns'
+    el.replaceWith(replacement)
+  })
+  await page.clock.runFor(100)
+  expect(await facts.locator('[data-slot="seat-cost"]').evaluate(el => (window as unknown as { __headingObserved: WeakSet<Element> }).__headingObserved.has(el))).toBe(true)
+  await facts.locator('[data-slot="seat-cost"]').evaluate(el => { el.textContent = '2 turns' })
+  await page.clock.runFor(100)
+  await expect(facts).toHaveAttribute('data-placement', 'inline')
+  await page.setViewportSize({ width: 240, height: 1100 })
+  await page.clock.runFor(100)
+  await expect(facts).toHaveAttribute('data-placement', 'below')
+  await page.setViewportSize({ width: 420, height: 1100 })
+  await page.clock.runFor(100)
+  await expect(facts).toHaveAttribute('data-placement', 'inline')
+})

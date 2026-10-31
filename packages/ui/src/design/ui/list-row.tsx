@@ -189,7 +189,8 @@ const ListRow = ({
       window.removeEventListener('resize', schedule)
       document.fonts?.removeEventListener('loadingdone', schedule)
     }
-  }, [adaptive, factsBelow, headingFacts])
+  // The DOM observers track fact changes; JSX identity changes on every parent render.
+  }, [adaptive, factsBelow])
   const facts = adaptive ? <div data-slot="list-row-heading-facts" data-placement={factsBelow ? 'below' : 'inline'}
     className={cn('flex min-w-0 flex-wrap items-center gap-2 [&>*]:shrink-0', factsBelow ? 'mt-(--hd-table-line-gap) w-full' : 'shrink-0')}>{headingFacts}</div> : null
   const Heading: React.ElementType = below ? 'div' : Fragment
