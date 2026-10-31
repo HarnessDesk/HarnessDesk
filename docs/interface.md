@@ -1559,7 +1559,8 @@ pixels. A 400px reading column is protected in this order:
   a wide window folds the same way. At 520px the branch's name, the status's
   word and the tasks chip's words fold to their marks — still read out, and
   on hover — while back and forward retain their title-row targets, moving
-  to the main bar if the sidebar has no room, and the plan meter shows its
+  to the main bar if a standing sidebar has no room, or into a second drawer
+  header row when it floats, and the plan meter shows its
   figure only when the runtime is running low. At 400px a resting status goes, the browser and
   terminal buttons fold into ⋯ › View where there is a ⋯ — a draft has none,
   and keeps its browser button — and the plan meter keeps its bar alone, low
