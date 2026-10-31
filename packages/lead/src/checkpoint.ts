@@ -71,7 +71,10 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // an allowance or an unconfirmed spend, or been accepted with no stop at all.
   assert(completedBudgets.every(budget => budget.requests.length === 0))
   const budget = source.budget === null ? null : parseLeadBudgetLedger(source.budget)
-  if (source.raisedFrom !== null) parseLeadCaps(source.raisedFrom)
+  if (source.raisedFrom !== null) {
+    const raisedFrom = parseLeadCaps(source.raisedFrom)
+    assert(budget && raisedFrom.usdMicros <= budget.caps.usdMicros && raisedFrom.rounds <= budget.caps.rounds)
+  }
   assert(!budget?.stop || ['stopped', 'accepted', 'declined'].includes(source.phase))
   assert(typeof source.chatEffectsAcknowledged === 'boolean')
   assert(source.stopEffectsPending === null || Number.isSafeInteger(source.stopEffectsPending) && source.stopEffectsPending > 0 && source.stopEffectsPending <= source.seq && (budget?.stop || source.phase === 'stopped'))

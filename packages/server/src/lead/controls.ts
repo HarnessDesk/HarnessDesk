@@ -4,7 +4,7 @@ import {
   parseLeadBudgetRaise, type LeadBudgetRaise, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -406,8 +406,7 @@ export class LeadControls {
         else if (!(card.publication === 'push' && decision.choice === 'decline')) await this.options.decideResult(card, decision, contract)
       } : undefined, committed)
       if (card.type === 'plan' && decision.choice === 'approve' && card.contract.repeat) {
-        const renewal = state.consent?.renewalCardRevision === card.revision && JSON.stringify(state.contract) === JSON.stringify(card.contract)
-        try { await this.options.approveRepeat?.(card.id, card.contract, !renewal) }
+        try { await this.options.approveRepeat?.(card.id, card.contract, !isLeadPlanRenewal(state, card)) }
         catch { await journal.appendReply('The repeat could not be saved. This approval applies to this run only.') }
       }
     }

@@ -6,7 +6,7 @@ import {
 import { compareLeadPolicyAuthority, sameLeadPolicyValues, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, type LeadState } from './state.js'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 
 const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
@@ -569,7 +569,7 @@ export class LeadJournal {
       if (this.#state.decidedCards.includes(`${card.id}:${card.revision}`))
         throw Object.assign(new Error('lead-card-decided'), { wireCode: 'lead-card-decided' })
       if (card.type === 'plan' && decision.choice === 'approve' && this.#state.policy?.revision !== card.contract.policyRevision &&
-        !(this.#state.consent?.renewalCardRevision === card.revision && JSON.stringify(this.#state.contract) === JSON.stringify(card.contract)))
+        !isLeadPlanRenewal(this.#state, card))
         throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
       // Validate the immutable card and reducer transition before any human side effect.
       reduceLeadRecord(this.#state, { version: 1, seq: this.#state.seq + 1, type: 'card-decision', decision, expiresAt })

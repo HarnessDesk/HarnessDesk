@@ -136,6 +136,9 @@ export const canReportLeadChatEffect = (state: LeadState, attempt: LeadAttemptSt
   !state.budget?.rounds.some(round => round.startId === attempt.id)
 
 /** A cancelled goal may be replaced only after cancellation and recovery are settled. */
+/** A plan approval that only renews the consent already given: the same card the renewal offered, for the same contract. */
+export const isLeadPlanRenewal = (state: LeadState, card: Extract<LeadCard, { type: 'plan' }>): boolean =>
+  state.consent?.renewalCardRevision === card.revision && JSON.stringify(state.contract) === JSON.stringify(card.contract)
 export const canBeginLeadGoal = (state: LeadState): boolean =>
   ['stopped', 'accepted', 'declined'].includes(state.phase) && !!state.budget && state.stopEffectsPending === null &&
   (!hasUncertainLeadChatEffect(state) || state.chatEffectsAcknowledged) &&
@@ -448,7 +451,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(card)
       if (card!.type === 'plan') {
         if (decision.choice === 'approve') {
-          const renewal = state.consent?.renewalCardRevision === card!.revision && JSON.stringify(state.contract) === JSON.stringify(card!.contract)
+          const renewal = isLeadPlanRenewal(state, card!)
           if (!renewal) assertPlanApprovable(state, card!.contract)
           else ensure(event.expiresAt !== null && event.expiresAt > state.consent!.expiresAt)
           ensure(event.expiresAt !== null && event.expiresAt > 0)
@@ -475,7 +478,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         } else state = { ...state, phase: 'following', managementReason: null }
       } else if (card!.type === 'budget-change') {
         ensure(state.budget && card!.contractDigest === (state.contract?.digest ?? null))
-        state = { ...state, budget: applyLeadBudgetCard(state.budget!, event.decision, card!) }
+        // An approved allowance is standing: the next goal starts from it, not from before a Raise limit.
+        state = { ...state, budget: applyLeadBudgetCard(state.budget!, event.decision, card!), raisedFrom: decision.choice === 'decline' ? state.raisedFrom : null }
       } else if (card!.type === 'permission-change') {
         ensure(state.policy)
         state = { ...state, policy: applyLeadPolicyDecision(event.decision, card, state.policy!, state.contract?.digest ?? null) }
