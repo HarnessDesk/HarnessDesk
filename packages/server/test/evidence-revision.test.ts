@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { checkoutMarkOf, DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, revisionOf, SETTLED_MS, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
+import { checkoutMarkOf, DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
 import { RACY_MS } from '../src/evidence/tips.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
@@ -125,26 +125,22 @@ test('a checkout that is gone is its own project without asking git, and callers
   assert.equal(await projectOf(join(dir, '.')), await realpath(dir))
   const once = (await asked()).split('\n').length
   assert.ok(once > 1, 'a folder that is there is still asked about')
-  await new Promise((resolve) => setTimeout(resolve, SETTLED_MS + 50))
 
   // Asked about at once, as every open Team's review read does: one set of questions.
   const answers = await Promise.all(Array.from({ length: 20 }, () => projectOf(dir)))
   assert.deepEqual(new Set(answers), new Set([await realpath(dir)]))
   assert.equal((await asked()).split('\n').length, 2 * once - 1, 'twenty callers at once start git as one does')
   await projectOf(dir)
-  assert.equal((await asked()).split('\n').length, 2 * once - 1, 'a question a moment later shares the settled answer')
-  await new Promise((resolve) => setTimeout(resolve, SETTLED_MS + 50))
-  await projectOf(dir)
   assert.equal((await asked()).split('\n').length, 3 * once - 2, 'and a later question is asked afresh')
 })
 
-test('a settled project answer is not kept for a folder that has gone since', async () => {
+test('a project answer is not kept for a folder that has gone since', async () => {
   const repo = await makeRepo()
   const cwd = join(tempDir('hd-project-settled-'), 'checkout')
   await repo.git('worktree', 'add', '-q', '-b', 'settled', cwd)
   assert.equal(await projectOf(cwd), await realpath(repo.dir))
   await rm(cwd, { recursive: true })
-  assert.equal(await projectOf(cwd), cwd, 'within the settle window, a removed checkout is its own project at once')
+  assert.equal(await projectOf(cwd), cwd, 'a removed checkout is its own project at once')
 })
 
 test('concurrent project reads preserve traversal through a symlink before its parent', async () => {
