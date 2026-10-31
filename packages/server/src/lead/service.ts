@@ -139,7 +139,6 @@ export class LeadService {
             event.cacheReadUsdMicrosPerMillion !== price.cacheReadUsdMicrosPerMillion || event.cacheWriteUsdMicrosPerMillion !== price.cacheWriteUsdMicrosPerMillion) throw new Error('lead-budget-price')
           if (options.journal.state.budget?.requests.some(request => request.reservation.requestId === event.requestId) ||
             options.journal.state.budget?.settled.some(item => item.id === event.requestId)) throw new Error('lead-budget-request')
-          this.#reservedHere.add(event.requestId)
         } else if (event.type === 'settle') {
           const recorded = this.#providerUsage.get(event.requestId)
           if (!this.#reservedHere.has(event.requestId) || options.journal.state.budget?.requests.some(request => request.reservation.requestId === event.requestId && request.uncertain) ||
@@ -152,6 +151,10 @@ export class LeadService {
           this.#providerFinalized.add(event.requestId)
           this.#providerUsage.delete(event.requestId)
         }
+      },
+      committedBudgetEvent: event => {
+        if (event.type === 'reserve') this.#reservedHere.add(event.requestId)
+        else if (event.type === 'settle' || event.type === 'write-off') this.#reservedHere.delete(event.requestId)
       },
       providerSend: async (requestId, body, signal) => {
         let admitted = false
@@ -271,6 +274,7 @@ export class LeadService {
         await this.options.journal.updateBudget({ version: 1, type: 'write-off', now: this.options.journal.state.budget!.now, requestId })
       }
       this.#providerUsage.delete(requestId)
+      this.#reservedHere.delete(requestId)
     }
   }
   async #release(): Promise<void> {
