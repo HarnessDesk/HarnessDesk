@@ -108,7 +108,7 @@ test('index changes invalidate paged sessions even when the bounded snapshot is 
     await phone.next(isSnapshot)
     d.emit({ method: 'session/indexChanged', params: { upserted: [], removed: [], firstPageCursor: null } })
     await d.settle()
-    assert.equal(phone.inbox.filter(isSnapshot).length, 1, 'an index change beyond the snapshot cap still tells the phone to refresh its pages')
+    assert.equal(phone.inbox.filter(isSnapshot).length, 1, 'a change beyond the snapshot still tells the phone to refresh')
     phone.close()
   } finally { await d.done() }
 })
@@ -319,5 +319,18 @@ test('with no phone that may read listening, a change builds nothing and a phone
     assert.equal(d.state.builds, 0, 'a phone that cannot read is not listening')
     assert.equal(runOnly.inbox.filter(isSnapshot).length, 0)
     runOnly.close()
+  } finally { await d.done() }
+})
+
+test('chat holder changes invalidate phone threads even when the bounded snapshot is identical', async () => {
+  const d = await door()
+  try {
+    const phone = await d.pair(['read'])
+    d.emit({ method: 'goal/changed', params: {} })
+    await phone.next(isSnapshot)
+    d.emit({ method: 'lead/chats/controlChanged', params: { project: '/w', chats: [{ id: KEY, holder: 'person', sent: [] }] } })
+    await d.settle()
+    assert.equal(phone.inbox.filter(isSnapshot).length, 1, 'a change beyond the snapshot still tells the phone to refresh')
+    phone.close()
   } finally { await d.done() }
 })

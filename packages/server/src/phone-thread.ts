@@ -1,3 +1,4 @@
+import { isLeadMessageSource, LEAD_MESSAGE_PREFIX, leadMessageKey, leadMessageWords, splitContextContent, wrapContext, type LeadChatControl } from '@harnessdesk/protocol'
 import { basename, isAbsolute, relative } from 'node:path'
 import type {
   AgentItem, Approval, ApprovalOption, CommandItem, FileChange, PhoneApprovalState, PhoneWorkStep, PhoneWorkThread, PhoneWorkTurn,
@@ -263,8 +264,13 @@ const planStep = (turn: Turn): PhoneWorkStep | null => {
   })
 }
 
-const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated: () => void): PhoneWorkTurn | null => {
-  const source = item.content.flatMap((part: UserContent) => part.type === 'text' ? [part.text] : []).join('\n')
+const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated: () => void, sent: ReadonlySet<string>, chatId: string): PhoneWorkTurn | null => {
+  const split = splitContextContent(item.content)
+  const verified = split.injections.filter(block => isLeadMessageSource(block.label) && sent.has(leadMessageKey(chatId, wrapContext(block.label, block.text))))
+  const source = verified.length ? [
+    ...split.injections.map(block => verified.includes(block) ? leadMessageWords(block.text) : wrapContext(block.label, block.text)),
+    split.text,
+  ].filter(Boolean).join('\n') : item.content.flatMap((part: UserContent) => part.type === 'text' ? [part.text] : []).join('\n')
   const text = scrubText(source)
   if (text !== scrubText(source, Infinity)) noteTruncated()
   const attachments = item.content.flatMap((part: UserContent) => {
@@ -272,12 +278,12 @@ const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated:
     if (part.type === 'localImage') return [scrub(basename(part.path), 60) || 'Image']
     return []
   })
-  return text === '' && attachments.length === 0 ? null : { type: 'you', id: String(item.id), text, attachments }
+  return text === '' && attachments.length === 0 ? null : { type: 'you', id: String(item.id), text, attachments, ...(verified.length === 1 && split.injections.length === 1 && split.text === '' && attachments.length === 0 ? { lead: { name: scrub(verified[0]!.label.slice(LEAD_MESSAGE_PREFIX.length), 60) } } : {}) }
 }
 
 interface Timed { readonly id: string; readonly startedAt?: number; readonly completedAt?: number; readonly durationMs?: number }
 
-const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void): PhoneWorkTurn[] => {
+const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: ReadonlySet<string>, chatId: string): PhoneWorkTurn[] => {
   const turns: PhoneWorkTurn[] = []
   let fold: { id: string; steps: PhoneWorkStep[]; from: number; to: number; spent: number } | null = null
   // The turn's plan sits at the end of its first fold of work, or on its own where it did none.
@@ -300,7 +306,7 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void): PhoneWorkT
     fold.spent += Math.round((item.durationMs ?? 0) / 1000)
   }
   for (const item of turn.items) {
-    if (item.type === 'userMessage') { close(); const you = youOf(item, noteTruncated); if (you) turns.push(you); continue }
+    if (item.type === 'userMessage') { close(); const you = youOf(item, noteTruncated, sent, chatId); if (you) turns.push(you); continue }
     if (item.type === 'assistantMessage' && item.phase !== 'commentary') {
       close()
       const markdown = scrubText(item.text)
@@ -322,6 +328,7 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void): PhoneWorkT
 }
 
 export interface ThreadInput {
+  readonly leadControl?: LeadChatControl
   readonly id: string
   readonly session: Session
   readonly running: boolean
@@ -338,7 +345,8 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
   const { session } = input
   const omittedSourceTurns = Math.max(0, session.turns.length - RECENT_TURNS)
   let truncated = omittedSourceTurns > 0
-  const turns = session.turns.slice(-RECENT_TURNS).flatMap(turn => turnsOf(turn, session.cwd, () => { truncated = true }))
+  const sent = new Set(input.leadControl?.sent ?? [])
+  const turns = session.turns.slice(-RECENT_TURNS).flatMap(turn => turnsOf(turn, session.cwd, () => { truncated = true }, sent, input.id))
   // The sessions list's own project, so a row and its conversation never name two.
   const { project } = input
   const asks: PhoneWorkTurn[] = []
@@ -349,6 +357,7 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
     else question = true
   }
   const result: PhoneWorkThread = {
+    ...(input.leadControl ? { leadChatHolder: input.leadControl.holder } : {}),
     id: input.id,
     title: scrub(input.title ?? session.title ?? session.preview ?? '') || 'Untitled',
     ...(project ? { project } : {}),

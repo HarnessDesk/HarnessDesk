@@ -30,3 +30,10 @@ test('a short read remains complete and preserves the original turn data', () =>
   assert.equal(result.omittedPhoneEntries, 0)
   assert.equal(result.truncated, false)
 })
+
+test('bounded Lead reads preserve the host holder and verified sender', () => {
+  const original = { ...thread([{ type: 'you', id: 'm1', text: 'Run tests', attachments: [], lead: { name: 'Dex' } }]), leadChatHolder: 'person' as const }
+  const result = boundLeadChatRead(original)
+  assert.equal(result.leadChatHolder, 'person')
+  assert.deepEqual(result.turns, original.turns)
+})

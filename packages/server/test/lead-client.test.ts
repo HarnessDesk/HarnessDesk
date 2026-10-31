@@ -474,7 +474,7 @@ test('a Lead connection refuses all person window controls before parsing their 
   const { host, peer, authority } = await rig(t)
   await host.call('app/state/set', { patch: { clientsMayAnswer: true } })
   await peer.hello()
-  for (const method of ['lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/repeat/control', 'lead/budget/raise']) {
+  for (const method of ['lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/repeat/control', 'lead/budget/raise']) {
     const result = await peer.call(method, { child: 'cannot impersonate a click' })
     assert.equal(result.ok, false)
     assert.equal(result.error.code, 'notOnClientSurface')

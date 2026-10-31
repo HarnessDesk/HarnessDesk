@@ -854,6 +854,15 @@ Cancellation admission, journal replay and recovery share one classification: Fl
 
 Chat reads retain the provider's 12,000-byte result bound and disclose two separate omission counts: `omittedSourceTurns` for raw transcript turns excluded before phone projection, and `omittedPhoneEntries` for projected entries excluded by the result bound. Phone projection metadata remains nonserialized; `truncated` also covers shortened text and fold steps.
 
+The host also keeps `<state>/lead/chat-control.json`: at most 64 chats per canonical project and 32 envelope
+keys per chat, with a `lead` or `person` holder. The keys verify message
+provenance and confer no authority. Sends, stops and queued deliveries recheck
+the person's hold in the host. `lead/chats/control`, `lead/chats/resetControl`, `lead/chat/takeOver` and
+`lead/chat/handBack` are window-only methods. The phone's `workspace/thread/read`
+projects verified words in the `you` turn's `text`, with `lead: { name: string }`
+for its historical sender, and optional thread `leadChatHolder: 'lead' | 'person'`.
+An absent holder means the host has no Lead-managed chat record.
+
 The host stores at most 64 tracked chat ids in the Lead state folder’s `chats.json` watch file. Only meaningful running/waiting/idle transitions produce a metadata-only `lead/chat/changed` notification. The private client door rechecks project scope and current read authority, and supplies a bounded tracked-state baseline on subscription so a disconnected completion is observable. The Lead loop coalesces those changes, reads relevant conversations as untrusted observations, and reports only meaningful results or decisions. Ordinary sessions retain ordinary spend; they do not become approved Flow runs or consume its round accounting.
 
 The optional Lead child runs with `--permission --no-allow-net --no-addons
