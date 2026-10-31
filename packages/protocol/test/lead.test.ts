@@ -42,6 +42,19 @@ const thread = { cardPositions: undefined, contract: undefined, budget: undefine
   olderMessages: 0, messages: [{ version: 1, id: 'message-1', revision: 1, role: 'user', text: 'Repair the check' }], cards }
 const settings = { follow: { checks: true, reviews: true }, version: 1, name: 'dex', model: 'model-demo', key: { configured: true, protection: 'encrypted' }, policy, caps }
 
+test('past informational cards carry positions without inventing person decisions', () => {
+  const warning = { ...base, type: 'allowance-warning', logicalGoalId: 'goal-1', usdMicros: 4000000, caps }
+  const look = { ...base, id: 'look-1', type: 'second-look', logicalGoalId: 'goal-1', runId: 'run-1', stopKey: 'stop-1', said: 'Blocked on #231', found: '#231 merged', did: 'Restarted' }
+  const value = { ...thread, budget: { ...budget, logicalGoalId: 'goal-2' }, decisions: [{ card: warning, position: 1 }, { card: look, position: 2 }] }
+  const parsed = protocol.parseLeadThread(value)
+  assert.equal(parsed.budget!.logicalGoalId, 'goal-2')
+  assert.deepEqual(JSON.parse(JSON.stringify(parsed.decisions)), value.decisions)
+  assert.throws(() => protocol.parseLeadThread({ ...value, decisions: [{ card: cards[0], position: 1 }] }))
+  assert.throws(() => protocol.parseLeadThread({ ...value, decisions: [{ card: warning, position: 1, choice: 'approve' }] }))
+  assert.throws(() => protocol.parseLeadThread({ ...value, decisions: Array.from({ length: 65 }, () => value.decisions[0]) }))
+  assert.deepEqual(protocol.windowLeadThread(value, 10000).decisions, parsed.decisions)
+})
+
 test('Lead assignments round-trip structured Flow seats including slash model ids and optional effort', () => {
   for (const seat of [
     { runtime: 'fixture', model: 'vendor/model-1', effort: 'high' },

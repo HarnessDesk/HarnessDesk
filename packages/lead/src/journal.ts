@@ -335,6 +335,8 @@ export class LeadJournal {
     return this.#budgetWrite(async () => {
       this.#expectRevision(expectedRevision)
       const budget = this.#state.budget
+      if (['accepted', 'declined'].includes(this.#state.phase) || budget && budget.logicalGoalId !== logicalGoalId)
+        throw Object.assign(new Error('lead-thread-closed'), { wireCode: 'lead-thread-closed' })
       if (!budget || budget.logicalGoalId !== logicalGoalId || caps.usdMicros < budget.caps.usdMicros || caps.rounds < budget.caps.rounds ||
         caps.usdMicros === budget.caps.usdMicros && caps.rounds === budget.caps.rounds) throw new Error('lead-budget-refused')
       await this.#append({ type: 'person-caps', logicalGoalId, caps: parseLeadCaps(caps), now })

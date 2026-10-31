@@ -6,14 +6,11 @@ import { useStore, useSnapshot } from '../state/context'
 import { useDestinationActive } from '../panels/destination-page'
 import { leadRefusalText } from './lead-refusals'
 import { leadNextSlot, leadRepeatWords } from '../lib/lead-repeat'
+import { formatLeadRunTime } from '../lib/lead-time'
 import { leadDollars } from './LeadCards'
 
 const REPEATS = leadRepeatWords
 const newId = () => `task-${crypto.randomUUID()}`
-const formatRunTime = (date: Date | null): string => date ? new Intl.DateTimeFormat(undefined, {
-  weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-  ...(date.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' as const } : {})
-}).format(date) : 'Not scheduled'
 
 /** Which kept lines the open plan names: a plan cites line N as "(mN)" in a step's title. */
 export const leadCitedLines = (cards: readonly LeadCard[] = []): ReadonlySet<number> => {
@@ -67,10 +64,10 @@ export const LeadScheduleSettings = ({ label, schedule, pending, save, projects 
           </InlineParts>} />
           {expanded === task.id && <Row title={`Runs · ${sanitizeText(task.title)}`} desc={<div ref={runsView} tabIndex={-1} data-repeat-runs={task.id}><FormStack>
             {task.perRunCaps && <Text as="p" role="meta">Up to {leadDollars(task.perRunCaps.usdMicros)} a run · {task.perRunCaps.rounds} rounds</Text>}
-            <Text as="p" role="muted">{task.paused ? 'Runs are skipped until you resume.' : !task.enabled ? 'This repeat has stopped. Past runs stay here.' : `Next run: ${formatRunTime(leadNextSlot(task))}`}</Text>
+            <Text as="p" role="muted">{task.paused ? 'Runs are skipped until you resume.' : !task.enabled ? 'This repeat has stopped. Past runs stay here.' : `Next run: ${formatLeadRunTime(leadNextSlot(task))}`}</Text>
             {task.enabled && !canRunNow && <Text as="p" role="muted">The Lead has work open.</Text>}
             <Rows>{(task.runs ?? []).slice().reverse().map((run, index) => <Row key={`${run.slot}:${index}`} title={run.outcome ? { accepted: 'Accepted', declined: 'Declined', stopped: 'Stopped' }[run.outcome] : { started: 'Started', skipped: 'Skipped', 'needs-approval': 'Needs approval' }[run.state]}
-              desc={<><Text as="p" role="meta">{formatRunTime(new Date(run.slot))}{run.usdMicros !== undefined ? ` · ${leadDollars(run.usdMicros)}` : ''}{run.rounds !== undefined ? ` · ${run.rounds} rounds` : ''}</Text>{run.reason && <Text as="p" role="muted">{sanitizeText(run.reason)}</Text>}</>} />)}
+              desc={<><Text as="p" role="meta">{formatLeadRunTime(new Date(run.slot))}{run.usdMicros !== undefined ? ` · ${leadDollars(run.usdMicros)}` : ''}{run.rounds !== undefined ? ` · ${run.rounds} rounds` : ''}</Text>{run.reason && <Text as="p" role="muted">{sanitizeText(run.reason)}</Text>}</>} />)}
               {!task.runs?.length && <Row title="No runs yet" />}</Rows>
           </FormStack></div>} control={task.enabled && <InlineParts>
             <Button variant="outline" disabled={pending || !control} onClick={() => control?.(task.id, task.paused ? 'resume' : 'pause')}>{task.paused ? 'Resume' : 'Pause'}</Button>

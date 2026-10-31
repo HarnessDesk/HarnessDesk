@@ -238,9 +238,13 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(canBeginLeadGoal(state) && !state.completedBudgets.some(budget => budget.logicalGoalId === event.id) && state.budget!.logicalGoalId !== event.id)
       const budget = reduceLeadBudget(null, { version: 1, type: 'initialize', now: event.now, logicalGoalId: event.id,
         caps: state.budget!.caps, freshnessMs: state.budget!.freshnessMs })
+      // Host observations remain read-only conversation history after ownership resets.
+      const decisionMessages = [...state.decisionMessages, ...state.cards.filter(card => card.type === 'second-look' || card.type === 'allowance-warning')
+        .map(card => ({ card, position: state.cardPositions[card.id]! }))].sort((a, b) => a.position - b.position).slice(-64)
+      while (new TextEncoder().encode(JSON.stringify(decisionMessages)).byteLength > 131072) decisionMessages.shift()
       state = { ...initialLeadState(), seq: event.seq, goalStartedSeq: event.seq, name: state.name, nameChosen: state.nameChosen, wakes: state.wakes, follow: state.follow, policy: state.policy, budget,
         completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends,
-        decisionMessages: state.decisionMessages }
+        decisionMessages }
       break
     }
     case 'wake': state = { ...state, wakes: [...state.wakes.filter(wake => wake.id !== event.wake.id), event.wake].sort((a, b) => a.at - b.at).slice(-128) }; break

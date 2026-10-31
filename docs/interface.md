@@ -2230,6 +2230,8 @@ A host intervention on a worker stop shows one Second look entry with Said, Foun
 
 Known attributed spend at 80% shows one At 80% entry, its dollar total and cap in warning ink, and the unchanged stop threshold. Raise limit… opens the shared Dialog with dollar and round fields and applies the person's increase directly. A raised dollar cap can produce a new warning on reaching its own 80%; uncertain spend never produces a figure. Increasing a stopped goal's limits leaves it stopped. The Lead receives a desk message to finish only what the approved plan needs and list extra review asks in the result.
 
+Second look and At 80% entries stay in the bounded read-only thread history when the next goal begins. Raise limit… is available only for the current goal before acceptance or decline, including while stopped. Scheduled origins show a short local run time rather than internal identifiers.
+
 The shared ApprovalDialog docks the question and buttons above the composer.
 Plans and widenings offer Approve and Decline; a result offers Open changes,
 Decline, Accept and Accept and open PR. The fourth action sends accept-open-pr

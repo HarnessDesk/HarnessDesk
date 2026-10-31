@@ -10,10 +10,10 @@ import type { LeadCard } from '@harnessdesk/protocol'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const clean: (() => void)[] = []
 afterEach(() => clean.splice(0).forEach(fn => fn()))
-const mount = (card: LeadCard, raise = vi.fn(async () => {}), caps = leadBudget.caps) => {
+const mount = (card: LeadCard, raise = vi.fn(async () => {}), caps = leadBudget.caps, goalClosed = false, logicalGoalId = 'goal-1') => {
   const box = document.createElement('div'); document.body.append(box)
   const root = createRoot(box), decide = vi.fn()
-  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[card]} contract={leadContract} budget={{ ...leadBudget, caps }}
+  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[card]} contract={leadContract} budget={{ ...leadBudget, caps, logicalGoalId }} goalClosed={goalClosed}
     onDecide={decide} onRaiseLimit={raise} onChanges={() => {}} onApprovals={() => {}} /></StoreProvider>))
   clean.push(() => { act(() => root.unmount()); box.remove() })
   return { box, raise, decide }
@@ -58,4 +58,12 @@ it('shows the current raised cap on both allowance warning lines', () => {
   expect(box.textContent).toContain('At $8.00 the goal stops')
   expect(box.textContent).not.toContain('$5.00')
   expect(box.textContent).not.toContain('as before')
+})
+
+it.each([true, false])('hides Raise limit for a finished or previous goal (finished=%s)', goalClosed => {
+  const { box } = mount({ version: 1, id: '80-1', revision: 1, type: 'allowance-warning', contractDigest: leadContract.digest,
+    logicalGoalId: 'goal-1', usdMicros: 4000000, caps: { usdMicros: 5000000, rounds: 4 } }, undefined, { usdMicros: 8000000, rounds: 4 }, goalClosed, goalClosed ? 'goal-1' : 'goal-2')
+  expect(box.textContent).not.toContain('Raise limit…')
+  expect(box.textContent).toContain('At 80%')
+  if (!goalClosed) expect(box.textContent).toContain('$4.00 of $5.00')
 })

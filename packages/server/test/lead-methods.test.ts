@@ -2032,3 +2032,12 @@ test('the person raises current allowances directly and a stopped goal stays sto
   assert.equal(s.journal.state.phase, 'stopped')
   s.controls.close()
 })
+
+test('a declined goal refuses a limit raise with a closed person-facing code', async () => {
+  const s = await rig()
+  try {
+    await s.journal.offerCard(plan)
+    await s.call('lead/card/decide', { ...planClick, choice: 'decline' })
+    await assert.rejects(s.call('lead/budget/raise', { logicalGoalId: 'logical', caps: { ...contract.caps, usdMicros: contract.caps.usdMicros + 100 }, expectedRevision: s.journal.state.seq }), code('lead-thread-closed'))
+  } finally { s.controls.close() }
+})

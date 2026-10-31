@@ -283,7 +283,25 @@ At 80%:
 }
 ```
 
-Render At 80%, the observed dollar total and cap in warning tone, “At $5.00 the goal stops, as before”, and Raise limit…. The figure was known at observation time; do not infer current spend from it. Open a local person dialog for dollars, rounds or both, using the current projection's caps as the starting values. Submit `lead/budget/raise` with this `logicalGoalId` and the latest projection revision. A different current goal or stale revision refuses the change.
+Render At 80%, the observed dollar total and cap in warning tone, “At $5.00 the goal stops”, and Raise limit…. The figure was known at observation time; do not infer current spend from it. The thread's budget now includes its current `logicalGoalId`. Use its caps only for a matching warning. Hide Raise limit after acceptance or decline, or when the warning belongs to a different goal; keep it for a stopped current goal. Open a local person dialog for dollars, rounds or both, using the current projection's caps as the starting values. Submit `lead/budget/raise` with this `logicalGoalId` and the latest projection revision. A finished or different goal returns `lead-thread-closed`; a stale revision also refuses the change.
+
+Second-look and allowance-warning cards from earlier goals remain in `thread.decisions`, with their original `position` and **no `choice` field**. Other entries still require their existing person choice. Render these informational entries read-only in journal order. The history shares the existing newest-64 and byte limits. For example:
+
+```json
+{
+  "position": 12,
+  "card": {
+    "version": 1,
+    "id": "warning-goal-1",
+    "revision": 1,
+    "type": "allowance-warning",
+    "contractDigest": null,
+    "logicalGoalId": "goal-1",
+    "usdMicros": 4000000,
+    "caps": { "usdMicros": 5000000, "rounds": 4 }
+  }
+}
+```
 
 ## Recurring plan and result
 

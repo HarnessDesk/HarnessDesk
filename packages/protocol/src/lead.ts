@@ -97,6 +97,8 @@ export interface LeadPermissionPolicy {
 export type LeadStopReason = 'budget' | 'rounds' | 'unknown-spend' | 'cancelled' | 'connection-lost' | 'recovery' | 'error'
 export interface LeadBudgetState {
   readonly version: 1
+  /** Present in host thread projections to fence controls to the current goal. */
+  readonly logicalGoalId?: string
   readonly revision: LeadRevision
   readonly caps: LeadCaps
   /** Non-overlapping attributed totals. Outstanding Lead requests reserve separately. */
@@ -217,7 +219,7 @@ export interface LeadThread {
   readonly olderMessages: number
   readonly messages: readonly LeadMessage[]
   readonly cards: readonly LeadCard[]
-  /** Read-only decided prose; it confers no person decision authority. */
+  /** Read-only past cards; informational records carry no person choice. */
   readonly decisions?: readonly LeadDecisionMessage[]
   /** Host journal positions remain fixed when a card gets a newer revision. */
   readonly cardPositions?: Readonly<Record<string, number>>
@@ -228,7 +230,7 @@ export interface LeadThread {
   readonly pr?: LeadPullRequest | null
 }
 export type LeadName = 'dex' | 'lex'
-export interface LeadDecisionMessage { readonly card: LeadCard; readonly choice: LeadCardDecision['choice']; readonly position: number }
+export interface LeadDecisionMessage { readonly card: LeadCard; readonly choice?: LeadCardDecision['choice']; readonly position: number }
 export interface LeadFollowPreferences { readonly checks: boolean; readonly reviews: boolean }
 export interface LeadPullRequest {
   readonly repository: string; readonly number: number; readonly branch: string; readonly head: string
@@ -521,7 +523,7 @@ export const parseLeadPermissionPolicy: Validator<LeadPermissionPolicy> = object
 })
 const stopReason = literalUnion('budget', 'rounds', 'unknown-spend', 'cancelled', 'connection-lost', 'recovery', 'error')
 const budgetState: Validator<LeadBudgetState> = object({
-  version, revision, caps: parseLeadCaps, leadUsdMicros: micros, workerUsdMicros: micros, reservedUsdMicros: micros,
+  version, logicalGoalId: optional(id), revision, caps: parseLeadCaps, leadUsdMicros: micros, workerUsdMicros: micros, reservedUsdMicros: micros,
   roundsAdmitted: integer(0, LEAD_LIMITS.rounds), spend: literalUnion('known', 'unknown', 'stale', 'partial', 'ambiguous'),
   stop: nullable(object({ reason: stopReason, revision })),
 })
@@ -537,7 +539,8 @@ export const parseLeadBudgetState: Validator<LeadBudgetState> = (value, path = '
   if (parsed.stop === null && (parsed.roundsAdmitted > parsed.caps.rounds ||
     reported >= parsed.caps.usdMicros))
     fail(path, 'budget above allowance requires a stop latch')
-  return parsed
+  const { logicalGoalId, ...rest } = parsed
+  return logicalGoalId === undefined ? rest : parsed
 }
 const budgetBase = { version, now: integer() }
 type BudgetOf<T extends LeadBudgetEvent['type']> = Extract<LeadBudgetEvent, { type: T }>
@@ -663,11 +666,18 @@ export const parseLeadPullRequest: Validator<LeadPullRequest> = (value, path = '
   if (parsed.check && parsed.check.head !== (parsed.observedHead ?? parsed.head) || parsed.review && parsed.review.head !== (parsed.observedHead ?? parsed.head)) return fail(path, 'PR status is for another head')
   return Object.fromEntries(Object.entries(parsed).filter(([, item]) => item !== undefined)) as unknown as LeadPullRequest
 }
+const pastCardParser: Validator<LeadDecisionMessage> = object({ card: parseLeadCard, choice: optional(literalUnion('approve', 'accept', 'accept-open-pr', 'decline')), position: revision })
+export const parseLeadDecisionMessage: Validator<LeadDecisionMessage> = (value, path = '') => {
+  const parsed = pastCardParser(value, path)
+  const informational = parsed.card.type === 'second-look' || parsed.card.type === 'allowance-warning'
+  if ((parsed.choice === undefined) !== informational) return fail(path, 'only informational history omits a person choice')
+  return parsed.choice === undefined ? { card: parsed.card, position: parsed.position } : parsed
+}
 const threadParser: Validator<LeadThread> = object({
   version, id, revision, state: literalUnion('draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'following', 'accepted', 'declined', 'stopped'),
   // One current snapshot per card. Revisions belong to each card, so different cards may
   // share revision 1; the state machine must compare old/new revisions when replacing a card.
-  project: nullable(project), olderMessages: integer(), cardPositions: optional(cardPositions), decisions: optional(list(object({ card: parseLeadCard, choice: literalUnion('approve', 'accept', 'accept-open-pr', 'decline'), position: revision }), 64)),
+  project: nullable(project), olderMessages: integer(), cardPositions: optional(cardPositions), decisions: optional(list(parseLeadDecisionMessage, 64)),
   contract: optional(nullable(parseLeadAcceptanceContract)), budget: optional(nullable(parseLeadBudgetState)), pr: optional(nullable(parseLeadPullRequest)), origin: optional(nullable(parseLeadOrigin)), handback: optional(nullable(parseLeadHandback)),
   messages: list(parseLeadMessage, LEAD_LIMITS.messages, 0, message => message.id), cards: list(parseLeadCard, LEAD_LIMITS.cards, 0, card => card.id),
 })
@@ -685,7 +695,7 @@ export const windowLeadThread = (value: unknown, maxBytes: number): LeadThread =
   let thread = parseLeadThread(value)
   const bytesOf = (data: LeadThread | LeadMessage) => new TextEncoder().encode(JSON.stringify(data)).byteLength
   let bytes = bytesOf(thread)
-  // Decided prose grants no authority. Older history gives way to live decisions
+  // Historical prose grants no authority. Older history gives way to live decisions
   // and messages before the message suffix needs to be shortened.
   while (bytes > limit && thread.decisions?.length) {
     thread = { ...thread, decisions: thread.decisions.slice(1) }

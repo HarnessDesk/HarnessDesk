@@ -34,7 +34,8 @@ const ruleWords = (rule: { effect: string; method: keyof typeof PERMISSION_LABEL
 /** Window-owned details and revision-bound decisions. The child never receives a click. */
 type DecisionCard = Extract<LeadCard, { type: LeadCardDecision['cardType'] }>
 const decisionCard = (card: LeadCard): card is DecisionCard => !['stopped', 'second-look', 'allowance-warning'].includes(card.type)
-export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform, decisions = [], contract, budget, onDecide, onChanges, onApprovals, knownContracts = [], onRuns, onRaiseLimit, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, waitReason, placement = 'both' }: {
+export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform, decisions = [], contract, budget, goalClosed = false, onDecide, onChanges, onApprovals, knownContracts = [], onRuns, onRaiseLimit, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, waitReason, placement = 'both' }: {
+  readonly goalClosed?: boolean
   readonly knownContracts?: readonly LeadAcceptanceContract[]
   readonly onRuns?: (contract: LeadAcceptanceContract) => void
   readonly onRaiseLimit?: (logicalGoalId: string, caps: LeadCaps) => Promise<unknown>
@@ -76,7 +77,11 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
   const plans = new Map([...knownContracts.map(contract => [contract.digest, contract] as const), ...[...cards, ...decisions.map(({ card }) => card)].flatMap(card => card.type === 'plan' ? [[card.contractDigest, card.contract] as const] : [])])
   return <>{placement !== 'dock' && waitReason && <LeadContract cardType="waiting" cardId={waitReason === 'lead-handback-limit' ? 'handback-limit' : 'repair-recovery-failed'} summary={waitReason === 'lead-handback-limit' ? LEAD_HANDBACK_LIMIT : LEAD_REPAIR_RECOVERY_FAILED} />}{[...cards.map(card => ({ card, choice: undefined as LeadCardDecision['choice'] | undefined })), ...decisions.map(({ card, choice }) => ({ card, choice }))].map(({ card, choice }) => {
     if (card.type === 'second-look') return placement === 'dock' ? null : <LeadSecondLook key={card.id} card={card} />
-    if (card.type === 'allowance-warning') return placement === 'dock' ? null : <LeadAllowanceWarning key={card.id} card={card} currentCaps={budget?.caps} onRaise={onRaiseLimit} />
+    if (card.type === 'allowance-warning') {
+      const current = card.logicalGoalId === budget?.logicalGoalId
+      const historical = decisions.some(message => message.card.id === card.id)
+      return placement === 'dock' ? null : <LeadAllowanceWarning key={card.id} card={card} currentCaps={current ? budget?.caps : undefined} onRaise={current && !goalClosed && !historical ? onRaiseLimit : undefined} />
+    }
     const worker = card.type === 'waiting' && card.kind === 'worker-approval'
     const person = card.type === 'waiting' && !worker || card.type === 'result' && card.outcome === 'reviewed'
     const approval = card.type === 'plan' || card.type === 'permission-change' || card.type === 'budget-change'
@@ -97,8 +102,8 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
         {card.type === 'plan' && <>
           {card.contract.repeat && <><Chip tone="neutral">Repeats</Chip><Text as="p" role="subject">How it repeats</Text>
             <Text as="p" role="prose">{leadRepeatWords[card.contract.repeat.every]} at {card.contract.repeat.at}</Text>
-            <Text as="p" role="muted">{card.contract.repeat.every === 'mondays' || card.contract.repeat.every === 'fridays' ? 'Skips a week while the last run waits for you' : 'Skips a slot while the last run waits for you'}</Text>
-            <Text as="p" role="muted">Desk asleep: one run when it wakes</Text></>}
+            <Text as="p" role="muted">{card.contract.repeat.every === 'mondays' || card.contract.repeat.every === 'fridays' ? 'Skips a week while the last run waits for you' : 'Skips a run while the last one waits for you'}</Text>
+            <Text as="p" role="muted">Runs once when the desk wakes, if it was asleep</Text></>}
           <LeadPlanFlow steps={card.contract.steps} /><Markdown text={`Done when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`} /></>}
         {card.type === 'result' && card.publication === 'push' && <Text as="p" role="meta">Push the reviewed changes and open a pull request.</Text>}
         {caps && <><Text as="p" role="meta">{card.type === 'plan' && card.contract.repeat ? `Up to ${leadDollars(caps.usdMicros)} a run · ${caps.rounds} rounds` : leadAllowance(caps, scope?.project.path)}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}

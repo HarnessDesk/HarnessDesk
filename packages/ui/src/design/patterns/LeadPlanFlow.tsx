@@ -3,6 +3,7 @@ import { Timeline, TimelineItem } from '../ui/timeline'
 import { Text } from './Settings'
 import { Button } from '../ui/button'
 import { openExternal } from '../../lib/desktop'
+import { leadOriginText } from '../../lib/lead-time'
 
 const roles = new Map([['implement', 'write'], ['review', 'review']])
 const work = (step: LeadAcceptanceContract['steps'][number]) => step.assignments
@@ -16,7 +17,7 @@ export const LeadPlanFlow = ({ steps, origin }: {
   readonly steps: LeadAcceptanceContract['steps']
   readonly origin?: LeadOrigin | null
 }) => <div data-slot="lead-plan-flow" className="min-w-0 break-words [overflow-wrap:anywhere]">
-  {origin && <Text as="div" role="meta">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{`From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`}</Button> : `From: ${origin.event.replace(/-/g, ' ')} on ${origin.subject}`}</Text>}
+  {origin && <Text as="div" role="meta">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{leadOriginText(origin)}</Button> : leadOriginText(origin)}</Text>}
   <Timeline aria-label="Plan flow">
     {steps.map(step => <TimelineItem key={step.id} state="pending" title={`${step.title} — ${work(step)}`} />)}
     <TimelineItem state="pending" title="Approve to start" />

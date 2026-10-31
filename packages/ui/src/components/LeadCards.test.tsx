@@ -31,8 +31,13 @@ it('shows a repeating plan with its timetable and allowance per run', () => {
   expect(box.textContent).toContain('How it repeats')
   expect(box.textContent).toContain('Mondays at 09:00')
   expect(box.textContent).toContain('Skips a week while the last run waits for you')
-  expect(box.textContent).toContain('Desk asleep: one run when it wakes')
+  expect(box.textContent).toContain('Runs once when the desk wakes, if it was asleep')
   expect(box.textContent).toContain('Up to $3.00 a run · 2 rounds')
+})
+it('describes a daily repeat without internal scheduling words', () => {
+  const { box } = mount([{ ...leadPlan, contract: { ...leadContract, repeat: { every: 'day', at: '09:00' } } } as LeadCard])
+  expect(box.textContent).toContain('Skips a run while the last one waits for you')
+  expect(box.textContent).toContain('Runs once when the desk wakes, if it was asleep')
 })
 it('keeps an older repeating result linked to its own plan after a new goal', () => {
   const box = document.createElement('div'), root = createRoot(box), onRuns = vi.fn()

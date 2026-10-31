@@ -3,7 +3,7 @@ import test from 'node:test'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createLeadJournal, leadBudgetProjection, canBeginLeadGoal } from '@harnessdesk/lead'
+import { createLeadJournal, leadBudgetProjection, canBeginLeadGoal, leadCheckpoint, parseLeadCheckpoint } from '@harnessdesk/lead'
 import { LEAD_CONTROL_REFUSALS, parseLeadAcceptanceContract, type LeadSchedule, type LeadScheduledTask } from '@harnessdesk/protocol'
 import { LeadPlanner, leadDueTask } from '../src/lead/planner.js'
 import { LeadRepeats } from '../src/lead/repeats.js'
@@ -112,6 +112,10 @@ test('a repeat can start again after its first goal is accepted', async t => {
     await controls.decide({ version: 1, cardId: 'person-plan', cardType: 'plan', expectedRevision: 1, contractDigest: approved.digest, choice: 'approve' })
     await controls.idle()
     const first = journal.state.contract!, firstGoal = journal.state.budget!.logicalGoalId
+    await journal.offerCard({ version: 1, id: 'first-warning', revision: 1, type: 'allowance-warning', contractDigest: first.digest,
+      logicalGoalId: firstGoal, usdMicros: 2400000, caps: first.caps })
+    await journal.offerCard({ version: 1, id: 'first-look', revision: 1, type: 'second-look', contractDigest: first.digest,
+      logicalGoalId: firstGoal, runId: 'run-1', stopKey: 'stop-1', said: 'Blocked on #231', found: '#231 merged', did: 'Restarted' })
     const step = first.steps[0]!, run = { correlationId: 'start-1', runId: 'run-1', teamId: 'team-1' }
     const result = await journal.execute({ id: run.correlationId, stepId: step.id,
       request: { method: 'flow/start-goal', params: { root: first.project.path, source: 'synthetic recipe', token: 'preview-1', sentence: first.goal, vars: {}, attended: true,
@@ -126,12 +130,35 @@ test('a repeat can start again after its first goal is accepted', async t => {
       assertions: [{ assertionId: 'check', status: 'passed', revision: 1, contractRevision: first.revision, evidence: [{ kind: 'check', id: 'check-1', revision: 'head-1' }], reason: null }], budget: leadBudgetProjection(journal.state.budget!, now) })
     await journal.decideCard({ version: 1, cardId: 'first-result', cardType: 'result', expectedRevision: 1, contractDigest: first.digest, choice: 'accept' })
     assert.equal(canBeginLeadGoal(journal.state), true)
+    await assert.rejects(controls.raiseBudget({ logicalGoalId: firstGoal, caps: { ...first.caps, usdMicros: first.caps.usdMicros + 100 }, expectedRevision: journal.state.seq }), { wireCode: 'lead-thread-closed' })
     now = 200
     const second = await controls.runScheduled(task, now)
     assert.equal(second.approved, true)
     assert.notEqual(second.logicalGoalId, firstGoal)
     await controls.idle()
+    const thread = (await controls.readThread()).thread
+    assert.deepEqual(thread.decisions!.filter(one => one.choice === undefined).map(one => one.card.id), ['first-warning', 'first-look'])
+    assert.equal(thread.budget!.logicalGoalId, second.logicalGoalId)
+    const replayed = await createLeadJournal(disk)
+    assert.deepEqual(replayed.state.decisionMessages, journal.state.decisionMessages)
+    assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(journal.state, '0'.repeat(64))).state.decisionMessages, journal.state.decisionMessages)
   } finally { controls.close() }
+})
+
+test('a scheduled origin keeps its readable event separate from the idempotency key and omits a duplicate goal line', async () => {
+  for (const goal of [task.title, 'Update the dependencies in acme-web']) {
+    const journal = await memoryJournal()
+    const controls = new LeadControls({ journal, project: approved.project, model: 'fixture', now: () => 100, nextId: () => 'unused', push() {},
+      service: { async status() { return { configured: true, protection: 'encrypted' as const } }, async assertPublic() {}, async send() { return { status: 'completed' as const } } } as any,
+      async decidePerson() {}, async decideResult() {} })
+    try {
+      await controls.runScheduled({ ...task, goal, approved: undefined }, 100)
+      await controls.idle()
+      assert.deepEqual(journal.state.origin, { source: 'schedule', event: 'scheduled-run', subject: '100', url: null })
+      assert.equal(journal.state.originKey, `schedule-${task.id}-100`)
+      assert.equal(journal.state.messages[0]!.text, goal === task.title ? `Scheduled: ${task.title}` : `Scheduled: ${task.title}\n${goal}`)
+    } finally { controls.close() }
+  }
 })
 
 

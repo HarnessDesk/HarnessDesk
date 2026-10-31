@@ -412,8 +412,8 @@ export class LeadControls {
     }
     if (task.project && task.project !== this.options.project.path) await this.options.automaticProject?.(task.project)
     const key = `schedule-${task.id}-${slot}`
-    await journal.setOrigin({ source: 'schedule', event: key, subject: String(slot), url: null }, key)
-    await journal.appendMessage(key, `Scheduled: ${task.title}\n${task.goal}`)
+    await journal.setOrigin({ source: 'schedule', event: 'scheduled-run', subject: String(slot), url: null }, key)
+    await journal.appendMessage(key, `Scheduled: ${task.title}${task.goal.trim() === task.title.trim() ? '' : `\n${task.goal}`}`)
     const logicalGoalId = journal.state.budget!.logicalGoalId
     if (!task.approved || !this.options.freezeRepeat || !this.options.validateRepeat) {
       this.#requestInFlight = true; this.#automaticRequest = true; this.#detachContinue()
