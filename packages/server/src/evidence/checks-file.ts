@@ -8,6 +8,7 @@ import type { NamedCheck, Sha } from '@harnessdesk/protocol'
 
 import { parseYaml } from '../yaml.js'
 import { isSha } from './records.js'
+import { tipOf } from './revision.js'
 import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 
 /**
@@ -277,9 +278,13 @@ export const readChecksAt = async (project: string, revision: Sha): Promise<Chec
   return answer(checks, problems)
 }
 
-/** Reads a project's checks as committed at its `HEAD`, for listing surfaces that do not start a command. */
+/**
+ * Reads a project's checks as committed at its `HEAD`, for listing surfaces
+ * that do not start a command. Every board read asks this, so HEAD is the one
+ * every evidence reader shares until it moves (`tipOf`).
+ */
 export const readChecks = async (project: string): Promise<ChecksFile> => {
-  const at = (await git(project, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']))?.toString('utf8').trim() || null
+  const at = await tipOf(project, null)
   if (at !== null) return readChecksAt(project, at)
   const file = join(project, CHECKS_FILE)
   return { file, exists: false, digest: null, at: null, uncommitted: false, checks: [], problems: [] }
