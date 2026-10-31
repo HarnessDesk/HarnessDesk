@@ -210,8 +210,8 @@ pnpm verify
 It validates the lockfile with `pnpm install --frozen-lockfile`, runs the build,
 every test suite (Node packages, gate scripts, UI and desktop) with the Node
 packages' tests in the groups `script/node-tests.mjs` declares — the Node
-end-to-end group (flow-host-evidence, intake and the command line's end-to-end
-files) and the Lead end-to-end group at a wider per-file timeout than the rest
+end-to-end group (flow-host-evidence, intake, the command line's end-to-end
+files and the Lead journal's disk-rotation file) and the Lead end-to-end group at a wider per-file timeout than the rest
 (Node 22 caps `--test-timeout` per file, cumulatively, where these legitimately
 run long), the host-retention test file in an invocation of its own (its heap
 and CPU workload runs without competing server fixtures), and the Lead group
