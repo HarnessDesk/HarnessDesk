@@ -319,6 +319,8 @@ export interface HostContext {
     ids(): Set<string>
     /** The runtime's own `info` overlaid with what the host knows about it. */
     infoOf(runtime: AgentRuntime): RuntimeInfo
+    /** The captured registration behind this runtime, if it still owns the id. */
+    installOwner(runtime: AgentRuntime): AgentRuntime | undefined
     /** Runtimes whose usage the person has not switched off. */
     metered(): readonly AgentRuntime[]
     /** The runtime's extension plane, or a refusal that names the runtime. */
