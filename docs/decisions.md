@@ -4702,8 +4702,15 @@ does not is measured, then removed from the place it costs most.
 
 A label worker rechecks the live pull request and can reuse a matching PR run
 created no earlier than the latest full-ci label application only when that run
-has a successful full-tier marker. This avoids admitting an old or bounded event
-snapshot; the marker is admission evidence, not a claim that CI passed. A push
+has generated a matching full-tier marker. A queued or running marker counts
+while its workflow is active; a completed marker must have succeeded. If a
+matching active run has not generated a tier marker, the worker waits up to six
+ten-second intervals for selection, refreshing runs and jobs each time. API
+calls add their own time; an API failure still fails immediately. A bounded or
+inactive run does not earn that wait, and an exhausted wait keeps the normal
+dispatch. The final live PR check still follows the wait. This avoids admitting
+an old or bounded event snapshot; the marker is admission evidence, not a claim
+that CI passed. A push
 can still move the branch after the recheck, so this is not atomic deduplication.
 Events have second-resolution timestamps; a labeled and unlabeled event in the
 same second are ambiguous, so the worker treats removal as latest and dispatches.
