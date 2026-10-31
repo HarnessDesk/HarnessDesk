@@ -1035,6 +1035,14 @@ export class AppStore {
 
   #readPhoneLink(on: boolean): void { if (on) void this.phone.refresh().catch(() => {}); else this.phone.reset() }
 
+  #readLeadChatControl(): void {
+    void this.lead.readChatControl().catch(error => {
+      // The facade exposes the reason in the chat's control notice. Without a
+      // mounted conversation, keep a diagnostic instead of silently losing it.
+      if (!this.#snapshot.activeSessionKey) console.warn('Lead chat control could not be read', error)
+    })
+  }
+
   async #refreshLeadAvailability(): Promise<void> {
     const epoch = this.#leadCapabilityEpoch
     try {
@@ -1042,7 +1050,7 @@ export class AppStore {
       if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') {
         this.#patch({ leadAvailable: hello.capabilities?.lead === true })
         this.#readPhoneLink(hello.capabilities?.phone === true)
-        if (this.#snapshot.leadAvailable) void this.lead.readChatControl().catch(() => {})
+        if (this.#snapshot.leadAvailable) this.#readLeadChatControl()
       }
     } catch { /* Remain disabled until the host can prove the capability. */ }
   }
@@ -1062,7 +1070,7 @@ export class AppStore {
       leadAvailable: capabilityEpoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open' && hello.capabilities?.lead === true,
     })
     this.#readPhoneLink(hello.capabilities?.phone === true)
-    if (this.#snapshot.leadAvailable) void this.lead.readChatControl().catch(() => {})
+    if (this.#snapshot.leadAvailable) this.#readLeadChatControl()
     // The local index does not wait for an agent or its account catalogue.
     const history = this.loadHistory({ reset: true })
     // Preferences first: they may restore the runtime the user last worked

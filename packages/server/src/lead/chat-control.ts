@@ -6,6 +6,11 @@ import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 const MAX_CHATS = 64, MAX_KEYS = 32, MAX_BYTES = 256 * 1024
 export const LEAD_CONTROL_UNREADABLE = 'The Lead chat control record cannot be read safely. Lead sends and stops are blocked. Use Reset chat control in the chat notice to recover.'
 export const LEAD_CONTROL_FULL = 'All 64 chat control slots are held by the person. Hand back a chat before the Lead starts another.'
+/** A host-origin refusal, distinct from runtime errors or user-supplied text. */
+export class LeadChatHeldError extends Error {
+  constructor() { super('The person has taken this chat over. Wait until they hand it back.'); this.name = 'LeadChatHeldError' }
+}
+
 const validId = (id: unknown): id is string => typeof id === 'string' && id.length <= 300 && id.indexOf(':') > 0 && !id.endsWith(':')
 const validKey = (key: unknown): key is string => typeof key === 'string' && /^[0-9a-f]{64}$/.test(key)
 const keysAre = (value: object, keys: readonly string[]) => Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
@@ -30,12 +35,20 @@ export class LeadChatControlStore {
 
   get problem(): string | null { return this.#problem }
   #unreadable(): never { this.#problem = LEAD_CONTROL_UNREADABLE; throw new Error(LEAD_CONTROL_UNREADABLE) }
-  async #canonical(project: string): Promise<boolean> {
-    return project.length <= 4096 && isAbsolute(project) && normalize(project) === project && await realpath(project).catch(() => null) === project
+  #io(code: string): never { throw new Error(`The Lead chat control record is temporarily unavailable (${code}). Lead actions are blocked for this operation. Try again.`) }
+  async #canonical(project: string, allowMissing = false): Promise<boolean> {
+    if (project.length > 4096 || !isAbsolute(project) || normalize(project) !== project) return false
+    try { return await realpath(project) === project }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') return allowMissing
+      return this.#io(code ?? 'I/O')
+    }
   }
   async #disk(project: string): Promise<Projects> {
     const read = await readBoundedJsonResult(this.file, MAX_BYTES)
     if (read.kind === 'missing') return new Map()
+    if (read.kind === 'io') return this.#io(read.code)
     if (read.kind !== 'value') return this.#unreadable()
     const value = read.value
     if (!value || typeof value !== 'object' || Array.isArray(value)) return this.#unreadable()
@@ -49,7 +62,7 @@ export class LeadChatControlStore {
     if (record.version !== 2 || !keysAre(record, ['version', 'projects']) || !record.projects || typeof record.projects !== 'object' || Array.isArray(record.projects)) return this.#unreadable()
     const projects: Projects = new Map()
     for (const [root, chats] of Object.entries(record.projects)) {
-      if (!await this.#canonical(root) || !validChats(chats)) return this.#unreadable()
+      if (!await this.#canonical(root, true) || !validChats(chats)) return this.#unreadable()
       projects.set(root, chats)
     }
     return projects
@@ -70,7 +83,7 @@ export class LeadChatControlStore {
   }
   async #read(project: string): Promise<Projects> {
     if (this.#problem) throw new Error(this.#problem)
-    if (!await this.#canonical(project)) return this.#unreadable()
+    if (!await this.#canonical(project)) throw new Error('The Lead project folder is unavailable or changed. Choose an available project.')
     this.#projects = this.#merge(await this.#disk(project))
     this.#loaded = true
     return this.#projects
@@ -87,7 +100,7 @@ export class LeadChatControlStore {
   assertDispatch(project: string, id: string): void {
     if (this.#problem || !this.#loaded) throw new Error(this.#problem ?? LEAD_CONTROL_UNREADABLE)
     if (this.#holds.has(projectKey(project, id)) || this.#projects.get(project)?.some(chat => chat.id === id && chat.holder === 'person'))
-      throw new Error('The person has taken this chat over. Wait until they hand it back.')
+      throw new LeadChatHeldError()
   }
   async assertCanStart(project: string): Promise<void> {
     const { chats } = await this.list(project)
@@ -139,10 +152,9 @@ export class LeadChatControlStore {
     if (!validId(id)) return false
     if (holder === 'person') this.hold(project, id)
     const key = projectKey(project, id), epoch = this.#holds.get(key)
-    const result = await this.#write(project, chats => chats.some(chat => chat.id === id) ? chats.map(chat => chat.id === id ? { ...chat, holder } : chat) : null,
+    return this.#write(project, chats => chats.some(chat => chat.id === id) ? chats.map(chat => chat.id === id ? { ...chat, holder } : chat)
+      : holder === 'person' ? [...chats, { id, holder, sent: [] }] : null,
       holder === 'lead' ? { key, epoch } : undefined)
-    if (!result && this.#holds.get(key) === epoch) this.#holds.delete(key)
-    return result
   }
   /** Explicit window-only recovery; a failure keeps every in-memory hold and the unreadable fence. */
   async reset(): Promise<void> {

@@ -1,6 +1,6 @@
 import type { DispatchAdmission } from '../dispatch-admission.js'
 import { deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
-import type { LeadChatControlStore } from './chat-control.js'
+import { LeadChatHeldError, type LeadChatControlStore } from './chat-control.js'
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import { decideLeadPermission, leadBudgetProjection, summarizeLeadArguments, type LeadPermissionCall, type LeadPermissionContext, type LeadState } from '@harnessdesk/lead'
@@ -236,10 +236,10 @@ export class LeadChats {
   }
   #envelope(text: string): string { return leadMessageEnvelope(leadDisplayName(this.ports.state().name), text) }
   async #notHeld(id: string): Promise<void> {
-    if (await this.ports.control?.holder(this.ports.project.path, id) === 'person') refuse(LEAD_CHAT_HELD)
+    if (await this.ports.control?.holder(this.ports.project.path, id) === 'person') throw new LeadChatHeldError()
   }
   async #record(id: string, envelope: string): Promise<void> {
-    await this.ports.control?.noteSent(this.ports.project.path, id, leadMessageKey(envelope))
+    await this.ports.control?.noteSent(this.ports.project.path, id, leadMessageKey(id, envelope))
   }
 
   start(params: HostParams<'lead/chat/start'>): Promise<HostResult<'lead/chat/start'>> {

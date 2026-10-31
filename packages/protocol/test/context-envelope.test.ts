@@ -350,11 +350,11 @@ test('a Lead envelope round-trips as one desk injection carrying the words and t
 })
 
 test('the key is stable, hex, and differs for different words', () => {
-  const a = leadMessageKey(leadMessageEnvelope('Dex', 'one'))
+  const a = leadMessageKey('fixture:s1', leadMessageEnvelope('Dex', 'one'))
   assert.match(a, /^[0-9a-f]{64}$/)
-  assert.equal(a, leadMessageKey(leadMessageEnvelope('Dex', 'one')))
-  assert.notEqual(a, leadMessageKey(leadMessageEnvelope('Dex', 'two')))
-  assert.notEqual(a, leadMessageKey(leadMessageEnvelope('Lex', 'one')))
+  assert.equal(a, leadMessageKey('fixture:s1', leadMessageEnvelope('Dex', 'one')))
+  assert.notEqual(a, leadMessageKey('fixture:s1', leadMessageEnvelope('Dex', 'two')))
+  assert.notEqual(a, leadMessageKey('fixture:s1', leadMessageEnvelope('Lex', 'one')))
 })
 
 test('words without the notice come back unchanged', () => {
@@ -363,4 +363,11 @@ test('words without the notice come back unchanged', () => {
 
 test('a chat the Lead opened previews by its label', () => {
   assert.equal(openingOfContent([deskContextContent(leadMessageEnvelope('Dex', 'Fix the flaky test'))]), 'Lead message from Dex')
+})
+
+test('a Lead receipt is bound to the chat identity, including the runtime', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Inspect the tests.')
+  assert.notEqual(leadMessageKey('fixture:a', envelope), leadMessageKey('fixture:b', envelope))
+  assert.notEqual(leadMessageKey('fixture:a', envelope), leadMessageKey('other:a', envelope))
+  assert.notEqual(leadMessageKey('fixture:a', envelope), leadMessageKey('fixture:a', leadMessageEnvelope('Dex', 'Different words.')))
 })

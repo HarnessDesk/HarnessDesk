@@ -2926,11 +2926,12 @@ export interface SeatActivity {
 
 export type WireNotification =
   | {
-      /** A tracked ordinary chat changed state; transcript content stays behind read. */
+      /** The window's current Lead chat holders, verification keys and control-read problem. */
       readonly method: 'lead/chats/controlChanged'
       readonly params: LeadChatControlList
     }
   | {
+      /** A tracked ordinary chat changed state; transcript content stays behind read. */
       readonly method: 'lead/chat/changed'
       readonly params: { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle' }
     }

@@ -340,7 +340,8 @@ export const leadMessageEnvelope = (name: string, text: string): string =>
   wrapContext(leadMessageSource(name), `${text}${LEAD_NOTICE_TAIL}`)
 
 /** What the host records and the renderer checks; a lookalike has no key the host wrote. */
-export const leadMessageKey = (envelope: string): string => sha256Hex(new TextEncoder().encode(envelope))
+export const leadMessageKey = (chatId: string, envelope: string): string =>
+  sha256Hex(new TextEncoder().encode(JSON.stringify(['lead-chat-message', chatId, envelope])))
 
 /** The Lead's own words, as the person reads them. */
 export const leadMessageWords = (blockText: string): string =>

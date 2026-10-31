@@ -10,7 +10,7 @@ const FixtureTheme = () => { useTheme(); return null }
 
 const LeadChatConversation = () => {
   const query = new URLSearchParams(window.location.search)
-  const fixture = useMemo(() => createLeadChatFixture(query.get('lead-chat') === 'person' ? 'person' : 'lead', query.get('theme') === 'dark' ? 'dark' : 'light', query.get('scenario') === 'offline' ? 'offline' : query.get('scenario') === 'unreadable' ? 'unreadable' : 'normal'), [])
+  const fixture = useMemo(() => createLeadChatFixture(query.get('lead-chat') === 'person' ? 'person' : 'lead', query.get('theme') === 'dark' ? 'dark' : 'light', query.get('scenario') === 'offline' ? 'offline' : query.get('scenario') === 'unreadable' ? 'unreadable' : query.get('scenario') === 'read-error' ? 'read-error' : query.get('scenario') === 'replay' ? 'replay' : 'normal'), [])
   return <StoreProvider store={fixture.store}>
     <FixtureTheme />
     <Frame id="lead-chat-conversation" title="Lead message and chat control">

@@ -264,9 +264,9 @@ const planStep = (turn: Turn): PhoneWorkStep | null => {
   })
 }
 
-const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated: () => void, sent: ReadonlySet<string>): PhoneWorkTurn | null => {
+const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated: () => void, sent: ReadonlySet<string>, chatId: string): PhoneWorkTurn | null => {
   const split = splitContextContent(item.content)
-  const verified = split.injections.filter(block => isLeadMessageSource(block.label) && sent.has(leadMessageKey(wrapContext(block.label, block.text))))
+  const verified = split.injections.filter(block => isLeadMessageSource(block.label) && sent.has(leadMessageKey(chatId, wrapContext(block.label, block.text))))
   const source = verified.length ? [
     ...split.injections.map(block => verified.includes(block) ? leadMessageWords(block.text) : wrapContext(block.label, block.text)),
     split.text,
@@ -283,7 +283,7 @@ const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated:
 
 interface Timed { readonly id: string; readonly startedAt?: number; readonly completedAt?: number; readonly durationMs?: number }
 
-const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: ReadonlySet<string>): PhoneWorkTurn[] => {
+const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: ReadonlySet<string>, chatId: string): PhoneWorkTurn[] => {
   const turns: PhoneWorkTurn[] = []
   let fold: { id: string; steps: PhoneWorkStep[]; from: number; to: number; spent: number } | null = null
   // The turn's plan sits at the end of its first fold of work, or on its own where it did none.
@@ -306,7 +306,7 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: Reado
     fold.spent += Math.round((item.durationMs ?? 0) / 1000)
   }
   for (const item of turn.items) {
-    if (item.type === 'userMessage') { close(); const you = youOf(item, noteTruncated, sent); if (you) turns.push(you); continue }
+    if (item.type === 'userMessage') { close(); const you = youOf(item, noteTruncated, sent, chatId); if (you) turns.push(you); continue }
     if (item.type === 'assistantMessage' && item.phase !== 'commentary') {
       close()
       const markdown = scrubText(item.text)
@@ -346,7 +346,7 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
   const omittedSourceTurns = Math.max(0, session.turns.length - RECENT_TURNS)
   let truncated = omittedSourceTurns > 0
   const sent = new Set(input.leadControl?.sent ?? [])
-  const turns = session.turns.slice(-RECENT_TURNS).flatMap(turn => turnsOf(turn, session.cwd, () => { truncated = true }, sent))
+  const turns = session.turns.slice(-RECENT_TURNS).flatMap(turn => turnsOf(turn, session.cwd, () => { truncated = true }, sent, input.id))
   // The sessions list's own project, so a row and its conversation never name two.
   const { project } = input
   const asks: PhoneWorkTurn[] = []

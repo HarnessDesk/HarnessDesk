@@ -1,6 +1,6 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
 import { isLeadMessageSource, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
-import { LeadChatControlStore } from './lead/chat-control.js'
+import { LeadChatControlStore, LeadChatHeldError } from './lead/chat-control.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
 import { gitSteerContext } from './git-gateway/steer-context.js'
 import { redactGitCommand } from '@harnessdesk/protocol'
@@ -7526,6 +7526,15 @@ export class Host {
         // An admission refusal cannot fail delivery of an already cancelled
         // item. Once send began, however, a missing id says nothing about effects.
         if (!sendStarted && !record.queue.messages.some(message => message.id === sending.id)) { cancelled = true; return }
+        // A take-over cancels this admitted Lead instruction permanently. Its
+        // surviving person tail must be free to drain, including after hand back.
+        if (!sendStarted && error instanceof LeadChatHeldError) {
+          this.registry.cancelQueued(record, sending.id)
+          this.#pushQueue(record)
+          cancelled = true
+          await this.#noteLeadChatCancellation(`${record.runtime}:${record.session.id}`, 1)
+          return
+        }
         // Put it back exactly where it was and stop: the message is the thing
         // worth keeping, and a queue that kept firing into a broken agent would
         // burn the rest of it the same way.
@@ -9692,11 +9701,16 @@ export class Host {
     for (const message of [...record.queue.messages]) {
       if (message.state === 'sending') continue
       const [block] = splitContextContent(message.input).injections
-      if (block && isLeadMessageSource(block.label) && keys.has(leadMessageKey(wrapContext(block.label, block.text))))
+      if (block && isLeadMessageSource(block.label) && keys.has(leadMessageKey(id, wrapContext(block.label, block.text))))
         { this.registry.cancelQueued(record, message.id); cancelled++ }
     }
     this.#pushQueue(record)
     return cancelled
+  }
+
+  async #noteLeadChatCancellation(id: string, count: number): Promise<void> {
+    try { await this.#leadChatCancellation?.(id, count) }
+    catch (error) { this.#logger.warn('Lead chat cancellation notice could not be saved', { error: String(error) }) }
   }
 
   async #setChatHolder(id: string, holder: LeadChatHolder): Promise<LeadChatControlList> {
@@ -9706,15 +9720,16 @@ export class Host {
     const project = this.#leadChatProject ?? await readRememberedLeadProject(this.#state.directory)
     if (!project) return { project: null, chats: [] }
     const store = this.#chatControlStore()
+    let cancelled = 0
     if (holder === 'person') {
       store.hold(project.path, id)
-      const cancelled = this.#cancelLeadQueued(id, store.current(project.path).chats.find(chat => chat.id === id)?.sent ?? [])
-      if (cancelled) await this.#leadChatCancellation?.(id, cancelled)
+      cancelled = this.#cancelLeadQueued(id, store.current(project.path).chats.find(chat => chat.id === id)?.sent ?? [])
     }
     try {
       if (!await store.setHolder(project.path, id, holder)) throw new Error('The Lead has not written to this chat.')
       const list = await store.list(project.path)
       this.#push({ method: 'lead/chats/controlChanged', params: list })
+      if (cancelled) await this.#noteLeadChatCancellation(id, cancelled)
       return list
     } catch (error) {
       this.#push({ method: 'lead/chats/controlChanged', params: { ...store.current(project.path), ...(store.problem ? { problem: store.problem } : {}) } })

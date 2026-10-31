@@ -509,7 +509,7 @@ test('Lead read omission metadata keeps raw source turns separate from projected
 test('phone threads expose only host-verified Lead words, historical name and the current holder', async () => {
   const envelope = leadMessageEnvelope('Dex', 'Run the tests.')
   const content = [deskContextContent(envelope)]
-  let control = { id: key, holder: 'lead' as 'lead' | 'person', sent: [leadMessageKey(envelope)] }
+  let control = { id: key, holder: 'lead' as 'lead' | 'person', sent: [leadMessageKey(key, envelope)] }
   const r = rig({ chatControl: async () => control })
   r.setSession(session([{ id: turnId('lead-t'), status: 'completed', items: [{ id: itemId('lead-u'), type: 'userMessage', content }] }]))
   const first = await r.work.threadRead({ id: key })
@@ -533,7 +533,7 @@ test('a phone read rechecks session ownership after the host control read', asyn
 
 test('a verified block never attributes additional person words to the Lead on the phone', async () => {
   const envelope = leadMessageEnvelope('Dex', 'Run the tests.')
-  const r = rig({ chatControl: async () => ({ id: key, holder: 'lead', sent: [leadMessageKey(envelope)] }) })
+  const r = rig({ chatControl: async () => ({ id: key, holder: 'lead', sent: [leadMessageKey(key, envelope)] }) })
   r.setSession(session([{ id: turnId('mixed-t'), status: 'completed', items: [{ id: itemId('mixed-u'), type: 'userMessage',
     content: [deskContextContent(envelope), { type: 'text', text: 'Also check the docs.' }] }] }]))
   const message = (await r.work.threadRead({ id: key })).turns[0]!

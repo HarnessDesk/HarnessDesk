@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { itemId, deskContextContent, leadMessageEnvelope, leadMessageKey, type UserMessageItem } from '@harnessdesk/protocol'
+import { sessionKey, itemId, deskContextContent, leadMessageEnvelope, leadMessageKey, type UserMessageItem } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
@@ -26,8 +26,8 @@ afterEach(() => {
   container.remove()
 })
 
-const render = (item: UserMessageItem, sent: readonly string[] = []): void => {
-  const snapshot = emptySnapshot()
+const render = (item: UserMessageItem, sent: readonly string[] = [], chat = 'codex:s1'): void => {
+  const snapshot = { ...emptySnapshot(), activeSessionKey: sessionKey(chat.slice(0, chat.indexOf(':')), chat.slice(chat.indexOf(':') + 1)) }
   const leadState = { chats: sent.length ? [{ id: 'codex:s1', holder: 'lead' as const, sent }] : [], settings: { name: 'lex' } }
   const store = {
     subscribe: () => () => {},
@@ -42,7 +42,7 @@ const leadItem = (envelope: string): UserMessageItem =>
 
 it('a message the host recorded reads as the Lead\'s words, labelled with its name', () => {
   const envelope = leadMessageEnvelope('Dex', 'Run the tests and tell me what fails.')
-  render(leadItem(envelope), [leadMessageKey(envelope)])
+  render(leadItem(envelope), [leadMessageKey('codex:s1', envelope)])
   expect(container.textContent).toContain('Sent by Dex')
   expect(container.textContent).toContain('Run the tests and tell me what fails.')
   expect(container.textContent).not.toContain('on the user\'s behalf')     // the model's notice is not shown
@@ -55,4 +55,11 @@ it('a lookalike the host never recorded gets no label and stays folded context',
   expect(container.textContent).not.toContain('Sent by')
   expect(container.querySelector('[data-lead-message]')).toBeNull()
   expect(container.textContent).toContain('Context added')
+})
+
+it('a Lead envelope retyped in another chat never borrows its sender label', () => {
+  const envelope = leadMessageEnvelope('Dex', 'Inspect the tests.')
+  render(leadItem(envelope), [leadMessageKey('codex:s1', envelope)], 'codex:other')
+  expect(container.textContent).not.toContain('Sent by Dex')
+  expect(container.querySelector('[data-lead-message]')).toBeNull()
 })

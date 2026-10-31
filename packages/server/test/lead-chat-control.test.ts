@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, realpath, rm, writeFile, mkdir, readFile, symlink, rename } from 'node:fs/promises'
+import fsPromises from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -14,12 +16,14 @@ const fixture = async (t: test.TestContext) => {
   return { root, project, file: join(root, 'lead', 'chat-control.json') }
 }
 
-test('a chat the Lead never wrote to has no holder and cannot be taken over', async t => {
+test('a chat the Lead never wrote to can be held before its first Lead record', async t => {
   const { project, file } = await fixture(t)
   const store = new LeadChatControlStore(file)
   assert.equal(await store.holder(project, 'codex:s1'), null)
-  assert.equal(await store.setHolder(project, 'codex:s1', 'person'), false)
-  assert.deepEqual(await store.list(project), { project, chats: [] })
+  assert.equal(await store.setHolder(project, 'fixture:s1', 'person'), true)
+  await store.noteSent(project, 'fixture:s1', 'a'.repeat(64))
+  assert.equal(await new LeadChatControlStore(file).holder(project, 'fixture:s1'), 'person')
+  assert.throws(() => store.assertDispatch(project, 'fixture:s1'), /taken this chat over/)
 })
 
 test('the first send makes the Lead the holder; take over and hand back persist across instances', async t => {
@@ -137,4 +141,39 @@ test('a new take-over during explicit reset keeps its fence and is persisted aft
   assert.equal(await taking, true)
   assert.throws(() => store.assertDispatch(project, 'fixture:s1'), /taken this chat over/)
   assert.equal(await new LeadChatControlStore(file).holder(project, 'fixture:s1'), 'person')
+})
+
+for (const code of ['EMFILE', 'EBUSY']) test(`a transient ${code} read refuses once without latching or losing a hold`, async t => {
+  const { project, file } = await fixture(t)
+  const store = new LeadChatControlStore(file)
+  await store.noteSent(project, 'fixture:held', 'a'.repeat(64))
+  await store.setHolder(project, 'fixture:held', 'person')
+  const open = fsPromises.open
+  let fail = true
+  t.mock.method(fsPromises, 'open', async (...args: Parameters<typeof open>) => {
+    if (fail) { fail = false; throw Object.assign(new Error('Synthetic transient read failure'), { code }) }
+    return open(...args)
+  })
+  syncBuiltinESMExports()
+  try {
+    await assert.rejects(store.list(project))
+    assert.equal(store.problem, null, 'transient I/O does not require a destructive reset')
+    assert.equal(await store.holder(project, 'fixture:held'), 'person')
+    await store.noteSent(project, 'fixture:other', 'b'.repeat(64))
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports() }
+})
+
+test('a deleted project keeps its holds without blocking another project', async t => {
+  const { root, project, file } = await fixture(t)
+  const stale = join(root, 'stale'); await mkdir(stale)
+  const store = new LeadChatControlStore(file)
+  await store.noteSent(stale, 'fixture:old', 'b'.repeat(64))
+  await store.setHolder(stale, 'fixture:old', 'person')
+  await rm(stale, { recursive: true })
+  await store.noteSent(project, 'fixture:current', 'a'.repeat(64))
+  assert.equal(await store.holder(project, 'fixture:current'), 'lead')
+  const saved = JSON.parse(await readFile(file, 'utf8'))
+  assert.equal(saved.projects[stale][0].holder, 'person')
+  await mkdir(stale)
+  assert.equal(await new LeadChatControlStore(file).holder(stale, 'fixture:old'), 'person')
 })

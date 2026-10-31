@@ -67,7 +67,17 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       if (notification.method === 'lead/changed') apply(notification.params)
       else if (notification.method === 'lead/chats/controlChanged') applyChats(notification.params)
     },
-    async readChatControl() { check(); applyChats(await transport.request('lead/chats/control', {})) },
+    async readChatControl() {
+      check()
+      try { applyChats(await transport.request('lead/chats/control', {})) }
+      catch (failure) {
+        if (available()) {
+          state = { ...state, chatControlProblem: failure instanceof Error ? failure.message : String(failure) }
+          for (const listener of listeners) listener()
+        }
+        throw failure
+      }
+    },
     async resetChatControl() { check(); applyChats(await transport.request('lead/chats/resetControl', {})) },
     async takeOverChat(id: string) { check(); applyChats(await transport.request('lead/chat/takeOver', { id })) },
     async handBackChat(id: string) { check(); applyChats(await transport.request('lead/chat/handBack', { id })) },

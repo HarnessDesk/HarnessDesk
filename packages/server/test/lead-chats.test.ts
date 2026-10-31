@@ -224,7 +224,7 @@ test('Lead sends and starts use the verified envelope and record its exact key',
   r.authorize('lead/chat/send', params); await r.service.send(params)
   const envelope = leadMessageEnvelope('Dex', params.text)
   assert.deepEqual(r.sentInput.at(-1), [{ type: 'text', text: envelope, deskContext: { prefixLength: envelope.length } }])
-  assert.deepEqual(r.sentKeys.at(-1), { id: params.id, key: leadMessageKey(envelope) })
+  assert.deepEqual(r.sentKeys.at(-1), { id: params.id, key: leadMessageKey(params.id, envelope) })
   r.authorize('lead/chat/start', { text: 'Fix the flaky test.' }); const { id } = await r.service.start({ text: 'Fix the flaky test.' })
   assert.equal((r.sentInput.at(-1)![0] as { text: string }).text, leadMessageEnvelope('Dex', 'Fix the flaky test.'))
   assert.equal(r.sentKeys.at(-1)!.id, id)

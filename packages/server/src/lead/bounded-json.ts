@@ -3,9 +3,9 @@ import { constants } from 'node:fs'
 import { mkdir, open, rename, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
-export type BoundedJsonResult = { readonly kind: 'missing' } | { readonly kind: 'unreadable' } | { readonly kind: 'value'; readonly value: unknown }
+export type BoundedJsonResult = { readonly kind: 'missing' } | { readonly kind: 'unreadable' } | { readonly kind: 'io'; readonly code: string } | { readonly kind: 'value'; readonly value: unknown }
 
-/** ENOENT alone is a clean absence. Links, invalid bytes and every other I/O failure are unreadable. */
+/** Only absence is empty. Invalid content is distinct from a retryable I/O failure. */
 export const readBoundedJsonResult = async (file: string, maxBytes: number): Promise<BoundedJsonResult> => {
   try {
     const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
@@ -22,7 +22,12 @@ export const readBoundedJsonResult = async (file: string, maxBytes: number): Pro
       if (length > maxBytes) return { kind: 'unreadable' }
       return { kind: 'value', value: JSON.parse(bytes.subarray(0, length).toString('utf8')) }
     } finally { await handle.close() }
-  } catch (error) { return { kind: (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'unreadable' } }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') return { kind: 'missing' }
+    if (error instanceof SyntaxError || code === 'ELOOP') return { kind: 'unreadable' }
+    return { kind: 'io', code: code ?? 'I/O' }
+  }
 }
 
 /** Existing observation-only stores treat unreadable and absent alike; control records use the full result. */

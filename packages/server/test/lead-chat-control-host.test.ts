@@ -6,9 +6,12 @@ import test from 'node:test'
 import { createLeadJournal, type LeadPermissionContext, type LeadPermissionCall } from '@harnessdesk/lead'
 import { runtimeId, sessionId, type AgentSession, type WireNotification } from '@harnessdesk/protocol'
 import { clientRefusal, topicsOf } from '../src/client-door.js'
-import { evidenceDesk } from './fixtures/evidence-desk.js'
+import { evidenceDesk, until } from './fixtures/evidence-desk.js'
+import { silent } from './fixtures/harness.js'
 
 const boot = async (t: import('node:test').TestContext) => {
+  const warnings: string[] = []
+  t.mock.method(Object.getPrototypeOf(silent), 'warn', (message: string) => { warnings.push(message) })
   const { host, runtime, repo, stateDir } = await evidenceDesk(t, { leadEnabled: true })
   const project = { id: 'project-demo', path: await realpath(repo.dir) }, now = Date.now()
   const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
@@ -36,7 +39,7 @@ const boot = async (t: import('node:test').TestContext) => {
   }
   const notifications: WireNotification[] = []
   t.after(host.addBroadcaster(n => notifications.push(n)))
-  return { host, runtime, execute, notifications, journal, project, stateDir }
+  return { host, runtime, execute, notifications, journal, project, stateDir, warnings }
 }
 
 test('take over refuses Lead mutations, hand back admits send again', async t => {
@@ -199,4 +202,76 @@ for (const operation of ['send', 'stop'] as const) test(`take over during the fi
   assert.ok(taking, 'the path recheck reached its gate')
   await taking
   assert.equal(effects, 0)
+})
+
+test('a failing cancellation notice never prevents durable take over or controlChanged', async t => {
+  const h = await boot(t)
+  const { id } = await h.execute({ method: 'lead/chat/start', params: { text: 'first task' } })
+  await h.execute({ method: 'lead/chat/send', params: { id, text: 'waiting task' } })
+  let durableAtNotice: string | null = null, publishedAtNotice = false
+  t.mock.method(h.journal, 'appendReply', async () => {
+    durableAtNotice = await new LeadChatControlStore(join(h.stateDir, 'lead', 'chat-control.json')).holder(h.project.path, id)
+    const changed = h.notifications.filter(n => n.method === 'lead/chats/controlChanged').at(-1)
+    publishedAtNotice = (changed?.params as { chats: readonly { holder: string }[] }).chats[0]?.holder === 'person'
+    throw new Error('Synthetic notice unavailable')
+  })
+  const result = await h.host.call('lead/chat/takeOver', { id }).catch(error => error)
+  assert.equal(await new LeadChatControlStore(join(h.stateDir, 'lead', 'chat-control.json')).holder(h.project.path, id), 'person')
+  assert.equal(result.chats?.[0]?.holder, 'person')
+  assert.equal(durableAtNotice, 'person')
+  assert.equal(publishedAtNotice, true)
+  assert.ok(h.warnings.includes('Lead chat cancellation notice could not be saved'))
+  const changed = h.notifications.filter(n => n.method === 'lead/chats/controlChanged').at(-1)
+  assert.equal((changed?.params as { chats: readonly { holder: string }[] }).chats[0]?.holder, 'person')
+})
+
+test('take over committed before the first Lead record prevents its first dispatch', async t => {
+  const h = await boot(t)
+  const created = await h.host.call('session/create', { runtime: h.runtime.info.id, options: { cwd: h.project.path } })
+  const id = `${h.runtime.info.id}:${created.id}`
+  let entered!: () => void, release!: () => void
+  const admitting = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const note = LeadChatControlStore.prototype.noteSent
+  t.mock.method(LeadChatControlStore.prototype, 'noteSent', async function(this: LeadChatControlStore, ...args: Parameters<typeof note>) {
+    entered(); await held; return note.apply(this, args)
+  })
+  let sends = 0
+  h.runtime.onSend = () => { sends++ }
+  const sending = h.execute({ method: 'lead/chat/send', params: { id, text: 'first instruction' } }).catch(error => error)
+  await admitting
+  let taken
+  try { taken = await h.host.call('lead/chat/takeOver', { id }).catch(error => error) }
+  finally { release() }
+  const refused = await sending
+  assert.equal(taken.chats?.[0]?.holder, 'person')
+  assert.match(String(refused), /taken this chat over/)
+  assert.equal(sends, 0)
+  assert.equal(await new LeadChatControlStore(join(h.stateDir, 'lead', 'chat-control.json')).holder(h.project.path, id), 'person')
+})
+
+test('take over drops an admitted stale Lead reply and drains the person tail without replay after hand back', async t => {
+  const h = await boot(t)
+  const { id } = await h.execute({ method: 'lead/chat/start', params: { text: 'first task' } })
+  await h.execute({ method: 'lead/chat/send', params: { id, text: 'stale waiting task' } })
+  const target = { runtime: runtimeId(id.slice(0, id.indexOf(':'))), sessionId: sessionId(id.slice(id.indexOf(':') + 1)) }
+  const record = h.host.registry.get(target.runtime, target.sessionId)!, live = h.runtime.sessions.get(target.sessionId)!
+  await h.host.call('turn/queue', { ...target, input: [{ type: 'text', text: 'Person follow-up' }] })
+  h.host.registry.pauseQueue(record, 'Wait for explicit delivery')
+  const admission = h.host.registry.queuedAdmission.bind(h.host.registry)
+  h.host.registry.queuedAdmission = (one, key) => {
+    const admit = admission(one, key)
+    return admit && Object.assign(async (current: AgentSession) => { await admit(current); await h.host.call('lead/chat/takeOver', { id }) }, admit)
+  }
+  const delivered: string[] = []
+  h.runtime.onSend = (_session, text) => { delivered.push(text) }
+  live.finish()
+  await h.host.call('turn/queue/flush', target)
+  assert.notEqual(record.queue.status, 'paused', 'a person hold must cancel rather than poison the queue')
+  await until(() => delivered.length ? true : null, 'the surviving person reply')
+  assert.deepEqual(delivered, ['Person follow-up'])
+  assert.ok(h.journal.state.messages.some(message => /not delivered.*took over/.test(message.text)))
+  await h.host.call('lead/chat/handBack', { id })
+  live.finish()
+  await h.host.call('turn/queue/flush', target)
+  assert.deepEqual(delivered, ['Person follow-up'], 'hand back never revives a cancelled instruction')
 })

@@ -4931,3 +4931,17 @@ records alone mean no holds. While the host runs, a synchronous in-memory
 person hold survives disk failures and is checked at the actual dispatch
 boundary. Control reads are passive and never construct the Lead or select a
 project. Cancelled waiting Lead messages are noted in the Lead thread.
+
+Lead verification keys bind the exact envelope to its runtime and chat id.
+Receipts from another chat, and older unbound digests, never earn a sender
+label; those messages remain folded context. Phone projection uses the same
+chat-bound verification without changing its wire fields.
+
+Invalid control content requires explicit reset. Transient I/O failures refuse
+that operation and allow a later retry; they do not latch a reset requirement.
+Records for deleted project folders remain intact without blocking another
+project. A person can hold a chat before its first Lead record. Take over
+persists and publishes the hold before attempting its cancellation notice;
+notice failures are logged. A Lead instruction still in admission when the
+person takes over is cancelled on refusal, freeing the person's queued replies
+and preventing replay after Hand back.
