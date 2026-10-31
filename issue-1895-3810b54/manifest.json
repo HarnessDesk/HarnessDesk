@@ -1,0 +1,57 @@
+{
+  "issue": 1895,
+  "head": "3810b549b5c852c05defba18e8900847d2b3918e",
+  "tree": "4cd67f40a0f57b3f408c6e72193ca4e466d5337b",
+  "surface": "Production TeamOverview in the synthetic focused preview. Viewport widths 240, 320 and 420; light and dark. Section captures; entire document and every mounted app store audited before/after.",
+  "privacy": "Six unique frames personally inspected; unchanged text and account auditors, actual OS username, source-vouched preview history, both mounted application stores, no guest documents. No real desk captured.",
+  "frames": [
+    {
+      "name": "overview-light-420-0.png",
+      "viewport": 420,
+      "theme": "light",
+      "width": 356,
+      "height": 764,
+      "sha256": "7977cf363bd4dbdd5cfd1aa88cc838ee11d600a15f4aa6e13310fc3d332531d9"
+    },
+    {
+      "name": "overview-light-240-1.png",
+      "viewport": 240,
+      "theme": "light",
+      "width": 176,
+      "height": 1106,
+      "sha256": "e5f324e47a41dcbef5c3d17998ef9d7584d155c86e5edfb10c5f6ab4b18ca563"
+    },
+    {
+      "name": "overview-light-320-2.png",
+      "viewport": 320,
+      "theme": "light",
+      "width": 256,
+      "height": 910,
+      "sha256": "e9be1deeeff9395261b44a3247536fe3fdc710599144bca409799ce1d2492c0c"
+    },
+    {
+      "name": "overview-dark-420-4.png",
+      "viewport": 420,
+      "theme": "dark",
+      "width": 356,
+      "height": 764,
+      "sha256": "a779f68984938856e447880db8622ecb3180b937c360dd967d4f1bd27a7a3bd1"
+    },
+    {
+      "name": "overview-dark-240-5.png",
+      "viewport": 240,
+      "theme": "dark",
+      "width": 176,
+      "height": 1106,
+      "sha256": "7bc173d9f88bfe2bd3c2684997188418d641eb767bfd5d8d9fe0ace745d86685"
+    },
+    {
+      "name": "overview-dark-320-6.png",
+      "viewport": 320,
+      "theme": "dark",
+      "width": 256,
+      "height": 910,
+      "sha256": "e2519f321109641ac561ab477339db14a7f9eee4de1d28f0c71e9e0c53a741e8"
+    }
+  ]
+}
