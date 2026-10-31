@@ -449,7 +449,7 @@ const pickerRig = async (handoff: boolean, composer = false, picked: WorkspaceEn
   if (savedLayout) {
     const saved = emptyWorkbench()
     const view = { kind: 'conversation' as const, session: sessionKey(AGENT, sessionId('saved-target')) }
-    answers['app/state/get'] = { layouts: { [PICKED.path]: { ...saved, main: only(saved.main, view), navigation: visitDestination(saved.navigation, destinationOf(view)) } } }
+    answers['app/state/get'] = { layouts: { [PICKED.path]: { ...saved, sidebar: { ...saved.sidebar, size: 312 }, main: only(saved.main, view), navigation: visitDestination(saved.navigation, destinationOf(view)) } } }
     await store.loadPreferences()
   }
   if (handoff) {
@@ -472,6 +472,7 @@ it.each([
   { savedLayout: false, picker: 'in-app' as const }, { savedLayout: true, picker: 'in-app' as const },
 ])('Add preserves a hand-off with $picker selection and saved layout $savedLayout', async ({ savedLayout, picker }) => {
   const store = await pickerRig(true, true, PICKED, savedLayout, picker)
+  store.resizePanel('sidebar', 224)
   const carried = store.getSnapshot().draftHandoff
   const input = container.querySelector('textarea')!
   act(() => {
@@ -486,6 +487,7 @@ it.each([
   expect(store.getSnapshot().workspace?.path).toBe(PICKED.path)
   expect(store.getSnapshot().draftHandoff).toBe(carried)
   expect(store.getSnapshot().activeSessionKey).toBeNull()
+  expect(store.getSnapshot().workbench.sidebar.size).toBe(savedLayout ? 312 : emptyWorkbench().sidebar.size)
   const current = container.querySelector('textarea')!
   expect(current.value).toBe('Keep the hand-off draft.')
   expect([current.selectionStart, current.selectionEnd]).toEqual([5, 8])

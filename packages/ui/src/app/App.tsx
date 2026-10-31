@@ -77,7 +77,7 @@ export const App = () => {
   if (libraryImport.project !== projectKey) setLibraryImport({ project: projectKey, intent: 0 })
   const libraryImportIntent = libraryImport.project === projectKey ? libraryImport.intent : 0
   const [foldersOpen, setFoldersOpen] = useState(false)
-  const folderChoice = useRef<{ readonly resolve: (chosen: boolean) => void; readonly preserveLayout: boolean } | null>(null)
+  const folderChoice = useRef<{ readonly resolve: (chosen: boolean) => void; readonly preserveDraft: boolean } | null>(null)
   // The front door, opened on one project at a time — from the palette today,
   // and from any other place-scoped entry point that hands over its own
   // resolved `root` rather than opening a chooser of its own. `null` is
@@ -116,13 +116,13 @@ export const App = () => {
   // dialog, as Claude Code and Codex do; the browser build, which has none,
   // gets the in-app picker. The picker is also the fallback should the
   // native dialog be unavailable, so no entry point can dead-end.
-  const chooseFolder = useCallback(async (options: { readonly preserveLayout?: boolean } = {}): Promise<boolean> => {
+  const chooseFolder = useCallback(async (options: { readonly preserveDraft?: boolean } = {}): Promise<boolean> => {
     if (isDesktop()) {
-      try { return await (options.preserveLayout ? store.pickWorkspace({ preserveLayout: true }) : store.pickWorkspace()) } catch { /* Use the in-app picker below. */ }
+      try { return await (options.preserveDraft ? store.pickWorkspace({ preserveDraft: true }) : store.pickWorkspace()) } catch { /* Use the in-app picker below. */ }
     }
     return new Promise<boolean>(resolve => {
       folderChoice.current?.resolve(false)
-      folderChoice.current = { resolve, preserveLayout: options.preserveLayout === true }
+      folderChoice.current = { resolve, preserveDraft: options.preserveDraft === true }
       setFoldersOpen(true)
     })
   }, [store])
@@ -433,7 +433,7 @@ export const App = () => {
       <Notices />
       <PhoneAsk />
       <Toaster theme={theme} />
-      {foldersOpen && <FolderPicker onChoose={async path => Boolean(await store.openWorkspace(path, { preserveLayout: folderChoice.current?.preserveLayout === true }))} onClose={(chosen = false) => {
+      {foldersOpen && <FolderPicker onChoose={async path => Boolean(await store.openWorkspace(path, { preserveDraft: folderChoice.current?.preserveDraft === true }))} onClose={(chosen = false) => {
         setFoldersOpen(false)
         folderChoice.current?.resolve(chosen)
         folderChoice.current = null

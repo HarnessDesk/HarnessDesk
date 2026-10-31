@@ -1222,7 +1222,7 @@ export const HandoffSheet = ({
   )
 }
 
-export type ProjectFolderChoice = (options?: { readonly preserveLayout?: boolean }) => void | Promise<boolean | void>
+export type ProjectFolderChoice = (options?: { readonly preserveDraft?: boolean }) => void | Promise<boolean | void>
 
 export const chooseProjectForDraft = (store: ReturnType<typeof useStore>, chooseProject: ProjectFolderChoice): void => {
   /* A folder chosen here is the person's say over where this draft starts, and
@@ -1234,7 +1234,7 @@ export const chooseProjectForDraft = (store: ReturnType<typeof useStore>, choose
   const carried = store.getSnapshot().draftHandoff
   // A saved target conversation must not replace the draft before the choice
   // resolves: that would discard its carried context, text and attachments.
-  const choice = carried ? chooseProject({ preserveLayout: true }) : chooseProject()
+  const choice = carried ? chooseProject({ preserveDraft: true }) : chooseProject()
   void Promise.resolve(choice).then((chosen) => {
     const now = store.getSnapshot()
     if (chosen === true && carried?.cwd && now.draftHandoff === carried && now.draftPlace === null) store.startDraftIn(null)
