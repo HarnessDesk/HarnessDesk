@@ -10,10 +10,10 @@ import type { LeadCard } from '@harnessdesk/protocol'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const clean: (() => void)[] = []
 afterEach(() => clean.splice(0).forEach(fn => fn()))
-const mount = (card: LeadCard, raise = vi.fn(async () => {})) => {
+const mount = (card: LeadCard, raise = vi.fn(async () => {}), caps = leadBudget.caps) => {
   const box = document.createElement('div'); document.body.append(box)
   const root = createRoot(box), decide = vi.fn()
-  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[card]} contract={leadContract} budget={leadBudget}
+  act(() => root.render(<StoreProvider store={previewStore()}><LeadCards cards={[card]} contract={leadContract} budget={{ ...leadBudget, caps }}
     onDecide={decide} onRaiseLimit={raise} onChanges={() => {}} onApprovals={() => {}} /></StoreProvider>))
   clean.push(() => { act(() => root.unmount()); box.remove() })
   return { box, raise, decide }
@@ -35,7 +35,8 @@ it('shows the known 80% figure and applies a person limit raise directly', async
     logicalGoalId: 'goal-1', usdMicros: 4000000, caps: { usdMicros: 5000000, rounds: 4 } })
   expect(box.textContent).toContain('At 80%')
   expect(box.textContent).toContain('$4.00 of $5.00')
-  expect(box.textContent).toContain('At $5.00 the goal stops, as before')
+  expect(box.textContent).toContain('At $5.00 the goal stops')
+  expect(box.textContent).not.toContain('as before')
   expect(box.querySelector('[data-lead-decision]')).toBeNull()
   await act(async () => [...box.querySelectorAll('button')].find(node => node.textContent === 'Raise limit…')!.click())
   const dialog = document.querySelector('[role="dialog"]')!
@@ -48,4 +49,13 @@ it('shows the known 80% figure and applies a person limit raise directly', async
   await act(async () => [...dialog.querySelectorAll('button')].find(node => node.textContent === 'Apply')!.click())
   expect(raise).toHaveBeenCalledWith('goal-1', { usdMicros: 6000000, rounds: 4 })
   expect(decide).not.toHaveBeenCalled()
+})
+
+it('shows the current raised cap on both allowance warning lines', () => {
+  const { box } = mount({ version: 1, id: '80-1', revision: 1, type: 'allowance-warning', contractDigest: leadContract.digest,
+    logicalGoalId: 'goal-1', usdMicros: 4000000, caps: { usdMicros: 5000000, rounds: 4 } }, undefined, { usdMicros: 8000000, rounds: 4 })
+  expect(box.textContent).toContain('$4.00 of $8.00')
+  expect(box.textContent).toContain('At $8.00 the goal stops')
+  expect(box.textContent).not.toContain('$5.00')
+  expect(box.textContent).not.toContain('as before')
 })

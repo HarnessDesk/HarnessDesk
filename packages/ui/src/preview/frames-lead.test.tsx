@@ -31,7 +31,7 @@ it('opens the matching Runs view from a repeating plan through the real Settings
       await new Promise(resolve => requestAnimationFrame(resolve))
     })
     expect(box.querySelector('[data-repeat-runs="repeat-repeat-plan"]')).not.toBeNull()
-    expect(box.textContent).toContain('Next slot')
+    expect(box.textContent).toContain('Next run:')
     expect([...box.querySelectorAll('button')].some(node => node.textContent === 'Pause')).toBe(true)
   } finally { act(() => root.unmount()); box.remove() }
 })

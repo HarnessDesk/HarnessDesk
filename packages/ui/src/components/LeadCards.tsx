@@ -150,8 +150,8 @@ const LeadAllowanceWarning = ({ card, currentCaps, onRaise }: {
   const valid = dollars.trim() !== '' && rounds.trim() !== '' && Number.isSafeInteger(usdMicros) && usdMicros >= caps.usdMicros && usdMicros <= LEAD_LIMITS.maxUsdMicros && Number.isSafeInteger(count) && count >= caps.rounds && count <= LEAD_LIMITS.rounds && (usdMicros > caps.usdMicros || count > caps.rounds)
   return <LeadContract cardId={card.id} cardType={card.type}>
     <Text as="p" role="subject">At 80%</Text>
-    <Text as="p" role="value" tone="warning">{leadDollars(card.usdMicros)} of {leadDollars(card.caps.usdMicros)}</Text>
-    <Text as="p" role="muted">At {leadDollars(card.caps.usdMicros)} the goal stops, as before</Text>
+    <Text as="p" role="value" tone="warning">{leadDollars(card.usdMicros)} of {leadDollars(caps.usdMicros)}</Text>
+    <Text as="p" role="muted">At {leadDollars(caps.usdMicros)} the goal stops</Text>
     {onRaise && <Button variant="outline" onClick={() => { setDollars(String(caps.usdMicros / 1000000)); setRounds(String(caps.rounds)); setError(false); setOpen(true) }}>Raise limit…</Button>}
     {open && <Dialog title="Raise limit" description="Applies to this goal. A goal that has stopped stays stopped." onClose={() => { if (!busy.current) setOpen(false) }}
       footer={<><Button disabled={pending || !valid} aria-busy={pending} onClick={async () => {
