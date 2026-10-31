@@ -4706,6 +4706,38 @@ merge commit (`github.sha`) so its helper is present before the PR is merged.
 This keeps the existing fork condition and actions write permission; it does not
 use `pull_request_target` or expand the workflow's trust boundary.
 
+## A click on a result the Lead took back is made when that same result returns — 2026-10-31
+
+The Lead withdraws every undecided result as soon as an observation that may
+change it arrives ("invalidate first"), and restores or re-offers it once it
+has read the desk again. A person's click that landed in between was refused
+(`lead-card-stale`, `lead-card-decided`), though the result came back exactly
+as it was. With the host's reads faster, the Lead publication end-to-end cases
+hit that window on most runs; a person hits it as an accept that fails for no
+reason they can see.
+
+The fence stays: nothing is decided while a result is withdrawn. The journal
+remembers, in memory only, which results an invalidation took back while
+undecided. A refused click on one of those waits, outside the controls queue,
+for that same card — same id and revision, so the same contract and evidence —
+to be offered again, then is made on it; a new revision, the card gone, or no
+return within `LEAD_REOFFER_WAIT_MS` (fifteen seconds) is refused as before. A
+card a person decided is never waited for, and a click whose publication began
+is never made twice: an invalidation is fenced while a publication is in
+flight. Not invalidating on quiet events was rejected: whether an event
+changes a result is only known after the read the fence exists to wait for.
+
+The same refusal came from a second writer. Once a repair's CI passes, the
+host offers the result itself; the Lead loop, not having offered that card,
+offered an identical one at the next revision (only the summary line and
+bookkeeping revisions differed), so a click on the host's card was refused.
+The loop now takes a stored result whose contract, evidence and spend are
+exactly what it read as the current result — unless it has itself seen that
+card stand for other evidence, so a result taken back while its evidence
+moved away and back is still offered afresh.
+
+**Rule:** a refusal says something changed; when nothing did, the click stands.
+
 ## A checkout root's project answer stands while what git reads to give it is unchanged — 2026-10-31
 
 The one-second window `projectOf` kept an answer for, on the folder's real
@@ -4740,9 +4772,8 @@ mark, it started 26 of 3,300, in 65–69 seconds.
 The faster host also showed the Lead publication cases racing the Lead
 itself: the Lead withdraws a result on every desk event that may change it and
 offers it again, so a click on a result card read a moment earlier was
-refused. That is a person's race too, and is fixed in the Lead, not the test:
-a click on a result the Lead took back is made when that same result returns
-(HarnessDesk/HarnessDesk#1930), which this change lands after.
+refused. That is a person's race too, and is fixed in the Lead, not the test
+([a click on a result the Lead took back](#a-click-on-a-result-the-lead-took-back-is-made-when-that-same-result-returns--2026-10-31)).
 
 **Rule:** an answer about the filesystem stands on a mark of exactly what was
 read to give it, read again on every use, never on time or a path alone; a
