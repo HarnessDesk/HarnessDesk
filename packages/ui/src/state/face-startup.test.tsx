@@ -67,3 +67,30 @@ it('leaves preview defaults visible and hides only face surfaces while startup i
   other.remove()
   style.remove()
 })
+
+it('reveals faces during an initial connection failure and holds them again while recovered preferences load', async () => {
+  window.matchMedia = (() => ({ matches: false, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+  const store = new AppStore('ws://localhost:0/')
+  const handlers = (store.transport as unknown as { handlers: { onStatus(status: 'connecting' | 'reconnecting' | 'open'): void } }).handlers
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  const Probe = () => { useTheme(); return <span data-shape="face">face</span> }
+  document.body.setAttribute('data-hd-faces-pending', '')
+  await act(async () => { root.render(<StoreProvider store={store}><Probe /></StoreProvider>) })
+  const change = async (status: 'connecting' | 'reconnecting' | 'open') => {
+    await act(async () => { handlers.onStatus(status); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
+  }
+  await change('connecting')
+  expect(document.body.hasAttribute('data-hd-faces-pending')).toBe(true)
+  await change('reconnecting')
+  expect(document.body.hasAttribute('data-hd-faces-pending')).toBe(false)
+  await change('open')
+  expect(document.body.hasAttribute('data-hd-faces-pending')).toBe(true)
+  vi.spyOn(store.transport, 'request').mockResolvedValue({ faces: 'square' } as never)
+  await act(async () => { await store.loadPreferences(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
+  expect(document.body.hasAttribute('data-hd-faces-pending')).toBe(false)
+  expect(document.body.getAttribute('data-hd-faces')).toBe('square')
+  act(() => root.unmount())
+  container.remove()
+})

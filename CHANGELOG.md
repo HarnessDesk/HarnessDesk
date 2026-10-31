@@ -27,6 +27,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **The phone can reach older sessions and control ordinary conversations.** Paired phones page active and archived sessions, and the Run grant allows starting a session, replying and stopping a turn while keeping the desk's session settings. Approval answers still require Answer.
 
+- **Saved face shapes appear correctly at startup.** Faces wait for their saved shape, and remain visible if the initial connection fails.
+
 - **A large saved attribution history no longer crashes the desktop.** Obsolete checkpoints are removed within a bounded recovery pass. If retained history still exceeds the budget, capture pauses for that project, keeping its observations and leaving sign-in, capture controls and normal conversations available. Backups report omitted histories and continue with healthy projects.
 
 - **A replacement Agent shows its own installation details.** Removing and re-adding an Agent no longer carries over the previous Agent's cached version or a late installation check.

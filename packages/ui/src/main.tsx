@@ -21,7 +21,10 @@ const ready = store.connect()
 void ready.catch((error: unknown) => {
   // Once preferences arrived, the layout effect owns the reveal even if a
   // later startup task fails before React has painted the chosen shape.
-  if (!store.getSnapshot().preferencesLoaded) document.body.removeAttribute('data-hd-faces-pending')
+  if (!store.getSnapshot().preferencesLoaded) {
+    document.body.setAttribute('data-hd-faces-startup-failed', '')
+    document.body.removeAttribute('data-hd-faces-pending')
+  }
   store.backgroundFailure(error instanceof Error ? error.message : String(error))
 })
 
