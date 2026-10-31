@@ -973,7 +973,8 @@ directory with an immutable configuration snapshot. Included and global settings
 flattened into that snapshot; include paths and the repository's filter
 definitions are omitted. Global and system includes are evaluated from the
 repository's folder, so a conditional include for that repository applies;
-only those two scopes contribute filter definitions, with other Git environment
+an `onbranch` include selects using the repository's HEAD. Only those two scopes
+contribute filter definitions, with other Git environment
 configuration removed. The filters the person's own configuration defines are
 the one thing added: they are read apart from repository configuration by the
 `--system` and `--global` scopes alone (the system file only where `GIT_CONFIG_NOSYSTEM` would let git read it), and a file that is not

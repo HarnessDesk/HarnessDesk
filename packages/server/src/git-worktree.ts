@@ -14,6 +14,7 @@ import type { GitWorktree, GitWorktreeCheckout, GitWorktreeInventory } from '@ha
 import { changes, mainEntryFolder, repositoryRoot, worktreeHome, WorktreeDirtyError, samePath } from './worktree.js'
 
 import { parsePorcelain } from './porcelain.js'
+import { holdRoots, rootHeld } from './workspace.js'
 
 /**
  * Worktrees, as a git client manages them.
@@ -296,8 +297,8 @@ const IGNORED: Holding = {
   skipsAbsent: true,
 }
 
-const inventoryMetadata = async (path: string, text: (info: BigIntStats | null) => string) => {
-  const info = await lstat(path, { bigint: true }).catch((error: NodeJS.ErrnoException) => {
+const inventoryMetadata = async (path: string, text: (info: BigIntStats | null) => string, disk: InventoryDisk) => {
+  const info = await disk(() => lstat(path, { bigint: true })).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
     throw error
   })
@@ -306,15 +307,15 @@ const inventoryMetadata = async (path: string, text: (info: BigIntStats | null) 
 type ParentMetadata = Map<string, ReturnType<typeof inventoryMetadata>>
 
 /** A replaced directory leaves its former descendants absent from this checkout. */
-const inventoryEntry = async (root: string, path: string, parents: ParentMetadata, holding: Holding) => {
+const inventoryEntry = async (root: string, path: string, parents: ParentMetadata, holding: Holding, disk: InventoryDisk) => {
   const parts = path.replace(/\/$/, '').split('/')
   let at = root
   for (const [index, part] of parts.entries()) {
     at = join(at, part)
-    if (index === parts.length - 1) return inventoryMetadata(at, holding.entry)
+    if (index === parts.length - 1) return inventoryMetadata(at, holding.entry, disk)
     let pending = parents.get(at)
     if (!pending) {
-      pending = inventoryMetadata(at, holding.folder)
+      pending = inventoryMetadata(at, holding.folder, disk)
       parents.set(at, pending)
     }
     const entry = await pending
@@ -325,8 +326,11 @@ const inventoryEntry = async (root: string, path: string, parents: ParentMetadat
   return { info: null, text: 'missing' }
 }
 
-const readInventory = async (path: string, signal: AbortSignal): Promise<GitWorktreeInventory> => {
-  const root = await realpath(path)
+type InventoryDisk = <T>(read: () => Promise<T>) => Promise<T>
+
+const readInventory = async (path: string, signal: AbortSignal, disk: InventoryDisk): Promise<GitWorktreeInventory> => {
+  const root = await disk(() => realpath(path))
+  signal.throwIfAborted()
   const changes: { path: string; status: string }[] = []
   const ignored: string[] = []
 
@@ -363,7 +367,7 @@ const readInventory = async (path: string, signal: AbortSignal): Promise<GitWork
   // Git can collapse wholly ignored directories even with all untracked
   // paths requested. Ask for every ignored file separately for the digest.
   const fingerprint = async (file: string, parents: ParentMetadata, holding: Holding) => {
-    const { info, text } = await inventoryEntry(root, file, parents, holding)
+    const { info, text } = await inventoryEntry(root, file, parents, holding, disk)
     // No contents need opening, including large, unreadable or replaced files:
     // what `holding` keeps of the metadata stands for them. For changed work
     // that includes ctime, which a write moves and setting mtime cannot restore.
@@ -383,7 +387,7 @@ const readInventory = async (path: string, signal: AbortSignal): Promise<GitWork
     // Git leaves nested repositories as a single directory. Include every
     // descendant's metadata; a symbolic link is never a directory to descend.
     const prefix = entry.file.replace(/\/$/, '')
-    const names = (await readdir(join(root, prefix)).catch((error: NodeJS.ErrnoException) => {
+    const names = (await disk(() => readdir(join(root, prefix))).catch((error: NodeJS.ErrnoException) => {
       // What a tool makes again may be gone by the time it is read: nothing of it is left to take.
       if (holding.skipsAbsent && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return []
       throw error
@@ -411,7 +415,7 @@ const readInventory = async (path: string, signal: AbortSignal): Promise<GitWork
     const ancestors = [...parents]
     for (let start = 0; start < ancestors.length; start += concurrency) {
       await Promise.all(ancestors.slice(start, start + concurrency).map(async ([path, before]) => {
-        if ((await inventoryMetadata(path, holding.folder)).text !== (await before).text) throw changed()
+        if ((await inventoryMetadata(path, holding.folder, disk)).text !== (await before).text) throw changed()
       }))
     }
     return texts
@@ -443,16 +447,28 @@ const readInventory = async (path: string, signal: AbortSignal): Promise<GitWork
 }
 
 export const inventory = async (path: string, options: InventoryOptions = {}): Promise<GitWorktreeInventory> => {
+  if (rootHeld(path)) throw unfinished()
   const deadline = new AbortController()
+  const pending = new Set<Promise<unknown>>()
+  const disk: InventoryDisk = <T>(read: () => Promise<T>): Promise<T> => {
+    deadline.signal.throwIfAborted()
+    const call = read()
+    pending.add(call)
+    void call.then(() => pending.delete(call), () => pending.delete(call))
+    return call
+  }
   const timer = setTimeout(() => deadline.abort(unfinished()), options.deadlineMs ?? INVENTORY_DEADLINE_MS)
   try {
-    const reading = readInventory(path, deadline.signal)
+    const reading = readInventory(path, deadline.signal, disk)
     // Once the deadline has answered, what the stopped work says on its way down has no one to hear it.
     reading.catch(() => {})
     return await Promise.race([reading, ended(deadline.signal)])
   } catch (error) {
     // The deadline's own words, whatever the work it stopped reported.
-    if (deadline.signal.aborted) throw deadline.signal.reason
+    if (deadline.signal.aborted) {
+      if (pending.size) holdRoots([resolve(path)], [...pending])
+      throw deadline.signal.reason
+    }
     throw error
   } finally {
     clearTimeout(timer)
