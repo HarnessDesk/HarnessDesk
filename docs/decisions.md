@@ -4688,6 +4688,20 @@ the failure logs of the 128 jobs that failed in them:
 from a list in the workflow; a check that never finds anything another check
 does not is measured, then removed from the place it costs most.
 
+## Full CI label admission — 2026-10-30
+
+A label worker rechecks the live pull request and can reuse a matching PR run
+created no earlier than the latest full-ci label application only when that run
+has a successful full-tier marker. This avoids admitting an old or bounded event
+snapshot; the marker is admission evidence, not a claim that CI passed. A push
+can still move the branch after the recheck, so this is not atomic deduplication.
+Events have second-resolution timestamps; a labeled and unlabeled event in the
+same second are ambiguous, so the worker treats removal as latest and dispatches.
+The same-repository-only `pull_request` workflow checks out the immutable event
+merge commit (`github.sha`) so its helper is present before the PR is merged.
+This keeps the existing fork condition and actions write permission; it does not
+use `pull_request_target` or expand the workflow's trust boundary.
+
 ## A click on a result the Lead took back is made when that same result returns — 2026-10-31
 
 The Lead withdraws every undecided result as soon as an observation that may
@@ -4719,4 +4733,3 @@ card stand for other evidence, so a result taken back while its evidence
 moved away and back is still offered afresh.
 
 **Rule:** a refusal says something changed; when nothing did, the click stands.
-
