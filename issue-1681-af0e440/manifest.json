@@ -1,0 +1,15 @@
+{
+  "issue": 1681,
+  "head": "af0e4401070eaa8606321325edfbf968391fe023",
+  "frames": [
+    {
+      "name": "light.png",
+      "sha256": "869ae14ee5ab381808a4bb02d6bb21365e61c09f7f31ba41eac712d18e77676f"
+    },
+    {
+      "name": "dark.png",
+      "sha256": "263b9e75cff1adaccb74b36d935927645d8dcc5f2a308fcd3171d700b712e654"
+    }
+  ],
+  "surface": "Real Host, scripted ACP peer and shipping renderer in isolated Electron; not standard desktop bootstrap or provider proof."
+}
