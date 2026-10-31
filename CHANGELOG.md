@@ -15,6 +15,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Card evidence fits on one row.** A compact observed status opens the recorded facts and their details.
 
+- **Trigger drafts stay open when their project folder becomes unavailable.** The selected project is retained while Flows are reread, so a draft does not move to another folder or disappear during recovery.
+
 - **A late Codex process exit no longer disrupts its replacement.** Restarting while the previous process drains keeps replies and shutdown with the new process.
 
 - **Lead respects a reached round allowance without losing its child.** A running round can finish, and the next round is stopped at the allowance even if the limit changes while a request is being admitted.
