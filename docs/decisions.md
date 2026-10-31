@@ -4957,7 +4957,7 @@ verification keys; no read or Lead operation repairs the record. Missing
 records alone mean no holds. While the host runs, a synchronous in-memory
 person hold survives disk failures and is checked at the actual dispatch
 boundary. Control reads are passive and never construct the Lead or select a
-project. Temporary I/O failures refuse the operation without latching invalid state; the window offers Try again and retries once, retaining the known holder controls. Stale project roots retain their records without blocking available projects. Only a chat in the host’s chat list can gain a person hold before its first Lead record. Cancelled waiting Lead messages are noted in the Lead thread immediately after the hold is saved, before a follow-up read.
+project. Temporary I/O failures refuse the operation without latching invalid state; the window offers Try again and retries once, retaining the known holder controls. Stale project roots retain their records without blocking available projects only when a redirected root resolves outside the selected project. A redirect into the selected project or any descendant latches invalid: otherwise its old record key could hide a person hold from dispatch. Missing, ENOTDIR and ELOOP stale roots remain retained. Only a chat in the host’s chat list can gain a person hold before its first Lead record. Cancelled waiting Lead messages are noted in the Lead thread immediately after the hold is saved, before a follow-up read.
 
 Lead verification keys bind the exact envelope to its runtime and chat id.
 Receipts from another chat, and older unbound digests, never earn a sender
@@ -4965,9 +4965,9 @@ label; those messages remain folded context. Phone projection uses the same
 chat-bound verification without changing its wire fields.
 
 Invalid control content requires explicit reset. Transient I/O failures refuse
-that operation and allow a later retry; they do not latch a reset requirement.
+that operation and allow a later retry. Permanent control-record access failures (including EACCES and EPERM), or three consecutive failed control-record reads (initial, automatic retry, then manual retry), latch invalid and offer explicit Reset. A successful read clears the consecutive-failure count. The selected project being unavailable is a distinct `unavailable` problem: restore that folder and its access permissions, then retry; Reset cannot repair the project and is not offered. Both failure kinds keep dispatch closed, including its synchronous check.
 Records for deleted project folders remain intact without blocking another
-project. A person can hold a chat before its first Lead record. Take over
+project. A person can hold a chat before its first Lead record when the host chat list admits its real cwd into the canonical selected project, including a symlink alias. Take over
 persists and publishes the hold before attempting its cancellation notice;
 notice failures are logged. A Lead instruction still in admission when the
 person takes over is cancelled on refusal, freeing the person's queued replies

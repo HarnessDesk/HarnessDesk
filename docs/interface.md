@@ -2205,7 +2205,7 @@ no completion badge, activity, glow or motion.
 
 A message the Lead sends into an ordinary chat uses the person's bubble shape
 under `Sent by <name>`. A chat the Lead has written to shows `<name> is managing this chat.` with **Take over**. After take over it shows **You have
-this chat.** with `Hand back to <name>`. Failed button actions show their reason inline. An invalid control record blocks Lead actions and offers **Reset chat control**, with confirmation before clearing all projects' holds and message verification keys. A temporary read failure shows a neutral notice with **Try again**, keeps Take over / Hand back visible, and retries once after a short delay. Lead dispatch stays blocked while its control state is unknown. Typing does not take over; only the
+this chat.** with `Hand back to <name>`. Failed button actions show their reason inline. An invalid control record blocks Lead actions and offers **Reset chat control**, with confirmation before clearing all projects' holds and message verification keys. A temporary read failure shows a neutral notice with **Try again** only in chats with a control record, keeps Take over / Hand back visible, and retries once after a short delay. A persistent record-read failure offers confirmed Reset; an unavailable selected project explains that its folder and access permissions must be restored. A Reset confirmation closes as soon as the record is no longer invalid. Lead dispatch stays blocked while its control state is unknown. Typing does not take over; only the
 button does. While the person holds the chat, the host refuses Lead sends,
 stops and queued delivery there, and removes the Lead's waiting messages.
 Hand back sends no message.

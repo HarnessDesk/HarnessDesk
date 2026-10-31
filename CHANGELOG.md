@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Lead chat holds stay protected when project folders change.** An unavailable folder explains how to restore access, and persistent control-record failures offer explicit recovery.
+
 - Messages the Lead sends into a chat now say so, and you can take a chat over from the Lead and hand it back. Temporary control-read failures retry without asking you to reset your holds.
 
 - **Renamed files no longer create a false ignored-file warning.** A staged rename whose original name starts with `!! ` is no longer mistaken for an ignored file when removing a worktree.

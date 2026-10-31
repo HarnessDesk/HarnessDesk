@@ -1,6 +1,6 @@
 import { realpath } from 'node:fs/promises'
-import { isAbsolute, normalize } from 'node:path'
-import type { LeadChatControl, LeadChatControlList, LeadChatHolder } from '@harnessdesk/protocol'
+import { isAbsolute, normalize, relative, sep } from 'node:path'
+import type { LeadChatControl, LeadChatControlList, LeadChatControlProblem, LeadChatHolder } from '@harnessdesk/protocol'
 import { readBoundedJsonResult, writeAtomicJson } from './bounded-json.js'
 
 const MAX_CHATS = 64, MAX_KEYS = 32, MAX_BYTES = 256 * 1024
@@ -29,33 +29,50 @@ export class LeadChatControlStore {
   #projects: Projects = new Map()
   #loaded = false
   #problem: string | null = null
-  #readProblem: string | null = null
+  #readProblem: LeadChatControlProblem | null = null
+  #readFailures = 0
   #holds = new Map<string, number>()
   #epoch = 0
   constructor(private readonly file: string) {}
 
   get problem(): string | null { return this.#problem }
-  get transientProblem(): string | null { return this.#readProblem }
+  get failure(): LeadChatControlProblem | undefined { return this.#problem ? { kind: 'invalid', message: this.#problem } : this.#readProblem ?? undefined }
   #unreadable(): never { this.#problem = LEAD_CONTROL_UNREADABLE; throw new Error(LEAD_CONTROL_UNREADABLE) }
-  #io(code: string): never {
-    this.#readProblem = `The Lead chat control record is temporarily unavailable (${code}). Lead actions are blocked for this operation. Try again.`
+  #projectUnavailable(): never {
     this.#loaded = false
-    throw new Error(this.#readProblem)
+    this.#readProblem = { kind: 'unavailable', message: 'Restore the selected project folder and its access permissions, then try again. Lead actions remain blocked until the folder can be read safely.' }
+    throw new Error(this.#readProblem.message)
   }
-  async #canonical(project: string, allowStale = false): Promise<boolean> {
+  #io(code: string, source: 'record' | 'project'): never {
+    this.#loaded = false
+    const retryable = ['EMFILE', 'ENFILE', 'EBUSY', 'EAGAIN', 'EINTR', 'ETIMEDOUT', 'EIO', 'I/O'].includes(code)
+    // Three failed reads cover the initial attempt, automatic retry and a manual retry.
+    // A persistent record failure needs explicit recovery; Reset cannot repair a project folder.
+    if (!retryable || ++this.#readFailures >= 3) return source === 'record' ? this.#unreadable() : this.#projectUnavailable()
+    this.#readProblem = { kind: 'transient', message: `The Lead chat control record is temporarily unavailable (${code}). Lead actions are blocked for this operation. Try again.` }
+    throw new Error(this.#readProblem.message)
+  }
+  async #canonical(project: string, selectedProject?: string): Promise<boolean> {
     if (project.length > 4096 || !isAbsolute(project) || normalize(project) !== project) return false
-    // Keep stale roots under their original keys; never retarget their holds.
-    try { return await realpath(project) === project || allowStale }
+    let resolved: string
+    try { resolved = await realpath(project) }
     catch (error) {
       const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'ENOTDIR') return allowStale
-      return this.#io(code ?? 'I/O')
+      if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP') return selectedProject !== undefined
+      return this.#io(code ?? 'I/O', selectedProject ? 'record' : 'project')
     }
+    if (resolved === project) return true
+    if (!selectedProject) return false
+    const within = relative(selectedProject, resolved)
+    // A redirect into this project would hide holds under their old key. Fail closed
+    // instead of granting the Lead access to a chat the person still holds.
+    if (!within || within !== '..' && !within.startsWith(`..${sep}`) && !isAbsolute(within)) return this.#unreadable()
+    return true
   }
   async #disk(project: string): Promise<Projects> {
     const read = await readBoundedJsonResult(this.file, MAX_BYTES)
     if (read.kind === 'missing') return new Map()
-    if (read.kind === 'io') return this.#io(read.code)
+    if (read.kind === 'io') return this.#io(read.code, 'record')
     if (read.kind !== 'value') return this.#unreadable()
     const value = read.value
     if (!value || typeof value !== 'object' || Array.isArray(value)) return this.#unreadable()
@@ -69,7 +86,7 @@ export class LeadChatControlStore {
     if (record.version !== 2 || !keysAre(record, ['version', 'projects']) || !record.projects || typeof record.projects !== 'object' || Array.isArray(record.projects)) return this.#unreadable()
     const projects: Projects = new Map()
     for (const [root, chats] of Object.entries(record.projects)) {
-      if (!await this.#canonical(root, true) || !validChats(chats)) return this.#unreadable()
+      if (!await this.#canonical(root, project) || !validChats(chats)) return this.#unreadable()
       projects.set(root, chats)
     }
     return projects
@@ -90,9 +107,9 @@ export class LeadChatControlStore {
   }
   async #read(project: string): Promise<Projects> {
     if (this.#problem) throw new Error(this.#problem)
-    if (!await this.#canonical(project)) throw new Error('The Lead project folder is unavailable or changed. Choose an available project.')
+    if (!await this.#canonical(project)) return this.#projectUnavailable()
     this.#projects = this.#merge(await this.#disk(project))
-    this.#loaded = true; this.#readProblem = null
+    this.#loaded = true; this.#readProblem = null; this.#readFailures = 0
     return this.#projects
   }
   /** Installs the person's fence before any I/O, including when a previous admission is awaiting a path check. */
@@ -105,7 +122,7 @@ export class LeadChatControlStore {
   current(project: string): LeadChatControlList { return { project, chats: this.#projects.get(project) ?? [] } }
   /** Called synchronously at the actual runtime dispatch boundary. Never reads disk or returns a promise. */
   assertDispatch(project: string, id: string): void {
-    if (this.#problem || !this.#loaded) throw new Error(this.#problem ?? this.#readProblem ?? LEAD_CONTROL_UNREADABLE)
+    if (this.#problem || !this.#loaded) throw new Error(this.#problem ?? this.#readProblem?.message ?? LEAD_CONTROL_UNREADABLE)
     if (this.#holds.has(projectKey(project, id)) || this.#projects.get(project)?.some(chat => chat.id === id && chat.holder === 'person'))
       throw new LeadChatHeldError()
   }
@@ -127,7 +144,7 @@ export class LeadChatControlStore {
       const value = { version: 2, projects: Object.fromEntries(projects) }
       if (Buffer.byteLength(JSON.stringify(value)) > MAX_BYTES) throw new Error('The Lead chat control record is full. Hand back chats or use Reset chat control.')
       await writeAtomicJson(this.file, value, async () => {
-        if (!await this.#canonical(project)) throw new Error('Lead chat project changed.')
+        if (!await this.#canonical(project)) return this.#projectUnavailable()
         await this.#disk(project) // Never replace a record that became unreadable during the write.
       })
       const released = release && this.#holds.get(release.key) === release.epoch ? release.key : undefined
@@ -178,7 +195,7 @@ export class LeadChatControlStore {
       for (const [key, epoch] of this.#holds) if (epoch <= through) this.#holds.delete(key)
       this.#projects = new Map([...this.#projects].map(([project, chats]) => [project,
         chats.filter(chat => this.#holds.has(projectKey(project, chat.id))).map(chat => ({ ...chat, holder: 'person' as const }))]))
-      this.#loaded = true; this.#problem = null; this.#readProblem = null
+      this.#loaded = true; this.#problem = null; this.#readProblem = null; this.#readFailures = 0
     })
     this.#tail = reset.catch(() => {})
     return reset
