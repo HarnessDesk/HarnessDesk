@@ -29,6 +29,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Input patch previews keep their content and leave unknown lines blank.** Later file headers no longer appear as edits, and previews without reported locations no longer invent line numbers.
 
+- **New worktree explains when repository information is unavailable.** Unread facts no longer claim the folder is outside Git.
+
 - **Lead is a conversation first.** Ask questions directly, or ask it to start, read, message and stop ordinary chats in its project. Simple tasks no longer need an implementer and independent reviewer. Reviewed work keeps its approval gates; setup problems explain what to change instead of repeating Resume.
 
 - **The phone can reach older sessions and control ordinary conversations.** Paired phones page active and archived sessions, and the Run grant allows starting a session, replying and stopping a turn while keeping the desk's session settings. Approval answers still require Answer.

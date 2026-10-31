@@ -354,6 +354,17 @@ it('keeps repository controls when fresh Git status arrives before repository id
   expect(row('New worktree')).toBeDefined()
 })
 
+it('gives the non-repository reason when repository identity is known', () => {
+  rig({ workspace: { ...MAIN, repo: null, git: { branch: null } } })
+  open()
+  expect(row('New worktree')?.textContent).toContain('This folder is not one.')
+})
+
+it('hides the place control for a confirmed non-repository with no Git facts', () => {
+  rig({ workspace: { ...MAIN, repo: null, git: null } })
+  expect(trigger()).toBeNull()
+})
+
 it('keeps the place control while repository facts have not been read', () => {
   rig({ workspace: { path: MAIN.path, name: MAIN.name, lastOpenedAt: 1 } as WorkspaceEntry })
   expect(trigger()).not.toBeNull()
@@ -362,6 +373,7 @@ it('keeps the place control while repository facts have not been read', () => {
   expect(row('Local')).toBeDefined()
   expect(row('Local')?.getAttribute('aria-checked')).toBe('false')
   expect(row('New worktree')).toBeDefined()
+  expect(row('New worktree')?.textContent).toContain('Repository information is unavailable.')
 })
 
 it('keeps a linked worktree as the default without an explicit draftPlace', () => {
