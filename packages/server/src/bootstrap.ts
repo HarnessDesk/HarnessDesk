@@ -611,8 +611,8 @@ export const createDefaultHost = (
       instructions: () => host.forgePlane.instructions(),
       logger: log,
       resolveSecret: (env) => host.credentials.peek(CredentialBroker.secretName(agent.id, env)),
-      resolveLaunch: (occasion) => installs.launchFor(agent, occasion),
-      resolveExecutable: (spec) => installs.executableFor(agent, spec),
+      resolveLaunch: (occasion) => installs.launchFor(agent, occasion, built),
+      resolveExecutable: (spec) => installs.executableFor(agent, spec, built),
     })
     acpRuntimes.set(agent.id, built)
     return built
