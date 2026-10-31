@@ -2985,18 +2985,21 @@ export class FlowExecutions {
    * none, the run waits for a person with the reason. Idempotent, and it
    * never discards a card, an answer or a finding.
    */
-  supersedeTriggered(id: string, why: string, next: 'round' | 'person'): Promise<void> {
+  supersedeTriggered(id: string, why: string, next: 'round' | 'person', key: string): Promise<boolean> {
     return this.#queue.within(id, async () => {
       const run = this.#get(id)
       if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
       if (next === 'round') {
+        // An existing cause is this firing's round, even when a later firing has since landed.
+        if (run.rounds.some((round) => round.cause === `cause:intake:${key}`)) return false
+        // A crash before opening the round must reuse the boundary already saved for this firing.
+        if (run.intake.supersessionKey === key) return true
         const through = Math.max(run.intake.supersededThrough ?? 0, ...run.rounds.map((round) => round.n))
-        if (!run.intake.dispatchHeld || (run.intake.rearm?.length ?? 0) > 0 || through !== run.intake.supersededThrough) {
-          await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true, rearm: [], supersededThrough: through } })
-        }
-        return
+        await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true, rearm: [], supersededThrough: through, supersessionKey: key } })
+        return true
       }
       if (run.state === 'running' && run.reason !== why) await this.#stall(id, why)
+      return true
     })
   }
 

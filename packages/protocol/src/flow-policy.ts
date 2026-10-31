@@ -245,6 +245,8 @@ export interface FlowIntake {
   readonly rearm?: readonly string[]
   /** Rounds through this number were superseded and their cards cannot be handed out again. */
   readonly supersededThrough?: number
+  /** Firing that last established the supersession boundary, including before its round exists. */
+  readonly supersessionKey?: string
 }
 
 /** Structured cause of a Run's departure from running. */
