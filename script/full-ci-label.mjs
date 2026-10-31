@@ -45,6 +45,8 @@ export async function run({ event, repository, api, dispatch, wait = (ms) => new
   }
   let reuse = false;
   if (lastLabel?.event === 'labeled') {
+    // Run creation can precede tier selection. Give an already matching active
+    // run a bounded chance to produce proof; API errors still fail immediately.
     for (let attempt = 0; attempt <= 6; attempt++) {
       let pending = false;
       const runs = pages(await api(`${prefix}/actions/runs?head_sha=${pr.head.sha}&event=pull_request&per_page=100`, true), 'workflow_runs');
