@@ -26,6 +26,10 @@ export interface LeadBudgetLedger extends LeadBudgetState {
   readonly observation: Event<'observe'> | null
 }
 const ensure = (condition: unknown): void => { if (!condition) throw new Error('lead-budget-refused') }
+/** A valid reserve can lose headroom while it waits for the durable writer. */
+export class LeadBudgetAdmissionRefused extends Error {
+  constructor() { super('lead-budget-refused') }
+}
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 const cost = (tokens: number, rate: number): number => {
   const value = (BigInt(tokens) * BigInt(rate) + 999_999n) / 1_000_000n
@@ -74,6 +78,25 @@ export const leadBudgetProjection = (state: LeadBudgetLedger, now: number): Lead
   if (state.accountingIncomplete || state.spendOverflow || state.requests.some(request => request.uncertain) || state.rounds.some(round => round.startId !== null && round.executionId === null)) spend = 'unknown'
   return parseLeadBudgetState({ version: 1, revision: state.revision, caps: state.caps, leadUsdMicros: state.leadUsdMicros,
     workerUsdMicros: state.workerUsdMicros, reservedUsdMicros: state.reservedUsdMicros, roundsAdmitted: state.rounds.length, spend, stop: state.stop })
+}
+/** Host-only, journaled reopening of one stopped execution. Validate the old
+ * complete projection first, retain every charged dollar, and reserve exactly
+ * one additional round before discarding its final-cost status. Fresh cumulative
+ * metering must cover the active run again before dispatch; old observations
+ * stay as source revision fences but can no longer vouch for its spend.
+ */
+export const reopenLeadBudgetRound = (state: LeadBudgetLedger, executionId: string, roundId: string, now: number): LeadBudgetLedger => {
+  ensure(Number.isSafeInteger(now) && now >= state.now && state.executionIds.includes(executionId) &&
+    typeof roundId === 'string' && roundId.length > 0 && roundId.length <= 200)
+  if (state.rounds.some(round => round.executionId === executionId && round.roundId === roundId)) return state
+  const view = leadBudgetProjection(state, now)
+  ensure(view.stop === null && view.spend === 'known' && state.requests.length === 0 && view.reservedUsdMicros === 0 &&
+    view.roundsAdmitted < view.caps.rounds && state.rounds.length < LEAD_LIMITS.rounds &&
+    view.leadUsdMicros + view.workerUsdMicros < view.caps.usdMicros)
+  return finish({ ...state, now, revision: nextLeadRevision(state.revision),
+    rounds: [...state.rounds, { executionId, roundId, startId: null }],
+    terminalObservations: state.terminalObservations.filter(observation => observation.executionIds[0] !== executionId),
+    observation: null })
 }
 const finish = (state: LeadBudgetLedger): LeadBudgetLedger => {
   const charged = state.settled.reduce((total, item) => Math.min(LEAD_LIMITS.maxUsdMicros + 1, total + item.usdMicros), 0)
@@ -136,10 +159,13 @@ export const reduceLeadBudget = (previous: LeadBudgetLedger | null, value: unkno
       next = { ...next, rounds, goalId: state.goalId ?? event.goalId, executionIds: [...new Set([...state.executionIds, event.executionId])] }; break
     }
     case 'reserve': {
-      admit(state, now, true)
       ensure(state.requests.length < 4096 && !state.requests.some(request => request.reservation.requestId === event.requestId) && !state.settled.some(item => item.id === event.requestId))
+      const view = leadBudgetProjection(state, now)
+      if (view.stop !== null || view.spend !== 'known' || view.roundsAdmitted >= view.caps.rounds ||
+          view.leadUsdMicros + view.workerUsdMicros + view.reservedUsdMicros >= view.caps.usdMicros ||
+          state.leadUsdMicros + state.workerUsdMicros + state.reservedUsdMicros + charge(event, null) > state.caps.usdMicros)
+        throw new LeadBudgetAdmissionRefused()
       const request = { reservation: event, uncertain: false }
-      ensure(state.leadUsdMicros + state.workerUsdMicros + state.reservedUsdMicros + charge(event, null) <= state.caps.usdMicros)
       next = { ...next, requests: [...state.requests, request] }; break
     }
     case 'settle': case 'uncertain': case 'write-off': {

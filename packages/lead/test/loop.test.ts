@@ -69,6 +69,28 @@ test('uncertain requests and budget stops halt without another model call', asyn
   }
 })
 
+test('a capacity refusal while running leaves a durable wait without stopping the budget', async () => {
+  const s = await fixture()
+  await s.approve()
+  const update = s.journal.updateBudget.bind(s.journal)
+  s.journal.updateBudget = async (event: Parameters<typeof update>[0], ...rest: [Parameters<typeof update>[1]?]) => {
+    if (event.type === 'reserve') throw Object.assign(new Error('refused'), { wireCode: 'lead-budget-admission' })
+    return update(event, ...rest)
+  }
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.equal(s.journal.state.phase, 'waiting-for-user')
+    assert.equal(s.journal.state.managementReason, 'lead-request-failed')
+    assert.equal(s.journal.state.budget!.stop, null)
+    assert.equal(s.journal.state.budget!.requests.length, 0)
+    assert.equal(s.fake.requests.length, 0)
+    const reopened = await lead.createLeadJournal(s.storage)
+    assert.equal(reopened.state.phase, 'waiting-for-user')
+    assert.equal(reopened.state.managementReason, 'lead-request-failed')
+  } finally { await loop.close() }
+})
+
 test('replay converts a crash-mid-send reservation to uncertain without settling or retrying', async () => {
   const s = await fixture()
   await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'lost-request', inputTokens: 100, maxOutputTokens: 100,
@@ -348,6 +370,61 @@ test('relevant activity invalidates a result before the deferred observation bat
   await loop.close()
 })
 
+test('a final person-gate notification briefly fences even an unchanged reviewed result', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    const card = s.journal.state.cards.find(card => card.type === 'result')!
+    const previousWakes = new Set(s.journal.state.wakes.map(wake => wake.id))
+    assert.equal(s.journal.state.managementReason, 'lead-result-awaiting-person')
+    s.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'running', flow: 'lead-reviewed-result', round: 2, reason: null })
+    await s.drain()
+    assert.ok(s.journal.state.decidedCards.includes(`${card.id}:${card.revision}`), 'opening the person round can arrive after the first result')
+    await assert.rejects(s.journal.decideCard({ version: 1, cardId: card.id, cardType: 'result', expectedRevision: card.revision, contractDigest: card.contractDigest, choice: 'accept' }))
+    await s.tick(); await loop.idle()
+    const current = s.journal.state.cards.find(one => one.id === card.id)!
+    assert.equal(current.revision, card.revision, 'identical evidence restores the same card after observation')
+    assert.equal(s.journal.state.decidedCards.includes(`${current.id}:${current.revision}`), false)
+    assert.ok(s.journal.state.wakes.some(wake => !previousWakes.has(wake.id) && !wake.modelTurn), 'a completed observation batch has a durable wake receipt')
+  } finally { await loop.close() }
+})
+
+test('a late repair notification invalidates a post-green result after hand-back completion', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const first = exported('createLeadLoop')(s.options)
+  await first.request(input); await first.close()
+  const old = s.journal.state.cards.find(card => card.type === 'result')!
+  const state: lead.LeadState = { ...s.journal.state, phase: 'running', managementReason: null,
+    decidedCards: [...s.journal.state.decidedCards, `${old.id}:${old.revision}`],
+    pr: { repository: 'acme/widgets', number: 7, branch: 'worker', head: 'head-1', branchOwner: 'lead', state: 'open', at: 100,
+      check: { head: 'head-1', state: 'passed', total: 1 } },
+    ciPassed: ['head-1'], handbacks: [{ key: 'repair-1', event: 'checks-failed', kind: 'checks', head: 'old-head', runId: 'run-1', teamId: 'team-1', round: 4, at: 100, stage: 'completed', publishedHead: 'head-1' }] }
+  const records: lead.LeadJournalRecord[] = []
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append(record) { records.push(record) }, checkpoint() { return state } })
+  const observation = await fixture(); observation.setEvidence(spendEvidence())
+  let next = 0
+  const loop = exported('createLeadLoop')({ ...observation.options, journal, nextId: () => `repair-observation-${++next}` })
+  try {
+    await loop.start()
+    assert.equal(lead.leadRepairResultReady(journal.state), true)
+    const card = journal.state.cards.find(card => card.type === 'result' && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))!
+    assert.ok(card)
+    const afterOffer = records.length
+    observation.emit({ type: 'run.changed', run: 'run-1', team: 'team-1', state: 'settled', flow: 'lead-reviewed-result', round: 4, reason: null })
+    await observation.drain()
+    assert.deepEqual(records.slice(afterOffer).map(record => record.type), ['invalidate-results'], 'the notification fence retires the exact fresh card, without a later hand-back or person decision')
+    assert.ok(journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
+    assert.equal(journal.state.handbacks.at(-1)!.stage, 'completed')
+    assert.deepEqual(journal.state.ciPassed, ['head-1'])
+    await observation.tick(); await loop.idle()
+    assert.equal(journal.state.decidedCards.includes(`${card.id}:${card.revision}`), false, 'the final observation restores the unchanged post-green card')
+    assert.equal(journal.state.cards.find(current => current.id === card.id)!.revision, card.revision)
+  } finally { await loop.close() }
+})
+
 test('an ordinary event prevents an older in-flight evidence read from restoring an invalidated result', async () => {
   const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
   await s.approve(); s.setEvidence(spendEvidence())
@@ -473,6 +550,20 @@ test('fresh same-dollar spend samples preserve one live result at its original r
   assert.equal(loop.state.reason, 'lead-result-awaiting-person')
   assert.equal(s.records.filter(record => record.type === 'management').length, managementCount)
   await loop.close()
+})
+
+test('a result already offered with the same evidence and spend is kept, not offered again, by a loop that did not offer it', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const loop = exported('createLeadLoop')(s.options); await loop.request(input)
+  const first = s.journal.state.cards.find(card => card.type === 'result')!
+  await loop.close()
+  // A loop that did not offer it — as for the host's result once a repair's CI passed — finds this same result.
+  const next = exported('createLeadLoop')(s.options)
+  await next.refresh(); await next.idle()
+  assert.equal(liveResults(s).length, 1)
+  assert.equal(liveResults(s)[0]!.revision, first.revision, 'a click on the card already offered still stands')
+  await next.close()
 })
 
 test('notices and seat/team changes refresh observations without waking the model', async () => {

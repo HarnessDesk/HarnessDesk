@@ -146,7 +146,7 @@ export const Sidebar = ({
   const health = useRuntimeHealth()
   const ready = health?.state === 'ready' || health?.state === 'idle'
   const agentsBroken = anyBroken(snapshot.agents ?? [])
-  const top = <LeftColumnTop shown={sidebarPlacement(snapshot) !== 'away'}
+  const top = <LeftColumnTop shown={sidebarPlacement(snapshot) !== 'away'} floating={sidebarPlacement(snapshot) === 'floating'}
     settings={Boolean(settings)}
     modeSwitch={{ value: effectiveWindowMode(snapshot.windowMode, snapshot.workbench),
       onChange: value => store.setWindowMode(value),

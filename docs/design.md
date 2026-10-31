@@ -603,6 +603,9 @@ a code block.
 The popup-wall frame contract checks every menu it opens for width limits,
 plate and content insets, one-line trailing values, label uniqueness, and a
 consistent icon policy. The rule applies equally in light and dark themes.
+It is captured once and checked many times: each wall destination is
+rendered once at each width and read in both themes, and the rules in
+`e2e/ui-system/frame-contract-popup-rules.ts` run over that reading in Node.
 
 ## The second line
 
@@ -2442,6 +2445,10 @@ and digest fences, the page-wide decision lock and explicit focus return remain.
 Automatic plan arrivals never move composer focus; explicit navigation focuses
 the dock. A visible decision has no duplicate plan banner. When its plan is absent,
 the dock states that a decision is needed without offering an action.
+
+Recurring plans add a neutral Repeats chip, a How it repeats block and a per-run allowance. Runs on recurring plans/results opens the existing Settings › Lead list. A task's Runs view composes Row, Rows, Text and Button for its next slot, bounded history and Pause, Resume, Stop and Run once now controls; an Approved once chip distinguishes saved approval from a legacy scheduled request. History reasons wrap and unknown spend is omitted.
+
+Second look is informational LeadContract prose with three host-supplied facts, Said, Found and Did. At 80% is another informational entry, using the warning Text tone for the known dollar total and cap. Neither enters the approval dock. Raise limit… uses the canonical Dialog with Row/Input fields and a direct Apply action. It changes caps under the person's authority without an approval card, and explains that a stopped goal stays stopped. Preview scenes repeating-plan, settings-runs, second-look and allowance-warning cover both themes.
 Refusal, Resume and renewal banners share ComposerNoticeStack with the decision
 controls, using the session's gap above the composer. Renewal's banner states
 only the earlier expiry time, once. An idle dock has

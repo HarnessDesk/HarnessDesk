@@ -787,7 +787,7 @@ const FaceBoard = () => (
     </div>
     </Specimen>
     <p className={styles.rule}>
-      A person is a face; an account is a ring. A face is square unless the person chose round (the Faces dial
+      A person is a face; an account is a ring. A face is round unless the person chose square (the Faces dial
       above), and its corner follows that choice at every size. The tile is the shared avatar primitive — one
       plate, one hairline — its corner stepping up as it grows, and the house mark for any face this build
       does not ship: the third tile is an id no build has.

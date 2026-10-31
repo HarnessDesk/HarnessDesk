@@ -322,6 +322,10 @@ export class Flows implements TeamFlows {
     await this.#executions?.wakeEvidence(goal)
   }
 
+  restartLeadStopped(runId: string, stopKey: string): Promise<FlowRoundState> {
+    if (!this.#executions) throw new Error('lead-second-look-unavailable')
+    return this.#executions.restartLeadStopped(runId, stopKey)
+  }
   prepareLeadRepair(op: { readonly runId: string; readonly teamId: string; readonly key: string; readonly round: number; readonly detail?: string }): Promise<FlowRoundState> {
     if (!this.#executions) throw new Error('lead-repair-unavailable')
     return this.#executions.prepareLeadRepair(op)
@@ -356,9 +360,9 @@ export class Flows implements TeamFlows {
   }
 
   /** Phase 8, host-only: a new head stops the old one's work. See `FlowExecutions.supersedeTriggered`. */
-  supersedeTriggered(run: string, why: string, next: 'round' | 'person'): Promise<void> {
+  supersedeTriggered(run: string, why: string, next: 'round' | 'person', key: string): Promise<boolean> {
     if (!this.#executions) throw new Error('Trigger runs are not available on this desk.')
-    return this.#executions.supersedeTriggered(run, why, next)
+    return this.#executions.supersedeTriggered(run, why, next, key)
   }
 
   /** Phase 8, host-only: a pause or the daily cap holds a trigger's run. See `FlowExecutions.holdTriggered`. */

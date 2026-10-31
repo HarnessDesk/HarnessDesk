@@ -1,15 +1,17 @@
 import {
   leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
-  type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
+  parseLeadBudgetRaise, type LeadBudgetRaise, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
 
 export const LEAD_PLAN_CONSENT_MS = 86_400_000
+/** How long a click on a withdrawn result waits for the Lead to offer that same card again: one read of the desk. */
+export const LEAD_REOFFER_WAIT_MS = 15_000
 
 /** Trusted host feedback survives the resume transition that clears the wait.
  * It is supplied as current context, rather than fabricated assistant history. */
@@ -46,6 +48,9 @@ interface LeadControlsOptions {
   readonly decideResult: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly publishResult?: (card: Extract<LeadCard, { type: 'result' }>, decision: LeadCardDecision, contract: LeadAcceptanceContract) => Promise<void>
   readonly reclaimBranch?: (card: Extract<LeadCard, { type: 'branch-ownership' }>, decision: LeadCardDecision) => Promise<void>
+  readonly approveRepeat?: (cardId: string, contract: LeadAcceptanceContract, reactivate: boolean) => Promise<void>
+  readonly validateRepeat?: (contract: LeadAcceptanceContract) => Promise<string | null>
+  readonly freezeRepeat?: (contract: LeadAcceptanceContract) => Promise<LeadAcceptanceContract>
   readonly stopRequest?: () => Promise<void>
   /** Reads the workers' spend again; a Lead request is refused while that spend is not known. */
   readonly meterSpend?: () => Promise<void>
@@ -346,7 +351,43 @@ export class LeadControls {
       if (journal.state.seq === revision) await journal.settingsChanged()
     }
   }
-  decide(decision: LeadCardDecision): Promise<LeadWindowProjection> { return this.#queue(async () => {
+  /**
+   * A person's decision on a card. The Lead withdraws every undecided result
+   * while observations coalesce and restores it once it has read them again,
+   * so a click can land on a result taken back a moment before. Then the
+   * decision waits, outside the queue, for that same card — same id and
+   * revision, so the same evidence — to be offered again, and is made on it;
+   * a card offered at another revision, or not again within
+   * `LEAD_REOFFER_WAIT_MS`, is refused as before. A card a person decided is
+   * never waited for, and nothing whose effect began is decided again.
+   */
+  async decide(decision: LeadCardDecision): Promise<LeadWindowProjection> {
+    for (let attempt = 1; ; attempt++) {
+      try { return await this.#decideOnce(decision) } catch (error) {
+        const code = (error as { wireCode?: unknown })?.wireCode
+        if ((code !== 'lead-card-stale' && code !== 'lead-card-decided') || attempt >= 3 ||
+          !this.options.journal.withdrawn(decision.cardId, decision.expectedRevision) || !await this.#offeredAgain(decision)) throw error
+      }
+    }
+  }
+  /** Resolves true once the card is undecided again at the same revision; false when it moved on or did not come back in time. */
+  #offeredAgain(decision: LeadCardDecision): Promise<boolean> {
+    const { journal } = this.options, key = `${decision.cardId}:${decision.expectedRevision}`
+    return new Promise(resolve => {
+      let timer: ReturnType<typeof setTimeout> | undefined, detach = () => {}
+      const done = (again: boolean) => { if (timer) clearTimeout(timer); detach(); resolve(again) }
+      const check = () => {
+        const state = journal.state, card = state.cards.find(one => one.id === decision.cardId)
+        if (this.#closed || !card || card.revision !== decision.expectedRevision) done(false)
+        else if (!state.decidedCards.includes(key)) done(true)
+      }
+      detach = journal.onChange(check)
+      timer = setTimeout(() => done(false), LEAD_REOFFER_WAIT_MS)
+      timer.unref?.()
+      check()
+    })
+  }
+  #decideOnce(decision: LeadCardDecision): Promise<LeadWindowProjection> { return this.#queue(async () => {
     const { journal } = this.options, state = journal.state
     if (this.options.readWorkerApprovals?.().some(card => card.id === decision.cardId)) throw leadRefusal('lead-worker-approval')
     if ((await this.options.readPersonActions?.() ?? []).some(action => action.kind === 'worker-approval' && action.id === decision.cardId)) throw leadRefusal('lead-worker-approval')
@@ -357,13 +398,18 @@ export class LeadControls {
     if (state.decidedCards.includes(`${card.id}:${card.revision}`)) throw leadRefusal('lead-card-decided')
     try { parseLeadCardDecisionFor(decision, card) } catch { throw leadRefusal('lead-card-stale') }
     if (card.type !== 'plan' && card.contractDigest !== (state.contract?.digest ?? null)) throw leadRefusal('lead-card-stale')
-    const commit = (committed?: () => void) => journal.decideCard(decision, card.type === 'plan' && decision.choice === 'approve' ? this.options.now() + LEAD_PLAN_CONSENT_MS : null,
+    const commit = async (committed?: () => void) => { await journal.decideCard(decision, card.type === 'plan' && decision.choice === 'approve' ? this.options.now() + LEAD_PLAN_CONSENT_MS : null,
       this.options.stopEffects, card.type === 'waiting' || card.type === 'result' ? async () => {
         const contract = journal.state.contract
         if (!contract || contract.digest !== card.contractDigest) throw leadRefusal('lead-card-stale')
         if (card.type === 'waiting') await this.options.decidePerson(card, decision, contract)
         else if (!(card.publication === 'push' && decision.choice === 'decline')) await this.options.decideResult(card, decision, contract)
       } : undefined, committed)
+      if (card.type === 'plan' && decision.choice === 'approve' && card.contract.repeat) {
+        try { await this.options.approveRepeat?.(card.id, card.contract, !isLeadPlanRenewal(state, card)) }
+        catch { await journal.appendReply('The repeat could not be saved. This approval applies to this run only.') }
+      }
+    }
     if (card.type === 'plan' && decision.choice === 'approve') await this.#commitRequest(commit, false, null, false)
     else {
       // Result/person validation can read several runs while holding the writer.
@@ -383,6 +429,53 @@ export class LeadControls {
       } else await commit()
     }
     return this.#projection()
+  }) }
+  raiseBudget(value: LeadBudgetRaise): Promise<LeadWindowProjection> { return this.#queue(async () => {
+    const input = parseLeadBudgetRaise(value)
+    await this.options.journal.raiseBudget(input.logicalGoalId, input.caps, input.expectedRevision, this.options.now())
+    return this.#projection()
+  }) }
+  /** A schedule slot redeems only a previously person-approved contract, and gets
+   * its own logical goal, step ids, budget and fresh host-clock consent. */
+  runScheduled(task: LeadScheduledTask, slot: number): Promise<{ logicalGoalId: string; approved: boolean; reason?: string }> { return this.#queue(async () => {
+    const { journal, service } = this.options
+    if (this.#inFlight() || !(canBeginLeadGoal(journal.state) || journal.state.phase === 'draft' && !journal.state.messages.length)) throw leadRefusal('lead-request-in-flight')
+    // The same scan as a typed send: a scheduled title or goal reaches the thread and the model.
+    if (leadContainsSecret([task.title, task.goal])) throw leadRefusal('lead-secret-refused')
+    const status = await service.status('anthropic')
+    if (!status.configured || status.unavailable) throw leadRefusal('lead-key-missing')
+    if (canBeginLeadGoal(journal.state)) {
+      try { await this.options.stopRequest?.() } catch { throw leadRefusal('lead-repeat-cleanup-pending') }
+      if (this.#continuation) await this.#continuation
+      if (!canBeginLeadGoal(journal.state)) throw leadRefusal('lead-repeat-cleanup-pending')
+      await journal.beginGoal(this.options.nextId(), this.options.now())
+    }
+    if (task.project && task.project !== this.options.project.path) await this.options.automaticProject?.(task.project)
+    const key = `schedule-${task.id}-${slot}`
+    await journal.setOrigin({ source: 'schedule', event: 'scheduled-run', subject: String(slot), url: null }, key)
+    await journal.appendMessage(key, `Scheduled: ${task.title}${task.goal.trim() === task.title.trim() ? '' : `\n${task.goal}`}`)
+    const logicalGoalId = journal.state.budget!.logicalGoalId
+    if (!task.approved || !this.options.freezeRepeat || !this.options.validateRepeat) {
+      this.#requestInFlight = true; this.#automaticRequest = true; this.#detachContinue()
+      return { logicalGoalId, approved: false }
+    }
+    const reason = await this.options.validateRepeat(task.approved.contract)
+    const original = task.approved.contract
+    if (reason) {
+      await journal.appendReply(`This run needs your approval: ${reason}`)
+      await journal.appendMessage(`${key}-changed`, `Draft a fresh reviewed plan for this recurring task. Repeat ${task.every} at ${task.at}, with up to ${task.perRunCaps?.usdMicros ?? original.caps.usdMicros} microdollars and ${task.perRunCaps?.rounds ?? original.caps.rounds} rounds per run. ${task.goal}`)
+      this.#requestInFlight = true; this.#requestConversation = false; this.#detachContinue()
+      return { logicalGoalId, approved: false, reason }
+    }
+    const contract = await this.options.freezeRepeat({ ...original, revision: Math.max(original.revision + 1, journal.state.seq + 1), digest: '0'.repeat(64), policyRevision: journal.state.policy!.revision,
+      steps: original.steps.map(step => ({ ...step, id: this.options.nextId() })), caps: task.perRunCaps ?? original.caps })
+    const card = await journal.offerCard({ version: 1, id: this.options.nextId(), revision: 1, type: 'plan', contractDigest: contract.digest, contract }, card =>
+      admitLeadCard(journal.state, card, this.options.project, this.options.model))
+    const recheck = await this.options.validateRepeat(original)
+    if (recheck) { await journal.appendReply(`This run needs your approval: ${recheck}`); return { logicalGoalId, approved: false, reason: recheck } }
+    await this.#commitRequest(committed => journal.decideCard({ version: 1, cardId: card.id, cardType: 'plan', expectedRevision: card.revision,
+      contractDigest: card.contractDigest, choice: 'approve' }, this.options.now() + LEAD_PLAN_CONSENT_MS, this.options.stopEffects, undefined, committed), false, null, false)
+    return { logicalGoalId, approved: true }
   }) }
   updateSettings(value: LeadSettingsUpdate): Promise<LeadWindowProjection | LeadNameReceipt> { return this.#queue(async () => {
     const input = parseLeadSettingsUpdate(value), { journal, service } = this.options

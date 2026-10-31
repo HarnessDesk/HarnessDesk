@@ -24,7 +24,8 @@ const { values } = parseArgs({ options: {
 if (values.help) { process.stdout.write(usage); process.exit(0) }
 
 const policy: PhonePolicy = {
-  methods: { 'lead/thread/read': 'read', 'lead/settings/read': 'read', 'lead/thread/send': 'run', 'lead/stop': 'run', 'lead/resume': 'run', 'lead/card/decide': 'answer' },
+  // The host and stand-in use the same tiers; repeat/card JSON is documented in ../lead.md.
+  methods: { 'lead/thread/read': 'read', 'lead/settings/read': 'read', 'lead/schedule/read': 'read', 'lead/thread/send': 'run', 'lead/stop': 'run', 'lead/resume': 'run', 'lead/repeat/control': 'run', 'lead/card/decide': 'answer', 'lead/budget/raise': 'answer' },
   topics: { lead: 'read' },
   defaultTiers: ['read', 'run', 'answer'],
 }

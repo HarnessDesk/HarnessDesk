@@ -28,7 +28,7 @@
 .head { display: flex; align-items: center; gap: var(--hd-space-2); min-height: var(--hd-left-row-h); }
 .headLabel { flex: 1; min-width: 0; }
 .headControls { display: flex; align-items: center; gap: var(--hd-space-0-5); min-width: 0; }
-.top { container: left-column-top / inline-size; }
+.top { container: left-column-top / inline-size; position: relative; }
 .lead, .history, .topActions { display: flex; align-items: center; gap: var(--hd-space-0-5); }
 .top > [data-slot='bar'], .lead, .history { gap: 0; }
 .lead { flex: 1; min-width: 0; container: left-column-controls / inline-size; }
@@ -40,6 +40,11 @@
    and rail inset. Four full 28px targets fit at the native default width
    without gaps; below that, WindowControls carries history in the main bar. */
 @container left-column-controls (width < 112px) { .history { display: none; } }
+/* The main bar is inert under a drawer. Give its folded arrows their own row. */
+@container left-column-top (width < 256px) {
+  .top[data-floating]:has(.history) > [data-slot="bar"] { margin-bottom: var(--hd-frame-icon-button); }
+  .top[data-floating] .history { display: flex; position: absolute; left: var(--hd-sidebar-start-inset); bottom: 0; }
+}
 .seat { height: 100%; display: flex; align-items: center; gap: var(--hd-bar-gap); width: 100%; min-width: 0; }
 .seatMenu { flex: 1; min-width: 0; }
 .topButton[aria-pressed='true'] { background: var(--hd-selected); }

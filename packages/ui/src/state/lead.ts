@@ -101,6 +101,12 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     /** The timetable and the kept lines are the person's files: read and written whole, never part of the thread. */
     async readSchedule() { check(); return transport.request('lead/schedule/read', {}) },
     async updateSchedule(schedule: LeadSchedule) { check(); return transport.request('lead/schedule/update', { schedule }) },
+    async controlRepeat(taskId: string, action: 'pause' | 'resume' | 'stop' | 'run-now') { check(); return transport.request('lead/repeat/control', { taskId, action }) },
+    async raiseLimit(logicalGoalId: string, caps: LeadSettingsProjection['caps']) {
+      checkRead(); const before = state
+      const result = await transport.request('lead/budget/raise', { logicalGoalId, caps, expectedRevision: state.revision })
+      apply(result, before); return result
+    },
     async readMemory() { check(); return transport.request('lead/memory/read', {}) },
     async updateMemory(memory: LeadMemory) { check(); return transport.request('lead/memory/update', { memory }) },
     async resume() { checkRead(); const before = state, result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result, before); return result },

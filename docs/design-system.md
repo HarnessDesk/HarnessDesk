@@ -1990,7 +1990,8 @@ region around every control. The row has no separator hairline beneath it;
 the column's own spacing marks the transition to its brand row. The mode
 switch takes the reserved right edge and is absent in Settings. Gapless
 controls preserve full targets beside the native corner at the default
-width; when history no longer fits, the main bar carries both arrows.
+width; a standing column hands folded history to the main bar, while a
+floating drawer keeps it in its own second row.
 Its compact cells use the shared switcher appearance.
 
 ### `LeftColumnSeat`
@@ -2921,7 +2922,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 4 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 16 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2010 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2008 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
 ## Screens against the standard
 

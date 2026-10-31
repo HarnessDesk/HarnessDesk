@@ -12,7 +12,7 @@ import * as frontDoor from './FrontDoor'
 import * as triggersView from './ProjectTriggers'
 import { PREVIEW_GOAL } from '../preview/goal-fixture'
 import type { AppSnapshot, AppStore } from '../state/store'
-import { triggerProjectView } from '../preview/intake-fixture'
+import { prDefinition, triggerProjectView } from '../preview/intake-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -381,4 +381,145 @@ it.each(['changed', 'broken'] as const)('resolves the selected identity against 
     expect(detail.textContent).toContain('Updated person')
     expect(detail.textContent).not.toContain('Example step: Review')
   }
+})
+
+it.each([true, false])('retains the trigger editor when its root fails (another readable: %s)', async otherReadable => {
+  vi.spyOn(triggersView, 'ProjectTriggers').mockImplementation(({ root }) => <input aria-label="Trigger draft" defaultValue={root} />)
+  const { store, catalog } = await mount(store => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspaces: [
+      { path: '/work/demo', name: 'Demo', lastOpenedAt: 1 }, { path: '/work/other', name: 'Other', lastOpenedAt: 2 },
+    ] })
+  })
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Manage triggers'))!.click())
+  const draft = document.querySelector<HTMLInputElement>('[aria-label="Trigger draft"]')!
+  draft.value = 'Unsaved trigger edit'
+  catalog.mockImplementation(async project => {
+    if (project === '/work/demo' || !otherReadable) throw new Error('Unavailable')
+    return [entry('release', 'project')]
+  })
+  await act(async () => {
+    const workbench = store.getSnapshot().workbench
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'flows', root: null, id: null, origin: null } } } })
+  })
+  expect(document.querySelector('[aria-label="Trigger draft"]')).toBe(draft)
+  expect(draft.value).toBe('Unsaved trigger edit')
+  const dialog = document.querySelector('[role="dialog"][aria-label="Triggers"]')!
+  expect(dialog.textContent).toContain('This project folder is unavailable')
+  const select = dialog.querySelector<HTMLSelectElement>('select')!
+  expect(select.value).toBe('/work/demo')
+  expect([...select.options].map(option => option.value)).toEqual(otherReadable ? ['/work/demo', '/work/other'] : ['/work/demo'])
+  expect(dialog.querySelector('[aria-label="Pause every trigger"]')).not.toBeNull()
+  catalog.mockResolvedValue([entry('release', 'project')])
+  await act(async () => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspaces: [...store.getSnapshot().workspaces, { path: '/work/recovered', name: 'Recovered', lastOpenedAt: 3 }] })
+  })
+  expect(document.querySelector('[aria-label="Trigger draft"]')).toBe(draft)
+  expect(draft.value).toBe('Unsaved trigger edit')
+  expect(dialog.textContent).not.toContain('This project folder is unavailable')
+})
+
+it('retains the explicitly chosen trigger project when it becomes unavailable', async () => {
+  vi.spyOn(triggersView, 'ProjectTriggers').mockImplementation(({ root }) => <input aria-label="Trigger draft" defaultValue={root} />)
+  const { store, catalog } = await mount(store => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspaces: [
+      { path: '/work/demo', name: 'Demo', lastOpenedAt: 1 }, { path: '/work/other', name: 'Other', lastOpenedAt: 2 },
+    ] })
+  })
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Manage triggers'))!.click())
+  const dialog = document.querySelector('[role="dialog"][aria-label="Triggers"]')!
+  const select = dialog.querySelector<HTMLSelectElement>('select')!
+  await act(async () => { select.value = '/work/other'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  const draft = document.querySelector<HTMLInputElement>('[aria-label="Trigger draft"]')!
+  expect(draft.value).toBe('/work/other')
+  draft.value = 'Other project draft'
+  catalog.mockImplementation(async project => {
+    if (project === '/work/other') throw new Error('Unavailable')
+    return [entry('release', 'project')]
+  })
+  await act(async () => {
+    const workbench = store.getSnapshot().workbench
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'flows', root: null, id: null, origin: null } } } })
+  })
+  expect(select.value).toBe('/work/other')
+  expect(document.querySelector('[aria-label="Trigger draft"]')).toBe(draft)
+  expect(draft.value).toBe('Other project draft')
+  expect(dialog.textContent).toContain('This project folder is unavailable')
+  catalog.mockResolvedValue([entry('release', 'project')])
+  await act(async () => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspaces: [...store.getSnapshot().workspaces, { path: '/work/recovered', name: 'Recovered', lastOpenedAt: 3 }] })
+  })
+  expect(select.value).toBe('/work/other')
+  expect(document.querySelector('[aria-label="Trigger draft"]')).toBe(draft)
+  expect(draft.value).toBe('Other project draft')
+  expect(dialog.textContent).not.toContain('This project folder is unavailable')
+  await act(async () => { select.value = '/work/demo'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  expect(document.querySelector<HTMLInputElement>('[aria-label="Trigger draft"]')!.value).toBe('/work/demo')
+})
+
+it('keeps an actual unsaved trigger creation dialog when its project becomes unreadable', async () => {
+  const { store, catalog } = await mount(store => {
+    store.draftTrigger = async ({ id }) => prDefinition({ id })
+    store.renderTriggers = async () => ({ source: 'triggers: []', issues: [] })
+  })
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.includes('Manage triggers'))!.click())
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'New trigger…')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Continue')!.click())
+  const editor = document.querySelector('[role="dialog"][aria-label="Every time"]')!
+  const label = [...editor.querySelectorAll<HTMLLabelElement>('label')].find(node => node.textContent?.includes('Trigger name'))!
+  const name = document.getElementById(label.htmlFor) as HTMLInputElement
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'unsaved-trigger')
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  catalog.mockRejectedValue(new Error('Unavailable'))
+  await act(async () => {
+    const workbench = store.getSnapshot().workbench
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'flows', root: null, id: null, origin: null } } } })
+  })
+  expect(document.querySelector('[role="dialog"][aria-label="Every time"]')).toBe(editor)
+  expect(name.value).toBe('unsaved-trigger')
+})
+
+it('keeps a real Flow Team draft and captured project through failure and recovery', async () => {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+  const { store, catalog } = await mount()
+  const source = vi.spyOn(store, 'flowSource')
+  const start = vi.spyOn(store, 'startFlowGoal')
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Release notes"]')!.click())
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Start Team')!.click())
+  const dialog = document.querySelector('[role="dialog"][aria-label="New Team"]')!
+  expect(dialog).not.toBeNull()
+  expect(source).toHaveBeenCalledWith('/work/demo', 'release', 'project')
+  const task = dialog.querySelector<HTMLTextAreaElement>('textarea[aria-label="What should they do?"]')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(task, 'Keep this Flow draft')
+    task.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const startButton = [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Start Team')!
+  expect(startButton.disabled).toBe(false)
+  catalog.mockRejectedValue(new Error('Unavailable'))
+  await act(async () => {
+    const workbench = store.getSnapshot().workbench
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'flows', root: null, id: null, origin: null } } } })
+  })
+  expect(document.querySelector('[role="dialog"][aria-label="New Team"]')).toBe(dialog)
+  expect(dialog.querySelector('textarea[aria-label="What should they do?"]')).toBe(task)
+  expect(task.value).toBe('Keep this Flow draft')
+  expect(startButton.disabled).toBe(true)
+  expect(dialog.textContent).toContain('This project folder is unavailable')
+  await act(async () => startButton.click())
+  expect(start).not.toHaveBeenCalled()
+  catalog.mockResolvedValue([entry('release', 'project')])
+  await act(async () => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({ workspaces: [...store.getSnapshot().workspaces, { path: '/work/recovered', name: 'Recovered', lastOpenedAt: 3 }] })
+  })
+  expect(dialog.querySelector('textarea[aria-label="What should they do?"]')).toBe(task)
+  expect(task.value).toBe('Keep this Flow draft')
+  expect(startButton.disabled).toBe(false)
+  expect(store.getSnapshot().frontDoor?.context).toEqual({ kind: 'project', root: '/work/demo' })
+  await act(async () => startButton.click())
+  expect(start).toHaveBeenCalledWith(expect.objectContaining({ root: '/work/demo' }))
 })

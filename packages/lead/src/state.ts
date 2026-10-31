@@ -1,7 +1,7 @@
-import { clientTierFor, parseLeadCardDecisionFor, type LeadWakeRecord, type LeadOrigin, type LeadHandback, type LeadName, type LeadFollowPreferences, type LeadPullRequest, type LeadDecisionMessage, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
+import { clientTierFor, parseLeadCardDecisionFor, type LeadWakeRecord, type LeadOrigin, type LeadHandback, type LeadName, type LeadFollowPreferences, type LeadPullRequest, type LeadDecisionMessage, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadCaps, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
 import { applyLeadPolicyDecision, compareLeadPolicyAuthority, sameLeadPolicyValues } from './permissions.js'
 import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity, type LeadPublicationOperation, type LeadOwnedPush } from './journal.js'
-import { reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
+import { reopenLeadBudgetRound, reduceLeadBudget, releaseLeadStart, applyLeadBudgetCard, applyLeadBudgetCaps, type LeadBudgetLedger } from './budget.js'
 
 export const LEAD_SEND_RECEIPTS = 4096
 
@@ -34,7 +34,10 @@ export interface LeadState {
   readonly ownedPush: LeadOwnedPush | null
   readonly decisionMessages: readonly LeadDecisionMessage[]
   readonly completedBudgets: readonly LeadBudgetLedger[]
+  readonly secondLooks: readonly { readonly runId: string; readonly stopKey: string; readonly at: number }[]
   readonly budget: LeadBudgetLedger | null
+  /** The caps in force before a person's Raise limit in this goal; the next goal starts from these. */
+  readonly raisedFrom: LeadCaps | null
   /** Journal sequence of the latched stop whose idempotent cancellation effects need acknowledgement. */
   readonly stopEffectsPending: number | null
   /** Only the host-owned person Stop event acknowledges possible ordinary-chat effects. */
@@ -60,7 +63,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ decisionRevision: 0, wakes: [], origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
+export const initialLeadState = (): LeadState => ({ decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
   cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 /** A read's journal revision remains valid through observation-only wakes. Any
  * intervening decision-affecting write advances the lower bound and refuses it. */
@@ -133,6 +136,9 @@ export const canReportLeadChatEffect = (state: LeadState, attempt: LeadAttemptSt
   !state.budget?.rounds.some(round => round.startId === attempt.id)
 
 /** A cancelled goal may be replaced only after cancellation and recovery are settled. */
+/** A plan approval that only renews the consent already given: the same card the renewal offered, for the same contract. */
+export const isLeadPlanRenewal = (state: LeadState, card: Extract<LeadCard, { type: 'plan' }>): boolean =>
+  state.consent?.renewalCardRevision === card.revision && JSON.stringify(state.contract) === JSON.stringify(card.contract)
 export const canBeginLeadGoal = (state: LeadState): boolean =>
   ['stopped', 'accepted', 'declined'].includes(state.phase) && !!state.budget && state.stopEffectsPending === null &&
   (!hasUncertainLeadChatEffect(state) || state.chatEffectsAcknowledged) &&
@@ -236,10 +242,14 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'new-goal': {
       ensure(canBeginLeadGoal(state) && !state.completedBudgets.some(budget => budget.logicalGoalId === event.id) && state.budget!.logicalGoalId !== event.id)
       const budget = reduceLeadBudget(null, { version: 1, type: 'initialize', now: event.now, logicalGoalId: event.id,
-        caps: state.budget!.caps, freshnessMs: state.budget!.freshnessMs })
+        caps: state.raisedFrom ?? state.budget!.caps, freshnessMs: state.budget!.freshnessMs })
+      // Host observations remain read-only conversation history after ownership resets.
+      const decisionMessages = [...state.decisionMessages, ...state.cards.filter(card => card.type === 'second-look' || card.type === 'allowance-warning')
+        .map(card => ({ card, position: state.cardPositions[card.id]! }))].sort((a, b) => a.position - b.position).slice(-64)
+      while (new TextEncoder().encode(JSON.stringify(decisionMessages)).byteLength > 131072) decisionMessages.shift()
       state = { ...initialLeadState(), seq: event.seq, goalStartedSeq: event.seq, name: state.name, nameChosen: state.nameChosen, wakes: state.wakes, follow: state.follow, policy: state.policy, budget,
         completedBudgets: [...state.completedBudgets, state.budget!], messages: state.messages, olderMessages: state.olderMessages, sends: state.sends,
-        decisionMessages: state.decisionMessages }
+        decisionMessages }
       break
     }
     case 'wake': state = { ...state, wakes: [...state.wakes.filter(wake => wake.id !== event.wake.id), event.wake].sort((a, b) => a.at - b.at).slice(-128) }; break
@@ -370,6 +380,16 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     case 'invalidate-results':
       state = { ...state, retryResult: null, decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(card => card.type === 'result').map(cardKey)])] }; break
 
+    case 'second-look-attempt': case 'second-look-restart': {
+      ensure(state.runs.some(run => run.runId === event.runId) && !state.secondLooks.some(look => look.stopKey === event.stopKey) && state.secondLooks.length < 128)
+      const budget = event.type === 'second-look-restart' ? reopenLeadBudgetRound(state.budget!, event.runId, event.roundId, event.now) : state.budget
+      state = { ...state, budget, secondLooks: [...state.secondLooks, { runId: event.runId, stopKey: event.stopKey, at: event.now }] }; break
+    }
+    case 'person-caps': {
+      ensure(state.budget?.logicalGoalId === event.logicalGoalId && event.now >= state.budget.now)
+      const budget = applyLeadBudgetCaps({ ...state.budget!, now: event.now }, event.caps)
+      state = { ...state, budget, raisedFrom: state.raisedFrom ?? state.budget!.caps, phase: budget.stop ? 'stopped' : state.phase }; break
+    }
     case 'budget': {
       if (['reserve', 'start'].includes(event.event.type)) ensure(!['stopped', 'accepted', 'declined'].includes(state.phase))
       if (event.event.type === 'round' && ['stopped', 'accepted', 'declined'].includes(state.phase)) {
@@ -396,7 +416,10 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       }
       let budget = reduceLeadBudget(state.budget, binding ? { ...event.event, startId: binding.correlationId } : event.event)
       if (previous.phase === 'stopped' && budget.stop === null) budget = reduceLeadBudget(budget, { version: 1, type: 'stop', now: budget.now, reason: 'cancelled' })
-      state = { ...state, budget, phase: budget.stop ? 'stopped' : state.phase }; break
+      // A tightening also lowers what the next goal starts from; it never widens it.
+      const raisedFrom = event.event.type === 'tighten' && state.raisedFrom
+        ? { usdMicros: Math.min(state.raisedFrom.usdMicros, budget.caps.usdMicros), rounds: Math.min(state.raisedFrom.rounds, budget.caps.rounds) } : state.raisedFrom
+      state = { ...state, budget, raisedFrom, phase: budget.stop ? 'stopped' : state.phase }; break
     }
     case 'policy':
       if (state.policy && sameLeadPolicyValues(state.policy, event.policy)) break
@@ -428,7 +451,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(card)
       if (card!.type === 'plan') {
         if (decision.choice === 'approve') {
-          const renewal = state.consent?.renewalCardRevision === card!.revision && JSON.stringify(state.contract) === JSON.stringify(card!.contract)
+          const renewal = isLeadPlanRenewal(state, card!)
           if (!renewal) assertPlanApprovable(state, card!.contract)
           else ensure(event.expiresAt !== null && event.expiresAt > state.consent!.expiresAt)
           ensure(event.expiresAt !== null && event.expiresAt > 0)
@@ -442,7 +465,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
             steps: contract.steps.map(step => locked.find(existing => existing.id === step.id) ?? { id: step.id, state: 'pending', attemptId: null, contractDigest: null }),
             decidedCards: [...new Set([...state.decidedCards, ...state.cards.filter(other => other.type === 'plan' && other.id !== card!.id &&
               other.contract.revision <= contract.revision).map(cardKey)])] }
-          if (state.budget && !renewal) state = { ...state, budget: applyLeadBudgetCaps(state.budget, contract.caps) }
+          if (state.budget && !renewal) state = { ...state, budget: applyLeadBudgetCaps(state.budget, contract.caps), raisedFrom: null }
         } else state = { ...state, phase: state.contract === null ? 'declined' : managementPhase(state) }
       } else if (card!.type === 'branch-ownership') {
         const pr = state.pr
@@ -455,7 +478,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         } else state = { ...state, phase: 'following', managementReason: null }
       } else if (card!.type === 'budget-change') {
         ensure(state.budget && card!.contractDigest === (state.contract?.digest ?? null))
-        state = { ...state, budget: applyLeadBudgetCard(state.budget!, event.decision, card!) }
+        // An approved allowance is standing: the next goal starts from it, not from before a Raise limit.
+        state = { ...state, budget: applyLeadBudgetCard(state.budget!, event.decision, card!), raisedFrom: decision.choice === 'decline' ? state.raisedFrom : null }
       } else if (card!.type === 'permission-change') {
         ensure(state.policy)
         state = { ...state, policy: applyLeadPolicyDecision(event.decision, card, state.policy!, state.contract?.digest ?? null) }

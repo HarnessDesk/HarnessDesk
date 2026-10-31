@@ -9,7 +9,7 @@ import { createLeadJournal, type LeadJournalRecord } from '@harnessdesk/lead'
 import { LeadBudgets } from '../src/lead/budgets.js'
 
 const key = 'sk-test-not-real-0000'
-const input = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 }
+const input = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 } as const
 const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { probeRuntime?: (runtime: any) => Promise<any>; onRuntimeUnavailable?: (reason: string) => void; resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any; seats?: unknown } = {}) => {
   const home = await mkdtemp('/tmp/hd-ls-')
   t.after(() => rm(home, { recursive: true, force: true }))
@@ -304,7 +304,7 @@ const providerUntil = async (predicate: () => boolean) => {
   assert.ok(predicate(), 'provider boundary did not answer')
 }
 /** Real service, supervisor and journal; only the child pipes, broker and provider are synthetic. */
-const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { resolveLead?: () => Promise<string>; holdExit?: boolean; journal?: Awaited<ReturnType<typeof createLeadJournal>>; prices?: Record<string, typeof providerPrice> } = {}) => {
+const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: { resolveLead?: () => Promise<string>; holdExit?: boolean; journal?: Awaited<ReturnType<typeof createLeadJournal>>; recover?: () => Promise<void>; shutdownMs?: number; probeRuntime?: () => Promise<{ supported: true }>; prices?: Record<string, typeof providerPrice> } = {}) => {
   const home = await mkdtemp('/tmp/hd-provider-')
   t.after(() => rm(home, { recursive: true, force: true }))
   const journal = hooks.journal ?? await createLeadJournal({ read: async () => [], append: async () => {} })
@@ -340,17 +340,18 @@ const providerRig = async (t: any, send: (request: any) => Promise<any>, hooks: 
   const { LeadService } = await import('../src/lead/service.js')
   let supervisor!: LeadSupervisor
   const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, model: 'synthetic-model', prices: hooks.prices ?? { 'synthetic-model': providerPrice },
+    ...(hooks.probeRuntime ? { probeRuntime: hooks.probeRuntime } : {}),
     messagesTransport: { send }, broker: { leadStatus: async () => ({ configured: true, protection: 'synthetic' }),
       resolveLead: hooks.resolveLead ?? (async () => key), storeLead: async () => {}, deleteLead: async () => {} },
     resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('unused') },
-    register: () => ({ admission: {} as any, close() {} }), childStarted: () => () => {}, recover: async () => {},
+    register: () => ({ admission: {} as any, close() {} }), childStarted: () => () => {}, recover: hooks.recover ?? (async () => {}),
     openDoor: async () => ({ descriptor: { home, pid: 1, startedAt: 1, hostVersion: 'test', protocolVersion: 1, socketPath: home + '/desk.sock' }, close: async () => {} }) as any,
     stopOwned: async () => { stopped++ }, createSupervisor: options => {
       settings = options
       // Exit still awaits journal recovery writes. Keep the short deadline only
       // for cases deliberately holding exit; normal cleanup gets the real grace.
       return supervisor = new LeadSupervisor({ ...options, spawn: () => child, connectDesk: async () => null, startupMs: 1000,
-        ...(hooks.holdExit ? { shutdownMs: 20 } : {}) })
+        ...(hooks.shutdownMs !== undefined ? { shutdownMs: hooks.shutdownMs } : hooks.holdExit ? { shutdownMs: 20 } : {}) })
     } })
   t.after(async () => { if (hooks.holdExit) child.emit('exit', 0, null); await service.close() })
   await service.setEnabled(true); await supervisor.ensure()
@@ -598,6 +599,48 @@ const reserveThroughChild = (s: Awaited<ReturnType<typeof providerRig>>, request
 }])
 const settleThroughChild = (s: Awaited<ReturnType<typeof providerRig>>, requestId: string, inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0) =>
   s.journalRpc('updateBudget', [{ version: 1, type: 'settle', now: 100, requestId, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens }])
+
+test('a cap tightened before durable reservation refuses without killing or granting authority', async t => {
+  let sends = 0
+  const s = await providerRig(t, async () => { sends++; return { status: 200, body: '{}' } })
+  const update = s.journal.updateBudget.bind(s.journal)
+  let tightened = false
+  s.journal.updateBudget = async (event, ...rest) => {
+    if (event.type === 'reserve' && event.requestId === 'cap-race' && !tightened) {
+      tightened = true
+      await update({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 1, rounds: 4 } })
+    }
+    return update(event, ...rest)
+  }
+  const result = reserveThroughChild(s, 'cap-race').then(() => 'accepted', () => 'refused')
+  await providerUntil(() => s.killed() || s.replies.length > 0)
+  assert.equal(s.killed(), false, 'capacity refusal must not poison the child')
+  assert.equal(await result, 'refused')
+  assert.equal(s.replies[0].state.budget.caps.usdMicros, 1, 'refusal synchronizes the durable host state')
+  assert.equal(s.journal.state.budget!.requests.length, 0)
+  await assert.rejects(s.settings.providerSend('cap-race', providerBody(), new AbortController().signal))
+  assert.equal(sends, 0)
+  // A different host-owned reservation with the same id must not turn the
+  // rejected child's earlier attempt into settlement authority.
+  await update({ version: 1, type: 'reserve', now: 100, requestId: 'cap-race', inputTokens: 0, maxOutputTokens: 0,
+    inputUsdMicrosPerMillion: 0, outputUsdMicrosPerMillion: 0, cacheReadUsdMicrosPerMillion: 0, cacheWriteUsdMicrosPerMillion: 0 })
+  void settleThroughChild(s, 'cap-race').catch(() => {})
+  await providerUntil(s.killed)
+  assert.equal(s.journal.state.budget!.settled.length, 0, 'refused reserve cannot authorize settlement')
+})
+
+for (const kind of ['duplicate', 'price'] as const) test(`capacity does not excuse a ${kind} reserve`, async t => {
+  const s = await providerRig(t, async () => { assert.fail('forged reserve must not send') })
+  if (kind === 'duplicate') await reserveThroughChild(s, 'existing')
+  await s.journal.updateBudget({ version: 1, type: 'tighten', now: 100, caps: { usdMicros: 1, rounds: 4 } })
+  const before = s.replies.length
+  void s.journalRpc('updateBudget', [{ version: 1, type: 'reserve', now: 100,
+    requestId: kind === 'duplicate' ? 'existing' : 'forged', inputTokens: 2000, maxOutputTokens: 32,
+    ...providerPrice, ...(kind === 'price' ? { inputUsdMicrosPerMillion: 0 } : {}) }]).catch(() => {})
+  await providerUntil(() => s.killed() || s.replies.length > before)
+  assert.equal(s.killed(), true)
+  assert.equal(s.replies.length, before)
+})
 const refusedSettle = async (s: Awaited<ReturnType<typeof providerRig>>, requestId: string, inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0) => {
   const before = s.replies.length
   void settleThroughChild(s, requestId, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens)
@@ -1009,6 +1052,23 @@ test('a host-journaled repair resumes without starting or waiting for a manageme
   assert.equal(s.spawns(), 0)
 })
 
+test('recovery and evidence changes leave a person wait childless until the next send', async t => {
+  const s = await rig(t, { probeRuntime: async () => ({ supported: true }) })
+  await s.journal.setManagementPhase('waiting-for-user', 'lead-result-awaiting-person')
+  await s.service.setEnabled(true)
+  await s.service.recover()
+  assert.equal(s.process().live, false)
+  assert.equal(s.spawns(), 0)
+  assert.equal(s.bootstrap.length, 0)
+  s.service.evidenceChanged()
+  assert.equal(s.process().live, false, 'an evidence hint does not create a management observer')
+  assert.equal(s.service.requestInFlight, false)
+  assert.equal(s.journal.state.managementReason, 'lead-result-awaiting-person')
+  await s.service.send(input)
+  assert.equal(s.process().live, true)
+  assert.equal(s.spawns(), 1, 'the next person request starts the child through the ordinary bootstrap')
+})
+
 test('live child activity keeps the service cancellable after send returns and clears independently of durable reservations', async t => {
   const s = await rig(t)
   await s.service.setEnabled(true); await s.service.send(input)
@@ -1029,4 +1089,94 @@ test('live child activity keeps the service cancellable after send returns and c
   s.options().onActivity(true)
   await s.service.stopGoal()
   assert.equal(s.service.requestInFlight, false)
+})
+
+
+for (const failed of [false, true]) test(`an accepted repeat waits for exited-child recovery beyond shutdown grace, failed=${failed}`, async t => {
+  let hold = false, release!: () => void, began!: () => void
+  const cleanup = new Promise<void>(resolve => { release = resolve }), recovering = new Promise<void>(resolve => { began = resolve })
+  const s = await providerRig(t, async () => { throw new Error('No paid request is needed') }, { probeRuntime: async () => ({ supported: true }), shutdownMs: 10, recover: async () => {
+    if (!hold) return
+    began(); await cleanup
+    if (failed) throw new Error('synthetic recovery failure')
+  } })
+  const { parseLeadAcceptanceContract } = await import('@harnessdesk/protocol')
+  const { leadBudgetProjection } = await import('@harnessdesk/lead')
+  const c = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Update acme-web', project: { id: 'acme-web', path: '/workspace/acme-web' }, policyRevision: 1,
+    repeat: { every: 'mondays', at: '09:00' }, caps: s.journal.state.budget!.caps, assertions: [{ id: 'check', kind: 'check', description: 'Checks pass' }],
+    steps: [{ id: 'work', title: 'Update dependencies', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended',
+      assignments: [{ role: 'implement', agent: 'implementer', seat: { runtime: 'fixture' }, ceiling: 'edit' }] }] })
+  await s.journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: c.digest, contract: c })
+  await s.journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: c.digest, choice: 'approve' }, 1000)
+  await s.journal.offerCard({ version: 1, id: 'result', revision: 1, type: 'result', contractDigest: c.digest, outcome: 'reviewed', summary: 'Checks pass', assertions: [], budget: leadBudgetProjection(s.journal.state.budget!, 100) })
+  await s.journal.decideCard({ version: 1, cardId: 'result', cardType: 'result', expectedRevision: 1, contractDigest: c.digest, choice: 'accept' })
+  const oldGoal = s.journal.state.budget!.logicalGoalId
+  const { LeadControls } = await import('../src/lead/controls.js')
+  const { leadContractDigest } = await import('../src/lead/assembly.js')
+  let id = 0, shutdownFailure: string | null = null
+  const controls = new LeadControls({ journal: s.journal, service: s.service, project: c.project, model: 'synthetic-model', now: () => 101,
+    nextId: () => `repeat-${++id}`, push() {}, decidePerson: async () => {}, decideResult: async () => {},
+    stopRequest: async () => { try { await s.service.stopGoal() } catch (error) { shutdownFailure = error instanceof Error ? error.message : 'unknown'; throw error } }, validateRepeat: async () => null,
+    freezeRepeat: async value => ({ ...value, digest: leadContractDigest(value) }) })
+  t.after(() => controls.close())
+  hold = true
+  let settled = false
+  const stop = controls.runScheduled({ id: 'repeat', title: c.goal, goal: c.goal, project: c.project.path, every: 'mondays', at: '09:00', enabled: true, lastRunAt: 100,
+    approved: { contract: c, contractDigest: c.digest }, perRunCaps: c.caps }, 101).then(() => ({ error: null }), error => ({ error })).finally(() => { settled = true })
+  try {
+    await recovering
+    await new Promise(resolve => setTimeout(resolve, 50))
+    assert.equal(s.supervisor.live, false, 'the child has already exited')
+    assert.equal(settled, false, `a process deadline must not discard ongoing host recovery (${shutdownFailure ?? 'still pending'})`)
+    assert.equal(s.journal.state.budget!.logicalGoalId, oldGoal, 'recovery still fences the next goal')
+  } finally { release() }
+  const result = await stop
+  controls.close()
+  if (failed) {
+    assert.equal(result.error?.wireCode, 'lead-repeat-cleanup-pending')
+    assert.equal(result.error.message, 'lead-repeat-cleanup-pending')
+    assert.equal(s.journal.state.budget!.logicalGoalId, oldGoal)
+    await assert.rejects(s.service.send(input), /lead-cleanup-pending/)
+  } else {
+    assert.equal(result.error, null)
+    assert.notEqual(s.journal.state.budget!.logicalGoalId, oldGoal)
+    assert.equal(s.journal.state.phase, 'running')
+    assert.equal(s.journal.state.steps[0]!.state, 'pending')
+  }
+})
+
+test('a goal cannot outwait a shutdown deadline while its child remains live', async t => {
+  const s = await providerRig(t, async () => { throw new Error('No paid request is needed') }, { holdExit: true, probeRuntime: async () => ({ supported: true }) })
+  await assert.rejects(s.service.stopGoal(), /lead-child-shutdown-timeout/)
+  assert.equal(s.supervisor.live, true)
+  await assert.rejects(s.service.send(input), /lead-cleanup-pending/)
+})
+
+test('a dead child with hung host recovery remains refused after a bounded wait', async t => {
+  let hold = false, release!: () => void, began!: () => void
+  const cleanup = new Promise<void>(resolve => { release = resolve }), recovering = new Promise<void>(resolve => { began = resolve })
+  const s = await providerRig(t, async () => { throw new Error('No paid request is needed') }, {
+    probeRuntime: async () => ({ supported: true }), shutdownMs: 10,
+    recover: async () => { if (hold) { began(); await cleanup } },
+  })
+  const goal = s.journal.state.budget!.logicalGoalId
+  hold = true
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let settled = false
+  const stop = s.service.stopGoal().then(() => null, error => error).finally(() => { settled = true })
+  try {
+    await recovering
+    t.mock.timers.tick(20)
+    await new Promise(resolve => setImmediate(resolve))
+    t.mock.timers.tick(60_000)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(settled, true, 'hung host recovery must leave a retryable refusal')
+    assert.equal((await stop)?.message, 'lead-exit-recovery-pending')
+    assert.equal(s.supervisor.live, false)
+    assert.equal(s.journal.state.budget!.logicalGoalId, goal)
+    await assert.rejects(s.service.send(input), /lead-cleanup-pending/)
+  } finally {
+    hold = false; release(); t.mock.timers.reset()
+    await stop; await s.service.recover()
+  }
 })

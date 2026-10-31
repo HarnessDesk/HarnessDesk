@@ -71,6 +71,16 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }
     if (method === 'lead/wakes/read') return { revision: current.revision, wakes: scene === 'wake-ledger' ? leadWakeFixture : [] }
+    if (method === 'lead/budget/raise') {
+      if (params.expectedRevision !== current.revision) throw { code: 'lead-revision-stale' }
+      emit({ ...current, revision: current.revision + 1, settings: { ...current.settings, caps: params.caps }, thread: { ...current.thread,
+        ...(current.thread.budget && { budget: { ...current.thread.budget, caps: params.caps } }) } })
+      return current
+    }
+    if (method === 'lead/repeat/control') {
+      schedule = { ...schedule, tasks: schedule.tasks.map(task => task.id !== params.taskId ? task : params.action === 'stop' ? { ...task, enabled: false } : params.action === 'pause' || params.action === 'resume' ? { ...task, paused: params.action === 'pause' } : { ...task, lastRunAt: Date.now(), runs: [...(task.runs ?? []), { slot: Date.now(), at: Date.now(), state: 'started' as const, logicalGoalId: 'repeat-run-now' }].slice(-12) }) }
+      return schedule
+    }
     if (method === 'lead/schedule/read') return schedule
     if (method === 'lead/schedule/update') return schedule = params.schedule
     if (method === 'lead/memory/read') return memory
@@ -82,7 +92,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
   Object.assign(store, { lead: createLeadState(store.transport, () => true) })
   if (scene !== 'loading') emit(current)
   {
-    const workbench = { ...emptyWorkbench(), navigation: { current: scene.startsWith('settings-') ? { kind: 'settings' as const, route: { kind: 'section' as const, section: 'lead' as const, focus: null } } : { kind: 'lead' as const }, back: [], forward: [] } }
+    const workbench = { ...emptyWorkbench(), navigation: { current: scene.startsWith('settings-') ? { kind: 'settings' as const, route: { kind: 'section' as const, section: 'lead' as const, focus: scene === 'settings-runs' ? 'repeat:repeat-repeat-plan' : null } } : { kind: 'lead' as const }, back: [], forward: [] } }
     Object.assign(store.getSnapshot(), { workbench, layout: workbench.main, activeSessionKey: null, sessions: new Map(), sidebarCollapsed: false, sidebarFloating: false })
   }
   return store

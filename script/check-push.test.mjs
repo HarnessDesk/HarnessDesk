@@ -286,10 +286,10 @@ test('Node package selection excludes CI end-to-end files and runs dependants on
 
 test('Node package selection leaves the dedicated Node 26 Lead files to CI', async () => {
   await fixture(async (directory, put) => {
-    put('packages/server/test/lead-e2e.test.ts', '')
+    put('packages/server/test/lead-e2e-plan.test.ts', '')
     put('packages/server/test/lead-service.test.ts', '')
     const { createPlan } = await api()
-    const plan = createPlan(directory, { paths: ['packages/server/test/lead-e2e.test.ts'], chromium: true })
+    const plan = createPlan(directory, { paths: ['packages/server/test/lead-e2e-plan.test.ts'], chromium: true })
     assert.deepEqual(plan.steps.find(step => step.name === 'Node tests: server').args,
       ['--test', '--test-timeout=120000', 'packages/server/dist/test/host.test.js'])
   })

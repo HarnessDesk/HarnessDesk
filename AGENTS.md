@@ -208,15 +208,14 @@ pnpm verify
 ```
 
 It validates the lockfile with `pnpm install --frozen-lockfile`, runs the build,
-every test suite (Node packages, gate scripts, UI and desktop) plus the
-server's Lead end-to-end test file, flow-host-evidence and intake test files and
-the command line's end-to-end file in runs of their own, at a wider per-file
-timeout than the rest (Node 22 caps `--test-timeout` per
-file, cumulatively, where these legitimately run long; it is a per-test
-default on newer Node),
-the host-retention test file alone at the ordinary timeout (its heap and CPU
-workload runs without competing server fixtures), the Lead supervisor, service
-and client tests separately, the Lead assembly child and host repair tests,
+every test suite (Node packages, gate scripts, UI and desktop) with the Node
+packages' tests in the groups `script/node-tests.mjs` declares — the Node
+end-to-end group (flow-host-evidence, intake, the command line's end-to-end
+files and the Lead journal's disk-rotation file) and the Lead end-to-end group at a wider per-file timeout than the rest
+(Node 22 caps `--test-timeout` per file, cumulatively, where these legitimately
+run long), the host-retention test file in an invocation of its own (its heap
+and CPU workload runs without competing server fixtures), and the Lead group
+(supervisor, service, client, assembly child and host repair) on its runtime —
 the UI typecheck,
 the layering rule, the half-applied-fixes check, the tracked-secrets scan, the reachable-methods check, the
 third-party notices check, the design-system gates, the UI-system architecture gate, interface drift, the

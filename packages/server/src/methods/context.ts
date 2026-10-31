@@ -162,6 +162,8 @@ export interface HostContext {
   leadStop(params: HostParams<'lead/stop'>): Promise<HostResult<'lead/stop'>>
   leadResume(params: HostParams<'lead/resume'>): Promise<HostResult<'lead/resume'>>
   leadSteer(params: HostParams<'lead/steer'>): Promise<HostResult<'lead/steer'>>
+  leadRepeatControl(params: HostParams<'lead/repeat/control'>): Promise<HostResult<'lead/repeat/control'>>
+  leadBudgetRaise(params: HostParams<'lead/budget/raise'>): Promise<HostResult<'lead/budget/raise'>>
   leadScheduleRead(): Promise<HostResult<'lead/schedule/read'>>
   leadScheduleUpdate(params: HostParams<'lead/schedule/update'>): Promise<HostResult<'lead/schedule/update'>>
   leadMemoryRead(): Promise<HostResult<'lead/memory/read'>>
@@ -319,6 +321,8 @@ export interface HostContext {
     ids(): Set<string>
     /** The runtime's own `info` overlaid with what the host knows about it. */
     infoOf(runtime: AgentRuntime): RuntimeInfo
+    /** The captured registration behind this runtime, if it still owns the id. */
+    installOwner(runtime: AgentRuntime): AgentRuntime | undefined
     /** Runtimes whose usage the person has not switched off. */
     metered(): readonly AgentRuntime[]
     /** The runtime's extension plane, or a refusal that names the runtime. */
