@@ -2080,12 +2080,13 @@ export class AcpRuntime implements AgentRuntime {
       const refusalGeneration = this.#refusalGeneration
       // Publish a newer session refusal before asking the CLI again. Its
       // credential file may still describe the sign-in the session rejected.
-      const freshRefusal = this.#config.account?.status && beforeStatus.state === 'required' && this.#statusObservation !== refusalGeneration
+      const pendingSignOut = beforeStatus.state === 'required' && beforeStatus.signedOut && this.#signingOut > 0
+      const freshRefusal = this.#config.account?.status && beforeStatus.state === 'required' && (pendingSignOut || this.#statusObservation !== refusalGeneration)
       const status = freshRefusal
         ? { accounts: [], signInMethods: this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : [] }
         : await this.#account.status()
       if (!this.#currentAuthWorld(authGeneration)) return this.getAccount()
-      this.#statusObservation = refusalGeneration
+      if (!pendingSignOut) this.#statusObservation = refusalGeneration
       if (!freshRefusal && this.#config.account?.status && this.#refusalGeneration === refusalGeneration && this.#signIn === beforeStatus && beforeStatus.state === 'required') {
         this.#noteSignIn({ state: 'observed' })
       }
@@ -2320,6 +2321,13 @@ export class AcpRuntime implements AgentRuntime {
         this.emit({ type: 'account/changed', runtime: runtimeId(this.#config.id) })
       } else {
         await this.#account!.logout()
+      }
+      // Receipts completed inside this successful barrier must not become
+      // current merely because the barrier is no longer pending. A newer
+      // independent logout keeps its own receipts; failed newer worlds may
+      // already have been aliased to this one and must be discarded too.
+      for (const world of this.#deferredAuthObservations.keys()) {
+        if (canonicalAuthWorld(world) === signedOutAuthGeneration) this.#deferredAuthObservations.delete(world)
       }
     } catch (error) {
       // Only what this sign-out wrote is taken back: an answer that landed
@@ -2894,7 +2902,7 @@ export class AcpRuntime implements AgentRuntime {
   #observeAuth(world: AuthWorld | undefined, observation: SignInObservation, kind: AuthReceipt['kind']): void {
     if (!world) return
     const receipt: AuthReceipt = { observation, kind, sequence: ++this.#authObservationClock }
-    if (this.#currentAuthWorld(world)) this.#applyAuthObservation(receipt, kind === 'cli')
+    if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) this.#applyAuthObservation(receipt, kind === 'cli')
     else if (this.#authWorldReachable(world)) {
       const canonical = canonicalAuthWorld(world)
       const receipts = this.#deferredAuthObservations.get(canonical) ?? {}
@@ -2917,7 +2925,7 @@ export class AcpRuntime implements AgentRuntime {
     for (const [world, receipts] of this.#deferredAuthObservations) {
       for (const receipt of [receipts.open, receipts.strong]) {
         if (!receipt || receipt.sequence <= this.#acceptedAuthObservation) continue
-        if (this.#currentAuthWorld(world)) {
+        if (this.#currentAuthWorld(world) && !canonicalAuthWorld(world).pending) {
           const blockedOpen = receipt.kind === 'open' && this.#config.identityIsStatus && this.#signIn.state === 'required' && this.#signIn.signedOut
           if (!blockedOpen && (!latest || receipt.sequence > latest.sequence)) latest = receipt
         } else if (this.#authWorldReachable(world)) {
