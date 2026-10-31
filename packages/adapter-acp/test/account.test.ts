@@ -957,6 +957,76 @@ test('an idle cached account returns after a failed sign-out', async (t) => {
   } finally { release(); await runtime.dispose() }
 })
 
+test('a sign-in begun before a failed sign-out can still establish sign-in', async (t) => {
+  let releaseLogout!: () => void
+  const logoutHeld = new Promise<void>((resolve) => { releaseLogout = resolve })
+  t.mock.method(CliAccount.prototype, 'logout', async () => { await logoutHeld; throw new Error('sign-out failed') })
+  const runtime = statusIsRecord(() => DEV, {}, { logout: { command: FAKE_CLI, args: ['logout'] } })
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  await runtime.start()
+  let releaseLogin!: () => void
+  let arrived!: () => void
+  const loginHeld = new Promise<void>((resolve) => { releaseLogin = resolve })
+  const received = new Promise<void>((resolve) => { arrived = resolve })
+  const request = runtime.connection.request.bind(runtime.connection)
+  t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+    const answer = await request<T>(method, params, timeout)
+    if (method === 'authenticate') { arrived(); await loginHeld }
+    return answer
+  })
+  try {
+    runtime.refusedForSignIn(new Error('Authentication required. Sign in again.'))
+    await runtime.login('acp:device')
+    await received
+    const out = runtime.logout()
+    const rejected = assert.rejects(out, /sign-out failed/)
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+    releaseLogout()
+    await rejected
+    releaseLogin()
+    await until(events, (event) => event.type === 'account/loginCompleted')
+    const account = await runtime.getAccount()
+    assert.deepEqual(account.accounts, [DEV])
+    assert.equal(account.refusal, undefined)
+  } finally { releaseLogout(); releaseLogin(); await runtime.dispose() }
+})
+
+test('a failed older sign-out cannot undo the epoch of a newer successful sign-out', async (t) => {
+  let releaseLogout!: () => void
+  const held = new Promise<void>((resolve) => { releaseLogout = resolve })
+  let calls = 0
+  t.mock.method(CliAccount.prototype, 'logout', async () => {
+    if (++calls === 1) { await held; throw new Error('sign-out failed') }
+  })
+  const runtime = statusIsRecord(() => DEV, {}, { logout: { command: FAKE_CLI, args: ['logout'] } })
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  await runtime.start()
+  let releaseLogin!: () => void
+  let arrived!: () => void
+  const loginHeld = new Promise<void>((resolve) => { releaseLogin = resolve })
+  const received = new Promise<void>((resolve) => { arrived = resolve })
+  const request = runtime.connection.request.bind(runtime.connection)
+  t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+    const answer = await request<T>(method, params, timeout)
+    if (method === 'authenticate') { arrived(); await loginHeld }
+    return answer
+  })
+  try {
+    await runtime.login('acp:device')
+    await received
+    const older = runtime.logout()
+    const rejected = assert.rejects(older, /sign-out failed/)
+    await runtime.logout()
+    releaseLogout()
+    await rejected
+    releaseLogin()
+    await until(events, (event) => event.type === 'account/loginCompleted')
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+  } finally { releaseLogout(); releaseLogin(); await runtime.dispose() }
+})
+
 test('an old session refusal cannot replace a newer sign-out', async (t) => {
   const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE_AGENT], env: { FAKE_ACP_AUTH_REQUIRED: '1' }, sharedSessionProcess: true, identityIsStatus: true, resolveIdentity: () => DEV, account: { logout: { command: FAKE_CLI, args: ['logout'] } } })
   await runtime.start()

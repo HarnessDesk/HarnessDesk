@@ -2290,7 +2290,8 @@ export class AcpRuntime implements AgentRuntime {
     const overAcp = !this.#config.account?.logout && this.#logsOutOverAcp()
     if (!overAcp && !this.#account) throw new Error(`${this.#config.name} declares no sign-out command.`)
     const before = this.#signIn
-    this.#authGeneration++
+    const beforeAuthGeneration = this.#authGeneration
+    const signedOutAuthGeneration = ++this.#authGeneration
     const beforeAccount = this.#lastAccount
     const beforeSignedOutIdentity = this.#signedOutIdentity
     this.#signedOutIdentity = this.#config.identityIsStatus ? this.#identityStatus() : null
@@ -2318,6 +2319,7 @@ export class AcpRuntime implements AgentRuntime {
     } catch (error) {
       // Only what this sign-out wrote is taken back: an answer that landed
       // while the command ran is newer than the rollback and stands.
+      if (this.#authGeneration === signedOutAuthGeneration) this.#authGeneration = beforeAuthGeneration
       if (this.#signIn === signedOut) {
         this.#signIn = before
         this.#signedOutIdentity = beforeSignedOutIdentity
