@@ -73,9 +73,10 @@ const workers =
  *
  * Skipped by default is wrong for a new spec, so the list is the other way
  * round: a `frame-*` spec is a geometry spec until it is named here. The
- * popup contracts check the ink of a disabled or destructive row against the
- * same token in whichever theme runs; they stay on the geometry side because
- * both ends of that comparison come from the active theme.
+ * popup contracts (`frame-contract-popup-*`) are neither: they render each
+ * destination once, light, and read its ink again after switching the theme
+ * in place, so every run checks both themes and no title names one
+ * (`frame-contract-popup-snapshot.ts`).
  * `script/ci-browser-plan.test.mjs` fails a spec that asserts a colour and is
  * not listed.
  */

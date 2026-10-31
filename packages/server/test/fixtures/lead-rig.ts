@@ -142,7 +142,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
     journal.state.cards.find((card): card is Extract<LeadCard, { type: T }> => card.type === type && !journal.state.decidedCards.includes(`${card.id}:${card.revision}`))
   const personGates = () => journal.state.runs.flatMap(run => host.teamPlane.stateFor(run.teamId).intents.filter(card => card.role === 'accept'))
   const worktrees = () => [...new Set(host.flowsPlane.leadRuns().flatMap(run => Object.values(run.seatPlans ?? {}).flatMap(plan => plan.handed.map(checkout => checkout.cwd))))]
-  const releaseWorkers = async () => { for (const marker of ['write', 'repair', 'review', 'followRepair']) await writeFile(join(gates, marker), '') }
+  const releaseWorkers = async (markers = ['write', 'repair', 'review', 'followRepair']) => { for (const marker of markers) await writeFile(join(gates, marker), '') }
   const restoreEnvironment = () => {
     if (previousHome === undefined) delete process.env['HARNESSDESK_HOME']; else process.env['HARNESSDESK_HOME'] = previousHome
     if (previousPath === undefined) delete process.env['PATH']; else process.env['PATH'] = previousPath
@@ -287,7 +287,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       }
       return [text('Waiting for fresh worker checks and review.')]
     }
-    provider = enabled ? await leadMessagesServer(reply, () => options.holdOrdinaryContinuation === true ? provider.requests.length === 2 : options.holdRunning === true ? journal?.state.runs.length > 0 : options.holdPlanning === true || options.scenario === 'interrupted') : {
+    provider = enabled ? await leadMessagesServer(reply, () => options.premature === true ? !prematureStart && journal?.state.runs.length > 0 && journal.state.steps.some(step => step.id === 'second' && step.state === 'pending') : options.holdOrdinaryContinuation === true ? provider.requests.length === 2 : options.holdRunning === true ? journal?.state.runs.length > 0 : options.holdPlanning === true || options.scenario === 'interrupted', options.premature === true) : {
       requests: [], pending: false, transport: { async send() { throw new Error('disabled provider') } }, release() {}, interrupt() {}, async close() {},
     }
     const setupHost = async () => {
