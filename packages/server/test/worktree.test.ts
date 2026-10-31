@@ -802,6 +802,34 @@ test("the main checkout's uncommitted edits come along onto the branch", async (
   assert.equal(await readFile(join(repo, 'notes.txt'), 'utf8'), 'notes, edited and not committed\n', 'the edit came along')
 })
 
+test('a staged rename origin is not an ignored entry', async (t) => {
+  const { repo, worktrees } = await fixture(t)
+  await writeFile(join(repo, '!! source'), 'rename me\n')
+  await writeFile(join(repo, '.gitignore'), 'ignored.txt\nignored-dir/\n')
+  await git(repo, 'add', '-A')
+  await git(repo, 'commit', '-q', '-m', 'prepare rename')
+  const wt = await worktrees.create(repo, { name: 'rename-origin' })
+  await git(wt.path, 'mv', '!! source', 'renamed.txt')
+  await writeFile(join(wt.path, 'shared.txt'), 'modified\n')
+  await writeFile(join(wt.path, 'untracked.txt'), 'untracked\n')
+
+  const cleanIgnored = await worktrees.changes(wt.path)
+  assert.equal(cleanIgnored.modified, 2)
+  assert.equal(cleanIgnored.untracked, 1)
+  assert.deepEqual([...cleanIgnored.files].sort(), ['renamed.txt', 'shared.txt', 'untracked.txt'])
+  assert.equal(cleanIgnored.ignoredCount, 0)
+  assert.deepEqual(cleanIgnored.ignored, [])
+
+  await writeFile(join(wt.path, 'ignored.txt'), 'ignored\n')
+  await mkdir(join(wt.path, 'ignored-dir'), { recursive: true })
+  await writeFile(join(wt.path, 'ignored-dir', 'child.txt'), 'ignored\n')
+  const withIgnored = await worktrees.changes(wt.path)
+  assert.equal(withIgnored.modified, 2)
+  assert.equal(withIgnored.untracked, 1)
+  assert.equal(withIgnored.ignoredCount, 2)
+  assert.deepEqual([...withIgnored.ignored].sort(), ['ignored-dir/', 'ignored.txt'])
+})
+
 test('what git ignores is named before the folder goes, and a file is told from a rebuildable folder', async (t) => {
   /* #209: `git status` counts none of this, so the checkout reads as clean and
      `git worktree remove` deletes it without being forced. An `.env` that was
