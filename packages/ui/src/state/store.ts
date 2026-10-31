@@ -7539,11 +7539,11 @@ export class AppStore {
    * Switches workspace. The panes belong to a workspace, so the previous
    * layout is put away and this one's comes back.
    */
-  async openWorkspace(path: string): Promise<boolean> {
+  async openWorkspace(path: string, { preserveLayout = false }: { readonly preserveLayout?: boolean } = {}): Promise<boolean> {
     const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
       ? this.#conversationWorkspaceSource : undefined
     const navigation = ++this.#navigationEpoch
-    return await this.#openWorkspace(path, () => navigation === this.#navigationEpoch, undefined, previous) !== null
+    return await this.#openWorkspace(path, () => navigation === this.#navigationEpoch, undefined, previous, undefined, preserveLayout) !== null
   }
 
   #workspaceOpensPending = 0
@@ -7675,7 +7675,7 @@ export class AppStore {
    * when the user cancelled; rejects when this build has no native dialog,
    * which is the caller's cue to fall back to the in-app picker.
    */
-  async pickWorkspace(): Promise<boolean> {
+  async pickWorkspace({ preserveLayout = false }: { readonly preserveLayout?: boolean } = {}): Promise<boolean> {
     if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
     this.#workspaceOpensPending += 1
     try {
@@ -7685,7 +7685,7 @@ export class AppStore {
         ? this.#conversationWorkspaceSource : undefined)
       this.#navigationEpoch += 1
       this.#patch({ workspace })
-      if (this.#layouts) this.#restoreLayout(workspace.path)
+      if (this.#layouts && !preserveLayout) this.#restoreLayout(workspace.path)
       await this.loadWorkspaces()
       return true
     } finally {

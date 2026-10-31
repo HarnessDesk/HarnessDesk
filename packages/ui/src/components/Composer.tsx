@@ -89,7 +89,7 @@ import {
   TeamIcon,
   TerminalIcon,
 } from './Icons'
-import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl, chooseProjectForDraft } from './ComposerControls'
+import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl, chooseProjectForDraft, type ProjectFolderChoice } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import { draftsOf, NEW_SESSION_DRAFT_KEY, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
@@ -213,7 +213,7 @@ type Trigger =
 // Every incarnation of the new-session draft shares one submission hold.
 const draftSubmissions = new WeakMap<ReturnType<typeof useStore>, object>()
 
-export const Composer = ({ onChooseProject }: { onChooseProject: () => void | Promise<boolean> }) => {
+export const Composer = ({ onChooseProject }: { onChooseProject: ProjectFolderChoice }) => {
   const store = useStore()
   const messagesHeld = useContext(RoomMessagesHeld)
   const snapshot = useSnapshot()
