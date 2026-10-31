@@ -161,17 +161,34 @@ try {
         const execution = [...snapshot.flowExecutions.values()].find(one => one.document.flow.name === name && snapshot.goals.has(one.goal))
         return { id: execution.id, goal: execution.goal }
       }, name)
+      // The browser regression advances only this observer's clock. Host and
+      // renderer keep running normally; the first referee read is held for one
+      // poll, making the two phases exceed one window but fit separately.
+      const phaseClock = process.argv.includes('--observation-clock-test') && template === 'comparison'
+        ? { offset: 0, active: false, judge: false, transition: false } : null
+      const now = () => Date.now() + (phaseClock?.offset ?? 0)
       const observe = async (matches, label) => {
         let view, execution
-        const until = Date.now() + 30000
+        const until = now() + 30000
         do {
           view = await rig.host.call('goal/read', { goal: run.goal })
           execution = await rig.host.call('flow/execution', { run: run.id })
+          if (phaseClock?.active && !phaseClock.judge && view.board.intents.some(one => one.role === 'judge' && one.state === 'done' && one.outcome === 'picked')) {
+            phaseClock.judge = true
+            phaseClock.offset += 25000
+          }
+          if (phaseClock?.judge && !phaseClock.transition) {
+            view = { ...view, board: { ...view.board, intents: view.board.intents.filter(one => one.role !== 'referee') } }
+          }
           assert.deepEqual(rig.errors, [], 'no scripted agent tool failure')
           assert.notEqual(execution.state, 'stalled', execution.reason ?? 'the template stalled')
           if (matches(view.board.intents, execution)) break
           await new Promise(done => setTimeout(done, 50))
-        } while (Date.now() < until)
+          if (phaseClock?.judge && !phaseClock.transition) {
+            phaseClock.transition = true
+            phaseClock.offset += 8000
+          }
+        } while (now() < until)
         if (!matches(view.board.intents, execution)) {
           const facts = await rig.host.call('evidence/board', { room: run.goal })
           writeFileSync(join(out, `${template}-local-flow-diagnostic.json`), `${JSON.stringify({ label, execution, cards: view.board.intents, facts }, null, 2)}\n`)
@@ -393,9 +410,11 @@ try {
           await details.getByRole('button', { name: 'Done', exact: true }).click()
         }
         await photograph('09-judging-board')
+        if (phaseClock) phaseClock.active = true
         rig.release('judge')
         await observe(cards => cards.some(one => one.role === 'judge' && one.state === 'done' && one.outcome === 'picked'), 'judge picked')
         const picked = await observe(cards => cards.some(one => one.role === 'referee' && one.state === 'open'), 'person merge step')
+        if (phaseClock) assert.deepEqual([phaseClock.judge, phaseClock.transition, phaseClock.offset], [true, true, 33000], 'both controlled observation phases ran')
         await expect(boardTitle('Merge the picked change')).toBeVisible()
         await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge the picked change$/ })).toBeVisible()
         await photograph('10-referee-board')
