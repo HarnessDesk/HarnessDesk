@@ -809,6 +809,51 @@ test('retired ACP logout reply cannot retire replacement process mode', async (t
   } finally { release(); await runtime.dispose() }
 })
 
+for (const overlap of [true, false]) {
+  test(`alternate sign-in ${overlap ? 'inside overlapping' : 'inside independent'} logout worlds follows their settlement`, async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'hd-acp-login-world-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const mode = join(dir, 'mode')
+    const releases: Array<() => void> = []
+    let calls = 0
+    t.mock.method(CliAccount.prototype, 'logout', async () => {
+      const call = ++calls
+      await new Promise<void>(resolve => { releases.push(resolve) })
+      if (call === 2) throw new Error('sign-out failed')
+      writeFileSync(mode, 'out')
+    })
+    const runtime = keyed(() => undefined, { FAKE_ACP_AUTH_MODE_FILE: mode }, undefined, true)
+    const events: AgentEvent[] = []
+    runtime.subscribe(event => events.push(event))
+    await runtime.start()
+    try {
+      const older = runtime.logout()
+      if (!overlap) { releases[0]!(); await older; assert.equal(readFileSync(mode, 'utf8'), 'out') }
+      const newer = assert.rejects(runtime.logout(), /sign-out failed/)
+      const login = await runtime.login('acp:google')
+      const done = await until(events, event => event.type === 'account/loginCompleted' && event.loginId === login.loginId)
+      assert.equal(done.type === 'account/loginCompleted' && done.success, true)
+      assert.equal(readFileSync(mode, 'utf8'), 'google', 'the peer applied sign-in before its response')
+      if (overlap) { releases[0]!(); await older; assert.equal(readFileSync(mode, 'utf8'), 'out') }
+      releases[1]!(); await newer
+      const status = await runtime.getAccount()
+      if (overlap) {
+        assert.equal(readFileSync(mode, 'utf8'), 'out')
+        // The later world survives rollback, although the fake peer applied
+        // the older logout afterwards. ACP cannot report that ordering.
+        assert.deepEqual(status.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+        assert.equal(status.refusal, undefined)
+        await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+      } else {
+        assert.equal(readFileSync(mode, 'utf8'), 'google')
+        assert.deepEqual(status.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+        assert.equal(status.refusal, undefined)
+        await runtime.createSession({ cwd: process.cwd() })
+      }
+    } finally { for (const release of releases) release(); await runtime.dispose() }
+  })
+}
+
 for (const order of ['older first', 'newer first'] as const) {
   for (const outcome of ['both fail', 'older succeeds', 'newer succeeds', 'both succeed'] as const) {
     test(`mode in nested logout worlds: ${outcome}, ${order}`, async (t) => {
@@ -848,7 +893,8 @@ for (const order of ['older first', 'newer first'] as const) {
         key = undefined
         await runtime.reloadSecrets()
         const status = await runtime.getAccount()
-        if (outcome === 'both fail') assert.match(status.refusal ?? '', /key was removed/)
+        const retained = outcome === 'both fail' || (outcome === 'older succeeds' && order === 'older first')
+        if (retained) assert.match(status.refusal ?? '', /key was removed/)
         else { assert.equal(status.refusal, undefined); assert.equal(status.unchecked, true) }
         await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
       } finally { for (const release of releases) release(); await runtime.dispose() }

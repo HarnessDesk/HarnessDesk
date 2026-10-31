@@ -2305,7 +2305,6 @@ export class AcpRuntime implements AgentRuntime {
     const process = overAcp ? this.#controlProcessGeneration : undefined
     const before = this.#signIn
     const beforeAuthGeneration = canonicalAuthWorld(this.#authGeneration)
-    const beforeWasPending = beforeAuthGeneration.pending === true
     // Each logout fences older work with its own identity. Failure joins its
     // world to the preceding one without reusing an identity for a later logout.
     const signedOutAuthGeneration: AuthWorld = { previous: beforeAuthGeneration, pending: true }
@@ -2337,7 +2336,6 @@ export class AcpRuntime implements AgentRuntime {
       } else {
         await this.#account!.logout()
       }
-      signedOutAuthGeneration.succeeded = true
       this.#applyAuthMode({ mode: 'other', ordinal: modeOrdinal, process })
       // Receipts completed inside this successful barrier must not become
       // current merely because the barrier is no longer pending. A newer
@@ -2349,13 +2347,6 @@ export class AcpRuntime implements AgentRuntime {
     } catch (error) {
       // Only what this sign-out wrote is taken back: an answer that landed
       // while the command ran is newer than the rollback and stands.
-      // A newer barrier cannot carry mode evidence through a predecessor
-      // that was pending when it started and has since signed out.
-      if (beforeWasPending && canonicalAuthWorld(beforeAuthGeneration).succeeded) {
-        for (const [world, receipts] of this.#deferredAuthObservations) {
-          if (canonicalAuthWorld(world) === signedOutAuthGeneration) { delete receipts.mode; delete receipts.hostMode }
-        }
-      }
       signedOutAuthGeneration.parent = canonicalAuthWorld(beforeAuthGeneration)
       // A later pending logout may have saved our temporary sign-out as its
       // prior state. If we failed, it must roll back past us too.
@@ -4156,7 +4147,7 @@ const describeAcp = (error: unknown): string => {
 
 // A failed logout aliases its world to the world before it. Pending work may
 // retain old nodes, so find iteratively and compress paths as they are read.
-type AuthWorld = { parent?: AuthWorld; previous?: AuthWorld | undefined; pending?: boolean; succeeded?: boolean }
+type AuthWorld = { parent?: AuthWorld; previous?: AuthWorld | undefined; pending?: boolean }
 
 type AuthReceipt = { observation: SignInObservation; kind: 'login' | 'cli' | 'open' | 'refusal'; sequence: number; process?: number | undefined }
 type AuthModeReceipt = { mode: 'key' | 'other'; ordinal: number; process?: number | undefined }
