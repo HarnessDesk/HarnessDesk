@@ -46,7 +46,7 @@ const KEPT = 1_024
 const git = async (cwd: string, args: readonly string[]): Promise<string> =>
   (await readGit(cwd, args, { timeout: 20_000, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })).stdout
 
-const keep = <T>(map: Map<string, T>, key: string, value: T): T => {
+export const keep = <T>(map: Map<string, T>, key: string, value: T): T => {
   map.delete(key)
   map.set(key, value)
   if (map.size > KEPT) map.delete(map.keys().next().value!)
@@ -54,17 +54,17 @@ const keep = <T>(map: Map<string, T>, key: string, value: T): T => {
 }
 
 /** One file's part of a mark: what it is now, its text when asked for, and when it last changed. */
-interface Part { readonly text: string; readonly body: string; readonly changed: number }
+export interface Part { readonly text: string; readonly body: string; readonly changed: number }
 
 /** Absent is an answer too: a branch that is only packed, or gone, has no loose file. */
-const ABSENT: Part = { text: '-', body: '', changed: 0 }
+export const ABSENT: Part = { text: '-', body: '', changed: 0 }
 
 /**
  * A file's identity, size and times — its text too when `text` asks and it is
  * small — or null when it is there and cannot be read. `identity` leaves out
  * size and times: a directory's move with every lock file git writes in it.
  */
-const partOf = async (path: string, text: boolean, identity = false): Promise<Part | null> => {
+export const partOf = async (path: string, text: boolean, identity = false): Promise<Part | null> => {
   try {
     const info = await stat(path, { bigint: true })
     const body = text && info.isFile() && info.size <= 4096n ? await readFile(path, 'utf8') : ''
@@ -120,7 +120,7 @@ const dirsOf = async (cwd: string): Promise<Dirs | null> => {
 }
 
 /** Parts read since `since`, as one mark; null when any could not be read. */
-const markFrom = (parts: readonly (Part | null)[], since: number): { readonly text: string; readonly trusted: boolean } | null => {
+export const markFrom = (parts: readonly (Part | null)[], since: number): { readonly text: string; readonly trusted: boolean } | null => {
   if (parts.some((part) => part === null)) return null
   return {
     text: (parts as Part[]).map((part) => part.text).join('|'),
