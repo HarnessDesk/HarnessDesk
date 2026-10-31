@@ -385,7 +385,7 @@ export const createDefaultHost = (
         pendingCodexSlots.set(slot.id, { slot, runtime })
         return runtime
       } catch (error) {
-        slots.remove(slot.id)
+        slots.remove(slot.id, true, slot)
         throw error
       }
     },
@@ -398,7 +398,7 @@ export const createDefaultHost = (
     rollbackAdd: async (runtime) => {
       const owned = pendingCodexSlots.get(runtime.info.id) ?? codexSlots.get(runtime.info.id)
       if (owned?.runtime !== runtime) return
-      try { slots.remove(runtime.info.id) } finally {
+      try { slots.remove(runtime.info.id, true, owned.slot) } finally {
         if (pendingCodexSlots.get(runtime.info.id)?.runtime === runtime) pendingCodexSlots.delete(runtime.info.id)
         if (codexSlots.get(runtime.info.id)?.runtime === runtime) codexSlots.delete(runtime.info.id)
       }
@@ -406,8 +406,9 @@ export const createDefaultHost = (
     remove: async (id) => {
       // The host has unregistered the runtime. Its native ownership wins over
       // an ignored ACP row, and ends even if persisting slot removal fails.
-      if (codexSlots.has(id)) {
-        try { slots.remove(id) } finally { codexSlots.delete(id) }
+      const owned = codexSlots.get(id)
+      if (owned) {
+        try { slots.remove(id, true, owned.slot) } finally { codexSlots.delete(id) }
         return
       }
       // An Antigravity account is a registry row, so it is forgotten by
