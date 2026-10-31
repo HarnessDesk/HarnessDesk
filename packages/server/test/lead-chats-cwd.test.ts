@@ -3,7 +3,7 @@ import { mkdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { createLeadJournal, type LeadPermissionCall, type LeadPermissionContext } from '@harnessdesk/lead'
-import { itemId, turnId } from '@harnessdesk/protocol'
+import { leadMessageEnvelope, itemId, turnId } from '@harnessdesk/protocol'
 import { evidenceDesk, until } from './fixtures/evidence-desk.js'
 
 const rig = async (t: TestContext) => {
@@ -249,7 +249,7 @@ for (const action of ['cancel', 'clear', 'policy'] as const) test(`queued dispat
   await until(() => dispatchFinished || dispatchRefused || record.queue.status === 'paused' || r.sends() > 1 ? true : null, 'final queued dispatch decision')
   if (action === 'cancel') await until(() => r.sends() === 2 ? true : null, 'uncancelled queue tail')
   assert.equal(r.sends(), action === 'cancel' ? 2 : 1)
-  assert.ok(!sent.includes('Scoped follow-up'), 'the cancelled prompt never reaches the runtime')
+  assert.ok(!sent.includes(leadMessageEnvelope('Dex', 'Scoped follow-up')), 'the cancelled prompt never reaches the runtime')
   if (action === 'cancel') assert.ok(sent.includes('Person follow-up'))
   assert.equal(record.queue.messages.length, action === 'policy' ? 1 : 0)
   if (action === 'policy') assert.match(record.queue.reason ?? '', /policy|mode|read/i)
@@ -349,7 +349,7 @@ test('cancelling a queued item after runtime send begins retains a later rejecti
   const send = live.send.bind(live)
   live.send = async (input, options) => {
     const result = await send(input, options)
-    if (input.some(part => part.type === 'text' && part.text === 'Scoped follow-up')) {
+    if (input.some(part => part.type === 'text' && part.text === leadMessageEnvelope('Dex', 'Scoped follow-up'))) {
       entered(); await held
       throw new Error('Synthetic runtime receipt lost after send began')
     }
@@ -360,7 +360,7 @@ test('cancelling a queued item after runtime send begins retains a later rejecti
   const draining = r.host.call('turn/queue/flush', target)
   try {
     await sending
-    assert.deepEqual(sent, ['Person message', 'Scoped follow-up'], 'the runtime has crossed the send boundary')
+    assert.deepEqual(sent, ['Person message', leadMessageEnvelope('Dex', 'Scoped follow-up')], 'the runtime has crossed the send boundary')
     await r.host.call('turn/queue/cancel', { ...target, id: selected.id })
   } finally { release(); await draining }
   assert.equal(record.queue.status, 'paused')
@@ -369,7 +369,7 @@ test('cancelling a queued item after runtime send begins retains a later rejecti
   assert.match(warnings[0]!, /The queued message was not sent:.*Synthetic runtime receipt lost after send began/)
   live.finish()
   r.runtime.emit({ type: 'session/status', sessionId: r.session.id, status: { type: 'idle' } })
-  assert.deepEqual(sent, ['Person message', 'Scoped follow-up'], 'idle must not bypass the uncertain runtime effect fence')
+  assert.deepEqual(sent, ['Person message', leadMessageEnvelope('Dex', 'Scoped follow-up')], 'idle must not bypass the uncertain runtime effect fence')
   assert.equal(record.queue.messages.length, 1)
   assert.equal(record.queue.messages[0]?.state, 'queued')
   assert.equal(record.queue.status, 'paused')

@@ -1,11 +1,14 @@
 import type {
-  LeadSavedApproval, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
+  LeadChatControl, LeadSavedApproval, LeadChatControlList, LeadWakeRecord, HostMethodName, HostParams, HostResult, LeadAction, LeadActionInput, LeadCardDecision, LeadChanged, LeadMemory, LeadPresence, LeadSchedule, LeadProgress, LeadSteer, LeadWindowProjection, LeadSettingsProjection, LeadSettingsUpdate, LeadThread, WireNotification,
 } from '@harnessdesk/protocol'
 
 interface LeadTransport {
   request<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>>
 }
 export interface LeadState {
+  /** Chats the Lead has written to, their holders and its envelope keys. */
+  readonly chats: readonly LeadChatControl[]
+  readonly chatControlProblem: string | null
   readonly wakes?: readonly LeadWakeRecord[]
   readonly savedApprovals?: readonly LeadSavedApproval[]
   readonly revokedApprovals?: readonly LeadSavedApproval[]
@@ -29,7 +32,7 @@ export interface LeadState {
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
-  const initial = (): LeadState => ({ savedApprovals: [], revokedApprovals: [], personActions: [], revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, presence: null, steers: null, error: null })
+  const initial = (): LeadState => ({ chats: [], chatControlProblem: null, savedApprovals: [], revokedApprovals: [], personActions: [], revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, presence: null, steers: null, error: null })
   let state = initial(), wakeRevision = -1
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
@@ -48,15 +51,38 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     }
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
-      : structuredClone({ wakes: state.wakes ?? [], savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
+      : structuredClone({ chats: state.chats, chatControlProblem: state.chatControlProblem, wakes: state.wakes ?? [], savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
         requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
+    for (const listener of listeners) listener()
+  }
+  const applyChats = (list: LeadChatControlList) => {
+    if (!available()) return
+    state = { ...state, chats: list.chats, chatControlProblem: list.problem ?? null }
     for (const listener of listeners) listener()
   }
   return {
     get state(): LeadState { return state },
     reset(): void { state = initial(); wakeRevision = -1; for (const listener of listeners) listener() },
     subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } },
-    changed(notification: WireNotification): void { if (available() && notification.method === 'lead/changed') apply(notification.params) },
+    changed(notification: WireNotification): void {
+      if (!available()) return
+      if (notification.method === 'lead/changed') apply(notification.params)
+      else if (notification.method === 'lead/chats/controlChanged') applyChats(notification.params)
+    },
+    async readChatControl() {
+      check()
+      try { applyChats(await transport.request('lead/chats/control', {})) }
+      catch (failure) {
+        if (available()) {
+          state = { ...state, chatControlProblem: failure instanceof Error ? failure.message : String(failure) }
+          for (const listener of listeners) listener()
+        }
+        throw failure
+      }
+    },
+    async resetChatControl() { check(); applyChats(await transport.request('lead/chats/resetControl', {})) },
+    async takeOverChat(id: string) { check(); applyChats(await transport.request('lead/chat/takeOver', { id })) },
+    async handBackChat(id: string) { check(); applyChats(await transport.request('lead/chat/handBack', { id })) },
     async readWakes() {
       check(); const result = await transport.request('lead/wakes/read', {})
       if (available() && result.revision >= wakeRevision) {

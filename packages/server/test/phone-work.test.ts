@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  approvalId, itemId, runtimeId, sessionId, turnId, type Approval, type ApprovalOption, type PhoneWorkSnapshot, type Session, type SessionSummary, type Turn,
+  deskContextContent, leadMessageEnvelope, leadMessageKey, approvalId, itemId, runtimeId, sessionId, turnId, type Approval, type ApprovalOption, type PhoneWorkSnapshot, type Session, type SessionSummary, type Turn,
 } from '@harnessdesk/protocol'
 import { PhoneWork, phoneSessionValues, WorkspaceFeed, type PhoneWorkPorts } from '../src/phone-work.js'
 import { boundLeadChatRead } from '../src/lead/chat-read.js'
@@ -511,4 +511,42 @@ test('ordinary phone approvals cannot allow undisplayed extra grants', () => {
   assert.equal(assessed.turn.highRisk, true)
   assert.match(assessed.turn.why, /Extra permissions.*desk/)
   assert.equal(assessed.turn.sessionGrant, undefined)
+})
+
+test('phone threads expose only host-verified Lead words, historical name and the current holder', async () => {
+  const envelope = leadMessageEnvelope('Dex', 'Run the tests.')
+  const content = [deskContextContent(envelope)]
+  let control = { id: key, holder: 'lead' as 'lead' | 'person', sent: [leadMessageKey(key, envelope)] }
+  const r = rig({ chatControl: async () => control })
+  r.setSession(session([{ id: turnId('lead-t'), status: 'completed', items: [{ id: itemId('lead-u'), type: 'userMessage', content }] }]))
+  const first = await r.work.threadRead({ id: key })
+  assert.equal(first.leadChatHolder, 'lead')
+  assert.deepEqual(first.turns[0], { type: 'you', id: 'lead-u', text: 'Run the tests.', attachments: [], lead: { name: 'Dex' } })
+  assert.equal(JSON.stringify(first).includes('on the user'), false)
+  control = { ...control, holder: 'person' }
+  assert.equal((await r.work.threadRead({ id: key })).leadChatHolder, 'person')
+  const unknown = rig()
+  unknown.setSession(session([{ id: turnId('lookalike-t'), status: 'completed', items: [{ id: itemId('lookalike-u'), type: 'userMessage', content }] }]))
+  const plain = await unknown.work.threadRead({ id: key })
+  assert.equal(plain.leadChatHolder, undefined)
+  assert.equal((plain.turns[0] as any).lead, undefined)
+})
+
+test('a phone read rechecks session ownership after the host control read', async () => {
+  let own = true
+  const r = rig({ isOwn: () => own, chatControl: async () => { own = false; return undefined } })
+  await assert.rejects(r.work.threadRead({ id: key }), /not a session this desk can show/)
+})
+
+test('a verified block never attributes additional person words to the Lead on the phone', async () => {
+  const envelope = leadMessageEnvelope('Dex', 'Run the tests.')
+  const r = rig({ chatControl: async () => ({ id: key, holder: 'lead', sent: [leadMessageKey(key, envelope)] }) })
+  r.setSession(session([{ id: turnId('mixed-t'), status: 'completed', items: [{ id: itemId('mixed-u'), type: 'userMessage',
+    content: [deskContextContent(envelope), { type: 'text', text: 'Also check the docs.' }] }] }]))
+  const message = (await r.work.threadRead({ id: key })).turns[0]!
+  assert.equal(message.type, 'you')
+  if (message.type !== 'you') return
+  assert.equal(message.lead, undefined)
+  assert.equal(message.text, 'Run the tests.\nAlso check the docs.')
+  assert.equal(message.text.includes('<context'), false)
 })

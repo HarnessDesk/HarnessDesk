@@ -1559,7 +1559,8 @@ pixels. A 400px reading column is protected in this order:
   a wide window folds the same way. At 520px the branch's name, the status's
   word and the tasks chip's words fold to their marks — still read out, and
   on hover — while back and forward retain their title-row targets, moving
-  to the main bar if the sidebar has no room, and the plan meter shows its
+  to the main bar if a standing sidebar has no room, or into a second drawer
+  header row when it floats, and the plan meter shows its
   figure only when the runtime is running low. At 400px a resting status goes, the browser and
   terminal buttons fold into ⋯ › View where there is a ⋯ — a draft has none,
   and keeps its browser button — and the plan meter keeps its bar alone, low
@@ -2201,6 +2202,13 @@ freeze their time at the current Run ending, and carry
 no completion badge, activity, glow or motion.
 
 ## Lead
+
+A message the Lead sends into an ordinary chat uses the person's bubble shape
+under `Sent by <name>`. A chat the Lead has written to shows `<name> is managing this chat.` with **Take over**. After take over it shows **You have
+this chat.** with `Hand back to <name>`. Failed button actions show their reason inline. An unreadable control record blocks Lead actions and offers **Reset chat control**, with confirmation before clearing all projects' holds and message verification keys. Typing does not take over; only the
+button does. While the person holds the chat, the host refuses Lead sends,
+stops and queued delivery there, and removes the Lead's waiting messages.
+Hand back sends no message.
 
 Lead is one ongoing conversation. Questions, explanations and clarifications receive ordinary replies; they do not require a plan. A simple task can run in one ordinary chat, using the desk's selected agent and saved session permissions. Lead can find, read, message and stop ordinary chats in its selected project. Their approvals remain with the person. Ordinary chats have their own session spend; the Lead allowance covers its replies and reviewed Flow runs. The limits popover explains that distinction.
 

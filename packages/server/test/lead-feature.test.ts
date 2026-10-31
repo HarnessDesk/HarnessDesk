@@ -326,3 +326,10 @@ test('the host consumes a saved worker rule before broadcasting the approval and
   await host.call('lead/action/perform', { id: pending.id, contractDigest: contract.digest, choice: 'no' })
   await irreversible
 })
+
+test('an enabled desk without a selected project has no chat control records', async t => {
+  const { host } = rig(t, true)
+  await host.start()
+  for (const method of ['lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack'] as const)
+    assert.deepEqual(await host.call(method, { id: 'fixture:s1' } as never), { project: null, chats: [] })
+})

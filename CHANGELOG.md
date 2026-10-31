@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- Messages the Lead sends into a chat now say so, and you can take a chat over from the Lead and hand it back.
+
 - **Renamed files no longer create a false ignored-file warning.** A staged rename whose original name starts with `!! ` is no longer mistaken for an ignored file when removing a worktree.
 
 - **Cleaning up saved accounts keeps the right files.** Duplicate saved identifiers no longer make cleanup remove another account's folder, and a folder still used by a retained account is kept.
@@ -14,6 +16,8 @@ move is real work and is not news to a person weighing an upgrade.
 - **Accepting a Lead result no longer fails while the Lead is re-reading.** A click that lands in the moment the Lead takes its result back to read new observations waits for it and is made on the same result when it comes back unchanged; only a result that actually changed asks you to look again.
 
 - **Card evidence fits on one row.** A compact observed status opens the recorded facts and their details.
+
+- **Changing a hand-off draft's project folder sets where it starts.** The Add menu now honors the chosen folder while keeping the hand-off context.
 
 - **Trigger drafts stay open when their project folder becomes unavailable.** The selected project is retained while Flows are reread, so a draft does not move to another folder or disappear during recovery.
 
@@ -59,6 +63,8 @@ move is real work and is not news to a person weighing an upgrade.
 - **Saved conversations open reliably during brief database contention.** The desk waits for a short lock when opening its conversation store and safely coordinates concurrent upgrades.
 
 - **Turn edits show their reported location.** Files outside known open workspace and conversation roots, or whose location is unknown, are labelled in the turn card and Changes pane. Git still reports the current working tree separately.
+
+- **Back and Forward stay reachable in a narrow floating sidebar.** The drawer keeps the history controls inside it while the covered content is inactive.
 
 ## 0.6.1 — 2026-10-23
 

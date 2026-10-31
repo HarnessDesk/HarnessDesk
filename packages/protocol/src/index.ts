@@ -74,3 +74,4 @@ export type * from './forge.js'
 export * from './git-steer.js'
 
 export * from './goal-worker-approval.js'
+export * from './digest.js'

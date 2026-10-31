@@ -223,3 +223,29 @@ it('retains revoked approval history separately from active rules', async () => 
   facade.changed({ method: 'lead/changed', params: { ...projection(4), savedApprovals: [], revokedApprovals: [row] } })
   expect(facade.state.revokedApprovals).toEqual([row])
 })
+
+
+import { createLeadState } from './lead'
+
+describe('Lead chat control', () => {
+  const list = (holder: 'lead' | 'person') => ({ project: '/w', chats: [{ id: 'codex:s1', holder, sent: ['a'.repeat(64)] }] })
+
+  it('reads, takes over, hands back, and follows the notification', async () => {
+    const request = vi.fn(async (method: string) =>
+      method === 'lead/chats/control' ? list('lead') : method === 'lead/chat/takeOver' ? list('person') : list('lead'))
+    const lead = createLeadState({ request } as never, () => true)
+    await lead.readChatControl()
+    expect(lead.state.chats[0]!.holder).toBe('lead')
+    await lead.takeOverChat('codex:s1')
+    expect(request).toHaveBeenLastCalledWith('lead/chat/takeOver', { id: 'codex:s1' })
+    expect(lead.state.chats[0]!.holder).toBe('person')
+    lead.changed({ method: 'lead/chats/controlChanged', params: list('lead') } as never)
+    expect(lead.state.chats[0]!.holder).toBe('lead')
+  })
+
+  it('stays empty while the Lead is unavailable', async () => {
+    const lead = createLeadState({ request: vi.fn() } as never, () => false)
+    lead.changed({ method: 'lead/chats/controlChanged', params: list('person') } as never)
+    expect(lead.state.chats).toEqual([])
+  })
+})

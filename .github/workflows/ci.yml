@@ -840,11 +840,15 @@ jobs:
   # smoke included, names the tree it tested. A push of that same tree (a
   # batch head or the release pull request landing on a branch that had not
   # moved) reads this and runs core CI only. It gates nothing itself.
+  # always(): the browser summary succeeds over a job that skips by design
+  # (the server-facing specs, when the whole suite runs), and the implicit
+  # success() reads that skip upstream and skips the proof. The results
+  # below are what decide.
   proof:
     name: Tree proof
     needs: [changes, verify, ui-system-browser-integration, ui-system-native-integration]
     if: >-
-      needs.changes.outputs.tier == 'full' && needs.changes.outputs.browser == 'all'
+      always() && needs.changes.outputs.tier == 'full' && needs.changes.outputs.browser == 'all'
       && needs.changes.outputs.browser_specs == 'all' && needs.changes.outputs.native == 'true'
       && needs.verify.result == 'success' && needs.ui-system-browser-integration.result == 'success'
       && needs.ui-system-native-integration.result == 'success'

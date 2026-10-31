@@ -145,6 +145,7 @@ import { STOP_RUN_DIALOG_STATES, STOP_RUN_STATES, StopRunDialogFrames, StopRunFr
 import { SideBySideFrames, ComparisonVerdictPreview, TileBrowserFrames } from './frames-side-by-side'
 import { AgentBriefFrames } from './frames-agent-brief'
 import { HeaderStatusFrames } from './frames-header-status'
+import { LeadChatFrames } from './frames-lead-chat'
 import { ReadCeilingFrames } from './frames-read-ceiling'
 import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
@@ -1295,6 +1296,7 @@ createRoot(container).render(
     <StoreProvider store={store}>
       <SignInMode.Provider value="embedded">
         {SHOW_NARROW_OVERVIEW ? <TeamOverviewPreview /> : new URLSearchParams(window.location.search).has('desk-account') ? <HarnessDeskAccountPreview /> : new URLSearchParams(window.location.search).has('lead-synthetic') ? <LeadFrames />
+          : new URLSearchParams(window.location.search).has('lead-chat') ? <LeadChatFrames />
           : new URLSearchParams(window.location.search).has('guides-fix') ? <GuidesFixPreview />
           : new URLSearchParams(window.location.search).has('issue-1675') ? <Issue1675Frames /> : siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />

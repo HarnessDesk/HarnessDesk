@@ -1,3 +1,4 @@
+import type { DispatchAdmission } from './dispatch-admission.js'
 import {
   emptyQueue,
   mergeRead,
@@ -446,15 +447,15 @@ export class SessionRegistry {
    * a typed message is never lost, so a full queue has to be an error the user
    * can see and act on, not a message that quietly disappears.
    */
-  readonly #queuedAdmissions = new WeakMap<SessionRecord, Map<string, (live: AgentSession) => Promise<void>>>()
+  readonly #queuedAdmissions = new WeakMap<SessionRecord, Map<string, DispatchAdmission<AgentSession>>>()
 
   /** Host-only authority stays with the queued id through edits and moves; it never enters the wire projection. */
-  queuedAdmission(record: SessionRecord, id: string): ((live: AgentSession) => Promise<void>) | undefined {
+  queuedAdmission(record: SessionRecord, id: string): (DispatchAdmission<AgentSession>) | undefined {
     return this.#queuedAdmissions.get(record)?.get(id)
   }
 
   enqueue(record: SessionRecord, id: string, input: readonly UserContent[], effectStarted?: () => void,
-    admitLive?: (live: AgentSession) => Promise<void>): QueuedMessage {
+    admitLive?: DispatchAdmission<AgentSession>): QueuedMessage {
     if (!hasQueuedContent(input)) throw new Error('A queued message must contain at least one non-empty content item.')
     const queue = record.queue
     if (queue.messages.length >= QUEUE_LIMIT) {
@@ -466,6 +467,7 @@ export class SessionRegistry {
     if (size + charsOf(input) > QUEUE_CHAR_LIMIT) {
       throw new Error('The queue for this conversation is full. Send or clear some of it first.')
     }
+    admitLive?.assertDispatch?.()
     const message: QueuedMessage = { id, input, queuedAt: Date.now(), state: 'queued' }
     effectStarted?.()
     if (admitLive) {

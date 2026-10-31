@@ -99,12 +99,13 @@ registered runtime names come from `RuntimeInfo.presentation`.
 
 The native corner consumes 78px of the sidebar's top row. The default 256px
 column fits four full 28px controls and the mode switch when the controls
-give up their gaps. At smaller widths, both history arrows move to the main
-bar's lead, returning when the sidebar has room. Their rendered fold owns
-the handoff, so native corner reservations and live seam drags agree.
+give up their gaps. At smaller widths, a standing sidebar moves both arrows to
+the main bar, returning them when it has room. Their rendered fold owns the
+handoff, so native corner reservations and live seam drags agree.
 
-**The rule:** the sidebar's history arrows never fold away without a visible
-pair in the main bar. Control targets keep their design-system size.
+**The rule:** a standing sidebar hands folded history arrows to the main bar.
+A floating drawer keeps them in a second header row when they do not fit,
+because the covered main bar is inert. Control targets keep their design-system size.
 
 ## Browser CI is bounded on a pull request and complete before landing — 2026-10-15
 
@@ -4701,8 +4702,15 @@ does not is measured, then removed from the place it costs most.
 
 A label worker rechecks the live pull request and can reuse a matching PR run
 created no earlier than the latest full-ci label application only when that run
-has a successful full-tier marker. This avoids admitting an old or bounded event
-snapshot; the marker is admission evidence, not a claim that CI passed. A push
+has generated a matching full-tier marker. A queued or running marker counts
+while its workflow is active; a completed marker must have succeeded. If a
+matching active run has not generated a tier marker, the worker waits up to six
+ten-second intervals for selection, refreshing runs and jobs each time. API
+calls add their own time; an API failure still fails immediately. A bounded or
+inactive run does not earn that wait, and an exhausted wait keeps the normal
+dispatch. The final live PR check still follows the wait. This avoids admitting
+an old or bounded event snapshot; the marker is admission evidence, not a claim
+that CI passed. A push
 can still move the branch after the recheck, so this is not atomic deduplication.
 Events have second-resolution timestamps; a labeled and unlabeled event in the
 same second are ambiguous, so the worker treats removal as latest and dispatches.
@@ -4991,3 +4999,52 @@ writer queue. Accepted, declined, stopped and fresh or repeated goals, or an
 approved contract change, discard the rules. A pending plan suspends automatic
 answers. Strict journal and checkpoint parsers retain only the closed keys;
 obsolete keys are removed rather than widened or reinterpreted.
+
+## Lead message provenance is verified and chat control belongs to the person — 2026-10-30
+
+A sender label is text anyone can type. The host composes the Lead envelope and
+records its exact digest; only a matching record earns `Sent by <name>`. An
+unknown envelope stays folded context. Failing closed loses a label, not a
+boundary. The envelope keeps the name at send time, so a later rename never
+rewrites an old sender.
+
+The host checks chat holders at Lead send and stop admission and at queue
+delivery. A prompt is advice; a host refusal enforces the person's decision.
+Take over removes waiting Lead messages and preserves the person's queue.
+A message already dispatched to the agent may finish, as with the person's
+ordinary queue. A take-over installed during admission wins before dispatch. Hand back sends nothing and the Lead reads
+the chat on its next activity wake.
+
+Only the button takes over. A person's message is not a hand-over: they can add
+a word to the Lead's work without ending its hold. The composer stays usable
+under either holder. These controls grant no permissions, approval answers or
+Flow authority.
+
+The host keeps up to 32 verified envelope keys per chat. Older Lead messages
+fall back to the folded “Lead message from …” context block. On the phone, a
+mixed message containing both Lead context and ordinary user content drops the
+Lead label rather than attributing the whole message to the Lead.
+
+Control records retain up to 64 chats per project; person holds are never
+evicted. An unreadable or invalid record fails closed for every Lead send,
+stop and queued delivery until the person confirms **Reset chat control** in
+the composer notice. That explicit reset clears all projects' holds and
+verification keys; no read or Lead operation repairs the record. Missing
+records alone mean no holds. While the host runs, a synchronous in-memory
+person hold survives disk failures and is checked at the actual dispatch
+boundary. Control reads are passive and never construct the Lead or select a
+project. Cancelled waiting Lead messages are noted in the Lead thread.
+
+Lead verification keys bind the exact envelope to its runtime and chat id.
+Receipts from another chat, and older unbound digests, never earn a sender
+label; those messages remain folded context. Phone projection uses the same
+chat-bound verification without changing its wire fields.
+
+Invalid control content requires explicit reset. Transient I/O failures refuse
+that operation and allow a later retry; they do not latch a reset requirement.
+Records for deleted project folders remain intact without blocking another
+project. A person can hold a chat before its first Lead record. Take over
+persists and publishes the hold before attempting its cancellation notice;
+notice failures are logged. A Lead instruction still in admission when the
+person takes over is cancelled on refusal, freeing the person's queued replies
+and preventing replay after Hand back.

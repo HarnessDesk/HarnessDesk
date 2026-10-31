@@ -242,6 +242,7 @@ import {
   singleConversation,
   split as splitIn,
   type Layout,
+  type Pane,
   type PaneId,
   type PaneView,
   type Split,
@@ -368,6 +369,11 @@ interface TerminalOpenOptions {
   readonly cwd?: string
   readonly command?: readonly string[]
   readonly size?: TerminalSize
+}
+
+interface WorkspaceDraft {
+  readonly pane: Pane
+  readonly handoff: AppSnapshot['draftHandoff']
 }
 
 /** A saved profile owns its model; recommendations fill only its other controls. */
@@ -1035,11 +1041,23 @@ export class AppStore {
 
   #readPhoneLink(on: boolean): void { if (on) void this.phone.refresh().catch(() => {}); else this.phone.reset() }
 
+  #readLeadChatControl(): void {
+    void this.lead.readChatControl().catch(error => {
+      // The facade exposes the reason in the chat's control notice. Without a
+      // mounted conversation, keep a diagnostic instead of silently losing it.
+      if (!this.#snapshot.activeSessionKey) console.warn('Lead chat control could not be read', error)
+    })
+  }
+
   async #refreshLeadAvailability(): Promise<void> {
     const epoch = this.#leadCapabilityEpoch
     try {
       const hello = await this.transport.request('host/hello', { clientVersion: '0.1.0' })
-      if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') { this.#patch({ leadAvailable: hello.capabilities?.lead === true }); this.#readPhoneLink(hello.capabilities?.phone === true) }
+      if (epoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open') {
+        this.#patch({ leadAvailable: hello.capabilities?.lead === true })
+        this.#readPhoneLink(hello.capabilities?.phone === true)
+        if (this.#snapshot.leadAvailable) this.#readLeadChatControl()
+      }
     } catch { /* Remain disabled until the host can prove the capability. */ }
   }
 
@@ -1058,6 +1076,7 @@ export class AppStore {
       leadAvailable: capabilityEpoch === this.#leadCapabilityEpoch && this.#snapshot.status === 'open' && hello.capabilities?.lead === true,
     })
     this.#readPhoneLink(hello.capabilities?.phone === true)
+    if (this.#snapshot.leadAvailable) this.#readLeadChatControl()
     // The local index does not wait for an agent or its account catalogue.
     const history = this.loadHistory({ reset: true })
     // Preferences first: they may restore the runtime the user last worked
@@ -2968,7 +2987,7 @@ export class AppStore {
         // A newer navigation owns the screen and the host's workspace scope.
         const selected = navigation === this.#navigationEpoch
           ? await this.#openWorkspace(session.cwd, () => navigation === this.#navigationEpoch,
-            undefined, undefined, undefined, true)
+            undefined, undefined, undefined, { preserveLayout: true })
           : null
         reveal = selected !== null && selected === this.#navigationEpoch
       }
@@ -4486,7 +4505,7 @@ export class AppStore {
   })
 
   /** Brings back the panels saved for this workspace, or starts with one empty pane. */
-  #restoreLayout(workspace: string | null, selected?: { workspace: WorkspaceEntry; conversation: SessionKey }): void {
+  #restoreLayout(workspace: string | null, selected?: { workspace: WorkspaceEntry; conversation: SessionKey }, held?: WorkspaceDraft): void {
     this.#navigationEpoch += 1
     const raw = workspace ? this.#layouts?.[workspace] : null
     const saved = readWorkbench(raw, this.#snapshot.windowHeight, this.#snapshot.leadAvailable)
@@ -4517,9 +4536,14 @@ export class AppStore {
       : null
     const migration = rehomed ? normalizeFixedWorkbench(rehomed, true) : null
     const restored = migration ? settleWorkbench(isolateSessionBrowserProfiles(migration.workbench)) : emptyWorkbench()
+    const current = held && held.handoff === this.#snapshot.draftHandoff ? findPane(this.#snapshot.layout, held.pane.id) : null
+    const draft = current?.view.kind === 'conversation' && current.view.session === null ? current : null
     const view = selected ? { kind: 'conversation' as const, session: selected.conversation } : null
-    const target = view ? { ...restored, main: onlyIn(restored.main, view),
-      navigation: visitDestination(restored.navigation, destinationOf(view)) } : restored
+    const target: Workbench = view ? { ...restored, main: onlyIn(restored.main, view),
+      navigation: visitDestination(restored.navigation, destinationOf(view)) }
+      : draft ? { ...restored, main: { root: draft, focused: draft.id, expanded: null },
+        navigation: visitDestination(restored.navigation, destinationOf({ kind: 'conversation', session: null })) }
+        : restored
     const workbench = settleConversationTool(target, effectiveWindowMode(this.#snapshot.windowMode, target) === 'editor', true)
     // Persisting what was just read back would be a no-op write; set directly.
     this.#patch({
@@ -4528,7 +4552,7 @@ export class AppStore {
       layout: workbench.main,
       detailsTab: visibleInspector(workbench),
     })
-    if (selected) this.#keepWorkbench(this.#snapshot.workbench)
+    if (selected || draft) this.#keepWorkbench(this.#snapshot.workbench)
     for (const view of migration?.legacyRoutes ?? []) {
       if (view.kind === 'board') this.openTeamBoard(view.room)
     }
@@ -7539,11 +7563,17 @@ export class AppStore {
    * Switches workspace. The panes belong to a workspace, so the previous
    * layout is put away and this one's comes back.
    */
-  async openWorkspace(path: string): Promise<boolean> {
+  async openWorkspace(path: string, { preserveDraft = false }: { readonly preserveDraft?: boolean } = {}): Promise<boolean> {
+    const draft = preserveDraft ? this.#draftForWorkspaceChoice() : undefined
     const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
       ? this.#conversationWorkspaceSource : undefined
     const navigation = ++this.#navigationEpoch
-    return await this.#openWorkspace(path, () => navigation === this.#navigationEpoch, undefined, previous) !== null
+    return await this.#openWorkspace(path, () => navigation === this.#navigationEpoch, undefined, previous, undefined, { draft }) !== null
+  }
+
+  #draftForWorkspaceChoice(): WorkspaceDraft | undefined {
+    const pane = panes(this.#snapshot.layout.root).find(one => one.view.kind === 'conversation' && one.view.session === null)
+    return pane ? { pane, handoff: this.#snapshot.draftHandoff } : undefined
   }
 
   #workspaceOpensPending = 0
@@ -7578,7 +7608,7 @@ export class AppStore {
   }
 
   /** Apply the folder and requested conversation together, before restoring anything else. */
-  async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }, onError?: (error: unknown) => void, preserveLayout = false): Promise<number | null> {
+  async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }, onError?: (error: unknown) => void, { preserveLayout = false, draft }: { readonly preserveLayout?: boolean; readonly draft?: WorkspaceDraft } = {}): Promise<number | null> {
     // Overlapping host mutations can finish in either order, even when their
     // renderer replies are discarded. Reassert the final choice once quiet.
     if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
@@ -7602,7 +7632,7 @@ export class AppStore {
       }
       else {
         this.#patch({ workspace })
-        if (this.#layouts && !preserveLayout) this.#restoreLayout(workspace.path)
+        if (!preserveLayout && (this.#layouts || draft)) this.#restoreLayout(workspace.path, undefined, draft)
       }
       const selected = this.#navigationEpoch
       await this.loadWorkspaces()
@@ -7675,7 +7705,8 @@ export class AppStore {
    * when the user cancelled; rejects when this build has no native dialog,
    * which is the caller's cue to fall back to the in-app picker.
    */
-  async pickWorkspace(): Promise<boolean> {
+  async pickWorkspace({ preserveDraft = false }: { readonly preserveDraft?: boolean } = {}): Promise<boolean> {
+    const draft = preserveDraft ? this.#draftForWorkspaceChoice() : undefined
     if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
     this.#workspaceOpensPending += 1
     try {
@@ -7685,7 +7716,7 @@ export class AppStore {
         ? this.#conversationWorkspaceSource : undefined)
       this.#navigationEpoch += 1
       this.#patch({ workspace })
-      if (this.#layouts) this.#restoreLayout(workspace.path)
+      if (this.#layouts || draft) this.#restoreLayout(workspace.path, undefined, draft)
       await this.loadWorkspaces()
       return true
     } finally {
