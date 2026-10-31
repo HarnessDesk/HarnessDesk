@@ -402,6 +402,8 @@ export class LeadControls {
   runScheduled(task: LeadScheduledTask, slot: number): Promise<{ logicalGoalId: string; approved: boolean; reason?: string }> { return this.#queue(async () => {
     const { journal, service } = this.options
     if (this.#inFlight() || !(canBeginLeadGoal(journal.state) || journal.state.phase === 'draft' && !journal.state.messages.length)) throw leadRefusal('lead-request-in-flight')
+    // The same scan as a typed send: a scheduled title or goal reaches the thread and the model.
+    if (leadContainsSecret([task.title, task.goal])) throw leadRefusal('lead-secret-refused')
     const status = await service.status('anthropic')
     if (!status.configured || status.unavailable) throw leadRefusal('lead-key-missing')
     if (canBeginLeadGoal(journal.state)) {

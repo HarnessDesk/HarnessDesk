@@ -1,6 +1,6 @@
 import { leadRefusal } from './controls.js'
 import { canBeginLeadGoal, type LeadJournal } from '@harnessdesk/lead'
-import type { LeadScheduledTask } from '@harnessdesk/protocol'
+import type { LeadSchedule, LeadScheduledTask } from '@harnessdesk/protocol'
 import { leadDueTask, leadQuietAt, type LeadPlanner } from './planner.js'
 
 /** One serialized host owner consumes schedule slots even when busy or paused.
@@ -35,6 +35,10 @@ export class LeadRepeats {
     await this.port.planner.recordRun(task.id, { slot, at: this.port.now(), state: result.approved ? 'started' : 'needs-approval',
       logicalGoalId: result.logicalGoalId, ...(result.reason ? { reason: result.reason } : {}) })
   }
+  /** Person edits and pause/stop wait behind a start in progress, so a start
+   * never redeems an approval the person withdrew while it was being admitted. */
+  control(id: string, action: 'pause' | 'resume' | 'stop'): Promise<LeadSchedule> { return this.#queue(() => this.port.planner.control(id, action)) }
+  write(schedule: LeadSchedule): Promise<LeadSchedule> { return this.#queue(() => this.port.planner.writeSchedule(schedule)) }
   runNow(id: string): Promise<void> { return this.#queue(async () => {
     if (!this.#idle()) throw leadRefusal('lead-request-in-flight')
     const schedule = await this.port.planner.readSchedule(), task = schedule.tasks.find(task => task.id === id)

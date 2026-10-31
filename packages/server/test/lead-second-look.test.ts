@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { decideLeadSecondLook, leadSecondLookKey, type LeadSecondLookInput } from '../src/lead/second-look.js'
+import { initialLeadState, type LeadState } from '@harnessdesk/lead'
+import { decideLeadSecondLook, leadDoneStopId, leadSecondLookAuthorized, leadSecondLookKey, type LeadSecondLookInput } from '../src/lead/second-look.js'
 import { sourceDigest, type FlowLeadGuard, type StoredFlowExecution } from '../src/flow-execution.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
@@ -111,6 +112,35 @@ seed: { role: implement, title: Update the dependencies }
 rules:
   - { id: accept, on: implement, when: { every: [done] }, then: { role: accept, title: Accept the change } }
 `
+
+test('authority is read from the current state, so a stop, lapse or latch after the evidence reads refuses the effect', () => {
+  const digest = 'a'.repeat(64), scope = { contractDigest: digest, logicalGoalId: 'goal-1' }
+  const live = { ...initialLeadState(), phase: 'running', policy: { version: 1, revision: 2, mode: 'manage', rules: [] },
+    contract: { digest } as LeadState['contract'], budget: { logicalGoalId: 'goal-1', stop: null } as unknown as LeadState['budget'],
+    consent: { contractDigest: digest, contractRevision: 1, policyRevision: 2, expiresAt: 10_000 } } as LeadState
+  assert.equal(leadSecondLookAuthorized(live, scope, 5_000), true)
+  const refused: [string, LeadState, number][] = [
+    ['person stop', { ...live, phase: 'stopped' }, 5_000],
+    ['accepted', { ...live, phase: 'accepted' }, 5_000],
+    ['consent expired', live, 10_000],
+    ['consent renewing', { ...live, consent: { ...live.consent!, renewalCardRevision: 3 } }, 5_000],
+    ['permissions changed', { ...live, policy: { ...live.policy!, revision: 3 } }, 5_000],
+    ['budget latch', { ...live, budget: { ...live.budget!, stop: { reason: 'lead-budget-stopped' } } as unknown as LeadState['budget'] }, 5_000],
+    ['next goal', { ...live, budget: { ...live.budget!, logicalGoalId: 'goal-2' } as LeadState['budget'] }, 5_000],
+    ['replaced plan', { ...live, contract: { digest: 'b'.repeat(64) } as LeadState['contract'] }, 5_000],
+    ['recovery blocked', { ...live, recoveryBlocked: true } as LeadState, 5_000],
+  ]
+  for (const [why, state, now] of refused) assert.equal(leadSecondLookAuthorized(state, scope, now), false, why)
+})
+
+test('a fresh "Done" in the same round keys the same look, so it is considered once', () => {
+  const done = (stopId: string) => input({ runningWorker: true, stop: { ...input().stop, kind: 'done', stopId, said: 'Done', blocker: undefined }, observedBlocker: undefined,
+    evidence: { complete: true, lastEditAt: 500, requiredChecks: [{ name: 'pnpm test', runs: [] }] } })
+  const first = decideLeadSecondLook(done(leadDoneStopId(1)))
+  assert.equal(first?.action, 'steer')
+  assert.equal(decideLeadSecondLook({ ...done(leadDoneStopId(1)), seen: [first!.key] }), null)
+  assert.notEqual(decideLeadSecondLook({ ...done(leadDoneStopId(2)), seen: [first!.key] }), null, 'a new round may be looked at once')
+})
 
 test('host recovery opens one new round on the same approved step and preserves its binding', async t => {
   const admitted: string[] = [], prepared: string[] = []

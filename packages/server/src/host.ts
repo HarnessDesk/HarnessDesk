@@ -1,4 +1,4 @@
-import { decideLeadSecondLook, type LeadSecondLookInput } from './lead/second-look.js'
+import { decideLeadSecondLook, leadDoneStopId, leadSecondLookAuthorized, type LeadSecondLookInput } from './lead/second-look.js'
 import { readChecks } from './evidence/checks-file.js'
 import { LeadRepeats } from './lead/repeats.js'
 import { HarnessDeskAccount } from './harnessdesk-account.js'
@@ -3644,9 +3644,9 @@ export class Host {
       const operation = (async () => {
         const state = journal.state, contract = state.contract, ledger = state.budget
         const run = this.#flows.leadRuns().find(one => one.id === runId)
-        if (!run || !contract || !ledger || run.lead?.logicalGoalId !== ledger.logicalGoalId ||
-          state.recoveryBlocked || !state.consent || state.consent.expiresAt <= Date.now() || state.consent.policyRevision !== state.policy?.revision ||
-          state.consent.renewalCardRevision !== undefined || ['stopped', 'accepted', 'declined', 'awaiting-plan'].includes(state.phase)) return
+        // Evidence reads below await, so authority is asked again before each effect.
+        const authorized = () => !!contract && !!ledger && leadSecondLookAuthorized(journal.state, { contractDigest: contract.digest, logicalGoalId: ledger.logicalGoalId }, Date.now())
+        if (!run || !contract || !ledger || run.lead?.logicalGoalId !== ledger.logicalGoalId || !authorized()) return
         const round = run.rounds.at(-1)
         if (!round || round.role !== 'implement') return
         const cards = this.#team.stateFor(run.goal).intents.filter(card => round.cards.includes(card.id))
@@ -3693,17 +3693,19 @@ export class Host {
           const edits = items.filter(item => item.type === 'fileChange' && item.status === 'completed')
           const lastEditAt = edits.length ? Math.max(...edits.map(item => item.completedAt ?? item.startedAt ?? 0)) : null
           const checks = !blocked && session ? await readChecks(session.cwd) : null
-          const input: LeadSecondLookInput = { stop: { logicalGoalId: ledger.logicalGoalId, runId, stopId: blocked ? stopId : `${round.n}:done:${done?.id ?? cards[0]?.id ?? 'worker'}:${done?.completedAt ?? done?.startedAt ?? cards[0]?.updatedAt ?? 0}`, kind: blocked ? 'blocked' : 'done', said,
-            at: blocked?.updatedAt ?? Date.now(), ...(blocker ? { blocker } : {}) }, now: Date.now(), approved: true,
+          const input: LeadSecondLookInput = { stop: { logicalGoalId: ledger.logicalGoalId, runId, stopId: blocked ? stopId : leadDoneStopId(round.n), kind: blocked ? 'blocked' : 'done', said,
+            at: blocked?.updatedAt ?? Date.now(), ...(blocker ? { blocker } : {}) }, now: Date.now(), approved: authorized(),
             budget: leadBudgetProjection(journal.state.budget!, Date.now()), seen: journal.state.secondLooks.map(look => look.stopKey), runningWorker: !!record?.running.size,
             ...(observation ? { observedBlocker: observation } : {}),
             ...(checks && session ? { evidence: { complete: session.itemsLoaded && checks.problems.length === 0 && !checks.uncommitted && lastEditAt !== 0,
               lastEditAt, requiredChecks: checks.checks.map(check => ({ name: check.run, runs: items.flatMap(item => item.type === 'command' && item.command === check.run && item.status !== 'inProgress' && item.completedAt !== undefined ? [{ at: item.completedAt }] : []) })) } } : {}) }
           const decision = decideLeadSecondLook(input)
           if (!decision) continue
+          if (!authorized()) return
           if (decision.action === 'restart') await this.#flows.restartLeadStopped(runId, decision.key)
           else {
             await journal.secondLookAttempt(runId, decision.key, Date.now())
+            if (!authorized()) return
             await this.call('turn/steer', { runtime: runtimeId(seat!.session.runtime), sessionId: makeSessionId(seat!.session.sessionId),
               input: [{ type: 'text', text: `From the desk: ${decision.message}` }] })
           }
@@ -5186,10 +5188,10 @@ export class Host {
       leadRepeatControl: async params => {
         await this.#leadWindow()
         if (params.action === 'run-now') { await this.#leadRepeats!.runNow(params.taskId); return this.#leadPlanner().readSchedule() }
-        return this.#leadPlanner().control(params.taskId, params.action)
+        return this.#leadRepeats ? this.#leadRepeats.control(params.taskId, params.action) : this.#leadPlanner().control(params.taskId, params.action)
       },
       leadScheduleRead: async () => this.#leadPlanner().readSchedule(),
-      leadScheduleUpdate: async params => this.#leadPlanner().writeSchedule(params.schedule),
+      leadScheduleUpdate: async params => this.#leadRepeats ? this.#leadRepeats.write(params.schedule) : this.#leadPlanner().writeSchedule(params.schedule),
       leadMemoryRead: async () => this.#leadPlanner().readMemory(),
       leadMemoryUpdate: async params => this.#leadPlanner().writeMemory(params.memory),
       leadStarts: this.#leadBudgets,

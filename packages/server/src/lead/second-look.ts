@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { LeadState } from '@harnessdesk/lead'
 import type { LeadBudgetState } from '@harnessdesk/protocol'
 
 export interface LeadSecondLookBlocker {
@@ -58,6 +59,19 @@ const time = (value: number): boolean => Number.isSafeInteger(value) && value >=
 const prose = (value: string): string => Array.from(value.replace(/<[^>]*>/g, '').replace(/[<>\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '')).slice(0, 1_000).join('')
 const sameBlocker = (left: LeadSecondLookBlocker, right: LeadSecondLookBlocker): boolean =>
   left.kind === right.kind && left.repository === right.repository && left.number === right.number
+
+/** The person's authority for a second-look effect. The host asks it again from
+ * the current journal state right before each effect: evidence reads await, and a
+ * stop, an expired or renewing consent, a replaced goal or a budget latch in
+ * between refuses the effect. */
+export const leadSecondLookAuthorized = (state: LeadState, scope: { readonly contractDigest: string; readonly logicalGoalId: string }, now: number): boolean =>
+  !!state.contract && state.contract.digest === scope.contractDigest && !!state.budget && state.budget.logicalGoalId === scope.logicalGoalId &&
+  !state.budget.stop && !state.recoveryBlocked && !!state.consent && state.consent.expiresAt > now && state.consent.policyRevision === state.policy?.revision &&
+  state.consent.renewalCardRevision === undefined && !['stopped', 'accepted', 'declined', 'awaiting-plan'].includes(state.phase)
+
+/** A done claim gets one look per implement round: a worker that answers a steer
+ * with a fresh "Done" must not buy another steer. */
+export const leadDoneStopId = (round: number): string => `${round}:done`
 
 /** Read-only host decision. This grants no authority and performs no effect.
  * Before dispatch the caller must durably claim `key`, revalidate consent and

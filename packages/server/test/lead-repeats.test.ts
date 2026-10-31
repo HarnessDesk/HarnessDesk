@@ -91,6 +91,45 @@ test('a refused scheduled start consumes its slot once with fixed, safe prose', 
   assert.deepEqual((await planner.readSchedule()).tasks[0]!.runs, schedule.tasks[0]!.runs, 'a refused person attempt leaves schedule history untouched')
 })
 
+test('a scheduled title or goal that holds a secret is refused before anything reaches the thread', async () => {
+  for (const edit of [{ goal: 'Update dependencies with sk-ant-synthetic-key' }, { title: 'Bearer sk-ant-synthetic-key' }]) {
+    const journal = await memoryJournal(); let statusRead = false
+    const controls = new LeadControls({ journal, project: approved.project, model: 'fixture', now: () => 100, nextId: () => 'unused', push() {},
+      service: { async status() { statusRead = true; return { configured: true, protection: 'encrypted' as const } }, async assertPublic() {}, async send() { return { status: 'completed' as const } } } as any,
+      async decidePerson() {}, async decideResult() {} })
+    try {
+      await assert.rejects(controls.runScheduled({ ...task, ...edit, approved: undefined }, 100), { wireCode: 'lead-secret-refused' })
+      assert.equal(statusRead, false); assert.equal(journal.state.messages.length, 0); assert.equal(journal.state.origin, null)
+    } finally { controls.close() }
+  }
+})
+
+test('a pause or schedule edit made while a scheduled start is admitted waits for that start', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'lead-repeat-serial-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const planner = new LeadPlanner(home), journal = await memoryJournal()
+  await planner.writeSchedule({ version: 1, tasks: [{ ...task, approved: undefined, perRunCaps: undefined }], quiet: null })
+  await planner.markRan(task.id, task.lastRunAt!)
+  let release!: () => void, entered!: () => void
+  const admitted = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const seen: (boolean | undefined)[] = []
+  const repeats = new LeadRepeats({ planner, journal, now: () => new Date(2026, 9, 26, 10).getTime(), async start(started) {
+    entered(); await held
+    seen.push((await planner.readSchedule()).tasks.find(one => one.id === started.id)!.paused)
+    return { logicalGoalId: 'run-goal', approved: true }
+  } })
+  const tick = repeats.tick(); await admitted
+  const edit = repeats.write({ version: 1, tasks: [{ ...task, approved: undefined, perRunCaps: undefined, title: 'Renamed' }], quiet: null })
+  const pause = repeats.control(task.id, 'pause')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const during = (await planner.readSchedule()).tasks[0]!
+  assert.equal(during.paused ?? false, false, 'the pause has not overtaken the start being admitted'); assert.equal(during.title, task.title)
+  release(); await tick; await pause; await edit
+  assert.deepEqual(seen.map(value => value ?? false), [false])
+  const after = (await planner.readSchedule()).tasks[0]!
+  assert.equal(after.paused, true); assert.equal(after.title, 'Renamed'); assert.equal(after.runs!.at(-1)!.state, 'started')
+})
+
 test('changed policy, seats or source invoke fresh planning without freezing the stale approval', async () => {
   for (const reason of ['The permissions changed', 'The seats changed', 'The Flow source changed']) {
     const journal = await memoryJournal(); let frozen = false, calls = 0
