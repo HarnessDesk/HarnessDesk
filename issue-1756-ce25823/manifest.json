@@ -1,0 +1,45 @@
+{
+  "issue": 1756,
+  "head": "ce258232389e5f357e8cf7a9c6ee40f404461314",
+  "tree": "34d9360bb09c15a177c0e79c4317cb601bc36b02",
+  "frames": [
+    {
+      "name": "unavailable-light.png",
+      "sha256": "0894698635fcfa89642f7caa48377ab7a89267746cc03d42fd44ce54a10b7d33",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "unavailable-dark.png",
+      "sha256": "471651edd0b6ee77ce6f272bbe03b0c2192249ffab3c7a9af4c9dcde1fd3b325",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "successful-null-light.png",
+      "sha256": "8c77b8a8287549830507a82403dcaa33cd0c42fe4fa4f7aa87dc02e80730583d",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "successful-null-dark.png",
+      "sha256": "d6cf9dc5753c087a4868acbf300a05de4efe2de857b3e3f9cf73374b85b6cdc8",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "recovered-light.png",
+      "sha256": "ab45861d751b7acbf34887734a6f36b161d639cb85d223a1b31d00b42d796ee5",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "recovered-dark.png",
+      "sha256": "386dc99c0902bbfd6b3d62363a603014b1d38e03555ea41ba994b02104924139",
+      "width": 2560,
+      "height": 1680
+    }
+  ],
+  "surface": "Production desktop bootstrap with isolated fake-agent rig; unknown, failed and non-repository responses controlled at renderer transport boundary; real Git refresh recovery. No provider or native tooltip-visibility claim.",
+  "privacy": "All six final frames personally inspected; unmodified actual-username/account/path audit passed after synthetic path shortening."
+}
