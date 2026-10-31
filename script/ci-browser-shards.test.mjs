@@ -214,7 +214,7 @@ test('only heavy UI jobs are conditional; required check names stay conclusive',
   // The shards and the page build they serve from run together, under the same condition.
   for (const name of ['ui-system-build', 'ui-system-browser']) assert.ok(job(name).includes("    if: needs.changes.outputs.browser == 'all'\n"), name)
   assert.match(job('ui-system-native'), /^    name: UI system native smoke$/m)
-  assert.match(job('ui-system-native'), /^    runs-on: macos-14$/m)
+  assert.match(job('ui-system-native'), /^    runs-on: macos-15$/m)
   // The gate check is the one that waits for the rest, so it must conclude
   // whatever they do: `always()`, and no other condition that could skip it.
   assert.match(job('verify'), /^    if: always\(\)$/m)

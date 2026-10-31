@@ -9,6 +9,7 @@ import { repositoryRoot } from '../worktree.js'
 import { isSha } from './records.js'
 import { readGit } from '../git-read.js'
 import { sameCanonicalPath } from '../path-identity.js'
+import { keptBetween, sharedTip, type Asked } from './tips.js'
 
 /**
  * What git says about a checkout, for evidence: which commit a fact is bound
@@ -34,6 +35,19 @@ const gitOr = async (cwd: string, args: readonly string[]): Promise<string | nul
     return await git(cwd, args)
   } catch {
     return null
+  }
+}
+
+/**
+ * A command's answer, and whether git gave one: exit status 1 — no such ref,
+ * not an ancestor — is an answer; a timeout or a refusal of any other kind
+ * is not, and is never kept as one.
+ */
+const asked = async (cwd: string, args: readonly string[]): Promise<Asked<string | null>> => {
+  try {
+    return { answer: await git(cwd, args), definite: true }
+  } catch (error) {
+    return { answer: null, definite: (error as { code?: unknown }).code === 1 }
   }
 }
 
@@ -181,12 +195,18 @@ export const revisionOf = async (cwd: string): Promise<Revision | null> => {
  * on a detached HEAD. Null when the branch is gone, or the folder is not a
  * repository any more. A branch name read back from a record is checked before
  * git sees it.
+ *
+ * Asked of git once per move of the ref, however many readers ask between
+ * (`sharedTip`): every evidence read measures every fact against it.
  */
 export const tipOf = async (cwd: string, branch: string | null): Promise<Sha | null> => {
   if (branch !== null && !isRevisionName(branch)) return null
   const ref = branch === null ? 'HEAD^{commit}' : `refs/heads/${branch}^{commit}`
-  const tip = (await gitOr(cwd, ['rev-parse', '--verify', '--quiet', ref]))?.trim() ?? ''
-  return isSha(tip) ? tip : null
+  return sharedTip(cwd, branch, async () => {
+    const read = await asked(cwd, ['rev-parse', '--verify', '--quiet', ref])
+    const tip = read.answer?.trim() ?? ''
+    return { answer: isSha(tip) ? tip : null, definite: read.definite }
+  })
 }
 
 /** A path as the filesystem resolves it, or as written when it is not there. */
@@ -198,18 +218,8 @@ export const canonical = async (path: string): Promise<string> => {
   }
 }
 
-/** Folders being asked about now, or answered within `SETTLED_MS`, so callers share one answer. */
-const asking = new Map<string, { readonly answer: Promise<string>; real: string | null; until: number }>()
-
-/**
- * How long a settled answer stands. A desk with open Teams asks this from
- * every evidence, findings and intake read — measured at more than a dozen
- * times a second for the same folder during one Lead run, each answer costing
- * several git processes. Which repository a folder belongs to changes when a
- * person moves, removes or re-creates it, not between two reads of one page;
- * a folder that has gone or now resolves elsewhere is asked afresh at once.
- */
-export const SETTLED_MS = 1_000
+/** Folders being asked about now, so callers asking at once share one answer. */
+const asking = new Map<string, Promise<string>>()
 
 /**
  * The project a folder belongs to: its repository's main checkout, or the
@@ -218,38 +228,22 @@ export const SETTLED_MS = 1_000
  *
  * Each read of a Team's review asks this several times, and a page reads
  * every open Team's at once, mostly about the same few project folders: a
- * question already being asked, or answered a moment ago about a folder that
- * is still where it was, shares its answer rather than starting git again. A
- * folder that is gone uses the fallback, or answers as written without asking
- * git — a wrapped Team's checkout is usually in the Trash.
+ * question already being asked shares its answer rather than starting git
+ * again. A folder that is gone uses the fallback, or answers as written
+ * without asking git — a wrapped Team's checkout is usually in the Trash.
  */
 export const projectOf = (folder: string, fallback?: string): Promise<string> => {
   // Lexical normalisation erases symlink traversal before `..`.
   const key = JSON.stringify([folder, fallback])
   const known = asking.get(key)
-  if (known && known.until >= Date.now()) {
-    if (known.until === Infinity) return known.answer
-    return realpath(folder).catch(() => null).then((real) =>
-      real !== null && real === known.real ? known.answer : ask(key, folder, fallback, real))
-  }
-  return ask(key, folder, fallback)
-}
-
-const ask = (key: string, folder: string, fallback?: string, seen?: string | null): Promise<string> => {
-  const entry = { answer: Promise.resolve(''), real: null as string | null, until: Infinity }
-  entry.answer = (async () => {
-    const real = seen !== undefined ? seen : await realpath(folder).catch(() => null)
-    entry.real = real
+  if (known) return known
+  const answer = (async () => {
+    const real = await realpath(folder).catch(() => null)
     if (real === null) return fallback !== undefined && fallback !== folder ? projectOf(fallback) : resolve(folder)
     return (await repositoryRoot(folder)) ?? real
-  })()
-  // A failure is never kept, and an answer is kept only briefly once it settles.
-  entry.answer.then(
-    () => { entry.until = Date.now() + SETTLED_MS; setTimeout(() => { if (asking.get(key) === entry) asking.delete(key) }, SETTLED_MS).unref() },
-    () => { if (asking.get(key) === entry) asking.delete(key) },
-  )
-  asking.set(key, entry)
-  return entry.answer
+  })().finally(() => asking.delete(key))
+  asking.set(key, answer)
+  return answer
 }
 
 /**
@@ -288,10 +282,17 @@ export const freshnessOf = async (
     return { state: 'unknown', why: checkout.branch === null ? 'it is not a repository any more' : `the branch ${checkout.branch} is gone` }
   }
   if (tip === at) return { state: 'fresh' }
-  const ancestor = await gitOr(checkout.cwd, ['merge-base', '--is-ancestor', at, tip])
-  if (ancestor === null) return { state: 'moved' }
-  const count = Number((await gitOr(checkout.cwd, ['rev-list', '--count', `${at}..${tip}`]))?.trim())
-  return Number.isInteger(count) && count > 0 ? { state: 'behind', commits: count } : { state: 'moved' }
+  // Two commits stand the same way to each other until history between them is replaced: kept, per repository, until then.
+  return keptBetween(checkout.cwd, at, tip, async (): Promise<Asked<Freshness>> => {
+    const ancestor = await asked(checkout.cwd, ['merge-base', '--is-ancestor', at, tip])
+    if (ancestor.answer === null) return { answer: { state: 'moved' }, definite: ancestor.definite }
+    const counted = await asked(checkout.cwd, ['rev-list', '--count', `${at}..${tip}`])
+    const count = Number(counted.answer?.trim())
+    return {
+      answer: Number.isInteger(count) && count > 0 ? { state: 'behind', commits: count } : { state: 'moved' },
+      definite: counted.answer !== null,
+    }
+  })
 }
 
 /**
