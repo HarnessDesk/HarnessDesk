@@ -904,3 +904,24 @@ test('obsolete rule migration authenticates the original journal bytes before dr
   assert.deepEqual(restored.state.workerApprovals, [])
   assert.equal(restored.state.messages.filter(message => message.role === 'notice').length, 1)
 })
+
+test('a durable worker dispatch without acknowledgement reopens fenced until person revocation', async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  const contract: any = { version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Inspect demo', project: { id: 'demo', path: '/workspace/demo' }, policyRevision: 1,
+    steps: [{ id: 'work', title: 'Inspect', flow: 'lead-reviewed-result', sourceRevision: 'source-1', variables: {}, attendance: 'attended', assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' }, ceiling: 'read' }] }], assertions: [{ id: 'diff', kind: 'diff', description: 'Reviewed' }], caps: { usdMicros: 1000, rounds: 2 } }
+  await journal.setPolicy(policy)
+  await journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
+  await journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 1000)
+  await journal.saveWorkerApproval({ id: 'rule', contractDigest: contract.digest, goalStartedSeq: journal.state.goalStartedSeq, key: { kind: 'tool', tool: 'get_team_status' }, target: 'get_team_status', count: 0 })
+  await assert.rejects(journal.useWorkerApproval('rule', () => true, async () => { throw Error('fixture crash') }))
+  await disk.close()
+  const restoredDisk = await open(home); t.after(() => restoredDisk.close())
+  const restored = await createLeadJournal(restoredDisk)
+  assert.equal(restored.state.phase, 'waiting-for-user')
+  assert.equal(restored.state.managementReason, 'lead-worker-audit-failed')
+  assert.equal(await restored.useWorkerApproval('rule', () => true, async () => { assert.fail('must not dispatch after restart') }), false)
+  await assert.rejects(restored.resume())
+  await restored.revokeWorkerApproval('rule', contract.digest)
+  await restored.resume()
+  assert.equal(restored.state.workerApprovals[0]!.revoked, true)
+})

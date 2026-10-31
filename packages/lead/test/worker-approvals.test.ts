@@ -28,7 +28,7 @@ test('goal worker rules create, count and revoke with strict checkpoint round tr
     const bad = structuredClone(checkpoint); change(bad.state); assert.throws(() => parseLeadCheckpoint(bad))
   }
   state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-revoked', id: 'rule-1' })
-  assert.deepEqual(state.workerApprovals, [])
+  assert.equal(state.workerApprovals[0]!.revoked, true)
   assert.throws(() => save(initialLeadState()))
 })
 
@@ -143,7 +143,7 @@ for (const obsolete of [{ kind: 'fileChange', path: '/workspace/demo/build.rs' }
 
 test('an acknowledged answer with a failed audit append stops automatic work and reports a host error', async () => {
   const { createLeadJournal } = await import('../src/index.js')
-  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, async append() { throw Error('fixture disk failure') } })
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, async append(record) { if (record.type === 'worker-rule-used') throw Error('fixture disk failure') } })
   let answered = false, notified = false
   journal.onChange(() => { notified = true })
   await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { answered = true }, '+demo'))
@@ -183,8 +183,76 @@ test('a legacy file-use record retains its exact count without inventing an unav
 test('an audit preparation failure after acknowledgement also latches further automatic answers', async () => {
   const { createLeadJournal } = await import('../src/index.js')
   let answers = 0
-  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, prepare() { throw Error('fixture full journal') }, async append() {} })
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, prepare(record: any) { if (record.type === 'worker-rule-used') throw Error('fixture full journal'); return record }, async append() {} })
   await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { answers++ }, '+demo'))
   await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { answers++ }, '+demo'))
   assert.equal(answers, 1)
+})
+
+for (const name of ['src/AGENTſ.md', 'src/gulpﬁle.js', 'src/SKILL.md', 'sourcé/panel.tsx']) test(`non-ASCII relative path has no reusable key: ${name}`, () => {
+  const path = '/workspace/demo/' + name
+  assert.equal(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'add' }, diff: 'demo' }] } as any, '/workspace/demo'), null)
+  const checkpoint = leadCheckpoint(save(), 'b'.repeat(64)) as any
+  checkpoint.state.workerApprovals[0].key.path = path; checkpoint.state.workerApprovals[0].target = path
+  const loaded = parseLeadCheckpoint(checkpoint).state
+  assert.deepEqual(loaded.workerApprovals, [])
+  assert.ok(loaded.messages.some(message => message.role === 'notice'))
+})
+for (const name of ['src.ts', 'proc.ts', 'arc.ts']) test(`ordinary ASCII rc-containing source remains eligible: ${name}`, () => {
+  const path = '/workspace/demo/src/' + name
+  assert.deepEqual(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: 'demo' }] } as any, '/workspace/demo'), { kind: 'fileChange', path })
+})
+for (const name of ['karma.conf.js', 'docs/conf.py', '.npmrc', '.babelrc.js', 'eslintrc.json']) test(`executed config or rc file stays ineligible: ${name}`, () => {
+  const path = '/workspace/demo/' + name
+  assert.equal(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: 'demo' }] } as any, '/workspace/demo'), null)
+})
+
+test('dispatch intent survives crash before acknowledgement and blocks automatic answers after replay', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const records: any[] = [], base = save()
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return base }, async append(record) { records.push(record) } })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => {
+    assert.equal(records.at(-1)?.type, 'worker-rule-dispatch')
+    throw Error('fixture crash before acknowledgement')
+  }, '+unacknowledged'))
+  const replayed = await createLeadJournal({ async read() { return records }, checkpoint() { return base }, async append(record) { records.push(record) } })
+  assert.equal(replayed.state.phase, 'waiting-for-user')
+  assert.equal(replayed.state.managementReason, 'lead-worker-audit-failed')
+  let answered = false
+  assert.equal(await replayed.useWorkerApproval('rule-1', () => true, async () => { answered = true }, '+next'), false)
+  assert.equal(answered, false)
+  await assert.rejects(replayed.resume())
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(replayed.state, 'b'.repeat(64))).state, replayed.state)
+  await replayed.revokeWorkerApproval('rule-1', digest)
+  await replayed.resume()
+  assert.ok((replayed.state.workerApprovals[0] as any).revoked)
+})
+
+test('revoked entries survive checkpoint and become read-only until goal end', () => {
+  let state = save()
+  state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-used', id: 'rule-1', diff: '+retained' })
+  state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-revoked', id: 'rule-1' })
+  const rule = state.workerApprovals[0] as any
+  assert.equal(rule.revoked, true); assert.equal(rule.entries[0].diff, '+retained')
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(state, 'b'.repeat(64))).state, state)
+  assert.deepEqual(reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'stop' }).workerApprovals, [])
+})
+
+test('live revokes of missing or already revoked rules append nothing', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const records: any[] = []
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, async append(record) { records.push(record) } })
+  await assert.rejects(journal.revokeWorkerApproval('missing', digest), /not.*active/i)
+  assert.equal(records.length, 0)
+  await journal.revokeWorkerApproval('rule-1', digest)
+  await assert.rejects(journal.revokeWorkerApproval('rule-1', digest), /not.*active/i)
+  assert.equal(records.length, 1)
+})
+
+test('intent persistence rechecks admission before dispatching the answer', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  let admitted = true, answers = 0
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, async append() { admitted = false } })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => admitted, async () => { answers++ }, '+demo'))
+  assert.equal(answers, 0)
 })

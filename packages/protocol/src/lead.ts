@@ -329,6 +329,7 @@ export interface LeadActionInput { readonly id: string; readonly contractDigest:
 /** Window projection adds the host's guarded way out; child observations grant no control. */
 export interface LeadWindowProjection extends LeadHostProjection {
   readonly savedApprovals?: readonly LeadSavedApproval[]
+  readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions?: readonly LeadAction[]
   readonly requestInFlight: boolean
   readonly wayOut: LeadPersonAction
@@ -352,7 +353,7 @@ export interface LeadNameReceipt {
   readonly settings: { readonly name: LeadName; readonly nameChosen?: boolean }
 }
 export const LEAD_CONTROL_REFUSALS = ['lead-runtime-unsupported', 'lead-unavailable', 'lead-operation-refused', 'lead-secret-refused', 'lead-revision-stale',
-  'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
+  'lead-approval-not-live', 'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
   'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending'] as const
@@ -811,7 +812,8 @@ const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
   waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
-  savedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
+  savedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
+  revokedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
   personActions: optional(list(parseLeadAction, 1024, 0, action => action.id)), presence: optional(parseLeadPresence),
   steers: optional(list(parseLeadSteer, 64, 0, steer => steer.id)),
 }))

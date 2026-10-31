@@ -184,7 +184,8 @@ test('paired phone reads saved approvals and revokes through the answer tier', a
     const revoked = await phone.request('lead/approval/revoke', { id: 'rule-demo', contractDigest: contract.digest })
     assert.equal(revoked.ok, true, JSON.stringify(revoked))
     assert.deepEqual(revoked.result.savedApprovals, [])
-    assert.deepEqual(s.journal.state.workerApprovals, [])
+    assert.deepEqual(revoked.result.revokedApprovals, read.result.savedApprovals)
+    assert.equal(s.journal.state.workerApprovals[0]!.revoked, true)
     phone.close()
   } finally { await s.done() }
 })
@@ -199,6 +200,27 @@ test('a paired phone without answer authority cannot save or revoke goal approva
       assert.equal(reply.error.code, 'tierNotGranted')
     }
     assert.deepEqual(s.performed, []); assert.deepEqual(s.journal.state.workerApprovals, [])
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('phone projects uncertain dispatches and keeps revoked history after Answer-tier revocation', async () => {
+  const s = await rig()
+  try {
+    await s.journal.offerCard(plan); await s.controls.decide(planClick)
+    await s.journal.saveWorkerApproval({ id: 'uncertain', contractDigest: contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq,
+      key: { kind: 'tool', tool: 'get_team_status' }, target: 'get_team_status', count: 0 })
+    await assert.rejects(s.journal.useWorkerApproval('uncertain', () => true, async () => { throw Error('fixture lost acknowledgement') }))
+    const phone = await s.pair()
+    const read = await phone.request('lead/thread/read', {})
+    assert.equal(read.result.savedApprovals[0].uncertain, true)
+    assert.equal(read.result.waitReason, 'lead-worker-audit-failed')
+    assert.equal(read.result.wayOut, null)
+    const revoked = await phone.request('lead/approval/revoke', { id: 'uncertain', contractDigest: contract.digest })
+    assert.deepEqual(revoked.result.savedApprovals, [])
+    assert.deepEqual(revoked.result.revokedApprovals, [{ id: 'uncertain', target: 'get_team_status', count: 0 }])
+    const again = await phone.request('lead/approval/revoke', { id: 'uncertain', contractDigest: contract.digest })
+    assert.equal(again.error.code, 'lead-approval-not-live')
     phone.close()
   } finally { await s.done() }
 })

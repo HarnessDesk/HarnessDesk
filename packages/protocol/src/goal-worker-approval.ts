@@ -1,4 +1,5 @@
 import type { Approval } from './approval.js'
+import type { LeadThreadState } from './lead.js'
 
 /** Exact keys only. Unknown shell programs and unstructured permission prose have no safe reusable scope. */
 export type LeadWorkerApprovalKey =
@@ -12,11 +13,13 @@ export interface LeadWorkerApprovalRule {
   readonly target: string
   /** Later requests answered automatically; the creating click is not counted. */
   readonly count: number
+  readonly revoked?: true
+  readonly dispatch?: { readonly revision: number; readonly diff: string | null; readonly phase: LeadThreadState; readonly reason: string | null }
   /** Newest first, file rules only; independent of the conversation window. */
   readonly entries?: readonly LeadApprovalEntry[]
 }
 export interface LeadApprovalEntry { readonly id: string; readonly number: number; readonly diff: string }
-export interface LeadSavedApproval { readonly id: string; readonly target: string; readonly count: number; readonly entries?: readonly LeadApprovalEntry[] }
+export interface LeadSavedApproval { readonly id: string; readonly target: string; readonly count: number; readonly entries?: readonly LeadApprovalEntry[]; readonly uncertain?: true }
 export const LEAD_APPROVAL_ENTRIES = 8
 export const LEAD_APPROVAL_RULE_BYTES = 32768
 export const LEAD_APPROVAL_HISTORY_BYTES = 262144
@@ -56,10 +59,13 @@ const hidden = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
 const safeTools = new Set(['list_intents', 'get_context', 'get_team_status', 'review_candidates', 'list_findings'])
 const absolute = (value: string) => value.startsWith('/') && !value.split('/').some(part => part === '..' || part === '.') && !hidden.test(value)
 const inProject = (path: string, project: string) => absolute(path) && absolute(project) && (path === project || path.startsWith(project.replace(/\/$/, '') + '/'))
+export const leadWorkerApprovalAsciiPath = (relative: string): boolean => relative.split('/').every(part => /^[\x20-\x7e]+$/.test(part))
 const safeFile = (relative: string): boolean => {
-  const parts = relative.split('/'), name = parts.at(-1) ?? ''
-  return !parts.some(part => part.startsWith('.')) && !parts.slice(0, -1).some(part => /^(scripts?|bin|hooks)$/i.test(part)) &&
-    !/(?:rc$|rc\.|\.local\.|\.config\.|\.setup\.|\.gradle|\.(?:gemspec|podspec)$|file\.(?:js|ts|mjs)$)|^(?:agents?(?:\.[^.]+)*|claude|gemini|instructions|rules|skill|copilot-instructions|conventions)\.md$|^(?:package\.json|makefile|dockerfile|pom\.xml|package\.swift|build\..*|setup\.(?:py|cfg)|conftest\.py|noxfile\.py|tasks\.py|fabfile\.py|manage\.py|rakefile|gemfile|podfile|cmakelists\.txt|meson\.build)$/i.test(name) &&
+  const parts = relative.split('/'), name = parts.at(-1) ?? '', lower = name.toLowerCase()
+  // The short source stems src and arc are ordinary code, despite matching the general rc spelling.
+  const rcFile = /^\.?[a-z0-9_-]*rc(\.[a-z]+)?$/.test(lower) && !/^[a-z]rc\.[a-z]+$/.test(lower)
+  return leadWorkerApprovalAsciiPath(relative) && !rcFile && !parts.some(part => part.startsWith('.')) && !parts.slice(0, -1).some(part => /^(scripts?|bin|hooks)$/i.test(part)) &&
+    !/(?:\.local\.|\.conf\.|\.config\.|\.setup\.|\.gradle|\.(?:gemspec|podspec)$|file\.(?:js|ts|mjs)$)|^(?:agents?(?:\.[^.]+)*|claude|gemini|instructions|rules|skill|copilot-instructions|conventions)\.md$|^(?:package\.json|makefile|dockerfile|pom\.xml|package\.swift|build\..*|setup\.(?:py|cfg)|conf\.py|conftest\.py|noxfile\.py|tasks\.py|fabfile\.py|manage\.py|rakefile|gemfile|podfile|cmakelists\.txt|meson\.build)$/i.test(name) &&
     LEAD_APPROVAL_FILE_EXTENSIONS.some(extension => name.toLowerCase().endsWith('.' + extension))
 }
 const fileInProject = (path: string, project: string) => inProject(path, project) && safeFile(path.slice(project.replace(/\/$/, '').length + 1))
@@ -91,7 +97,7 @@ export const parseLeadWorkerApprovalRule = (value: unknown): LeadWorkerApprovalR
   const fail = (): never => { throw new Error('lead-worker-approval-rule') }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fail()
   const rule = value as LeadWorkerApprovalRule
-  if (Object.keys(rule).sort().join() !== ['id', 'contractDigest', 'goalStartedSeq', 'key', 'target', 'count', ...(Object.hasOwn(rule, 'entries') ? ['entries'] : [])].sort().join() ||
+  if (Object.keys(rule).sort().join() !== ['id', 'contractDigest', 'goalStartedSeq', 'key', 'target', 'count', ...(['entries', 'revoked', 'dispatch'] as const).filter(key => Object.hasOwn(rule, key))].sort().join() ||
     typeof rule.id !== 'string' || !/^[A-Za-z0-9._:-]{1,256}$/.test(rule.id) || !/^[a-f0-9]{64}$/.test(rule.contractDigest) ||
     !Number.isSafeInteger(rule.goalStartedSeq) || rule.goalStartedSeq < 0 || !Number.isSafeInteger(rule.count) || rule.count < 0 || !rule.key) return fail()
   const key = rule.key
@@ -109,6 +115,14 @@ export const parseLeadWorkerApprovalRule = (value: unknown): LeadWorkerApprovalR
   if (rule.entries !== undefined) {
     const entries = parseLeadApprovalEntries(rule.entries)
     if (key.kind !== 'fileChange' || entries.some(entry => entry.number > rule.count)) return fail()
+  }
+  if (Object.hasOwn(rule, 'revoked') && rule.revoked !== true) return fail()
+  if (rule.dispatch !== undefined) {
+    const dispatch = rule.dispatch
+    if (rule.revoked || Object.keys(dispatch).sort().join() !== 'diff,phase,reason,revision' || !Number.isSafeInteger(dispatch.revision) || dispatch.revision < 1 ||
+      !['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user'].includes(dispatch.phase) || dispatch.reason !== null && (typeof dispatch.reason !== 'string' || dispatch.reason.length > 256) ||
+      (key.kind === 'tool' ? dispatch.diff !== null : typeof dispatch.diff !== 'string')) return fail()
+    if (typeof dispatch.diff === 'string') parseLeadApprovalEntries([{ id: `audit-${dispatch.revision}`, number: 1, diff: dispatch.diff }])
   }
   return structuredClone(rule)
 }

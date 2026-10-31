@@ -94,7 +94,7 @@ surface. Lead worker cards can carry complete bounded request details, including
 extra permissions. Saved approvals expose target descriptions and counts; each
 automatically allowed file change adds its exact bounded diff to that rule’s
 retained entries in `savedApprovals`. The paired phone receives this bounded
-history; it is excluded from the Lead provider conversation. The desk identity, paired-device keys, grants, revocations and port
+history, including read-only revoked rows and an uncertainty flag for unacknowledged dispatches; it is excluded from the Lead provider conversation. The desk identity, paired-device keys, grants, revocations and port
 live under `phone-link/` in the local state folder. Removing a phone closes its
 connection and requires pairing again; starting without the opt-in closes the
 LAN lane. Account sign-out and deletion do not remove this separate registry.

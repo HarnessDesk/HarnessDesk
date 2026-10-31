@@ -34,8 +34,9 @@ const ruleWords = (rule: { effect: string; method: keyof typeof PERMISSION_LABEL
 /** Window-owned details and revision-bound decisions. The child never receives a click. */
 type DecisionCard = Extract<LeadCard, { type: LeadCardDecision['cardType'] }>
 const decisionCard = (card: LeadCard): card is DecisionCard => !['stopped', 'second-look', 'allowance-warning'].includes(card.type)
-export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform, savedApprovals = [], onRevoke, decisions = [], contract, budget, goalClosed = false, onDecide, onChanges, onApprovals, knownContracts = [], onRuns, onRaiseLimit, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, waitReason, placement = 'both' }: {
+export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform, savedApprovals = [], revokedApprovals = [], onRevoke, decisions = [], contract, budget, goalClosed = false, onDecide, onChanges, onApprovals, knownContracts = [], onRuns, onRaiseLimit, onError, onSettled, decisionLock, decisionPending, setDecisionPending, expiry, focusCard, waitReason, placement = 'both' }: {
   readonly savedApprovals?: readonly LeadSavedApproval[]
+  readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly onRevoke?: (input: { readonly id: string; readonly contractDigest: string }) => Promise<unknown>
   readonly goalClosed?: boolean
   readonly knownContracts?: readonly LeadAcceptanceContract[]
@@ -53,8 +54,9 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
   readonly onDecide: (decision: LeadCardDecision) => Promise<unknown>; readonly onChanges: () => void
   readonly onApprovals: (runId: string) => void; readonly onError?: (error: unknown) => void; readonly onSettled?: () => void
 }) => {
+  const approvalRows = [...savedApprovals.map(rule => ({ ...rule, revoked: false })), ...revokedApprovals.map(rule => ({ ...rule, revoked: true }))]
   const [readingRule, setReadingRule] = useState<string | null>(null)
-  const reading = savedApprovals.find(rule => rule.id === readingRule)
+  const reading = approvalRows.find(rule => rule.id === readingRule)
   const latest = useRef(cards); latest.current = cards
   const localBusy = useRef(false), [localPending, setLocalPending] = useState<string | null>(null)
   const busy = decisionLock ?? localBusy, pending = decisionPending === undefined ? localPending : decisionPending
@@ -147,13 +149,13 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
       {action.choices.includes('yes-goal') && <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'yes-goal')}>Yes for this goal</Button>}
       {action.choices.includes('no') && <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'no')}>No</Button>}
     </> : <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'run')}>{`Run check ${action.name}`}</Button>} />)}
-    {placement !== 'dock' && savedApprovals.length > 0 && <section aria-label="Saved approvals for this goal">
+    {placement !== 'dock' && approvalRows.length > 0 && <section aria-label="Saved approvals for this goal">
       <Text as="p" role="subject">Saved approvals for this goal</Text>
-      <Rows>{savedApprovals.map(rule => <Row key={rule.id} title={sanitizeText(rule.target)} desc={`${rule.count} ${rule.count === 1 ? 'request' : 'requests'} answered`}
-        control={<>{!!rule.entries?.length && <Button variant="secondary" onClick={() => setReadingRule(rule.id)}>View allowed diffs</Button>}<Button variant="secondary" disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button></>} />)}</Rows>
+      <Rows>{approvalRows.map(rule => <Row key={rule.id} title={<>{sanitizeText(rule.target)}{rule.revoked ? <Chip tone="neutral">Revoked</Chip> : rule.uncertain ? <Chip tone="warning">Needs review</Chip> : null}</>} desc={`${rule.count} ${rule.count === 1 ? 'request' : 'requests'} answered`}
+        control={<>{!!rule.entries?.length && <Button variant="secondary" onClick={() => setReadingRule(rule.id)}>View allowed diffs</Button>}{!rule.revoked && <Button variant="secondary" disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button>}</>} />)}</Rows>
     </section>}
     {reading && <Dialog title="Allowed diffs" description={sanitizeText(reading.target)} onClose={() => setReadingRule(null)} footer={<Button onClick={() => setReadingRule(null)}>Close</Button>}>
-      <Text as="p" role="meta">{`Newest first · ${reading.entries?.length ?? 0} retained of ${reading.count} automatic answers`}</Text>
+      <Text as="p" role="meta">{reading.revoked && <Chip tone="neutral">Revoked</Chip>}{` Newest first · ${reading.entries?.length ?? 0} retained of ${reading.count} automatic answers`}</Text>
       <Rows>{reading.entries?.map(entry => <Row key={entry.id} kind="record" layout="record" title={`Request ${entry.number}`} desc={<CodeText block wrap>{sanitizeText(entry.diff)}</CodeText>} />)}</Rows>
     </Dialog>}
   </>

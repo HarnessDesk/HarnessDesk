@@ -243,3 +243,27 @@ test('one-time command cards show extra grants and never offer a goal rule', asy
     assert.ok(action.details?.includes(fact.value)); assert.ok(action.details?.includes(fact.label))
   }
 })
+
+for (const name of ['AGENTſ.md', 'gulpﬁle.js', 'SKILL.md', '目录/panel.tsx']) test(`new Unicode file stays a one-time person decision: ${name}`, async () => {
+  const s = await standingRig()
+  if (name.includes('/')) await mkdir(join(s.project, '目录'))
+  s.record.approvals.set('first', { ...s.approval, changes: [{ path: join(s.project, name), kind: { type: 'add' }, diff: '+demo' }] })
+  const [action] = await s.actions.read()
+  assert.ok(action?.kind === 'worker-approval'); assert.deepEqual(action.choices, ['yes-once', 'no'])
+})
+
+test('granting the same target after revocation preserves its older evidence under a distinct rule id', async () => {
+  const s = await standingRig(), [first] = await s.actions.read(); assert.ok(first)
+  await s.actions.perform({ id: first.id, contractDigest: digest, choice: 'yes-goal' })
+  const oldId = s.journal.state.workerApprovals[0]!.id
+  s.record.approvals.set('next', { ...s.approval, id: 'next' })
+  await s.actions.autoAnswer('fixture', 'session', 'next')
+  await s.actions.revoke({ id: oldId, contractDigest: digest })
+  s.record.approvals.set('third', { ...s.approval, id: 'third' })
+  const [third] = await s.actions.read(); assert.ok(third)
+  await s.actions.perform({ id: third.id, contractDigest: digest, choice: 'yes-goal' })
+  const rules = s.journal.state.workerApprovals as any[]
+  assert.equal(rules.length, 2)
+  assert.ok(rules.find(rule => rule.id === oldId)?.revoked)
+  assert.ok(rules.find(rule => !rule.revoked)?.id !== oldId)
+})

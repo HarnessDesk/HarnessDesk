@@ -692,3 +692,13 @@ it('sanitizes host notice text, target and retained diff text', async () => {
   expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain(escape)
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('+whole diff')
 })
+
+it('keeps revoked history openable with a Revoked chip and no Revoke action', async () => {
+  const base = leadProjection(), revoked = { id: 'revoked', target: '/workspace/demo/panel.tsx', count: 1, entries: [{ id: 'audit-4', number: 1, diff: '+evidence survives revocation' }] }
+  const { box } = await mount({ ...base, savedApprovals: [], revokedApprovals: [revoked] } as any)
+  expect(box.textContent).toContain('Revoked')
+  expect([...box.querySelectorAll('button')].some(button => button.textContent === 'Revoke')).toBe(false)
+  await act(async () => button('View allowed diffs').click())
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('+evidence survives revocation')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Revoked')
+})

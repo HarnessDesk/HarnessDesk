@@ -366,6 +366,7 @@ interface LeadSavedApproval {
   readonly target: string;
   readonly count: number;
   readonly entries?: readonly LeadApprovalEntry[];
+  readonly uncertain?: true; // a durable dispatch has no acknowledgement
 }
 ```
 
@@ -373,8 +374,12 @@ File entries are newest first. Each diff is whole, includes an empty diff, and
 is at most 8,000 characters. History retains at most eight entries and 32,768
 UTF-8 JSON bytes per rule, with a 262,144-byte goal-wide history cap. Oldest
 entries drop first; `count` remains exact and excludes the creating click. Tool
-rules omit `entries`. An absent list means no retained diffs. Revoke or goal
-expiry clears history with the rule.
+rules omit `entries`. An absent entries list means no retained diffs. Active rules
+remain in `savedApprovals`; the additive `revokedApprovals?: readonly
+LeadSavedApproval[]` contains read-only revoked rows. Both share the history
+byte limits and a combined maximum of 128 rows. Revoke preserves confirmed
+entries and count. Goal expiry or a changed contract clears both lists. Render a
+Revoked chip and the diff reader on a revoked row, with no Revoke action.
 
 Render at most one host notice per used rule, keyed by its `id`, updating the
 line “Allowed under your rule for this goal: <target> · N times” from `count`.
@@ -387,10 +392,14 @@ do not create those message entries.
 
 `LeadWindowProjection.waitReason` additionally accepts
 `"lead-worker-audit-failed"`. It accompanies `thread.state: "waiting-for-user"`
-when a responder acknowledged an answer but journal persistence failed. Show a
-host error: automatic work is paused; inspect the worker changes and restart
-the desk before continuing. This failure latch is in memory because the writer
-cannot persist it. The acknowledged diff may be absent after restart.
+while a durable dispatch intent has no acknowledgement, including after a host
+restart. An active row with `uncertain: true` earns a Needs review chip. Show a
+host error: inspect the worker changes and revoke that uncertain rule before
+Resume can continue. A failed writer must first be restarted; the durable
+intent preserves this fence. Uncertain requests do not increment the confirmed
+count or create an allowed-diff entry. Once the rule is revoked, its row moves
+to `revokedApprovals` without `uncertain`. Missing or repeated live revokes return
+`lead-approval-not-live` without appending a journal record.
 
 Ordinary worker phone cards cannot display extra-grant scope. When it is present,
 their existing `why` field says “Extra permissions need review on the desk.” and

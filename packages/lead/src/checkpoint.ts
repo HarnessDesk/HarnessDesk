@@ -79,7 +79,9 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     assert(!rule.entries || rule.entries.every(entry => Number(entry.id.slice(6)) <= source.seq))
     return [rule]
   })
-  assert(new Set(workerApprovals.map(rule => rule.id)).size === workerApprovals.length && new Set(workerApprovals.map(rule => JSON.stringify(rule.key))).size === workerApprovals.length)
+  assert(new Set(workerApprovals.map(rule => rule.id)).size === workerApprovals.length && new Set(workerApprovals.filter(rule => !rule.revoked).map(rule => JSON.stringify(rule.key))).size === workerApprovals.filter(rule => !rule.revoked).length)
+  assert(workerApprovals.filter(rule => rule.dispatch).length <= 1)
+  for (const rule of workerApprovals) if (rule.dispatch) assert(rule.dispatch.revision <= source.seq && source.phase === 'waiting-for-user' && source.managementReason === 'lead-worker-audit-failed')
   assert(new TextEncoder().encode(JSON.stringify(workerApprovals.map(rule => rule.entries ?? []))).byteLength <= LEAD_APPROVAL_HISTORY_BYTES)
   messages = messages.filter(message => !message.approval)
   if (removed) messages = [...removedWorkerApprovalNotice(messages, source.seq)]

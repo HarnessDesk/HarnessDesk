@@ -202,22 +202,31 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const rule = parseLeadWorkerApprovalRule(event.rule)
       if (state.contract && !leadWorkerRuleInProject(rule.key, state.contract.project.path)) { state = { ...state, messages: removedWorkerApprovalNotice(state.messages, event.seq) }; break }
       ensure(state.contract && state.consent && !hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) &&
-        rule.contractDigest === state.contract.digest && rule.goalStartedSeq === state.goalStartedSeq && rule.count === 0 &&
+        rule.contractDigest === state.contract.digest && rule.goalStartedSeq === state.goalStartedSeq && rule.count === 0 && !rule.revoked && !rule.dispatch &&
         leadWorkerRuleInProject(rule.key, state.contract.project.path) && state.workerApprovals.length < 128 &&
-        !state.workerApprovals.some(old => old.id === rule.id || JSON.stringify(old.key) === JSON.stringify(rule.key)))
+        !state.workerApprovals.some(old => old.id === rule.id || !old.revoked && JSON.stringify(old.key) === JSON.stringify(rule.key)))
       state = { ...state, workerApprovals: [...state.workerApprovals, rule] }; break
     }
+    case 'worker-rule-dispatch': {
+      const rule = state.workerApprovals.find(rule => rule.id === event.id && !rule.revoked)
+      ensure(rule && !state.workerApprovals.some(rule => rule.dispatch) && !hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && rule.count < Number.MAX_SAFE_INTEGER)
+      ensure((rule!.key.kind === 'fileChange') === (event.diff !== null))
+      const dispatch = { revision: event.seq, diff: event.diff, phase: state.phase, reason: state.managementReason }
+      state = { ...state, phase: 'waiting-for-user', managementReason: 'lead-worker-audit-failed', workerApprovals: state.workerApprovals.map(old => old.id === event.id ? { ...old, dispatch } : old) }; break
+    }
     case 'worker-rule-used': {
-      const rule = state.workerApprovals.find(rule => rule.id === event.id)
+      const rule = state.workerApprovals.find(rule => rule.id === event.id && !rule.revoked)
       // Historical use records for removed legacy rules carry no current authority.
       if (!rule) break
       ensure(!hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && rule.count < Number.MAX_SAFE_INTEGER)
       if (event.diff !== undefined) ensure((rule.key.kind === 'fileChange') === (event.diff !== null))
-      const updated = { ...rule, count: rule.count + 1, ...(typeof event.diff === 'string' ? { entries: boundLeadApprovalEntries([{ id: `audit-${event.seq}`, number: rule.count + 1, diff: event.diff }, ...rule.entries ?? []]) } : {}) }
-      state = { ...state, workerApprovals: boundLeadApprovalHistory(state.workerApprovals.map(old => old.id === event.id ? updated : old)) }; break
+      if (rule.dispatch) ensure(rule.dispatch.diff === event.diff)
+      const { dispatch, ...confirmed } = rule
+      const updated = { ...confirmed, count: rule.count + 1, ...(typeof event.diff === 'string' ? { entries: boundLeadApprovalEntries([{ id: `audit-${event.seq}`, number: rule.count + 1, diff: event.diff }, ...rule.entries ?? []]) } : {}) }
+      state = { ...state, phase: dispatch?.phase ?? state.phase, managementReason: dispatch ? dispatch.reason : state.managementReason, workerApprovals: boundLeadApprovalHistory(state.workerApprovals.map(old => old.id === event.id ? updated : old)) }; break
     }
     case 'worker-rule-revoked':
-      state = { ...state, workerApprovals: state.workerApprovals.filter(rule => rule.id !== event.id) }; break
+      state = { ...state, workerApprovals: state.workerApprovals.map(rule => { if (rule.id !== event.id || rule.revoked) return rule; const { dispatch: _dispatch, ...retained } = rule; return { ...retained, revoked: true as const } }) }; break
     case 'origin':
       ensure(state.contract === null && state.runs.length === 0 && state.origin === null)
       state = { ...state, origin: event.origin, originKey: event.key ?? null }; break
@@ -376,7 +385,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       if (event.phase === 'planning') ensure(state.contract === null && ['draft', 'planning'].includes(state.phase))
       state = { ...state, phase: event.phase, managementReason: event.reason ?? null }; break
     case 'resume':
-      ensure(state.phase === 'waiting-for-user' && !state.budget?.stop && !hasPendingLeadPlan(state))
+      ensure(state.phase === 'waiting-for-user' && !state.budget?.stop && !hasPendingLeadPlan(state) && !state.workerApprovals.some(rule => rule.dispatch))
       state = { ...state, phase: state.pr?.state === 'open' ? 'following' : 'running', managementReason: null,
         ownedPush: state.ownedPush?.stage === 'needs-you' ? { ...state.ownedPush, stage: 'prepared' } : state.ownedPush }; break
     case 'renew-plan': {
@@ -703,6 +712,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     state.decidedCards.includes(`${retry.id}:${retry.revision}`) || !state.cards.some(card => card.id === retry.id && card.revision === retry.revision)))
     state = { ...state, retryResult: null }
   if (event.type === 'new-goal' || ['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.contract !== previous.contract && JSON.stringify(state.contract) !== JSON.stringify(previous.contract)) state = { ...state, workerApprovals: [] }
+  if (state.workerApprovals.some(rule => rule.dispatch)) state = { ...state, phase: 'waiting-for-user', managementReason: 'lead-worker-audit-failed' }
   return { ...state, decisionRevision: event.type === 'wake' ? previous.decisionRevision : event.seq }
 }
 export const replayLeadJournal = (records: readonly LeadJournalRecord[]): LeadState => records.reduce(reduceLeadRecord, initialLeadState())

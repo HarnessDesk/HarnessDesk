@@ -2,7 +2,7 @@ import { lstatSync, realpathSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createHash } from 'node:crypto'
 import { hasPendingLeadPlan, leadPlanRuns, type LeadJournal } from '@harnessdesk/lead'
-import { LEAD_APPROVAL_DETAIL_CHARS, leadWorkerApprovalKey, leadWorkerApprovalTarget, type LeadWorkerApprovalKey } from '@harnessdesk/protocol'
+import { LEAD_APPROVAL_DETAIL_CHARS, leadWorkerApprovalAsciiPath, leadWorkerApprovalKey, leadWorkerApprovalTarget, type LeadWorkerApprovalKey } from '@harnessdesk/protocol'
 import type { Approval, HostParams, LeadAction, LeadActionInput, Sha } from '@harnessdesk/protocol'
 import type { EvidencePlane } from '../evidence/plane.js'
 import type { Host } from '../host.js'
@@ -26,6 +26,7 @@ const requestOf = (approval: Approval): string => {
 /** Resolve fresh at admission: a link inside a project must not grant an outside or authority file. */
 const pathSafe = (key: LeadWorkerApprovalKey, project: string): boolean => {
   if (key.kind === 'tool') return true
+  if (!leadWorkerApprovalAsciiPath(relative(project, key.path))) return false
   try {
     const root = realpathSync.native(project)
     let path: string
@@ -144,7 +145,7 @@ export class LeadPersonActions {
   async #autoAnswer(runtime: string, sessionId: string, approvalId: string): Promise<boolean> {
     const target = (await this.#targets()).find(target => target.runtime === runtime && target.sessionId === sessionId && target.approvalId === approvalId)
     if (!target?.key || !target.pending) return false
-    const rule = this.journal.state.workerApprovals.find(rule => JSON.stringify(rule.key) === JSON.stringify(target.key))
+    const rule = this.journal.state.workerApprovals.find(rule => !rule.revoked && JSON.stringify(rule.key) === JSON.stringify(target.key))
     if (!rule) return false
     return this.journal.useWorkerApproval(rule.id, target.pending, () => target.answer('yes-once'), target.diff ?? null)
   }
@@ -156,9 +157,9 @@ export class LeadPersonActions {
     if (input.choice === 'yes-goal') {
       if (!target.key || !target.pending?.() || target.action.kind !== 'worker-approval' || !target.action.choices.includes('yes-goal')) throw leadRefusal('lead-operation-refused')
       const state = this.journal.state
-      const existing = state.workerApprovals.find(rule => JSON.stringify(rule.key) === JSON.stringify(target.key))
+      const existing = state.workerApprovals.find(rule => !rule.revoked && JSON.stringify(rule.key) === JSON.stringify(target.key))
       if (existing) { await target.answer('yes-once'); return }
-      await this.journal.saveWorkerApproval({ id: `rule-${identity([state.goalStartedSeq, input.contractDigest, target.key])}`, contractDigest: input.contractDigest,
+      await this.journal.saveWorkerApproval({ id: `rule-${identity([state.goalStartedSeq, input.contractDigest, target.key, state.seq])}`, contractDigest: input.contractDigest,
         goalStartedSeq: state.goalStartedSeq, key: target.key, target: leadWorkerApprovalTarget(target.key), count: 0 }, target.pending, () => target.answer('yes-once'))
       return
     }

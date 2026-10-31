@@ -4935,9 +4935,9 @@ excluded because they commonly define builds or carry executable content. JSON,
 YAML, TOML, lockfiles and shell scripts are also outside this list.
 
 Eligibility is checked on the path relative to the approved project, allowing a
-project itself to live below a dot folder. No relative segment may start with a
+project itself to live below a dot folder. Every relative segment must be plain printable ASCII (U+0020–U+007E). This prevents Unicode-equivalent instruction and build names from borrowing a source-file key on filesystems that fold those names. The key, checkpoint admission and fresh path check enforce it; the project root itself may contain Unicode or dot folders. No relative segment may start with a
 dot, or name a `script`, `scripts`, `bin` or `hooks` directory (case insensitive).
-Basenames refuse rc files (`rc$` or `rc.`), `*.local.*`, `*.config.*`,
+Basenames use the lowercase rc-file pattern `^\.?[a-z0-9_-]*rc(\.[a-z]+)?$`, except short ordinary source stems of the form `<letter>rc` (such as `src.ts` and `arc.ts`). This exception follows the explicitly required source-file acceptance cases, which the general rc pattern also matches. Basenames also refuse `*.local.*`, `*.conf.*`, `conf.py`, `*.config.*`,
 `*.setup.*`, `*.gradle*`, `*file.js`, `*file.ts`, `*file.mjs`, `*.gemspec`,
 `*.podspec`, `package.json`, `Makefile`, `Dockerfile`, `pom.xml`, `Package.swift`,
 `build.*`, `setup.py`, `setup.cfg`, `conftest.py`, `noxfile.py`, `tasks.py`,
@@ -4971,19 +4971,12 @@ newest-first entries containing the answer number and exact diff (including an
 empty diff). Each diff is limited to the card's 8,000 characters. History retains
 at most eight entries and 32 KiB of UTF-8 JSON per rule, with a 256 KiB goal-wide
 cap; oldest entries drop first and never change the count. Tool rules retain no
-diffs. Revocation, goal expiry and contract changes clear history with its rule.
+diffs. Revocation disables matching and moves the rule to read-only revoked history, retaining its entries under the same bounds and shared 128-rule limit. Goal expiry and contract changes clear both active and revoked history. A renewed grant for the same target has a new id.
 
 The conversation derives one host notice line per active used rule, updating it
 in place with its count. View allowed diffs belongs to the saved rule's row and
 opens retained entries newest first in the shared Dialog. These values pass the
-transcript text sanitizer and never appear as assistant prose. A successful
-acknowledgement writes history and count in one journal event. Failed responders
-produce no allowed entry and no count. If acknowledgement succeeds but the audit
-append fails, the failed writer stops further automatic work and exposes
-`lead-worker-audit-failed` as a waiting-for-user host error. This error is an
-in-process latch because the failed storage cannot persist it; the person must
-inspect the worker changes before restarting, and the acknowledged diff may be
-absent after restart.
+transcript text sanitizer and never appear as assistant prose. A dispatch intent containing the exact bounded request is journaled before answering, and admission is checked again after that write. Acknowledgement writes history and count, clears the intent and restores the prior phase. An unmatched intent persists across checkpoint and journal replay as `waiting-for-user` with `lead-worker-audit-failed`; neither another automatic answer nor Resume can bypass it. The person inspects the worker changes and revokes the uncertain rule through the Answer-tier path before Resume can continue. A response failure also leaves the intent uncertain, without claiming an allowed answer or incrementing its count. A failed writer must first be restarted; the durable intent retains the fence. Live revokes of missing or already revoked ids fail without an append, while historical replay remains lenient.
 
 Strict checkpoint loading drops structurally valid but obsolete rules with one
 host removal notice, rather than refusing the whole checkpoint. Other malformed
@@ -4992,7 +4985,7 @@ legacy use records retain counts without inventing missing diffs. Retained
 round-one diff notices migrate into file history and leave the message window.
 Journal authentication checks the original stored record before migration.
 
-Saved approvals use a plain Rows/Row list with secondary Revoke controls and the
+Saved approvals and read-only revoked history use a plain Rows/Row list; revoked rows show a Revoked chip and keep their diff reader without a Revoke control. Active rows use secondary Revoke controls and the
 dock's shared busy state. Revocation and automatic admission share the journal
 writer queue. Accepted, declined, stopped and fresh or repeated goals, or an
 approved contract change, discard the rules. A pending plan suspends automatic

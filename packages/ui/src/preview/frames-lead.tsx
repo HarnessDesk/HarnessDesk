@@ -53,7 +53,9 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     }
     if (method === 'lead/approval/revoke') {
       if (params.contractDigest !== current.thread.contract?.digest) throw { code: 'lead-card-stale' }
-      emit({ ...current, revision: current.revision + 1, savedApprovals: current.savedApprovals?.filter(rule => rule.id !== params.id) })
+      const revoked = current.savedApprovals?.find(rule => rule.id === params.id)
+      if (!revoked) throw { code: 'lead-approval-not-live' }
+      emit({ ...current, revision: current.revision + 1, savedApprovals: current.savedApprovals?.filter(rule => rule.id !== params.id), revokedApprovals: [...current.revokedApprovals ?? [], revoked] })
       return current
     }
     if (method === 'lead/action/perform') {
@@ -71,7 +73,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       return current
     }
     if (method === 'lead/thread/send') { const revision = current.revision + 1; emit({ ...current, revision, thread: { ...current.thread, messages: [...current.thread.messages, { version: 1, id: `message-${revision}`, revision, role: 'user', text: params.text }] } }); return { messageId: `message-${revision}`, revision } }
-    if (method === 'lead/stop') { const { progress: _running, ...rest } = current; emit({ ...rest, revision: current.revision + 1, savedApprovals: [], requestInFlight: false, wayOut: null, waitReason: null, thread: { ...current.thread, state: 'stopped', cards: [] } }); return current }
+    if (method === 'lead/stop') { const { progress: _running, ...rest } = current; emit({ ...rest, revision: current.revision + 1, savedApprovals: [], revokedApprovals: [], requestInFlight: false, wayOut: null, waitReason: null, thread: { ...current.thread, state: 'stopped', cards: [] } }); return current }
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }

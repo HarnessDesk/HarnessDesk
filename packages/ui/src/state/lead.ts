@@ -8,6 +8,7 @@ interface LeadTransport {
 export interface LeadState {
   readonly wakes?: readonly LeadWakeRecord[]
   readonly savedApprovals?: readonly LeadSavedApproval[]
+  readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions: readonly LeadAction[]
   readonly revision: number
   readonly thread: LeadThread | null
@@ -28,7 +29,7 @@ export interface LeadState {
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
-  const initial = (): LeadState => ({ savedApprovals: [], personActions: [], revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, presence: null, steers: null, error: null })
+  const initial = (): LeadState => ({ savedApprovals: [], revokedApprovals: [], personActions: [], revision: -1, thread: null, settings: null, requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, progress: null, team: null, presence: null, steers: null, error: null })
   let state = initial(), wakeRevision = -1
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
@@ -47,7 +48,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
     }
     state = 'error' in projection
       ? { ...state, revision: projection.revision, wayOut: null, error: projection.error }
-      : structuredClone({ wakes: state.wakes ?? [], savedApprovals: projection.savedApprovals ?? [], personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
+      : structuredClone({ wakes: state.wakes ?? [], savedApprovals: projection.savedApprovals ?? [], revokedApprovals: projection.revokedApprovals ?? [], personActions: projection.personActions ?? [], revision: projection.revision, thread: projection.thread, settings: projection.settings, wayOut: projection.wayOut,
         requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }

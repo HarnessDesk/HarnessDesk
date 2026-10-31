@@ -179,7 +179,7 @@ export class LeadControls {
     if (this.#steers.goal !== goal) this.#steers = { goal, list: [] }
     const steers = this.#steers.list.slice(-64)
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, savedApprovals: state.workerApprovals.map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, savedApprovals: state.workerApprovals.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: state.workerApprovals.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }
@@ -187,7 +187,7 @@ export class LeadControls {
     return this.#requestInFlight || this.options.readRequestInFlight?.() === true
   }
   #resumable(state: LeadState): boolean {
-    if (['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked || this.#inFlight()) return false
+    if (state.workerApprovals.some(rule => rule.dispatch) || ['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked || this.#inFlight()) return false
     const cards = state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))
     return !cards.some(card => card.type === 'plan' || card.type === 'result' || card.type === 'waiting' && card.kind === 'person') &&
       (!state.consent || state.consent.expiresAt > this.options.now()) &&

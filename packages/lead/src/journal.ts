@@ -66,6 +66,7 @@ export const parseLeadPublicationOperation = (value: unknown): LeadPublicationOp
 export type LeadJournalEvent =
   | { readonly type: 'worker-rule-obsolete' }
   | { readonly type: 'worker-rule-saved'; readonly rule: LeadWorkerApprovalRule }
+  | { readonly type: 'worker-rule-dispatch'; readonly id: string; readonly diff: string | null }
   | { readonly type: 'worker-rule-used'; readonly id: string; readonly diff?: string | null }
   | { readonly type: 'worker-rule-revoked'; readonly id: string }
   | { readonly type: 'wake'; readonly wake: LeadWakeRecord }
@@ -180,7 +181,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
   if (source.version !== 1) throw new Error('lead-journal-version')
   const seq = integer(source.seq, 1)
   const keys: Record<string, readonly string[]> = {
-    'worker-rule-obsolete': [], 'worker-rule-saved': ['rule'], 'worker-rule-used': ['id', ...(Object.hasOwn(source, 'diff') ? ['diff'] : [])], 'worker-rule-revoked': ['id'], wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
+    'worker-rule-dispatch': ['id', 'diff'], 'worker-rule-obsolete': [], 'worker-rule-saved': ['rule'], 'worker-rule-used': ['id', ...(Object.hasOwn(source, 'diff') ? ['diff'] : [])], 'worker-rule-revoked': ['id'], wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
     'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     'second-look-attempt': ['runId', 'stopKey', 'now'], 'second-look-restart': ['runId', 'stopKey', 'roundId', 'now'],
     'person-caps': ['logicalGoalId', 'caps', 'now'], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
@@ -196,6 +197,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
       try { event = { type, rule: parseLeadWorkerApprovalRule(source.rule) } }
       catch (error) { if ((error as Error).message !== 'lead-worker-approval-obsolete') throw error; event = { type: 'worker-rule-obsolete' } }
       break
+    case 'worker-rule-dispatch': event = { type, id: identifier(source.id), diff: source.diff === null ? null : parseLeadApprovalAudit({ ruleId: identifier(source.id), target: 'audit', diff: source.diff }).diff! }; break
     case 'worker-rule-used': event = { type, id: identifier(source.id), ...(Object.hasOwn(source, 'diff') ? { diff: source.diff === null ? null : parseLeadApprovalAudit({ ruleId: identifier(source.id), target: 'audit', diff: source.diff }).diff! } : {}) }; break
     case 'worker-rule-revoked': event = { type, id: identifier(source.id) }; break
     case 'wake': event = { type, wake: parseLeadWakeRecord(source.wake) }; break
@@ -391,7 +393,7 @@ export class LeadJournal {
       throw Object.assign(new Error('lead-plan-pending'), { wireCode: 'lead-plan-pending' })
     if (unanswered && this.#state.messages.findLast(message => message.role === 'user' || message.role === 'assistant')?.role === 'user' && !['accepted', 'declined', 'stopped', 'waiting-for-user'].includes(this.#state.phase))
       await this.#append({ type: 'management', phase: 'waiting-for-user', reason: 'lead-request-failed' })
-    if (this.#state.phase !== 'waiting-for-user' || this.#state.budget?.stop || this.#state.recoveryBlocked)
+    if (this.#state.workerApprovals.some(rule => rule.dispatch) || this.#state.phase !== 'waiting-for-user' || this.#state.budget?.stop || this.#state.recoveryBlocked)
       throw Object.assign(new Error('lead-no-person-wait'), { wireCode: 'lead-no-person-wait' })
     return this.#append({ type: 'resume' }, committed)
   }) }
@@ -443,12 +445,14 @@ export class LeadJournal {
   }) }
   revokeWorkerApproval(id: string, contractDigest: string): Promise<void> { return this.#queue(async () => {
     if (this.#state.contract?.digest !== contractDigest) throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
+    if (!this.#state.workerApprovals.some(rule => rule.id === id && !rule.revoked)) throw Object.assign(new Error('Saved approval is not active.'), { wireCode: 'lead-approval-not-live' })
     await this.#append({ type: 'worker-rule-revoked', id })
   }) }
   useWorkerApproval(id: string, guard: () => boolean, answer: () => Promise<unknown>, diff: string | null = null): Promise<boolean> { return this.#queue(async () => {
-    if (!guard() || !this.#state.workerApprovals.some(rule => rule.id === id) || ['accepted', 'declined', 'stopped', 'following'].includes(this.#state.phase)) return false
-    // Validate the bounded audit before dispatch, then record only acknowledged answers.
-    reduceLeadRecord(this.#state, { version: 1, seq: this.#state.seq + 1, type: 'worker-rule-used', id, diff })
+    if (!guard() || this.#state.managementReason === 'lead-worker-audit-failed' || this.#state.workerApprovals.some(rule => rule.dispatch) || !this.#state.workerApprovals.some(rule => rule.id === id && !rule.revoked) || ['accepted', 'declined', 'stopped', 'following'].includes(this.#state.phase)) return false
+    // Persist the exact request before dispatch. An unacknowledged intent remains a recovery fence.
+    await this.#append({ type: 'worker-rule-dispatch', id, diff })
+    if (!guard()) throw Object.assign(new Error('lead-card-stale'), { wireCode: 'lead-card-stale' })
     await answer()
     try { await this.#append({ type: 'worker-rule-used', id, diff }) }
     catch (error) {
