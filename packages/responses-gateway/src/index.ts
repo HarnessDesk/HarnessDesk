@@ -19,6 +19,12 @@ export interface RunningGateway {
   readonly token: string
 }
 
+/** An acquisition may release only the process it started, never a borrowed one. */
+export interface GatewayAcquisition {
+  readonly gateway: RunningGateway
+  readonly release: () => void
+}
+
 interface Entry {
   readonly child: ChildProcess
   readonly gateway: RunningGateway
@@ -50,8 +56,19 @@ export class GatewaySupervisor {
       readonly resolveKey: () => Promise<string>
     },
   ): Promise<RunningGateway> {
+    return (await this.acquire(routeId, options)).gateway
+  }
+
+  async acquire(
+    routeId: string,
+    options: {
+      readonly upstream: string
+      readonly model?: string
+      readonly resolveKey: () => Promise<string>
+    },
+  ): Promise<GatewayAcquisition> {
     const existing = this.#running.get(routeId)
-    if (existing && existing.child.exitCode === null) return existing.gateway
+    if (existing && existing.child.exitCode === null) return { gateway: existing.gateway, release: () => {} }
 
     const token = randomBytes(24).toString('hex')
     const child = spawn(process.execPath, [CHILD_ENTRY], {
@@ -105,9 +122,13 @@ export class GatewaySupervisor {
     // No `/v1` here: the upstream base already carries whatever prefix the
     // provider uses, and callers append only the method path (`/responses`).
     const gateway: RunningGateway = { endpoint: `http://127.0.0.1:${port}/t/${token}`, token }
-    this.#running.set(routeId, { child, gateway })
+    const entry = { child, gateway }
+    this.#running.set(routeId, entry)
     this.#logger.info?.('model gateway ready', { routeId, endpoint: gateway.endpoint })
-    return gateway
+    return { gateway, release: () => {
+      if (this.#running.get(routeId) === entry) this.#running.delete(routeId)
+      child.stdin?.end()
+    } }
   }
 
   /** Stops the gateway for a route (after the route is edited or deleted). */

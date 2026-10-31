@@ -80,7 +80,45 @@ test('the gateway swaps its token for the provider key and forwards', async () =
     assert.equal(resolved, 1)
   } finally {
     await supervisor.dispose()
-    upstream.server.close()
+    await new Promise<void>((resolve, reject) => upstream.server.close(error => error ? reject(error) : resolve()))
+  }
+})
+
+test('an acquisition cannot stop a borrowed gateway or a replacement', async () => {
+  const upstream = await upstreamServer()
+  const supervisor = new GatewaySupervisor()
+  let releaseReplacement: (() => void) | undefined
+  const options = (key: string) => ({ upstream: `http://127.0.0.1:${upstream.port}/v1`, resolveKey: async () => key })
+  const send = async (endpoint: string) => {
+    const response = await fetch(`${endpoint}/responses`, { method: 'POST', body: '{}' })
+    assert.equal(response.status, 200)
+    await response.arrayBuffer()
+  }
+  try {
+    const existing = await supervisor.ensure('borrowed', options('fixture-existing'))
+    const borrowed = await supervisor.acquire('borrowed', options('fixture-unused'))
+    assert.equal(borrowed.gateway.endpoint, existing.endpoint)
+    borrowed.release()
+    await send(existing.endpoint)
+    assert.equal(upstream.seen.at(-1)?.auth, 'Bearer fixture-existing')
+
+    const first = await supervisor.acquire('replacement', options('fixture-first'))
+    supervisor.stop('replacement')
+    const replacement = await supervisor.acquire('replacement', options('fixture-replacement'))
+    releaseReplacement = replacement.release
+    first.release()
+    await send(replacement.gateway.endpoint)
+    assert.equal(upstream.seen.at(-1)?.auth, 'Bearer fixture-replacement')
+    const current = await supervisor.acquire('replacement', options('fixture-unused'))
+    try {
+      assert.equal(current.gateway.endpoint === replacement.gateway.endpoint, true, 'replacement remains registered')
+    } finally {
+      current.release()
+    }
+  } finally {
+    await supervisor.dispose()
+    releaseReplacement?.()
+    await new Promise<void>((resolve, reject) => upstream.server.close(error => error ? reject(error) : resolve()))
   }
 })
 
@@ -102,7 +140,7 @@ test('a pinned model rewrites the request body; the caller cannot override it', 
     assert.equal(sent.model, 'pinned-model')
   } finally {
     await supervisor.dispose()
-    upstream.server.close()
+    await new Promise<void>((resolve, reject) => upstream.server.close(error => error ? reject(error) : resolve()))
   }
 })
 
