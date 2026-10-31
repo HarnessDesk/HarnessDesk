@@ -34,13 +34,14 @@ import { Client, halt, start as startHarness } from './fixtures/harness.js'
 
 const silent = new Logger('test', { level: 'error', console: false })
 
-const hostAt = async (stateDir: string, options: { logger?: Logger } = {}) => {
+const hostAt = async (stateDir: string, options: { logger?: Logger; ownsRuntime?: (id: RuntimeId | string) => boolean } = {}) => {
   const store = new AgentRegistryStore(join(stateDir, 'agents.json'))
   const directory = new AgentDirectory({
     store,
     build: (config) => new FakeRuntime({ id: config.id as RuntimeId, name: config.name }),
     usageFor: () => null,
     which: async () => null,
+    ...(options.ownsRuntime ? { ownsRuntime: options.ownsRuntime } : {}),
   })
   const host = new Host({
     logger: options.logger ?? silent,
@@ -150,6 +151,22 @@ const restorePathCase = async (t: TestContext, path: string) => {
   assert.deepEqual(report.agentFolders, { restored: 1, skipped: 0 }, 'one refused file does not refuse its folder')
   return dir
 }
+
+test('restoring an unbuildable agent counts its stored row without claiming runtime ownership', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-future-agent-'))
+  const dispose = disposeHostsThenRemove(t, [dir])
+  const { host, store } = await hostAt(dir, { ownsRuntime: () => false })
+  dispose(host)
+  const entry = { id: 'future-agent', name: 'Future agent', template: 'future-bridge' }
+  const backup = { ...backupWith([]), agents: [entry] }
+  const first = await host.call('backup/import', { backup })
+  assert.deepEqual(first.agents, { restored: 1, skipped: 0 }, 'the persisted row is restored even without a runtime')
+  assert.deepEqual(store.entry(entry.id), entry)
+  assert.equal((await host.call('host/hello', { clientVersion: 'test' })).runtimes.some(runtime => runtime.id === entry.id), false)
+  const again = await host.call('backup/import', { backup })
+  assert.deepEqual(again.agents, { restored: 0, skipped: 1 })
+  assert.deepEqual(store.entries(), [entry], 'a second import keeps the original stored entry')
+})
 
 test('what one host exports, a fresh host restores — and can prove it has', async (t) => {
   const dirA = await mkdtemp(join(tmpdir(), 'hd-backup-a-'))
