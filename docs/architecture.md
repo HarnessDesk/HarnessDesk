@@ -865,12 +865,12 @@ Chat reads retain the provider's 12,000-byte result bound and disclose two separ
 
 The host also keeps `<state>/lead/chat-control.json`: at most 64 chats per canonical project and 32 envelope
 keys per chat, with a `lead` or `person` holder. The keys verify message
-provenance and confer no authority. Sends, stops and queued deliveries recheck
+provenance and confer no authority. Lists project global person holds onto matching selected-project chat ids; Hand back releases every project key for that id in one durable write, while a newer take-over keeps its fence. Sends, stops and queued deliveries recheck
 the person's hold in the host. `lead/chats/control`, `lead/chats/resetControl`, `lead/chat/takeOver` and
 `lead/chat/handBack` are window-only methods. The phone's `workspace/thread/read`
 projects verified words in the `you` turn's `text`, with `lead: { name: string }`
 for its historical sender, and optional thread `leadChatHolder: 'lead' | 'person'`.
-An absent holder means the host has no Lead-managed chat record.
+An absent holder means the host has no Lead-managed chat record. Window control lists distinguish `problem: { kind: 'invalid' | 'transient' | 'unavailable', message: string, retryable?: boolean }`: corrupt data or permanent record-access failures need explicit reset; repeated retryable failures set `retryable: true`, offer Try again before Reset, and keep probing and healing on a successful read; transient failures permit retry; an unavailable selected project requires restoring its folder or access permissions. This does not change the phone wire.
 
 The host stores at most 64 tracked chat ids in the Lead state folder’s `chats.json` watch file. Only meaningful running/waiting/idle transitions produce a metadata-only `lead/chat/changed` notification. The private client door rechecks project scope and current read authority, and supplies a bounded tracked-state baseline on subscription so a disconnected completion is observable. The Lead loop coalesces those changes, reads relevant conversations as untrusted observations, and reports only meaningful results or decisions. Ordinary sessions retain ordinary spend; they do not become approved Flow runs or consume its round accounting.
 

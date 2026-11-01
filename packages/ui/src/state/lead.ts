@@ -8,7 +8,7 @@ interface LeadTransport {
 export interface LeadState {
   /** Chats the Lead has written to, their holders and its envelope keys. */
   readonly chats: readonly LeadChatControl[]
-  readonly chatControlProblem: string | null
+  readonly chatControlProblem: LeadChatControlList['problem'] | null
   readonly wakes?: readonly LeadWakeRecord[]
   readonly personActions: readonly LeadAction[]
   readonly revision: number
@@ -53,31 +53,54 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
         requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }
+  let controlVersion = 0
+  const retriedControl = new Set<'transient' | 'escalated'>()
+  let controlRetry: ReturnType<typeof setTimeout> | undefined
+  let controlRetryKind: 'transient' | 'escalated' | undefined
+  const cancelControlRetry = () => { clearTimeout(controlRetry); controlRetry = undefined; controlRetryKind = undefined }
   const applyChats = (list: LeadChatControlList) => {
     if (!available()) return
+    ++controlVersion
     state = { ...state, chats: list.chats, chatControlProblem: list.problem ?? null }
+    // Each retryable state gets one attempt, including an escalation caused
+    // by other readers after the initial transient retry has been used.
+    const retryKind = list.problem?.kind === 'transient' ? 'transient' : list.problem?.retryable ? 'escalated' : null
+    if (retryKind) {
+      if (controlRetryKind && controlRetryKind !== retryKind) cancelControlRetry()
+      if (!retriedControl.has(retryKind)) {
+        retriedControl.add(retryKind)
+        controlRetryKind = retryKind
+        controlRetry = setTimeout(() => {
+          controlRetry = undefined; controlRetryKind = undefined
+          if (available()) void readChatControl().catch(() => {})
+        }, 750)
+      }
+    } else { cancelControlRetry(); retriedControl.clear() }
     for (const listener of listeners) listener()
+  }
+  const readChatControl = async () => {
+    check()
+    cancelControlRetry()
+    const version = ++controlVersion
+    try {
+      const list = await transport.request('lead/chats/control', {})
+      if (version === controlVersion) applyChats(list)
+    } catch (failure) {
+      if (available() && version === controlVersion) applyChats({ project: null, chats: state.chats,
+        problem: { kind: 'transient', message: failure instanceof Error ? failure.message : String(failure) } })
+      throw failure
+    }
   }
   return {
     get state(): LeadState { return state },
-    reset(): void { state = initial(); wakeRevision = -1; for (const listener of listeners) listener() },
+    reset(): void { ++controlVersion; cancelControlRetry(); retriedControl.clear(); state = initial(); wakeRevision = -1; for (const listener of listeners) listener() },
     subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } },
     changed(notification: WireNotification): void {
       if (!available()) return
       if (notification.method === 'lead/changed') apply(notification.params)
       else if (notification.method === 'lead/chats/controlChanged') applyChats(notification.params)
     },
-    async readChatControl() {
-      check()
-      try { applyChats(await transport.request('lead/chats/control', {})) }
-      catch (failure) {
-        if (available()) {
-          state = { ...state, chatControlProblem: failure instanceof Error ? failure.message : String(failure) }
-          for (const listener of listeners) listener()
-        }
-        throw failure
-      }
-    },
+    readChatControl,
     async resetChatControl() { check(); applyChats(await transport.request('lead/chats/resetControl', {})) },
     async takeOverChat(id: string) { check(); applyChats(await transport.request('lead/chat/takeOver', { id })) },
     async handBackChat(id: string) { check(); applyChats(await transport.request('lead/chat/handBack', { id })) },
