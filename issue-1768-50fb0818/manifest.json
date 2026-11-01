@@ -1,0 +1,36 @@
+{
+  "issue": 1768,
+  "captureHead": "50fb0818c46570a17365ca53a36dcfac0464a123",
+  "candidateHead": "36560bfaf64ecb98564d9ed243a292716b415a06",
+  "frames": [
+    {
+      "name": "organization-light.png",
+      "sha256": "2114adda0d4158a0887da36e1780f3a1e153d0e4dba1eb4e1f914089a945e58c",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Organization prerequisite and clickable method in Light theme."
+    },
+    {
+      "name": "organization-dark.png",
+      "sha256": "9be701ad971566ffe2cd351b8fdc2d3a9f21530666f95d7a5bdd8e96676b035a",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Organization prerequisite and clickable method in Dark theme."
+    },
+    {
+      "name": "waiting-dark.png",
+      "sha256": "95f55d3bcfbcb5c367dee6c6bf0c02320a10428d3fb6a55840a0d5c5d59ffcdf",
+      "width": 2560,
+      "height": 1680,
+      "caption": "The fake ACP request is waiting in the browser flow."
+    },
+    {
+      "name": "expired-dark.png",
+      "sha256": "f24c3434650f8f4f2482ed66b548afd7701544dfb31119c75e85944236ebd341",
+      "width": 2560,
+      "height": 1680,
+      "caption": "The wait ended, choices returned, and the agent may still finish."
+    }
+  ],
+  "scope": "Isolated fake-agent Electron run; source-based sign-in equivalence after integration, not an integrated-head native run or real provider authentication."
+}
