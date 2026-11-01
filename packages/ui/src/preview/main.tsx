@@ -670,6 +670,12 @@ const Preview = () => {
           onChange={(next) => store.setCorners(next)}
         />
         <Dial
+          label="surface"
+          value={snapshot.surface}
+          options={['cards', 'sheet'] as const}
+          onChange={(next) => store.setSurface(next)}
+        />
+        <Dial
           label="faces"
           value={snapshot.faces}
           options={['round', 'square'] as const}

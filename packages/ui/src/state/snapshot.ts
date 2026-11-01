@@ -664,6 +664,13 @@ export interface AppSnapshot {
    * the body attribute is still `data-hd-interface`.
    */
   readonly look: 'desk' | 'studio'
+  /**
+   * How a page holds its groups. `cards` (the default) puts each group of
+   * rows and each rail section in one card; `sheet` lays them flat on the
+   * page with hairlines between. Entirely token values — see
+   * design/foundation/tokens.sheet.css.
+   */
+  readonly surface: 'cards' | 'sheet'
   /** How the session list draws itself; persisted like the theme. */
   /**
    * Tasks the person reworded, by session key. The Tasks panel is a read of
@@ -970,6 +977,7 @@ const EMPTY: AppSnapshot = {
   corners: 'default',
   faces: 'round',
   look: 'desk',
+  surface: 'cards',
   planEdits: {},
   listPrefs: { density: 'compact', agent: null, sort: 'recency', pinned: [], pinnedSessions: [], collapsed: [], panelsCollapsed: [], othersOpen: false },
   editorPrefs: DEFAULT_EDITOR_PREFS,

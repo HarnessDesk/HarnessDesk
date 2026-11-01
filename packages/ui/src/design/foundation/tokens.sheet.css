@@ -1,0 +1,67 @@
+/*
+ * Sheet — the second surface, a foundation over the default Cards.
+ *
+ * The owner's app-frame canvas (2026-11-01) drew every screen twice. Cards
+ * (B, the default in tokens.css) puts each group of rows and each rail section
+ * in one card: the main ground, the strong hairline, 10px corners. Sheet (A)
+ * lays the same content flat on one page: rows sit on the ground with a
+ * hairline between them and no box, rail sections are split by a hairline
+ * rather than spaced as cards, and the left column takes the page's ground
+ * with only its edge to separate it.
+ *
+ * Nothing else changes, which is the point of drawing it as a foundation: the
+ * grammar the two share — the one left row, the group labels, the page head,
+ * the meter, the menu row, and everything that stays boxed in both (the
+ * composer, decision cards, menus, dialogs, a Flow graph) — is not named
+ * here, so it cannot drift between them.
+ *
+ * Settings › Appearance › Surface writes `body[data-hd-surface='sheet']`
+ * (state/theme.ts); the absence of the attribute is Cards. A palette's dark
+ * face is keyed on two attributes (`body[data-hd-palette][data-hd-dark-theme]`),
+ * and order only breaks a tie, so the sheet is keyed at the same weight
+ * (`:root` plus its own attribute) and imported last in styles/app.css: a
+ * palette or interface that re-grounds the sidebar or tints a group cannot win
+ * back what this sheet takes away. styles/sheet-surface.test.ts holds both.
+ */
+:root body[data-hd-surface='sheet'] {
+  /* A group of rows: no ground of its own, no edge, no corner. The row
+     dividers stay — they are what a sheet is made of — and the rows stand on
+     the page's text edge rather than a card's inset. */
+  --hd-card-fill: var(--hd-background);
+  --hd-card-border: transparent;
+  --hd-card-border-width: 0px;
+  --hd-card-radius: 0px;
+  --hd-card-divider: var(--hd-border);
+  --hd-card-inset: 0px;
+
+  /* The right panel: flat sections split by a hairline. The border stays
+     transparent rather than gone, so every inset the frame contract measures
+     through it is the same in both surfaces. */
+  --hd-panel-card-border: transparent;
+  --hd-panel-card-radius: 0px;
+  --hd-panel-card-gap: 0px;
+  --hd-panel-card-rule: var(--hd-border);
+
+  /* The left column on the page's own ground; its edge hairline is the only
+     thing that separates it. */
+  --hd-sidebar-plate: var(--hd-background);
+  --hd-sidebar-edge: var(--hd-border);
+  /* With no plate behind it, the search field is a fill rather than a frame. */
+  --hd-left-search-fill: var(--hd-hover);
+  --hd-left-search-edge: transparent;
+}
+
+/* A plate is an object, not a group of rows — the files card under an answer,
+   a transcript item, a timeline step — so it stays boxed on a sheet. Resetting
+   the group tokens here hands it its own fallbacks (Card's `plate`): the card
+   ground, the strong hairline, the default corner. The edge width and the
+   inset are reset too, though the plate draws neither, because a group of rows
+   inside the plate inherits them and must read as a card's rows, not half a
+   sheet's. */
+:root body[data-hd-surface='sheet'] [data-slot='card'][data-variant='plate'] {
+  --hd-card-fill: initial;
+  --hd-card-border: initial;
+  --hd-card-border-width: initial;
+  --hd-card-radius: initial;
+  --hd-card-inset: initial;
+}

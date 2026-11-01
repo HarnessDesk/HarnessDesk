@@ -40,11 +40,13 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
     ? <span id={`${bodyId}-summary`} data-slot="tool-section-value" title={typeof value === 'string' ? value : undefined}
       className="ms-auto min-w-0 max-w-1/2 shrink-0 truncate tabular-nums"><Text role="muted" ink="secondary" truncate className="block">{value}</Text></span> : null
   return <section data-slot="tool-section" data-folded={shown ? undefined : ''} aria-label={label}
-    className="min-w-0 rounded-(--hd-panel-card-radius) border border-(--hd-border-strong) bg-(--hd-background) py-(--hd-panel-card-pad-y)">
+    className="min-w-0 rounded-(--hd-panel-card-radius) border border-(--hd-panel-card-border) bg-(--hd-panel-card-fill) py-(--hd-panel-card-pad-y) [[data-slot=tool-section]+&]:shadow-[inset_0_1px_0_var(--hd-panel-card-rule)]">
     <GroupLabel as="div" surface="tool">
       {fold ? <Button variant="ghost" size="content-min" bordered={false} data-slot="tool-section-fold" aria-label={label} aria-describedby={summary ? `${bodyId}-summary` : undefined} aria-expanded={open} aria-controls={bodyId}
-        className="hd-no-drag min-w-0 flex-1 shrink justify-start gap-(--hd-space-1) text-left" onClick={() => setOpen(value => !value)}>
-        <DisclosureChevron open={open} size="sm" /><Text role="row" ink="primary" truncate title={label} className="min-w-0">{label}</Text>{summary}
+        className="hd-no-drag min-w-0 flex-1 shrink justify-start gap-(--hd-space-1) text-left aria-expanded:bg-transparent aria-expanded:hover:bg-(--hd-hover)" onClick={() => setOpen(value => !value)}>
+        {/* The chevron follows the label, and open has no fill: the chevron
+            already says open, and a lit header read as a menu left open. */}
+        <Text role="row" ink="primary" truncate title={label} className="min-w-0">{label}</Text><DisclosureChevron open={open} size="sm" />{summary}
       </Button> : <><Text role="row" ink="primary" truncate title={label}>{label}</Text>{summary}</>}
       {action && <span data-slot="tool-section-actions" data-edge-pull-slot="" className={`${fold || summary ? '' : 'ms-auto '}flex shrink-0 items-center gap-(--hd-space-1)`}>{action}</span>}
     </GroupLabel>

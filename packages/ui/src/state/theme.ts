@@ -22,7 +22,7 @@ export type ResolvedTheme = 'light' | 'dark'
 const query = (): MediaQueryList => window.matchMedia('(prefers-color-scheme: dark)')
 
 export const useTheme = (): ResolvedTheme => {
-  const { theme: preference, palette, accent, corners, faces, look, preferencesLoaded, status } = useSnapshot()
+  const { theme: preference, palette, accent, corners, faces, look, surface, preferencesLoaded, status } = useSnapshot()
   const faceStartup = useRef(document.body.hasAttribute('data-hd-faces-pending'))
   const [system, setSystem] = useState<ResolvedTheme>(() => (query().matches ? 'dark' : 'light'))
 
@@ -84,6 +84,13 @@ export const useTheme = (): ResolvedTheme => {
     if (look === 'desk') document.body.removeAttribute('data-hd-interface')
     else document.body.setAttribute('data-hd-interface', look)
   }, [look])
+
+  // The surface, once more the same way: Cards is the absence of the
+  // attribute, Sheet is design/foundation/tokens.sheet.css.
+  useEffect(() => {
+    if (surface === 'cards') document.body.removeAttribute('data-hd-surface')
+    else document.body.setAttribute('data-hd-surface', surface)
+  }, [surface])
 
   useEffect(() => {
     setNativeTheme(preference)

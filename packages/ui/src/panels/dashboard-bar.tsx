@@ -9,7 +9,7 @@ export const DashboardBar = ({ view, attention, changeView }: {
 }) => <>
   <DestinationBar place="Dashboard" />
   <Tabs value={view} onValueChange={value => changeView(value as DashboardView)}>
-    <TabsList aria-label="Dashboard views">
+    <TabsList aria-label="Dashboard views" data-look="quiet">
       {(Object.keys(labels) as DashboardView[]).map(value => <TabsTrigger key={value} value={value}
         count={value === 'plans' && attention > 0 ? <Text role="meta" tone="warning">{attention} low</Text> : undefined}>{labels[value]}</TabsTrigger>)}
     </TabsList>
