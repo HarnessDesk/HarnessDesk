@@ -331,6 +331,40 @@ it('keeps a self-loop and its arrowhead clear of the adjacent forward arrow and 
   }
 })
 
+it('fits lower-row loops in their own row gap without reserving empty space above the graph', () => {
+  for (const size of ['compact', 'large'] as const) for (const rows of [2, 3] as const) {
+    const positions = { s0: { x: 270, y: 40 }, s1: { x: 270, y: 240 }, s2: { x: 520, y: 240 },
+      s3: { x: 760, y: rows === 3 ? 440 : 240 } }
+    const { points, scale, boxes } = drawn(flowOf(4, [['s1', 's1']], positions), size)
+    const svg = host.querySelector('svg')!
+    const lower = svg.querySelector('[data-step="s1"] rect')!, upper = svg.querySelector('[data-step="s0"] rect')!
+    const y = (rect: Element) => Number(rect.getAttribute('y'))
+    const h = (rect: Element) => Number(rect.getAttribute('height'))
+    const path = svg.querySelector('[data-edge="s1>s1"] path')!.getAttribute('d')!
+    const n = path.match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+    expect(n).toHaveLength(8)
+    const sampled = Array.from({ length: 1001 }, (_, i) => {
+      const t = i / 1000, u = 1 - t
+      return { x: u ** 3 * n[0]! + 3 * u * u * t * n[2]! + 3 * u * t * t * n[4]! + t ** 3 * n[6]!,
+        y: u ** 3 * n[1]! + 3 * u * u * t * n[3]! + 3 * u * t * t * n[5]! + t ** 3 * n[7]! }
+    })
+    const head = svg.querySelector('[data-edge="s1>s1"] polygon')!.getAttribute('points')!.trim().split(/[\s,]+/).map(Number)
+    for (let i = 0; i < head.length; i += 2) sampled.push({ x: head[i]!, y: head[i + 1]! })
+    const forward = svg.querySelector('[data-edge="s1>s2"] path')!.getAttribute('d')!
+    const forwardY = Number(/^M[-\d.]+ ([-\d.]+)H/.exec(forward)![1])
+    expect(Math.max(...sampled.map(point => point.y))).toBeLessThan(forwardY - 1)
+    // One unit clears the two half-unit strokes of the upper card and loop.
+    expect(Math.min(...sampled.map(point => point.y)) - (y(upper) + h(upper))).toBeGreaterThanOrEqual(1)
+    const centre = size === 'large' ? { x: 224, y: 40 } : { x: 160, y: 36 }
+    within([...points, ...sampled.map(point => ({ x: centre.x + (point.x - centre.x) * scale, y: centre.y + (point.y - centre.y) * scale }))], size === 'large' ? 448 : 320, size === 'large' ? 80 : 72)
+    apart(boxes)
+    expect(y(lower)).toBeGreaterThan(y(upper))
+    // The graph fits its actual rows and gaps, without a top margin for a lower loop.
+    const height = rows * h(lower) + (rows - 1) * (rows === 2 ? 16 : 10)
+    expect(scale).toBeCloseTo(Math.min(1, (size === 'large' ? 72 : 64) / height), 8)
+  }
+})
+
 it('keeps every card in the responsive card grid without imposing grid keyboard semantics', () => {
   expect(design.FlowCardGrid).toBeTypeOf('function')
   act(() => root.render(<design.FlowCardGrid><span>First</span><span>Second</span></design.FlowCardGrid>))

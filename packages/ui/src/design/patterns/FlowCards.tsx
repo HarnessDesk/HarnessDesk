@@ -89,14 +89,18 @@ export const FlowMiniGraph = ({ policy, empty = false, previewSize = 'compact' }
   const grid = miniGrid(layout.nodes.map(node => ({ id: node.id, x: node.box.x, y: node.box.y })))
   const rowsOf = grid.rows, span = grid.span
   const selfs = layout.edges.some(edge => edge.from === edge.to)
+  const topSelf = layout.edges.some(edge => edge.from === edge.to && grid.cells.get(edge.from)?.row === 0)
+  const lowerSelf = layout.edges.some(edge => edge.from === edge.to && (grid.cells.get(edge.from)?.row ?? 0) > 0)
   const lift = rowsOf > 2 ? geometry.lift - 4 : geometry.lift
   const over = layout.edges.some(edge => { const a = grid.cells.get(edge.from), b = grid.cells.get(edge.to); return a && b && a.row === 0 && b.row === 0 && b.pos - a.pos > 1 })
   const under = layout.edges.some(edge => { const a = grid.cells.get(edge.from), b = grid.cells.get(edge.to); return a && b && a.row === rowsOf - 1 && b.row === rowsOf - 1 && edge.from !== edge.to && b.pos <= a.pos })
-  const stepH = rowsOf <= 2 ? geometry.stepH : geometry.stepH - 8, rowGap = rowsOf === 2 ? geometry.rowGap : rowsOf > 2 ? geometry.rowGap / 2 : 0
+  const stepH = rowsOf <= 2 ? geometry.stepH : geometry.stepH - 8
+  // A lower loop needs room above its own row, including the strokes of the preceding card and loop.
+  const rowGap = Math.max(rowsOf === 2 ? geometry.rowGap : rowsOf > 2 ? geometry.rowGap / 2 : 0, lowerSelf ? geometry.selfOut : 0)
   const selfRoom = selfs ? geometry.selfOut : 0
   const stepW = Math.max(geometry.minW, Math.min(geometry.stepW, Math.floor((geometry.width - geometry.inset * 2 - selfRoom - span * geometry.gap) / (span + 1))))
   const pitch = stepW + geometry.gap
-  const topClear = Math.max(over ? lift * 0.75 : 0, selfs ? geometry.selfOut : 0), bottomClear = under ? lift * 0.75 : 0
+  const topClear = Math.max(over ? lift * 0.75 : 0, topSelf ? geometry.selfOut : 0), bottomClear = under ? lift * 0.75 : 0
   const totalW = span * pitch + stepW + selfRoom, totalH = topClear + rowsOf * stepH + (rowsOf - 1) * rowGap + bottomClear
   const left = (geometry.width - totalW) / 2, top = (geometry.height - totalH) / 2 + topClear
   const fit = Math.min(1, (geometry.width - geometry.inset * 2) / totalW, (geometry.height - geometry.inset * 2) / totalH)
