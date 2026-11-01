@@ -116,7 +116,9 @@ for (const mode of ['same', 'switch', 'switch-back', 'isolated', 'switch-after']
     assert.equal(candidates[0].branch, expected, 'the candidate must name the writer checkout now, not its Seat opening branch')
     if (mode === 'switch-after') {
       git('switch', '-c', 'after')
-      await assert.rejects(() => rig.host.teamPlane.recordReview({ intent: reviewer.id, candidate: candidates[0].id, verdict: 'request-changes' }, reviewer.claim), /moved on/)
+      await assert.rejects(() => rig.host.teamPlane.recordReview({ intent: reviewer.id, candidate: candidates[0].id, verdict: 'request-changes' }, reviewer.claim), /checkout switched branches after this card finished; return to its final branch before reviewing/)
+      const staleEvidence = await rig.host.call('evidence/board', { room: run.goal })
+      assert.equal(staleEvidence.cards.find(one => one.card === reviewer.id)?.facts.some(one => one.record.fact.kind === 'review') ?? false, false, 'a switched checkout cannot receive the stale verdict')
       await assert.rejects(() => rig.host.teamPlane.reviewCandidates(reviewer.id, reviewer.claim), /switched branches after this card finished/)
       writeFileSync(join(rig.repo, 'later.txt'), 'Later card work.\n')
       evidenceNow += 5 * 60 * 1000 + 1

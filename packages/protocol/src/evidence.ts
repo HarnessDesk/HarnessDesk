@@ -20,6 +20,15 @@ import type { FlowPermission, FlowSeat } from './flow.js'
 /** A commit's full object name: 40 hex characters, or 64 in a SHA-256 repository. */
 export type Sha = string
 
+/** A PR target observed by the host from its pinned repository. */
+export interface ReviewTargetBinding {
+  readonly repository: string
+  readonly number: number
+  readonly head: Sha
+  readonly baseRef: string
+  readonly baseTip: Sha
+}
+
 /** A Seat's id: minted by the host once, when a seat is kept, and never reused. */
 export type SeatId = string
 
@@ -182,6 +191,8 @@ export type Evidence =
       readonly at: Sha
       /** What it was judged against — a requirement's revision, a base. */
       readonly against?: readonly Sha[]
+      /** The PR target the host observed; absent on older or non-PR reviews. */
+      readonly reviewTarget?: ReviewTargetBinding
     }
   | {
       readonly kind: 'pr'

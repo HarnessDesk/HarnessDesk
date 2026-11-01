@@ -93,7 +93,9 @@ for (const binding of ['card', 'card-url', 'team'] as const) {
       await bind(d, run.goal, head)
     }
     d.forge.pullRequests.set(7, { head: 'b'.repeat(40), state: 'OPEN' })
-    await assert.rejects(() => d.host.teamPlane.recordReview({ intent: card!.id, candidate: candidates[0]!.id, verdict: 'approve' }, scope), /candidate has moved on/)
+    await assert.rejects(() => d.host.teamPlane.recordReview({ intent: card!.id, candidate: candidates[0]!.id, verdict: 'approve' }, scope), /Pull request #7 moved or its review checkout is not at bbbbbbbbbbbb/)
+    const staleEvidence = await d.host.call('evidence/board', { room: run.goal })
+    assert.equal(staleEvidence.cards.find(one => one.card === card!.id)?.facts.some(one => one.record.fact.kind === 'review') ?? false, false, 'a moved PR head cannot receive the stale verdict')
     d.forge.pullRequests.set(7, { head, state: 'OPEN' })
     const finding = await d.host.teamPlane.raiseFinding({
       intent: card!.id, candidate: candidates[0]!.id, request: 'external-review-finding',

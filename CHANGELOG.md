@@ -11,6 +11,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **A Team page opens on its name and what it can do.** The Team's name and Stop run… sit above the tabs. Statuses such as Running, Default or Pro read as words instead of tinted pills, and the session and Team panels show their facts as icon rows.
 
+- **Automatic PR merges check the review target again.** A changed destination or an older unbound review requires a fresh PR review. Queued and uncertain submissions stay unresolved until a merge is observed; a person may need to inspect or complete them outside the app.
+
 - **Saved extra accounts survive without a credential file.** Their status is checked when the agent runs; removing an account whose identity cannot be verified leaves its agent or system credentials in place.
 
 - **Saved approvals end when a goal enters Following.** Their audit history remains available, and a revised plan cannot clear an unresolved worker audit. Unreviewed orphan requests require explicit Resume.

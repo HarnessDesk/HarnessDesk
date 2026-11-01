@@ -1973,6 +1973,28 @@ marker (the reconciliation rule, never a looser match) is skipped in every
 mode, and the id of every comment the desk posts is remembered across a
 restart, so a comment whose marker was edited away is still the desk's.
 
+## A PR review binds the destination as well as the head
+
+A reviewer receives the exact PR head and current destination ref and tip.
+An automatic merge needs that same host-observed tuple in its review evidence;
+older unbound reviews remain readable but cannot authorize it. The serialized
+gateway checks the tuple again before submission, while retaining the existing
+head and CI checks. GitHub does not offer this path an atomic base-tip lease,
+so a destination can still move after the last read. A queued or uncertain
+merge is kept unresolved rather than silently submitted again. An open,
+unqueued snapshot cannot prove that an earlier request will not still complete;
+without a merged observation, a person may need to inspect or complete it
+outside the app.
+The current CLI process boundary cannot reliably distinguish a definite server
+rejection from a lost response. Even a CLI-reported rejection can therefore
+remain unresolved and require that outside inspection or completion.
+The host serializes its own gateway's attempts; another host or external client
+can race it, so neither the journal nor a read-back is an exactly-once lease.
+A later direct person turn may request manual approval after its prior Flow Seat
+has closed. Its live turn and owner must still match at submission; a fresh Host
+has no invocation lease surviving from the previous process and must observe a
+new direct person turn rather than infer one from a default cause.
+
 ## The front door's shapes are ordinary files, and its two clicks are a property of the dry run, not a wizard
 
 The front door names no use case in product code. "Fan out," "Review,"

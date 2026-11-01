@@ -11,6 +11,32 @@ beforeEach(() => { box = document.createElement('div'); document.body.append(box
 afterEach(() => { act(() => root.unmount()); box.remove() })
 const outside: ForgeGitEntry = { id: 'outside', repository: 'acme/widgets', branch: 'feature/widgets', sha: 'c'.repeat(40), at: 1, op: 'observed', outcome: 'ok', requester: { kind: 'outside' }, approval: null }
 const mount = async (child: React.ReactNode, store = new AppStore('ws://localhost:0/')) => { await act(async () => root.render(<StoreProvider store={store}>{child}</StoreProvider>)); return store }
+const mergeRows: ForgeGitEntry[] = ['unknown', 'intent', 'observed-merged', 'failed', 'refused', 'rejected', 'ok'].map((outcome, index) => ({
+  id: `merge-${index}`, repository: 'acme/widgets', number: index + 1, at: 1, op: 'pr.merge', outcome: outcome as ForgeGitEntry['outcome'], requester: { kind: 'session', id: 'fixture' }, approval: null,
+}))
+it('PR record rows distinguish uncertain, pending and externally observed merge outcomes', async () => {
+  await mount(<GitRecordRows entries={mergeRows} />)
+  expect(box.textContent).toContain('Merge outcome unknown #1')
+  expect(box.textContent).toContain('Merge pending #2')
+  expect(box.textContent).toContain('PR merged (observed) #3')
+  expect(box.textContent).toContain('Not attributed')
+  expect(box.textContent).toContain('Merge failed #4')
+  expect(box.textContent).toContain('Merge refused #5')
+  expect(box.textContent).toContain('Merge refused #6')
+  expect(box.textContent).toContain('Merged #7')
+  expect(box.textContent).not.toContain('Merged #1')
+})
+it('project record marks uncertain merge as needing inspection, not done', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockResolvedValue({ repository: 'acme/widgets', entries: mergeRows, counts: { all: 7, outside: 0, refused: 2 } } as any)
+  await mount(<ProjectGitRecord root="/workspace/widgets" />, store)
+  expect(box.textContent).toContain('Needs inspection')
+  expect(box.textContent).toContain('PR merged (observed) #3')
+  expect(box.textContent).toContain('Not attributed')
+  expect(box.textContent).toContain('Merge failed #4')
+  expect(box.textContent).toContain('Merge refused #5')
+  expect(box.textContent).not.toContain('Merged #1')
+})
 it('outside PR rows name nobody and have no repeated trailing fact', async () => {
   await mount(<GitRecordRows entries={[outside]} />)
   expect(box.textContent).toContain('Outside')
