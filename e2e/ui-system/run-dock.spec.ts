@@ -162,7 +162,7 @@ for (const theme of ['light', 'dark'] as const) {
       return { left: Math.round(value.getBoundingClientRect().left), key: Math.round(key.width), align: getComputedStyle(value).textAlign }
     }))
     expect(new Set(keyValues.map(value => value.left)).size).toBe(1)
-    expect(keyValues.every(value => value.key === FRAME.summaryKey.panel && value.align === 'left')).toBe(true)
+    expect(keyValues.every(value => value.key === FRAME.summaryKey.icon && value.align === 'left')).toBe(true)
     expect(await summary.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `details-after-${theme}.png`) })

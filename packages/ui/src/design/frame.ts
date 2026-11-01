@@ -21,7 +21,7 @@ export const FRAME = {
   menu: { min: 200, max: 340, padding: 6, radius: 10, rowHeight: 30, rowRadius: 4 },
   infoCard: { width: 288, padding: 12 },
   panel: { pad: 8, cardGap: 8, cardPadY: 10, cardPadX: 12, cardRadius: 10, headHeight: 20, rowHeight: 28, foldedCard: 42, chevronGap: 4, rowIcon: 16, rowGap: 8 },
-  summaryKey: { page: 132, panel: 92, infoCard: 96 },
+  summaryKey: { page: 132, panel: 92, infoCard: 96, icon: 16 },
 } as const
 
 /** Every token the frame names, and the pixels it must resolve to. */

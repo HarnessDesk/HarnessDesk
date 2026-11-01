@@ -281,6 +281,11 @@
   color: var(--hd-muted-foreground);
 }
 
+/* The ready word goes quiet; its dot keeps saying ready. */
+.chip[data-slot='chip'][data-variant='quiet'][data-state='ready']:not([data-tone]) .dot:not([data-tone]) {
+  background: var(--hd-success);
+}
+
 /* --- controls ------------------------------------------------------------ */
 
 /* The one text field. It used to have a twin, `.field`, with a different
