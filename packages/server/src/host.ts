@@ -681,7 +681,7 @@ export interface AccountFactory {
   rollbackAdd?(runtime: AgentRuntime): Promise<void>
   remove(runtime: RuntimeId): Promise<void>
   /** Persist first; finish cleanup only after the exact owner has stopped. */
-  prepareRemove?(runtime: AgentRuntime): (((purge: boolean) => void) & { rollback?: () => void }) | null
+  prepareRemove?(runtime: AgentRuntime): (((purge: boolean, stopped: boolean) => void) & { rollback?: () => void }) | null
   /**
    * Who this account is signed in as, as a string the host only ever compares
    * with another of its own. Opaque on purpose: what makes two credentials the
@@ -9411,7 +9411,7 @@ export class Host {
               try { finish.rollback?.() } catch (restoreError) {
                 throw new Error(`Sign-out failed and the account row could not be restored: ${String(restoreError)}`, { cause: error })
               }
-            } else finish(false)
+            } else finish(false, false)
             throw error
           }
           this.#logger.warn('an account was removed without signing out', { runtime: id, error: String(error) })
@@ -9419,12 +9419,12 @@ export class Host {
       }
     }
     if (!this.ownsRuntime(source)) {
-      finish?.(false)
+      finish?.(false, false)
       throw new Error('The account owner changed while it was being removed.')
     }
     let stopped = false
     await this.unregister(id, finish ? () => { stopped = true } : undefined)
-    if (finish) finish(stopped && !forgetOnly)
+    if (finish) finish(stopped && !forgetOnly, stopped)
     else await accounts.remove(id)
     if (finish && !stopped) throw new Error('The account was removed, but its runtime did not shut down cleanly; its credential home was kept.')
     this.#logger.info('account removed', { runtime: id, gateway: slot.gateway !== undefined })

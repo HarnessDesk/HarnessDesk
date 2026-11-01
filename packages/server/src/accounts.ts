@@ -349,6 +349,7 @@ export const slotConfigured = (slot: AccountSlot): boolean =>
 export class AccountSlots {
   #slots: AccountSlot[]
   readonly #uncertainRemovals = new Map<AccountSlot, number>()
+  readonly #heldHomes = new Map<symbol, AccountSlot>()
 
   constructor(
     private readonly file: string,
@@ -372,6 +373,13 @@ export class AccountSlots {
   positionOf(slot: AccountSlot): number {
     const index = this.#slots.indexOf(slot)
     return index < 0 ? (this.#uncertainRemovals.get(slot) ?? -1) : index
+  }
+
+  /** Protect one exact owner's home until its removal can safely release it. */
+  holdHome(slot: AccountSlot): () => void {
+    const token = Symbol('account home owner')
+    this.#heldHomes.set(token, slot)
+    return () => { this.#heldHomes.delete(token) }
   }
 
   /**
@@ -500,7 +508,7 @@ export class AccountSlots {
   }
   /** A hand-edited roster may share, alias or nest credential homes. */
   #homeStillReferenced(home: string): boolean {
-    const retained = [...this.#slots, ...this.#uncertainRemovals.keys()]
+    const retained = [...this.#slots, ...this.#uncertainRemovals.keys(), ...this.#heldHomes.values()]
     if (retained.length === 0) return false
     // An unreadable or missing path may conceal an alias. Keep the removed
     // home when either side cannot be resolved, even if that leaves an orphan.

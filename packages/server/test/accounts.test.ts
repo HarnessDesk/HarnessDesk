@@ -1072,6 +1072,35 @@ test('a failed restore protects its nested home from an ancestor slot removal', 
   assert.equal(await readFile(join(nested, 'sentinel'), 'utf8'), 'keep')
 })
 
+test('home leases release only their own token', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const primary = join(root, 'agent')
+  await mkdir(primary, { recursive: true })
+  const file = join(root, 'accounts.json')
+  const initial = new AccountSlots(file)
+  const parent = initial.add(FAKE_RUNTIME_ID, primary, root)
+  const child = initial.add(FAKE_RUNTIME_ID, primary, root)
+  const nested = join(parent.home, 'nested')
+  await mkdir(nested)
+  await writeFile(join(nested, 'sentinel'), 'keep')
+  await writeFile(file, JSON.stringify({ accounts: [parent, { ...child, home: nested }] }))
+  const slots = new AccountSlots(file)
+  const a = slots.list()[0]!
+  const b = slots.list()[1]!
+  slots.forgetDurably(a.id, a)
+  slots.forgetDurably(b.id, b)
+  const releaseFirst = slots.holdHome(b)
+  const releaseSecond = slots.holdHome(b)
+  releaseFirst()
+  releaseFirst() // A repeated release cannot consume another owner's token.
+  slots.purge(a)
+  assert.equal(await readFile(join(nested, 'sentinel'), 'utf8'), 'keep')
+  releaseSecond()
+  slots.purge(a)
+  assert.equal(existsSync(parent.home), false)
+})
+
 test('an uncertain removal retry preserves the original repeated-id ordering on rollback', async t => {
   const root = await home()
   t.after(() => rm(root, { recursive: true, force: true }))

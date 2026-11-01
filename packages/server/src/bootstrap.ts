@@ -412,12 +412,18 @@ export const createDefaultHost = (
       if (!owned || owned.runtime !== runtime || owned.slot.gateway) return null
       const position = slots.positionOf(owned.slot)
       slots.forgetDurably(runtime.info.id, owned.slot)
-      const finish = (purge: boolean) => {
+      const releaseHome = slots.holdHome(owned.slot)
+      const finish = (purge: boolean, stopped: boolean) => {
+        // Keep an unknown credential home, or any home whose owner did not
+        // stop, protected from another removal for this host's lifetime.
+        if (purge && stopped) releaseHome()
         if (codexSlots.get(runtime.info.id) !== owned) return
         codexSlots.delete(runtime.info.id)
         if (purge && !host.hasRuntime(runtime.info.id)) slots.purge(owned.slot)
       }
-      return Object.assign(finish, { rollback: () => slots.restoreDurably(owned.slot, position) })
+      return Object.assign(finish, { rollback: () => {
+        try { slots.restoreDurably(owned.slot, position) } finally { releaseHome() }
+      } })
     },
     remove: async (id) => {
       // The host has unregistered the runtime. Its native ownership wins over
