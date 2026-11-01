@@ -12,6 +12,7 @@ import { parseGitCommand } from '@harnessdesk/protocol'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
 import { LeadHandbacks } from './lead/handback.js'
 import { GitGateway } from './git-gateway/index.js'
+import { observedReviewTarget, reviewTargetDiagnostic } from './review-target-diagnostic.js'
 import { LeadPrFollow, type LeadPrFollowOptions } from './lead/pr-follow.js'
 import { leadPublicationPorts } from './lead/pr-publication.js'
 import { LeadPersonActions } from './lead/person-actions.js'
@@ -165,7 +166,7 @@ import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
-import { FlowReview } from './flow-evidence.js'
+import { FlowReview, PERSON_REVIEWER_ID } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
 import { seatOptionsProblem } from './seat-options.js'
 import { sameCanonicalPath } from './path-identity.js'
@@ -1318,6 +1319,51 @@ export class Host {
           if (!result.admitted) throw new Error(result.refusal)
         },
         askPerson: (scope, question, signal) => this.#askHeld(scope.runtime!, scope.sessionId!, question, this.options.heldWaitMs ?? 10 * 60_000, signal),
+        guardedMerge: (scope) => {
+          if (!scope.runtime || !scope.sessionId) return false
+          const kept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+          if (!kept?.board) return false
+          if (this.#retiredPersonFence(scope)) return false
+          const board = this.#team.stateFor(kept.board)
+          const cards = new Set([...board.intents.map(card => card.id), ...this.#flows.executionsFor(kept.board).flatMap(run => run.rounds.flatMap(round => round.cards))])
+          return [...cards].some(id => {
+            if (!this.#flows.isGuardedMergeStep(kept.board!, id)) return false
+            const card = board.intents.find(one => one.id === id)
+            const binding = this.#flows.bindingOf(kept.board!, id)?.session
+            return (card?.claim?.runtime === scope.runtime && card?.claim?.sessionId === scope.sessionId) ||
+              (binding?.runtime === scope.runtime && binding?.sessionId === scope.sessionId)
+          })
+        },
+        retiredPersonFence: (scope) => this.#retiredPersonFence(scope),
+        mergeGeneration: (scope) => {
+          if (!scope.runtime || !scope.sessionId) return undefined
+          const seat = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+          const project = seat && this.#evidence.seats.projectFor(seat.id)
+          return seat?.board && project ? this.#evidence.store.generationFor(project, seat.board) : undefined
+        },
+        mergeFence: (scope, target) => {
+          if (!scope.runtime || !scope.sessionId || this.#ceilingOf(scope.runtime, scope.sessionId)?.level !== 'merge') return null
+          const kept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+          if (!kept?.board || kept.closed || kept.restored) return null
+          const cards = this.#team.stateFor(kept.board).intents.filter(card => card.state === 'claimed' &&
+            card.claim?.runtime === scope.runtime && card.claim?.sessionId === scope.sessionId && this.#flows.isMergeStep(kept.board!, card.id, target))
+          return cards.length === 1 ? JSON.stringify([kept.id, kept.board, cards[0]!.id]) : null
+        },
+        mergeAuthority: async (scope, target) => {
+          if (!scope.runtime || !scope.sessionId || this.#ceilingOf(scope.runtime, scope.sessionId)?.level !== 'merge') return null
+          const kept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+          if (!kept?.board || kept.closed || kept.restored) return null
+          const matching = this.#team.stateFor(kept.board).intents.filter(card => card.state === 'claimed' &&
+            card.claim?.runtime === scope.runtime && card.claim?.sessionId === scope.sessionId &&
+            this.#flows.isGuardedMergeStep(kept.board!, card.id))
+          if (matching.length !== 1) return null
+          const authority = await this.#flows.mergeAuthority(kept.board, matching[0]!.id, target)
+          const stillKept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+          const current = this.#team.stateFor(kept.board).intents.find(card => card.id === matching[0]!.id)
+          return stillKept?.id === kept.id && !stillKept.closed && !stillKept.restored && current?.state === 'claimed' &&
+            current.claim?.runtime === scope.runtime && current.claim?.sessionId === scope.sessionId &&
+            this.#ceilingOf(scope.runtime, scope.sessionId)?.level === 'merge' ? authority : null
+        },
         mergeStep: (scope, target) => {
           if (!scope.runtime || !scope.sessionId || this.#ceilingOf(scope.runtime, scope.sessionId)?.level !== 'merge') return false
           const kept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
@@ -1532,6 +1578,17 @@ export class Host {
         const bound = await this.#flows.personReviewBinding(run, card)
         return bound ? { ...bound, seat: bound.seat as SeatId } : null
       },
+      currentTarget: async (goal, target) => {
+        try {
+          const state = this.#goalState(goal)
+          const root = await projectOf(state.cwd ?? state.root, state.root)
+          const current = await this.#frontDoorContext.pullRequest(root, target.number)
+          const observed = current && current.bound !== false ? observedReviewTarget({ repository: current.repository, number: target.number, head: current.head, baseRef: current.baseRef, baseTip: current.base }) : null
+          if (!observed) return reviewTargetDiagnostic(target, undefined, 'pull request read')
+          if (current?.state === 'open' && observed.repository === target.repository && observed.head === target.head && observed.baseRef === target.baseRef && observed.baseTip === target.baseTip) return true
+          return `${current?.state !== 'open' ? `Pull request is ${current?.state ?? 'unavailable'}. ` : ''}${reviewTargetDiagnostic(target, observed)}`
+        } catch { return reviewTargetDiagnostic(target, undefined, 'pull request read') }
+      },
       facts: async (goal) => {
         const state = this.#goalState(goal)
         return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root, state.root))
@@ -1539,8 +1596,12 @@ export class Host {
       append: async (goal, record) => {
         const state = this.#goalState(goal)
         const outcome = await this.#evidence.appendReview(await projectOf(state.cwd ?? state.root, state.root), record, () => {
-          // Person decisions have no runtime Seat; an agent review still needs its original live claim at admission.
-          if (record.seat === null) return
+          // Person decisions have no runtime Seat but still need their exact live card and round at admission.
+          if (record.seat === null) {
+            if (!record.card || record.round == null || record.fact.kind !== 'review' || record.fact.by !== PERSON_REVIEWER_ID ||
+                !this.#flows.personReviewAdmitted(goal, record.card.id, record.round)) throw new Error('This person review is no longer open. Nothing was recorded.')
+            return
+          }
           const seat = this.#evidence.seats.byId(record.seat ?? '')
           const binding = seat && record.card ? this.#flows.findingBinding(goal, record.card.id, seat.session) : null
           if (!binding?.held || binding.seat !== record.seat) throw new Error('You do not hold this card, so no review can be recorded against it.')
@@ -1611,7 +1672,32 @@ export class Host {
       builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
       confine: (root) => this.#confineRoom(root),
     }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
-      reviewTarget: (goal, card, number, checkout) => this.#evidence.reviewTarget(goal, card, number, checkout),
+      reviewTarget: async (goal, card, number, checkout) => {
+        if (number) {
+          try {
+            const state = this.#goalState(goal)
+            const root = await projectOf(state.cwd ?? state.root, state.root)
+            const current = await this.#frontDoorContext.pullRequest(root, number)
+            if (!current) return { why: `Pull request #${number} could not be read.` }
+            if (!current.state || !current.url) return { why: `Pull request #${number} could not be read.` }
+            await this.#evidence.observeReviewPullRequest(root, goal, card.id, { number, head: current.head, state: current.state, url: current.url }, checkout)
+            if (current.state !== 'open') return { why: `Pull request #${number} is ${current.state}, so no open review candidate is available.` }
+            return current.bound === false ? { at: current.head, number } : { at: current.head, number, reviewTarget: { repository: current.repository, number, head: current.head, baseRef: current.baseRef, baseTip: current.base } }
+          } catch { return { why: `Pull request #${number} could not be read.` } }
+        }
+        const resolved = await this.#evidence.reviewTarget(goal, card, number, checkout)
+        if ('why' in resolved) return resolved
+        try {
+          const state = this.#goalState(goal)
+          const root = await projectOf(state.cwd ?? state.root, state.root)
+          const current = await this.#frontDoorContext.pullRequest(root, resolved.number)
+          if (!current || current.bound === false || current.head !== resolved.at) return resolved
+          return { ...resolved, reviewTarget: { repository: current.repository, number: resolved.number, head: current.head, baseRef: current.baseRef, baseTip: current.base } }
+        } catch { return resolved }
+      },
+      hasReviewCommit: async (cwd, sha) => {
+        try { await this.#frontDoorContext.git(cwd, ['cat-file', '-e', `${sha}^{commit}`]); return true } catch { return false }
+      },
       fetchBase: async (root, base, run) => {
         await this.#confineRoom(root)
         return fetchFlowBase(root, base, run)
@@ -2026,7 +2112,7 @@ export class Host {
     })
     // The same `gh` the evidence plane reads pull requests with, so a rig's fake forge answers both.
     const gh = options.evidence?.gh ?? ghInCheckout
-    this.#frontDoorContext = hostContextPort((args, cwd) => gh(args, cwd))
+    this.#frontDoorContext = hostContextPort((args, cwd) => gh(args, cwd), root => this.#gitGateway.pins.pinned(root), root => this.#gitGateway.proposedRepository(root))
     /* This person's Agents and flows are `agents/` and `flows/` in the state
        folder — the same roots the roster and the catalogue above read — so a
        save lands exactly where the next listing looks. */
@@ -3490,6 +3576,8 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#retiredPersonTurns.clear()
+    this.#seenTurnIds = new WeakMap()
     this.#unsubscribeChatRoots()
     this.#leadBudgets.stopMetering()
     // close() latches Lead dispatch synchronously, before ordinary teardown yields.
@@ -5516,8 +5604,9 @@ export class Host {
         },
         drain: (record) => this.#drain(record),
         nextId: () => this.#nextQueuedId(),
+        retiredPersonSeat: (record) => this.#retiredPersonSeat(record),
         busy: (record) => this.#queueBusy(record),
-        sendNow: (record, input, held, effectStarted, admitLive) => this.#sendNow(record, input, held, effectStarted, admitLive),
+        sendNow: (record, input, held, effectStarted, admitLive, personSeat) => this.#sendNow(record, input, held, effectStarted, admitLive, personSeat),
       },
       accounts: {
         add: (runtime, gateway, name) => this.#addAccount(runtime, gateway, name),
@@ -6705,6 +6794,32 @@ export class Host {
 
   readonly #messageTurns = new Map<string, TurnCause>()
   readonly #pendingCauses = new Map<string, TurnCause>()
+  /** Explicit direct person turns accepted after a particular Seat closed. */
+  readonly #retiredPersonTurns = new Map<string, { readonly seat: string; readonly owner: SessionRecord; readonly nonce: string; waitingForStart: boolean }>()
+  /** Remember this Host's turn IDs even if conversation history is truncated. Null means too many to prove uniqueness. */
+  #seenTurnIds = new WeakMap<SessionRecord, Set<string> | null>()
+
+  #clearPersonTurnMarkers(runtime: string, sessionId: string): void {
+    for (const [key, marker] of this.#retiredPersonTurns) {
+      if (String(marker.owner.runtime) === runtime && String(marker.owner.session.id) === sessionId) this.#retiredPersonTurns.delete(key)
+    }
+  }
+
+  #retiredPersonSeat(record: SessionRecord): string | null {
+    if (this.#disposed || !record.live || this.registry.get(record.runtime, record.session.id) !== record) return null
+    const seat = this.#evidence.seats.latestKeptOf(String(record.runtime), String(record.session.id))
+    return seat?.board && seat.closed && !seat.restored ? seat.id : null
+  }
+
+  #retiredPersonFence(scope: { readonly runtime?: string; readonly sessionId?: string; readonly turnId?: string; readonly signal?: AbortSignal }): string | null {
+    if (!scope.runtime || !scope.sessionId || !scope.turnId || scope.signal?.aborted) return null
+    const record = this.registry.get(runtimeId(scope.runtime), makeSessionId(scope.sessionId))
+    if (!record || ![...record.running].some(turn => String(turn) === scope.turnId)) return null
+    const seat = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+    const key = this.#turnKey(scope.runtime, scope.sessionId, scope.turnId)
+    const marker = this.#retiredPersonTurns.get(key)
+    return !this.#disposed && seat?.board && seat.closed && !seat.restored && marker?.owner === record && marker.seat === seat.id ? JSON.stringify([key, seat.id, marker.nonce]) : null
+  }
 
   #messageCause(from: TeamSender): TurnCause {
     const sender = this.#rootOf(String(from.runtime), from.sessionId) ?? {
@@ -7598,7 +7713,7 @@ export class Host {
    * a second one asking the same question again.
    */
   async #sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession, effectStarted?: () => void,
-    admitLive?: DispatchAdmission<AgentSession>): Promise<TurnId> {
+    admitLive?: DispatchAdmission<AgentSession>, personSeat: string | null = null): Promise<TurnId> {
     const key = recordKey(record)
     // The mark is owned: only the send that set it may take it off. A send
     // whose deadline passed, and whose agent then answered after a later send
@@ -7622,7 +7737,7 @@ export class Host {
         if (admitLive) await admitLive(live)
         admitLive?.assertDispatch?.()
         effectStarted?.()
-        return live.send(input)
+        return this.#sendWithPersonMarker(record, live, input, personSeat)
       }
       return await (held ? send(held) : this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, send))
     } catch (error) {
@@ -7638,6 +7753,21 @@ export class Host {
    * turn would put words in their mouth, and each queued message was written
    * as its own instruction.
    */
+  /** Mark only an explicitly admitted person message, for its exact owner and closed Seat. */
+  async #sendWithPersonMarker(record: SessionRecord, live: AgentSession, input: readonly UserContent[], admittedSeat: string | null): Promise<TurnId> {
+    const retiredId = admittedSeat && this.#retiredPersonSeat(record) === admittedSeat ? admittedSeat : null
+    const seen = retiredId ? this.#seenTurnIds.get(record) : null
+    const priorTurns = retiredId && seen !== null ? new Set([...(seen ?? []), ...record.session.turns.map(turn => String(turn.id))]) : null
+    const turn = await live.send(input)
+    const active = [...record.running].some(id => String(id) === String(turn))
+    const completed = record.session.turns.some(one => String(one.id) === String(turn) && one.status !== 'inProgress')
+    if (retiredId && this.#retiredPersonSeat(record) === retiredId && priorTurns && !priorTurns.has(String(turn)) && !completed) {
+      this.#retiredPersonTurns.set(this.#turnKey(String(record.runtime), String(record.session.id), String(turn)), { seat: retiredId, owner: record, nonce: randomUUID(), waitingForStart: !active })
+      if (this.#retiredPersonTurns.size > 2000) { const oldest = this.#retiredPersonTurns.keys().next().value; if (oldest !== undefined) this.#retiredPersonTurns.delete(oldest) }
+    }
+    return turn
+  }
+
   async #drain(record: SessionRecord): Promise<void> {
     const key = recordKey(record)
     let cancelled = false
@@ -7680,7 +7810,7 @@ export class Host {
           if (!record.queue.messages.some(message => message.id === sending.id)) { cancelled = true; return }
           admit?.assertDispatch?.()
           sendStarted = true
-          return current.send(sending.input)
+          return this.#sendWithPersonMarker(record, current, sending.input, this.registry.queuedPersonSeat(record, sending.id) ?? null)
         })
         this.registry.cancelQueued(record, sending.id)
         this.#pushQueue(record)
@@ -8600,6 +8730,15 @@ export class Host {
     if (event.type === 'session/title') this.#sessionIndex.setTitle(runtime, event.sessionId, event.title)
     this.#noteDelegation(runtime, event)
     if (event.type === 'turn/started') {
+      const owner = this.registry.get(runtime, event.sessionId)
+      if (owner) {
+        const turns = this.#seenTurnIds.has(owner) ? this.#seenTurnIds.get(owner)! : new Set<string>()
+        if (turns) { turns.add(String(event.turn.id)); this.#seenTurnIds.set(owner, turns.size > 2000 ? null : turns) }
+      }
+      const personKey = this.#turnKey(String(runtime), String(event.sessionId), String(event.turn.id))
+      const person = this.#retiredPersonTurns.get(personKey)
+      if (person?.waitingForStart) person.waitingForStart = false
+      else this.#retiredPersonTurns.delete(personKey)
       const key = String(sessionKey(runtime, event.sessionId))
       const pending = this.#pendingCauses.get(key)
       if (pending) {
@@ -8607,6 +8746,8 @@ export class Host {
         this.#pendingCauses.delete(key)
       }
     }
+    if (event.type === 'turn/completed') this.#retiredPersonTurns.delete(this.#turnKey(String(runtime), String(event.sessionId), String(event.turn.id)))
+    if (event.type === 'session/closed' || event.type === 'session/detached') this.#clearPersonTurnMarkers(String(runtime), String(event.sessionId))
     // The host's permission policy runs before the backend's own
     // question reaches a human. A matched approval never renders: it is
     // answered here, audited here, and reported as a notice.
@@ -10032,6 +10173,7 @@ export class Host {
   }
 
   #push(notification: WireNotification, goalApprovalChecked = false): void {
+    if (notification.method === 'session/removed') this.#clearPersonTurnMarkers(String(notification.params.runtime), String(notification.params.sessionId))
     if (!goalApprovalChecked && this.#leadHasWorkerRules?.() && this.#leadAutoApproval && notification.method === 'event' && notification.params.event.type === 'approval/requested' && !String(notification.params.event.approval.id).startsWith('held-') &&
       this.#leadOwnsWorker?.(String(notification.params.runtime), String(notification.params.event.approval.sessionId), false)) {
       const { runtime, event } = notification.params

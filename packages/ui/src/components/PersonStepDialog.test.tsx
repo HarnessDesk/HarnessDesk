@@ -13,14 +13,14 @@ beforeEach(() => { host = document.createElement('div'); document.body.append(ho
 afterEach(() => { act(() => root.unmount()); host.remove() })
 const button = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === name)!
 
-const rig = async (outcome: GitMergeOutcome = { summary: 'Merged', conflicts: [], merged: { branch: 'main', commit: SHAPE_REV[1]! } }, answer = 'merged') => {
+const rig = async (outcome: GitMergeOutcome = { summary: 'Merged', conflicts: [], merged: { branch: 'main', commit: SHAPE_REV[1]! } }, answer = 'merged', bound = false) => {
   const input = shapeFixture('comparison')
   if (input.execution.document.format !== 'agents') throw new Error('wrong fixture')
   const execution = { ...input.execution, document: { ...input.execution.document, flow: { ...input.execution.document.flow,
     roles: input.execution.document.flow.roles.map(one => one.id === 'merge' ? { id: 'merge', kind: 'person' as const, outcomes: [answer], review: true } : one),
   } } }
   const intent = input.cards.find(one => one.id === 6)!
-  const candidates: ReviewCandidate[] = [1, 2].map((card, index) => ({ id: `candidate-${card}`, card, at: SHAPE_REV[index]!, branch: `lane-${card}`, holder: 'Builder', evidence: [] }))
+  const candidates: ReviewCandidate[] = [1, 2].map((card, index) => ({ id: `candidate-${card}`, card, at: SHAPE_REV[index]!, branch: `lane-${card}`, holder: 'Builder', evidence: [], ...(bound ? { reviewTarget: { repository: 'acme/widgets', number: 7, head: SHAPE_REV[index]!, baseRef: 'main', baseTip: 'b'.repeat(40) } } : {}) }))
   // Candidate order may differ from the order the comparison opened its cards.
   const snapshot = { ...emptySnapshot(), teams: new Map([['room', { room: 'room', root: '/code/project', cwd: null, intents: input.cards }]]), flowExecutions: new Map([[execution.id, execution]]) }
   const request = vi.fn(async (method: string) => {
@@ -33,9 +33,21 @@ const rig = async (outcome: GitMergeOutcome = { summary: 'Merged', conflicts: []
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, flowReviewCandidates: vi.fn(async () => [...candidates].reverse()),
     decideFlowReview, teamIntent: vi.fn(), transport: { request }, notice: vi.fn(), openDetailsTab: vi.fn() } as unknown as AppStore
   await act(async () => root.render(<StoreProvider store={store}><PersonStepDialog room="room" intent={intent} role={flowStepOf(intent, undefined, [execution])!} mode="review" onClose={onClose} /></StoreProvider>))
-  const choose = async () => { await act(async () => [...document.querySelectorAll<HTMLElement>('[role="radio"]')].find(one => one.textContent?.includes('lane-2'))!.click()) }
+  const choose = async () => { await act(async () => [...document.querySelectorAll<HTMLElement>('[role="radio"]')].find(one => one.textContent?.includes('Attempt B'))!.click()) }
   return { choose, decideFlowReview, onClose, request, store }
 }
+
+it('shows a person the bound PR head and destination tip before a decision', async () => {
+  const r = await rig(undefined, 'picked', true)
+  const body = document.body.textContent ?? ''
+  expect(body).toContain('acme/widgets')
+  expect(body).toContain('b'.repeat(40))
+  expect(body).toContain(SHAPE_REV[1]!)
+  expect(body).toContain('not an integrated merge tree')
+  await r.choose()
+  await act(async () => button('Compare reviewed commits').click())
+  expect(r.request).toHaveBeenCalledWith('git/diffRange', { root: '/code/project', from: 'b'.repeat(40), to: SHAPE_REV[1]! })
+})
 
 it('names attempts in comparison order and shows their short commits', async () => {
   await rig()
@@ -120,5 +132,17 @@ it('refuses a refreshed attempt that has changed without issuing a merge', async
   await act(async () => button('Merge').click())
   expect(r.decideFlowReview).not.toHaveBeenCalled()
   expect(r.onClose).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('attempt changed')
+})
+
+it('refuses a refreshed PR target that changed while keeping the same head', async () => {
+  const r = await rig(undefined, 'merged', true)
+  await r.choose()
+  vi.mocked(r.store.flowReviewCandidates).mockResolvedValueOnce([
+    { id: 'changed-base', card: 2, at: SHAPE_REV[1]!, branch: 'lane-2', evidence: [], reviewTarget: { repository: 'acme/widgets', number: 7, head: SHAPE_REV[1]!, baseRef: 'main', baseTip: 'c'.repeat(40) } },
+  ])
+  await act(async () => button('Merge Attempt B into main…').click())
+  await act(async () => button('Merge').click())
+  expect(r.decideFlowReview).not.toHaveBeenCalled()
   expect(document.body.textContent).toContain('attempt changed')
 })
