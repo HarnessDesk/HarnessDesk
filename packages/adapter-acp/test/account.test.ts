@@ -3553,3 +3553,128 @@ test('an empty identity status offers external sign-in rather than an accountles
     await runtime.dispose()
   }
 })
+
+test('agent-provided browser descriptions outrank known fallback without changing external methods', async () => {
+  const runtime = new AcpRuntime({
+    id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE_AGENT],
+    env: { FAKE_ACP_AUTH_METHODS: JSON.stringify([{ id: 'business', name: 'Business', description: 'The agent explains this.' }, { id: 'external', name: 'External' }]) },
+    authMethodDescriptions: { business: 'Fallback sentence.', external: 'Must not replace the setup note.' },
+    authMethodNotes: { external: 'Set up the agent first.' },
+  })
+  await runtime.start()
+  try {
+    const methods = (await runtime.getAccount()).signInMethods
+    assert.deepEqual(methods, [
+      { id: 'acp:business', label: 'Business', flow: 'browser', description: 'The agent explains this.' },
+      { id: 'acp:external', label: 'External', flow: 'external', description: 'Set up the agent first.' },
+    ])
+  } finally { await runtime.dispose() }
+})
+
+test('an expired ACP login cannot undo a newer sign-out when its reply arrives later', async (t) => {
+  t.mock.method(CliAccount.prototype, 'logout', async () => {})
+  const runtime = statusIsRecord(() => DEV, {}, { logout: { command: FAKE_CLI, args: ['logout'] } })
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  let release!: () => void, arrived!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const received = new Promise<void>(resolve => { arrived = resolve })
+  const request = runtime.connection.request.bind(runtime.connection)
+  t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+    const answer = await request<T>(method, params, timeout)
+    if (method === 'authenticate') { arrived(); await held }
+    return answer
+  })
+  try {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const started = await runtime.login('acp:device')
+    await received
+    t.mock.timers.tick(5 * 60_000)
+    t.mock.timers.reset()
+    const expired = events.find(e => e.type === 'account/loginCompleted' && e.loginId === started.loginId)
+    assert.equal(expired?.type === 'account/loginCompleted' && expired.reason, 'wait-expired')
+    await runtime.logout()
+    const changed = events.filter(e => e.type === 'account/changed').length
+    release()
+    await until(events, () => events.filter(e => e.type === 'account/changed').length > changed)
+    assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+    assert.equal(events.filter(e => e.type === 'account/loginCompleted' && e.loginId === started.loginId).length, 1)
+  } finally { t.mock.timers.reset(); release(); await runtime.dispose() }
+})
+
+test('cancel removes the expiry timer while preserving the late agent success', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-login-cancel-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const gate = join(dir, 'gate'), log = join(dir, 'log')
+  const runtime = bare({ FAKE_ACP_AUTH_GATE: gate, FAKE_ACP_AUTH_LOG: log })
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  try {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const started = await runtime.login('acp:device')
+    const deadline = Date.now() + 5_000
+    while (!existsSync(log)) {
+      if (Date.now() > deadline) throw new Error('peer did not receive authenticate')
+      await new Promise(resolve => setImmediate(resolve))
+    }
+    await runtime.cancelLogin(started.loginId)
+    t.mock.timers.tick(5 * 60_000)
+    t.mock.timers.reset()
+    const ended = events.filter(e => e.type === 'account/loginCompleted' && e.loginId === started.loginId)
+    assert.equal(ended.length, 1)
+    assert.equal(ended[0]?.type === 'account/loginCompleted' && ended[0].error, 'Sign-in was cancelled.')
+    const changed = events.filter(e => e.type === 'account/changed').length
+    writeFileSync(gate, '')
+    await until(events, () => events.filter(e => e.type === 'account/changed').length > changed)
+    assert.equal(events.filter(e => e.type === 'account/loginCompleted' && e.loginId === started.loginId).length, 1)
+  } finally { t.mock.timers.reset(); await runtime.dispose() }
+})
+
+test('an error after wait expiry does not complete the same login twice', async t => {
+  const runtime = bare()
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  let reject!: (error: Error) => void
+  const request = runtime.connection.request.bind(runtime.connection)
+  t.mock.method(runtime.connection, 'request', <T>(method: string, params: unknown, timeout?: number): Promise<T> =>
+    method === 'authenticate' ? new Promise<T>((_resolve, fail) => { reject = fail }) : request<T>(method, params, timeout))
+  try {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const started = await runtime.login('acp:device')
+    t.mock.timers.tick(5 * 60_000)
+    t.mock.timers.reset()
+    reject(new Error('fake refusal'))
+    await new Promise(resolve => setImmediate(resolve))
+    const ended = events.filter(e => e.type === 'account/loginCompleted' && e.loginId === started.loginId)
+    assert.equal(ended.length, 1)
+    assert.equal(ended[0]?.type === 'account/loginCompleted' && ended[0].reason, 'wait-expired')
+  } finally { t.mock.timers.reset(); await runtime.dispose() }
+})
+
+test('disposing the agent clears the wait timer', async t => {
+  const runtime = bare()
+  await runtime.start()
+  const schedule = globalThis.setTimeout, cancel = globalThis.clearTimeout
+  let waitTimer: ReturnType<typeof setTimeout> | undefined, cleared = false
+  t.mock.method(globalThis, 'setTimeout', ((callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    const timer = schedule(callback, delay, ...args)
+    if (delay === 5 * 60_000) waitTimer = timer
+    return timer
+  }) as typeof setTimeout)
+  t.mock.method(globalThis, 'clearTimeout', ((timer?: ReturnType<typeof setTimeout>) => {
+    if (timer && timer === waitTimer) cleared = true
+    return cancel(timer)
+  }) as typeof clearTimeout)
+  const request = runtime.connection.request.bind(runtime.connection)
+  t.mock.method(runtime.connection, 'request', <T>(method: string, params: unknown, timeout?: number): Promise<T> =>
+    method === 'authenticate' ? new Promise<T>(() => {}) : request<T>(method, params, timeout))
+  try {
+    await runtime.login('acp:device')
+    assert.ok(waitTimer)
+    await runtime.dispose()
+    assert.equal(cleared, true)
+  } finally { await runtime.dispose() }
+})
