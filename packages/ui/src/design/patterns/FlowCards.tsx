@@ -65,7 +65,7 @@ export const SelectedFlow = ({ name, origin, policy, empty, loading = false, sho
     : <FlowMiniGraph policy={policy} empty={empty} />}</div>}
 </section>
 
-/** A policy thumbnail reads the full canvas's topology, with one fixed viewport and unscaled, end-truncated role labels. */
+/** A policy thumbnail reads the full canvas's topology in a fixed viewport, with end-truncated role labels that scale with the drawing when it must fit. */
 export const FlowMiniGraph = ({ policy, empty = false, previewSize = 'compact' }: { readonly policy?: FlowPolicy | null; readonly empty?: boolean; readonly previewSize?: 'compact' | 'large' }) => {
   const geometry = previewSize === 'large' ? LARGE_MINI : MINI
   const model = useMemo(() => policy ? flowModel(policy) : null, [policy])
@@ -96,7 +96,7 @@ export const FlowMiniGraph = ({ policy, empty = false, previewSize = 'compact' }
   const selfRoom = selfs ? geometry.selfOut : 0
   const stepW = Math.max(geometry.minW, Math.min(geometry.stepW, Math.floor((geometry.width - geometry.inset * 2 - selfRoom - span * geometry.gap) / (span + 1))))
   const pitch = stepW + geometry.gap
-  const topClear = over ? lift * 0.75 : 0, bottomClear = under ? lift * 0.75 : 0
+  const topClear = Math.max(over ? lift * 0.75 : 0, selfs ? geometry.selfOut : 0), bottomClear = under ? lift * 0.75 : 0
   const totalW = span * pitch + stepW + selfRoom, totalH = topClear + rowsOf * stepH + (rowsOf - 1) * rowGap + bottomClear
   const left = (geometry.width - totalW) / 2, top = (geometry.height - totalH) / 2 + topClear
   const fit = Math.min(1, (geometry.width - geometry.inset * 2) / totalW, (geometry.height - geometry.inset * 2) / totalH)
@@ -199,9 +199,9 @@ const arrow = (tipX: number, tipY: number, dx: number, dy: number): string => {
 /** One line between two steps of the grid: straight to a neighbour, round the steps in between for a skip or a loop, and square-cornered between rows. */
 const miniRoute = (from: MiniCell, to: MiniCell, lift: number): { readonly path: string; readonly head: string } => {
   if (from === to) {
-    // A step that returns to itself: a small arc off its right edge.
-    const x = from.x + from.w, out = MINI.selfOut, reach = from.h / 4
-    return { path: `M${x} ${from.cy - reach}C${x + out} ${from.cy - reach - 2} ${x + out} ${from.cy + reach + 2} ${x + MINI.head} ${from.cy + reach}`, head: arrow(x, from.cy + reach, -1, 0) }
+    // A step that returns to itself arcs around its top-right corner, above the forward-arrow corridor.
+    const x = from.x + from.w, y = from.y, out = MINI.selfOut
+    return { path: `M${x - out} ${y}C${x - out} ${y - out} ${x + out} ${y - out} ${x + MINI.head} ${y + MINI.head}`, head: arrow(x, y + MINI.head, -1, 0) }
   }
   if (from.row === to.row) {
     const forward = to.col > from.col

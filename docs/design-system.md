@@ -1859,7 +1859,7 @@ The chosen policy stays inspectable while its full catalogue is folded away.
 
 `packages/ui/src/design/patterns/FlowCards.tsx`
 
-A policy thumbnail reads the full canvas's topology, with one fixed viewport and unscaled, end-truncated role labels.
+A policy thumbnail reads the full canvas's topology in a fixed viewport, with end-truncated role labels that scale with the drawing when it must fit.
 
 ### `FlowCardGrid`
 

@@ -301,6 +301,36 @@ it('draws a step that returns to itself as an arc beside it, not a tick', () => 
   within(drawn(flowOf(3, [['s1', 's1']])).points)
 })
 
+it('keeps a self-loop and its arrowhead clear of the adjacent forward arrow and inside the viewport', () => {
+  const positions = { s0: { x: 40, y: 40 }, s1: { x: 270, y: 40 }, s2: { x: 520, y: 40 },
+    a: { x: 40, y: 240 }, b: { x: 270, y: 440 } }
+  for (const size of ['compact', 'large'] as const) for (const multirow of [false, true]) {
+    const topology = flowOf(3, [['s1', 's1']], multirow ? positions : undefined, multirow ? ['a', 'b'] : [])
+    const { points, scale } = drawn(topology, size)
+    const svg = host.querySelector('svg')!
+    const loop = svg.querySelector('[data-edge="s1>s1"] path')!.getAttribute('d')!
+    const coords = loop.match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+    expect(coords).toHaveLength(8) // one cubic, sampled below in rendered coordinates
+    const [x0, y0, x1, y1, x2, y2, x3, y3] = coords as [number, number, number, number, number, number, number, number]
+    const forward = svg.querySelector('[data-edge="s1>s2"] path')!.getAttribute('d')!
+    const forwardY = Number(/^M[-\d.]+ ([-\d.]+)H/.exec(forward)![1])
+    const head = svg.querySelector('[data-edge="s1>s1"] polygon')!.getAttribute('points')!.trim().split(/[\s,]+/).map(Number)
+    const centre = size === 'large' ? { x: 224, y: 40 } : { x: 160, y: 36 }
+    const fit = (x: number, y: number) => ({ x: centre.x + (x - centre.x) * scale, y: centre.y + (y - centre.y) * scale })
+    const loopPoints = []
+    for (let i = 0; i <= 100; i++) {
+      const t = i / 100, u = 1 - t
+      loopPoints.push({ x: u ** 3 * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t ** 3 * x3,
+        y: u ** 3 * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t ** 3 * y3 })
+    }
+    for (let i = 0; i < head.length; i += 2) loopPoints.push({ x: head[i]!, y: head[i + 1]! })
+    // Include the arrowhead, and leave space for the strokes on both routes.
+    expect(Math.max(...loopPoints.map(point => point.y))).toBeLessThan(forwardY - 1)
+    within([...points, ...loopPoints.map(point => fit(point.x, point.y))], size === 'large' ? 448 : 320, size === 'large' ? 80 : 72)
+    if (multirow) expect(Number(svg.querySelector('[data-step="s1"] rect')!.getAttribute('height'))).toBe(size === 'large' ? 36 : 16)
+  }
+})
+
 it('keeps every card in the responsive card grid without imposing grid keyboard semantics', () => {
   expect(design.FlowCardGrid).toBeTypeOf('function')
   act(() => root.render(<design.FlowCardGrid><span>First</span><span>Second</span></design.FlowCardGrid>))
