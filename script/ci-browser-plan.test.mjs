@@ -280,6 +280,7 @@ test('the pattern skips a dark geometry case and nothing else', () => {
   assert.ok(!skips.test(title('frame-contract-popup-menus', 'a case that names no theme')))
   assert.ok(!skips.test(title('frame-contract-menus', 'S22 disabled popup rows share one ink in dark')), 'a colour spec reads both themes')
   assert.ok(!skips.test(title('frame-contract-tools', 'tools in dark')), 'a colour spec reads both themes')
+  assert.ok(!skips.test(title('frame-contract-dashboard', 'today ring fits in dark')), 'the heatmap ring reads both themes')
   assert.ok(!skips.test(title('row-box', 'rows in dark')), 'only the frame specs are on the pull-request matrix')
   assert.ok(!skips.test(title('flow-canvas', 'edges in dark')), 'only the frame specs are on the pull-request matrix')
   assert.ok(skips.test(title('frame-contract-menus-extra', 'in dark')), 'a spec that merely starts like a colour spec is a different spec')

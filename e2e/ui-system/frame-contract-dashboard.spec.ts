@@ -342,9 +342,9 @@ for (const width of [1440, 720]) test(`E3 Dashboard New session and conversation
   await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(0)
 })
 
-test('today ring fits inside the heatmap scroller at its right edge', async ({ page }) => {
+for (const theme of ['light', 'dark'] as const) test(`today ring fits inside the heatmap scroller at its right edge in ${theme}`, async ({ page }) => {
   await page.clock.install({ time: WALL_TIME })
-  await openFrame(page, 'frame-wall=dashboard&frame-view=activity', 'light', 720)
+  await openFrame(page, 'frame-wall=dashboard&frame-view=activity', theme, 720)
   for (const view of ['Last 12 months', 'By runtime']) {
     await page.getByLabel('Show by').selectOption({ label: view })
     const today = page.locator('[data-today]').first()
