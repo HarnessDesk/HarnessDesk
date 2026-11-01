@@ -58,7 +58,7 @@ for (const driver of ['clean', 'process'] as const) {
       () => list(f.root, join(f.base, 'state')),
       () => inventory(f.root),
       () => assertCleanTree(f.root),
-      () => hostContextPort(async () => ({ stdout: '', exitCode: 0 })).git(f.root, ['status', '--porcelain']),
+      () => hostContextPort(async () => ({ stdout: '', exitCode: 0 }), async () => null).git(f.root, ['status', '--porcelain']),
       () => repairPacket({
         run: 'run', round: 2, to: head, findings: [], evidence: [],
         series: { id: 'reviewer', role: 'reviewer', checkout: { cwd: f.root, branch: 'main' },

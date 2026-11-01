@@ -1867,6 +1867,17 @@ A completed comparison's Split receipt keeps each recorded attempt, identifying
 the merged change and the attempt not kept. Routing rounds remain separate in
 Work's record. An unrecorded pick is not claimed; a person's pick says **You picked**.
 
+A PR review candidate shows its repository, pull request, full head and
+destination commit and ref. An automatic merge asks for a fresh review if
+that target changed or its earlier review lacks the binding. A separately
+approved manual merge says when it does not check fresh review proof. The
+destination check is a preflight; the remote branch can still move afterward.
+When the project has no pinned repository, the PR preview says the review is
+informational and cannot authorize an automatic merge.
+The Git record marks an uncertain merge as **Needs inspection**. If the PR is
+later observed merged, the record says so without attributing the merge to the
+earlier request.
+
 Starting a comparison opens **Work**, with the frozen Flow and recent recorded
 activity together. Its attempt tiles remain directly available through
 **Chat → Split**. A saved page choice is preserved when revisiting a Team.

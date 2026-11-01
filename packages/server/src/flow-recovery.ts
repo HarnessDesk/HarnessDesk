@@ -4,6 +4,8 @@ import { compileFlowPolicy, overrideFlowSeats, parseFlowPolicy } from './flow-po
 import { flowRevision, sourceDigest, type StoredFlowExecution } from './flow-execution.js'
 import { findingJournalOf } from './findings/journal.js'
 import { publicationOf } from './findings/publication.js'
+import { isRevisionName } from './git-revision.js'
+import { canonicalRepository } from './git-gateway/record.js'
 
 /**
  * What a run read back at launch may do next, and why not when it may not.
@@ -169,8 +171,17 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   const target = raw['target']
   if (target !== undefined) {
     const sha = (value: unknown): boolean => typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)
+    const repository = (value: unknown): boolean => {
+      if (typeof value !== 'string') return false
+      try { return canonicalRepository(value) === value } catch { return false }
+    }
     if (start !== 'front-door' || !object(target) || !['branch', 'pull-request', 'diff', 'working-diff'].includes(String(target['kind'])) ||
       !text(target['label']) || !(target['base'] === null || sha(target['base'])) || !(target['head'] === null || sha(target['head'])) ||
+      (target['baseRef'] !== undefined && (typeof target['baseRef'] !== 'string' || !isRevisionName(target['baseRef']))) ||
+      (target['repository'] !== undefined && !repository(target['repository'])) ||
+      (target['reviewBound'] !== undefined && (target['reviewBound'] !== false || target['kind'] !== 'pull-request')) ||
+      ((target['baseRef'] === undefined) !== (target['repository'] === undefined)) ||
+      (target['repository'] !== undefined && (target['kind'] !== 'pull-request' || !sha(target['base']) || !sha(target['head']) || !integer(target['pr']) || Number(target['pr']) < 1)) ||
       !(target['pr'] === null || integer(target['pr'])) || typeof target['dirty'] !== 'boolean' ||
       (target['kind'] === 'working-diff') !== (target['head'] === null)) {
       bad('names a start target it cannot describe')
