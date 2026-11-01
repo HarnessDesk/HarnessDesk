@@ -320,7 +320,7 @@ const KEYED_METHODS = JSON.stringify([
   { id: 'platform', name: 'Agent Platform' },
 ])
 
-const keyed = (key: () => string | undefined, env: Record<string, string> = {}): AcpRuntime =>
+const keyed = (key: () => string | undefined, env: Record<string, string> = {}, onRefusal?: () => void, cliLogout = false): AcpRuntime =>
   new AcpRuntime({
     id: 'fake-acp',
     name: 'Fake ACP Agent',
@@ -330,7 +330,577 @@ const keyed = (key: () => string | undefined, env: Record<string, string> = {}):
     secrets: [{ env: 'HD_FAKE_KEY', label: 'Fake API key', optional: true, acpMethod: 'api-key' }],
     authMethodNotes: { platform: 'Set a project in the agent’s environment, then start it again.' },
     resolveSecret: (name) => (name === 'HD_FAKE_KEY' ? key() : undefined),
+    logger: onRefusal ? { warn: (message) => { if (message === 'the agent would not switch to the stored key') onRefusal() } } : undefined,
+    ...(cliLogout ? { account: { logout: { command: FAKE_CLI, args: ['logout'] } } } : {}),
   })
+
+test('a refused key switch preserves the earlier successful key mode on removal', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-key-refused-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const refuse = join(dir, 'refuse')
+  let key: string | undefined
+  let refused!: () => void
+  const refusal = new Promise<void>((resolve) => { refused = resolve })
+  const mode = join(dir, 'mode')
+  const runtime = keyed(() => key, { FAKE_ACP_REFUSE_KEY_FILE: refuse, FAKE_ACP_AUTH_MODE_FILE: mode }, refused)
+  const events: AgentEvent[] = []
+  runtime.subscribe((event) => events.push(event))
+  await runtime.start()
+  try {
+    events.length = 0
+    key = 'placeholder-key'
+    await runtime.reloadSecrets()
+    await until(events, (event) => event.type === 'account/changed')
+    writeFileSync(refuse, '')
+    key = 'replacement-placeholder-key'
+    await runtime.reloadSecrets()
+    await refusal
+    assert.equal(readFileSync(mode, 'utf8'), 'api-key', 'refusal leaves the peer in its previous mode')
+    key = undefined
+    await runtime.reloadSecrets()
+    const status = await runtime.getAccount()
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    assert.match(status.refusal ?? '', /key was removed/)
+  } finally { await runtime.dispose() }
+})
+
+for (const transition of ['browser', 'logout'] as const) {
+  test(`removing a key after ${transition} preserves the newer account state`, async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'hd-acp-key-transition-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const mode = join(dir, 'mode')
+    let key: string | undefined
+    const runtime = keyed(() => key, { FAKE_ACP_LOGOUT: '1', FAKE_ACP_AUTH_MODE_FILE: mode })
+    const events: AgentEvent[] = []
+    runtime.subscribe((event) => events.push(event))
+    await runtime.start()
+    try {
+      events.length = 0
+      key = 'placeholder-key'
+      await runtime.reloadSecrets()
+      await until(events, (event) => event.type === 'account/changed')
+      if (transition === 'browser') {
+        const start = await runtime.login('acp:google')
+        const done = await until(events, (event) => event.type === 'account/loginCompleted' && event.loginId === start.loginId)
+        assert.equal(done.type === 'account/loginCompleted' && done.success, true)
+      } else {
+        await runtime.logout()
+      }
+      key = undefined
+      const beforeReload = await runtime.getAccount()
+      if (transition === 'browser') {
+        assert.deepEqual(beforeReload.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+        assert.equal(beforeReload.refusal, undefined)
+      } else assert.equal(beforeReload.refusal, 'Signed out.')
+      await runtime.reloadSecrets()
+      const status = await runtime.getAccount()
+      assert.deepEqual(status.accounts, [])
+      assert.equal(status.unchecked, true)
+      assert.equal(status.refusal, undefined)
+      assert.equal(readFileSync(mode, 'utf8'), transition === 'browser' ? 'google' : 'out')
+      if (transition === 'browser') await runtime.createSession({ cwd: process.cwd() })
+      else await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    } finally { await runtime.dispose() }
+  })
+}
+
+for (const transition of ['browser', 'logout'] as const) {
+  test(`held key mode reply cannot override a newer ${transition}`, async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'hd-acp-held-mode-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const mode = join(dir, 'mode')
+    let key: string | undefined
+    const runtime = keyed(() => key, { FAKE_ACP_LOGOUT: '1', FAKE_ACP_AUTH_MODE_FILE: mode })
+    const events: AgentEvent[] = []
+    runtime.subscribe(event => events.push(event))
+    await runtime.start()
+    let applied!: () => void
+    let release!: () => void
+    let returned!: () => void
+    const appliedReceipt = new Promise<void>(resolve => { applied = resolve })
+    const held = new Promise<void>(resolve => { release = resolve })
+    const returnedReceipt = new Promise<void>(resolve => { returned = resolve })
+    const request = runtime.connection.request.bind(runtime.connection)
+    t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+      const answer = await request<T>(method, params, timeout)
+      if (method === 'authenticate' && (params as { methodId?: string }).methodId === 'api-key') {
+        applied(); await held; returned()
+      }
+      return answer
+    })
+    try {
+      key = 'placeholder-key'
+      await runtime.reloadSecrets()
+      await appliedReceipt
+      assert.equal(readFileSync(mode, 'utf8'), 'api-key')
+      if (transition === 'browser') {
+        const login = await runtime.login('acp:google')
+        const done = await until(events, event => event.type === 'account/loginCompleted' && event.loginId === login.loginId)
+        assert.equal(done.type === 'account/loginCompleted' && done.success, true)
+      } else await runtime.logout()
+      assert.equal(readFileSync(mode, 'utf8'), transition === 'browser' ? 'google' : 'out')
+      const changes = events.filter(event => event.type === 'account/changed').length
+      release(); await returnedReceipt
+      await new Promise<void>(resolve => setImmediate(resolve))
+      assert.equal(events.filter(event => event.type === 'account/changed').length, changes, 'a stale reply emits no account change')
+      key = undefined
+      const beforeReload = await runtime.getAccount()
+      if (transition === 'browser') {
+        assert.deepEqual(beforeReload.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+        assert.equal(beforeReload.refusal, undefined)
+      } else assert.equal(beforeReload.refusal, 'Signed out.')
+      await runtime.reloadSecrets()
+      const status = await runtime.getAccount()
+      assert.deepEqual(status.accounts, [])
+      assert.equal(status.unchecked, true)
+      assert.equal(status.refusal, undefined)
+      assert.equal(readFileSync(mode, 'utf8'), transition === 'browser' ? 'google' : 'out')
+      if (transition === 'browser') await runtime.createSession({ cwd: process.cwd() })
+      else await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    } finally { release(); await runtime.dispose() }
+  })
+}
+
+test('retired control process cannot admit a held key mode reply', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-retired-mode-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const mode = join(dir, 'mode')
+  let key: string | undefined
+  const runtime = keyed(() => key, { FAKE_ACP_AUTH_MODE_FILE: mode })
+  await runtime.start()
+  let applied!: () => void
+  let release!: () => void
+  let returned!: () => void
+  const appliedReceipt = new Promise<void>(resolve => { applied = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const returnedReceipt = new Promise<void>(resolve => { returned = resolve })
+  const request = runtime.connection.request.bind(runtime.connection)
+  t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+    const answer = await request<T>(method, params, timeout)
+    if (method === 'authenticate' && (params as { methodId?: string }).methodId === 'api-key') {
+      applied(); await held; returned()
+    }
+    return answer
+  })
+  try {
+    key = 'placeholder-key'
+    await runtime.reloadSecrets()
+    await appliedReceipt
+    assert.equal(readFileSync(mode, 'utf8'), 'api-key')
+    key = undefined
+    await runtime.reloadSecrets()
+    release(); await returnedReceipt
+    await new Promise<void>(resolve => setImmediate(resolve))
+    await runtime.reloadSecrets()
+    const status = await runtime.getAccount()
+    assert.equal(status.refusal, undefined)
+    assert.equal(status.unchecked, true)
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+  } finally { release(); await runtime.dispose() }
+})
+
+test('crashed control process cannot admit a held key mode reply', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-crashed-mode-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const mode = join(dir, 'mode')
+  let key: string | undefined
+  const runtime = keyed(() => key, { FAKE_ACP_AUTH_MODE_FILE: mode })
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  let crashed!: () => void
+  const crashReceipt = new Promise<void>(resolve => { crashed = resolve })
+  runtime.onHealthChange(health => { if (health.state === 'unavailable') crashed() })
+  let applied!: () => void
+  let release!: () => void
+  let returned!: () => void
+  const appliedReceipt = new Promise<void>(resolve => { applied = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const returnedReceipt = new Promise<void>(resolve => { returned = resolve })
+  const request = runtime.connection.request.bind(runtime.connection)
+  t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+    const answer = await request<T>(method, params, timeout)
+    if (method === 'authenticate' && (params as { methodId?: string }).methodId === 'api-key') {
+      applied(); await held; returned()
+    }
+    return answer
+  })
+  try {
+    key = 'placeholder-key'
+    await runtime.reloadSecrets()
+    await appliedReceipt
+    assert.equal(readFileSync(mode, 'utf8'), 'api-key')
+    const crash = assert.rejects(runtime.connection.request('test/crash', {}))
+    await crashReceipt; await crash
+    const changes = events.filter(event => event.type === 'account/changed').length
+    release(); await returnedReceipt
+    await new Promise<void>(resolve => setImmediate(resolve))
+    assert.equal(events.filter(event => event.type === 'account/changed').length, changes)
+    key = undefined
+    await runtime.reloadSecrets()
+    await runtime.start()
+    const status = await runtime.getAccount()
+    assert.equal(status.refusal, undefined)
+    assert.equal(status.unchecked, true)
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+  } finally { release(); await runtime.dispose() }
+})
+
+for (const cancelled of [false, true]) {
+  test(`held alternate mode reply cannot undo logout${cancelled ? ' after cancellation' : ''}`, async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'hd-acp-held-alternate-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const mode = join(dir, 'mode')
+    let key: string | undefined
+    const runtime = keyed(() => key, { FAKE_ACP_LOGOUT: '1', FAKE_ACP_AUTH_MODE_FILE: mode })
+    const events: AgentEvent[] = []
+    runtime.subscribe(event => events.push(event))
+    await runtime.start()
+    let applied!: () => void
+    let release!: () => void
+    let returned!: () => void
+    const appliedReceipt = new Promise<void>(resolve => { applied = resolve })
+    const held = new Promise<void>(resolve => { release = resolve })
+    const returnedReceipt = new Promise<void>(resolve => { returned = resolve })
+    try {
+      key = 'placeholder-key'
+      await runtime.reloadSecrets()
+      await until(events, event => event.type === 'account/changed')
+      assert.equal(readFileSync(mode, 'utf8'), 'api-key')
+      const request = runtime.connection.request.bind(runtime.connection)
+      t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+        const answer = await request<T>(method, params, timeout)
+        if (method === 'authenticate' && (params as { methodId?: string }).methodId === 'google') {
+          applied(); await held; returned()
+        }
+        return answer
+      })
+      const login = await runtime.login('acp:google')
+      await appliedReceipt
+      assert.equal(readFileSync(mode, 'utf8'), 'google')
+      if (cancelled) await runtime.cancelLogin(login.loginId)
+      await runtime.logout()
+      assert.equal(readFileSync(mode, 'utf8'), 'out')
+      release(); await returnedReceipt
+      await new Promise<void>(resolve => setImmediate(resolve))
+      if (!cancelled) {
+        const done = await until(events, event => event.type === 'account/loginCompleted' && event.loginId === login.loginId)
+        assert.equal(done.type === 'account/loginCompleted' && done.success, true)
+      }
+      key = undefined
+      assert.equal((await runtime.getAccount()).refusal, 'Signed out.')
+      await runtime.reloadSecrets()
+      const status = await runtime.getAccount()
+      assert.equal(status.unchecked, true)
+      assert.equal(status.refusal, undefined)
+      await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    } finally { release(); await runtime.dispose() }
+  })
+}
+
+test('held key mode survives a failed logout', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-mode-rollback-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const mode = join(dir, 'mode')
+  t.mock.method(CliAccount.prototype, 'logout', async () => { throw new Error('sign-out failed') })
+  let key: string | undefined
+  const runtime = keyed(() => key, { FAKE_ACP_AUTH_MODE_FILE: mode }, undefined, true)
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  let applied!: () => void
+  let release!: () => void
+  const appliedReceipt = new Promise<void>(resolve => { applied = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const request = runtime.connection.request.bind(runtime.connection)
+  t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+    const answer = await request<T>(method, params, timeout)
+    if (method === 'authenticate' && (params as { methodId?: string }).methodId === 'api-key') { applied(); await held }
+    return answer
+  })
+  try {
+    key = 'placeholder-key'
+    await runtime.reloadSecrets()
+    await appliedReceipt
+    assert.equal(readFileSync(mode, 'utf8'), 'api-key')
+    await assert.rejects(runtime.logout(), /sign-out failed/)
+    release()
+    await until(events, event => event.type === 'account/changed')
+    key = undefined
+    await runtime.reloadSecrets()
+    assert.match((await runtime.getAccount()).refusal ?? '', /key was removed/)
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+  } finally { release(); await runtime.dispose() }
+})
+
+for (const succeeds of [false, true]) {
+  test(`key removal mode during ${succeeds ? 'successful' : 'failed'} logout follows its world`, async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'hd-acp-removal-world-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const mode = join(dir, 'mode')
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    t.mock.method(CliAccount.prototype, 'logout', async () => {
+      await held
+      if (!succeeds) throw new Error('sign-out failed')
+      writeFileSync(mode, 'out')
+    })
+    let key: string | undefined
+    const runtime = keyed(() => key, { FAKE_ACP_AUTH_MODE_FILE: mode }, undefined, true)
+    const events: AgentEvent[] = []
+    runtime.subscribe(event => events.push(event))
+    await runtime.start()
+    try {
+      key = 'placeholder-key'
+      await runtime.reloadSecrets()
+      await until(events, event => event.type === 'account/changed')
+      const logout = runtime.logout()
+      const result = succeeds ? logout : assert.rejects(logout, /sign-out failed/)
+      key = undefined
+      await runtime.reloadSecrets()
+      assert.equal((await runtime.getAccount()).refusal, undefined, 'removal waits for logout settlement')
+      release(); await result
+      const status = await runtime.getAccount()
+      if (succeeds) { assert.equal(status.refusal, undefined); assert.equal(status.unchecked, true) }
+      else assert.match(status.refusal ?? '', /key was removed/)
+      assert.equal(readFileSync(mode, 'utf8'), succeeds ? 'out' : 'api-key')
+      await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+    } finally { release(); await runtime.dispose() }
+  })
+}
+
+test('retired deferred ACP login does not erase an earlier host refusal', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-observation-owner-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const mode = join(dir, 'mode')
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  t.mock.method(CliAccount.prototype, 'logout', async () => { await held; throw new Error('sign-out failed') })
+  let key: string | undefined
+  const runtime = keyed(() => key, { FAKE_ACP_AUTH_MODE_FILE: mode }, undefined, true)
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  try {
+    key = 'placeholder-key'
+    await runtime.reloadSecrets()
+    await until(events, event => event.type === 'account/changed')
+    const logout = assert.rejects(runtime.logout(), /sign-out failed/)
+    key = undefined
+    await runtime.reloadSecrets()
+    const login = await runtime.login('acp:google')
+    const done = await until(events, event => event.type === 'account/loginCompleted' && event.loginId === login.loginId)
+    assert.equal(done.type === 'account/loginCompleted' && done.success, true)
+    assert.equal(readFileSync(mode, 'utf8'), 'google')
+    assert.equal(await runtime.stopForIdle(), true)
+    release(); await logout
+    assert.match((await runtime.getAccount()).refusal ?? '', /key was removed/)
+  } finally { release(); await runtime.dispose() }
+})
+
+test('retired deferred key mode does not erase an earlier host mode removal', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-deferred-owner-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const mode = join(dir, 'mode')
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  t.mock.method(CliAccount.prototype, 'logout', async () => { await held; throw new Error('sign-out failed') })
+  let key: string | undefined
+  const runtime = keyed(() => key, { FAKE_ACP_AUTH_MODE_FILE: mode }, undefined, true)
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  try {
+    key = 'placeholder-key'
+    await runtime.reloadSecrets()
+    await until(events, event => event.type === 'account/changed')
+    const logout = assert.rejects(runtime.logout(), /sign-out failed/)
+    key = undefined
+    await runtime.reloadSecrets()
+    events.length = 0
+    key = 'replacement-placeholder-key'
+    await runtime.reloadSecrets()
+    await until(events, event => event.type === 'account/changed')
+    assert.equal(readFileSync(mode, 'utf8'), 'api-key')
+    assert.equal(await runtime.stopForIdle(), true)
+    release(); await logout
+    key = undefined
+    await runtime.reloadSecrets()
+    await runtime.start()
+    const status = await runtime.getAccount()
+    assert.equal(status.refusal, undefined)
+    assert.equal(status.unchecked, true)
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+  } finally { release(); await runtime.dispose() }
+})
+
+test('retired deferred key mode is discarded when failed logout rejoins its world', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-deferred-retired-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const mode = join(dir, 'mode')
+  const refuse = join(dir, 'refuse')
+  let releaseLogout!: () => void
+  const logoutHeld = new Promise<void>(resolve => { releaseLogout = resolve })
+  t.mock.method(CliAccount.prototype, 'logout', async () => { await logoutHeld; throw new Error('sign-out failed') })
+  let refused!: () => void
+  const refusal = new Promise<void>(resolve => { refused = resolve })
+  let key: string | undefined
+  const runtime = keyed(() => key, { FAKE_ACP_AUTH_MODE_FILE: mode, FAKE_ACP_REFUSE_KEY_FILE: refuse }, refused, true)
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  try {
+    const out = assert.rejects(runtime.logout(), /sign-out failed/)
+    key = 'placeholder-key'
+    await runtime.reloadSecrets()
+    await until(events, event => event.type === 'account/changed')
+    assert.equal(readFileSync(mode, 'utf8'), 'api-key')
+    writeFileSync(refuse, '')
+    await runtime.reloadSecrets()
+    await refusal
+    assert.equal(readFileSync(mode, 'utf8'), 'api-key')
+    releaseLogout(); await out
+    key = undefined
+    await runtime.reloadSecrets()
+    const status = await runtime.getAccount()
+    assert.equal(status.refusal, undefined)
+    assert.equal(status.unchecked, true)
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+  } finally { releaseLogout(); await runtime.dispose() }
+})
+
+test('retired ACP logout reply cannot retire replacement process mode', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-retired-logout-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const mode = join(dir, 'mode')
+  let key: string | undefined
+  const runtime = keyed(() => key, { FAKE_ACP_LOGOUT: '1', FAKE_ACP_AUTH_MODE_FILE: mode })
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  await runtime.start()
+  let applied!: () => void
+  let release!: () => void
+  const appliedReceipt = new Promise<void>(resolve => { applied = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  const request = runtime.connection.request.bind(runtime.connection)
+  t.mock.method(runtime.connection, 'request', async <T>(method: string, params: unknown, timeout?: number): Promise<T> => {
+    const answer = await request<T>(method, params, timeout)
+    if (method === 'logout') { applied(); await held }
+    return answer
+  })
+  try {
+    const login = await runtime.login('acp:google')
+    await until(events, event => event.type === 'account/loginCompleted' && event.loginId === login.loginId)
+    assert.equal(readFileSync(mode, 'utf8'), 'google')
+    const logout = runtime.logout()
+    const rejected = assert.rejects(logout, /retired/)
+    await appliedReceipt
+    assert.equal(readFileSync(mode, 'utf8'), 'out')
+    events.length = 0
+    key = 'placeholder-key'
+    await runtime.reloadSecrets()
+    await until(events, event => event.type === 'account/changed')
+    assert.equal(readFileSync(mode, 'utf8'), 'api-key')
+    release(); await rejected
+    key = undefined
+    await runtime.reloadSecrets()
+    assert.match((await runtime.getAccount()).refusal ?? '', /key was removed/)
+    await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+  } finally { release(); await runtime.dispose() }
+})
+
+for (const overlap of [true, false]) {
+  test(`alternate sign-in ${overlap ? 'inside overlapping' : 'inside independent'} logout worlds follows their settlement`, async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'hd-acp-login-world-'))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    const mode = join(dir, 'mode')
+    const releases: Array<() => void> = []
+    let calls = 0
+    t.mock.method(CliAccount.prototype, 'logout', async () => {
+      const call = ++calls
+      await new Promise<void>(resolve => { releases.push(resolve) })
+      if (call === 2) throw new Error('sign-out failed')
+      writeFileSync(mode, 'out')
+    })
+    const runtime = keyed(() => undefined, { FAKE_ACP_AUTH_MODE_FILE: mode }, undefined, true)
+    const events: AgentEvent[] = []
+    runtime.subscribe(event => events.push(event))
+    await runtime.start()
+    try {
+      const older = runtime.logout()
+      if (!overlap) { releases[0]!(); await older; assert.equal(readFileSync(mode, 'utf8'), 'out') }
+      const newer = assert.rejects(runtime.logout(), /sign-out failed/)
+      const login = await runtime.login('acp:google')
+      const done = await until(events, event => event.type === 'account/loginCompleted' && event.loginId === login.loginId)
+      assert.equal(done.type === 'account/loginCompleted' && done.success, true)
+      assert.equal(readFileSync(mode, 'utf8'), 'google', 'the peer applied sign-in before its response')
+      if (overlap) { releases[0]!(); await older; assert.equal(readFileSync(mode, 'utf8'), 'out') }
+      releases[1]!(); await newer
+      const status = await runtime.getAccount()
+      if (overlap) {
+        assert.equal(readFileSync(mode, 'utf8'), 'out')
+        // The later world survives rollback, although the fake peer applied
+        // the older logout afterwards. ACP cannot report that ordering.
+        assert.deepEqual(status.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+        assert.equal(status.refusal, undefined)
+        await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+      } else {
+        assert.equal(readFileSync(mode, 'utf8'), 'google')
+        assert.deepEqual(status.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+        assert.equal(status.refusal, undefined)
+        await runtime.createSession({ cwd: process.cwd() })
+      }
+    } finally { for (const release of releases) release(); await runtime.dispose() }
+  })
+}
+
+for (const order of ['older first', 'newer first'] as const) {
+  for (const outcome of ['both fail', 'older succeeds', 'newer succeeds', 'both succeed'] as const) {
+    test(`mode in nested logout worlds: ${outcome}, ${order}`, async (t) => {
+      const dir = mkdtempSync(join(tmpdir(), 'hd-acp-mode-world-'))
+      t.after(() => rmSync(dir, { recursive: true, force: true }))
+      const mode = join(dir, 'mode')
+      const releases: Array<() => void> = []
+      let calls = 0
+      t.mock.method(CliAccount.prototype, 'logout', async () => {
+        const call = ++calls
+        await new Promise<void>(resolve => { releases.push(resolve) })
+        const succeeds = outcome === 'both succeed' || (call === 1 && outcome === 'older succeeds') || (call === 2 && outcome === 'newer succeeds')
+        if (!succeeds) throw new Error('sign-out failed')
+        writeFileSync(mode, 'out')
+      })
+      let key: string | undefined
+      const runtime = keyed(() => key, { FAKE_ACP_AUTH_MODE_FILE: mode }, undefined, true)
+      const events: AgentEvent[] = []
+      runtime.subscribe(event => events.push(event))
+      await runtime.start()
+      try {
+        const first = runtime.logout()
+        const second = runtime.logout()
+        const firstResult = outcome === 'older succeeds' || outcome === 'both succeed' ? first : assert.rejects(first, /sign-out failed/)
+        const secondResult = outcome === 'newer succeeds' || outcome === 'both succeed' ? second : assert.rejects(second, /sign-out failed/)
+        key = 'placeholder-key'
+        await runtime.reloadSecrets()
+        await until(events, event => event.type === 'account/changed')
+        assert.equal(readFileSync(mode, 'utf8'), 'api-key')
+        if (outcome === 'both fail') await runtime.createSession({ cwd: process.cwd() })
+        const firstIndex = order === 'older first' ? 0 : 1
+        releases[firstIndex]!()
+        await (firstIndex === 0 ? firstResult : secondResult)
+        releases[1 - firstIndex]!()
+        await (firstIndex === 0 ? secondResult : firstResult)
+        assert.equal(readFileSync(mode, 'utf8'), outcome === 'both fail' ? 'api-key' : 'out')
+        key = undefined
+        await runtime.reloadSecrets()
+        const status = await runtime.getAccount()
+        const retained = outcome === 'both fail' || (outcome === 'older succeeds' && order === 'older first')
+        if (retained) assert.match(status.refusal ?? '', /key was removed/)
+        else { assert.equal(status.refusal, undefined); assert.equal(status.unchecked, true) }
+        await assert.rejects(runtime.createSession({ cwd: process.cwd() }), /Authentication required/)
+      } finally { for (const release of releases) release(); await runtime.dispose() }
+    })
+  }
+}
 
 test('a method a key stands for is the key field, and one that needs setup is a step, not a button', async () => {
   const runtime = keyed(() => undefined, { FAKE_ACP_AUTH_REQUIRED: '1' })
