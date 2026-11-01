@@ -264,23 +264,26 @@ export const NoticeCard = ({
  * conversation's composer — the control it is about. A calm bar the
  * composer's own width: the tone is in the tile, the words wrap, and the
  * action sits at the right as a small button, moving below the copy in a
- * narrow container.
+ * narrow container. An optional secondary action keeps the primary choice
+ * prominent while retaining a distinct alternative in the same action group.
  */
 export const ComposerNotice = ({
   message,
+  secondaryAction,
   onDismiss,
   onMute,
 }: {
   message: NoticeMessage
+  secondaryAction?: NoticeAct
   onDismiss?: () => void
   onMute?: (() => void) | undefined
 }) => (
   <div className={styles.composerFrame}>
-    <ComposerNoticeRow message={message} onDismiss={onDismiss} onMute={onMute} />
+    <ComposerNoticeRow message={message} secondaryAction={secondaryAction} onDismiss={onDismiss} onMute={onMute} />
   </div>
 )
 
-const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMessage; onDismiss?: () => void; onMute?: (() => void) | undefined }) => {
+const ComposerNoticeRow = ({ message, secondaryAction, onDismiss, onMute }: { message: NoticeMessage; secondaryAction?: NoticeAct | undefined; onDismiss?: () => void; onMute?: (() => void) | undefined }) => {
   const lineRef = useRef<HTMLSpanElement>(null)
   const wrapped = useWrappedText(lineRef, [message.title, message.body])
   return (
@@ -292,7 +295,10 @@ const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMess
           {message.body ? <span className={styles.lineBody} data-part="notice-detail"> {message.body}</span> : null}
         </span>
       </span>
-      {message.action ? <div className={styles.composerActions}><ActionButton action={message.action} variant="outline" /></div> : null}
+      {message.action || secondaryAction ? <div className={styles.composerActions}>
+        {message.action && <ActionButton action={message.action} variant={secondaryAction ? 'default' : 'outline'} />}
+        {secondaryAction && <ActionButton action={secondaryAction} variant="outline" />}
+      </div> : null}
       {onDismiss ? <Dismiss onDismiss={onDismiss} onMute={onMute} /> : null}
     </div>
   )

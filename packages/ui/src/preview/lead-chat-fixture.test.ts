@@ -19,7 +19,7 @@ it('previews an offline action and explicit recovery without a desk', async () =
   const offline = createLeadChatFixture('lead', 'light', 'offline')
   await expect(offline.store.lead.takeOverChat(offline.id)).rejects.toThrow('offline')
   const broken = createLeadChatFixture('lead', 'dark', 'unreadable')
-  expect(broken.store.lead.state.chatControlProblem).toContain('Reset chat control')
+  expect(broken.store.lead.state.chatControlProblem?.message).toContain('Reset chat control')
   await broken.store.lead.resetChatControl()
   expect(broken.store.lead.state.chatControlProblem).toBeNull()
   expect(broken.store.lead.state.chats).toEqual([])
@@ -27,7 +27,7 @@ it('previews an offline action and explicit recovery without a desk', async () =
 
 it('previews a control-read failure through the existing notice', () => {
   const { store } = createLeadChatFixture('lead', 'light', 'read-error')
-  expect(store.lead.state.chatControlProblem).toContain('The desk connection was lost.')
+  expect(store.lead.state.chatControlProblem?.message).toContain('The desk connection was lost.')
 })
 
 it('previews a replayed envelope without a receipt in that chat', () => {
