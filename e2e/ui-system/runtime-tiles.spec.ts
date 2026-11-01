@@ -97,3 +97,29 @@ for (const theme of ['light', 'dark'] as const) {
     for (let index = 1; index < boxes.length; index++) expect(boxes[index]!.top - boxes[index - 1]!.bottom).toBeGreaterThan(0)
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`preview runtime accounts expose only supported gateway actions in ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?runtime-cost')
+    if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+    else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme')
+    const row = (name: string) => page.locator('[data-slot="agent-row"]').filter({ has: page.locator('[data-slot="runtime-name"]', { hasText: name }) })
+    await row('Codex').click()
+    await expect(page.getByText('Not answered yet', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Add gateway account…' })).toBeVisible()
+    await page.getByRole('button', { name: 'Add gateway account…' }).click()
+    await expect(page.getByRole('dialog', { name: 'Add a gateway account' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: /Codex actions/ }).click()
+    await expect(page.getByRole('menu')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: /shane.*Limit reached/ }).click()
+    await expect(page.getByText('~/.codex', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Back to Codex' }).click()
+    await page.getByRole('button', { name: 'Back to Runtimes' }).click()
+    await row('Claude Code').click()
+    await expect(page.getByRole('heading', { name: 'Accounts' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Add gateway account…' })).toHaveCount(0)
+  })
+}
