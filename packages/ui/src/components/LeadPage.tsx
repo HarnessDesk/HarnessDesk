@@ -127,6 +127,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const { owner } = useDestinationPage(), controls = useLeadControls(), { name, label, presence } = controls
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
   const terminalWait = state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable'
+  const auditWait = state.waitReason === 'lead-worker-audit-failed' && !state.savedApprovals?.some(rule => rule.uncertain)
+    ? 'A worker approval may have run. Resume after reviewing the changes. Restart first if saving failed.' : WAITS[state.waitReason!]
   const setupWait = leadWaitNeedsChange(state.waitReason) || state.waitReason === 'lead-worker-audit-failed' && state.wayOut !== 'resume'
   const canStop = !!state.thread && !['stopped', 'accepted', 'declined'].includes(state.thread.state) &&
     (!!state.thread.contract || !!state.thread.pr || state.requestInFlight || terminalWait)
@@ -282,9 +284,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
           {(error || state.error) && <Banner role="alert" tone="warning">{error ?? REFUSALS['lead-projection-failed']}</Banner>}
           {terminalWait && <Banner actions={canStop ? stopAction : undefined}>{WAITS[state.waitReason!].replace('{label}', label)}</Banner>}
           {state.waitReason === 'lead-renewal-blocked' && <Banner>{WAITS[state.waitReason]}</Banner>}
-          {setupWait && (state.wayOut !== 'decide-plan' || state.waitReason === 'lead-chat-effect-uncertain') && <Banner actions={state.waitReason === 'lead-chat-effect-uncertain' ? <Button disabled={stopping || decisionPending !== null} aria-busy={stopping} onClick={() => void stop()}>Start new request</Button> : undefined}>{WAITS[state.waitReason!]}</Banner>}
+          {setupWait && (state.wayOut !== 'decide-plan' || state.waitReason === 'lead-chat-effect-uncertain') && <Banner actions={state.waitReason === 'lead-chat-effect-uncertain' ? <Button disabled={stopping || decisionPending !== null} aria-busy={stopping} onClick={() => void stop()}>Start new request</Button> : undefined}>{auditWait}</Banner>}
           {!unavailable && !setupWait && state.wayOut === 'resume' && state.waitReason !== 'lead-predecessor-unavailable' && state.waitReason !== 'lead-predecessor-unverifiable' && <Banner actions={<Button disabled={resuming} aria-busy={resuming} onClick={async () => { if (resuming) return; setResuming(true); setError(null); try { await store.lead.resume() } catch (error) { refusal(error) } finally { setResuming(false); input.current?.focus() } }}>Resume</Button>}>
-            {state.waitReason ? WAITS[state.waitReason] ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
+            {state.waitReason ? auditWait ?? 'The Lead is waiting for you to continue.' : 'The Lead is waiting for you to continue.'}
           </Banner>}
           {state.wayOut === 'decide-plan' && (renewal
             ? <Banner>{`The earlier approval expired at ${formatLeadConsentTime(state.planConsentExpiresAt!)}.`}</Banner>

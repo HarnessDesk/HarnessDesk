@@ -150,9 +150,17 @@ export const turnMethods = {
   },
 
   'approval/respond': async (ctx, params) => {
-    if (ctx.ceilings.answerHeld(params.runtime, params.sessionId, params.approvalId, params.decision)) return null
-    // A question whose turn its deadline already stopped: the answer reopens the Seat rather than going into that turn.
-    if (await ctx.questions.answerStopped(params.runtime, params.sessionId, params.approvalId, params.decision)) return null
+    // These host paths may settle an approval themselves. They mark entry into
+    // delivery, so only a failure before that boundary proves nothing was sent.
+    let delivering = false
+    const delivery = () => { delivering = true }
+    try {
+      if (ctx.ceilings.answerHeld(params.runtime, params.sessionId, params.approvalId, params.decision, delivery)) return null
+      if (await ctx.questions.answerStopped(params.runtime, params.sessionId, params.approvalId, params.decision, delivery)) return null
+    } catch (error) {
+      if (!delivering) throw Object.assign(error instanceof Error ? error : new Error('Approval preflight failed.'), { approvalNotDelivered: true })
+      throw error
+    }
     const sessionId = makeSessionId(params.sessionId), approvalId = makeApprovalId(params.approvalId)
     const assertPending = (): void => {
       if (!ctx.registry.hasApproval(params.runtime, sessionId, approvalId)) {
@@ -160,10 +168,19 @@ export const turnMethods = {
       }
     }
     // Stop can settle the host's copy even when the agent keeps its request.
-    assertPending()
-    const live = await ctx.sessions.live(params)
-    // Reopening may have overlapped the settlement; never send a stale decision.
-    assertPending()
+    const live = await (async () => {
+      try {
+        assertPending()
+        const live = await ctx.sessions.live(params)
+        // Reopening may have overlapped the settlement; never send a stale decision.
+        assertPending()
+        return live
+      } catch (error) {
+        // Host-only receipt: the runtime responder was never called. A responder
+        // rejection below cannot make this guarantee and must remain uncertain.
+        throw Object.assign(error instanceof Error ? error : new Error('Approval preflight failed.'), { approvalNotDelivered: true })
+      }
+    })()
     await live.respondToApproval(approvalId, params.decision)
     return null
   },

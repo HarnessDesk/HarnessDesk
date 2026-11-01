@@ -2117,3 +2117,75 @@ test('a trailing host notice does not hide the unanswered resume offer', async (
     assert.equal((await s.controls.readThread()).wayOut, 'resume')
   } finally { s.controls.close() }
 })
+
+test('an uncertain dispatch diff is projected and remains openable after revoke', async () => {
+  const s = await rig({ configured: true, manage: true })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  await s.journal.saveWorkerApproval({ id: 'rule', contractDigest: contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq,
+    key: { kind: 'fileChange', path: '/workspace/demo/panel.tsx' }, target: '/workspace/demo/panel.tsx', count: 0 }, () => true, async () => {})
+  await assert.rejects(s.journal.useWorkerApproval('rule', () => true, async () => { throw Error('lost acknowledgement') }, '+inspect this change'))
+  const saved = (await s.controls.readThread()).savedApprovals[0]
+  assert.equal(saved.uncertain, true)
+  assert.equal(saved.entries[0].uncertain, true)
+  assert.equal(saved.entries[0].diff, '+inspect this change')
+  await s.journal.revokeWorkerApproval('rule', contract.digest)
+  const revoked = (await s.controls.readThread()).revokedApprovals[0]
+  assert.deepEqual(revoked.entries, saved.entries)
+  assert.equal(revoked.count, 0)
+})
+
+test('an in-flight automatic answer does not project Needs review or an uncertain diff', async () => {
+  const s = await rig({ configured: true, manage: true })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  await s.journal.saveWorkerApproval({ id: 'rule', contractDigest: contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq,
+    key: { kind: 'fileChange', path: '/workspace/demo/panel.tsx' }, target: '/workspace/demo/panel.tsx', count: 0 }, () => true, async () => {})
+  await s.journal.useWorkerApproval('rule', () => true, async () => {
+    const renew = s.journal.renewPlan
+    s.journal.renewPlan = async () => {} // Projection renewal queues behind this answer; isolate its read-only projection.
+    const projected = await s.controls.readThread().finally(() => { s.journal.renewPlan = renew })
+    assert.equal(projected.savedApprovals[0].uncertain, undefined)
+    assert.equal(projected.savedApprovals[0].entries, undefined)
+  }, '+still answering')
+})
+
+test('an expired revoked audit wait offers renewal and then explicit Resume without sending early', async () => {
+  let now = 100
+  const s = await rig({ configured: true, manage: true, controls: { now: () => now } })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 101)
+  await s.journal.saveWorkerApproval({ id: 'rule', contractDigest: contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq,
+    key: { kind: 'fileChange', path: '/workspace/demo/panel.tsx' }, target: '/workspace/demo/panel.tsx', count: 0 }, () => true, async () => {})
+  await assert.rejects(s.journal.useWorkerApproval('rule', () => true, async () => { throw Error('uncertain') }, '+inspect'))
+  await s.journal.revokeWorkerApproval('rule', contract.digest)
+  now = 102
+  const waiting = await s.controls.readThread()
+  assert.equal(waiting.wayOut, 'decide-plan')
+  const renewal = s.journal.state.cards.find(card => card.type === 'plan' && card.revision === 2)!
+  await s.controls.decide({ ...planClick, expectedRevision: renewal.revision })
+  await s.controls.idle()
+  const renewed = await s.controls.readThread()
+  assert.equal(renewed.thread.state, 'waiting-for-user')
+  assert.equal(renewed.wayOut, 'resume')
+  assert.equal(s.sends.length, 0)
+  await s.controls.resume({ expectedRevision: renewed.revision })
+  await s.controls.idle()
+  assert.equal(s.sends.length, 1)
+})
+
+test('ordinary chat cannot resume an orphaned worker audit; explicit Resume can', async () => {
+  const s = await rig({ configured: true, manage: true })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  const base = s.journal.state
+  s.records.push({ version: 1, seq: base.seq + 1, type: 'worker-rule-dispatch', id: 'orphan', diff: '+inspect' })
+  const journal = await createLeadJournal(s.storage), { LeadControls } = await controlsModule()
+  const controls = new LeadControls({ journal, service: s.service, project, model: 'fixture-model', now: () => 100, nextId: () => 'unused', push: () => {} })
+  assert.equal((await controls.readThread()).wayOut, 'resume', 'the explicit action remains available')
+  await controls.send({ idempotencyKey: 'chat', text: 'What happened?' }); await controls.idle()
+  assert.equal(journal.state.phase, 'waiting-for-user')
+  assert.equal(journal.state.managementReason, 'lead-worker-audit-failed')
+  assert.ok(journal.state.orphanedWorkerDispatch)
+  assert.equal(s.sends.length, 0)
+  const projection = await controls.readThread()
+  await controls.resume({ expectedRevision: projection.revision }); await controls.idle()
+  assert.equal(journal.state.orphanedWorkerDispatch, null)
+  assert.equal(s.sends.length, 1)
+})

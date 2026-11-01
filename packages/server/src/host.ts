@@ -4212,7 +4212,11 @@ export class Host {
   // ------------------------------------------------------------------ methods
 
   async call<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
-    this.#noteReach(params)
+    try { this.#noteReach(params) }
+    catch (error) {
+      if (method === 'approval/respond' && error instanceof Error) Object.assign(error, { approvalNotDelivered: true })
+      throw error
+    }
     // Validated by the wire layer against the same table the handler's type
     // reads from; see `methods/index.ts` for what the table guarantees.
     return dispatch(this.#context, method, params)
@@ -5475,11 +5479,11 @@ export class Host {
         },
       },
       ceilings: {
-        answerHeld: (runtime, sessionId, approvalId, decision) => this.#answerHeld(runtime, sessionId, approvalId, decision),
+        answerHeld: (runtime, sessionId, approvalId, decision, delivering) => this.#answerHeld(runtime, sessionId, approvalId, decision, delivering),
         settleHeld: (runtime, sessionId) => this.#settleHeld(runtime, sessionId),
       },
       questions: {
-        answerStopped: (runtime, sessionId, approvalId, decision) => this.#answerStoppedQuestion(runtime, sessionId, approvalId, decision),
+        answerStopped: (runtime, sessionId, approvalId, decision, delivering) => this.#answerStoppedQuestion(runtime, sessionId, approvalId, decision, delivering),
       },
       queue: {
         push: (record) => this.#pushQueue(record),
@@ -6824,11 +6828,11 @@ export class Host {
    * Anything else is not this path's: a live question, a permission, a
    * dismissal.
    */
-  async #answerStoppedQuestion(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<boolean> {
+  async #answerStoppedQuestion(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision, onDelivering?: () => void): Promise<boolean> {
     if (decision.type !== 'answers') return false
     const once = approvalKey(runtime, sessionId, approvalId)
     const inFlight = this.#lateAnswers.get(once)
-    if (inFlight) return inFlight
+    if (inFlight) { onDelivering?.(); return inFlight }
     if (this.#lateAnswered.has(once)) return true
     if (!this.#questions.expired(questionKey(runtime, sessionId), approvalId)) return false
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
@@ -6855,6 +6859,7 @@ export class Host {
     const words = questionWords(approval, decision)
     if (words === null) throw new Error('Choose an answer before sending it.')
     const settle = async (): Promise<void> => {
+      onDelivering?.()
       this.#settlingAnswers.set(once, decision)
       await record.live?.respondToApproval(approval.id, { type: 'cancel' }).catch((error: unknown) => {
         this.#logger.warn('a stopped question could not be closed with its agent', { runtime, sessionId, error: error instanceof Error ? error.message : String(error) })
@@ -6874,7 +6879,7 @@ export class Host {
       /* Fail closed: the turn that asked is over, so an answer handed to the
          agent's own request now would be heard by nobody. */
       if (!await this.#flows.answerQuestion(runtime, sessionId, words, settle)) {
-        throw new Error('The turn that asked this was stopped, and its run is no longer waiting on the answer. Say it in that conversation instead, or dismiss the question.')
+        throw Object.assign(new Error('The turn that asked this was stopped, and its run is no longer waiting on the answer. Say it in that conversation instead, or dismiss the question.'), { approvalNotDelivered: true })
       }
       this.#lateAnswered.add(once)
       if (this.#lateAnswered.size > 200) this.#lateAnswered.delete(this.#lateAnswered.values().next().value!)
@@ -6888,10 +6893,11 @@ export class Host {
     }
   }
 
-  #answerHeld(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): boolean {
+  #answerHeld(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision, onDelivering?: () => void): boolean {
     const held = this.#heldAnswers.get(approvalKey(runtime, sessionId, approvalId))
     if (!held || !this.registry.hasApproval(runtimeId(runtime), makeSessionId(sessionId), makeApprovalId(approvalId))) return false
     if (decision.type === 'option' && !this.#heldOptions.get(approvalKey(runtime, sessionId, approvalId))?.includes(decision.optionId)) return false
+    onDelivering?.()
     held.answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : decision.type === 'option' && (decision.optionId === 'standing' || decision.optionId === 'own') ? 'standing' : 'refused')
     return true
   }

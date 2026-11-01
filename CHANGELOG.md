@@ -7,6 +7,14 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Saved approvals end when a goal enters Following.** Their audit history remains available, and a revised plan cannot clear an unresolved worker audit. Unreviewed orphan requests require explicit Resume.
+
+- **Worker approval recovery uses one fence across live and stored state.** Repair hand-backs retain uncertain changes, repair refreshes preserve Resume revisions, and older renewal journals remain readable. Diff actions say View changes.
+
+- **Saved worker approvals recover safely after interruption.** Revoke and Resume survive restart, including older journals and rules whose filenames no longer qualify. Normal automatic answers no longer flash Needs review, and the diff reader distinguishes confirmed answers from changes needing inspection.
+
+- **Unacknowledged saved worker approvals keep their diffs for review.** The diff reader marks uncertain changes with Needs review and retains them after Revoke. Requests cancelled before sending no longer leave the goal waiting; an automatic answer in flight no longer interrupts an admitted start.
+
 - **Lead chat holds stay protected when project folders change.** Temporary read failures offer Try again and recover without clearing holds, including after repeated failures. Hand back releases the chat’s hold across project changes. An unavailable folder explains how to restore access.
 
 - **Account status keeps the last accepted sign-in mode.** A refused key switch no longer erases it, and successful sign-in or sign-out updates it.

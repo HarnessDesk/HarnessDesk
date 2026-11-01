@@ -1,3 +1,4 @@
+import { boundLeadApprovalHistory, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
 import {
   parseLeadApprovalRevoke, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
@@ -178,15 +179,18 @@ export class LeadControls {
     const presence = running ? this.options.readPresence?.() ?? null : null
     if (this.#steers.goal !== goal) this.#steers = { goal, list: [] }
     const steers = this.#steers.list.slice(-64)
+    const auditFailed = state.managementReason === 'lead-worker-audit-failed'
+    const approvalHistory = boundLeadApprovalHistory(state.workerApprovals.map(rule => ({ ...rule, entries: auditFailed ? leadWorkerApprovalEntries(rule) : rule.entries ?? [] })))
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, savedApprovals: state.workerApprovals.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: state.workerApprovals.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }
   #inFlight(): boolean {
     return this.#requestInFlight || this.options.readRequestInFlight?.() === true
   }
-  #resumable(state: LeadState): boolean {
+  #resumable(state: LeadState, explicit = false): boolean {
+    if (state.orphanedWorkerDispatch && !explicit) return false
     if (state.workerApprovals.some(rule => rule.dispatch) || ['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked || this.#inFlight()) return false
     const cards = state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))
     return !cards.some(card => card.type === 'plan' || card.type === 'result' || card.type === 'waiting' && card.kind === 'person') &&
@@ -198,7 +202,7 @@ export class LeadControls {
     if (state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(`${card.id}:${card.revision}`))) return 'decide-plan'
     if (leadWaitNeedsChange(state.managementReason)) return null
     if (state.managementReason === 'lead-predecessor-unavailable' || state.managementReason === 'lead-predecessor-unverifiable') return null
-    return this.#resumable(state) ? 'resume' : null
+    return this.#resumable(state, true) ? 'resume' : null
   }
   #publicFailure(error: unknown): never {
     throw leadRefusal((error as { wireCode?: unknown })?.wireCode === 'lead-protection-unavailable' ? 'lead-protection-unavailable' : 'lead-secret-refused')
@@ -312,7 +316,7 @@ export class LeadControls {
   async #continue(): Promise<void> {
     const { journal, service } = this.options
     const proactive = this.#automaticRequest; this.#automaticRequest = false
-    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) || journal.state.budget?.stop) {
+    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) || journal.state.budget?.stop || journal.state.managementReason === 'lead-worker-audit-failed') {
       this.#requestInFlight = false
       await journal.settingsChanged()
       return

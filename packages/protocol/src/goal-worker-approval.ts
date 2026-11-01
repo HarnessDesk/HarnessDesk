@@ -18,7 +18,7 @@ export interface LeadWorkerApprovalRule {
   /** Newest first, file rules only; independent of the conversation window. */
   readonly entries?: readonly LeadApprovalEntry[]
 }
-export interface LeadApprovalEntry { readonly id: string; readonly number: number; readonly diff: string }
+export interface LeadApprovalEntry { readonly id: string; readonly number: number; readonly diff: string; readonly uncertain?: true }
 export interface LeadSavedApproval { readonly id: string; readonly target: string; readonly count: number; readonly entries?: readonly LeadApprovalEntry[]; readonly uncertain?: true }
 export const LEAD_APPROVAL_ENTRIES = 8
 export const LEAD_APPROVAL_RULE_BYTES = 32768
@@ -39,12 +39,17 @@ export const boundLeadApprovalHistory = (rules: readonly LeadWorkerApprovalRule[
   }
   return kept
 }
+/** A dispatch is an attempted request, never an acknowledged answer. */
+export const leadWorkerApprovalEntries = (rule: LeadWorkerApprovalRule): readonly LeadApprovalEntry[] => boundLeadApprovalEntries([
+  ...(typeof rule.dispatch?.diff === 'string' ? [{ id: `audit-${rule.dispatch.revision}`, number: rule.count + 1, diff: rule.dispatch.diff, uncertain: true as const }] : []),
+  ...rule.entries ?? [],
+])
 export const parseLeadApprovalEntries = (value: unknown): readonly LeadApprovalEntry[] => {
   if (!Array.isArray(value) || value.length > LEAD_APPROVAL_ENTRIES || bytes(value) > LEAD_APPROVAL_RULE_BYTES) throw new Error('lead-worker-approval-entries')
   let previous = Infinity
   const ids = new Set<string>()
   for (const entry of value) {
-    if (!entry || Object.keys(entry).sort().join() !== 'diff,id,number' || !/^audit-[1-9][0-9]*$/.test(entry.id) || !Number.isSafeInteger(Number(entry.id.slice(6))) || ids.has(entry.id) ||
+    if (!entry || Object.keys(entry).sort().join() !== ['diff', 'id', 'number', ...(Object.hasOwn(entry, 'uncertain') ? ['uncertain'] : [])].sort().join() || Object.hasOwn(entry, 'uncertain') && entry.uncertain !== true || !/^audit-[1-9][0-9]*$/.test(entry.id) || !Number.isSafeInteger(Number(entry.id.slice(6))) || ids.has(entry.id) ||
       !Number.isSafeInteger(entry.number) || entry.number < 1 || entry.number >= previous || typeof entry.diff !== 'string' || entry.diff.length > LEAD_APPROVAL_DETAIL_CHARS || /[\p{Cf}\p{Zl}\p{Zp}]|[^\P{Cc}\t\r\n]/u.test(entry.diff)) throw new Error('lead-worker-approval-entries')
     previous = entry.number; ids.add(entry.id)
   }
@@ -64,8 +69,10 @@ const safeFile = (relative: string): boolean => {
   const parts = relative.split('/'), name = parts.at(-1) ?? '', lower = name.toLowerCase()
   // The short source stems src and arc are ordinary code, despite matching the general rc spelling.
   const rcFile = /^\.?[a-z0-9_-]*rc(\.[a-z]+)?$/.test(lower) && !/^[a-z]rc\.[a-z]+$/.test(lower)
-  return leadWorkerApprovalAsciiPath(relative) && !rcFile && !parts.some(part => part.startsWith('.')) && !parts.slice(0, -1).some(part => /^(scripts?|bin|hooks)$/i.test(part)) &&
-    !/(?:\.local\.|\.conf\.|\.config\.|\.setup\.|\.gradle|\.(?:gemspec|podspec)$|file\.(?:js|ts|mjs)$)|^(?:agents?(?:\.[^.]+)*|claude|gemini|instructions|rules|skill|copilot-instructions|conventions)\.md$|^(?:package\.json|makefile|dockerfile|pom\.xml|package\.swift|build\..*|setup\.(?:py|cfg)|conf\.py|conftest\.py|noxfile\.py|tasks\.py|fabfile\.py|manage\.py|rakefile|gemfile|podfile|cmakelists\.txt|meson\.build)$/i.test(name) &&
+  // Runner names are explicit: ordinary profile.* and file.utils.* are source.
+  const automationFile = /^(?:gulpfile|gruntfile|jakefile|pnpmfile|brocfile|noxfile|rakefile|taskfile|dangerfile|cakefile|guardfile|makefile|webpackfile)(?:\.[a-z]+)*\.(?:js|ts|mjs|cjs)$/i.test(name)
+  return leadWorkerApprovalAsciiPath(relative) && !automationFile && !rcFile && !parts.some(part => part.startsWith('.')) && !parts.slice(0, -1).some(part => /^(scripts?|bin|hooks)$/i.test(part)) &&
+    !/(?:\.local\.|\.conf\.|\.config\.|\.setup\.|\.workspace\.|-config\.|^gatsby-|\.gradle|\.(?:gemspec|podspec)$)|^(?:agents?(?:\.[^.]+)*|claude|gemini|warp|qwen|crush|instructions|rules|skill|copilot-instructions|conventions)\.md$|^(?:package\.json|ember-cli-build\.js|makefile|dockerfile|pom\.xml|package\.swift|build\..*|setup\.(?:py|cfg)|conf\.py|sitecustomize\.py|usercustomize\.py|conftest\.py|noxfile\.py|tasks\.py|fabfile\.py|manage\.py|rakefile|gemfile|podfile|cmakelists\.txt|meson\.build)$/i.test(name) &&
     LEAD_APPROVAL_FILE_EXTENSIONS.some(extension => name.toLowerCase().endsWith('.' + extension))
 }
 const fileInProject = (path: string, project: string) => inProject(path, project) && safeFile(path.slice(project.replace(/\/$/, '').length + 1))
@@ -93,7 +100,7 @@ export const leadWorkerApprovalKey = (approval: Approval, project: string): Lead
   return leadWorkerApprovalTarget(key).length <= 240 ? key : null
 }
 /** Closed persistence shape. Recheck semantic eligibility against the contract at replay and checkpoint load. */
-export const parseLeadWorkerApprovalRule = (value: unknown): LeadWorkerApprovalRule => {
+export const parseLeadWorkerApprovalRule = (value: unknown, history = false): LeadWorkerApprovalRule => {
   const fail = (): never => { throw new Error('lead-worker-approval-rule') }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fail()
   const rule = value as LeadWorkerApprovalRule
@@ -111,10 +118,9 @@ export const parseLeadWorkerApprovalRule = (value: unknown): LeadWorkerApprovalR
   if (!fields.length || Object.keys(key).sort().join() !== fields.sort().join() || Object.values(key).some(value => typeof value !== 'string') ||
     rule.target !== leadWorkerApprovalTarget(key) || rule.target.length > 240) return fail()
   if (key.kind === 'fileChange' ? !absolute(key.path) : !safeTools.has(key.tool)) return fail()
-  if (key.kind === 'fileChange' && !safeFile(key.path.split('/').at(-1)!)) throw new Error('lead-worker-approval-obsolete')
   if (rule.entries !== undefined) {
     const entries = parseLeadApprovalEntries(rule.entries)
-    if (key.kind !== 'fileChange' || entries.some(entry => entry.number > rule.count)) return fail()
+    if (key.kind !== 'fileChange' || entries.some((entry, index) => entry.uncertain ? !rule.revoked || index !== 0 || entry.number !== rule.count + 1 : entry.number > rule.count)) return fail()
   }
   if (Object.hasOwn(rule, 'revoked') && rule.revoked !== true) return fail()
   if (rule.dispatch !== undefined) {
@@ -124,6 +130,9 @@ export const parseLeadWorkerApprovalRule = (value: unknown): LeadWorkerApprovalR
       (key.kind === 'tool' ? dispatch.diff !== null : typeof dispatch.diff !== 'string')) return fail()
     if (typeof dispatch.diff === 'string') parseLeadApprovalEntries([{ id: `audit-${dispatch.revision}`, number: 1, diff: dispatch.diff }])
   }
+  // Inert file history and migration readers keep structurally valid audit
+  // data even when the target no longer qualifies for an active rule.
+  if (!history && !rule.revoked && key.kind === 'fileChange' && !safeFile(key.path.split('/').at(-1)!)) throw new Error('lead-worker-approval-obsolete')
   return structuredClone(rule)
 }
 export const leadWorkerRuleInProject = (key: LeadWorkerApprovalKey, project: string): boolean => key.kind === 'tool' || fileInProject(key.path, project)
