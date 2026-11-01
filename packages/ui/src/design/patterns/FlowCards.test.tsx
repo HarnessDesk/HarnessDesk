@@ -408,6 +408,30 @@ const routePoints = (path: string): Point[] => {
   return points
 }
 
+it('starts the self-loop inside the rounded card and carries it across the visible outline', () => {
+  for (const size of ['compact', 'large'] as const) for (const rows of [1, 2, 3] as const) {
+    const positions = rows === 1 ? undefined : { s0: { x: 270, y: 40 }, s1: { x: 270, y: 240 }, s2: { x: 520, y: 240 },
+      s3: { x: 760, y: rows === 3 ? 440 : 240 } }
+    drawn(flowOf(4, [['s1', 's1']], positions), size)
+    const rect = host.querySelector('[data-step="s1"] rect')!, path = host.querySelector('[data-edge="s1>s1"] path')!
+    const x = Number(rect.getAttribute('x')), y = Number(rect.getAttribute('y'))
+    const w = Number(rect.getAttribute('width')), h = Number(rect.getAttribute('height'))
+    // The product's --hd-radius is 10px; SVG clamps each radius to half the corresponding dimension.
+    const rx = Math.min(10, w / 2), ry = Math.min(10, h / 2)
+    const inside = (point: Point) => {
+      if (point.x < x || point.x > x + w || point.y < y || point.y > y + h) return false
+      const cx = Math.max(x + rx, Math.min(x + w - rx, point.x))
+      const cy = Math.max(y + ry, Math.min(y + h - ry, point.y))
+      return ((point.x - cx) / rx) ** 2 + ((point.y - cy) / ry) ** 2 <= 1
+    }
+    const curve = cubicPoints(path.getAttribute('d')!)
+    expect(inside(curve[0]!)).toBe(true)
+    expect(curve.some(point => !inside(point))).toBe(true)
+    // The card masks the internal part; the visible curve meets its outline.
+    expect(path.compareDocumentPosition(rect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  }
+})
+
 it('separates a self-loop and an outgoing skip including both arrowheads', () => {
   for (const size of ['compact', 'large'] as const) for (const lower of [false, true]) for (const count of [4, 8]) {
     const positions = lower ? Object.fromEntries(Array.from({ length: count }, (_, i) => [`s${i}`, { x: 40 + i * 250, y: i === 0 ? 40 : 240 }])) : undefined

@@ -203,7 +203,7 @@ const miniRoute = (from: MiniCell, to: MiniCell, lift: number, targetSelf: boole
     // A self-loop stays between the top-edge skip lane and the forward arrow at mid-height.
     const x = from.x + from.w, y = from.y, out = MINI.selfOut
     const end = Math.min(out, from.h / 2 - MINI.head * 0.6 - 1.2)
-    return { path: `M${x} ${y + 1}C${x + out} ${y + 1} ${x + out} ${y + end} ${x + MINI.head} ${y + end}`, head: arrow(x, y + end, -1, 0) }
+    return { path: `M${x - out} ${y + 1}C${x + out} ${y + 1} ${x + out} ${y + end} ${x + MINI.head} ${y + end}`, head: arrow(x, y + end, -1, 0) }
   }
   if (from.row === to.row) {
     const forward = to.col > from.col
