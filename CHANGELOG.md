@@ -9,6 +9,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Lead chat holds stay protected when project folders change.** Temporary read failures offer Try again and recover without clearing holds, including after repeated failures. Hand back releases the chat’s hold across project changes. An unavailable folder explains how to restore access.
 
+- **Account status keeps the last accepted sign-in mode.** A refused key switch no longer erases it, and successful sign-in or sign-out updates it.
+
 - **Overview seat states and costs stay readable in narrow panes.** Facts move below the name when they need more room.
 
 - Messages the Lead sends into a chat now say so, and you can take a chat over from the Lead and hand it back. Temporary control-read failures retry without asking you to reset your holds.

@@ -117,6 +117,56 @@ it('disables project actions when no catalogue can be read and retries restored 
   expect(container.querySelector('button[aria-label="Open Release notes"]')).not.toBeNull()
 })
 
+it('keeps folder details open through retry, refreshes failures and clears them after recovery', async () => {
+  const launch = vi.spyOn(frontDoor, 'FrontDoor').mockImplementation(({ context }) => <input aria-label="Team draft" defaultValue={context.root} />)
+  const { catalog } = await mount(store => {
+    ;(store as unknown as { patch: (next: Partial<AppSnapshot>) => void }).patch({
+      workspaces: [{ path: '/work/demo', name: 'Demo', lastOpenedAt: 1 }, { path: '/work/missing', name: 'Missing', lastOpenedAt: 0 }],
+    })
+    vi.spyOn(store, 'flowCatalog').mockImplementation(async root => {
+      if (root === '/work/missing') throw new Error('Old failure')
+      return [entry('review', 'builtin')]
+    })
+  })
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Just a Team"]')!.click())
+  const draft = document.querySelector<HTMLInputElement>('[aria-label="Team draft"]')!
+  draft.value = 'Draft retained'
+  const details = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Folder details')!
+  await act(async () => details.click())
+  expect(container.textContent).toContain('Old failure')
+  let settle!: (entries: readonly FlowEntry[]) => void
+  let fail!: (error: Error) => void
+  const pending = new Promise<readonly FlowEntry[]>((resolve, reject) => { settle = resolve; fail = reject })
+  catalog.mockImplementation(root => root === '/work/missing' ? pending : Promise.resolve([entry('review', 'builtin')]))
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Retry')!.click())
+  expect(container.contains(details)).toBe(true)
+  expect(details.getAttribute('aria-expanded')).toBe('true')
+  expect(container.textContent).toContain('Reading Flows…')
+  expect(container.textContent).not.toContain('Old failure')
+  expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Retry')).toBe(false)
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="New Flow"]')!.disabled).toBe(true)
+  expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({ context: { kind: 'project', root: '/work/demo' }, startBlocked: 'Reading project Flows…' })
+  await act(async () => fail(new Error('New failure')))
+  expect(details.getAttribute('aria-expanded')).toBe('true')
+  expect(container.textContent).toContain('New failure')
+  expect(container.textContent).not.toContain('Old failure')
+  expect(document.querySelector('[aria-label="Team draft"]')).toBe(draft)
+  expect(draft.value).toBe('Draft retained')
+  const recovered = new Promise<readonly FlowEntry[]>(resolve => { settle = resolve })
+  catalog.mockImplementation(root => root === '/work/missing' ? recovered : Promise.resolve([entry('review', 'builtin')]))
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Retry')!.click())
+  expect(container.contains(details)).toBe(true)
+  expect(details.getAttribute('aria-expanded')).toBe('true')
+  expect(container.textContent).not.toContain('New failure')
+  await act(async () => settle([entry('release', 'project')]))
+  expect(container.querySelector('[data-slot="alert"]')).toBeNull()
+  expect(container.textContent).not.toContain('New failure')
+  expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Retry')).toBe(false)
+  expect([...container.querySelectorAll<HTMLOptionElement>('select[aria-label="Flow origin"] option')].map(option => option.value)).toEqual(['all', 'builtin', '/work/demo', '/work/missing'])
+  expect(document.querySelector('[aria-label="Team draft"]')).toBe(draft)
+  expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({ context: { kind: 'project', root: '/work/demo' }, startBlocked: null })
+})
+
 it('keeps the selected project option while rereading and disables new work for the loading reason', async () => {
   const { catalog, store } = await mount()
   const select = container.querySelector<HTMLSelectElement>('select[aria-label="Flow origin"]')!
