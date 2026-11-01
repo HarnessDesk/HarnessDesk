@@ -80,7 +80,7 @@ it('shows a human state, actual round progress and explicit unknown elapsed time
     const value = (label: string) => [...container.querySelectorAll('[aria-label="Team Run facts"] [data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === label)?.querySelector('[data-slot="summary-value"]')?.textContent
     expect(value('State')).toBe('Needs you')
     expect(value('Progress')).toBe('Round 1 of 4')
-    expect(value('Elapsed')).toBe('Not recorded')
+    expect(value('Elapsed')).toBe('Time not recorded')
     expect(value('Started')).toBeUndefined()
     expect(value('Rounds')).toBeUndefined()
   } finally { act(() => root.unmount()) }

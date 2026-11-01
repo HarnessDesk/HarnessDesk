@@ -1,4 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority'
+import { createContext } from 'react'
 
 /**
  * Two colour vocabularies, and the rule for choosing between them.
@@ -35,6 +36,16 @@ export type Tint = 'blue' | 'green' | 'amber' | 'violet' | 'rose' | 'teal' | 'or
 
 export const TONES: Tone[] = ['neutral', 'brand', 'success', 'warning', 'danger', 'info']
 export const TINTS: Tint[] = ['blue', 'green', 'amber', 'violet', 'rose', 'teal', 'orange', 'sky']
+
+/**
+ * How a judged chip reads where it stands. A state, a plan or a kind on a
+ * row's label line, at a panel row's end, as a fact's value or as a section's
+ * value is a word, not a pill: the system's word slots provide `quiet`, and a
+ * `Chip` there draws its ink alone, in fact ink unless its tone is data
+ * (running, needs you, failed). An explicit `variant` still wins, and a tint
+ * keeps its pill, because an identity is not a status.
+ */
+export const ChipLook = createContext<'default' | 'quiet'>('default')
 
 /**
  * A tone as a soft ground with readable ink on it — the pill, the tile, the

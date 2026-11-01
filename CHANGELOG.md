@@ -9,6 +9,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Settings, the right panel and the dashboard draw each group as one card.** Groups sit on the main ground with a clear edge, Settings labels line up with the main column, and counts and times read a clear step quieter than prose. Settings › Appearance › Surface adds Sheet, which lays the same groups flat with a line between them.
 
+- **A Team page opens on its name and what it can do.** The Team's name and Stop run… sit above the tabs. Statuses such as Running, Default or Pro read as words instead of tinted pills, and the session and Team panels show their facts as icon rows.
+
 - **Saved extra accounts survive without a credential file.** Their status is checked when the agent runs; removing an account whose identity cannot be verified leaves its agent or system credentials in place.
 
 - **Saved approvals end when a goal enters Following.** Their audit history remains available, and a revised plan cannot clear an unresolved worker audit. Unreviewed orphan requests require explicit Resume.

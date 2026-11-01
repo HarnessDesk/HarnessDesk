@@ -1904,7 +1904,7 @@ Read an agent-authored line as safe words, the same way the Flow drawing does.
 
 `packages/ui/src/design/patterns/FlowStepRow.tsx`
 
-A recorded step or Seat state, toned once for the Flow list and main Run Timeline. Unknown outcomes stay neutral.
+A recorded step or Seat state, toned once for the Flow list and main Run Timeline: a word, coloured only when the state is data. Unknown outcomes stay neutral, in fact ink.
 
 ### `FlowStepRow`
 
@@ -2290,6 +2290,15 @@ uses the page role on the content edge, with the primary choice and verb
 on the right. Search and secondary choices follow at the page stack gap;
 long titles and menu choices wrap within the page.
 
+### `PageHead`
+
+`packages/ui/src/design/patterns/PageOptions.tsx`
+
+A page's name as its h1 and what the page can do at its end, on one line as
+tall as the bar, so the title stands on the sidebar wordmark's line.
+`PageOptions` heads a page with it; a pane heads its tabs with it
+(`PaneTabsRow title`).
+
 ### `PageRecordViews`
 
 `packages/ui/src/design/patterns/PageRecords.tsx`
@@ -2318,6 +2327,10 @@ Row actions and portalled menus never activate the record; the title is its keyb
 
 Tabs under a pane's top bar keep the reading gutter and a small vertical
 step. Tabs yield and scroll; their current view and action stay beside them.
+
+With a `title` the pane has a head: its name as the page's h1, with the
+controls at its end on one bar-tall line, and the tabs on their own line
+below. A page says what it is and what it can do before the views it has.
 
 ### `useComposerHeightVar`
 

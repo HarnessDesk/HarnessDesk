@@ -321,6 +321,13 @@ agent card and the transcript's small tags — are the burn-down.
 Settings names each page with a visible h1 in the page role, above its
 description. Its bar carries no title, so the name is shown once.
 
+A Team page heads its body the same way: `PaneTabsRow title` puts the Team's
+name as the h1 with the page's actions — Findings, Review stopped Run, the
+view's verb such as Stop run… — at its end on one bar-tall line, and the
+Team's tabs on their own line below it. A page says what it is and what it can
+do before the views it has. The bar keeps its subject menu, so the Team is
+named twice: by the bar that owns its menu, and by the page that owns its head.
+
 A page title is the wordmark's type, and it stands on the wordmark's line.
 `PageOptions` makes the titled head one bar tall (`--hd-bar-h`), the sidebar
 brand row's counterpart, and `Page` drops its top gutter above a first block
@@ -1002,6 +1009,24 @@ an action every row stands as tall as one, so the card keeps one row height;
 narrow, each key rises over its value and the action keeps the end. An account's
 sign-in, plan, credential and default are one card; so should be an Agent's
 file, ceiling, skills, servers and brief.
+
+**A rail's facts can be icon rows.** `SummaryList keys="icon"` draws each key
+as its `SummaryItem icon` in a 16px column, the name kept for a screen reader
+and on hover, so a rail reads as a column of values: the session rail's agent,
+ceiling, folder, branch and context, and a Team's Run. A value that cannot be
+read without its name says what it is missing ("Time not recorded", not "Not
+recorded"), and a fact that needs its name at all ("Requested ceiling", "No
+progress") stays in a keyed list — the Run's record details keep their keys.
+
+**A status is a word, not a pill.** A state, a plan or a kind on a row's label
+line, at a panel row's or a list row's end, as a fact's value, as a section's
+value or in an account head reads as a word: those slots provide `ChipLook`
+`quiet`, and a `Chip` there draws its ink alone. A word that judges nothing —
+Default, Pro, Revoked, Your branch — is in fact ink; only a tone that is data
+(running, needs you, failed, done) keeps its colour. An explicit `variant`
+wins over the slot, and a `tint` keeps its pill, because an identity is not a
+status. A chip in a screen's own body opts in with `variant="quiet"`; the
+Team overview, the Lead page and the Flow step rows do.
 
 **A wrapped control lands by what it is.** When a row is too narrow for its
 control beside the title, the control drops under it. A compact control — a
