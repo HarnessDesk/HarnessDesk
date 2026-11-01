@@ -1127,6 +1127,12 @@ const handlers = {
       delete process.env.FAKE_ACP_AUTH_REQUIRED
       reply(id, {})
     }
+    if (process.env.FAKE_ACP_AUTH_GATE) {
+      const timer = setInterval(() => {
+        if (existsSync(process.env.FAKE_ACP_AUTH_GATE)) { clearInterval(timer); answer() }
+      }, 10)
+      return
+    }
     const wait = Number(process.env.FAKE_ACP_AUTH_MS ?? 0)
     if (wait > 0) setTimeout(answer, wait)
     else answer()
