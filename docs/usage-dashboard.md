@@ -958,7 +958,10 @@ hard way somewhere and is cheaper to design out than to fix:
   the card's headline, and the host, which decides the word for the phone,
   never sees it. When the binding window is not the pinned headline, the
   line under the bar names it — `Session runs out ~2:47 PM, before its 4:43
-  PM reset`. `Back …` is said only while that time is still ahead.
+  PM reset`. `Back …` is said only while that time is still ahead, and so is
+  a spent model's `until …`. The line above the cards, when there is no
+  account to recommend, counts by the same word: Out and Overdrawn as out,
+  Short and Low as running low.
 - **The headline's meter is a countable budget**, forty segments rather than a
   continuous bar: a smooth bar reads as a percentage and a segmented one reads
   as a budget being spent, which is the thing being drawn. It still fills with

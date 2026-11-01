@@ -400,7 +400,7 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
     ...(standing.lane?.resetsAt != null && standing.lane.resetsAt > now ? { resetsAt: standing.lane.resetsAt } : {}),
     ...(standing.backAt === null ? {} : { backAt: standing.backAt }),
     ...(standing.runsOutAt === null ? {} : { runsOutAt: Math.round(standing.runsOutAt) }),
-    ...(scoped?.scope ? { scopedOut: { scope: scrub(scoped.scope, 40), ...(scoped.resetsAt === null ? {} : { backAt: scoped.resetsAt }) } } : {}),
+    ...(scoped?.scope ? { scopedOut: { scope: scrub(scoped.scope, 40), ...(scoped.resetsAt === null || scoped.resetsAt <= now ? {} : { backAt: scoped.resetsAt }) } } : {}),
     ...(lanes.length === 0 ? {} : { lanes }),
     ...(remaining === null || remaining === undefined || report.credits?.unlimited ? {} : { balance: { amount: remaining, unit: scrub(report.credits!.unit, 12) } }),
     ...(plan ? { plan: scrub(plan, 40) } : {}),

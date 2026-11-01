@@ -566,7 +566,7 @@ describe('runway', () => {
     expect(borrowed.exhausted).toEqual([])
   })
 
-  it('counts a prepaid balance as usage reported, and a spent one as out of credits', () => {
+  it('counts a prepaid balance as usage reported, and says one below zero as overdrawn, as its card does', () => {
     // Amp and Cline have a balance and nothing else. The line above the cards
     // once said "No agent here reports plan usage." beside a card reading
     // "Limit reached" for an overdrawn Cline account.
@@ -577,7 +577,10 @@ describe('runway', () => {
     expect(healthy.metered).toBe(1)
     const spent = runway([funded, overdrawn], nameFor, NOON)
     expect(spent.exhausted).toEqual([overdrawn])
-    expect(spent.headline).toBe(`${nameFor(overdrawn)} is out of credits.`)
+    expect(spent.headline).toBe(`${nameFor(overdrawn)} is overdrawn.`)
+    // At zero with no `reached` from the source, the card says Out, so the line above it does too.
+    const empty = report({ runtime: runtimeId('amp'), credits: { remaining: 0, unit: 'USD' } })
+    expect(runway([empty, report({})], nameFor, NOON).headline).toBe(`${nameFor(empty)} is out of credits.`)
     // A balance that cannot be named is not one.
     expect(runway([report({ credits: { remaining: Number.NaN, unit: 'USD' } })], nameFor, NOON).metered).toBe(0)
   })
@@ -785,6 +788,11 @@ describe('standingSentence', () => {
     const short = usageStandingOf(report({ lanes: [lane({ id: 'session', usedPercent: 60, windowMinutes: 300, resetsAt: at(4) })] }), NOON)
     expect(short.status).toBe('short')
     expect(standingSentence(short, NOON)).toMatch(/^Runs out ~12:40 PM, before its 4:00 PM reset$/)
+  })
+
+  it('gives a lane no reset clock once its reset has passed', () => {
+    const view = describeReport(report({ lanes: [lane({ id: 'weekly', usedPercent: 100, scope: 'Opus', resetsAt: at(-2) })] }), { now: NOON })
+    expect(view.all[0]?.resetClock).toBeNull()
   })
 
   it('says no Back time once the reset has passed but the report has not been read again', () => {

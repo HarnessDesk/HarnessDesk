@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { PhoneSim } from '@harnessdesk/phone-link/sim'
-import { runtimeId, sessionId, type GoalView, type LedgerQuery, type LedgerReport, type PhoneTier, type SessionSummary, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, type GoalView, type LedgerQuery, type LedgerReport, type PhoneTier, type PhoneWorkAllowance, type SessionSummary, type UsageReport } from '@harnessdesk/protocol'
 import { Logger } from '../src/log.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { phoneLinkOff, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
@@ -335,6 +335,21 @@ test('a phone allowance says the desk’s own standing, counts down to times and
     assert.deepEqual(overdrawn.balance, { amount: -2.15, unit: 'USD' })
     assert.equal(overdrawn.lanes, undefined)
     assert.deepEqual(leaks(rows), [])
+  } finally { await f.done() }
+})
+
+test('a spent model says when it is back only while that time is ahead', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    const spentModel = (resetsAt: number) => report('dev@example.com', { lanes: [
+      { id: 'session', label: '5-hour', usedPercent: 10, windowMinutes: 300, resetsAt: NOW + HOUR },
+      { id: 'weekly:opus', label: 'Weekly', scope: 'Opus', usedPercent: 100, windowMinutes: 10_080, resetsAt },
+    ] })
+    f.reports = [spentModel(NOW + 3 * HOUR), spentModel(NOW - HOUR)]
+    const [ahead, passed] = (await f.workspace.workUsage())!.runtimes as [PhoneWorkAllowance, PhoneWorkAllowance]
+    assert.deepEqual(ahead.scopedOut, { scope: 'Opus', backAt: NOW + 3 * HOUR })
+    assert.deepEqual(passed.scopedOut, { scope: 'Opus' }, 'a cached read past its reset promises no time already gone')
   } finally { await f.done() }
 })
 

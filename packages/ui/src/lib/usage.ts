@@ -281,7 +281,8 @@ export const describeLane = (
     shortCountdown:
       untilReset === null ? (lane.resetText ?? null) : formatCountdownShort(untilReset),
     resetCountdown: untilReset === null ? (lane.resetText ?? '—') : formatResetCountdown(untilReset),
-    resetClock: formatReset(lane.resetsAt, now),
+    // A reset already behind us is no time to wait for: a cached read past it would say "out until 10:00 AM" at noon.
+    resetClock: untilReset !== null && untilReset > 0 ? formatReset(lane.resetsAt, now) : null,
     known,
     spent: remaining !== null && remaining <= 0,
     burn: burn(lane, now),
@@ -717,23 +718,23 @@ export const runway = (
   const borrowed = reports.filter(
     (report) => report.lanes.length === 0 && (report.unverified?.lanes.length ?? 0) > 0,
   )
-  const exhausted = metered.filter(isBlocked)
-  const low = metered.filter((report) => {
-    if (exhausted.includes(report)) return false
-    const lane = bindingLane(report.lanes)
-    const remaining = lane ? remainingOf(lane) : null
-    return remaining !== null && remaining < LOW_AT
-  })
+  // Sorted by the one standing every card and the phone say, so the line above them never disagrees with them.
+  const standings = new Map(metered.map((report) => [report, usageStandingOf(report, now)] as const))
+  const statusOf = (report: UsageReport): UsageStandingStatus | undefined => standings.get(report)?.status
+  const exhausted = metered.filter((report) => statusOf(report) === 'out' || statusOf(report) === 'overdrawn')
+  const low = metered.filter((report) => statusOf(report) === 'low' || statusOf(report) === 'short')
 
   const returns = exhausted
-    .map((report) => bindingLane(report.lanes)?.resetsAt ?? null)
+    .map((report) => standings.get(report)?.backAt ?? null)
     .filter((at): at is number => at !== null && at > now)
   const nextReturn = returns.length > 0 ? Math.min(...returns) : null
 
   const only = exhausted[0]
   const headline =
     exhausted.length === 1 && only
-      ? `${nameFor(only)} is out of ${isBalanceOnly(only) ? 'credits' : 'quota'}.`
+      ? statusOf(only) === 'overdrawn'
+        ? `${nameFor(only)} is overdrawn.`
+        : `${nameFor(only)} is out of ${isBalanceOnly(only) ? 'credits' : 'quota'}.`
       : exhausted.length > 1
         ? `${exhausted.length} runtimes are out of ${exhaustedWord(exhausted)}.`
         : low.length === 1
