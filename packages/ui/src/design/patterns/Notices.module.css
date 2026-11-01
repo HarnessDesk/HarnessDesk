@@ -193,6 +193,9 @@
 }
 
 .composerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-2);
   flex: none;
 }
 

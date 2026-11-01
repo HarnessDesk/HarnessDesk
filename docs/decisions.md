@@ -5026,14 +5026,14 @@ mixed message containing both Lead context and ordinary user content drops the
 Lead label rather than attributing the whole message to the Lead.
 
 Control records retain up to 64 chats per project; person holds are never
-evicted. An unreadable or invalid record fails closed for every Lead send,
+evicted. An invalid record fails closed for every Lead send,
 stop and queued delivery until the person confirms **Reset chat control** in
 the composer notice. That explicit reset clears all projects' holds and
 verification keys; no read or Lead operation repairs the record. Missing
 records alone mean no holds. While the host runs, a synchronous in-memory
 person hold survives disk failures and is checked at the actual dispatch
 boundary. Control reads are passive and never construct the Lead or select a
-project. Cancelled waiting Lead messages are noted in the Lead thread.
+project. Temporary I/O failures refuse the operation without latching invalid state; the window offers Try again and retries once, retaining the known holder controls. Stale project roots retain their records without blocking available projects only when a redirected root resolves outside the selected project. A redirect into the selected project or any descendant latches invalid: otherwise its old record key could hide a person hold from dispatch. Missing, ENOTDIR, ELOOP, EACCES and EPERM stale roots remain retained without blocking other projects. Chat ids are globally unique: a person hold under any project key fences dispatch and holder lookup for that chat, including pending in-memory holds. The selected project’s list projects that global holder without changing its verification keys or copying another project’s record. Hand back durably releases every project key for the chat together; only pending holds at or before that request’s epoch are released, so a newer take-over stays fenced and is persisted by its queued write. Only a chat in the host’s chat list can gain a person hold before its first Lead record. Cancelled waiting Lead messages are noted in the Lead thread immediately after the hold is saved, before a follow-up read.
 
 Lead verification keys bind the exact envelope to its runtime and chat id.
 Receipts from another chat, and older unbound digests, never earn a sender
@@ -5041,9 +5041,9 @@ label; those messages remain folded context. Phone projection uses the same
 chat-bound verification without changing its wire fields.
 
 Invalid control content requires explicit reset. Transient I/O failures refuse
-that operation and allow a later retry; they do not latch a reset requirement.
+that operation and allow a later retry. Corrupt content or permanent control-record access failures (including EACCES and EPERM) latch invalid and offer explicit Reset. Three consecutive retryable read failures from any caller report a resettable unreadable state with the additive window flag `retryable: true`, but never latch the corrupt-record fence: every subsequent call still tries the disk. This state keeps holder controls, offers Try again before secondary Reset, and gets one automatic retry even if the initial transient retry was used. Truly corrupt records retain Reset without automatic retries. The next successful read clears both the consecutive-failure count and that state without changing the record or its holds. Recovery through Lead or phone reads also clears the published window warning. The selected project being unavailable is a distinct `unavailable` problem: restore that folder and its access permissions, then retry; Reset cannot repair the project and is not offered. Both failure kinds keep dispatch closed, including its synchronous check.
 Records for deleted project folders remain intact without blocking another
-project. A person can hold a chat before its first Lead record. Take over
+project. A person can hold a chat before its first Lead record when the host chat list admits its real cwd into the canonical selected project, including a symlink alias. Take over
 persists and publishes the hold before attempting its cancellation notice;
 notice failures are logged. A Lead instruction still in admission when the
 person takes over is cancelled on refusal, freeing the person's queued replies

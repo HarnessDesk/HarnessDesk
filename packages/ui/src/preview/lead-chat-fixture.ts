@@ -8,8 +8,8 @@ export const createLeadChatFixture = (holder: LeadChatHolder = 'lead', theme: 'l
   const prior = store.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!
   const id = `${prior.runtime}:${prior.id}`
   const envelope = leadMessageEnvelope('Dex', 'Run the focused tests and tell me what fails.')
-  let control: LeadChatControlList = { project: '/workspace/demo', chats: [{ id, holder, sent: [leadMessageKey(id, envelope)] }], ...(scenario === 'unreadable' ? { problem: 'The Lead chat control record cannot be read safely. Lead sends and stops are blocked. Use Reset chat control in the chat notice to recover.' } : {}) }
-  if (scenario === 'read-error') control = { ...control, problem: 'The desk connection was lost.' }
+  let control: LeadChatControlList = { project: '/workspace/demo', chats: [{ id, holder, sent: [leadMessageKey(id, envelope)] }], ...(scenario === 'unreadable' ? { problem: { kind: 'invalid' as const, message: 'The Lead chat control record cannot be read safely. Lead sends and stops are blocked. Use Reset chat control in the chat notice to recover.' } } : {}) }
+  if (scenario === 'read-error') control = { ...control, problem: { kind: 'transient', message: 'The desk connection was lost.' } }
   if (scenario === 'replay') {
     const source = `${prior.runtime}:lead-source`
     control = { ...control, chats: [
@@ -23,6 +23,7 @@ export const createLeadChatFixture = (holder: LeadChatHolder = 'lead', theme: 'l
       { type: 'assistantMessage' as const, id: 'lead-chat-answer' as never, phase: 'final' as const, text: 'The focused tests pass. The retry limit and request ordering are covered.' },
     ] }] }
   Object.assign(store.getSnapshot(), { sessions: new Map([[PREVIEW_SESSION_KEY, session]]) })
+  let controlReads = 0
   const request = store.transport.request.bind(store.transport)
   store.transport.request = (async (method, params) => {
     if (method === 'lead/chats/resetControl') {
@@ -35,7 +36,10 @@ export const createLeadChatFixture = (holder: LeadChatHolder = 'lead', theme: 'l
       store.lead.changed({ method: 'lead/chats/controlChanged', params: control })
       return control
     }
-    if (method === 'lead/chats/control') return control
+    if (method === 'lead/chats/control') {
+      if (scenario === 'read-error' && ++controlReads > 1) control = { project: control.project, chats: control.chats }
+      return control
+    }
     if (method === 'lead/settings/read') return leadProjection()
     return request(method, params as never)
   }) as typeof store.transport.request
