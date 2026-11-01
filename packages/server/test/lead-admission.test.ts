@@ -158,3 +158,16 @@ test('a previously admitted start cannot dispatch while the logical goal is foll
   assert.equal(await s.authority.authorize({ id: 1, method: 'flow/start-goal', params }), 'leadStartNotApproved')
   assert.equal(s.rig.events.length, 0)
 })
+
+test('an admitted start stays authorized while an automatic worker answer is in flight', async t => {
+  const s = await leadRig(t), params = await s.params()
+  await s.journal.saveWorkerApproval({ id: 'rule', contractDigest: s.contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq,
+    key: { kind: 'tool', tool: 'get_team_status' }, target: 'get_team_status', count: 0 }, () => true, async () => {})
+  await s.admit(params)
+  await s.journal.useWorkerApproval('rule', () => true, async () => {
+    assert.equal(await s.admission.authorizeStart(params), true)
+    const attempt = [...s.journal.state.attempts.values()].find(attempt => attempt.method === 'flow/start-goal')!
+    await s.budgets.validateStart({ logicalGoalId: 'logical-1', contractDigest: s.contract.digest, stepId: 'work', startId: attempt.correlationId })
+  })
+  assert.equal(s.journal.state.phase, 'running')
+})

@@ -358,8 +358,9 @@ to the conversation window. The additive shape is:
 ```ts
 interface LeadApprovalEntry {
   readonly id: string;     // stable audit id
-  readonly number: number; // this rule's acknowledged automatic-answer number
+  readonly number: number; // automatic request ordinal; unacknowledged requests use count + 1
   readonly diff: string;
+  readonly uncertain?: true; // no acknowledgement; inspect this diff
 }
 interface LeadSavedApproval {
   readonly id: string;
@@ -377,8 +378,8 @@ entries drop first; `count` remains exact and excludes the creating click. Tool
 rules omit `entries`. An absent entries list means no retained diffs. Active rules
 remain in `savedApprovals`; the additive `revokedApprovals?: readonly
 LeadSavedApproval[]` contains read-only revoked rows. Both share the history
-byte limits and a combined maximum of 128 rows. Revoke preserves confirmed
-entries and count. Goal expiry or a changed contract clears both lists. Render a
+byte limits and a combined maximum of 128 rows. Revoke preserves confirmed and uncertain
+entries and the confirmed count. Goal expiry or a changed contract clears both lists. Render a
 Revoked chip and the diff reader on a revoked row, with no Revoke action.
 
 Render at most one host notice per used rule, keyed by its `id`, updating the
@@ -396,8 +397,13 @@ while a durable dispatch intent has no acknowledgement, including after a host
 restart. An active row with `uncertain: true` earns a Needs review chip. Show a
 host error: inspect the worker changes and revoke that uncertain rule before
 Resume can continue. A failed writer must first be restarted; the durable
-intent preserves this fence. Uncertain requests do not increment the confirmed
-count or create an allowed-diff entry. Once the rule is revoked, its row moves
+intent preserves this fence. An in-flight answer keeps the live thread phase unchanged. Opening a journal
+or loading a checkpoint with an unacknowledged intent applies the waiting fence.
+Known pre-dispatch cancellation clears the intent and restores its saved phase.
+Uncertain requests do not increment the confirmed count. Their exact diff is
+projected as a newest-first entry with `uncertain: true`, using the same entry
+and byte bounds. Render a Needs review chip on that entry in the diff reader,
+including after Revoke. Once the rule is revoked, its row moves
 to `revokedApprovals` without `uncertain`. Missing or repeated live revokes return
 `lead-approval-not-live` without appending a journal record.
 

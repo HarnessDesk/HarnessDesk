@@ -1,7 +1,7 @@
 import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import { parseLeadDecisionMessage, parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy, parseLeadCaps } from '@harnessdesk/protocol'
 import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
-import { initialLeadState, removedWorkerApprovalNotice, type LeadState, type LeadAttemptState } from './state.js'
+import { initialLeadState, removedWorkerApprovalNotice, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
 
 export interface LeadJournalCheckpoint {
@@ -81,7 +81,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   })
   assert(new Set(workerApprovals.map(rule => rule.id)).size === workerApprovals.length && new Set(workerApprovals.filter(rule => !rule.revoked).map(rule => JSON.stringify(rule.key))).size === workerApprovals.filter(rule => !rule.revoked).length)
   assert(workerApprovals.filter(rule => rule.dispatch).length <= 1)
-  for (const rule of workerApprovals) if (rule.dispatch) assert(rule.dispatch.revision <= source.seq && source.phase === 'waiting-for-user' && source.managementReason === 'lead-worker-audit-failed')
+  for (const rule of workerApprovals) if (rule.dispatch) assert(rule.dispatch.revision <= source.seq)
   assert(new TextEncoder().encode(JSON.stringify(workerApprovals.map(rule => rule.entries ?? []))).byteLength <= LEAD_APPROVAL_HISTORY_BYTES)
   messages = messages.filter(message => !message.approval)
   if (removed) messages = [...removedWorkerApprovalNotice(messages, source.seq)]
@@ -166,6 +166,6 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     if (consent.renewalCardRevision !== undefined) assert(Number.isSafeInteger(consent.renewalCardRevision) && cards.some(card => card.type === 'plan' && card.contractDigest === consent.contractDigest && card.revision === consent.renewalCardRevision))
     assert(Number.isSafeInteger(consent.expiresAt) && consent.expiresAt > 0)
   }
-  const state = structuredClone({ ...source, workerApprovals, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages })
+  const state = fenceLeadWorkerDispatch(structuredClone({ ...source, workerApprovals, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages }))
   return { checkpoint: structuredClone(checkpoint), state }
 }

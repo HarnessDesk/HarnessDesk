@@ -2117,3 +2117,19 @@ test('a trailing host notice does not hide the unanswered resume offer', async (
     assert.equal((await s.controls.readThread()).wayOut, 'resume')
   } finally { s.controls.close() }
 })
+
+test('an uncertain dispatch diff is projected and remains openable after revoke', async () => {
+  const s = await rig({ configured: true, manage: true })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  await s.journal.saveWorkerApproval({ id: 'rule', contractDigest: contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq,
+    key: { kind: 'fileChange', path: '/workspace/demo/panel.tsx' }, target: '/workspace/demo/panel.tsx', count: 0 }, () => true, async () => {})
+  await assert.rejects(s.journal.useWorkerApproval('rule', () => true, async () => { throw Error('lost acknowledgement') }, '+inspect this change'))
+  const saved = (await s.controls.readThread()).savedApprovals[0]
+  assert.equal(saved.uncertain, true)
+  assert.equal(saved.entries[0].uncertain, true)
+  assert.equal(saved.entries[0].diff, '+inspect this change')
+  await s.journal.revokeWorkerApproval('rule', contract.digest)
+  const revoked = (await s.controls.readThread()).revokedApprovals[0]
+  assert.deepEqual(revoked.entries, saved.entries)
+  assert.equal(revoked.count, 0)
+})

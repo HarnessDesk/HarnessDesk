@@ -155,8 +155,8 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
         control={<>{!!rule.entries?.length && <Button variant="secondary" onClick={() => setReadingRule(rule.id)}>View allowed diffs</Button>}{!rule.revoked && <Button variant="secondary" disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button>}</>} />)}</Rows>
     </section>}
     {reading && <Dialog title="Allowed diffs" description={sanitizeText(reading.target)} onClose={() => setReadingRule(null)} footer={<Button onClick={() => setReadingRule(null)}>Close</Button>}>
-      <Text as="p" role="meta">{reading.revoked && <Chip tone="neutral">Revoked</Chip>}{` Newest first · ${reading.entries?.length ?? 0} retained of ${reading.count} automatic answers`}</Text>
-      <Rows>{reading.entries?.map(entry => <Row key={entry.id} kind="record" layout="record" title={`Request ${entry.number}`} desc={<CodeText block wrap>{sanitizeText(entry.diff)}</CodeText>} />)}</Rows>
+      <Text as="p" role="meta">{reading.revoked && <Chip tone="neutral">Revoked</Chip>}{` Newest first · ${reading.entries?.filter(entry => !entry.uncertain).length ?? 0} retained of ${reading.count} automatic answers`}</Text>
+      <Rows>{reading.entries?.map(entry => <Row key={entry.id} kind="record" layout="record" title={<>{`Request ${entry.number}`}{entry.uncertain && <Chip tone="warning">Needs review</Chip>}</>} desc={<CodeText block wrap>{sanitizeText(entry.diff)}</CodeText>} />)}</Rows>
     </Dialog>}
   </>
 }

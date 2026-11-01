@@ -160,10 +160,19 @@ export const turnMethods = {
       }
     }
     // Stop can settle the host's copy even when the agent keeps its request.
-    assertPending()
-    const live = await ctx.sessions.live(params)
-    // Reopening may have overlapped the settlement; never send a stale decision.
-    assertPending()
+    const live = await (async () => {
+      try {
+        assertPending()
+        const live = await ctx.sessions.live(params)
+        // Reopening may have overlapped the settlement; never send a stale decision.
+        assertPending()
+        return live
+      } catch (error) {
+        // Host-only receipt: the runtime responder was never called. A responder
+        // rejection below cannot make this guarantee and must remain uncertain.
+        throw Object.assign(error instanceof Error ? error : new Error('Approval preflight failed.'), { approvalNotDelivered: true })
+      }
+    })()
     await live.respondToApproval(approvalId, params.decision)
     return null
   },

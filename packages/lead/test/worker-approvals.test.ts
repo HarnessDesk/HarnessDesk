@@ -128,7 +128,7 @@ for (const name of ['demo.xml', 'demo.kts', 'demo.svg', 'CLAUDE.local.md', 'CONV
   const path = '/workspace/demo/' + name
   assert.equal(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: 'demo' }] } as any, '/workspace/demo'), null)
 })
-for (const path of ['src/panel.tsx', 'src/resource.ts', 'docs/guide.md']) test(`file rules allow ordinary ${path} under a dot-folder project`, () => {
+for (const path of ['src/panel.tsx', 'src/profile.ts', 'src/resource.ts', 'docs/guide.md']) test(`file rules allow ordinary ${path} under a dot-folder project`, () => {
   const project = '/workspace/.claude/worktrees/demo', target = `${project}/${path}`
   assert.deepEqual(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path: target, kind: { type: 'update' }, diff: 'demo' }] } as any, project), { kind: 'fileChange', path: target })
 })
@@ -255,4 +255,135 @@ test('intent persistence rechecks admission before dispatching the answer', asyn
   const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, async append() { admitted = false } })
   await assert.rejects(journal.useWorkerApproval('rule-1', () => admitted, async () => { answers++ }, '+demo'))
   assert.equal(answers, 0)
+})
+
+for (const cause of ['person answered', 'worker withdrew', 'path became unsafe']) test(`a dispatch cancelled before answering restores the phase: ${cause}`, async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = save(), records: any[] = []
+  let admitted = true, answers = 0
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return base }, async append(record) {
+    records.push(record); if (record.type === 'worker-rule-dispatch') admitted = false
+  } })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => admitted, async () => { answers++ }, '+never sent'))
+  assert.equal(answers, 0)
+  assert.equal(records.at(-1).type, 'worker-rule-dispatch-cancelled')
+  assert.equal(journal.state.workerApprovals[0]!.dispatch, undefined)
+  assert.equal(journal.state.phase, base.phase)
+  assert.equal(journal.state.managementReason, base.managementReason)
+  const reopened = await createLeadJournal({ async read() { return records }, checkpoint() { return base }, async append() {} })
+  assert.deepEqual(reopened.state, journal.state)
+})
+
+test('a responder proven not delivered cancels its dispatch and replays without a recovery fence', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = save(), records: any[] = []
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return base }, async append(record) { records.push(record) } })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { throw Object.assign(Error('pre-dispatch failure'), { approvalNotDelivered: true }) }, '+never sent'))
+  assert.equal(records.at(-1).type, 'worker-rule-dispatch-cancelled')
+  assert.equal(journal.state.phase, base.phase)
+  assert.equal(journal.state.workerApprovals[0]!.dispatch, undefined)
+  const reopened = await createLeadJournal({ async read() { return records }, checkpoint() { return base }, async append() {} })
+  assert.deepEqual(reopened.state, journal.state)
+})
+
+test('dispatch leaves live phase unchanged but an open journal and checkpoint fence its unfinished answer', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = save(), records: any[] = []
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return base }, async append(record) { records.push(record) } })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => {
+    assert.equal(journal.state.phase, base.phase)
+    assert.equal(journal.state.managementReason, base.managementReason)
+    const loaded = parseLeadCheckpoint(leadCheckpoint(journal.state, 'b'.repeat(64))).state
+    assert.equal(loaded.phase, 'waiting-for-user')
+    assert.equal(loaded.managementReason, 'lead-worker-audit-failed')
+    throw Error('uncertain delivery')
+  }, '+uncertain'), /uncertain delivery/)
+  const reopened = await createLeadJournal({ async read() { return records }, checkpoint() { return base }, async append() {} })
+  assert.equal(reopened.state.phase, 'waiting-for-user')
+})
+
+test('revoke retains the uncertain diff without counting an acknowledged answer', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = save(), records: any[] = []
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return base }, async append(record) { records.push(record) } })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { throw Error('uncertain') }, '+needs inspection'))
+  const reopened = await createLeadJournal({ async read() { return records }, checkpoint() { return base }, async append() {} })
+  const revision = reopened.state.workerApprovals[0]!.dispatch!.revision
+  await reopened.revokeWorkerApproval('rule-1', digest)
+  const rule = reopened.state.workerApprovals[0]!
+  assert.equal(rule.count, 0)
+  assert.deepEqual(rule.entries, [{ id: `audit-${revision}`, number: 1, diff: '+needs inspection', uncertain: true }])
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(reopened.state, 'b'.repeat(64))).state, reopened.state)
+})
+
+for (const name of ['gulpfile.babel.js', 'jakefile.custom.ts', 'vitest.workspace.ts', 'ember-cli-build.js', 'WARP.md', 'QWEN.md', 'CRUSH.md']) test(`follow-up refuses executable or instruction file ${name}`, () => {
+  const path = '/workspace/demo/' + name
+  assert.equal(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: '+demo' }] } as any, '/workspace/demo'), null)
+})
+
+test('ordinary profile source keeps a reusable key', () => {
+  const path = '/workspace/demo/src/profile.ts'
+  assert.deepEqual(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: '+source' }] } as any, '/workspace/demo'), { kind: 'fileChange', path })
+})
+
+test('later management bookkeeping cannot erase an uncertain worker dispatch wait', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, async append() {} })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { throw Error('uncertain') }, '+inspect'))
+  await journal.setManagementPhase('waiting-for-user', 'lead-request-failed')
+  assert.equal(journal.state.phase, 'waiting-for-user')
+  assert.equal(journal.state.managementReason, 'lead-worker-audit-failed')
+})
+
+test('a cancellation append failure leaves the durable intent visibly fenced', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  let admitted = true
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, async append(record) {
+    if (record.type === 'worker-rule-dispatch') admitted = false
+    if (record.type === 'worker-rule-dispatch-cancelled') throw Error('fixture disk failure')
+  } })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => admitted, async () => { assert.fail('no answer') }, '+unsent'))
+  assert.ok(journal.state.workerApprovals[0]!.dispatch)
+  assert.equal(journal.state.phase, 'waiting-for-user')
+  assert.equal(journal.state.managementReason, 'lead-worker-audit-failed')
+})
+
+for (const ending of ['worker-rule-used', 'worker-rule-dispatch-cancelled'] as const) for (const checkpoint of [false, true]) test(`newly obsolete rules do not break ${ending} replay (checkpoint: ${checkpoint})`, async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = save(), rule = { ...base.workerApprovals[0]!, key: { kind: 'fileChange' as const, path: '/workspace/demo/gulpfile.babel.js' }, target: '/workspace/demo/gulpfile.babel.js' }
+  const records: any[] = [
+    ...(!checkpoint ? [{ version: 1, seq: base.seq, type: 'worker-rule-saved', rule }] : []),
+    { version: 1, seq: base.seq + 1, type: 'worker-rule-dispatch', id: rule.id, diff: '+legacy change' },
+    { version: 1, seq: base.seq + 2, type: ending, id: rule.id, ...(ending === 'worker-rule-used' ? { diff: '+legacy change' } : {}) },
+  ]
+  const loaded = checkpoint ? parseLeadCheckpoint(leadCheckpoint({ ...base, workerApprovals: [rule] }, 'b'.repeat(64))).state : start()
+  const journal = await createLeadJournal({ async read() { return records }, checkpoint() { return loaded }, async append() {} })
+  assert.deepEqual(journal.state.workerApprovals, [])
+  assert.equal(journal.state.phase, 'running')
+  assert.equal(journal.state.messages.filter(message => message.id === 'worker-rules-removed').length, 1)
+})
+
+test('automatic consent renewal cannot replace an uncertain worker audit wait', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const journal = await createLeadJournal({ async read() { return [] }, checkpoint() { return save() }, async append() {} })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { throw Error('uncertain') }, '+inspect'))
+  const seq = journal.state.seq
+  await journal.renewPlan(201)
+  assert.equal(journal.state.seq, seq, 'renewal waits for the uncertain rule to be reviewed')
+  assert.equal(journal.state.phase, 'waiting-for-user')
+  assert.equal(journal.state.managementReason, 'lead-worker-audit-failed')
+})
+
+test('a historical same-contract renewal and approval cannot release a recovered worker audit wait', () => {
+  let state = save()
+  state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'worker-rule-dispatch', id: 'rule-1', diff: '+inspect' })
+  state = parseLeadCheckpoint(leadCheckpoint(state, 'b'.repeat(64))).state
+  // Old writers could have offered this renewal before the recovery fence.
+  state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'renew-plan', now: 201 })
+  assert.equal(state.phase, 'waiting-for-user')
+  state = reduceLeadRecord(state, { version: 1, seq: state.seq + 1, type: 'card-decision',
+    decision: { version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 2, contractDigest: digest, choice: 'approve' }, expiresAt: 400 })
+  assert.equal(state.phase, 'waiting-for-user')
+  assert.equal(state.managementReason, 'lead-worker-audit-failed')
+  assert.ok(state.workerApprovals[0]!.dispatch)
 })

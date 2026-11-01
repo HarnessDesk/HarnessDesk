@@ -2267,8 +2267,8 @@ as does changing the approved contract. The person can use these controls on a
 paired phone with answer permission; Lead cannot create or revoke a rule.
 Commands offer only Yes once and No, with additional grants shown in full. If an
 automatic answer has no acknowledgement, its durable intent pauses automatic
-work across restarts. The row shows Needs review. The person inspects the
-changes and revokes that uncertain rule before Resume is available.
+work across restarts. The row and its unacknowledged diff entry show Needs review; that entry stays
+available after Revoke without increasing the answered count. The person inspects the changes and revokes that uncertain rule before Resume is available.
 Questions, stdin, publication, irreversible actions and changes to permissions,
 allowances or branch ownership always ask separately. After an approving review, each required
 check without counted evidence offers Run check with its whole command. That

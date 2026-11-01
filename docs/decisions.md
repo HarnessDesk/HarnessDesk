@@ -4946,12 +4946,13 @@ Eligibility is checked on the path relative to the approved project, allowing a
 project itself to live below a dot folder. Every relative segment must be plain printable ASCII (U+0020–U+007E). This prevents Unicode-equivalent instruction and build names from borrowing a source-file key on filesystems that fold those names. The key, checkpoint admission and fresh path check enforce it; the project root itself may contain Unicode or dot folders. No relative segment may start with a
 dot, or name a `script`, `scripts`, `bin` or `hooks` directory (case insensitive).
 Basenames use the lowercase rc-file pattern `^\.?[a-z0-9_-]*rc(\.[a-z]+)?$`, except short ordinary source stems of the form `<letter>rc` (such as `src.ts` and `arc.ts`). This exception follows the explicitly required source-file acceptance cases, which the general rc pattern also matches. Basenames also refuse `*.local.*`, `*.conf.*`, `conf.py`, `*.config.*`,
-`*.setup.*`, `*.gradle*`, `*file.js`, `*file.ts`, `*file.mjs`, `*.gemspec`,
+`*.setup.*`, `*.workspace.*`, `*.gradle*`, `*file(.[a-z]+)*.(js|ts|mjs|cjs)`
+(including `gulpfile.babel.js`, except ordinary `profile.ts` and `profile.js`), `ember-cli-build.js`, `*.gemspec`,
 `*.podspec`, `package.json`, `Makefile`, `Dockerfile`, `pom.xml`, `Package.swift`,
 `build.*`, `setup.py`, `setup.cfg`, `conftest.py`, `noxfile.py`, `tasks.py`,
 `fabfile.py`, `manage.py`, `Rakefile`, `Gemfile`, `Podfile`, `CMakeLists.txt` and
 `meson.build`. Agent instructions (`AGENT.md`, `AGENTS.md`, their dotted variants,
-`CLAUDE.md`, `GEMINI.md`, `INSTRUCTIONS.md`, `RULES.md`, `SKILL.md`,
+`CLAUDE.md`, `GEMINI.md`, `WARP.md`, `QWEN.md`, `CRUSH.md`, `INSTRUCTIONS.md`, `RULES.md`, `SKILL.md`,
 `copilot-instructions.md`, `CONVENTIONS.md`) are refused in any case. Ordinary
 names such as `resource.ts` and `source.ts` remain eligible. The implementation
 is `LEAD_APPROVAL_FILE_EXTENSIONS` and `safeFile` in

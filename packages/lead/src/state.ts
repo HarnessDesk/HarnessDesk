@@ -1,4 +1,4 @@
-import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, boundLeadApprovalHistory, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, boundLeadApprovalHistory, leadWorkerApprovalEntries, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import { clientTierFor, parseLeadCardDecisionFor, type LeadWakeRecord, type LeadOrigin, type LeadHandback, type LeadName, type LeadFollowPreferences, type LeadPullRequest, type LeadDecisionMessage, type LeadAcceptanceContract, type LeadCard, type LeadPermissionPolicy, type LeadCaps, type LeadMessage, type LeadSendReceipt, windowLeadThread } from '@harnessdesk/protocol'
 import { applyLeadPolicyDecision, compareLeadPolicyAuthority, sameLeadPolicyValues } from './permissions.js'
 import { parseLeadJournalRecord, parseLeadRunEvidence, type LeadArgumentSummary, type LeadAttemptOutcome, type LeadJournalRecord, type LeadRunIdentity, type LeadPublicationOperation, type LeadOwnedPush } from './journal.js'
@@ -208,11 +208,21 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, workerApprovals: [...state.workerApprovals, rule] }; break
     }
     case 'worker-rule-dispatch': {
-      const rule = state.workerApprovals.find(rule => rule.id === event.id && !rule.revoked)
-      ensure(rule && !state.workerApprovals.some(rule => rule.dispatch) && !hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && rule.count < Number.MAX_SAFE_INTEGER)
+      const rule = state.workerApprovals.find(rule => rule.id === event.id)
+      // Later events of a rule removed during eligibility migration carry no authority.
+      if (!rule) break
+      ensure(!rule.revoked && !state.workerApprovals.some(rule => rule.dispatch) && !hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && rule.count < Number.MAX_SAFE_INTEGER)
       ensure((rule!.key.kind === 'fileChange') === (event.diff !== null))
       const dispatch = { revision: event.seq, diff: event.diff, phase: state.phase, reason: state.managementReason }
-      state = { ...state, phase: 'waiting-for-user', managementReason: 'lead-worker-audit-failed', workerApprovals: state.workerApprovals.map(old => old.id === event.id ? { ...old, dispatch } : old) }; break
+      state = { ...state, workerApprovals: state.workerApprovals.map(old => old.id === event.id ? { ...old, dispatch } : old) }; break
+    }
+    case 'worker-rule-dispatch-cancelled': {
+      const rule = state.workerApprovals.find(rule => rule.id === event.id)
+      if (!rule) break
+      ensure(!rule.revoked && rule.dispatch)
+      const { dispatch, ...retained } = rule!
+      state = { ...state, phase: dispatch!.phase, managementReason: dispatch!.reason,
+        workerApprovals: state.workerApprovals.map(old => old.id === event.id ? retained : old) }; break
     }
     case 'worker-rule-used': {
       const rule = state.workerApprovals.find(rule => rule.id === event.id && !rule.revoked)
@@ -226,7 +236,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, phase: dispatch?.phase ?? state.phase, managementReason: dispatch ? dispatch.reason : state.managementReason, workerApprovals: boundLeadApprovalHistory(state.workerApprovals.map(old => old.id === event.id ? updated : old)) }; break
     }
     case 'worker-rule-revoked':
-      state = { ...state, workerApprovals: state.workerApprovals.map(rule => { if (rule.id !== event.id || rule.revoked) return rule; const { dispatch: _dispatch, ...retained } = rule; return { ...retained, revoked: true as const } }) }; break
+      state = { ...state, workerApprovals: boundLeadApprovalHistory(state.workerApprovals.map(rule => { if (rule.id !== event.id || rule.revoked) return rule; const { dispatch: _dispatch, ...retained } = rule; const entries = leadWorkerApprovalEntries(rule); return { ...retained, revoked: true as const, ...(entries.length ? { entries } : {}) } })) }; break
     case 'origin':
       ensure(state.contract === null && state.runs.length === 0 && state.origin === null)
       state = { ...state, origin: event.origin, originKey: event.key ?? null }; break
@@ -712,7 +722,12 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     state.decidedCards.includes(`${retry.id}:${retry.revision}`) || !state.cards.some(card => card.id === retry.id && card.revision === retry.revision)))
     state = { ...state, retryResult: null }
   if (event.type === 'new-goal' || ['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.contract !== previous.contract && JSON.stringify(state.contract) !== JSON.stringify(previous.contract)) state = { ...state, workerApprovals: [] }
-  if (state.workerApprovals.some(rule => rule.dispatch)) state = { ...state, phase: 'waiting-for-user', managementReason: 'lead-worker-audit-failed' }
+  // Once failed or recovered, bookkeeping cannot release the audit wait.
+  // A live dispatch has never latched this reason and keeps its current phase.
+  if (previous.managementReason === 'lead-worker-audit-failed' && previous.workerApprovals.some(rule => rule.dispatch)) state = fenceLeadWorkerDispatch(state)
   return { ...state, decisionRevision: event.type === 'wake' ? previous.decisionRevision : event.seq }
 }
-export const replayLeadJournal = (records: readonly LeadJournalRecord[]): LeadState => records.reduce(reduceLeadRecord, initialLeadState())
+/** Apply only at recovery or after a failed answer; live dispatch keeps its phase. */
+export const fenceLeadWorkerDispatch = (state: LeadState): LeadState => state.workerApprovals.some(rule => rule.dispatch)
+  ? { ...state, phase: 'waiting-for-user', managementReason: 'lead-worker-audit-failed' } : state
+export const replayLeadJournal = (records: readonly LeadJournalRecord[]): LeadState => fenceLeadWorkerDispatch(records.reduce(reduceLeadRecord, initialLeadState()))

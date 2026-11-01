@@ -702,3 +702,14 @@ it('keeps revoked history openable with a Revoked chip and no Revoke action', as
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('+evidence survives revocation')
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Revoked')
 })
+
+it('opens the uncertain diff after revocation with a Needs review chip', async () => {
+  const revoked = { id: 'revoked', target: '/workspace/demo/panel.tsx', count: 0,
+    entries: [{ id: 'audit-4', number: 1, diff: '+inspect the unacknowledged change', uncertain: true }] }
+  await mount({ ...leadProjection(), revokedApprovals: [revoked] } as any)
+  await act(async () => button('View allowed diffs').click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.textContent).toContain('+inspect the unacknowledged change')
+  expect(dialog.textContent).toContain('Needs review')
+  expect(dialog.textContent).toContain('Revoked')
+})

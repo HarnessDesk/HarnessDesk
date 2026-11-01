@@ -121,11 +121,11 @@ const standingRig = async () => {
     { version: 1, seq: 7, type: 'result', id: 'start', outcome: 'succeeded', identity: { correlationId: 'start', runId: 'run', teamId: 'team' } },
   ]
   const state = records.reduce((state, event) => reduceLeadRecord(state, event), journal.state)
-  const restored = await createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  const response: { fail: boolean; onAnswer?: () => Promise<void>; onDispatch?: () => Promise<void> } = { fail: false }
+  const restored = await createLeadJournal({ async read() { return [] }, async append(record) { if (record.type === 'worker-rule-dispatch') await response.onDispatch?.() }, checkpoint() { return state } })
   const approval: any = { type: 'fileChange', id: 'first', sessionId: 'session', requestedAt: 1, changes: [{ path: join(project, 'demo.ts'), kind: { type: 'update' }, diff: 'export const demo = 1' }], options: [{ id: 'yes', label: 'Yes', intent: 'approve' }, { id: 'no', label: 'No', intent: 'deny' }] }
   const record = { runtime: 'fixture', session: { id: 'session' }, approvals: new Map([['first', approval]]) }
   const calls: unknown[] = []
-  const response: { fail: boolean; onAnswer?: () => Promise<void> } = { fail: false }
   const seat = { role: 'review', closed: null, session: { runtime: 'fixture', sessionId: 'session' }, board: 'team' }
   const actions = new LeadPersonActions(restored, { registry: { all: () => [record] }, async call(method: string, params: any) { calls.push({ method, params }); await response.onAnswer?.(); if (response.fail) throw Error('fixture responder refused'); record.approvals.delete(params.approvalId) } } as never,
     { seats: { all: () => [seat] } } as never, async () => {})
@@ -266,4 +266,43 @@ test('granting the same target after revocation preserves its older evidence und
   assert.equal(rules.length, 2)
   assert.ok(rules.find(rule => rule.id === oldId)?.revoked)
   assert.ok(rules.find(rule => !rule.revoked)?.id !== oldId)
+})
+
+for (const cause of ['person answered', 'worker withdrew', 'path became unsafe']) test(`automatic answers cancel an unsent intent when ${cause}`, async () => {
+  const s = await standingRig(), [first] = await s.actions.read(); assert.ok(first)
+  await s.actions.perform({ id: first.id, contractDigest: digest, choice: 'yes-goal' })
+  s.record.approvals.set('next', { ...s.approval, id: 'next' })
+  s.response.onDispatch = async () => {
+    if (cause === 'path became unsafe') await symlink(join(s.project, 'authority.ts'), s.approval.changes[0].path)
+    else if (cause === 'person answered') {
+      s.record.approvals.delete('next') // The normal person answer settles the host's pending copy.
+    } else s.record.approvals.clear() // The worker's resolution event withdraws the request.
+  }
+  await assert.rejects(s.actions.autoAnswer('fixture', 'session', 'next'))
+  assert.equal(s.calls.length, 1, 'no automatic response reached the runtime')
+  assert.equal(s.journal.state.phase, 'running')
+  assert.equal(s.journal.state.workerApprovals[0]!.dispatch, undefined)
+})
+
+for (const cause of ['missing request', 'session unavailable', 'settled while reopening']) test(`approval response proves non-delivery for ${cause}`, async () => {
+  const { turnMethods } = await import('../src/methods/turns.js')
+  let pending = cause !== 'missing request', deliveries = 0
+  const ctx: any = { ceilings: { answerHeld: () => false }, questions: { answerStopped: async () => false },
+    registry: { hasApproval: () => pending }, sessions: { live: async () => {
+      if (cause === 'session unavailable') throw Error('fixture unavailable')
+      if (cause === 'settled while reopening') pending = false
+      return { respondToApproval: async () => { deliveries++ } }
+    } } }
+  await assert.rejects(turnMethods['approval/respond'](ctx, { runtime: 'fixture', sessionId: 'session', approvalId: 'request', decision: { type: 'option', optionId: 'yes' } } as any),
+    (error: any) => error.approvalNotDelivered === true)
+  assert.equal(deliveries, 0)
+})
+
+test('approval preflight preserves the original refusal and its host error code', async () => {
+  const { turnMethods } = await import('../src/methods/turns.js')
+  const refusal = Object.assign(Error('fixture unavailable'), { wireCode: 'session-unavailable' })
+  const ctx: any = { ceilings: { answerHeld: () => false }, questions: { answerStopped: async () => false },
+    registry: { hasApproval: () => true }, sessions: { live: async () => { throw refusal } } }
+  await assert.rejects(turnMethods['approval/respond'](ctx, { runtime: 'fixture', sessionId: 'session', approvalId: 'request', decision: { type: 'option', optionId: 'yes' } } as any),
+    (error: any) => error === refusal && error.wireCode === 'session-unavailable' && error.approvalNotDelivered === true)
 })
