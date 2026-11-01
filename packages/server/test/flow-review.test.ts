@@ -51,9 +51,9 @@ class FakePort implements ReviewSubjectPort {
   bindings = new Map<string, ReviewBinding>()
   personBindings = new Map<string, ReviewBinding>()
   now_ = 1
-  currentTarget_ = true
+  currentTarget_: boolean | string = true
 
-  async currentTarget(): Promise<boolean> { return this.currentTarget_ }
+  async currentTarget(): Promise<boolean | string> { return this.currentTarget_ }
 
   key(runtime: string | undefined, sessionId: string | undefined): string {
     return `${runtime ?? ''}\u0000${sessionId ?? ''}`
@@ -210,6 +210,46 @@ test('a closed person review cannot reuse its prior verdict after the PR target 
   port.currentTarget_ = false
   await assert.rejects(review.recordPerson('run-1', 5, candidate!.id, 'picked'), /moved on/)
   assert.equal(port.facts_.get('goal-1')?.length, 1)
+})
+
+test('person review carries the held subject refusal and preserves the prior verdict on a stale retry', async () => {
+  const port = new FakePort()
+  const target = { repository: 'acme/widgets', number: 7, head: SHA_A, baseRef: 'main', baseTip: SHA_B }
+  const binding: ReviewBinding = {
+    goal: 'goal-1', seat: PERSON_REVIEWER_ID, answers: ['picked'], round: 4,
+    subjects: [{ card: 7, round: 2, checkout: { cwd: '/repo', branch: 'work' }, at: SHA_A, reviewTarget: target }],
+  }
+  port.personBindings.set('run-1\u00005', binding)
+  const review = new FlowReview(port)
+  const [candidate] = await review.personCandidates('run-1', 5)
+  const reason = 'Expected main@ffffffffffff; observed main@bbbbbbbbbbbb. Start a fresh review.'
+  port.personBindings.set('run-1\u00005', { ...binding, subjects: [], unsettled: [{ card: 7, why: reason }] })
+  await assert.rejects(review.recordPerson('run-1', 5, candidate!.id, 'picked'), error => error instanceof Error && error.message === reason)
+  assert.equal(port.facts_.get('goal-1')?.length ?? 0, 0)
+  port.personBindings.set('run-1\u00005', { ...binding, subjects: [], unsettled: [], refusal: reason })
+  await assert.rejects(review.recordPerson('run-1', 5, candidate!.id, 'picked'), error => error instanceof Error && error.message === reason)
+  port.personBindings.set('run-1\u00005', binding)
+  await review.recordPerson('run-1', 5, candidate!.id, 'picked')
+  port.personBindings.delete('run-1\u00005')
+  port.currentTarget_ = reason
+  await assert.rejects(review.recordPerson('run-1', 5, candidate!.id, 'picked'), error => error instanceof Error && error.message === reason)
+  assert.equal(port.facts_.get('goal-1')?.length, 1)
+})
+
+test('a read refusal keeps the existing empty-subject owed behavior and explains a held candidate', async () => {
+  const port = new FakePort(), scope = scopeOf('alpha', 's1')
+  const target = { repository: 'acme/widgets', number: 7, head: SHA_A, baseRef: 'main', baseTip: SHA_B }
+  const binding: ReviewBinding = { goal: 'goal-1', seat: 'seat-reviewer', answers: ['approve'], round: 1,
+    subjects: [{ card: 7, round: 1, checkout: { cwd: '/repo', branch: 'work' }, at: SHA_A, reviewTarget: target }] }
+  const key = `3\u0000${port.key('alpha', 's1')}`
+  port.bindings.set(key, binding)
+  const review = new FlowReview(port)
+  const [candidate] = await review.candidates(3, scope)
+  const refusal = 'Expected main@ffffffffffff; verified open pull request unavailable.'
+  port.bindings.set(key, { ...binding, subjects: [], unsettled: [], refusal })
+  assert.equal(await review.owed(3, scope), false)
+  await assert.rejects(review.record({ intent: 3, candidate: candidate!.id, verdict: 'approve' }, scope), error => error instanceof Error && error.message === refusal)
+  assert.equal(port.facts_.get('goal-1')?.length ?? 0, 0)
 })
 
 for (const changed of ['branch', 'cwd'] as const) {

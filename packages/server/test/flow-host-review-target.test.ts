@@ -13,7 +13,7 @@ import { GitGateway } from '../src/git-gateway/index.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { projectOf } from '../src/evidence/revision.js'
 import { HoldFake, HOLD_CEILINGS } from './fixtures/hold-runtime.js'
-import { answer, claimed, desk, E2E, git, scopeOf } from './fixtures/flow-host-evidence.js'
+import { answer, board, claimed, desk, E2E, git, scopeOf, whenChanged } from './fixtures/flow-host-evidence.js'
 
 const execute = promisify(execFile)
 const source = `version: 2
@@ -27,7 +27,7 @@ rules:
 layout: { frontDoor: { contexts: [pull-request] } }
 `
 
-for (const mode of ['bound', 'unpinned', 'released', 'closed', 'pr-observation'] as const) test(`public Host ${mode === 'bound' ? 'authorizes its exact target' : mode === 'unpinned' ? 'does not promote an unpinned review after pinning' : mode === 'closed' ? 'refuses a PR closed before review' : mode === 'pr-observation' ? 'records the explicit PR observation' : 'does not fall back after release'} through the Git plugin and gateway`, E2E, async t => {
+for (const mode of ['bound', 'unpinned', 'released', 'closed', 'pr-observation', 'base-stale', 'head-stale', 'retarget-stale', 'unreadable-stale', 'person-stale'] as const) test(`public Host ${mode === 'person-stale' ? 'explains the moved base to the person' : mode.endsWith('-stale') ? `explains ${mode} to the reviewer` : mode === 'bound' ? 'authorizes its exact target' : mode === 'unpinned' ? 'does not promote an unpinned review after pinning' : mode === 'closed' ? 'refuses a PR closed before review' : mode === 'pr-observation' ? 'records the explicit PR observation' : 'does not fall back after release'} through the Git plugin and gateway`, E2E, async t => {
   const pinned = mode !== 'unpinned'
   const temp = await mkdtemp(join(tmpdir(), 'hd-601-host-')), bin = join(temp, 'bin'), state = join(temp, 'forge.json'), trace = join(temp, 'trace.ndjson')
   await mkdir(bin)
@@ -41,7 +41,9 @@ for (const mode of ['bound', 'unpinned', 'released', 'closed', 'pr-observation']
     for (const [key, value] of Object.entries(prior)) if (value === undefined) delete process.env[key]; else process.env[key] = value
     await rm(temp, { recursive: true, force: true })
   })
+  let unreadable = false
   const fakeGh = async (args: readonly string[], cwd: string) => {
+    if (unreadable && args[0] === 'pr' && args[1] === 'view') return { stdout: '', stderr: 'synthetic failure', exitCode: 1 }
     try { const result = await execute(process.execPath, [ghPath, ...args], { cwd, env: process.env }); return { ...result, exitCode: 0 } }
     catch (error) { const e = error as { stdout?: string; stderr?: string }; return { stdout: e.stdout ?? '', stderr: e.stderr ?? '', exitCode: 1 } }
   }
@@ -70,7 +72,7 @@ for (const mode of ['bound', 'unpinned', 'released', 'closed', 'pr-observation']
     await mkdir(join(d.stateDir, 'agents', id), { recursive: true })
     await writeFile(join(d.stateDir, 'agents', id, 'AGENT.md'), `---\nname: ${id}\n${body}\nprefer: [holdfake]\n---\nDo the task.\n`)
   }
-  const runSource = mode === 'pr-observation' ? source.replace('[{ review: approve }]', '[{ review: approve }, { pr: open }]') : source
+  const runSource = mode === 'pr-observation' ? source.replace('[{ review: approve }]', '[{ review: approve }, { pr: open }]') : mode === 'person-stale' ? source.replace('merger: { kind: agent, uses: merger, grant: merge }', 'merger: { kind: person, review: true, outcomes: [picked] }') : source
   const preview = await d.host.call('authoring/start/preview', { context: { kind: 'pull-request', root: d.root, number: 7 }, source: runSource, vars: {} }) as FrontDoorPreview
   assert.ok(preview.flow.token, JSON.stringify(preview.flow.problems))
   const run = await d.host.call('flow/start-goal', { root: d.root, source: runSource, token: preview.flow.token!, sentence: preview.sentence, vars: preview.vars }) as FlowExecution
@@ -88,6 +90,24 @@ for (const mode of ['bound', 'unpinned', 'released', 'closed', 'pr-observation']
   }
   const [candidate] = await d.host.teamPlane.reviewCandidates(reviewer!.id, scopeOf(reviewer!))
   assert.equal(candidate?.reviewTarget?.baseTip, pinned ? baseTip : undefined)
+  if (['base-stale', 'head-stale', 'retarget-stale', 'unreadable-stale'].includes(mode)) {
+    const moved = JSON.parse(await readFile(state, 'utf8'))
+    if (mode === 'base-stale') moved.baseTips.main = 'b'.repeat(40)
+    if (mode === 'head-stale') moved.pulls[0].head = 'c'.repeat(40)
+    if (mode === 'retarget-stale') { moved.pulls[0].base = 'release'; moved.baseTips.release = 'd'.repeat(40) }
+    if (mode === 'unreadable-stale') unreadable = true
+    await writeFile(state, JSON.stringify(moved))
+    await assert.rejects(d.host.teamPlane.recordReview({ intent: reviewer!.id, candidate: candidate!.id, verdict: 'approve' }, scopeOf(reviewer!)), (error: Error) => {
+      assert.match(error.message, new RegExp(baseTip.slice(0, 12)))
+      assert.match(error.message, /main/)
+      if (mode === 'base-stale') assert.match(error.message, /bbbbbbbbbbbb/)
+      if (mode === 'head-stale') assert.match(error.message, /cccccccccccc/)
+      if (mode === 'retarget-stale') assert.match(error.message, /release@dddddddddddd/)
+      if (mode === 'unreadable-stale') { assert.match(error.message, /pull request.*unavailable|could not be read/i); assert.doesNotMatch(error.message, /observed/i) }
+      return true
+    })
+    return
+  }
   if (mode === 'pr-observation') {
     const journal = await new EvidenceStore(join(d.stateDir, 'evidence')).read(await projectOf(d.root), 'evidence')
     assert.ok(journal.lines.some(line => line.type === 'evidence' && line.record.card?.id === reviewer!.id && line.record.fact.kind === 'pr' && line.record.fact.number === 7 && line.record.fact.state === 'open'))
@@ -103,6 +123,20 @@ for (const mode of ['bound', 'unpinned', 'released', 'closed', 'pr-observation']
   }
   await d.host.teamPlane.recordReview({ intent: reviewer!.id, candidate: candidate!.id, verdict: 'approve' }, scopeOf(reviewer!))
   await answer(d, reviewer!, 'approve')
+  if (mode === 'person-stale') {
+    const card = await whenChanged(d, async () => (await board(d, run.goal)).find(one => one.role === 'merger' && one.state === 'open') ?? null, 'person review')
+    const [offered] = await d.host.call('flow/review/candidates', { run: run.id, card: card.id })
+    assert.ok(offered)
+    const moved = JSON.parse(await readFile(state, 'utf8'))
+    moved.baseTips.main = 'b'.repeat(40)
+    await writeFile(state, JSON.stringify(moved))
+    await assert.rejects(d.host.call('flow/review/decide', { run: run.id, card: card.id, candidate: offered.id, verdict: 'picked' }), (error: Error) => {
+      assert.match(error.message, new RegExp(baseTip.slice(0, 12)))
+      assert.match(error.message, /bbbbbbbbbbbb/)
+      return true
+    })
+    return
+  }
   const [merger] = await claimed(d, run.goal, 'merger', 1)
   if (!pinned) await gateway.pins.pin(d.root, 'acme/widgets', { kind: 'person', id: 'fixture-person' })
   setForgeEngine(d.host.forgePlane)

@@ -448,7 +448,7 @@ export interface ReviewSubjectPort {
   /** Null unless this run's open card is a person step whose next rule requires a review. */
   personBindingFor?(run: string, card: number): Promise<ReviewBinding | null>
   /** Re-observe a held PR target, including after a person card has closed. */
-  currentTarget?(goal: string, target: ReviewTargetBinding): Promise<boolean>
+  currentTarget?(goal: string, target: ReviewTargetBinding): Promise<boolean | string>
   /** This Goal's raw facts, each already carrying its computed freshness. */
   facts(goal: string): Promise<readonly EvidenceView[]>
   /**
@@ -462,6 +462,10 @@ export interface ReviewSubjectPort {
 }
 
 const CANDIDATE_TTL_MS = 10 * 60_000
+const movedCandidate = (bound: ReviewBinding, held: HeldCandidate): string =>
+  bound.unsettled?.find(one => one.card === held.candidate.card)?.why ?? bound.refusal ?? 'That candidate has moved on. Ask for review candidates again.'
+const targetProblem = (result: boolean | string | undefined): string | null =>
+  result === true ? null : typeof result === 'string' ? result : 'That candidate has moved on. Ask for review candidates again.'
 
 /** Valid stable evidence identity for a person reviewer; person decisions have no runtime Seat. */
 export const PERSON_REVIEWER_ID: SeatId = '00000000-0000-4000-8000-000000000001'
@@ -675,7 +679,7 @@ export class FlowReview implements FlowReviewPort {
       )
       if (existing?.record.fact.kind === 'review' && existing.record.fact.at === held.candidate.at && existing.record.fact.verdict === verdict &&
           sameReviewTarget(existing.record.fact.reviewTarget, held.candidate.reviewTarget)) {
-        if (held.candidate.reviewTarget && !await this.#port.currentTarget?.(goal, held.candidate.reviewTarget)) throw new Error('That candidate has moved on. Ask for review candidates again.')
+        if (held.candidate.reviewTarget) { const why = targetProblem(await this.#port.currentTarget?.(goal, held.candidate.reviewTarget)); if (why) throw new Error(why) }
         return existing.record
       }
       if (existing) throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')
@@ -688,7 +692,7 @@ export class FlowReview implements FlowReviewPort {
       throw new Error('That candidate is no longer being offered. Ask for review candidates again.')
     }
     if (!bound.subjects.some((one) => stillOffered(one, held))) {
-      throw new Error('That candidate has moved on. Ask for review candidates again.')
+      throw new Error(movedCandidate(bound, held))
     }
     const facts = await this.#port.facts(bound.goal)
     const existing = facts.find((view) =>
@@ -705,13 +709,15 @@ export class FlowReview implements FlowReviewPort {
       await beforeRecord(held.candidate)
       // Git verification can yield while a Run stops or an attempt advances.
       const fresh = await this.#port.personBindingFor?.(run, card)
-      if (!fresh || fresh.round !== bound.round || !fresh.subjects.some(one => stillOffered(one, held))) {
+      if (!fresh || fresh.round !== bound.round) {
         throw new Error('This step or its attempt changed while verifying the merge. Nothing was recorded.')
       }
+      if (!fresh.subjects.some(one => stillOffered(one, held))) throw new Error(fresh.unsettled?.find(one => one.card === held.candidate.card)?.why ?? fresh.refusal ?? 'This step or its attempt changed while verifying the merge. Nothing was recorded.')
     }
-    if (held.candidate.reviewTarget && !await this.#port.currentTarget?.(goal, held.candidate.reviewTarget)) throw new Error('That candidate has moved on. Ask for review candidates again.')
+    if (held.candidate.reviewTarget) { const why = targetProblem(await this.#port.currentTarget?.(goal, held.candidate.reviewTarget)); if (why) throw new Error(why) }
     const fresh = await this.#port.personBindingFor?.(run, card)
-    if (!fresh || fresh.round !== bound.round || !fresh.subjects.some(one => stillOffered(one, held))) throw new Error('That candidate has moved on. Ask for review candidates again.')
+    if (!fresh || fresh.round !== bound.round) throw new Error('That candidate has moved on. Ask for review candidates again.')
+    if (!fresh.subjects.some(one => stillOffered(one, held))) throw new Error(movedCandidate(fresh, held))
     if (existing?.record.fact.kind === 'review') return existing.record
     const record: EvidenceRecord = {
       id: mintId(),
@@ -773,7 +779,7 @@ export class FlowReview implements FlowReviewPort {
       throw new Error('That candidate is no longer being offered. Ask for review candidates again.')
     }
     if (!bound.subjects.some((one) => stillOffered(one, held))) {
-      throw new Error('That candidate has moved on. Ask for review candidates again.')
+      throw new Error(movedCandidate(bound, held))
     }
     const record: EvidenceRecord = {
       id: mintId(),
@@ -800,9 +806,9 @@ export class FlowReview implements FlowReviewPort {
       throw new Error('You do not hold this card, so no review can be recorded against it.')
     }
     if (!current.subjects.some((one) => stillOffered(one, held))) {
-      throw new Error('That candidate has moved on. Ask for review candidates again.')
+      throw new Error(movedCandidate(current, held))
     }
-    if (held.candidate.reviewTarget && !await this.#port.currentTarget?.(bound.goal, held.candidate.reviewTarget)) throw new Error('That candidate has moved on. Ask for review candidates again.')
+    if (held.candidate.reviewTarget) { const why = targetProblem(await this.#port.currentTarget?.(bound.goal, held.candidate.reviewTarget)); if (why) throw new Error(why) }
     const outcome = await this.#port.append(bound.goal, record)
     if (outcome.outcome === 'conflict') {
       throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')

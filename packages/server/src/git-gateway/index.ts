@@ -7,6 +7,7 @@ import type { ForgeAssociatedPullRequest, ReviewTargetBinding } from '@harnessde
 import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 import { GitRecord, canonicalRepository, validateRepository, isGitRequester, type GitApproval, type GitRecordEntry, type GitRecordQuery, type GitRequester, type SucceededPushQuery } from './record.js'
 import { GitPins } from './pins.js'
+import { observedReviewTarget, reviewTargetDiagnostic } from '../review-target-diagnostic.js'
 export { GitRecord, GitPins }
 export type { GitRequester, GitApproval, GitRecordEntry, GitRecordQuery, SucceededPushQuery } from './record.js'
 
@@ -473,20 +474,28 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
   }
   async #checkReviewedTarget(target: GitWrite): Promise<void> {
     const expected = target.reviewedTarget
-    const refused = () => { throw new Error('Pull request target changed or could not be verified. Start a fresh review.') }
+    const refused = (observed?: ReviewTargetBinding, unavailable?: string) => { throw new Error(expected ? reviewTargetDiagnostic(expected, observed, unavailable) : 'Pull request target changed or could not be verified. Start a fresh review.') }
     if (!expected || !target.checkAuthority || expected.repository !== canonicalRepository(target.repository) || expected.number !== target.number || expected.head !== target.sha) refused()
-    if (!await target.checkAuthority!()) refused()
-    let pr: { number?: unknown; state?: unknown; url?: unknown; headRefOid?: unknown; baseRefName?: unknown; baseRefOid?: unknown }
+    if (!await target.checkAuthority!()) refused(undefined, 'review authority')
+    let pr: { number?: unknown; state?: unknown; url?: unknown; headRefOid?: unknown; baseRefName?: unknown; baseRefOid?: unknown } | null = null
     try { pr = JSON.parse(await this.#gh(target.repository, ['pr', 'view', String(expected!.number), '--json', 'number,state,url,headRefOid,baseRefName,baseRefOid'])) }
-    catch { refused() }
-    if (!await target.checkAuthority!()) refused()
+    catch { refused(undefined, 'pull request read') }
+    if (!await target.checkAuthority!()) refused(undefined, 'review authority')
+    const url = typeof pr?.url === 'string' ? /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/([1-9]\d*)$/i.exec(pr.url) : null
+    const observed = url && Number(url[2]) === pr!.number && ['OPEN', 'CLOSED', 'MERGED'].includes(String(pr!.state)) ? observedReviewTarget({ repository: url[1], number: pr!.number, head: pr!.headRefOid, baseRef: pr!.baseRefName, baseTip: pr!.baseRefOid }) : null
     if (!pr! || pr!.number !== expected!.number || pr!.state !== 'OPEN' || typeof pr!.url !== 'string' || pr!.url.toLowerCase() !== `https://github.com/${expected!.repository}/pull/${expected!.number}` ||
-        pr!.headRefOid !== expected!.head || pr!.baseRefName !== expected!.baseRef || pr!.baseRefOid !== expected!.baseTip) refused()
-    let branch: { name?: unknown; commit?: { sha?: unknown } }
+        pr!.headRefOid !== expected!.head || pr!.baseRefName !== expected!.baseRef || pr!.baseRefOid !== expected!.baseTip) {
+      if (observed && (pr?.state === 'CLOSED' || pr?.state === 'MERGED')) throw new Error(`Pull request is ${pr.state.toLowerCase()}. ${reviewTargetDiagnostic(expected!, observed)}`)
+      refused(observed ?? undefined, observed ? undefined : 'pull request read')
+    }
+    let branch: { name?: unknown; commit?: { sha?: unknown } } | null = null
     try { branch = JSON.parse(await this.#gh(target.repository, ['api', `repos/${expected!.repository}/branches/${encodeURIComponent(expected!.baseRef)}`])) }
-    catch { refused() }
-    if (!await target.checkAuthority!()) refused()
-    if (!branch! || branch!.name !== expected!.baseRef || branch!.commit?.sha !== expected!.baseTip) refused()
+    catch { refused(undefined, 'destination branch read') }
+    if (!await target.checkAuthority!()) refused(undefined, 'review authority')
+    if (!branch! || branch!.name !== expected!.baseRef || branch!.commit?.sha !== expected!.baseTip) {
+      const branchTarget = observedReviewTarget({ ...expected!, baseRef: branch?.name, baseTip: branch?.commit?.sha })
+      refused(branchTarget ?? undefined, branchTarget ? undefined : 'destination branch read')
+    }
   }
   #forgeWrite(op: GitRecordEntry['op'], target: GitWrite, args: readonly string[]): Promise<string> {
     return this.#queue(target.repository, async () => {
@@ -510,10 +519,10 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       let submitted = false
       return this.#effect(entry, async () => {
         if (op !== 'pr.merge') await target.beforeWrite?.()
-        else if (target.reviewedTarget && !await target.checkAuthority?.()) throw new Error('Pull request target changed or could not be verified. Start a fresh review.')
+        else if (target.reviewedTarget && !await target.checkAuthority?.()) throw new Error(reviewTargetDiagnostic(target.reviewedTarget, undefined, 'review authority'))
         if (op === 'pr.merge') {
           await this.#init()
-          if (target.reviewedTarget && !await target.checkAuthority?.()) throw new Error('Pull request target changed or could not be verified. Start a fresh review.')
+          if (target.reviewedTarget && !await target.checkAuthority?.()) throw new Error(reviewTargetDiagnostic(target.reviewedTarget, undefined, 'review authority'))
         }
         return this.#gh(target.repository, args, () => { target.beforeSpawn?.(); submitted = true })
       }, op === 'pr.create' ? output => {

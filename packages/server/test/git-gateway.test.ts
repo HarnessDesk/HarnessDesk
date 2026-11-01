@@ -203,24 +203,47 @@ test('the serialized merge preflight refuses a destination tip that moved after 
   const gateway = new f.module.GitGateway({ ...f.options, gh })
   const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const,
     reviewedTarget: { repository: f.request.repository, number: 7, head: f.request.sha, baseRef: 'main', baseTip }, checkAuthority: async () => true }
-  await assert.rejects(gateway.mergePullRequest(target), /target.*changed|fresh review/i)
+  await assert.rejects(gateway.mergePullRequest(target), (error: Error) => {
+    assert.match(error.message, /main/)
+    assert.match(error.message, new RegExp(baseTip.slice(0, 12)))
+    assert.match(error.message, new RegExp(advanced.slice(0, 12)))
+    assert.match(error.message, /expected/i)
+    assert.match(error.message, /observed/i)
+    return true
+  })
   assert.equal(submitted, 0)
   assert.ok((await gateway.record({ repository: target.repository, limit: 20 })).some((row: { op: string; outcome: string }) => row.op === 'pr.merge' && row.outcome === 'refused'))
 })
 
-for (const mode of ['retarget', 'wrong-repository', 'head', 'unreadable'] as const) test(`serialized merge preflight refuses ${mode}`, async () => {
+for (const mode of ['retarget', 'wrong-repository', 'head', 'closed', 'unreadable', 'malformed', 'branch-unreadable', 'branch-malformed', 'authority'] as const) test(`serialized merge preflight refuses ${mode}`, async () => {
   const f = await fixture(), baseTip = 'b'.repeat(40)
   let submitted = 0
   const gh = async (_cwd: string, args: readonly string[]) => {
     if (args[0] === 'pr' && args[1] === 'merge') { submitted++; return { stdout: 'merged', stderr: '', exitCode: 0 } }
     if (mode === 'unreadable') throw new Error('read unavailable')
-    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: mode === 'head' ? 'c'.repeat(40) : f.request.sha, baseRefName: mode === 'retarget' ? 'release' : 'main', baseRefOid: baseTip, url: `https://github.com/${mode === 'wrong-repository' ? 'acme/other' : 'acme/widgets'}/pull/7` }), stderr: '', exitCode: 0 }
+    if (mode === 'malformed') return { stdout: '{}', stderr: '', exitCode: 0 }
+    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 7, state: mode === 'closed' ? 'CLOSED' : 'OPEN', headRefOid: mode === 'head' ? 'c'.repeat(40) : f.request.sha, baseRefName: mode === 'retarget' ? 'release' : 'main', baseRefOid: baseTip, url: `https://github.com/${mode === 'wrong-repository' ? 'acme/other' : 'acme/widgets'}/pull/7` }), stderr: '', exitCode: 0 }
+    if (mode === 'branch-unreadable') throw new Error('branch read failed')
+    if (mode === 'branch-malformed') return { stdout: '{}', stderr: '', exitCode: 0 }
     return { stdout: JSON.stringify({ name: 'main', commit: { sha: baseTip } }), stderr: '', exitCode: 0 }
   }
   const gateway = new f.module.GitGateway({ ...f.options, gh })
   const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const,
-    reviewedTarget: { repository: f.request.repository, number: 7, head: f.request.sha, baseRef: 'main', baseTip }, checkAuthority: async () => true }
-  await assert.rejects(gateway.mergePullRequest(target), /target.*changed|fresh review/i)
+    reviewedTarget: { repository: f.request.repository, number: 7, head: f.request.sha, baseRef: 'main', baseTip }, checkAuthority: async () => mode !== 'authority' }
+  await assert.rejects(gateway.mergePullRequest(target), (error: Error) => {
+    assert.match(error.message, /expected acme\/widgets #7/i)
+    assert.match(error.message, new RegExp(f.request.sha.slice(0, 12)))
+    assert.match(error.message, /main@bbbbbbbbbbbb/)
+    if (mode === 'retarget') assert.match(error.message, /observed.*release@bbbbbbbbbbbb/i)
+    if (mode === 'wrong-repository') assert.match(error.message, /observed acme\/other #7/i)
+    if (mode === 'head') assert.match(error.message, /observed.*cccccccccccc/i)
+    if (mode === 'closed') assert.match(error.message, /pull request is closed/i)
+    if (mode === 'unreadable' || mode === 'malformed') assert.match(error.message, /pull request read unavailable/i)
+    if (mode === 'branch-unreadable' || mode === 'branch-malformed') assert.match(error.message, /destination branch read unavailable/i)
+    if (mode === 'authority') assert.match(error.message, /review authority unavailable/i)
+    if (['unreadable', 'malformed', 'branch-unreadable', 'branch-malformed', 'authority'].includes(mode)) assert.doesNotMatch(error.message, /observed/i)
+    return true
+  })
   assert.equal(submitted, 0)
   assert.ok((await gateway.record({ repository: target.repository, limit: 20 })).some((row: { op: string; outcome: string }) => row.op === 'pr.merge' && row.outcome === 'refused'))
 })

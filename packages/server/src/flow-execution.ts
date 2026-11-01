@@ -3,6 +3,7 @@ export { leadRoundId } from '@harnessdesk/lead'
 import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
+import { observedReviewTarget, reviewTargetDiagnostic } from './review-target-diagnostic.js'
 
 import { DEFAULT_FLOW_BUDGET, completesRound, isPersonReviewStep } from '@harnessdesk/protocol'
 import type {
@@ -863,6 +864,7 @@ export interface PersonReviewBinding {
   readonly round: number
   readonly subjects: readonly FlowSubject[]
   readonly unsettled: readonly { readonly card: number; readonly why: string }[]
+  readonly refusal?: string
 }
 
 export class FlowExecutions {
@@ -1755,6 +1757,8 @@ export class FlowExecutions {
   }
 
   async #externalReview(run: StoredFlowExecution, card: number): Promise<Omit<FlowClosure, 'cards'>> {
+    const frozenTarget = run.target?.kind === 'pull-request' && run.target.reviewBound !== false
+      ? observedReviewTarget({ repository: run.target.repository, number: run.target.pr, head: run.target.head, baseRef: run.target.baseRef, baseTip: run.target.base }) : null
     const intent = this.#team.stateFor(run.goal).intents.find((one) => one.id === card)
     // A working-tree snapshot has no committed candidate. A PR binding
     // cannot turn it into a review of that PR's head, even after it is clean.
@@ -1772,9 +1776,10 @@ export class FlowExecutions {
     const target = pinned && run.target?.pr === null ? { at: pinned, number: null }
       : await this.#port.reviewTarget(run.goal, pinned ? { id: intent.id, title: '', detail: null } : intent, this.#targetPr(run), seat?.checkout)
     if ('why' in target) {
-      this.#team.reviewAvailability(run.goal, card, target.why)
+      const why = frozenTarget ? `${target.why} ${reviewTargetDiagnostic(frozenTarget, undefined, 'verified open pull request')}` : target.why
+      this.#team.reviewAvailability(run.goal, card, why)
       await this.#team.flush()
-      return { subjects: [], unsettled: [], refusal: target.why }
+      return { subjects: [], unsettled: [], refusal: why }
     }
     if (!seat) return { subjects: [], unsettled: [], refusal: 'This review’s checkout is not available yet. Ask for candidates after its Seat opens.' }
     const head = await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)
@@ -1784,10 +1789,12 @@ export class FlowExecutions {
     const frozen = run.target?.kind === 'pull-request' ? run.target : null
     const wantsBinding = !!frozen && frozen.reviewBound !== false && !!frozen.repository && !!frozen.baseRef && !!frozen.base
     const binding = wantsBinding && 'reviewTarget' in target ? target.reviewTarget : undefined
-    const why = pinned && target.at !== pinned ? `${label} moved from the commit this Run reviews. Start a new review at its current head.`
+    const changedBinding = frozenTarget && binding && (frozenTarget.repository !== binding.repository || frozenTarget.number !== binding.number || frozenTarget.head !== binding.head || frozenTarget.baseRef !== binding.baseRef || frozenTarget.baseTip !== binding.baseTip)
+    const why = changedBinding ? reviewTargetDiagnostic(frozenTarget, binding)
+      : pinned && target.at !== pinned ? `${label} moved from the commit this Run reviews. Start a new review at its current head.`
       : head.at !== target.at ? `${label} moved or its review checkout is not at ${target.at.slice(0, 12)}. Start a new review at its current head.`
       : head.dirty ? `${label}'s review checkout has uncommitted changes.`
-      : wantsBinding && !binding ? `${label}'s target could not be verified. Start a fresh review.`
+      : wantsBinding && !binding ? frozenTarget ? reviewTargetDiagnostic(frozenTarget, undefined, 'pull request read') : `${label}'s target could not be verified. Start a fresh review.`
       : wantsBinding && frozen && (!binding || frozen.repository !== binding.repository || frozen.pr !== binding.number || frozen.head !== binding.head || frozen.baseRef !== binding.baseRef || frozen.base !== binding.baseTip)
         ? `${label}'s target changed or was not recorded. Start a fresh review.`
       : binding && !await this.#port.hasReviewCommit?.(seat.checkout.cwd, binding.baseTip)
@@ -2252,6 +2259,7 @@ export class FlowExecutions {
       round: round.n,
       subjects,
       unsettled: closure.unsettled,
+      ...(closure.refusal ? { refusal: closure.refusal } : {}),
     }
   }
 

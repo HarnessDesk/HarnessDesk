@@ -12,6 +12,7 @@ import { parseGitCommand } from '@harnessdesk/protocol'
 import { LeadAutomaticGoals } from './lead/automatic-goals.js'
 import { LeadHandbacks } from './lead/handback.js'
 import { GitGateway } from './git-gateway/index.js'
+import { observedReviewTarget, reviewTargetDiagnostic } from './review-target-diagnostic.js'
 import { LeadPrFollow, type LeadPrFollowOptions } from './lead/pr-follow.js'
 import { leadPublicationPorts } from './lead/pr-publication.js'
 import { LeadPersonActions } from './lead/person-actions.js'
@@ -1575,9 +1576,11 @@ export class Host {
           const state = this.#goalState(goal)
           const root = await projectOf(state.cwd ?? state.root, state.root)
           const current = await this.#frontDoorContext.pullRequest(root, target.number)
-          return current !== null && current.state === 'open' && current.bound !== false && current.repository === target.repository && current.head === target.head &&
-            current.baseRef === target.baseRef && current.base === target.baseTip
-        } catch { return false }
+          const observed = current && current.bound !== false ? observedReviewTarget({ repository: current.repository, number: target.number, head: current.head, baseRef: current.baseRef, baseTip: current.base }) : null
+          if (!observed) return reviewTargetDiagnostic(target, undefined, 'pull request read')
+          if (current?.state === 'open' && observed.repository === target.repository && observed.head === target.head && observed.baseRef === target.baseRef && observed.baseTip === target.baseTip) return true
+          return `${current?.state !== 'open' ? `Pull request is ${current?.state ?? 'unavailable'}. ` : ''}${reviewTargetDiagnostic(target, observed)}`
+        } catch { return reviewTargetDiagnostic(target, undefined, 'pull request read') }
       },
       facts: async (goal) => {
         const state = this.#goalState(goal)
