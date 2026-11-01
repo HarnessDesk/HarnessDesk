@@ -34,7 +34,7 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
   const [problem, setProblem] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
   const [deleting, setDeleting] = useState<HistorySummary | null>(null)
-  const [projects, setProjects] = useState<readonly string[]>([])
+  const [projects, setProjects] = useState<readonly { cwd: string; root: string }[]>([])
   const [viewport, setViewport] = useState({ top: 0, height: 440, pitch: 44, columns: 4 })
   const scroll = useRef<HTMLDivElement>(null)
   const opens=useRef(0)
@@ -81,7 +81,8 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
       if (epoch.current !== generation) return
       setRows(previous => after ? [...new Map([...previous, ...page.data].map(row => [`${row.runtime}:${row.id}`, row])).values()] : page.data)
       setCursor(page.nextCursor ?? null)
-      setProjects(previous => [...new Set([...previous, ...page.data.map(row => row.repo?.root ?? row.cwd)])].sort())
+      setProjects(previous => [...new Map([...previous, ...page.data.map(row => ({ cwd: row.cwd, root: row.repo?.root ?? row.cwd }))]
+        .map(candidate => [JSON.stringify([candidate.cwd, candidate.root]), candidate])).values()])
     } catch (error) { if (epoch.current === generation) setProblem(reason(error)) }
     finally { if (epoch.current === generation) { setLoading(false); paging.current = false } }
   }, [store, params])
@@ -113,7 +114,7 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
     const observer = new ResizeObserver(measure); observer.observe(node)
     return () => observer.disconnect()
   }, [destinationActive, rows.length === 0])
-  const projectOptions = [...new Set([...projects, ...projectWorkspaces(snapshot.workspaces, snapshot.chatsFolderRoots).map(workspace => workspace.repo?.root ?? workspace.path)])].filter(root => !isChatFolder(root, snapshot.chatsFolderRoots)).sort()
+  const projectOptions = [...new Set([...projects.filter(candidate => !isChatFolder(candidate.cwd, snapshot.chatsFolderRoots)).map(candidate => candidate.root), ...projectWorkspaces(snapshot.workspaces, snapshot.chatsFolderRoots).map(workspace => workspace.repo?.root ?? workspace.path)])].filter(root => !isChatFolder(root, snapshot.chatsFolderRoots)).sort()
   const hasSearchableHistory = rows.length > 0 || query.trim() !== '' || agent !== '' || project !== '' || hidden
   const open = async (row: HistorySummary): Promise<void> => {
     if (!destinationActive) return

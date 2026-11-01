@@ -327,3 +327,21 @@ it('keeps loaded history and scroll when chat ownership changes', async () => {
   await act(async () => {})
   expect(scroll.scrollTop).toBe(0)
 })
+
+it.each(['chat only', 'ordinary row', 'workspace'] as const)('filters a nested managed chat by cwd while retaining %s project evidence', async evidence => {
+  const store = new AppStore('ws://localhost:0/')
+  const nested = '/work/project/chats/a'
+  const repo = { root: '/work/project', worktree: false }
+  const rows = [row('Nested chat', { cwd: nested, repo }), row('Other project', { cwd: '/other', repo: { root: '/other', worktree: false } })]
+  if (evidence === 'ordinary row') rows.push(row('Ordinary conversation', { cwd: '/work/project/src', repo }))
+  if (evidence === 'workspace') Object.assign(store.getSnapshot(), { workspaces: [{ path: '/work/project', name: 'Project', lastOpenedAt: 1, repo }] })
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'history/list' ? { data: rows, nextCursor: null } : null) as never)
+  await act(async () => root.render(<StoreProvider store={store}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent} /></StoreProvider>))
+  const options = () => [...box.querySelectorAll<HTMLOptionElement>('select[aria-label="Project"] option')].map(option => option.value)
+  expect(options()).toContain('/work/project')
+  await act(async () => (store.transport as unknown as { handlers: { onNotification(value: unknown): void } }).handlers.onNotification({ method: 'chats/rootsChanged', params: { epoch: 'host', revision: 1, roots: [nested] } }))
+  await act(async () => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+  expect(options()).toContain('/other')
+  if (evidence === 'chat only') expect(options()).not.toContain('/work/project')
+  else expect(options()).toContain('/work/project')
+})
