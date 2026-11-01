@@ -57,6 +57,7 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
   const approvalRows = [...savedApprovals.map(rule => ({ ...rule, revoked: false })), ...revokedApprovals.map(rule => ({ ...rule, revoked: true }))]
   const [readingRule, setReadingRule] = useState<string | null>(null)
   const reading = approvalRows.find(rule => rule.id === readingRule)
+  const reviewCount = reading?.entries?.filter(entry => entry.uncertain).length ?? 0
   const latest = useRef(cards); latest.current = cards
   const localBusy = useRef(false), [localPending, setLocalPending] = useState<string | null>(null)
   const busy = decisionLock ?? localBusy, pending = decisionPending === undefined ? localPending : decisionPending
@@ -155,7 +156,7 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
         control={<>{!!rule.entries?.length && <Button variant="secondary" onClick={() => setReadingRule(rule.id)}>View changes</Button>}{!rule.revoked && <Button variant="secondary" disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button>}</>} />)}</Rows>
     </section>}
     {reading && <Dialog title="Changes under this approval" description={sanitizeText(reading.target)} onClose={() => setReadingRule(null)} footer={<Button onClick={() => setReadingRule(null)}>Close</Button>}>
-      <Text as="p" role="meta">{reading.revoked && <Chip tone="neutral">Revoked</Chip>}{` Newest first · ${reading.entries?.filter(entry => !entry.uncertain).length ?? 0} of ${reading.count} ${reading.count === 1 ? 'answer' : 'answers'} retained${reading.entries?.some(entry => entry.uncertain) ? ` · ${reading.entries.filter(entry => entry.uncertain).length} needs review` : ''}`}</Text>
+      <Text as="p" role="meta">{reading.revoked && <Chip tone="neutral">Revoked</Chip>}{` Newest first · ${reading.entries?.filter(entry => !entry.uncertain).length ?? 0} of ${reading.count} ${reading.count === 1 ? 'answer' : 'answers'} retained${reviewCount > 0 ? ` · ${reviewCount} ${reviewCount === 1 ? 'needs' : 'need'} review` : ''}`}</Text>
       <Rows>{reading.entries?.map(entry => <Row key={entry.id} kind="record" layout="record" title={<>{`Request ${entry.number}`}{entry.uncertain && <Chip tone="warning">Needs review</Chip>}</>} desc={<CodeText block wrap>{sanitizeText(entry.diff)}</CodeText>} />)}</Rows>
     </Dialog>}
   </>
