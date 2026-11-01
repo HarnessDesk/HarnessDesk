@@ -1106,7 +1106,9 @@ const handlers = {
     }
     if (process.env.FAKE_ACP_AUTH_LOG) appendFileSync(process.env.FAKE_ACP_AUTH_LOG, `${params?.methodId}\n`)
     const answer = () => {
+      if (params?.methodId === 'api-key' && process.env.FAKE_ACP_REFUSE_KEY_FILE && existsSync(process.env.FAKE_ACP_REFUSE_KEY_FILE)) return fail(id, 'key switch refused')
       if (process.env.FAKE_ACP_AUTH_FAILS === '1') return fail(id, 'the browser flow was refused. Try again.')
+      if (process.env.FAKE_ACP_AUTH_MODE_FILE) writeFileSync(process.env.FAKE_ACP_AUTH_MODE_FILE, params.methodId)
       // Signed in, so the sessions this agent was refusing now open.
       signedOut = false
       delete process.env.FAKE_ACP_AUTH_REQUIRED
@@ -1124,8 +1126,10 @@ const handlers = {
     if (!LOGS_OUT) return fail(id, 'Method not found: logout')
     if (process.env.FAKE_ACP_LOGOUT_FAILS === '1') return fail(id, 'the keychain refused to give up the token')
     signedOut = true
+    if (process.env.FAKE_ACP_AUTH_MODE_FILE) writeFileSync(process.env.FAKE_ACP_AUTH_MODE_FILE, 'out')
     reply(id, {})
   },
+  'test/crash': () => { process.exit(1) },
   'session/close': async (id, params) => {
     if (process.env.FAKE_ACP_NO_CLOSE) return fail(id, 'close is unsupported')
     if (process.env.FAKE_ACP_CLOSE_SILENT) return
@@ -1172,7 +1176,8 @@ const handlers = {
       send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Gemini API key is missing or not configured.' } })
       return
     }
-    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed || signedOut) {
+    const savedMode = process.env.FAKE_ACP_AUTH_MODE_FILE && existsSync(process.env.FAKE_ACP_AUTH_MODE_FILE) ? readFileSync(process.env.FAKE_ACP_AUTH_MODE_FILE, 'utf8') : null
+    if (process.env.FAKE_ACP_AUTH_REQUIRED === '1' || lapsed || signedOut || savedMode === 'out' || (savedMode === 'api-key' && !process.env.HD_FAKE_KEY)) {
       send({
         jsonrpc: '2.0',
         id,
