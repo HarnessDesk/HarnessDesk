@@ -39,6 +39,8 @@ export interface ForgePort {
   askPerson?(scope: ForgeScope, question: HeldQuestion, signal?: AbortSignal): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>
   mergeStep?(scope: ForgeScope, target: { readonly number: number; readonly head: string }): boolean
   guardedMerge?(scope: ForgeScope): boolean
+  /** Exact person-turn/retired-Seat marker, present only for this live invocation. */
+  retiredPersonFence?(scope: ForgeScope): string | null
   mergeAuthority?(scope: ForgeScope, target: { readonly repository: string; readonly number: number; readonly head: string }): Promise<import('@harnessdesk/protocol').ReviewTargetBinding | null>
   mergeFence?(scope: ForgeScope, target: { readonly repository: string; readonly number: number; readonly head: string }): string | null
   mergeGeneration?(): number
@@ -285,9 +287,20 @@ export class ForgePlane implements ForgeEngine {
       return { output: await gateway.updatePullRequest({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
     },
     merge: async (args: ForgeMerge, scope: ForgeScope): Promise<ForgeWriteResult> => {
-      const { gateway, checkout, requester, repository } = await this.#destination(scope, 'merge', args)
-      let approval: GitApproval = { by: 'ceiling', at: Date.now() }
+      this.#live(scope)
+      // Capture before destination resolution can yield to a replacement owner or turn.
       const guarded = this.port.guardedMerge?.(scope) ?? false
+      const retiredPersonFence = guarded ? null : this.port.retiredPersonFence?.(scope) ?? null
+      const checkManualFence = () => {
+        this.#live(scope)
+        if ((this.port.guardedMerge?.(scope) ?? false) !== guarded ||
+            (!guarded && (this.port.retiredPersonFence?.(scope) ?? null) !== retiredPersonFence)) {
+          throw new Error('The merge request is no longer in the approved person turn. Nothing was submitted.')
+        }
+      }
+      const { gateway, checkout, requester, repository } = await this.#destination(scope, 'merge', args)
+      checkManualFence()
+      let approval: GitApproval = { by: 'ceiling', at: Date.now() }
       const target = { repository, number: args.number, head: args.head }
       const generation = guarded ? this.port.mergeGeneration?.() : undefined
       const fence = guarded ? this.port.mergeFence?.(scope, target) : null
@@ -309,6 +322,7 @@ export class ForgePlane implements ForgeEngine {
         approval = { by: 'person', at: Date.now() }
       }
       this.#live(scope)
+      checkManualFence()
       const checkAuthority = binding ? async () => {
         this.#live(scope)
         if (!this.port.guardedMerge?.(scope) || this.port.mergeGeneration?.() !== generation || this.port.mergeFence?.(scope, target) !== fence) return false
@@ -318,9 +332,11 @@ export class ForgePlane implements ForgeEngine {
       } : undefined
       const beforeSpawn = () => {
         this.#live(scope)
+        checkManualFence()
         if (binding && (this.port.mergeGeneration?.() !== generation || this.port.mergeFence?.(scope, target) !== fence)) throw new Error('The merge authority changed before submission. Start a fresh review.')
       }
-      return { output: await gateway.mergePullRequest({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, approval, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository), beforeSpawn, ...(binding ? { reviewedTarget: binding, checkAuthority } : {}) }), repository }
+      const beforeWrite = this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository)
+      return { output: await gateway.mergePullRequest({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, approval, beforeWrite: async () => { await beforeWrite(); checkManualFence() }, beforeSpawn, ...(binding ? { reviewedTarget: binding, checkAuthority } : {}) }), repository }
     },
   }
   async review(args: ForgeReview, scope: ForgeScope): Promise<ForgeWriteResult> {

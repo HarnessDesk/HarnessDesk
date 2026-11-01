@@ -41,12 +41,14 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
   } })
   const questions: HeldQuestion[] = [], publications: ForgeReference[] = [], admissions: string[] = []
   let onQuestion: (() => void | Promise<void>) | undefined
+  let onCheckout: (() => void | Promise<void>) | undefined
+  let retiredFence: string | null = null
   let answer: 'allowed' | 'standing' | 'refused' | 'unanswered' = 'allowed', mergeStep = false, guardedMerge = false, ceiling: 'read' | 'publish' | 'merge' = 'merge'
   let reviewBinding: import('@harnessdesk/protocol').ReviewTargetBinding | null = null
-  const plane = new ForgePlane({ gitGateway: gateway, checkoutOf: async () => ({ cwd: checkout, root: checkout }),
+  const plane = new ForgePlane({ gitGateway: gateway, checkoutOf: async () => { await onCheckout?.(); return { cwd: checkout, root: checkout } },
     admitWrite: async verb => { admissions.push(verb); if (ceiling === 'read' || verb === 'merge' && ceiling !== 'merge') throw new Error('Ceiling refused') },
     askPerson: async (_scope, question) => { questions.push(question); await onQuestion?.(); return answer }, mergeStep: (_scope, target) => mergeStep && ceiling === 'merge' && target.number === 1 && target.head === git(checkout, 'rev-parse', 'HEAD'),
-    guardedMerge: () => guardedMerge, mergeAuthority: async () => reviewBinding, mergeFence: () => guardedMerge ? 'fixture-owner' : null, mergeGeneration: () => 0,
+    guardedMerge: () => guardedMerge, retiredPersonFence: () => retiredFence, mergeAuthority: async () => reviewBinding, mergeFence: () => guardedMerge ? 'fixture-owner' : null, mergeGeneration: () => 0,
     agentOf: () => ({ name: 'Test Agent', version: null }), optionsOf: () => [], toolsOffered: () => true,
     record: (_runtime, _session, item) => { publications.push(item.reference); return true },
   }, { gh: async args => ({ stdout: args[0] === 'api' ? 'jane-doe' : '', stderr: '', exitCode: 0 }) })
@@ -66,8 +68,29 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
   const trace = () => !existsSync(tracePath) ? [] : readFileSync(tracePath, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { argv: string[]; cwd: string; hasCredential: boolean; envKeys: string[] })
   return { gateway, plane, kernel, root, checkout, remote, host, run, invoke, rows, questions, publications, admissions, trace, statePath,
     onQuestion: (hook: () => void | Promise<void>) => { onQuestion = hook },
+    onCheckout: (hook: () => void | Promise<void>) => { onCheckout = hook }, retiredFence: (value: string | null) => { retiredFence = value },
     answer: (value: typeof answer) => { answer = value }, mergeStep: (value: boolean) => { mergeStep = value }, guardedMerge: (value: boolean) => { guardedMerge = value }, reviewBinding: (value: typeof reviewBinding) => { reviewBinding = value }, ceiling: (value: typeof ceiling) => { ceiling = value } }
 }
+
+test('a merge held at destination cannot borrow a replacement person fence', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  await f.run('pr_create', { title: 'Widgets', body: 'Body' })
+  let entered!: () => void, release!: () => void
+  const waiting = new Promise<void>(resolve => { entered = resolve })
+  const held = new Promise<void>(resolve => { release = resolve })
+  f.retiredFence('old-owner-nonce')
+  f.onCheckout(async () => { entered(); await held })
+  const questions = f.questions.length
+  const merge = f.plane.pullRequest.merge({ number: 1, head: git(f.checkout, 'rev-parse', 'HEAD'), method: 'squash' },
+    { actor: 'agent', runtime: 'fixture', sessionId: 's1', plugin: 'fixture', signal: new AbortController().signal } as ForgeScope)
+  await waiting
+  f.retiredFence('replacement-owner-nonce')
+  release()
+  await assert.rejects(merge, /no longer in the approved person turn/i)
+  assert.equal(f.questions.length, questions)
+  assert.equal(f.trace().filter(call => call.argv[0] === 'pr' && call.argv[1] === 'merge').length, 0)
+})
 
 test('a guarded Flow merge with missing authority refuses without a person fallback', async t => {
   const f = await fixture(t)

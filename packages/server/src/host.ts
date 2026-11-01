@@ -1323,6 +1323,7 @@ export class Host {
           if (!scope.runtime || !scope.sessionId) return false
           const kept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
           if (!kept?.board) return false
+          if (this.#retiredPersonFence(scope)) return false
           const board = this.#team.stateFor(kept.board)
           const cards = new Set([...board.intents.map(card => card.id), ...this.#flows.executionsFor(kept.board).flatMap(run => run.rounds.flatMap(round => round.cards))])
           return [...cards].some(id => {
@@ -1333,6 +1334,7 @@ export class Host {
               (binding?.runtime === scope.runtime && binding?.sessionId === scope.sessionId)
           })
         },
+        retiredPersonFence: (scope) => this.#retiredPersonFence(scope),
         mergeGeneration: () => this.#evidence.store.generation,
         mergeFence: (scope, target) => {
           if (!scope.runtime || !scope.sessionId || this.#ceilingOf(scope.runtime, scope.sessionId)?.level !== 'merge') return null
@@ -3569,6 +3571,8 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#retiredPersonTurns.clear()
+    this.#seenTurnIds = new WeakMap()
     this.#unsubscribeChatRoots()
     this.#leadBudgets.stopMetering()
     // close() latches Lead dispatch synchronously, before ordinary teardown yields.
@@ -5595,8 +5599,9 @@ export class Host {
         },
         drain: (record) => this.#drain(record),
         nextId: () => this.#nextQueuedId(),
+        retiredPersonSeat: (record) => this.#retiredPersonSeat(record),
         busy: (record) => this.#queueBusy(record),
-        sendNow: (record, input, held, effectStarted, admitLive) => this.#sendNow(record, input, held, effectStarted, admitLive),
+        sendNow: (record, input, held, effectStarted, admitLive, personSeat) => this.#sendNow(record, input, held, effectStarted, admitLive, personSeat),
       },
       accounts: {
         add: (runtime, gateway, name) => this.#addAccount(runtime, gateway, name),
@@ -6784,6 +6789,32 @@ export class Host {
 
   readonly #messageTurns = new Map<string, TurnCause>()
   readonly #pendingCauses = new Map<string, TurnCause>()
+  /** Explicit direct person turns accepted after a particular Seat closed. */
+  readonly #retiredPersonTurns = new Map<string, { readonly seat: string; readonly owner: SessionRecord; readonly nonce: string; waitingForStart: boolean }>()
+  /** Remember this Host's turn IDs even if conversation history is truncated. Null means too many to prove uniqueness. */
+  #seenTurnIds = new WeakMap<SessionRecord, Set<string> | null>()
+
+  #clearPersonTurnMarkers(runtime: string, sessionId: string): void {
+    for (const [key, marker] of this.#retiredPersonTurns) {
+      if (String(marker.owner.runtime) === runtime && String(marker.owner.session.id) === sessionId) this.#retiredPersonTurns.delete(key)
+    }
+  }
+
+  #retiredPersonSeat(record: SessionRecord): string | null {
+    if (this.#disposed || this.registry.get(record.runtime, record.session.id) !== record) return null
+    const seat = this.#evidence.seats.latestKeptOf(String(record.runtime), String(record.session.id))
+    return seat?.board && seat.closed && !seat.restored ? seat.id : null
+  }
+
+  #retiredPersonFence(scope: { readonly runtime?: string; readonly sessionId?: string; readonly turnId?: string; readonly signal?: AbortSignal }): string | null {
+    if (!scope.runtime || !scope.sessionId || !scope.turnId || scope.signal?.aborted) return null
+    const record = this.registry.get(runtimeId(scope.runtime), makeSessionId(scope.sessionId))
+    if (!record || ![...record.running].some(turn => String(turn) === scope.turnId)) return null
+    const seat = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+    const key = this.#turnKey(scope.runtime, scope.sessionId, scope.turnId)
+    const marker = this.#retiredPersonTurns.get(key)
+    return !this.#disposed && seat?.board && seat.closed && !seat.restored && marker?.owner === record && marker.seat === seat.id ? JSON.stringify([key, seat.id, marker.nonce]) : null
+  }
 
   #messageCause(from: TeamSender): TurnCause {
     const sender = this.#rootOf(String(from.runtime), from.sessionId) ?? {
@@ -7677,7 +7708,7 @@ export class Host {
    * a second one asking the same question again.
    */
   async #sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession, effectStarted?: () => void,
-    admitLive?: DispatchAdmission<AgentSession>): Promise<TurnId> {
+    admitLive?: DispatchAdmission<AgentSession>, personSeat: string | null = null): Promise<TurnId> {
     const key = recordKey(record)
     // The mark is owned: only the send that set it may take it off. A send
     // whose deadline passed, and whose agent then answered after a later send
@@ -7701,7 +7732,7 @@ export class Host {
         if (admitLive) await admitLive(live)
         admitLive?.assertDispatch?.()
         effectStarted?.()
-        return live.send(input)
+        return this.#sendWithPersonMarker(record, live, input, personSeat)
       }
       return await (held ? send(held) : this.#dispatch({ runtime: record.runtime, sessionId: record.session.id }, send))
     } catch (error) {
@@ -7717,6 +7748,21 @@ export class Host {
    * turn would put words in their mouth, and each queued message was written
    * as its own instruction.
    */
+  /** Mark only an explicitly admitted person message, for its exact owner and closed Seat. */
+  async #sendWithPersonMarker(record: SessionRecord, live: AgentSession, input: readonly UserContent[], admittedSeat: string | null): Promise<TurnId> {
+    const retiredId = admittedSeat && this.#retiredPersonSeat(record) === admittedSeat ? admittedSeat : null
+    const seen = retiredId ? this.#seenTurnIds.get(record) : null
+    const priorTurns = retiredId && seen !== null ? new Set([...(seen ?? []), ...record.session.turns.map(turn => String(turn.id))]) : null
+    const turn = await live.send(input)
+    const active = [...record.running].some(id => String(id) === String(turn))
+    const completed = record.session.turns.some(one => String(one.id) === String(turn) && one.status !== 'inProgress')
+    if (retiredId && this.#retiredPersonSeat(record) === retiredId && priorTurns && !priorTurns.has(String(turn)) && !completed) {
+      this.#retiredPersonTurns.set(this.#turnKey(String(record.runtime), String(record.session.id), String(turn)), { seat: retiredId, owner: record, nonce: randomUUID(), waitingForStart: !active })
+      if (this.#retiredPersonTurns.size > 2000) { const oldest = this.#retiredPersonTurns.keys().next().value; if (oldest !== undefined) this.#retiredPersonTurns.delete(oldest) }
+    }
+    return turn
+  }
+
   async #drain(record: SessionRecord): Promise<void> {
     const key = recordKey(record)
     let cancelled = false
@@ -7759,7 +7805,7 @@ export class Host {
           if (!record.queue.messages.some(message => message.id === sending.id)) { cancelled = true; return }
           admit?.assertDispatch?.()
           sendStarted = true
-          return current.send(sending.input)
+          return this.#sendWithPersonMarker(record, current, sending.input, this.registry.queuedPersonSeat(record, sending.id) ?? null)
         })
         this.registry.cancelQueued(record, sending.id)
         this.#pushQueue(record)
@@ -8679,6 +8725,15 @@ export class Host {
     if (event.type === 'session/title') this.#sessionIndex.setTitle(runtime, event.sessionId, event.title)
     this.#noteDelegation(runtime, event)
     if (event.type === 'turn/started') {
+      const owner = this.registry.get(runtime, event.sessionId)
+      if (owner) {
+        const turns = this.#seenTurnIds.has(owner) ? this.#seenTurnIds.get(owner)! : new Set<string>()
+        if (turns) { turns.add(String(event.turn.id)); this.#seenTurnIds.set(owner, turns.size > 2000 ? null : turns) }
+      }
+      const personKey = this.#turnKey(String(runtime), String(event.sessionId), String(event.turn.id))
+      const person = this.#retiredPersonTurns.get(personKey)
+      if (person?.waitingForStart) person.waitingForStart = false
+      else this.#retiredPersonTurns.delete(personKey)
       const key = String(sessionKey(runtime, event.sessionId))
       const pending = this.#pendingCauses.get(key)
       if (pending) {
@@ -8686,6 +8741,8 @@ export class Host {
         this.#pendingCauses.delete(key)
       }
     }
+    if (event.type === 'turn/completed') this.#retiredPersonTurns.delete(this.#turnKey(String(runtime), String(event.sessionId), String(event.turn.id)))
+    if (event.type === 'session/closed' || event.type === 'session/detached') this.#clearPersonTurnMarkers(String(runtime), String(event.sessionId))
     // The host's permission policy runs before the backend's own
     // question reaches a human. A matched approval never renders: it is
     // answered here, audited here, and reported as a notice.
@@ -10111,6 +10168,7 @@ export class Host {
   }
 
   #push(notification: WireNotification, goalApprovalChecked = false): void {
+    if (notification.method === 'session/removed') this.#clearPersonTurnMarkers(String(notification.params.runtime), String(notification.params.sessionId))
     if (!goalApprovalChecked && this.#leadHasWorkerRules?.() && this.#leadAutoApproval && notification.method === 'event' && notification.params.event.type === 'approval/requested' && !String(notification.params.event.approval.id).startsWith('held-') &&
       this.#leadOwnsWorker?.(String(notification.params.runtime), String(notification.params.event.approval.sessionId), false)) {
       const { runtime, event } = notification.params

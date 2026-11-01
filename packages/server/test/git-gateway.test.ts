@@ -134,6 +134,22 @@ test('an open unqueued snapshot cannot clear an earlier request that may be acce
   assert.equal(submissions, 1, 'the still-in-flight first request must not be followed by another')
 })
 
+test('a lost merge response that mentions a head mismatch remains unknown across restart', async () => {
+  const f = await fixture()
+  let submissions = 0, acceptedLater = false
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    if (args[1] === 'merge') { submissions++; throw new Error('connection lost after submit: match-head-commit head changed') }
+    const merged = acceptedLater
+    acceptedLater = true
+    return { stdout: JSON.stringify({ data: { repository: { pullRequest: { state: merged ? 'MERGED' : 'OPEN', merged, mergeQueueEntry: null, autoMergeRequest: null } } } }), stderr: '', exitCode: 0 }
+  }
+  const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const }
+  await assert.rejects(new f.module.GitGateway({ ...f.options, gh }).mergePullRequest(target), /connection lost/)
+  const restarted = new f.module.GitGateway({ ...f.options, gh })
+  await assert.rejects(restarted.mergePullRequest(target), /unresolved|unknown/i)
+  assert.equal(submissions, 1, 'head-mismatch-looking error text must not authorize another submission')
+})
+
 test('concurrent merge requests for the same canonical PR cannot submit twice when the first becomes unknown', async () => {
   const f = await fixture()
   let submissions = 0, started!: () => void, release!: () => void

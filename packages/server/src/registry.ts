@@ -449,13 +449,18 @@ export class SessionRegistry {
    */
   readonly #queuedAdmissions = new WeakMap<SessionRecord, Map<string, DispatchAdmission<AgentSession>>>()
 
+  /** Person provenance is host-only, scoped to the original record and queued id. */
+  readonly #queuedPersonSeats = new WeakMap<SessionRecord, Map<string, string>>()
+
+  queuedPersonSeat(record: SessionRecord, id: string): string | undefined { return this.#queuedPersonSeats.get(record)?.get(id) }
+
   /** Host-only authority stays with the queued id through edits and moves; it never enters the wire projection. */
   queuedAdmission(record: SessionRecord, id: string): (DispatchAdmission<AgentSession>) | undefined {
     return this.#queuedAdmissions.get(record)?.get(id)
   }
 
   enqueue(record: SessionRecord, id: string, input: readonly UserContent[], effectStarted?: () => void,
-    admitLive?: DispatchAdmission<AgentSession>): QueuedMessage {
+    admitLive?: DispatchAdmission<AgentSession>, personSeat?: string): QueuedMessage {
     if (!hasQueuedContent(input)) throw new Error('A queued message must contain at least one non-empty content item.')
     const queue = record.queue
     if (queue.messages.length >= QUEUE_LIMIT) {
@@ -475,6 +480,11 @@ export class SessionRegistry {
       if (!admissions) this.#queuedAdmissions.set(record, admissions = new Map())
       admissions.set(id, admitLive)
     }
+    if (personSeat) {
+      let seats = this.#queuedPersonSeats.get(record)
+      if (!seats) this.#queuedPersonSeats.set(record, seats = new Map())
+      seats.set(id, personSeat)
+    }
     record.queue = { ...queue, messages: [...queue.messages, message] }
     return message
   }
@@ -482,6 +492,7 @@ export class SessionRegistry {
   /** Removes one message. An id that is already gone is not an error — it left. */
   cancelQueued(record: SessionRecord, id: string): void {
     this.#queuedAdmissions.get(record)?.delete(id)
+    this.#queuedPersonSeats.get(record)?.delete(id)
     const messages = record.queue.messages.filter((message) => message.id !== id)
     // Emptying a paused queue resolves the pause: there is nothing left to hold.
     record.queue =
@@ -518,6 +529,7 @@ export class SessionRegistry {
 
   clearQueue(record: SessionRecord): void {
     this.#queuedAdmissions.delete(record)
+    this.#queuedPersonSeats.delete(record)
     record.queue = emptyQueue()
   }
 
