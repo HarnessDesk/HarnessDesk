@@ -609,18 +609,31 @@ test('Overview idle ticks retain heading observers while facts and width still r
   await page.clock.runFor(3000)
   expect(await counts()).toEqual(before)
 
-  await row.locator('[data-slot="seat-cost"]').evaluate(el => { el.textContent = '999999999999999999999999999 turns' })
+  // Moving the facts below mounts them afresh, so a cost written into the DOM would be lost on the
+  // move and the row would flip straight back. A stylesheet keyed on a body attribute survives it,
+  // and the body attribute is one of the changes the row already listens for (themes use it).
+  const longCost = (on: boolean) => page.evaluate(on => {
+    if (!document.getElementById('long-seat-cost')) {
+      const style = document.createElement('style')
+      style.id = 'long-seat-cost'
+      style.textContent = 'body[data-long-seat-cost] #team-overview-narrow [data-seat="seat-0"] [data-slot="seat-cost"]::after { content: " 999999999999999999999999999 turns" }'
+      document.head.append(style)
+    }
+    document.body.toggleAttribute('data-long-seat-cost', on)
+  }, on)
+  await longCost(true)
   await page.clock.runFor(100)
   await expect(facts).toHaveAttribute('data-placement', 'below')
   await facts.locator('[data-slot="seat-cost"]').evaluate(el => {
     const replacement = document.createElement('span')
     replacement.setAttribute('data-slot', 'seat-cost')
-    replacement.textContent = '999999999999999999999999999 turns'
+    replacement.textContent = '2 turns'
     el.replaceWith(replacement)
   })
   await page.clock.runFor(100)
+  await expect(facts).toHaveAttribute('data-placement', 'below')
   expect(await facts.locator('[data-slot="seat-cost"]').evaluate(el => (window as unknown as { __headingObserved: WeakSet<Element> }).__headingObserved.has(el))).toBe(true)
-  await facts.locator('[data-slot="seat-cost"]').evaluate(el => { el.textContent = '2 turns' })
+  await longCost(false)
   await page.clock.runFor(100)
   await expect(facts).toHaveAttribute('data-placement', 'inline')
   await page.setViewportSize({ width: 240, height: 1100 })
