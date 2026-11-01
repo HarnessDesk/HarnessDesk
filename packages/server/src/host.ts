@@ -3610,9 +3610,14 @@ export class Host {
     this.#leadChatControl = chatControl
     this.#leadChatProject = project
     const checkedControl = async <T>(root: string, work: () => Promise<T>): Promise<T> => {
-      try { return await work() }
+      const failure = chatControl.failure
+      try {
+        const result = await work()
+        if (failure && !chatControl.failure) this.#push({ method: 'lead/chats/controlChanged', params: chatControl.current(root) })
+        return result
+      }
       catch (error) {
-        if (chatControl.problem) this.#push({ method: 'lead/chats/controlChanged', params: { ...chatControl.current(root), problem: chatControl.problem } })
+        if (chatControl.failure) this.#push({ method: 'lead/chats/controlChanged', params: { ...chatControl.current(root), problem: chatControl.failure } })
         throw error
       }
     }
@@ -9795,9 +9800,13 @@ export class Host {
     if (this.options.leadEnabled !== true || this.#disposed) return { project: null, chats: [] }
     const project = this.#leadChatProject ?? await readRememberedLeadProject(this.#state.directory)
     if (!project) return { project: null, chats: [] }
-    const store = this.#chatControlStore()
-    try { return await store.list(project.path) }
-    catch (error) { return { ...store.current(project.path), problem: error instanceof Error ? error.message : String(error) } }
+    const store = this.#chatControlStore(), failure = store.failure
+    try {
+      const list = await store.list(project.path)
+      if (failure && !store.failure) this.#push({ method: 'lead/chats/controlChanged', params: list })
+      return list
+    }
+    catch (error) { return { ...store.current(project.path), problem: store.failure ?? { kind: 'unavailable', message: `Lead chat control cannot be read. Check the selected project folder and its access permissions, then try again. ${error instanceof Error ? error.message : String(error)}` } } }
   }
 
   async #resetChatControl(): Promise<LeadChatControlList> {
@@ -9837,19 +9846,32 @@ export class Host {
     const project = this.#leadChatProject ?? await readRememberedLeadProject(this.#state.directory)
     if (!project) return { project: null, chats: [] }
     const store = this.#chatControlStore()
-    let cancelled = 0
-    if (holder === 'person') {
+    const at = id.indexOf(':'), runtime = runtimeId(id.slice(0, at)), session = makeSessionId(id.slice(at + 1))
+    const chat = this.#sessionIndex.get(runtime, session)
+    const listed = () => {
+      const current = this.#sessionIndex.get(runtime, session)
+      return !!chat && !!current && this.#sessionIndex.isOwn(runtime, session, true) && samePath(current.cwd, chat.cwd)
+    }
+    let cancelled = 0, fenced = false
+    const fence = () => {
       store.hold(project.path, id)
       cancelled = this.#cancelLeadQueued(id, store.current(project.path).chats.find(chat => chat.id === id)?.sent ?? [])
+      fenced = true
     }
+    // Preserve the synchronous fence for recorded chats and an already canonical cwd.
+    if (holder === 'person' && (store.current(project.path).chats.some(chat => chat.id === id) || listed() && samePath(chat!.cwd, project.path))) fence()
+    const [cwd, root] = listed() ? await Promise.all([realpath(chat!.cwd).catch(() => null), realpath(project.path).catch(() => null)]) : [null, null]
+    const knownChat = listed() && cwd !== null && root !== null && samePath(cwd, root) && samePath(root, project.path)
+    if (holder === 'person' && knownChat && !fenced) fence()
     try {
-      if (!await store.setHolder(project.path, id, holder)) throw new Error('The Lead has not written to this chat.')
+      if (!await store.setHolder(project.path, id, holder, knownChat)) throw new Error('That chat is not in this project’s chat list or Lead control record.')
+      this.#push({ method: 'lead/chats/controlChanged', params: store.current(project.path) })
+      if (cancelled) await this.#noteLeadChatCancellation(id, cancelled)
       const list = await store.list(project.path)
       this.#push({ method: 'lead/chats/controlChanged', params: list })
-      if (cancelled) await this.#noteLeadChatCancellation(id, cancelled)
       return list
     } catch (error) {
-      this.#push({ method: 'lead/chats/controlChanged', params: { ...store.current(project.path), ...(store.problem ? { problem: store.problem } : {}) } })
+      this.#push({ method: 'lead/chats/controlChanged', params: { ...store.current(project.path), ...(store.failure ? { problem: store.failure } : {}) } })
       throw error
     }
   }
@@ -9861,7 +9883,7 @@ export class Host {
       chatControl: async (id, cwd) => {
         try {
           const list = await this.#chatControlList()
-          if (list.problem) throw new Error(list.problem)
+          if (list.problem) throw new Error(list.problem.message)
           if (!list.project || await realpath(cwd).catch(() => null) !== list.project) return undefined
           return list.chats.find(chat => chat.id === id)
         } catch (error) {

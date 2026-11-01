@@ -169,6 +169,6 @@ for (const entry of ['connect', 'reconnect'] as const) it(`surfaces a failed cha
     vi.spyOn(store, method).mockResolvedValue(undefined as never)
   if (entry === 'connect') await store.connect()
   else { handlers.onStatus('reconnecting'); handlers.onStatus('open') }
-  await vi.waitFor(() => expect(store.lead.state.chatControlProblem).toContain('Synthetic control read is offline'))
+  await vi.waitFor(() => expect(store.lead.state.chatControlProblem?.message).toContain('Synthetic control read is offline'))
   expect(warning).toHaveBeenCalledWith('Lead chat control could not be read', expect.any(Error))
 })
