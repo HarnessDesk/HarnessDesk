@@ -2290,6 +2290,9 @@ export class AppStore {
         ...this.#snapshot.usage.filter((report) => !unchanged(report.runtime)),
         ...reports.filter((report) => unchanged(report.runtime)),
       ] })
+      // A host with a fresh reading cached answers here and sends no update,
+      // so a spent account found at connect is the pool's to move too.
+      this.#followPool(this.#snapshot.usage)
     } catch {
       // A host that cannot answer leaves the last reading in place; the cards
       // show their own age, which is the honest thing to show.
@@ -7513,6 +7516,8 @@ export class AppStore {
           ? { look: preferences['look'] }
           : {}),
       })
+      // Usage may have arrived first; the saved rule applies to it now.
+      this.#followPool(this.#snapshot.usage)
       setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
     } catch {
       // Preferences are a convenience; their absence must not block startup —

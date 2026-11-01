@@ -149,6 +149,19 @@ describe('describeTray', () => {
     expect(summary.agents[0]?.name).toBe('OpenAI Codex · olivia@acme.dev')
   })
 
+  it('names the account without its address while addresses are hidden', () => {
+    const summary = tray({
+      runtimes: [runtime('codex', 'OpenAI Codex')],
+      accountsByRuntime: { codex: signedIn } as never,
+      usage: [
+        report('codex', [lane({ id: 'weekly', usedPercent: 42 })], { account: 'olivia@acme.dev' }),
+        report('codex', [lane({ id: 'weekly', usedPercent: 88 })], { account: 'sam@acme.dev' }),
+      ],
+      hideAddresses: true,
+    })
+    expect(summary.agents[0]?.name).toBe('OpenAI Codex · olivia')
+  })
+
   it('has nothing to add to a shared name when the reading carries no account', () => {
     const summary = tray({
       runtimes: [runtime('codex', 'OpenAI Codex'), runtime('codex-3205b2', 'OpenAI Codex')],

@@ -1594,6 +1594,25 @@ it('names only, when account addresses are hidden', async () => {
   expect([...container.querySelectorAll('[title]')].map((node) => node.getAttribute('title')).join(' ')).not.toContain('@')
 })
 
+it('a gateway that new sessions run on says Default beside Gateway', async () => {
+  const gateway = runtime({
+    id: 'alpha#3',
+    name: 'Alpha',
+    presentation: { name: 'Alpha' },
+    slot: { agent: 'alpha', home: '/tmp/alpha-3', removable: true, canAdd: true, gateway: { name: 'Acme gateway', endpoint: 'https://gw.acme.dev' } },
+  })
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({ activeRuntime: 'alpha#3' as never, runtimes: [ROSTER.runtimes[0]!, gateway, ...ROSTER.runtimes.slice(2)], accountsByRuntime: accounts })
+  await act(async () => line('Alpha').click())
+  const chipsOf = (text: string) =>
+    [...container.querySelectorAll('[data-kind="record"]')]
+      .find((row) => row.textContent?.includes(text))
+      ?.querySelector('[data-slot="row-title-chip"]')?.textContent
+  expect(chipsOf('Acme gateway')).toBe('GatewayDefault')
+  expect(chipsOf('ada')).toBeFalsy()
+})
+
 it('an agent page is the default while new sessions run as any of its accounts', async () => {
   await mountList({ activeRuntime: 'alpha#2' as never })
   await act(async () => line('Alpha').click())

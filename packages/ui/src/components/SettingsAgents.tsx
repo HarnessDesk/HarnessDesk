@@ -765,7 +765,7 @@ const AgentAccounts = ({
                 </AccountMark>
               }
               title={name}
-              titleChip={entry.id === snapshot.activeRuntime && rows.length > 1 ? <Chip tone="neutral" size="sm">Default</Chip> : undefined}
+              titleChip={entry.id === snapshot.activeRuntime && ordered ? <Chip tone="neutral" size="sm">Default</Chip> : undefined}
               /* The plan used to ride along in this line as "…@acme.dev · Pro".
                  It is the one word that answers "what am I paying for", so it
                  moved to the right where the other answers are, and the line
@@ -799,7 +799,11 @@ const AgentAccounts = ({
             kind="record"
             face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
             title={entry.slot?.gateway?.name}
-            titleChip={<Chip tone="neutral" size="sm">Gateway</Chip>}
+            titleChip={
+              entry.id === snapshot.activeRuntime && ordered
+                ? <InlineParts><Chip tone="neutral" size="sm">Gateway</Chip><Chip tone="neutral" size="sm">Default</Chip></InlineParts>
+                : <Chip tone="neutral" size="sm">Gateway</Chip>
+            }
             desc={entry.slot?.gateway?.endpoint}
             truncateDesc
             control={

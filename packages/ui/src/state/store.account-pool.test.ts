@@ -91,6 +91,17 @@ describe('the account pool', () => {
     await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-gw'))
   })
 
+  it('moves when a spent reading is already cached at connect', async () => {
+    preferences = { activeRuntime: 'codex', accountPools: { codex: { whenOut: 'next' } } }
+    await store.loadPreferences()
+    vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+      if (method === 'usage/reports') return [report(100, 'codex'), report(30, 'codex-2')]
+      return null
+    }) as never)
+    await store.loadUsage()
+    expect(store.getSnapshot().activeRuntime).toBe('codex-2')
+  })
+
   it('remembers a new order', async () => {
     store.setAccountPool(runtimeId('codex'), { order: [runtimeId('codex-2'), runtimeId('codex')] })
     expect(store.getSnapshot().accountPools['codex']).toEqual({ order: ['codex-2', 'codex'] })
