@@ -2926,7 +2926,15 @@ export interface SeatActivity {
   readonly since?: number
 }
 
+/** In-memory managed chat ownership, ordered within one StateStore lifetime. */
+export interface ChatRootsSnapshot {
+  readonly epoch: string
+  readonly revision: number
+  readonly roots: readonly string[]
+}
+
 export type WireNotification =
+  | { readonly method: 'chats/rootsChanged'; readonly params: ChatRootsSnapshot }
   | {
       /** The window's current Lead chat holders, verification keys and control-read problem. */
       readonly method: 'lead/chats/controlChanged'

@@ -81,10 +81,10 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
       if (epoch.current !== generation) return
       setRows(previous => after ? [...new Map([...previous, ...page.data].map(row => [`${row.runtime}:${row.id}`, row])).values()] : page.data)
       setCursor(page.nextCursor ?? null)
-      setProjects(previous => [...new Set([...previous, ...page.data.filter(row => !isChatFolder(row.cwd, snapshot.chatsFolderRoots)).map(row => row.repo?.root ?? row.cwd)])].sort())
+      setProjects(previous => [...new Set([...previous, ...page.data.map(row => row.repo?.root ?? row.cwd)])].sort())
     } catch (error) { if (epoch.current === generation) setProblem(reason(error)) }
     finally { if (epoch.current === generation) { setLoading(false); paging.current = false } }
-  }, [store, params, snapshot.chatsFolderRoots])
+  }, [store, params])
   const previousRead = useRef<typeof read | null>(null)
   useEffect(() => {
     if (!destinationActive) return

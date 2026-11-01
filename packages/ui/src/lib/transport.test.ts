@@ -136,6 +136,8 @@ describe('Transport queue handling (#501)', () => {
         for (const cb of this.listeners.get('close') ?? []) cb({})
       }
 
+      message(value: unknown) { for (const cb of this.listeners.get('message') ?? []) cb({ data: JSON.stringify(value) }) }
+
       open() {
         this.readyState = 1
         for (const cb of this.listeners.get('open') ?? []) cb({})
@@ -148,9 +150,10 @@ describe('Transport queue handling (#501)', () => {
 
     try {
       const { Transport } = await import('./transport')
+      const notifications: unknown[] = []
       const transport = new Transport('ws://example.test/ws?token=t', {
         onEvent: () => {},
-        onNotification: () => {},
+        onNotification: event => notifications.push(event),
         onStatus: () => {},
       })
       transport.connect()
@@ -175,6 +178,11 @@ describe('Transport queue handling (#501)', () => {
 
       // The queued request was rejected, so it must not be sent on reconnect
       expect(secondSocket.sent).toEqual([])
+      firstSocket.message({ method: 'chats/rootsChanged', params: { epoch: 'old', revision: 10, roots: ['/old'] } })
+      secondSocket.message({ method: 'chats/rootsChanged', params: { epoch: 'new', revision: 1, roots: ['/new'] } })
+      firstSocket.close()
+      expect(notifications).toEqual([{ method: 'chats/rootsChanged', params: { epoch: 'new', revision: 1, roots: ['/new'] } }])
+      expect(transport.status).toBe('open')
     } finally {
       globalThis.WebSocket = originalWebSocket
     }

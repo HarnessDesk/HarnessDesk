@@ -68,6 +68,20 @@ export class StateStore {
   #loaded = false
   #refused = false
   #writes: Promise<void> = Promise.resolve()
+  readonly #chatRootsEpoch = randomUUID()
+  #chatRootsRevision = 0
+  readonly #chatRootsListeners = new Set<(snapshot: { epoch: string; revision: number; roots: string[] }) => void>()
+
+  chatRootsSnapshot(): { epoch: string; revision: number; roots: string[] } {
+    const raw = this.#state.preferences['managedChatFolders']
+    return { epoch: this.#chatRootsEpoch, revision: this.#chatRootsRevision,
+      roots: Array.isArray(raw) ? [...new Set(raw.filter((root): root is string => typeof root === 'string'))] : [] }
+  }
+
+  onChatRootsChanged(listener: (snapshot: { epoch: string; revision: number; roots: string[] }) => void): () => void {
+    this.#chatRootsListeners.add(listener)
+    return () => { this.#chatRootsListeners.delete(listener) }
+  }
 
   constructor(private readonly file: string = join(defaultStateDir(), 'state.json')) {}
 
@@ -155,7 +169,16 @@ export class StateStore {
         ? Object.fromEntries(Object.entries(raw.projects).filter(([, value]) => ['inherit', 'ask', 'redirect', 'off'].includes(String(value)))) : {}
       checked['gitWrites'] = { ...gitWritePreferences(raw), projects }
     }
+    const before = this.chatRootsSnapshot().roots
     this.#state = { ...this.#state, preferences: { ...this.#state.preferences, ...checked } }
+    const after = this.chatRootsSnapshot().roots
+    if (before.length !== after.length || before.some((root, index) => root !== after[index])) {
+      this.#chatRootsRevision += 1
+      const snapshot = this.chatRootsSnapshot()
+      for (const listener of this.#chatRootsListeners) {
+        try { listener(snapshot) } catch { /* Observers cannot refuse the preference write. */ }
+      }
+    }
     await this.#persist()
   }
 

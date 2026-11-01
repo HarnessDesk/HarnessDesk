@@ -1008,6 +1008,7 @@ export class Host {
    * roster's watch, so a quit that lands first leaves none to leak.
    */
   #disposed = false
+  readonly #unsubscribeChatRoots: () => void
   #startCalled = false
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
@@ -1097,6 +1098,9 @@ export class Host {
   constructor(private readonly options: HostOptions) {
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
+    this.#unsubscribeChatRoots = this.#state.onChatRootsChanged(snapshot => {
+      this.#push({ method: 'chats/rootsChanged', params: snapshot })
+    })
     this.#runtimeCache = new RuntimeCache(join(this.#state.directory, 'runtime-cache.json'), error => {
       this.#logger.warn('runtime observations could not be saved or read', { error: String(error) })
     })
@@ -3469,6 +3473,7 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#unsubscribeChatRoots()
     this.#leadBudgets.stopMetering()
     // close() latches Lead dispatch synchronously, before ordinary teardown yields.
     const leadClosed = this.#leadService?.close().catch(() => { this.#logger.warn('Lead shutdown cleanup remains pending') })

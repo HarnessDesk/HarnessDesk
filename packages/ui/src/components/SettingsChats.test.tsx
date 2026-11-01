@@ -45,8 +45,34 @@ it('shows the host refusal in Settings and retains the previous chats location',
   const action = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === text)!
   await act(async () => action('Change…').click())
   await act(async () => action('Open “project”').click())
-  expect(host.textContent).toContain('Chats folder contains an opened project.')
+  expect(document.body.textContent?.split('Chats folder contains an opened project.').length).toBe(2)
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Chats folder contains an opened project.')
   expect(store.getSnapshot().chatsFolder).toBe('/data/chats')
   expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  await act(async () => action('Cancel').click())
+  expect(document.body.textContent).not.toContain('Chats folder contains an opened project.')
+  await act(async () => action('Change…').click())
+  expect(document.body.textContent).not.toContain('Chats folder contains an opened project.')
+})
+
+
+it('ignores a late refusal after cancelling, and shows a failed reset once', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { chatsFolder: '/data/chats' })
+  let reject!: (error: Error) => void
+  vi.spyOn(store.transport, 'request').mockImplementation(((method: string, params: { patch?: { chatsFolder?: string | null } }) => {
+    if (method === 'workspace/browse') return Promise.resolve({ path: '/project', parent: '/', entries: [] })
+    if (method === 'app/state/set' && params.patch?.chatsFolder === null) return Promise.reject(new Error('Reset refused'))
+    if (method === 'app/state/set') return new Promise((_resolve, fail) => { reject = fail })
+    return Promise.resolve([])
+  }) as never)
+  await act(async () => root.render(<StoreProvider store={store}><GeneralSectionRows /></StoreProvider>))
+  const action = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === text)!
+  await act(async () => action('Change…').click())
+  act(() => action('Open “project”').click())
+  await act(async () => action('Cancel').click())
+  await act(async () => reject(new Error('Late refusal')))
+  expect(document.body.textContent).not.toContain('Late refusal')
+  await act(async () => action('Reset').click())
+  expect(document.body.textContent?.split('Reset refused').length).toBe(2)
 })

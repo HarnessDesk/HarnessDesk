@@ -35,7 +35,11 @@ bundle, and every retained project-memory citation, are files on your disk,
 under `~/.harnessdesk` and your own repositories. Reviewing a repository's
 `AGENT.md` and the bundle beside it never runs anything on its own — it only
 ever produces bytes a person reviews before they are trusted to load. The
-host binds a loopback socket the renderer talks to. Local phone access adds a
+host binds a loopback socket the renderer talks to. Managed chat ownership
+paths, including canonical aliases, are stored in local preferences and sent to
+connected desktop clients as a versioned snapshot; the push carries no other
+preferences. A failed write can leave that ownership in memory until restart;
+backup import can replace it. Local phone access adds a
 LAN listener only when explicitly enabled, as described below.
 To see a card's pull request and its CI, the desk asks your forge with your
 own forge login in the card's checkout. Publication uses the separately pinned
