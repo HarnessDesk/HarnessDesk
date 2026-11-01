@@ -1,0 +1,35 @@
+{
+  "issue": 1767,
+  "head": "46751d2879a14d9ef7feeeaaf6ea98d5049d89da",
+  "frames": [
+    {
+      "name": "unknown-row-light.png",
+      "width": 2560,
+      "height": 1680,
+      "sha256": "0908e8380df28c58fb1da61967261de7c425ea67d4f7acf4b1265c74d47f6f43",
+      "path": "issue-1767-46751d2/unknown-row-light.png"
+    },
+    {
+      "name": "unknown-row-dark.png",
+      "width": 2560,
+      "height": 1680,
+      "sha256": "00b15052c77f9f3465633dad0723d90bdc0f0065894b7d261812a3bd7528ad2f",
+      "path": "issue-1767-46751d2/unknown-row-dark.png"
+    },
+    {
+      "name": "unknown-remove-confirm-light.png",
+      "width": 2560,
+      "height": 1680,
+      "sha256": "2c9d9704caaf14b295859465e131553f659092be3666a987b79b811ac6ff47f4",
+      "path": "issue-1767-46751d2/unknown-remove-confirm-light.png"
+    },
+    {
+      "name": "unknown-remove-confirm-dark.png",
+      "width": 2560,
+      "height": 1680,
+      "sha256": "f933fb30752ab185e283bac71a5c6f726b16e1679ccb9846b0dffc44876a8b5d",
+      "path": "issue-1767-46751d2/unknown-remove-confirm-dark.png"
+    }
+  ],
+  "surface": "Actual production Electron with isolated synthetic accounts: unverified retained rows and explicit forget-only removal. Scripted peers only, no real OS keyring or provider claim."
+}
