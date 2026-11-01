@@ -132,12 +132,12 @@ for (const path of ['src/panel.tsx', 'src/profile.ts', 'src/resource.ts', 'docs/
   const project = '/workspace/.claude/worktrees/demo', target = `${project}/${path}`
   assert.deepEqual(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path: target, kind: { type: 'update' }, diff: 'demo' }] } as any, project), { kind: 'fileChange', path: target })
 })
-for (const obsolete of [{ kind: 'fileChange', path: '/workspace/demo/build.rs' }, { kind: 'command', command: 'git status', cwd: '/workspace/demo' }]) test(`obsolete ${obsolete.kind} rules are dropped on checkpoint load with a host notice`, () => {
+for (const obsolete of [{ kind: 'fileChange', path: '/workspace/demo/build.rs' }, { kind: 'command', command: 'git status', cwd: '/workspace/demo' }]) test(`obsolete ${obsolete.kind} rules lose authority on checkpoint load with a host notice`, () => {
   const checkpoint = leadCheckpoint(save(), 'b'.repeat(64)) as any
   checkpoint.state.workerApprovals[0].key = obsolete
   checkpoint.state.workerApprovals[0].target = obsolete.kind === 'fileChange' ? obsolete.path : 'git status in /workspace/demo'
   const loaded = parseLeadCheckpoint(checkpoint).state
-  assert.deepEqual(loaded.workerApprovals, [])
+  assert.ok(loaded.workerApprovals.every(rule => rule.revoked), 'ineligible file history is inert')
   assert.ok(loaded.messages.some(message => message.role === 'notice' && /saved approvals.*removed/i.test(message.text)))
 })
 
@@ -195,7 +195,7 @@ for (const name of ['src/AGENTſ.md', 'src/gulpﬁle.js', 'src/SKILL.md', 'sou
   const checkpoint = leadCheckpoint(save(), 'b'.repeat(64)) as any
   checkpoint.state.workerApprovals[0].key.path = path; checkpoint.state.workerApprovals[0].target = path
   const loaded = parseLeadCheckpoint(checkpoint).state
-  assert.deepEqual(loaded.workerApprovals, [])
+  assert.ok(loaded.workerApprovals.every(rule => rule.revoked), 'ineligible file history is inert')
   assert.ok(loaded.messages.some(message => message.role === 'notice'))
 })
 for (const name of ['src.ts', 'proc.ts', 'arc.ts']) test(`ordinary ASCII rc-containing source remains eligible: ${name}`, () => {
@@ -316,7 +316,7 @@ test('revoke retains the uncertain diff without counting an acknowledged answer'
   assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(reopened.state, 'b'.repeat(64))).state, reopened.state)
 })
 
-for (const name of ['gulpfile.babel.js', 'jakefile.custom.ts', 'vitest.workspace.ts', 'ember-cli-build.js', 'WARP.md', 'QWEN.md', 'CRUSH.md']) test(`follow-up refuses executable or instruction file ${name}`, () => {
+for (const name of ['gulpfile.babel.js', 'jakefile.custom.ts', 'Jakefile.js', 'pnpmfile.cjs', 'vitest.workspace.ts', 'ember-cli-build.js', 'WARP.md', 'QWEN.md', 'CRUSH.md']) test(`follow-up refuses executable or instruction file ${name}`, () => {
   const path = '/workspace/demo/' + name
   assert.equal(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: '+demo' }] } as any, '/workspace/demo'), null)
 })
@@ -358,7 +358,7 @@ for (const ending of ['worker-rule-used', 'worker-rule-dispatch-cancelled'] as c
   ]
   const loaded = checkpoint ? parseLeadCheckpoint(leadCheckpoint({ ...base, workerApprovals: [rule] }, 'b'.repeat(64))).state : start()
   const journal = await createLeadJournal({ async read() { return records }, checkpoint() { return loaded }, async append() {} })
-  assert.deepEqual(journal.state.workerApprovals, [])
+  assert.ok(journal.state.workerApprovals.every(rule => rule.revoked && !rule.dispatch))
   assert.equal(journal.state.phase, 'running')
   assert.equal(journal.state.messages.filter(message => message.id === 'worker-rules-removed').length, 1)
 })
@@ -386,4 +386,96 @@ test('a historical same-contract renewal and approval cannot release a recovered
   assert.equal(state.phase, 'waiting-for-user')
   assert.equal(state.managementReason, 'lead-worker-audit-failed')
   assert.ok(state.workerApprovals[0]!.dispatch)
+})
+
+for (const resume of [false, true]) test(`uncertain revoke keeps a durable wait through replay (resume: ${resume})`, async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const records: any[] = [], base = save()
+  const storage = { async read() { return records }, checkpoint() { return base }, async append(record: any) { records.push(record) } }
+  const journal = await createLeadJournal(storage)
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { throw Error('uncertain') }, '+inspect'))
+  await journal.revokeWorkerApproval('rule-1', digest)
+  if (resume) await journal.resume()
+  const reopened = await createLeadJournal(storage)
+  assert.equal(reopened.state.phase, resume ? 'running' : 'waiting-for-user')
+  assert.equal(reopened.state.managementReason, resume ? null : 'lead-worker-audit-failed')
+})
+
+test('a 1951 dispatch revoke resume record sequence replays', () => {
+  const base = save()
+  const events = [{ type: 'worker-rule-dispatch', id: 'rule-1', diff: '+inspect' }, { type: 'worker-rule-revoked', id: 'rule-1' }, { type: 'resume' }]
+  const state = events.reduce((state, event) => reduceLeadRecord(state, { version: 1, seq: state.seq + 1, ...event }), base)
+  assert.equal(state.phase, 'running')
+})
+
+for (const checkpoint of [false, true]) test(`obsolete unfinished dispatch remains fenced and reviewable (checkpoint: ${checkpoint})`, async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = save(), rule = { ...base.workerApprovals[0]!, key: { kind: 'fileChange' as const, path: '/workspace/demo/gulpfile.babel.js' }, target: '/workspace/demo/gulpfile.babel.js' }
+  const dispatch = { revision: base.seq + 1, diff: '+unacknowledged runner change', phase: base.phase, reason: base.managementReason }
+  const loaded = checkpoint ? parseLeadCheckpoint(leadCheckpoint({ ...base, seq: dispatch.revision, workerApprovals: [{ ...rule, dispatch }] }, 'b'.repeat(64))).state : start()
+  const records: any[] = checkpoint ? [] : [{ version: 1, seq: base.seq, type: 'worker-rule-saved', rule }, { version: 1, seq: dispatch.revision, type: 'worker-rule-dispatch', id: rule.id, diff: dispatch.diff }]
+  const journal = await createLeadJournal({ async read() { return records }, checkpoint() { return loaded }, async append() {} })
+  assert.equal(journal.state.phase, 'waiting-for-user')
+  assert.equal(journal.state.managementReason, 'lead-worker-audit-failed')
+  await journal.revokeWorkerApproval(rule.id, digest)
+  assert.equal(journal.state.workerApprovals[0]!.entries![0]!.diff, dispatch.diff)
+  assert.equal(journal.state.workerApprovals[0]!.entries![0]!.uncertain, true)
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(journal.state, 'b'.repeat(64))).state, journal.state)
+})
+
+for (const name of ['profile.test.ts', 'profile.spec.ts', 'profile.component.ts', 'profile.service.ts', 'file.utils.ts']) test(`ordinary source variants remain eligible: ${name}`, () => {
+  const path = '/workspace/demo/src/' + name
+  assert.deepEqual(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: '+source' }] } as any, '/workspace/demo'), { kind: 'fileChange', path })
+})
+for (const name of ['gatsby-config.js', 'gatsby-node.js', 'my-config.ts', 'sitecustomize.py', 'usercustomize.py']) test(`executed config is not reusable: ${name}`, () => {
+  const path = '/workspace/demo/' + name
+  assert.equal(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: '+source' }] } as any, '/workspace/demo'), null)
+})
+
+test('a dispatch whose key was removed by an older checkpoint keeps its diff through the next checkpoint', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = start()
+  const journal = await createLeadJournal({ async read() { return [{ version: 1, seq: base.seq + 1, type: 'worker-rule-dispatch', id: 'removed', diff: '+orphan change' }] }, checkpoint() { return base }, async append() {} })
+  assert.equal(journal.state.managementReason, 'lead-worker-audit-failed')
+  const loaded = parseLeadCheckpoint(leadCheckpoint(journal.state, 'b'.repeat(64))).state
+  assert.equal(loaded.phase, 'waiting-for-user')
+  assert.equal(loaded.messages.at(-1)!.approval!.diff, '+orphan change')
+})
+
+for (const type of ['worker-rule-used', 'worker-rule-dispatch-cancelled']) test(`a missing-key dispatch settles on its own ${type} record`, async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = start()
+  const records: any[] = [{ version: 1, seq: base.seq + 1, type: 'worker-rule-dispatch', id: 'removed', diff: '+orphan change' },
+    { version: 1, seq: base.seq + 2, type, id: 'removed', ...(type === 'worker-rule-used' ? { diff: '+orphan change' } : {}) }]
+  const journal = await createLeadJournal({ async read() { return records }, checkpoint() { return base }, async append() {} })
+  assert.equal(journal.state.phase, 'running')
+  assert.equal(journal.state.managementReason, null)
+  assert.equal(journal.state.messages.some(message => message.id.startsWith('worker-rule-orphan-')), false)
+})
+
+test('a person can resume after inspecting an unknown-key dispatch observation', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = start(), records: any[] = [{ version: 1, seq: base.seq + 1, type: 'worker-rule-dispatch', id: 'removed', diff: '+inspect' }]
+  const storage = { async read() { return records }, checkpoint() { return base }, async append(record: any) { records.push(record) } }
+  const journal = await createLeadJournal(storage)
+  await journal.resume()
+  assert.equal(journal.state.phase, 'running')
+  assert.equal((await createLeadJournal(storage)).state.phase, 'running')
+})
+
+for (const orphan of [false, true]) test(`expired consent can renew an audit wait without releasing it (orphan: ${orphan})`, async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = orphan ? start() : save(), records: any[] = orphan ? [{ version: 1, seq: base.seq + 1, type: 'worker-rule-dispatch', id: 'removed', diff: '+inspect' }] : []
+  const journal = await createLeadJournal({ async read() { return records }, checkpoint() { return base }, async append(record) { records.push(record) } })
+  if (!orphan) {
+    await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { throw Error('uncertain') }, '+inspect'))
+    await journal.revokeWorkerApproval('rule-1', digest)
+  }
+  await journal.renewPlan(201)
+  assert.equal(journal.state.consent!.renewalCardRevision, 2)
+  assert.equal(journal.state.phase, 'waiting-for-user')
+  await journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 2, contractDigest: digest, choice: 'approve' }, 400)
+  assert.equal(journal.state.phase, 'waiting-for-user')
+  await journal.resume()
+  assert.equal(journal.state.phase, 'running')
 })

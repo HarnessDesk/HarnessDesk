@@ -154,8 +154,8 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
       <Rows>{approvalRows.map(rule => <Row key={rule.id} title={<>{sanitizeText(rule.target)}{rule.revoked ? <Chip tone="neutral">Revoked</Chip> : rule.uncertain ? <Chip tone="warning">Needs review</Chip> : null}</>} desc={`${rule.count} ${rule.count === 1 ? 'request' : 'requests'} answered`}
         control={<>{!!rule.entries?.length && <Button variant="secondary" onClick={() => setReadingRule(rule.id)}>View allowed diffs</Button>}{!rule.revoked && <Button variant="secondary" disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button>}</>} />)}</Rows>
     </section>}
-    {reading && <Dialog title="Allowed diffs" description={sanitizeText(reading.target)} onClose={() => setReadingRule(null)} footer={<Button onClick={() => setReadingRule(null)}>Close</Button>}>
-      <Text as="p" role="meta">{reading.revoked && <Chip tone="neutral">Revoked</Chip>}{` Newest first · ${reading.entries?.filter(entry => !entry.uncertain).length ?? 0} retained of ${reading.count} automatic answers`}</Text>
+    {reading && <Dialog title="Changes under this approval" description={sanitizeText(reading.target)} onClose={() => setReadingRule(null)} footer={<Button onClick={() => setReadingRule(null)}>Close</Button>}>
+      <Text as="p" role="meta">{reading.revoked && <Chip tone="neutral">Revoked</Chip>}{` Newest first · ${reading.entries?.filter(entry => !entry.uncertain).length ?? 0} of ${reading.count} ${reading.count === 1 ? 'answer' : 'answers'} retained${reading.entries?.some(entry => entry.uncertain) ? ` · ${reading.entries.filter(entry => entry.uncertain).length} needs review` : ''}`}</Text>
       <Rows>{reading.entries?.map(entry => <Row key={entry.id} kind="record" layout="record" title={<>{`Request ${entry.number}`}{entry.uncertain && <Chip tone="warning">Needs review</Chip>}</>} desc={<CodeText block wrap>{sanitizeText(entry.diff)}</CodeText>} />)}</Rows>
     </Dialog>}
   </>

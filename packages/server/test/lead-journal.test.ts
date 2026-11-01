@@ -925,3 +925,66 @@ test('a durable worker dispatch without acknowledgement reopens fenced until per
   await restored.resume()
   assert.equal(restored.state.workerApprovals[0]!.revoked, true)
 })
+
+const seedApproval = async (journal: Awaited<ReturnType<typeof createLeadJournal>>) => {
+  const { parseLeadAcceptanceContract } = await import('@harnessdesk/protocol')
+  const digest = 'a'.repeat(64)
+  const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest, goal: 'Inspect demo', project: { id: 'demo', path: '/workspace/demo' }, policyRevision: 1,
+    steps: [{ id: 'work', title: 'Inspect', flow: 'lead-reviewed-result', sourceRevision: 'source-1', variables: {}, attendance: 'attended', assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture' }, ceiling: 'edit' }] }],
+    assertions: [{ id: 'diff', kind: 'diff', description: 'Reviewed' }], caps: { usdMicros: 500, rounds: 3 } })
+  await journal.setPolicy(policy)
+  await journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: digest, contract })
+  await journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: digest, choice: 'approve' }, 1000)
+  await journal.saveWorkerApproval({ id: 'rule', contractDigest: digest, goalStartedSeq: journal.state.goalStartedSeq, key: { kind: 'fileChange', path: '/workspace/demo/panel.tsx' }, target: '/workspace/demo/panel.tsx', count: 0 }, () => true, async () => {})
+  return digest
+}
+
+for (const resume of [false, true]) test(`file journal retains uncertain revoke and resume through reopen (resume: ${resume})`, async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  t.after(() => disk.close())
+  const digest = await seedApproval(journal)
+  await assert.rejects(journal.useWorkerApproval('rule', () => true, async () => { throw Error('uncertain') }, '+inspect'))
+  await journal.revokeWorkerApproval('rule', digest)
+  if (resume) await journal.resume()
+  await disk.close()
+  const next = await open(home); t.after(() => next.close())
+  const reopened = await createLeadJournal(next)
+  assert.equal(reopened.state.phase, resume ? 'running' : 'waiting-for-user')
+  assert.equal(reopened.state.managementReason, resume ? null : 'lead-worker-audit-failed')
+  assert.equal(reopened.state.workerApprovals[0]!.entries![0]!.uncertain, true)
+})
+
+test('file journal recovers a dispatch-only crash then permits revoke resume and reopen', async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  t.after(() => disk.close())
+  const digest = await seedApproval(journal)
+  await disk.append({ version: 1, seq: journal.state.seq + 1, type: 'worker-rule-dispatch', id: 'rule', diff: '+crashed' })
+  await disk.close()
+  const next = await open(home); t.after(() => next.close())
+  const recovered = await createLeadJournal(next)
+  assert.equal(recovered.state.phase, 'waiting-for-user')
+  await recovered.revokeWorkerApproval('rule', digest)
+  await recovered.resume()
+  await next.close()
+  const final = await open(home); t.after(() => final.close())
+  assert.equal((await createLeadJournal(final)).state.phase, 'running')
+})
+
+test('file journal loads the 1951 dispatch revoke resume bytes', async t => {
+  const { createHash } = await import('node:crypto')
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  t.after(() => disk.close())
+  await seedApproval(journal)
+  const file = join(home, 'lead/thread-1.ndjson')
+  await disk.close()
+  let previous = JSON.parse((await fs.readFile(file, 'utf8')).trim().split('\n').at(-1)!).checksum
+  let seq = journal.state.seq
+  for (const event of [{ type: 'worker-rule-dispatch', id: 'rule', diff: '+legacy' }, { type: 'worker-rule-revoked', id: 'rule' }, { type: 'resume' }]) {
+    const record = { version: 1, seq: ++seq, ...event }
+    const checksum = createHash('sha256').update(JSON.stringify({ record, previous })).digest('hex')
+    await fs.appendFile(file, JSON.stringify({ record, previous, checksum }) + '\n')
+    previous = checksum
+  }
+  const next = await open(home); t.after(() => next.close())
+  assert.equal((await createLeadJournal(next)).state.phase, 'running')
+})

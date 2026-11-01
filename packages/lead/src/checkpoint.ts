@@ -27,7 +27,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // cards after that message and before the next journal write.
   const namedSource = threadSource && { ...threadSource, completedBudgets: Object.hasOwn(threadSource, 'completedBudgets') ? threadSource.completedBudgets : [], decisionRevision: threadSource.decisionRevision ?? threadSource.seq, wakes: threadSource.wakes ?? [], nameChosen: threadSource.nameChosen ?? (threadSource.messages.length > 0 || threadSource.olderMessages > 0), name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
   const followSource = namedSource && { ...namedSource, follow: Object.hasOwn(namedSource, 'follow') ? namedSource.follow : { checks: true, reviews: true }, pr: Object.hasOwn(namedSource, 'pr') ? namedSource.pr : null, publication: Object.hasOwn(namedSource, 'publication') ? namedSource.publication : null, ownedPush: Object.hasOwn(namedSource, 'ownedPush') ? namedSource.ownedPush : null }
-  const repairSource = followSource && { ...followSource, workerApprovals: Object.hasOwn(followSource, 'workerApprovals') ? followSource.workerApprovals : [], goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, chatEffectsAcknowledged: followSource.chatEffectsAcknowledged ?? false, secondLooks: followSource.secondLooks ?? [], raisedFrom: followSource.raisedFrom ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
+  const repairSource = followSource && { ...followSource, orphanedWorkerDispatch: followSource.orphanedWorkerDispatch ?? null, workerApprovals: Object.hasOwn(followSource, 'workerApprovals') ? followSource.workerApprovals : [], goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, chatEffectsAcknowledged: followSource.chatEffectsAcknowledged ?? false, secondLooks: followSource.secondLooks ?? [], raisedFrom: followSource.raisedFrom ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
   const source = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
     ? { ...repairSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : repairSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
@@ -70,9 +70,17 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const workerApprovals = source.workerApprovals.flatMap(stored => {
     let rule: LeadWorkerApprovalRule
     try { rule = parseLeadWorkerApprovalRule(stored) }
-    catch (error) { if ((error as Error).message !== 'lead-worker-approval-obsolete') throw error; removed = true; return [] }
+    catch (error) {
+      if ((error as Error).message !== 'lead-worker-approval-obsolete') throw error
+      removed = true
+      if ((stored as LeadWorkerApprovalRule).key?.kind !== 'fileChange') return []
+      rule = parseLeadWorkerApprovalRule(stored, true)
+    }
     assert(contract && source.consent && !['stopped', 'accepted', 'declined', 'following'].includes(source.phase) && rule.contractDigest === contract.digest && rule.goalStartedSeq === source.goalStartedSeq)
-    if (!leadWorkerRuleInProject(rule.key, contract!.project.path)) { removed = true; return [] }
+    if (!leadWorkerRuleInProject(rule.key, contract!.project.path)) {
+      removed = true
+      if (!rule.dispatch) rule = { ...rule, revoked: true }
+    }
     // Upgrade the retained portion of round-one notices without keeping them in conversation history.
     const old = messages.filter(message => message.approval?.ruleId === rule.id && message.approval?.diff !== undefined).reverse()
     if (rule.key.kind === 'fileChange' && rule.entries === undefined && old.length) rule = { ...rule, entries: boundLeadApprovalEntries(old.map((message, index) => ({ id: `audit-${message.revision}`, number: rule.count - index, diff: message.approval!.diff! })).filter(entry => entry.number > 0)) }
@@ -80,10 +88,18 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     return [rule]
   })
   assert(new Set(workerApprovals.map(rule => rule.id)).size === workerApprovals.length && new Set(workerApprovals.filter(rule => !rule.revoked).map(rule => JSON.stringify(rule.key))).size === workerApprovals.filter(rule => !rule.revoked).length)
+  const orphan = source.orphanedWorkerDispatch
+  if (orphan !== null) {
+    assert(Object.keys(orphan).sort().join() === 'diff,id,phase,reason,revision' && orphan.revision <= source.seq &&
+      !['stopped', 'accepted', 'declined', 'following'].includes(source.phase) && !workerApprovals.some(rule => rule.id === orphan.id) &&
+      ['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user'].includes(orphan.phase) && !workerApprovals.some(rule => rule.dispatch))
+    parseLeadJournalRecord({ version: 1, seq: orphan.revision, type: 'worker-rule-dispatch', id: orphan.id, diff: orphan.diff })
+    parseLeadJournalRecord({ version: 1, seq: 1, type: 'management', phase: 'waiting-for-user', reason: orphan.reason })
+  }
   assert(workerApprovals.filter(rule => rule.dispatch).length <= 1)
   for (const rule of workerApprovals) if (rule.dispatch) assert(rule.dispatch.revision <= source.seq)
   assert(new TextEncoder().encode(JSON.stringify(workerApprovals.map(rule => rule.entries ?? []))).byteLength <= LEAD_APPROVAL_HISTORY_BYTES)
-  messages = messages.filter(message => !message.approval)
+  messages = messages.filter(message => !message.approval || message.id.startsWith('worker-rule-orphan-'))
   if (removed) messages = [...removedWorkerApprovalNotice(messages, source.seq)]
   assert(Array.isArray(source.completedBudgets) && source.completedBudgets.length <= 64)
   const completedBudgets = source.completedBudgets.map(value => parseLeadBudgetLedger(value))

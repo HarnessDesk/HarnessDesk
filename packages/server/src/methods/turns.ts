@@ -150,9 +150,17 @@ export const turnMethods = {
   },
 
   'approval/respond': async (ctx, params) => {
-    if (ctx.ceilings.answerHeld(params.runtime, params.sessionId, params.approvalId, params.decision)) return null
-    // A question whose turn its deadline already stopped: the answer reopens the Seat rather than going into that turn.
-    if (await ctx.questions.answerStopped(params.runtime, params.sessionId, params.approvalId, params.decision)) return null
+    // These host paths may settle an approval themselves. They mark entry into
+    // delivery, so only a failure before that boundary proves nothing was sent.
+    let delivering = false
+    const delivery = () => { delivering = true }
+    try {
+      if (ctx.ceilings.answerHeld(params.runtime, params.sessionId, params.approvalId, params.decision, delivery)) return null
+      if (await ctx.questions.answerStopped(params.runtime, params.sessionId, params.approvalId, params.decision, delivery)) return null
+    } catch (error) {
+      if (!delivering) throw Object.assign(error instanceof Error ? error : new Error('Approval preflight failed.'), { approvalNotDelivered: true })
+      throw error
+    }
     const sessionId = makeSessionId(params.sessionId), approvalId = makeApprovalId(params.approvalId)
     const assertPending = (): void => {
       if (!ctx.registry.hasApproval(params.runtime, sessionId, approvalId)) {

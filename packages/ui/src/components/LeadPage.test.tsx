@@ -713,3 +713,25 @@ it('opens the uncertain diff after revocation with a Needs review chip', async (
   expect(dialog.textContent).toContain('Needs review')
   expect(dialog.textContent).toContain('Revoked')
 })
+
+it('labels confirmed and uncertain rows separately without claiming an uncertain diff was allowed', async () => {
+  const rule = { id: 'saved', target: '/workspace/demo/panel.tsx', count: 1, uncertain: true,
+    entries: [{ id: 'audit-5', number: 2, diff: '+needs review', uncertain: true }, { id: 'audit-4', number: 1, diff: '+confirmed' }] }
+  await mount({ ...leadProjection(), savedApprovals: [rule] } as any)
+  await act(async () => button('View allowed diffs').click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.querySelector('h2')?.textContent).toBe('Changes under this approval')
+  expect(dialog.textContent).toContain('Newest first · 1 of 1 answer retained · 1 needs review')
+})
+
+it('opens an orphaned uncertain approval observation with a neutral title and Needs review chip', async () => {
+  const base = leadProjection()
+  const notice: any = { version: 1, id: 'worker-rule-orphan-5', revision: 5, role: 'notice', text: 'Needs review: a removed saved approval may have run.',
+    approval: { ruleId: 'removed', target: 'Removed saved approval', diff: '+orphan change' } }
+  await mount({ ...base, thread: { ...base.thread, messages: [notice] } })
+  await act(async () => button('View allowed diff').click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.querySelector('h2')?.textContent).toBe('Changes under this approval')
+  expect(dialog.textContent).toContain('Needs review')
+  expect(dialog.textContent).toContain('+orphan change')
+})

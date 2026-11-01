@@ -393,8 +393,9 @@ do not create those message entries.
 
 `LeadWindowProjection.waitReason` additionally accepts
 `"lead-worker-audit-failed"`. It accompanies `thread.state: "waiting-for-user"`
-while a durable dispatch intent has no acknowledgement, including after a host
-restart. An active row with `uncertain: true` earns a Needs review chip. Show a
+after an answer fails without acknowledgement or the host reopens a durable
+dispatch without one. An ordinary answer in flight projects neither `uncertain`
+nor the unacknowledged diff entry. An active row with `uncertain: true` earns a Needs review chip. Show a
 host error: inspect the worker changes and revoke that uncertain rule before
 Resume can continue. A failed writer must first be restarted; the durable
 intent preserves this fence. An in-flight answer keeps the live thread phase unchanged. Opening a journal
@@ -403,7 +404,9 @@ Known pre-dispatch cancellation clears the intent and restores its saved phase.
 Uncertain requests do not increment the confirmed count. Their exact diff is
 projected as a newest-first entry with `uncertain: true`, using the same entry
 and byte bounds. Render a Needs review chip on that entry in the diff reader,
-including after Revoke. Once the rule is revoked, its row moves
+including after Revoke. The reader is titled Changes under this approval and
+counts retained answers and needs-review requests separately. Obsolete file rules
+retain inactive history and unresolved intents for inspection. Once the rule is revoked, its row moves
 to `revokedApprovals` without `uncertain`. Missing or repeated live revokes return
 `lead-approval-not-live` without appending a journal record.
 

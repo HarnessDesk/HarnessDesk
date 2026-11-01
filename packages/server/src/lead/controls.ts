@@ -179,9 +179,10 @@ export class LeadControls {
     const presence = running ? this.options.readPresence?.() ?? null : null
     if (this.#steers.goal !== goal) this.#steers = { goal, list: [] }
     const steers = this.#steers.list.slice(-64)
-    const approvalHistory = boundLeadApprovalHistory(state.workerApprovals.map(rule => ({ ...rule, entries: leadWorkerApprovalEntries(rule) })))
+    const auditFailed = state.managementReason === 'lead-worker-audit-failed'
+    const approvalHistory = boundLeadApprovalHistory(state.workerApprovals.map(rule => ({ ...rule, entries: auditFailed ? leadWorkerApprovalEntries(rule) : rule.entries ?? [] })))
     const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }
@@ -314,7 +315,7 @@ export class LeadControls {
   async #continue(): Promise<void> {
     const { journal, service } = this.options
     const proactive = this.#automaticRequest; this.#automaticRequest = false
-    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) || journal.state.budget?.stop) {
+    if (['accepted', 'declined', 'stopped'].includes(journal.state.phase) || journal.state.budget?.stop || journal.state.managementReason === 'lead-worker-audit-failed') {
       this.#requestInFlight = false
       await journal.settingsChanged()
       return

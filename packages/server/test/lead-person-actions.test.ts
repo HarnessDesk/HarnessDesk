@@ -306,3 +306,21 @@ test('approval preflight preserves the original refusal and its host error code'
   await assert.rejects(turnMethods['approval/respond'](ctx, { runtime: 'fixture', sessionId: 'session', approvalId: 'request', decision: { type: 'option', optionId: 'yes' } } as any),
     (error: any) => error === refusal && error.wireCode === 'session-unavailable' && error.approvalNotDelivered === true)
 })
+
+for (const stage of ['held', 'stopped']) test(`approval ${stage} preflight failures prove non-delivery`, async () => {
+  const { turnMethods } = await import('../src/methods/turns.js')
+  let responses = 0
+  const refusal = Error('fixture preflight refused')
+  const ctx: any = { ceilings: { answerHeld: () => { if (stage === 'held') throw refusal; return false } },
+    questions: { answerStopped: async () => { if (stage === 'stopped') throw refusal; return false } },
+    registry: { hasApproval: () => true }, sessions: { live: async () => ({ respondToApproval: async () => { responses++ } }) } }
+  await assert.rejects(turnMethods['approval/respond'](ctx, { runtime: 'fixture', sessionId: 'session', approvalId: 'request', decision: { type: 'option', optionId: 'yes' } } as any),
+    (error: any) => error === refusal && error.approvalNotDelivered === true)
+  assert.equal(responses, 0)
+  const uncertain = Error('fixture failed after delivery began')
+  const begin = (...args: any[]) => { args[4](); throw uncertain }
+  if (stage === 'held') ctx.ceilings.answerHeld = begin
+  else ctx.questions.answerStopped = begin
+  await assert.rejects(turnMethods['approval/respond'](ctx, { runtime: 'fixture', sessionId: 'session', approvalId: 'request', decision: { type: 'option', optionId: 'yes' } } as any),
+    (error: any) => error === uncertain && error.approvalNotDelivered === undefined)
+})

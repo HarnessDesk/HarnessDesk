@@ -455,7 +455,7 @@ export interface HostContext {
   }
 
   readonly ceilings: {
-    answerHeld(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): boolean
+    answerHeld(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision, delivering?: () => void): boolean
     settleHeld(runtime: string, sessionId: string): void
   }
 
@@ -467,7 +467,7 @@ export interface HostContext {
      * is not one of those, so the answer goes to the live turn as usual.
      * Throws a sentence, the question kept, when it is and cannot be heard now.
      */
-    answerStopped(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision): Promise<boolean>
+    answerStopped(runtime: string, sessionId: string, approvalId: string, decision: ApprovalDecision, delivering?: () => void): Promise<boolean>
   }
 
   readonly queue: {

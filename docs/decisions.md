@@ -4946,15 +4946,14 @@ Eligibility is checked on the path relative to the approved project, allowing a
 project itself to live below a dot folder. Every relative segment must be plain printable ASCII (U+0020–U+007E). This prevents Unicode-equivalent instruction and build names from borrowing a source-file key on filesystems that fold those names. The key, checkpoint admission and fresh path check enforce it; the project root itself may contain Unicode or dot folders. No relative segment may start with a
 dot, or name a `script`, `scripts`, `bin` or `hooks` directory (case insensitive).
 Basenames use the lowercase rc-file pattern `^\.?[a-z0-9_-]*rc(\.[a-z]+)?$`, except short ordinary source stems of the form `<letter>rc` (such as `src.ts` and `arc.ts`). This exception follows the explicitly required source-file acceptance cases, which the general rc pattern also matches. Basenames also refuse `*.local.*`, `*.conf.*`, `conf.py`, `*.config.*`,
-`*.setup.*`, `*.workspace.*`, `*.gradle*`, `*file(.[a-z]+)*.(js|ts|mjs|cjs)`
-(including `gulpfile.babel.js`, except ordinary `profile.ts` and `profile.js`), `ember-cli-build.js`, `*.gemspec`,
+`*.setup.*`, `*.workspace.*`, `*-config.*`, `gatsby-*`, `*.gradle*`, `ember-cli-build.js`, `sitecustomize.py`, `usercustomize.py`, `*.gemspec`,
 `*.podspec`, `package.json`, `Makefile`, `Dockerfile`, `pom.xml`, `Package.swift`,
 `build.*`, `setup.py`, `setup.cfg`, `conftest.py`, `noxfile.py`, `tasks.py`,
 `fabfile.py`, `manage.py`, `Rakefile`, `Gemfile`, `Podfile`, `CMakeLists.txt` and
 `meson.build`. Agent instructions (`AGENT.md`, `AGENTS.md`, their dotted variants,
 `CLAUDE.md`, `GEMINI.md`, `WARP.md`, `QWEN.md`, `CRUSH.md`, `INSTRUCTIONS.md`, `RULES.md`, `SKILL.md`,
 `copilot-instructions.md`, `CONVENTIONS.md`) are refused in any case. Ordinary
-names such as `resource.ts` and `source.ts` remain eligible. The implementation
+names such as `resource.ts`, `source.ts`, `profile.ts`, `profile.test.ts`, `profile.spec.ts`, `profile.component.ts`, `profile.service.ts` and `file.utils.ts` remain eligible. Runner stems are explicit: `gulpfile`, `gruntfile`, `jakefile`, `pnpmfile`, `brocfile`, `noxfile`, `rakefile` and `taskfile`, followed by zero or more alphabetic dotted variants and a `js`, `ts`, `mjs` or `cjs` extension, are refused (case insensitive). This includes `gulpfile.babel.js` without treating every source name ending in `file` as a runner. The implementation
 is `LEAD_APPROVAL_FILE_EXTENSIONS` and `safeFile` in
 `packages/protocol/src/goal-worker-approval.ts`.
 
@@ -5000,6 +4999,8 @@ writer queue. Accepted, declined, stopped and fresh or repeated goals, or an
 approved contract change, discard the rules. A pending plan suspends automatic
 answers. Strict journal and checkpoint parsers retain only the closed keys;
 obsolete keys are removed rather than widened or reinterpreted.
+
+A durable worker-approval dispatch keeps the live phase while its answer is in flight. Its own acknowledgement or proven cancellation resolves it. Any other journal record following that unresolved dispatch proves the answer was unacknowledged and records the audit wait, even when Revoke removes the dispatch. Reopen/checkpoint loading applies the same fence when the dispatch is the final record. Resume after Revoke is therefore a durable person decision, and older dispatch/revoke/resume journals remain readable. File rules that become ineligible retain inert metadata and bounded audit history, so a historical unfinished dispatch still exposes its uncertain diff. A checkpoint that already discarded the key retains a bounded host observation and private dispatch receipt; a matching acknowledgement or cancellation clears the uncertainty, while the person may inspect and Resume an unacknowledged observation.
 
 ## Lead message provenance is verified and chat control belongs to the person — 2026-10-30
 
