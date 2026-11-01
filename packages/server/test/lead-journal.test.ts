@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
-import { createLeadJournal, parseLeadJournalRecord, reduceLeadRecord, summarizeLeadArguments } from '@harnessdesk/lead'
+import { createLeadJournal, parseLeadJournalRecord, reduceLeadRecord, replayLeadJournal, leadCheckpoint, parseLeadCheckpoint, summarizeLeadArguments } from '@harnessdesk/lead'
 import * as server from '../src/index.js'
 
 const open = async (home: string): Promise<any> => {
@@ -987,4 +987,98 @@ test('file journal loads the 1951 dispatch revoke resume bytes', async t => {
   }
   const next = await open(home); t.after(() => next.close())
   assert.equal((await createLeadJournal(next)).state.phase, 'running')
+})
+
+// The repair probe must use the disk writer, whose prepare/replay state is
+// independent of the live LeadJournal instance.
+for (const crash of [false, true]) test(`file journal keeps a repair handback behind an unresolved worker dispatch (crash: ${crash})`, async t => {
+  const { leadRig } = await import('./fixtures/lead.js')
+  const { LeadHandbacks } = await import('../src/lead/handback.js')
+  const s = await leadRig(t), run = await s.start(); await s.observe(0)
+  const head = 'a'.repeat(40), card: any = { version: 1, id: 'result', revision: 1, type: 'result', contractDigest: s.contract.digest,
+    outcome: 'reviewed', summary: 'Reviewed fixture', assertions: [], budget: { version: 1, revision: 1, caps: s.contract.caps,
+      leadUsdMicros: 0, workerUsdMicros: 0, reservedUsdMicros: 0, roundsAdmitted: 1, spend: 'known', stop: null } }
+  await s.journal.offerCard(card)
+  const source: any = { repository: 'acme/widgets', branch: 'worker', head, cwd: '/workspace/worker', remote: 'origin', remoteUrl: 'https://github.com/acme/widgets.git',
+    defaultBranch: 'main', runId: run.id, teamId: run.goal, runtime: 'alpha', sessionId: 'worker' }
+  const decision: any = { version: 1, cardId: card.id, cardType: card.type, expectedRevision: 1, contractDigest: s.contract.digest, choice: 'accept-open-pr' }
+  const publication: any = { id: 'publication', source, decision, at: 100, stage: 'push-prepared', effectStarted: false }
+  await s.journal.publication(publication)
+  await s.journal.publication({ ...publication, stage: 'pushed' })
+  await s.journal.publication({ ...publication, stage: 'completed' }, { repository: source.repository, number: 7, branch: source.branch, head, branchOwner: 'lead', state: 'open', at: 100, check: null })
+  await s.journal.decideCard(decision, null)
+  const owner = new LeadHandbacks({ journal: s.journal, now: () => 100, gate: async () => null, round: () => 4,
+    open: async op => op.round, release: async () => {}, reviewed: async () => null, push: async () => {} })
+  await owner.observe([{ source: 'pull-request', project: s.project.path, repository: 'acme/widgets', subject: '7', event: 'failure-1', action: 'checks-failed', at: 101,
+    head, fork: false, title: '', body: '', url: 'https://github.com/acme/widgets/pull/7', trigger: null, check: { head, state: 'failed', total: 1 } }])
+  const operation = s.journal.state.handbacks.at(-1)!
+  assert.equal(operation.stage, 'running')
+  const home = await scratch(t), disk = await open(home); t.after(() => disk.close())
+  for (const record of s.records) await disk.append(record)
+  const journal = await createLeadJournal(disk), path = s.project.path + '/panel.tsx'
+  await journal.saveWorkerApproval({ id: 'rule', contractDigest: s.contract.digest, goalStartedSeq: journal.state.goalStartedSeq,
+    key: { kind: 'fileChange', path }, target: path, count: 0 })
+  const awaiting = { ...operation, stage: 'awaiting-ci' as const, publishedHead: 'b'.repeat(40) }
+  if (crash) {
+    await disk.append({ version: 1, seq: journal.state.seq + 1, type: 'worker-rule-dispatch', id: 'rule', diff: '+repair' })
+    await disk.append({ version: 1, seq: journal.state.seq + 2, type: 'handback', operation: awaiting })
+  } else {
+    await assert.rejects(journal.useWorkerApproval('rule', () => true, async () => { throw Error('uncertain') }, '+repair'))
+    await journal.handback(awaiting)
+  }
+  await disk.close()
+  const restoredDisk = await open(home); t.after(() => restoredDisk.close())
+  const restored = await createLeadJournal(restoredDisk)
+  assert.equal(restored.state.phase, 'waiting-for-user')
+  assert.equal(restored.state.managementReason, 'lead-worker-audit-failed')
+  assert.equal(restored.state.workerApprovals[0]!.dispatch!.diff, '+repair')
+  assert.deepEqual(replayLeadJournal(await restoredDisk.read()), restored.state)
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(restored.state, 'b'.repeat(64))).state, restored.state)
+  if (!crash) assert.deepEqual(restored.state, journal.state)
+  await restored.revokeWorkerApproval('rule', s.contract.digest)
+  await restored.resume()
+  assert.equal(restored.state.phase, 'following')
+  assert.equal(restored.state.workerApprovals[0]!.entries![0]!.diff, '+repair')
+})
+
+test('file journal repair timer is idempotent after revoke and preserves Resume revision', async t => {
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  t.after(() => disk.close())
+  const digest = await seedApproval(journal)
+  await assert.rejects(journal.useWorkerApproval('rule', () => true, async () => { throw Error('uncertain') }, '+inspect'))
+  await journal.revokeWorkerApproval('rule', digest)
+  const revision = journal.state.seq, before = await disk.read()
+  for (let i = 0; i < 5; i++) await journal.setManagementPhase('waiting-for-user', 'lead-repair-unverified')
+  assert.deepEqual(await disk.read(), before)
+  const timer = journal.setManagementPhase('waiting-for-user', 'lead-repair-unverified')
+  const resumed = journal.resume(revision)
+  await Promise.all([timer, resumed])
+  assert.equal(journal.state.phase, 'running')
+})
+
+test('file journal loads 1951 revoke renewal approval and dispatched-start bytes', async t => {
+  const { createHash } = await import('node:crypto')
+  const home = await scratch(t), disk = await open(home), journal = await createLeadJournal(disk)
+  t.after(() => disk.close())
+  const digest = await seedApproval(journal), file = join(home, 'lead/thread-1.ndjson')
+  await disk.close()
+  let previous = JSON.parse((await fs.readFile(file, 'utf8')).trim().split('\n').at(-1)!).checksum
+  let seq = journal.state.seq
+  const events = [
+    { type: 'worker-rule-dispatch', id: 'rule', diff: '+legacy' }, { type: 'worker-rule-revoked', id: 'rule' },
+    { type: 'renew-plan', now: 1300 },
+    { type: 'card-decision', decision: { version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 2, contractDigest: digest, choice: 'approve' }, expiresAt: 1900 },
+    { type: 'attempt', id: 'a1', correlationId: 'a1', method: 'flow/start-goal', action: null, arguments: summarizeLeadArguments({}), kind: 'mutation', stepId: 'work', policyRevision: 1, projectPolicyRevision: null, contractRevision: 1 },
+    { type: 'decision', id: 'a1', effect: 'allow', reason: 'policy', rule: null }, { type: 'dispatch-start', id: 'a1', dispatched: true },
+  ]
+  for (const event of events) {
+    const record = { version: 1, seq: ++seq, ...event }
+    const checksum = createHash('sha256').update(JSON.stringify({ record, previous })).digest('hex')
+    await fs.appendFile(file, JSON.stringify({ record, previous, checksum }) + '\n'); previous = checksum
+  }
+  const next = await open(home); t.after(() => next.close())
+  const restored = await createLeadJournal(next)
+  assert.equal(restored.state.phase, 'running')
+  assert.equal(restored.state.managementReason, null)
+  assert.equal(restored.state.attempts.get('a1')!.dispatched, true)
 })

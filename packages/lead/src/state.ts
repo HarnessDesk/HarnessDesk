@@ -21,6 +21,8 @@ export interface LeadAttemptState {
 export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null; readonly contractDigest: string | null }
 export interface LeadState {
   readonly workerApprovals: readonly LeadWorkerApprovalRule[]
+  /** New-writer revoke requires explicit Resume; legacy renewal stays replayable. */
+  readonly workerAuditWait: boolean
   /** One legacy dispatch whose key an older checkpoint already discarded. */
   readonly orphanedWorkerDispatch: (NonNullable<LeadWorkerApprovalRule['dispatch']> & { readonly id: string }) | null
   /** Last non-wake journal sequence. Observation-only wakes leave this decision fence unchanged. */
@@ -70,7 +72,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ workerApprovals: [], orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
+export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
   cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 /** A read's journal revision remains valid through observation-only wakes. Any
  * intervening decision-affecting write advances the lower bound and refuses it. */
@@ -180,7 +182,12 @@ const managementPhase = (state: LeadState): LeadState['phase'] => state.phase !=
 export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState => {
   const event = parseLeadJournalRecord(value)
   ensure(event.seq === previous.seq + 1)
-  let state: LeadState = { ...previous, seq: event.seq }
+  const pending = previous.workerApprovals.find(rule => rule.dispatch) ?? previous.orphanedWorkerDispatch
+  const settles = pending && (event.type === 'worker-rule-used' || event.type === 'worker-rule-dispatch-cancelled') && event.id === pending.id
+  // The queue is held through answer(). Any other successor proves the
+  // dispatch was unacknowledged; reduce it from the same state recovery uses.
+  const source = pending && !settles ? fenceLeadWorkerDispatch(previous) : previous
+  let state: LeadState = { ...source, seq: event.seq }
   const updateAttempt = (id: string, update: (attempt: LeadAttemptState) => LeadAttemptState) => {
     const attempt = state.attempts.get(id)
     ensure(attempt)
@@ -233,12 +240,12 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       if (!rule) {
         // A checkpoint from an older migration may already have removed the key.
         // Keep its remaining diff openable as a host observation, never authority.
-        state = { ...state, orphanedWorkerDispatch: { id: event.id, revision: event.seq, diff: event.diff, phase: state.phase, reason: state.managementReason },
-          phase: 'waiting-for-user', managementReason: 'lead-worker-audit-failed', messages: [...state.messages.slice(-255), {
+        state = fenceLeadWorkerDispatch({ ...state, orphanedWorkerDispatch: { id: event.id, revision: event.seq, diff: event.diff, phase: state.phase, reason: state.managementReason },
+          messages: [...state.messages.slice(-255), {
           version: 1, id: `worker-rule-orphan-${event.seq}`, revision: event.seq, role: 'notice',
           text: 'Needs review: a removed saved approval may have run. Inspect its changes before resuming.',
           approval: { ruleId: event.id, target: 'Removed saved approval', ...(typeof event.diff === 'string' ? { diff: event.diff } : {}) },
-        }] }; break
+        }] }); break
       }
       const obsolete = !state.contract || !leadWorkerRuleInProject(rule.key, state.contract.project.path)
       ensure((!rule.revoked || obsolete) && !state.workerApprovals.some(rule => rule.dispatch) && !hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && rule.count < Number.MAX_SAFE_INTEGER)
@@ -272,7 +279,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, phase: dispatch?.phase ?? state.phase, managementReason: dispatch ? dispatch.reason : state.managementReason, workerApprovals: boundLeadApprovalHistory(state.workerApprovals.map(old => old.id === event.id ? updated : old)) }; break
     }
     case 'worker-rule-revoked':
-      state = { ...state, workerApprovals: boundLeadApprovalHistory(state.workerApprovals.map(rule => { if (rule.id !== event.id || rule.revoked) return rule; const { dispatch: _dispatch, ...retained } = rule; const entries = leadWorkerApprovalEntries(rule); return { ...retained, revoked: true as const, ...(entries.length ? { entries } : {}) } })) }; break
+      state = { ...state, workerAuditWait: state.workerAuditWait || event.auditFailed === true, workerApprovals: boundLeadApprovalHistory(state.workerApprovals.map(rule => { if (rule.id !== event.id || rule.revoked) return rule; const { dispatch: _dispatch, ...retained } = rule; const entries = leadWorkerApprovalEntries(rule); return { ...retained, revoked: true as const, ...(entries.length ? { entries } : {}) } })) }; break
     case 'origin':
       ensure(state.contract === null && state.runs.length === 0 && state.origin === null)
       state = { ...state, origin: event.origin, originKey: event.key ?? null }; break
@@ -432,7 +439,9 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, phase: event.phase, managementReason: event.reason ?? null }; break
     case 'resume':
       ensure(state.phase === 'waiting-for-user' && !state.budget?.stop && !hasPendingLeadPlan(state) && !state.workerApprovals.some(rule => rule.dispatch))
-      state = { ...state, orphanedWorkerDispatch: null, phase: state.pr?.state === 'open' ? 'following' : 'running', managementReason: null,
+      state = { ...state, orphanedWorkerDispatch: null, workerAuditWait: false,
+        messages: state.messages.map(message => message.id.startsWith('worker-rule-orphan-') ? { ...message, id: message.id.replace('worker-rule-orphan-', 'worker-rule-reviewed-'), text: 'Reviewed changes from a removed saved approval. The goal was resumed.' } : message),
+        phase: state.pr?.state === 'open' ? 'following' : 'running', managementReason: null,
         ownedPush: state.ownedPush?.stage === 'needs-you' ? { ...state.ownedPush, stage: 'prepared' } : state.ownedPush }; break
     case 'renew-plan': {
       ensure(state.consent && state.contract && state.consent.expiresAt <= event.now && !state.budget?.stop &&
@@ -757,20 +766,19 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
   if (retry && (retry.goal !== (state.budget?.logicalGoalId ?? null) || retry.digest !== state.contract?.digest ||
     state.decidedCards.includes(`${retry.id}:${retry.revision}`) || !state.cards.some(card => card.id === retry.id && card.revision === retry.revision)))
     state = { ...state, retryResult: null }
-  if (event.type === 'new-goal' || ['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.contract !== previous.contract && JSON.stringify(state.contract) !== JSON.stringify(previous.contract)) state = { ...state, workerApprovals: [], orphanedWorkerDispatch: null, messages: state.messages.filter(message => !message.id.startsWith('worker-rule-orphan-')) }
-  if (state.contract !== previous.contract && JSON.stringify(state.contract) !== JSON.stringify(previous.contract) && state.managementReason === 'lead-worker-audit-failed')
-    state = { ...state, managementReason: null }
-  // The writer holds its queue through answer(). Only that dispatch's own
-  // acknowledgement/cancellation can follow it live. Anything else proves it
-  // went unacknowledged, including a Revoke that just removed the intent.
-  const pendingDispatch = previous.workerApprovals.find(rule => rule.dispatch) ?? previous.orphanedWorkerDispatch
-  const settledDispatch = pendingDispatch && ((event.type === 'worker-rule-used' || event.type === 'worker-rule-dispatch-cancelled') && event.id === pendingDispatch.id ||
-    event.type === 'resume' && previous.orphanedWorkerDispatch !== null)
-  if ((pendingDispatch || previous.managementReason === 'lead-worker-audit-failed' && event.type !== 'resume') && !settledDispatch && event.type !== 'new-goal' && JSON.stringify(state.contract) === JSON.stringify(previous.contract) && !['stopped', 'accepted', 'declined', 'following'].includes(state.phase))
-    state = { ...state, phase: 'waiting-for-user', managementReason: 'lead-worker-audit-failed' }
+  const changedContract = state.contract !== previous.contract && JSON.stringify(state.contract) !== JSON.stringify(previous.contract)
+  if (event.type === 'new-goal' || ['stopped', 'accepted', 'declined'].includes(state.phase) || changedContract)
+    state = { ...state, workerApprovals: [], orphanedWorkerDispatch: null, workerAuditWait: false,
+      messages: state.messages.filter(message => !/^worker-rule-(?:orphan|reviewed)-/.test(message.id)) }
+  if (changedContract && state.managementReason === 'lead-worker-audit-failed') state = { ...state, managementReason: null }
+  // Dispatch itself stays live until delivery settles. Every later record,
+  // recovery reader and checkpoint uses this one fence. A marked new-writer
+  // revoke keeps the wait after removing the intent; legacy renewal may lift it.
+  if (event.type !== 'worker-rule-dispatch') state = fenceLeadWorkerDispatch(state)
   return { ...state, decisionRevision: event.type === 'wake' ? previous.decisionRevision : event.seq }
 }
-/** Apply only at recovery or after a failed answer; live dispatch keeps its phase. */
-export const fenceLeadWorkerDispatch = (state: LeadState): LeadState => (state.orphanedWorkerDispatch || state.workerApprovals.some(rule => rule.dispatch))
+/** Shared live/storage/recovery policy; dispatch itself keeps its phase in flight. */
+export const fenceLeadWorkerDispatch = (state: LeadState): LeadState => !['stopped', 'accepted', 'declined'].includes(state.phase) &&
+  (state.workerAuditWait || state.orphanedWorkerDispatch || state.workerApprovals.some(rule => rule.dispatch))
   ? { ...state, phase: 'waiting-for-user', managementReason: 'lead-worker-audit-failed' } : state
 export const replayLeadJournal = (records: readonly LeadJournalRecord[]): LeadState => fenceLeadWorkerDispatch(records.reduce(reduceLeadRecord, initialLeadState()))

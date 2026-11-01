@@ -19,7 +19,7 @@ export const LeadHostNotice = ({ message }: { readonly message: import('@harness
   const [open, setOpen] = useState(false), approval = message.approval
   return <article aria-label="Desk">
     <Text as="p" role="meta">{sanitizeText(message.text)}</Text>
-    {approval?.diff !== undefined && <Button variant="secondary" onClick={() => setOpen(true)}>View allowed diff</Button>}
+    {approval?.diff !== undefined && <Button variant="secondary" onClick={() => setOpen(true)}>View changes</Button>}
     {open && approval?.diff !== undefined && <Dialog title="Changes under this approval" description={sanitizeText(approval.target)} onClose={() => setOpen(false)}
       footer={<Button onClick={() => setOpen(false)}>Close</Button>}>
       {message.id.startsWith('worker-rule-orphan-') && <Chip tone="warning">Needs review</Chip>}

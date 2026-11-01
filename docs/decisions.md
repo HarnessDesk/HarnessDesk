@@ -4953,7 +4953,7 @@ Basenames use the lowercase rc-file pattern `^\.?[a-z0-9_-]*rc(\.[a-z]+)?$`, exc
 `meson.build`. Agent instructions (`AGENT.md`, `AGENTS.md`, their dotted variants,
 `CLAUDE.md`, `GEMINI.md`, `WARP.md`, `QWEN.md`, `CRUSH.md`, `INSTRUCTIONS.md`, `RULES.md`, `SKILL.md`,
 `copilot-instructions.md`, `CONVENTIONS.md`) are refused in any case. Ordinary
-names such as `resource.ts`, `source.ts`, `profile.ts`, `profile.test.ts`, `profile.spec.ts`, `profile.component.ts`, `profile.service.ts` and `file.utils.ts` remain eligible. Runner stems are explicit: `gulpfile`, `gruntfile`, `jakefile`, `pnpmfile`, `brocfile`, `noxfile`, `rakefile` and `taskfile`, followed by zero or more alphabetic dotted variants and a `js`, `ts`, `mjs` or `cjs` extension, are refused (case insensitive). This includes `gulpfile.babel.js` without treating every source name ending in `file` as a runner. The implementation
+names such as `resource.ts`, `source.ts`, `profile.ts`, `profile.test.ts`, `profile.spec.ts`, `profile.component.ts`, `profile.service.ts` and `file.utils.ts` remain eligible. Runner stems are explicit: `gulpfile`, `gruntfile`, `jakefile`, `pnpmfile`, `brocfile`, `noxfile`, `rakefile`, `taskfile`, `dangerfile`, `cakefile`, `guardfile`, `makefile` and `webpackfile`, followed by zero or more alphabetic dotted variants and a `js`, `ts`, `mjs` or `cjs` extension, are refused (case insensitive). This includes `gulpfile.babel.js` without treating every source name ending in `file` as a runner. The implementation
 is `LEAD_APPROVAL_FILE_EXTENSIONS` and `safeFile` in
 `packages/protocol/src/goal-worker-approval.ts`.
 
@@ -5001,6 +5001,16 @@ answers. Strict journal and checkpoint parsers retain only the closed keys;
 obsolete keys are removed rather than widened or reinterpreted.
 
 A durable worker-approval dispatch keeps the live phase while its answer is in flight. Its own acknowledgement or proven cancellation resolves it. Any other journal record following that unresolved dispatch proves the answer was unacknowledged and records the audit wait, even when Revoke removes the dispatch. Reopen/checkpoint loading applies the same fence when the dispatch is the final record. Resume after Revoke is therefore a durable person decision, and older dispatch/revoke/resume journals remain readable. File rules that become ineligible retain inert metadata and bounded audit history, so a historical unfinished dispatch still exposes its uncertain diff. A checkpoint that already discarded the key retains a bounded host observation and private dispatch receipt; a matching acknowledgement or cancellation clears the uncertainty, while the person may inspect and Resume an unacknowledged observation.
+
+The reducer applies `fenceLeadWorkerDispatch` before any non-settling successor
+of an unresolved intent and after every later record. Live answers, the disk
+writer, replay and checkpoints share that function, including repair hand-backs
+that reach passive following. Following retains audit history; terminal person
+decisions and a new goal retire it. New revoke records carry `auditFailed: true`
+when they remove an uncertain intent, retaining an explicit Resume requirement
+through same-contract renewal. Unmarked historical revokes retain the old renewal
+semantics, so a start admitted by a valid older journal remains readable.
+Repair refreshes compare the fenced state before appending and are idempotent.
 
 ## Lead message provenance is verified and chat control belongs to the person — 2026-10-30
 

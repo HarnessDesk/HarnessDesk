@@ -661,7 +661,7 @@ it('shows host approval notices separately and opens the exact allowed diff', as
   const notice: any = { version: 1, id: 'message-2', revision: 2, role: 'notice', text: 'Allowed under your rule for this goal: /workspace/demo/demo.ts', approval: { ruleId: 'saved', target: '/workspace/demo/demo.ts', diff } }
   const { box } = await mount({ ...base, thread: { ...base.thread, messages: [notice] } })
   expect(box.querySelector('article[aria-label="Desk"]')).not.toBeNull()
-  const open = [...box.querySelectorAll('button')].find(button => button.textContent === 'View allowed diff')!
+  const open = [...box.querySelectorAll('button')].find(button => button.textContent === 'View changes')!
   await act(async () => open.click())
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain(diff)
 })
@@ -676,7 +676,7 @@ it('updates one rule notice in place and reads newest diffs from its saved row',
   expect(box.querySelector('article[aria-label="Desk"]')).toBe(line)
   expect(line.textContent).toContain('21 times')
   const list = box.querySelector('section[aria-label="Saved approvals for this goal"]')!
-  const open = [...list.querySelectorAll('button')].find(button => button.textContent === 'View allowed diffs')!
+  const open = [...list.querySelectorAll('button')].find(button => button.textContent === 'View changes')!
   await act(async () => open.click())
   const dialog = document.querySelector('[role="dialog"]')!
   expect(dialog.textContent).toContain('+newest whole diff')
@@ -688,7 +688,7 @@ it('sanitizes host notice text, target and retained diff text', async () => {
   const notice: any = { version: 1, id: 'host', revision: 1, role: 'notice', text: escape + 'Host fact', approval: { ruleId: 'old', target: escape + '/workspace/demo/demo.ts', diff } }
   const { box } = await mount({ ...base, thread: { ...base.thread, messages: [notice] } })
   expect(box.textContent).not.toContain(escape)
-  await act(async () => button('View allowed diff').click())
+  await act(async () => button('View changes').click())
   expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain(escape)
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('+whole diff')
 })
@@ -698,7 +698,7 @@ it('keeps revoked history openable with a Revoked chip and no Revoke action', as
   const { box } = await mount({ ...base, savedApprovals: [], revokedApprovals: [revoked] } as any)
   expect(box.textContent).toContain('Revoked')
   expect([...box.querySelectorAll('button')].some(button => button.textContent === 'Revoke')).toBe(false)
-  await act(async () => button('View allowed diffs').click())
+  await act(async () => button('View changes').click())
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('+evidence survives revocation')
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Revoked')
 })
@@ -707,7 +707,7 @@ it('opens the uncertain diff after revocation with a Needs review chip', async (
   const revoked = { id: 'revoked', target: '/workspace/demo/panel.tsx', count: 0,
     entries: [{ id: 'audit-4', number: 1, diff: '+inspect the unacknowledged change', uncertain: true }] }
   await mount({ ...leadProjection(), revokedApprovals: [revoked] } as any)
-  await act(async () => button('View allowed diffs').click())
+  await act(async () => button('View changes').click())
   const dialog = document.querySelector('[role="dialog"]')!
   expect(dialog.textContent).toContain('+inspect the unacknowledged change')
   expect(dialog.textContent).toContain('Needs review')
@@ -718,7 +718,7 @@ it('labels confirmed and uncertain rows separately without claiming an uncertain
   const rule = { id: 'saved', target: '/workspace/demo/panel.tsx', count: 1, uncertain: true,
     entries: [{ id: 'audit-5', number: 2, diff: '+needs review', uncertain: true }, { id: 'audit-4', number: 1, diff: '+confirmed' }] }
   await mount({ ...leadProjection(), savedApprovals: [rule] } as any)
-  await act(async () => button('View allowed diffs').click())
+  await act(async () => button('View changes').click())
   const dialog = document.querySelector('[role="dialog"]')!
   expect(dialog.querySelector('h2')?.textContent).toBe('Changes under this approval')
   expect(dialog.textContent).toContain('Newest first · 1 of 1 answer retained · 1 needs review')
@@ -729,9 +729,18 @@ it('opens an orphaned uncertain approval observation with a neutral title and Ne
   const notice: any = { version: 1, id: 'worker-rule-orphan-5', revision: 5, role: 'notice', text: 'Needs review: a removed saved approval may have run.',
     approval: { ruleId: 'removed', target: 'Removed saved approval', diff: '+orphan change' } }
   await mount({ ...base, thread: { ...base.thread, messages: [notice] } })
-  await act(async () => button('View allowed diff').click())
+  await act(async () => button('View changes').click())
   const dialog = document.querySelector('[role="dialog"]')!
   expect(dialog.querySelector('h2')?.textContent).toBe('Changes under this approval')
   expect(dialog.textContent).toContain('Needs review')
   expect(dialog.textContent).toContain('+orphan change')
+})
+
+it('explains only the remaining review and Resume after the uncertain rule is revoked', async () => {
+  const base = leadProjection()
+  const { box } = await mount({ ...base, waitReason: 'lead-worker-audit-failed', wayOut: 'resume',
+    thread: { ...base.thread, state: 'waiting-for-user', contract: leadPlan.contract }, savedApprovals: [],
+    revokedApprovals: [{ id: 'revoked', target: '/workspace/demo/panel.tsx', count: 0, entries: [{ id: 'audit-4', number: 1, diff: '+inspect', uncertain: true }] }] } as any)
+  expect(box.textContent).not.toContain('revoke the uncertain saved rule')
+  expect(box.textContent).toContain('Resume after reviewing the changes')
 })

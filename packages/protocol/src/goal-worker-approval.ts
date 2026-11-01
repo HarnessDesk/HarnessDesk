@@ -70,7 +70,7 @@ const safeFile = (relative: string): boolean => {
   // The short source stems src and arc are ordinary code, despite matching the general rc spelling.
   const rcFile = /^\.?[a-z0-9_-]*rc(\.[a-z]+)?$/.test(lower) && !/^[a-z]rc\.[a-z]+$/.test(lower)
   // Runner names are explicit: ordinary profile.* and file.utils.* are source.
-  const automationFile = /^(?:gulpfile|gruntfile|jakefile|pnpmfile|brocfile|noxfile|rakefile|taskfile)(?:\.[a-z]+)*\.(?:js|ts|mjs|cjs)$/i.test(name)
+  const automationFile = /^(?:gulpfile|gruntfile|jakefile|pnpmfile|brocfile|noxfile|rakefile|taskfile|dangerfile|cakefile|guardfile|makefile|webpackfile)(?:\.[a-z]+)*\.(?:js|ts|mjs|cjs)$/i.test(name)
   return leadWorkerApprovalAsciiPath(relative) && !automationFile && !rcFile && !parts.some(part => part.startsWith('.')) && !parts.slice(0, -1).some(part => /^(scripts?|bin|hooks)$/i.test(part)) &&
     !/(?:\.local\.|\.conf\.|\.config\.|\.setup\.|\.workspace\.|-config\.|^gatsby-|\.gradle|\.(?:gemspec|podspec)$)|^(?:agents?(?:\.[^.]+)*|claude|gemini|warp|qwen|crush|instructions|rules|skill|copilot-instructions|conventions)\.md$|^(?:package\.json|ember-cli-build\.js|makefile|dockerfile|pom\.xml|package\.swift|build\..*|setup\.(?:py|cfg)|conf\.py|sitecustomize\.py|usercustomize\.py|conftest\.py|noxfile\.py|tasks\.py|fabfile\.py|manage\.py|rakefile|gemfile|podfile|cmakelists\.txt|meson\.build)$/i.test(name) &&
     LEAD_APPROVAL_FILE_EXTENSIONS.some(extension => name.toLowerCase().endsWith('.' + extension))

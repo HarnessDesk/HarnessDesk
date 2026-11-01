@@ -384,7 +384,7 @@ Revoked chip and the diff reader on a revoked row, with no Revoke action.
 
 Render at most one host notice per used rule, keyed by its `id`, updating the
 line “Allowed under your rule for this goal: <target> · N times” from `count`.
-Offer View allowed diffs on the saved row, newest first, with complete text.
+Offer View changes on the saved row, newest first, with complete text.
 Do not insert these notices into assistant history. The entries arrive through
 the existing `lead/thread/read` and `lead/changed`; no new method is needed.
 Legacy `thread.messages` notices may still have `approval: { ruleId, target,

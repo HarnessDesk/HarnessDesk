@@ -479,3 +479,33 @@ for (const orphan of [false, true]) test(`expired consent can renew an audit wai
   await journal.resume()
   assert.equal(journal.state.phase, 'running')
 })
+
+test('1951 renewal after revoke replays its admitted start without a new-writer marker', async () => {
+  const { summarizeLeadArguments, createLeadJournal } = await import('../src/index.js')
+  const base = save(), records: any[] = [
+    { type: 'worker-rule-dispatch', id: 'rule-1', diff: '+legacy' },
+    { type: 'worker-rule-revoked', id: 'rule-1' }, { type: 'renew-plan', now: 300 },
+    { type: 'card-decision', decision: { version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 2, contractDigest: digest, choice: 'approve' }, expiresAt: 900 },
+    { type: 'attempt', id: 'a1', correlationId: 'a1', method: 'flow/start-goal', action: null, arguments: summarizeLeadArguments({}), kind: 'mutation', stepId: 'first', policyRevision: 1, projectPolicyRevision: null, contractRevision: 1 },
+    { type: 'decision', id: 'a1', effect: 'allow', reason: 'policy', rule: null },
+    { type: 'dispatch-start', id: 'a1', dispatched: true },
+  ].map((event, i) => ({ version: 1, seq: base.seq + i + 1, ...event }))
+  const journal = await createLeadJournal({ checkpoint() { return base }, async read() { return records }, async append() {} })
+  assert.equal(journal.state.phase, 'running')
+  assert.equal(journal.state.attempts.get('a1')!.dispatched, true)
+})
+
+for (const name of ['dangerfile.ts', 'dangerfile.js', 'cakefile.js', 'guardfile.ts', 'makefile.js', 'webpackfile.ts']) test(`runner stem refuses ${name}`, () => {
+  const path = '/workspace/demo/' + name
+  assert.equal(leadWorkerApprovalKey({ type: 'fileChange', changes: [{ path, kind: { type: 'update' }, diff: '+runner' }] } as any, '/workspace/demo'), null)
+})
+
+test('Resume retires the orphan Needs review notice but keeps the reviewed diff openable', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = start()
+  const journal = await createLeadJournal({ checkpoint() { return base }, async read() { return [{ version: 1, seq: base.seq + 1, type: 'worker-rule-dispatch', id: 'removed', diff: '+inspect' }] }, async append() {} })
+  await journal.resume()
+  assert.equal(journal.state.messages.some(message => message.id.startsWith('worker-rule-orphan-')), false)
+  assert.equal(journal.state.messages.at(-1)!.approval!.diff, '+inspect')
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(journal.state, 'b'.repeat(64))).state, journal.state)
+})
