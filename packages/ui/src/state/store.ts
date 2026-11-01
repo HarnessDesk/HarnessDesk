@@ -630,6 +630,34 @@ export class AppStore {
   readonly lead: ReturnType<typeof createLeadState>
   readonly phone: ReturnType<typeof createPhoneState>
   #leadCapabilityEpoch = 0
+  #chatRootsVersion: { epoch: string; revision: number } | null = null
+  #chatConnectionGeneration = 0
+
+  #applyChatRoots(value: unknown): boolean {
+    if (!value || typeof value !== 'object') return false
+    const snapshot = value as { epoch?: unknown; revision?: unknown; roots?: unknown }
+    if (typeof snapshot.epoch !== 'string' || !snapshot.epoch || !Number.isSafeInteger(snapshot.revision) || (snapshot.revision as number) < 0 ||
+        !Array.isArray(snapshot.roots) || !snapshot.roots.every(root => typeof root === 'string')) return false
+    const current = this.#chatRootsVersion
+    if (current && (snapshot.epoch !== current.epoch || (snapshot.revision as number) <= current.revision)) return true
+    this.#chatRootsVersion = { epoch: snapshot.epoch, revision: snapshot.revision as number }
+    this.#keepChatRoots(snapshot.roots as string[])
+    return true
+  }
+
+  #keepChatRoots(values: readonly string[]): void {
+    const roots = [...new Set(values)]
+    const old = this.#snapshot.chatsFolderRoots
+    if (roots.length !== old.length || roots.some((root, index) => root !== old[index])) this.#patch({ chatsFolderRoots: roots })
+  }
+
+  #applyChatsPreferences(preferences: Readonly<Record<string, unknown>>, generation: number): void {
+    if (generation !== this.#chatConnectionGeneration) return
+    const parsed = readChatsPreferences(preferences)
+    const valid = this.#applyChatRoots(preferences['chatsFolderRootsSnapshot'])
+    if (!valid && !Object.hasOwn(preferences, 'chatsFolderRootsSnapshot') && !this.#chatRootsVersion) this.#keepChatRoots(parsed.chatsFolderRoots)
+    this.#patch({ chatsFolder: parsed.chatsFolder })
+  }
 
   constructor(url = transportUrl()) {
     this.drafts = new Drafts(undefined, {
@@ -640,6 +668,7 @@ export class AppStore {
     this.transport = new Transport(url, {
       onEvent: (runtime, event) => this.#onEvent(runtime, event),
       onNotification: (notification) => {
+        if (notification.method === 'chats/rootsChanged') this.#applyChatRoots(notification.params)
         if (notification.method === 'account/changed') {
           this.#harnessDeskAccountRequested = true
           this.#harnessDeskAccountRevision += 1
@@ -967,6 +996,8 @@ export class AppStore {
       onStatus: (status) => {
         const previous = this.#snapshot.status
         if (status !== 'open') {
+          this.#chatConnectionGeneration += 1
+          this.#chatRootsVersion = null
           this.#leadCapabilityEpoch += 1
           this.#captureEpoch += 1
           this.#flowGeneration += 1
@@ -975,7 +1006,11 @@ export class AppStore {
           this.phone.reset()
         } else {
           this.#patch({ status })
-          if (previous === 'reconnecting') void this.#refreshLeadAvailability()
+          if (previous === 'reconnecting') {
+            void this.#refreshLeadAvailability()
+            const generation = this.#chatConnectionGeneration
+            void this.transport.request('app/state/get', {}).then(preferences => this.#applyChatsPreferences(preferences, generation)).catch(() => {})
+          }
           if (previous !== 'open') void this.loadCaptureHealth().catch(() => {})
           if (previous === 'reconnecting' && this.#harnessDeskAccountRequested) void this.loadHarnessDeskAccount()
         }
@@ -2978,7 +3013,7 @@ export class AppStore {
           ...(this.#snapshot.draftRouteId ? { routeId: this.#snapshot.draftRouteId } : {}),
         } as never,
       })
-      if (!cwd) this.#patch({ chatsFolderRoots: [...new Set([...this.#snapshot.chatsFolderRoots, session.cwd])] })
+      if (!cwd && !this.#chatRootsVersion) this.#patch({ chatsFolderRoots: [...new Set([...this.#snapshot.chatsFolderRoots, session.cwd])] })
       this.#setSession(session)
       const key = sessionKey(runtime, session.id)
       let reveal = options.reveal !== false
@@ -7223,21 +7258,34 @@ export class AppStore {
     void this.loadDraftOptions()
   }
 
+  #chatsFolderAttempt = 0
+
+  clearChatsFolderProblem(): void {
+    this.#chatsFolderAttempt += 1
+    if (this.#snapshot.chatsFolderProblem) this.#patch({ chatsFolderProblem: null })
+  }
+
   async setChatsFolder(path: string | null): Promise<boolean> {
+    const attempt = ++this.#chatsFolderAttempt
+    this.#patch({ chatsFolderProblem: null })
+    const generation = this.#chatConnectionGeneration
     try {
       const preferences = await this.transport.request('app/state/set', { patch: { chatsFolder: path } })
-      this.#patch({ ...readChatsPreferences(preferences), chatsFolderProblem: null })
+      this.#applyChatsPreferences(preferences, generation)
+      if (attempt !== this.#chatsFolderAttempt) return false
+      this.#patch({ chatsFolderProblem: null })
       return true
     } catch (error) {
-      this.#patch({ chatsFolderProblem: describe(error) })
+      if (attempt === this.#chatsFolderAttempt) this.#patch({ chatsFolderProblem: describe(error) })
       return false
     }
   }
 
   async loadPreferences(): Promise<void> {
+    const generation = this.#chatConnectionGeneration
     try {
       const preferences = await this.transport.request('app/state/get', {})
-      this.#patch(readChatsPreferences(preferences))
+      this.#applyChatsPreferences(preferences, generation)
       const loadedEditor = readEditorState(preferences['editorState'])
       const localEditor = this.#snapshot.editorState.filter(one => this.#editorChanged.has(one.subject) || this.#editorTouched.has(one.subject))
       const editorState = [

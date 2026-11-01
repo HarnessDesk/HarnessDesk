@@ -15,6 +15,7 @@ export const chatsPreferences = (state: StateStore): Readonly<Record<string, unk
   ...state.state.preferences,
   chatsFolder: chatsFolderOf(state),
   chatsFolderRoots: managedChatFolders(state),
+  chatsFolderRootsSnapshot: state.chatRootsSnapshot(),
 })
 
 /** Only successful host allocations confer chat identity, never a chosen parent. */
@@ -37,7 +38,7 @@ export const rememberChatFolder = async (state: StateStore, cwd: string): Promis
 }
 
 export const chatsPreferencePatch = async (state: StateStore, patch: Record<string, unknown>): Promise<Record<string, unknown>> => {
-  if (Object.hasOwn(patch, 'chatsFolderRoots') || Object.hasOwn(patch, 'managedChatFolders')) throw new Error('Chats folder roots are maintained by the host.')
+  if (Object.hasOwn(patch, 'chatsFolderRoots') || Object.hasOwn(patch, 'chatsFolderRootsSnapshot') || Object.hasOwn(patch, 'managedChatFolders')) throw new Error('Chats folder roots are maintained by the host.')
   if (!Object.hasOwn(patch, 'chatsFolder')) return patch
   const folder = patch['chatsFolder']
   if (folder !== null && typeof folder !== 'string') throw new Error('Chats folder must be an absolute path or null.')

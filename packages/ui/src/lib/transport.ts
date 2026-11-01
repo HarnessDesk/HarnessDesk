@@ -125,6 +125,7 @@ export class Transport {
     this.#socket = socket
 
     socket.addEventListener('open', () => {
+      if (this.#socket !== socket) return
       this.#attempt = 0
       this.#setStatus('open')
       const queued = this.#queue
@@ -133,6 +134,7 @@ export class Transport {
     })
 
     socket.addEventListener('message', (event) => {
+      if (this.#socket !== socket) return
       let message: HostToClient
       try {
         message = JSON.parse(String(event.data)) as HostToClient
@@ -171,6 +173,7 @@ export class Transport {
     })
 
     socket.addEventListener('close', () => {
+      if (this.#socket !== socket) return
       this.#socket = null
       if (this.#closed) return
       // In-flight requests cannot be answered by a socket that is gone; failing

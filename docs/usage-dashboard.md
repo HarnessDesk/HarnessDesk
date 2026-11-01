@@ -1226,18 +1226,14 @@ Its delta is neutral: a rising cost is a fact about the work done, not by
 itself good or bad news the way a rising bill is.
 
 **Turns** is hidden when no agent reports turns. A reported zero stays visible.
-Otherwise it is `LedgerReport.totals.turns` for the window — unknown, never
-zero, whenever the window mixes a turn-known runtime with one that is not
-(`docs/usage-dashboard.md`, "Turns", above). Its caption prices a turn
-against Paid when both sides are real *and* scope-matched, the same test
-Value's ratio uses (`{amount} paid a turn`), and falls back to "known for N
-of M agents" when coverage is partial and Paid cannot answer either — "N of
-M" here counts the runtimes the ledger actually has rows for
-(`ledgerRuntimeIds`), not every account in scope, since an account with
-nothing recorded this window is neither known nor unknown. Its delta is
-neutral, and suppressed outright whenever either the current or the previous
-period mixes a turn-unknown runtime — a rise measured against a partial
-figure on either side overstates or understates it.
+With complete coverage it is `LedgerReport.totals.turns`; with partial coverage
+it sums the known runtimes' daily turns and says “known for N of M runtimes”.
+If a known daily count is missing, the figure stays unknown. Coverage counts
+runtimes in the daily entries, independent of the table's grouping, rather than
+accounts with nothing recorded in the window. The ledger's aggregate remains
+undefined for mixed coverage. The paid-per-turn caption and the neutral delta
+require complete coverage; the delta also requires complete coverage in the
+comparison window.
 
 **Tokens** is `LedgerReport.totalTokens`, with a cache-hit chip riding the
 figure's own line: `cacheRead / (input + cacheRead)`, the share of the
