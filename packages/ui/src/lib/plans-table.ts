@@ -225,12 +225,13 @@ export const statusOf = (
   if (balance !== null && balance < 0) return 'overdrawn'
   if (view.blocked || standing.status === 'out' || balance === 0) return 'out'
   if (standing.status === 'overdrawn') return 'overdrawn'
-  const overage = raw.billing?.overage
-  if (overage?.enabled && (overage.spent ?? 0) > 0) return 'overage'
   if (shape === 'none') return 'notReporting'
   if (standing.status === 'unknown') return 'unknown'
+  // The card's chip says the same standing, so Short and Low win over overage; the card's note carries the overage.
   if (standing.status === 'short') return 'short'
   if (standing.status === 'low') return 'low'
+  const overage = raw.billing?.overage
+  if (overage?.enabled && (overage.spent ?? 0) > 0) return 'overage'
   if (shape === 'free') return 'unlimited'
   if (shape === 'metered' && !raw.billing?.budget) return 'unlimited'
   return 'ready'

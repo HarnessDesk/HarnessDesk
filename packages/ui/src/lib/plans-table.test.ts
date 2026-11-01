@@ -475,6 +475,14 @@ describe('statusOf', () => {
     expect(statusOf(subject, 'allowance', describeReport(subject, { now: NOON }), NOON)).toBe('overage')
   })
 
+  it('says the card\'s own standing before overage, so the two never disagree', () => {
+    const subject = report({
+      billing: billing(['allowance'], { overage: { enabled: true, spent: 4.5, currency: 'USD' } }),
+      lanes: [lane({ id: 'monthly', usedPercent: 85 })],
+    })
+    expect(statusOf(subject, 'allowance', describeReport(subject, { now: NOON }), NOON)).toBe('low')
+  })
+
   it('is "low" under the card\'s own amber threshold', () => {
     const subject = report({ lanes: [lane({ id: 'weekly', usedPercent: 90 })] })
     expect(statusOf(subject, 'windows', describeReport(subject, { now: NOON }), NOON)).toBe('low')
