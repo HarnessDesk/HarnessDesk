@@ -1,0 +1,33 @@
+{
+  "issue": 1871,
+  "head": "d733f2b6149791e1b99751fea1225e24f66535bb",
+  "tree": "4f39ee77872dc1c30e9cca7bd1d707b56a888c03",
+  "surface": "Production Electron against isolated scripted-agent rig, synthetic catalogue responses held/rejected to exercise both themes. No real filesystem outage or provider claim.",
+  "privacy": "Parent personally inspected all eight captured frames; four selected here. Sixteen unchanged whole-document/account/history/guest audits, all one mounted application data store source-verified. Test-owned process group and debugger port gone; source clean.",
+  "frames": [
+    {
+      "name": "light-loading.png",
+      "width": 1280,
+      "height": 900,
+      "sha256": "0e76dbcf0b55926be47e30194addd8d12a2fdfeabd9c32778f9ba46ff1cb5082"
+    },
+    {
+      "name": "light-failure.png",
+      "width": 1280,
+      "height": 900,
+      "sha256": "efa4ecf09260027b2c49dd23ae01ba450cc140c545cad489df487abf5b4ec0b9"
+    },
+    {
+      "name": "dark-loading.png",
+      "width": 1280,
+      "height": 900,
+      "sha256": "781d4dfcb0dcde68b641816a0aa942cc29e1755b6d798cc583da01dc300edea9"
+    },
+    {
+      "name": "dark-failure.png",
+      "width": 1280,
+      "height": 900,
+      "sha256": "ccc14597c97b42a1c554da16630c7c033e732b20a76ecbf79017c46c0ef8ec4c"
+    }
+  ]
+}
