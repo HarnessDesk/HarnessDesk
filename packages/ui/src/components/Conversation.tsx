@@ -815,8 +815,9 @@ export const GitControl = ({
   // (`repo: null`; absent means unread). A folder this window has no read for
   // (a Team member's clone, a runtime that reports no git) keeps them.
   const here = cwd === snapshot.workspace?.path ? snapshot.workspace : null
-  const knownNotRepository = isChatFolder(cwd, snapshot.chatsFolderRoots) || (here?.repo === null && !here.git)
-  const hasRepository = Boolean(branch || checkout || session?.git || summary?.repo) || !knownNotRepository
+  const managedChat = isChatFolder(cwd, snapshot.chatsFolderRoots)
+  const knownNotRepository = here?.repo === null && !here.git
+  const hasRepository = !managedChat && (Boolean(branch || checkout || session?.git || summary?.repo) || !knownNotRepository)
   const linked =
     armed !== null ||
     pointedAway ||
