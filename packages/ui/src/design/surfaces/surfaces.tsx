@@ -993,7 +993,7 @@ const signInStore = previewStore(signInSeed('paste code'))
 export const SignInSurface = () => (
   <Mount with={signInStore}>
     <Frame height="window">
-      <SignIn runtime={SIGN_IN_SELECTED['paste code']} onClose={() => {}} />
+      <SignIn runtime={SIGN_IN_SELECTED['paste code']} roster onClose={() => {}} />
     </Frame>
   </Mount>
 )

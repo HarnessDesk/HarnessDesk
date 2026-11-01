@@ -2025,7 +2025,9 @@ const AgentDetail = ({
             </InlineParts>
           }
           {...(info.presentation.tagline ? { desc: info.presentation.tagline } : {})}
-          control={snapshot.activeRuntime === info.id
+          // Default when new sessions run as any of its accounts: which one
+          // is the Accounts section's to say, and the pool's to move.
+          control={snapshot.runtimes.some((entry) => entry.id === snapshot.activeRuntime && agentKey(entry) === agentKey(info))
             ? <Chip state={defaultChipState(info, snapshot)} label="Default" />
             : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(info.id)}>Use for new sessions</Button>}
         />

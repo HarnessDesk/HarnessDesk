@@ -1588,3 +1588,12 @@ it('names only, when account addresses are hidden', async () => {
   const accounts = [...container.querySelectorAll('[data-kind="record"]')].filter((row) => row.textContent?.includes('ada') || row.textContent?.includes('grace'))
   expect(accounts.map((row) => row.textContent).join(' ')).not.toContain('@')
 })
+
+it('an agent page is the default while new sessions run as any of its accounts', async () => {
+  await mountList({ activeRuntime: 'alpha#2' as never })
+  await act(async () => line('Alpha').click())
+  // Not an offer to switch to the account that is out: which account is
+  // the Accounts section's to say.
+  expect(container.textContent).not.toContain('Use for new sessions')
+  expect(container.textContent).toContain('Default')
+})

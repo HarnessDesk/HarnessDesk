@@ -230,3 +230,26 @@ export const runtimesSeed = (scene: SignInScene = 'refused'): Partial<AppSnapsho
     },
   },
 } as unknown as Partial<AppSnapshot>)
+
+/**
+ * Settings › Runtimes for an agent whose accounts take turns: the first Codex
+ * account is at its limit, the second has room, and the rule moved new
+ * sessions to it. `?accounts=pool` on the Runtimes preview.
+ */
+export const accountPoolSeed = (): Partial<AppSnapshot> => {
+  const seed = runtimesSeed() as AppSnapshot
+  const second = runtimeId('codex#2')
+  return {
+    ...seed,
+    activeRuntime: second,
+    accountsByRuntime: { ...seed.accountsByRuntime, [second]: { accounts: [oauth('dev@example.com', 'plus')], signInMethods: [] } },
+    usage: [...seed.usage, {
+      runtime: second,
+      account: 'dev@example.com',
+      plan: 'plus',
+      lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 38, windowMinutes: 10_080, resetsAt: Date.now() + 4 * 86_400_000 }],
+      reached: null,
+    }],
+    accountPools: { codex: { order: [runtimeId('codex'), second], whenOut: 'next' } },
+  } as unknown as Partial<AppSnapshot>
+}
