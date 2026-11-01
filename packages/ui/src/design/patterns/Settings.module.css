@@ -838,7 +838,7 @@
 
 /* The sticky form is still the head of the rows card directly below it. */
 .sectionHead[data-sticky]:has(+ [data-slot='rows']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-table-edge));
+  padding-inline: calc(var(--hd-card-border-width, var(--hd-border-width)) + var(--hd-card-inset, var(--hd-table-edge))); /* desk: follows the card's own edge and inset, so a stuck head stays over the row text on a sheet */
 }
 
 /* The ground a stuck head paints over the window's title strip, so rows that
@@ -913,6 +913,13 @@
   /* The rows' side inset. A card insets them; a foundation that lays the
      group flat (tokens.sheet.css) puts them on the page's text edge. */
   --rows-edge: var(--hd-card-inset, var(--hd-table-edge));
+  /* The clip above would cut a focus ring off a control that stands on that
+     edge, so a flat group keeps just the ring's room inside the clip and gives
+     it back outside it: the row text stays on the text edge. In a card the
+     inset is wider than the ring and the room is zero. */
+  --rows-ring-room: max(0px, calc(var(--hd-ring-width) + var(--hd-ring-offset) - var(--rows-edge)));
+  padding-inline: var(--rows-ring-room); /* desk: the ring's room on a sheet, zero in a card */
+  margin-inline: calc(-1 * var(--rows-ring-room)); /* desk: gives the ring's room back, so the rows keep the text edge */
 }
 
 /* A group inset in another card inherits that card's surface. */
@@ -920,6 +927,7 @@
 /* In a dialog the form stack spaces its cards. */
 .rows[data-context='dialog'] {
   margin-bottom: 0;
+  margin-inline: 0;
   /* A dialog is boxed in every surface, so its rows keep their inset. */
   --rows-edge: var(--hd-table-edge);
 }
@@ -1042,14 +1050,14 @@
   flex: none;
   display: flex;
   align-items: center;
-  padding-inline-end: var(--hd-table-edge);
+  padding-inline-end: var(--rows-edge, var(--hd-table-edge)); /* desk: the rows' own inset, flush on a sheet like the row beside it */
 }
 
 .rowFoldEnd {
   flex: none;
   display: flex;
   align-items: center;
-  padding-inline-end: var(--hd-table-edge);
+  padding-inline-end: var(--rows-edge, var(--hd-table-edge)); /* desk: the rows' own inset, flush on a sheet like the row beside it */
 }
 
 /* The fold is a toggle, not a menu: the row's hover, and no fill for open —
@@ -1570,7 +1578,7 @@ pre.mono:not([data-block])[data-wrap] {
 }
 
 .note[data-inset='row'] {
-  padding-inline: var(--hd-table-edge);
+  padding-inline: var(--hd-card-inset, var(--hd-table-edge)); /* desk: the rows' inset, so the note keeps their text edge on a sheet */
 }
 
 /* A title mark stays in the column while its name yields the remaining width. */

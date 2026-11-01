@@ -27,8 +27,9 @@
    and these sheets are unlayered, so order is the tiebreak. See shadcn.css. */
 @import './shadcn.css';
 @import './shadcn-themes.css';
-/* After every palette: the Sheet surface takes the column's ground back from
-   whichever palette set it. See design/foundation/tokens.sheet.css. */
+/* After every palette, at the weight of a palette's dark face: the Sheet
+   surface takes the column's ground back from whichever palette set it. See
+   design/foundation/tokens.sheet.css. */
 @import '../design/foundation/tokens.sheet.css';
 
 body {

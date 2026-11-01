@@ -172,3 +172,36 @@ it('reports a refused diff preference write while preserving the visible choice'
   expect(messages()[0]).toContain('The diff settings could not be saved')
   expect(store.getSnapshot().diffPrefs.wrap).toBe(false)
 })
+
+it('keeps the surface like every other appearance preference, and reads it back', async () => {
+  const stored: Record<string, unknown> = {}
+  vi.mocked(store.transport.request).mockImplementation((async (method: string, params: unknown) => {
+    if (method === 'app/state/set') Object.assign(stored, (params as { patch: Record<string, unknown> }).patch)
+    return method === 'app/state/get' ? stored : null
+  }) as never)
+
+  expect(store.getSnapshot().surface).toBe('cards')
+  store.setSurface('sheet')
+  expect(store.getSnapshot().surface).toBe('sheet')
+  await vi.waitFor(() => expect(stored['surface']).toBe('sheet'))
+
+  const reread = async (): Promise<AppStore> => {
+    const fresh = new AppStore('ws://localhost:0/')
+    vi.spyOn(fresh.transport, 'request').mockImplementation((async (method: string) =>
+      method === 'app/state/get' ? stored : null) as never)
+    await fresh.loadPreferences()
+    return fresh
+  }
+  expect((await reread()).getSnapshot().surface).toBe('sheet')
+  // A surface this build does not know is Cards, never a value put on the body.
+  stored['surface'] = 'paper'
+  expect((await reread()).getSnapshot().surface).toBe('cards')
+})
+
+it('says so when the surface does not reach the host', async () => {
+  refuse = true
+  store.setSurface('sheet')
+  await vi.waitFor(() => expect(messages()).toHaveLength(1))
+  expect(messages()[0]).toContain('The surface could not be saved')
+  expect(store.getSnapshot().surface).toBe('sheet')
+})

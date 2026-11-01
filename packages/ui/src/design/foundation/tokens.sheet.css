@@ -16,11 +16,14 @@
  * here, so it cannot drift between them.
  *
  * Settings › Appearance › Surface writes `body[data-hd-surface='sheet']`
- * (state/theme.ts); the absence of the attribute is Cards. Imported last in
- * styles/app.css, because a palette that re-grounds the sidebar must not win
- * back the ground this sheet takes away.
+ * (state/theme.ts); the absence of the attribute is Cards. A palette's dark
+ * face is keyed on two attributes (`body[data-hd-palette][data-hd-dark-theme]`),
+ * and order only breaks a tie, so the sheet is keyed at the same weight
+ * (`:root` plus its own attribute) and imported last in styles/app.css: a
+ * palette or interface that re-grounds the sidebar or tints a group cannot win
+ * back what this sheet takes away. styles/sheet-surface.test.ts holds both.
  */
-body[data-hd-surface='sheet'] {
+:root body[data-hd-surface='sheet'] {
   /* A group of rows: no ground of its own, no edge, no corner. The row
      dividers stay — they are what a sheet is made of — and the rows stand on
      the page's text edge rather than a card's inset. */
@@ -51,9 +54,14 @@ body[data-hd-surface='sheet'] {
 /* A plate is an object, not a group of rows — the files card under an answer,
    a transcript item, a timeline step — so it stays boxed on a sheet. Resetting
    the group tokens here hands it its own fallbacks (Card's `plate`): the card
-   ground, the strong hairline, the default corner. */
-body[data-hd-surface='sheet'] [data-slot='card'][data-variant='plate'] {
+   ground, the strong hairline, the default corner. The edge width and the
+   inset are reset too, though the plate draws neither, because a group of rows
+   inside the plate inherits them and must read as a card's rows, not half a
+   sheet's. */
+:root body[data-hd-surface='sheet'] [data-slot='card'][data-variant='plate'] {
   --hd-card-fill: initial;
   --hd-card-border: initial;
+  --hd-card-border-width: initial;
   --hd-card-radius: initial;
+  --hd-card-inset: initial;
 }
