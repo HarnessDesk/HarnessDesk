@@ -88,19 +88,16 @@ export const FlowMiniGraph = ({ policy, empty = false, previewSize = 'compact' }
   // a drawing too big for the thumbnail is scaled about its centre to fit it.
   const grid = miniGrid(layout.nodes.map(node => ({ id: node.id, x: node.box.x, y: node.box.y })))
   const rowsOf = grid.rows, span = grid.span
-  const selfs = layout.edges.some(edge => edge.from === edge.to)
-  const topSelf = layout.edges.some(edge => edge.from === edge.to && grid.cells.get(edge.from)?.row === 0)
-  const lowerSelf = layout.edges.some(edge => edge.from === edge.to && (grid.cells.get(edge.from)?.row ?? 0) > 0)
+  const selfSteps = new Set(layout.edges.filter(edge => edge.from === edge.to).map(edge => edge.from))
+  const selfs = selfSteps.size > 0
   const lift = rowsOf > 2 ? geometry.lift - 4 : geometry.lift
   const over = layout.edges.some(edge => { const a = grid.cells.get(edge.from), b = grid.cells.get(edge.to); return a && b && a.row === 0 && b.row === 0 && b.pos - a.pos > 1 })
   const under = layout.edges.some(edge => { const a = grid.cells.get(edge.from), b = grid.cells.get(edge.to); return a && b && a.row === rowsOf - 1 && b.row === rowsOf - 1 && edge.from !== edge.to && b.pos <= a.pos })
-  const stepH = rowsOf <= 2 ? geometry.stepH : geometry.stepH - 8
-  // A lower loop needs room above its own row, including the strokes of the preceding card and loop.
-  const rowGap = Math.max(rowsOf === 2 ? geometry.rowGap : rowsOf > 2 ? geometry.rowGap / 2 : 0, lowerSelf ? geometry.selfOut : 0)
+  const stepH = rowsOf <= 2 ? geometry.stepH : geometry.stepH - 8, rowGap = rowsOf === 2 ? geometry.rowGap : rowsOf > 2 ? geometry.rowGap / 2 : 0
   const selfRoom = selfs ? geometry.selfOut : 0
   const stepW = Math.max(geometry.minW, Math.min(geometry.stepW, Math.floor((geometry.width - geometry.inset * 2 - selfRoom - span * geometry.gap) / (span + 1))))
   const pitch = stepW + geometry.gap
-  const topClear = Math.max(over ? lift * 0.75 : 0, topSelf ? geometry.selfOut : 0), bottomClear = under ? lift * 0.75 : 0
+  const topClear = over ? lift * 0.75 : 0, bottomClear = under ? lift * 0.75 : 0
   const totalW = span * pitch + stepW + selfRoom, totalH = topClear + rowsOf * stepH + (rowsOf - 1) * rowGap + bottomClear
   const left = (geometry.width - totalW) / 2, top = (geometry.height - totalH) / 2 + topClear
   const fit = Math.min(1, (geometry.width - geometry.inset * 2) / totalW, (geometry.height - geometry.inset * 2) / totalH)
@@ -119,7 +116,7 @@ export const FlowMiniGraph = ({ policy, empty = false, previewSize = 'compact' }
     <g {...(fit < 1 ? { transform: `translate(${geometry.width / 2} ${geometry.height / 2}) scale(${fit}) translate(${-geometry.width / 2} ${-geometry.height / 2})` } : {})}>
       {layout.edges.map(edge => {
         const from = cells.get(edge.from), to = cells.get(edge.to)
-        const route = from && to ? miniRoute(from, to, lift) : null
+        const route = from && to ? miniRoute(from, to, lift, selfSteps.has(edge.to)) : null
         return <g key={edge.id} data-edge={edge.id} data-kind={edge.kind} className={styles.edge}>
           <title>{edgeWords(edge)}</title>
           {route && <><path d={route.path} /><polygon points={route.head} /></>}
@@ -201,11 +198,12 @@ const arrow = (tipX: number, tipY: number, dx: number, dy: number): string => {
 }
 
 /** One line between two steps of the grid: straight to a neighbour, round the steps in between for a skip or a loop, and square-cornered between rows. */
-const miniRoute = (from: MiniCell, to: MiniCell, lift: number): { readonly path: string; readonly head: string } => {
+const miniRoute = (from: MiniCell, to: MiniCell, lift: number, targetSelf: boolean): { readonly path: string; readonly head: string } => {
   if (from === to) {
-    // A step that returns to itself arcs around its top-right corner, above the forward-arrow corridor.
+    // A self-loop stays between the top-edge skip lane and the forward arrow at mid-height.
     const x = from.x + from.w, y = from.y, out = MINI.selfOut
-    return { path: `M${x - out} ${y}C${x - out} ${y - out} ${x + out} ${y - out} ${x + MINI.head} ${y + MINI.head}`, head: arrow(x, y + MINI.head, -1, 0) }
+    const end = Math.min(out, from.h / 2 - MINI.head * 0.6 - 1.2)
+    return { path: `M${x} ${y + 1}C${x + out} ${y + 1} ${x + out} ${y + end} ${x + MINI.head} ${y + end}`, head: arrow(x, y + end, -1, 0) }
   }
   if (from.row === to.row) {
     const forward = to.col > from.col
@@ -227,7 +225,9 @@ const miniRoute = (from: MiniCell, to: MiniCell, lift: number): { readonly path:
   }
   const right = to.col > from.col
   const x2 = right ? to.x : to.x + to.w
-  return { path: `M${from.cx} ${y1}V${to.cy}H${x2 - (right ? MINI.head : -MINI.head)}`, head: arrow(x2, to.cy, right ? 1 : -1, 0) }
+  // An arrow entering from the right sits below a self-loop on that edge.
+  const entryY = !right && targetSelf ? Math.min(to.cy + MINI.head, to.y + to.h - MINI.head) : to.cy
+  return { path: `M${from.cx} ${y1}V${entryY}H${x2 - (right ? MINI.head : -MINI.head)}`, head: arrow(x2, entryY, right ? 1 : -1, 0) }
 }
 
 /** Flow destinations and New Team pickers share one content-sized, responsive card grid. */

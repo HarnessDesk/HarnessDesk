@@ -297,7 +297,7 @@ it('draws a step that returns to itself as an arc beside it, not a tick', () => 
   const numbers = loop.getAttribute('d')!.match(/-?\d+(\.\d+)?/g)!.map(Number)
   const ys = numbers.filter((_, index) => index % 2 === 1), xs = numbers.filter((_, index) => index % 2 === 0)
   expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(8)
-  expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(8)
+  expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(3)
   within(drawn(flowOf(3, [['s1', 's1']])).points)
 })
 
@@ -360,8 +360,104 @@ it('fits lower-row loops in their own row gap without reserving empty space abov
     apart(boxes)
     expect(y(lower)).toBeGreaterThan(y(upper))
     // The graph fits its actual rows and gaps, without a top margin for a lower loop.
-    const height = rows * h(lower) + (rows - 1) * (rows === 2 ? 16 : 10)
+    const height = rows * h(lower) + (rows - 1) * (rows === 2 ? 16 : 8)
     expect(scale).toBeCloseTo(Math.min(1, (size === 'large' ? 72 : 64) / height), 8)
+  }
+})
+
+type Point = { x: number; y: number }
+const cubicPoints = (path: string): Point[] => {
+  const n = path.match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+  expect(n).toHaveLength(8)
+  return Array.from({ length: 401 }, (_, i) => {
+    const t = i / 400, u = 1 - t
+    return { x: u ** 3 * n[0]! + 3 * u * u * t * n[2]! + 3 * u * t * t * n[4]! + t ** 3 * n[6]!,
+      y: u ** 3 * n[1]! + 3 * u * u * t * n[3]! + 3 * u * t * t * n[5]! + t ** 3 * n[7]! }
+  })
+}
+const polygonPoints = (points: string): Point[] => {
+  const n = points.trim().split(/[\s,]+/).map(Number)
+  const vertices = Array.from({ length: n.length / 2 }, (_, i) => ({ x: n[i * 2]!, y: n[i * 2 + 1]! }))
+  return [...vertices, vertices[0]!]
+}
+const pointSegment = (p: Point, a: Point, b: Point): number => {
+  const dx = b.x - a.x, dy = b.y - a.y, length = dx * dx + dy * dy
+  const t = length ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length)) : 0
+  return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy)
+}
+const segmentDistance = (a: Point, b: Point, c: Point, d: Point): number => {
+  const cross = (p: Point, q: Point, r: Point) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+  const a1 = cross(a, b, c), a2 = cross(a, b, d), b1 = cross(c, d, a), b2 = cross(c, d, b)
+  if (a1 * a2 < 0 && b1 * b2 < 0) return 0
+  return Math.min(pointSegment(a, c, d), pointSegment(b, c, d), pointSegment(c, a, b), pointSegment(d, a, b))
+}
+const lineDistance = (a: Point[], b: Point[]): number => {
+  let distance = Infinity
+  for (let i = 1; i < a.length; i++) for (let j = 1; j < b.length; j++) distance = Math.min(distance, segmentDistance(a[i - 1]!, a[i]!, b[j - 1]!, b[j]!))
+  return distance
+}
+const routePoints = (path: string): Point[] => {
+  if (path.includes('C')) return cubicPoints(path)
+  let at: Point = { x: 0, y: 0 }
+  const points: Point[] = []
+  for (const [, command, rest] of path.matchAll(/([MHV])([^MHV]*)/g)) {
+    const n = rest!.trim().split(/[\s,]+/).map(Number)
+    at = command === 'M' ? { x: n[0]!, y: n[1]! } : command === 'H' ? { x: n[0]!, y: at.y } : { x: at.x, y: n[0]! }
+    points.push(at)
+  }
+  return points
+}
+
+it('separates a self-loop and an outgoing skip including both arrowheads', () => {
+  for (const size of ['compact', 'large'] as const) for (const lower of [false, true]) for (const count of [4, 8]) {
+    const positions = lower ? Object.fromEntries(Array.from({ length: count }, (_, i) => [`s${i}`, { x: 40 + i * 250, y: i === 0 ? 40 : 240 }])) : undefined
+    const { points, scale } = drawn(flowOf(count, [['s1', 's1'], ['s1', 's3']], positions), size)
+    const svg = host.querySelector('svg')!
+    const edge = (id: string) => {
+      const group = svg.querySelector(`[data-edge="${id}"]`)!
+      return [cubicPoints(group.querySelector('path')!.getAttribute('d')!), polygonPoints(group.querySelector('polygon')!.getAttribute('points')!)]
+    }
+    const loop = edge('s1>s1'), skip = edge('s1>s3')
+    const distance = Math.min(...loop.flatMap(a => skip.map(b => lineDistance(a!, b!))))
+    expect(distance).toBeGreaterThanOrEqual(1)
+    const centre = size === 'large' ? { x: 224, y: 40 } : { x: 160, y: 36 }
+    const scaled = [...loop, ...skip].flat().map(point => ({ x: centre.x + (point.x - centre.x) * scale, y: centre.y + (point.y - centre.y) * scale }))
+    within([...points, ...scaled], size === 'large' ? 448 : 320, size === 'large' ? 80 : 72)
+  }
+})
+
+it('keeps the self-loop clear of neighboring, skip, reverse and between-row routes', () => {
+  const positions = { s0: { x: 250, y: 40 }, up: { x: 500, y: 40 }, upRight: { x: 750, y: 40 },
+    farleft: { x: 0, y: 240 }, left: { x: 250, y: 240 }, loop: { x: 500, y: 240 }, right: { x: 750, y: 240 },
+    farright: { x: 1000, y: 240 }, down: { x: 500, y: 440 }, downRight: { x: 750, y: 440 } }
+  const others: [string, string][] = [['loop', 'right'], ['loop', 'farright'], ['farleft', 'loop'], ['loop', 'left'], ['right', 'loop'],
+    ['loop', 'up'], ['down', 'loop'], ['up', 'loop'], ['loop', 'down'], ['loop', 'upRight'], ['downRight', 'loop'], ['upRight', 'loop'], ['loop', 'downRight']]
+  for (const size of ['compact', 'large'] as const) {
+    const { points } = drawn(flowOf(1, [['loop', 'loop'], ...others], positions, Object.keys(positions).filter(id => id !== 's0')), size)
+    const edge = (id: string) => {
+      const group = host.querySelector(`[data-edge="${id}"]`)!
+      expect(group).not.toBeNull()
+      return [routePoints(group.querySelector('path')!.getAttribute('d')!), polygonPoints(group.querySelector('polygon')!.getAttribute('points')!)]
+    }
+    const loop = edge('loop>loop')
+    const distances = others.map(([from, to]) => {
+      const route = edge(`${from}>${to}`)
+      return [`${from}>${to}`, Math.min(...loop.flatMap(a => route.map(b => lineDistance(a!, b!))))] as const
+    })
+    for (const [, distance] of distances) expect(distance).toBeGreaterThanOrEqual(1)
+    within(points, size === 'large' ? 448 : 320, size === 'large' ? 80 : 72)
+    const originalRoutes = new Map(others.map(([from, to]) => {
+      const group = host.querySelector(`[data-edge="${from}>${to}"]`)!
+      return [`${from}>${to}`, [group.querySelector('path')!.getAttribute('d'), group.querySelector('polygon')!.getAttribute('points')]] as const
+    }))
+    // Moving the self-loop to another cell leaves every unrelated route intact.
+    drawn(flowOf(1, [['left', 'left'], ...others], positions, Object.keys(positions).filter(id => id !== 's0')), size)
+    for (const [id, original] of originalRoutes) {
+      const group = host.querySelector(`[data-edge="${id}"]`)!
+      const current = [group.querySelector('path')!.getAttribute('d'), group.querySelector('polygon')!.getAttribute('points')]
+      if (id === 'downRight>loop' || id === 'upRight>loop') expect(current).not.toEqual(original)
+      else expect(current).toEqual(original)
+    }
   }
 })
 
