@@ -754,7 +754,7 @@ export class LeadJournal {
       const cancellation = isLeadCancellation(method, action)
       // Status reads remain available after Stop so the final report can observe desk state.
       if (tier !== 'read' && !cancellation && (['stopped', 'accepted', 'declined'].includes(this.#state.phase) || leadWorkerDispatchBlockedByOpenPr(this.#state) || hasPendingLeadPlan(this.#state) ||
-        this.#state.recoveryBlocked || this.#state.orphanedWorkerDispatch || this.#state.workerApprovals.some(rule => rule.dispatch) || [...this.#state.attempts.values()].some(attempt => attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.phase === 'started' && attempt.dispatched))))
+        this.#state.recoveryBlocked || this.#state.workerAuditWait || this.#state.managementReason === 'lead-worker-audit-failed' || this.#state.orphanedWorkerDispatch || this.#state.workerApprovals.some(rule => rule.dispatch) || [...this.#state.attempts.values()].some(attempt => attempt.kind === 'mutation' && (attempt.outcome === 'uncertain' || attempt.phase === 'started' && attempt.dispatched))))
         decision = refusal('start', 'Management is stopped pending recovery or user action')
       if (method === 'flow/start-goal' && (!step || step.state !== 'pending' || request.start?.id !== step.id ||
         this.#state.steps.find(step => step.state !== 'started')?.id !== step.id)) decision = refusal('start', 'Step is unapproved, out of order or already admitted')

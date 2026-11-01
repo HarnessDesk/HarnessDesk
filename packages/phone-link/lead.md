@@ -379,7 +379,11 @@ rules omit `entries`. An absent entries list means no retained diffs. Active rul
 remain in `savedApprovals`; the additive `revokedApprovals?: readonly
 LeadSavedApproval[]` contains read-only revoked rows. Both share the history
 byte limits and a combined maximum of 128 rows. Revoke preserves confirmed and uncertain
-entries and the confirmed count. Goal expiry or a changed contract clears both lists. Render a
+entries and the confirmed count. Entering Following moves all active rows to
+revoked history, so a repair needs a fresh approval. Accepted, declined, stopped
+and a new goal clear both lists. A changed contract clears them only without an
+unresolved worker audit; otherwise revoked history and the audit wait survive.
+Render a
 Revoked chip and the diff reader on a revoked row, with no Revoke action.
 
 Render at most one host notice per used rule, keyed by its `id`, updating the
@@ -397,7 +401,9 @@ after an answer fails without acknowledgement or the host reopens a durable
 dispatch without one. An ordinary answer in flight projects neither `uncertain`
 nor the unacknowledged diff entry. An active row with `uncertain: true` earns a Needs review chip. Show a
 host error: inspect the worker changes and revoke that uncertain rule before
-Resume can continue. A failed writer must first be restarted; the durable
+Resume can continue. If Following or a revised plan already retired the rule,
+show its revoked history and offer Resume after inspection; plan approval does
+not lift the wait. A failed writer must first be restarted; the durable
 intent preserves this fence. An in-flight answer keeps the live thread phase unchanged. Opening a journal
 or loading a checkpoint with an unacknowledged intent applies the waiting fence.
 Known pre-dispatch cancellation clears the intent and restores its saved phase.
@@ -408,7 +414,11 @@ including after Revoke. The reader is titled Changes under this approval and
 counts retained answers and needs-review requests separately. Obsolete file rules
 retain inactive history and unresolved intents for inspection. Once the rule is revoked, its row moves
 to `revokedApprovals` without `uncertain`. Missing or repeated live revokes return
-`lead-approval-not-live` without appending a journal record.
+`lead-approval-not-live` without appending a journal record. A retained host
+observation for an orphaned dispatch requires explicit Resume; an ordinary chat
+message cannot review it. Resume removes that observation’s Needs review state
+while retaining the diff. A pending intent’s own acknowledgement or proven
+non-delivery resolves it. Terminal decisions and a new goal end the audit wait.
 
 Ordinary worker phone cards cannot display extra-grant scope. When it is present,
 their existing `why` field says “Extra permissions need review on the desk.” and

@@ -4979,10 +4979,10 @@ newest-first entries containing the answer number and exact diff (including an
 empty diff). Each diff is limited to the card's 8,000 characters. History retains
 at most eight entries and 32 KiB of UTF-8 JSON per rule, with a 256 KiB goal-wide
 cap; oldest entries drop first and never change the count. Tool rules retain no
-diffs. Revocation disables matching and moves the rule to read-only revoked history, retaining its entries under the same bounds and shared 128-rule limit. Goal expiry and contract changes clear both active and revoked history. A renewed grant for the same target has a new id.
+diffs. Revocation disables matching and moves the rule to read-only revoked history, retaining its entries under the same bounds and shared 128-rule limit. Terminal decisions and a new goal clear both active and revoked history. An unfenced contract change also clears them; a fenced contract change retains revoked history and the audit wait. A renewed grant for the same target has a new id.
 
 The conversation derives one host notice line per active used rule, updating it
-in place with its count. View allowed diffs belongs to the saved rule's row and
+in place with its count. View changes belongs to the saved rule's row and
 opens retained entries newest first in the shared Dialog. These values pass the
 transcript text sanitizer and never appear as assistant prose. A dispatch intent containing the exact bounded request is journaled before answering, and admission is checked again after that write. Acknowledgement writes history and count, clears the intent and restores the prior phase. An unmatched intent persists across checkpoint and journal replay as `waiting-for-user` with `lead-worker-audit-failed`; neither another automatic answer nor Resume can bypass it. The person inspects the worker changes and revokes the uncertain rule through the Answer-tier path before Resume can continue. A response failure also leaves the intent uncertain, without claiming an allowed answer or incrementing its count. A failed writer must first be restarted; the durable intent retains the fence. Live revokes of missing or already revoked ids fail without an append, while historical replay remains lenient.
 
@@ -4995,8 +4995,13 @@ Journal authentication checks the original stored record before migration.
 
 Saved approvals and read-only revoked history use a plain Rows/Row list; revoked rows show a Revoked chip and keep their diff reader without a Revoke control. Active rows use secondary Revoke controls and the
 dock's shared busy state. Revocation and automatic admission share the journal
-writer queue. Accepted, declined, stopped and fresh or repeated goals, or an
-approved contract change, discard the rules. A pending plan suspends automatic
+writer queue. Entering Following ends all saved authority by moving active rules
+to revoked history. A dispatch present at that boundary becomes an uncertain
+history entry and latches `workerAuditWait`; a later repair must ask again.
+Accepted, declined, stopped and fresh or repeated goals discard active rules and
+history. An unfenced approved contract change does the same. A fenced contract
+change retires every key, retains uncertain diffs (including their original
+contract digest) and orphan receipts, and keeps the audit-failed wait. A pending plan suspends automatic
 answers. Strict journal and checkpoint parsers retain only the closed keys;
 obsolete keys are removed rather than widened or reinterpreted.
 
@@ -5011,6 +5016,12 @@ when they remove an uncertain intent, retaining an explicit Resume requirement
 through same-contract renewal. Unmarked historical revokes retain the old renewal
 semantics, so a start admitted by a valid older journal remains readable.
 Repair refreshes compare the fenced state before appending and are idempotent.
+Neither a plan proposal nor approving its revised contract resolves a worker
+audit. Known acknowledgement or proven non-delivery settles its own pending
+intent; once authority has retired, Resume continues after inspection. An orphan
+requires the explicit Resume action, never implicit resumption by ordinary chat.
+Terminal decisions and a new goal end the audit wait. All non-read,
+non-cancellation execution remains refused until the wait has resolved.
 
 ## Lead message provenance is verified and chat control belongs to the person — 2026-10-30
 

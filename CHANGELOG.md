@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Saved approvals end when a goal enters Following.** Their audit history remains available, and a revised plan cannot clear an unresolved worker audit. Unreviewed orphan requests require explicit Resume.
+
 - **Worker approval recovery uses one fence across live and stored state.** Repair hand-backs retain uncertain changes, repair refreshes preserve Resume revisions, and older renewal journals remain readable. Diff actions say View changes.
 
 - **Saved worker approvals recover safely after interruption.** Revoke and Resume survive restart, including older journals and rules whose filenames no longer qualify. Normal automatic answers no longer flash Needs review, and the diff reader distinguishes confirmed answers from changes needing inspection.

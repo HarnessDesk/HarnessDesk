@@ -2170,3 +2170,22 @@ test('an expired revoked audit wait offers renewal and then explicit Resume with
   await s.controls.idle()
   assert.equal(s.sends.length, 1)
 })
+
+test('ordinary chat cannot resume an orphaned worker audit; explicit Resume can', async () => {
+  const s = await rig({ configured: true, manage: true })
+  await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+  const base = s.journal.state
+  s.records.push({ version: 1, seq: base.seq + 1, type: 'worker-rule-dispatch', id: 'orphan', diff: '+inspect' })
+  const journal = await createLeadJournal(s.storage), { LeadControls } = await controlsModule()
+  const controls = new LeadControls({ journal, service: s.service, project, model: 'fixture-model', now: () => 100, nextId: () => 'unused', push: () => {} })
+  assert.equal((await controls.readThread()).wayOut, 'resume', 'the explicit action remains available')
+  await controls.send({ idempotencyKey: 'chat', text: 'What happened?' }); await controls.idle()
+  assert.equal(journal.state.phase, 'waiting-for-user')
+  assert.equal(journal.state.managementReason, 'lead-worker-audit-failed')
+  assert.ok(journal.state.orphanedWorkerDispatch)
+  assert.equal(s.sends.length, 0)
+  const projection = await controls.readThread()
+  await controls.resume({ expectedRevision: projection.revision }); await controls.idle()
+  assert.equal(journal.state.orphanedWorkerDispatch, null)
+  assert.equal(s.sends.length, 1)
+})

@@ -1,7 +1,7 @@
 import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import { parseLeadDecisionMessage, parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy, parseLeadCaps } from '@harnessdesk/protocol'
 import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
-import { initialLeadState, removedWorkerApprovalNotice, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
+import { initialLeadState, removedWorkerApprovalNotice, retireLeadWorkerApprovals, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
 import { parseLeadBudgetLedger } from './budget.js'
 
 export interface LeadJournalCheckpoint {
@@ -78,13 +78,13 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
       if ((stored as LeadWorkerApprovalRule).key?.kind !== 'fileChange') return []
       rule = parseLeadWorkerApprovalRule(stored, true)
     }
-    assert(contract && source.consent && !['stopped', 'accepted', 'declined'].includes(source.phase) && rule.contractDigest === contract.digest && rule.goalStartedSeq === source.goalStartedSeq)
-    if (!leadWorkerRuleInProject(rule.key, contract!.project.path)) {
+    assert(contract && source.consent && !['stopped', 'accepted', 'declined'].includes(source.phase) && (rule.revoked || rule.contractDigest === contract.digest) && rule.goalStartedSeq === source.goalStartedSeq)
+    if (!rule.revoked && !leadWorkerRuleInProject(rule.key, contract!.project.path)) {
       removed = true
       if (!rule.dispatch) rule = { ...rule, revoked: true }
     }
     // Upgrade the retained portion of round-one notices without keeping them in conversation history.
-    const old = messages.filter(message => message.approval?.ruleId === rule.id && message.approval?.diff !== undefined).reverse()
+    const old = messages.filter(message => message.approval?.ruleId === rule.id && message.approval?.diff !== undefined && !/^worker-rule-(?:orphan|reviewed)-/.test(message.id)).reverse()
     if (rule.key.kind === 'fileChange' && rule.entries === undefined && old.length) rule = { ...rule, entries: boundLeadApprovalEntries(old.map((message, index) => ({ id: `audit-${message.revision}`, number: rule.count - index, diff: message.approval!.diff! })).filter(entry => entry.number > 0)) }
     assert(!rule.entries || rule.entries.every(entry => Number(entry.id.slice(6)) <= source.seq))
     return [rule]
@@ -93,8 +93,8 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   const orphan = source.orphanedWorkerDispatch
   if (orphan !== null) {
     assert(Object.keys(orphan).sort().join() === 'diff,id,phase,reason,revision' && orphan.revision <= source.seq &&
-      !['stopped', 'accepted', 'declined'].includes(source.phase) && !workerApprovals.some(rule => rule.id === orphan.id) &&
-      ['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user'].includes(orphan.phase) && !workerApprovals.some(rule => rule.dispatch))
+      !['stopped', 'accepted', 'declined'].includes(source.phase) && !workerApprovals.some(rule => !rule.revoked && rule.id === orphan.id) &&
+      ['draft', 'planning', 'awaiting-plan', 'running', 'waiting-for-user', 'following'].includes(orphan.phase) && !workerApprovals.some(rule => rule.dispatch))
     parseLeadJournalRecord({ version: 1, seq: orphan.revision, type: 'worker-rule-dispatch', id: orphan.id, diff: orphan.diff })
     parseLeadJournalRecord({ version: 1, seq: 1, type: 'management', phase: 'waiting-for-user', reason: orphan.reason })
   }
@@ -184,6 +184,8 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     if (consent.renewalCardRevision !== undefined) assert(Number.isSafeInteger(consent.renewalCardRevision) && cards.some(card => card.type === 'plan' && card.contractDigest === consent.contractDigest && card.revision === consent.renewalCardRevision))
     assert(Number.isSafeInteger(consent.expiresAt) && consent.expiresAt > 0)
   }
-  const state = fenceLeadWorkerDispatch(structuredClone({ ...source, workerApprovals, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages }))
+  let state: LeadState = structuredClone({ ...source, workerApprovals, completedBudgets, policy, contract, budget, cards, runs, steps, attempts, messages })
+  if (state.phase === 'following') state = retireLeadWorkerApprovals(state)
+  state = fenceLeadWorkerDispatch(state)
   return { checkpoint: structuredClone(checkpoint), state }
 }

@@ -189,7 +189,8 @@ export class LeadControls {
   #inFlight(): boolean {
     return this.#requestInFlight || this.options.readRequestInFlight?.() === true
   }
-  #resumable(state: LeadState): boolean {
+  #resumable(state: LeadState, explicit = false): boolean {
+    if (state.orphanedWorkerDispatch && !explicit) return false
     if (state.workerApprovals.some(rule => rule.dispatch) || ['stopped', 'accepted', 'declined', 'following'].includes(state.phase) || state.budget?.stop || state.recoveryBlocked || this.#inFlight()) return false
     const cards = state.cards.filter(card => !state.decidedCards.includes(`${card.id}:${card.revision}`))
     return !cards.some(card => card.type === 'plan' || card.type === 'result' || card.type === 'waiting' && card.kind === 'person') &&
@@ -201,7 +202,7 @@ export class LeadControls {
     if (state.cards.some(card => card.type === 'plan' && !state.decidedCards.includes(`${card.id}:${card.revision}`))) return 'decide-plan'
     if (leadWaitNeedsChange(state.managementReason)) return null
     if (state.managementReason === 'lead-predecessor-unavailable' || state.managementReason === 'lead-predecessor-unverifiable') return null
-    return this.#resumable(state) ? 'resume' : null
+    return this.#resumable(state, true) ? 'resume' : null
   }
   #publicFailure(error: unknown): never {
     throw leadRefusal((error as { wireCode?: unknown })?.wireCode === 'lead-protection-unavailable' ? 'lead-protection-unavailable' : 'lead-secret-refused')

@@ -509,3 +509,51 @@ test('Resume retires the orphan Needs review notice but keeps the reviewed diff 
   assert.equal(journal.state.messages.at(-1)!.approval!.diff, '+inspect')
   assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(journal.state, 'b'.repeat(64))).state, journal.state)
 })
+
+test('marked revoke fences a non-start mutation from an in-flight Lead request until Resume', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = save(), journal = await createLeadJournal({ checkpoint() { return base }, async read() { return [] }, async append() {} })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical', caps: contract.caps, freshnessMs: 1000 })
+  await assert.rejects(journal.useWorkerApproval('rule-1', () => true, async () => { throw Error('uncertain') }, '+inspect'))
+  await journal.revokeWorkerApproval('rule-1', digest)
+  let dispatched = 0
+  const input = { request: { method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Continue' }, project: contract.project, runId: null, start: null },
+    context: { desk: journal.state.policy!, projectPolicy: null, project: contract.project, approved: null, now: 100, policyInterpretation: 'idle' as const,
+      budget: { version: 1 as const, revision: 1, caps: contract.caps, leadUsdMicros: 0, workerUsdMicros: 0, reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known' as const, stop: null } } }
+  const answer = async () => { dispatched++; return { value: null, identity: null } }
+  assert.equal((await journal.execute({ ...input, id: 'before-resume' }, answer)).decision.effect, 'deny')
+  assert.equal(dispatched, 0)
+  await journal.resume()
+  assert.equal((await journal.execute({ ...input, id: 'after-resume' }, answer)).decision.effect, 'allow')
+  assert.equal(dispatched, 1)
+})
+
+test('revised plan retains an orphaned audit receipt until explicit Resume', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const base = start()
+  const journal = await createLeadJournal({ checkpoint() { return base }, async read() { return [{ version: 1, seq: base.seq + 1, type: 'worker-rule-dispatch', id: 'orphan', diff: '+inspect orphan' }] }, async append() {} })
+  const next = { ...contract, revision: 2, digest: 'b'.repeat(64) }
+  await journal.offerCard({ version: 1, id: 'plan2', revision: 1, type: 'plan', contractDigest: next.digest, contract: next })
+  await journal.decideCard({ version: 1, cardId: 'plan2', cardType: 'plan', expectedRevision: 1, contractDigest: next.digest, choice: 'approve' }, 1000)
+  assert.equal(journal.state.managementReason, 'lead-worker-audit-failed')
+  assert.equal(journal.state.workerAuditWait, true)
+  assert.equal(journal.state.orphanedWorkerDispatch!.diff, '+inspect orphan')
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(journal.state, 'b'.repeat(64))).state, journal.state)
+  await journal.resume()
+  assert.equal(journal.state.phase, 'running')
+})
+
+test('legacy dispatch records for a retired rule never re-arm it or block replay', async () => {
+  const { createLeadJournal } = await import('../src/index.js')
+  const following = parseLeadCheckpoint(leadCheckpoint({ ...save(), phase: 'following' }, 'b'.repeat(64))).state
+  assert.equal(following.workerApprovals[0]!.revoked, true, 'older Following checkpoints contain no active authority')
+  const records: any[] = [{ version: 1, seq: following.seq + 1, type: 'worker-rule-dispatch', id: 'rule-1', diff: '+legacy request' },
+    { version: 1, seq: following.seq + 2, type: 'worker-rule-used', id: 'rule-1', diff: '+legacy request' }]
+  const pendingJournal = await createLeadJournal({ checkpoint() { return following }, async read() { return records.slice(0, 1) }, async append() {} })
+  assert.deepEqual(parseLeadCheckpoint(leadCheckpoint(pendingJournal.state, 'b'.repeat(64))).state, pendingJournal.state)
+  const journal = await createLeadJournal({ checkpoint() { return following }, async read() { return records }, async append() {} })
+  assert.equal(journal.state.workerApprovals[0]!.revoked, true)
+  assert.equal(journal.state.workerApprovals[0]!.count, 0)
+  assert.equal(journal.state.orphanedWorkerDispatch, null)
+  assert.equal(journal.state.phase, 'following')
+})

@@ -2259,16 +2259,26 @@ this goal and approved contract. Saved approvals for this goal lists each target
 the number of later requests answered, and Revoke. Each used rule has one Desk
 notice line, updated in place: “Allowed under your rule for this goal: <target> ·
 N times”. It never consumes conversation history. A file rule’s row offers View
-allowed diffs, opening its bounded retained history newest first in a shared
+changes, opening its bounded retained history newest first in a shared
 dialog titled Changes under this approval. The header counts retained answers and requests that need review separately. Counts remain exact when older diffs are dropped. Revoke applies to
 the next request and keeps the row as read-only history with a Revoked chip and
-its diff reader. Accepted, declined, stopped and fresh goals clear these rules,
-as does changing the approved contract. The person can use these controls on a
+its diff reader. Entering Following also retires every saved approval into
+revoked history, so a later repair asks again. Accepted, declined, stopped and
+fresh goals clear active rules and history. A changed contract clears them only
+when no worker audit is unresolved; otherwise it retains revoked history and
+the audit wait. The person can use these controls on a
 paired phone with answer permission; Lead cannot create or revoke a rule.
 Commands offer only Yes once and No, with additional grants shown in full. If an
 automatic answer has no acknowledgement, its durable intent pauses automatic
 work across restarts. A normal answer in flight shows no uncertainty. After an answer fails without acknowledgement or the host reopens its unresolved dispatch, the row and its unacknowledged diff entry show Needs review; that entry stays
-available after Revoke without increasing the answered count. The person inspects the changes and revokes that uncertain rule before Resume is available.
+available after Revoke without increasing the answered count. The person inspects the changes and revokes any still-active uncertain rule
+before Resume is available. Following or a revised plan may already have
+retired that rule; its uncertain entry remains openable and Resume is still
+required. A proposal or plan approval never resolves this wait. If an older
+checkpoint lost the rule key, its host notice retains the diff; an ordinary chat
+message cannot review it. Explicit Resume retires that notice’s Needs review
+state. An acknowledgement or proven non-delivery resolves a still-pending
+dispatch; terminal decisions or a new goal end the wait.
 Questions, stdin, publication, irreversible actions and changes to permissions,
 allowances or branch ownership always ask separately. After an approving review, each required
 check without counted evidence offers Run check with its whole command. That

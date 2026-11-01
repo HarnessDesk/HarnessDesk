@@ -235,8 +235,8 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       state = { ...state, workerApprovals: [...state.workerApprovals, rule] }; break
     }
     case 'worker-rule-dispatch': {
-      ensure(!state.orphanedWorkerDispatch && !state.workerApprovals.some(rule => rule.dispatch))
-      const rule = state.workerApprovals.find(rule => rule.id === event.id)
+      ensure(!state.orphanedWorkerDispatch && !state.workerApprovals.some(rule => !rule.revoked && rule.dispatch))
+      const rule = state.workerApprovals.find(rule => rule.id === event.id && (!rule.revoked || !state.contract || !leadWorkerRuleInProject(rule.key, state.contract.project.path)))
       if (!rule) {
         // A checkpoint from an older migration may already have removed the key.
         // Keep its remaining diff openable as a host observation, never authority.
@@ -248,7 +248,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         }] }); break
       }
       const obsolete = !state.contract || !leadWorkerRuleInProject(rule.key, state.contract.project.path)
-      ensure((!rule.revoked || obsolete) && !state.workerApprovals.some(rule => rule.dispatch) && !hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && rule.count < Number.MAX_SAFE_INTEGER)
+      ensure((!rule.revoked || obsolete) && !state.workerApprovals.some(rule => !rule.revoked && rule.dispatch) && !hasPendingLeadPlan(state) && !['accepted', 'declined', 'stopped', 'following'].includes(state.phase) && rule.count < Number.MAX_SAFE_INTEGER)
       ensure((rule!.key.kind === 'fileChange') === (event.diff !== null))
       const dispatch = { revision: event.seq, diff: event.diff, phase: state.phase, reason: state.managementReason }
       state = { ...state, workerApprovals: state.workerApprovals.map(old => {
@@ -258,6 +258,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       }) }; break
     }
     case 'worker-rule-dispatch-cancelled': {
+      if (settleOrphan(event.id)) break
       const rule = state.workerApprovals.find(rule => rule.id === event.id)
       if (!rule) { settleOrphan(event.id); break }
       ensure(!rule.revoked && rule.dispatch)
@@ -267,6 +268,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
         workerApprovals: state.workerApprovals.map(old => old.id === event.id ? { ...retained, ...(obsolete ? { revoked: true as const } : {}) } : old) }; break
     }
     case 'worker-rule-used': {
+      if (settleOrphan(event.id)) break
       const rule = state.workerApprovals.find(rule => rule.id === event.id)
       if (!rule) { settleOrphan(event.id); break }
       const obsolete = !state.contract || !leadWorkerRuleInProject(rule.key, state.contract.project.path)
@@ -438,7 +440,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       if (event.phase === 'planning') ensure(state.contract === null && ['draft', 'planning'].includes(state.phase))
       state = { ...state, phase: event.phase, managementReason: event.reason ?? null }; break
     case 'resume':
-      ensure(state.phase === 'waiting-for-user' && !state.budget?.stop && !hasPendingLeadPlan(state) && !state.workerApprovals.some(rule => rule.dispatch))
+      ensure(state.phase === 'waiting-for-user' && !state.budget?.stop && !hasPendingLeadPlan(state) && !state.workerApprovals.some(rule => !rule.revoked && rule.dispatch))
       state = { ...state, orphanedWorkerDispatch: null, workerAuditWait: false,
         messages: state.messages.map(message => message.id.startsWith('worker-rule-orphan-') ? { ...message, id: message.id.replace('worker-rule-orphan-', 'worker-rule-reviewed-'), text: 'Reviewed changes from a removed saved approval. The goal was resumed.' } : message),
         phase: state.pr?.state === 'open' ? 'following' : 'running', managementReason: null,
@@ -767,16 +769,31 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
     state.decidedCards.includes(`${retry.id}:${retry.revision}`) || !state.cards.some(card => card.id === retry.id && card.revision === retry.revision)))
     state = { ...state, retryResult: null }
   const changedContract = state.contract !== previous.contract && JSON.stringify(state.contract) !== JSON.stringify(previous.contract)
-  if (event.type === 'new-goal' || ['stopped', 'accepted', 'declined'].includes(state.phase) || changedContract)
+  const auditFenced = !!pending || source.workerAuditWait
+  if (event.type === 'new-goal' || ['stopped', 'accepted', 'declined'].includes(state.phase) || changedContract && !auditFenced) {
     state = { ...state, workerApprovals: [], orphanedWorkerDispatch: null, workerAuditWait: false,
       messages: state.messages.filter(message => !/^worker-rule-(?:orphan|reviewed)-/.test(message.id)) }
-  if (changedContract && state.managementReason === 'lead-worker-audit-failed') state = { ...state, managementReason: null }
+    if (changedContract && state.managementReason === 'lead-worker-audit-failed') state = { ...state, managementReason: null }
+  } else if (state.phase === 'following' || changedContract) {
+    // Following ends reusable authority. A revised contract cannot dispose of
+    // unresolved work: retire the keys but retain their audit and Resume wait.
+    state = retireLeadWorkerApprovals(state)
+  }
   // Dispatch itself stays live until delivery settles. Every later record,
   // recovery reader and checkpoint uses this one fence. A marked new-writer
   // revoke keeps the wait after removing the intent; legacy renewal may lift it.
   if (event.type !== 'worker-rule-dispatch') state = fenceLeadWorkerDispatch(state)
   return { ...state, decisionRevision: event.type === 'wake' ? previous.decisionRevision : event.seq }
 }
+/** Retire authority without discarding evidence, shared with checkpoint migration. */
+export const retireLeadWorkerApprovals = (state: LeadState): LeadState => ({ ...state,
+  workerAuditWait: state.workerAuditWait || !!state.orphanedWorkerDispatch || state.workerApprovals.some(rule => rule.dispatch),
+  workerApprovals: boundLeadApprovalHistory(state.workerApprovals.map(rule => {
+    const { dispatch: _dispatch, ...history } = rule
+    const entries = leadWorkerApprovalEntries(rule)
+    return { ...history, revoked: true as const, ...(entries.length ? { entries } : {}) }
+  })),
+})
 /** Shared live/storage/recovery policy; dispatch itself keeps its phase in flight. */
 export const fenceLeadWorkerDispatch = (state: LeadState): LeadState => !['stopped', 'accepted', 'declined'].includes(state.phase) &&
   (state.workerAuditWait || state.orphanedWorkerDispatch || state.workerApprovals.some(rule => rule.dispatch))
