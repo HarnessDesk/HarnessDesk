@@ -3,6 +3,7 @@ export { leadRoundId } from '@harnessdesk/lead'
 import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
+import { observedReviewTarget, reviewTargetDiagnostic } from './review-target-diagnostic.js'
 
 import { DEFAULT_FLOW_BUDGET, completesRound, isPersonReviewStep } from '@harnessdesk/protocol'
 import type {
@@ -32,6 +33,7 @@ import type {
   GoalOrigin,
   GoalSeatRequest,
   Intent,
+  ReviewTargetBinding,
   Lane,
   RepairLead,
   SeatRecord,
@@ -268,7 +270,9 @@ export interface FlowExecutionPort {
   reviewTarget?(
     goal: string, card: Pick<Intent, 'title' | 'detail'> & { readonly id?: number }, number?: number | null,
     checkout?: FlowSubject['checkout'],
-  ): Promise<{ readonly at: string; readonly number: number } | { readonly why: string }>
+  ): Promise<{ readonly at: string; readonly number: number; readonly reviewTarget?: ReviewTargetBinding } | { readonly why: string }>
+  /** A review checkout can read the exact base commit, not only its head. */
+  hasReviewCommit?(cwd: string, sha: string): Promise<boolean>
   /** Fetches the configured base once, after its intent is journaled and before adoption. */
   fetchBase?(root: string, base: FlowBase, run: string): Promise<FlowBasePin>
   /** Deletes only an aborted, unadopted run’s retained base ref. */
@@ -860,6 +864,7 @@ export interface PersonReviewBinding {
   readonly round: number
   readonly subjects: readonly FlowSubject[]
   readonly unsettled: readonly { readonly card: number; readonly why: string }[]
+  readonly refusal?: string
 }
 
 export class FlowExecutions {
@@ -1627,6 +1632,44 @@ export class FlowExecutions {
   }
 
   /** Only the run's merge grant for its frozen PR and reviewed head can skip a question. */
+  isGuardedMergeStep(goal: string, card: number): boolean {
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.document.format !== 'agents') return false
+    return bindingsFor(found.run, found.round.role)[found.slot]?.grant === 'merge'
+  }
+
+  /** Journal-only authority; never performs a forge read while the gateway owns its queue. */
+  async mergeAuthority(goal: string, card: number, target: { readonly repository: string; readonly number: number; readonly head: string }): Promise<ReviewTargetBinding | null> {
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.state !== 'running' || !this.isMergeStep(goal, card, target) || !this.#facts) return null
+    const { run, round } = found
+    const frozen = run.target
+    if (frozen?.kind !== 'pull-request' || frozen.reviewBound === false || !frozen.repository || !frozen.baseRef || !frozen.base || !frozen.head || !frozen.pr ||
+        frozen.repository !== target.repository || frozen.pr !== target.number || frozen.head !== target.head) return null
+    const binding: ReviewTargetBinding = { repository: frozen.repository, number: frozen.pr, head: frozen.head, baseRef: frozen.baseRef, baseTip: frozen.base }
+    const cause = /^after:(\d+):(.+)$/.exec(round.cause)
+    const previous = cause && run.rounds.find(one => one.n === Number(cause[1]))
+    const rule = cause && policyOf(run).rules.find(one => one.id === cause[2] && one.then.role === round.role && one.on === previous?.role)
+    const answers = rule?.when?.evidence?.flatMap(one => 'review' in one ? [one.review] : []) ?? []
+    if (!previous || !rule || answers.length === 0) return null
+    const facts = await this.#facts(goal)
+    const current = this.#cardOf(goal, card)
+    if (!current || current.run !== run || current.round !== round || current.run.state !== 'running' || !this.isMergeStep(goal, card, target)) return null
+    if (round.evidence.some(id => facts.filter(one => one.record.id === id && !one.record.restored && one.freshness.state === 'fresh').length !== 1)) return null
+    const selected = facts.filter(one => round.evidence.includes(one.record.id) && one.record.fact.kind === 'review')
+    if (selected.length === 0 || answers.some(answer => !selected.some(one => one.record.fact.kind === 'review' && one.record.fact.verdict === answer))) return null
+    if (previous.seats.some(seat => !selected.some(one => one.record.fact.kind === 'review' && one.record.fact.by === seat))) return null
+    for (const view of selected) {
+      const fact = view.record.fact
+      if (fact.kind !== 'review' || view.record.restored || view.freshness.state !== 'fresh' || !answers.includes(fact.verdict) ||
+          !fact.reviewTarget || fact.reviewTarget.repository !== binding.repository || fact.reviewTarget.number !== binding.number ||
+          fact.reviewTarget.head !== binding.head || fact.reviewTarget.baseRef !== binding.baseRef || fact.reviewTarget.baseTip !== binding.baseTip) return null
+      const latest = facts.filter(one => one.record.fact.kind === 'review' && one.record.fact.by === fact.by && one.record.fact.at === fact.at).at(-1)
+      if (latest !== view) return null
+    }
+    return binding
+  }
+
   isMergeStep(goal: string, card: number, target: { readonly number: number; readonly head: string }): boolean {
     const found = this.#cardOf(goal, card)
     if (!found || found.run.state !== 'running' || found.run.document.format !== 'agents') return false
@@ -1714,6 +1757,8 @@ export class FlowExecutions {
   }
 
   async #externalReview(run: StoredFlowExecution, card: number): Promise<Omit<FlowClosure, 'cards'>> {
+    const frozenTarget = run.target?.kind === 'pull-request' && run.target.reviewBound !== false
+      ? observedReviewTarget({ repository: run.target.repository, number: run.target.pr, head: run.target.head, baseRef: run.target.baseRef, baseTip: run.target.base }) : null
     const intent = this.#team.stateFor(run.goal).intents.find((one) => one.id === card)
     // A working-tree snapshot has no committed candidate. A PR binding
     // cannot turn it into a review of that PR's head, even after it is clean.
@@ -1731,21 +1776,36 @@ export class FlowExecutions {
     const target = pinned && run.target?.pr === null ? { at: pinned, number: null }
       : await this.#port.reviewTarget(run.goal, pinned ? { id: intent.id, title: '', detail: null } : intent, this.#targetPr(run), seat?.checkout)
     if ('why' in target) {
-      this.#team.reviewAvailability(run.goal, card, target.why)
+      const why = frozenTarget ? `${target.why} ${reviewTargetDiagnostic(frozenTarget, undefined, 'verified open pull request')}` : target.why
+      this.#team.reviewAvailability(run.goal, card, why)
       await this.#team.flush()
-      return { subjects: [], unsettled: [], refusal: target.why }
+      return { subjects: [], unsettled: [], refusal: why }
     }
     if (!seat) return { subjects: [], unsettled: [], refusal: 'This review’s checkout is not available yet. Ask for candidates after its Seat opens.' }
     const head = await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)
+    const team = this.#team.stateFor(run.goal)
+    const comparisonRoot = team.cwd ?? team.root
     const label = target.number === null ? 'This review' : `Pull request #${target.number}`
-    const why = pinned && target.at !== pinned ? `${label} moved from the commit this Run reviews. Start a new review at its current head.`
+    const frozen = run.target?.kind === 'pull-request' ? run.target : null
+    const wantsBinding = !!frozen && frozen.reviewBound !== false && !!frozen.repository && !!frozen.baseRef && !!frozen.base
+    const binding = wantsBinding && 'reviewTarget' in target ? target.reviewTarget : undefined
+    const changedBinding = frozenTarget && binding && (frozenTarget.repository !== binding.repository || frozenTarget.number !== binding.number || frozenTarget.head !== binding.head || frozenTarget.baseRef !== binding.baseRef || frozenTarget.baseTip !== binding.baseTip)
+    const why = changedBinding ? reviewTargetDiagnostic(frozenTarget, binding)
+      : pinned && target.at !== pinned ? `${label} moved from the commit this Run reviews. Start a new review at its current head.`
       : head.at !== target.at ? `${label} moved or its review checkout is not at ${target.at.slice(0, 12)}. Start a new review at its current head.`
-      : head.dirty ? `${label}'s review checkout has uncommitted changes.` : null
+      : head.dirty ? `${label}'s review checkout has uncommitted changes.`
+      : wantsBinding && !binding ? frozenTarget ? reviewTargetDiagnostic(frozenTarget, undefined, 'pull request read') : `${label}'s target could not be verified. Start a fresh review.`
+      : wantsBinding && frozen && (!binding || frozen.repository !== binding.repository || frozen.pr !== binding.number || frozen.head !== binding.head || frozen.baseRef !== binding.baseRef || frozen.base !== binding.baseTip)
+        ? `${label}'s target changed or was not recorded. Start a fresh review.`
+      : binding && !await this.#port.hasReviewCommit?.(seat.checkout.cwd, binding.baseTip)
+        ? `${label}'s destination commit is not available in its review checkout. Fetch it and start a fresh review.`
+      : binding && (!await this.#port.hasReviewCommit?.(comparisonRoot, binding.baseTip) || !await this.#port.hasReviewCommit?.(comparisonRoot, binding.head))
+        ? `${label}'s comparison commits are not available in the Team's project. Fetch them and start a fresh review.` : null
     this.#team.reviewAvailability(run.goal, card, why)
     await this.#team.flush()
     if (why) return { subjects: [], unsettled: [{ card, why }], refusal: why }
     const round = run.rounds.find((one) => one.cards.includes(card))!
-    return { subjects: [{ card, round: round.n, checkout: seat.checkout, at: target.at }], unsettled: [] }
+    return { subjects: [{ card, round: round.n, checkout: seat.checkout, at: target.at, ...(binding ? { reviewTarget: binding } : {}) }], unsettled: [] }
   }
 
   async #heads(run: StoredFlowExecution, cards: readonly number[]): Promise<Omit<FlowClosure, 'cards'>> {
@@ -2167,6 +2227,16 @@ export class FlowExecutions {
     return this.#queue.within(runId, () => this.#personReviewBindingNow(runId, card))
   }
 
+  /** Synchronous admission fence for the evidence store; it does not enter the run queue. */
+  personReviewAdmitted(goal: string, card: number, round: number): boolean {
+    const found = this.#cardOf(goal, card)
+    if (!found || found.run.state !== 'running' || found.run.document.format !== 'agents' ||
+        found.round.n !== round || found.round.state !== 'running') return false
+    const role = found.run.document.flow.roles.find(one => one.id === found.round.role)
+    const intent = this.#team.stateFor(goal).intents.find(one => one.id === card)
+    return !!role && role.kind === 'person' && isPersonReviewStep(found.run.document.flow, role.id) && intent?.state === 'open' && intent.role === role.id
+  }
+
   async #personReviewBindingNow(runId: string, card: number): Promise<PersonReviewBinding | null> {
     const run = this.#runs.get(runId)
     if (!run || run.state !== 'running' || run.document.format !== 'agents') return null
@@ -2189,6 +2259,7 @@ export class FlowExecutions {
       round: round.n,
       subjects,
       unsettled: closure.unsettled,
+      ...(closure.refusal ? { refusal: closure.refusal } : {}),
     }
   }
 
@@ -3474,6 +3545,19 @@ export class FlowExecutions {
    * read it through, stops the round.
    */
   async #planSeats(run: StoredFlowExecution, round: FlowRoundState, isolate: boolean, dependsOn: readonly number[]): Promise<SeatPlan | string> {
+    if (run.target?.kind === 'pull-request' && round.cards.some(card => this.requiresReview(run.goal, card))) {
+      const frozen = run.target
+      const bound = frozen.reviewBound !== false && !!frozen.repository && !!frozen.baseRef && !!frozen.base
+      if (!frozen.pr || !frozen.head || !this.#port.reviewTarget) {
+        return 'This pull request review has no complete saved target. Start a fresh review from the pull request.'
+      }
+      const current = await this.#port.reviewTarget(run.goal, { title: '', detail: null }, frozen.pr)
+      if ('why' in current || !bound && current.at !== frozen.head || bound && (!current.reviewTarget || current.reviewTarget.repository !== frozen.repository ||
+          current.reviewTarget.number !== frozen.pr || current.reviewTarget.head !== frozen.head ||
+          current.reviewTarget.baseRef !== frozen.baseRef || current.reviewTarget.baseTip !== frozen.base)) {
+        return 'The pull request target changed or could not be verified. Start a fresh review.'
+      }
+    }
     const closure = await this.#closure(run, dependsOn)
     // A person or read-only step can precede the review without supplying a
     // writer's revision. Resolve the review's PR only after that walk is empty.

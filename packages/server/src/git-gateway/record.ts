@@ -36,7 +36,7 @@ export interface GitRecordEntry {
   readonly approval: GitApproval
   readonly steeredFrom?: string
   readonly at: number
-  readonly outcome: 'intent' | 'ok' | 'refused' | 'failed' | 'rejected'
+  readonly outcome: 'intent' | 'unknown' | 'observed-merged' | 'ok' | 'refused' | 'failed' | 'rejected'
   readonly reason?: string
 }
 export interface GitRecordQuery {
@@ -112,7 +112,8 @@ export class GitRecord {
           const parsed = JSON.parse(exact.toString('utf8')) as GitRecordEntry
           if (lf >= 0 && parsed && parsed.repository === repository && typeof parsed.id === 'string' && parsed.requester &&
             ['push', 'pr.create', 'pr.update', 'pr.merge', 'pr.comment', 'pr.review', 'issue.comment', 'observed'].includes(parsed.op) &&
-            ['intent', 'ok', 'refused', 'failed', 'rejected'].includes(parsed.outcome) &&
+            ['intent', 'unknown', 'observed-merged', 'ok', 'refused', 'failed', 'rejected'].includes(parsed.outcome) &&
+            (!['unknown', 'observed-merged'].includes(parsed.outcome) || parsed.op === 'pr.merge') &&
             (isGitRequester(parsed.requester) || parsed.requester.kind === 'outside' && (parsed.op === 'observed' || parsed.outcome === 'refused' || parsed.reason === 'own-git-allowed' && parsed.approval?.by === 'person'))) row = parsed
         } catch { /* A damaged physical line is counted, never thrown. */ }
         lines.push({ hash: hash(exact), row }); start = end
@@ -322,9 +323,18 @@ export class GitRecord {
       const read = this.#read(repository)
       if (!read.verification.ok) return
       const latest = new Map(read.rows.map(row => [row.id, row]))
-      pending.push(...[...latest.values()].filter(row => row.outcome === 'intent'))
+      pending.push(...[...latest.values()].filter(row => row.outcome === 'intent' || row.op === 'pr.merge' && row.outcome === 'unknown'))
     }))
     return pending
+  }
+  unresolvedMerge(repository: string, number: number): Promise<GitRecordEntry | null> {
+    repository = canonicalRepository(repository)
+    return this.#queue(repository, () => this.#locked(repository, async () => {
+      const read = this.#read(repository)
+      if (!read.verification.ok) throw new Error(`git-record-broken:${read.verification.line}`)
+      const latest = new Map(read.rows.map(row => [row.id, row]))
+      return [...latest.values()].find(row => row.op === 'pr.merge' && row.number === number && (row.outcome === 'intent' || row.outcome === 'unknown')) ?? null
+    }))
   }
   stats(repository: string): Promise<{ entries: number; damaged: number; segments: number }> {
     repository = canonicalRepository(repository)
