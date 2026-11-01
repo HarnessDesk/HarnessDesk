@@ -45,7 +45,7 @@ export function scriptedFlow(raw, { send, notify }) {
   const requestApproval = async (threadId, turnId, cwd, signal) => {
     signal.throwIfAborted()
     const id = `rig-approval-${++sequence}`, itemId = `rig-command-${sequence}`, startedAtMs = Date.now()
-    const command = 'node -e process.exit(0)'
+    const command = script.approvalCommand ?? 'node -e process.exit(0)'
     const commandActions = [{ type: 'unknown', command }]
     const item = { type: 'commandExecution', id: itemId, command, cwd, processId: null, source: 'agent', status: 'inProgress',
       commandActions, aggregatedOutput: null, exitCode: null, durationMs: null }

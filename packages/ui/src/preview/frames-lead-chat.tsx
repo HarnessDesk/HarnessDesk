@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { Conversation } from '../components/Conversation'
+import { LeadHostNotice } from '../components/LeadMessage'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
 import { ConversationFrame } from './ConversationFrame'
@@ -19,6 +20,10 @@ const LeadChatConversation = () => {
           <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
         </PaneProvider>
       </div>
+    </Frame>
+    <Frame id="lead-host-notice" title="Lead · saved approval notice">
+      <LeadHostNotice message={{ version: 1, id: 'preview-goal-approval-notice', revision: 1, role: 'notice',
+        text: 'Allowed under your rule for this goal: /workspace/demo/src/panel.tsx · 3 times' }} />
     </Frame>
   </StoreProvider>
 }

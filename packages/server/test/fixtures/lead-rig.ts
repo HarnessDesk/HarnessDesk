@@ -54,6 +54,7 @@ export interface LeadRigOptions {
   readonly reviewAvailable?: () => boolean
   readonly forgeGh?: (args: readonly string[]) => Promise<{ stdout: string; stderr: string; exitCode: number }>
   readonly scenario?: 'happy' | 'interrupted' | 'worker-approval' | 'forbidden'
+  readonly workerApprovalCommand?: string
   readonly manualChecks?: boolean
   readonly holdWorkers?: boolean
   readonly holdPlanning?: boolean
@@ -333,7 +334,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         const runtime = new RigRuntime({ id: id as RuntimeId, name: id === 'rig-writer' ? 'Scripted writer' : 'Scripted reviewer', codexHome,
           binaryPath: join(root, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
           capabilities: new GatedRegistry(extensions!, () => host.ceilingGate),
-          env: { ...(options.ordinaryChats ? { FAKE_CODEX_MODE: 'hold' } : {}), FAKE_CODEX_PROCESS_CALLS: workerLog, FAKE_CODEX_FLOW: options.ordinaryChats ? '' : JSON.stringify({ state: passes, gates, approvalLog: workerLog, passPerRun: true, approvalBeforeWork: options.scenario === 'worker-approval', steps: {
+          env: { ...(options.ordinaryChats ? { FAKE_CODEX_MODE: 'hold' } : {}), FAKE_CODEX_PROCESS_CALLS: workerLog, FAKE_CODEX_FLOW: options.ordinaryChats ? '' : JSON.stringify({ state: passes, gates, approvalLog: workerLog, passPerRun: true, approvalBeforeWork: options.scenario === 'worker-approval', approvalCommand: options.workerApprovalCommand, steps: {
             write: { kind: 'write', title: 'Implement the approved goal', outcomes: ['committed'], file: 'retry.txt', contents: 'Incomplete retry status list\n' },
             repair: { kind: 'write', title: 'Repair the blocking findings and rerun required checks', outcomes: ['committed'], file: 'retry.txt', contents: options.publication ? 'Complete retry status list {{intent}}\n' : 'Complete retry status list\n' },
             ...(options.publication ? { followRepair: { kind: 'write', title: 'Repair the followed pull request', outcomes: ['committed'], file: 'retry.txt', contents: 'Followed retry status list {{intent}}\n' } } : {}),
