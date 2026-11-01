@@ -51,6 +51,7 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/repeat/control': 'run',
     'lead/card/decide': 'answer',
     'lead/action/perform': 'answer',
+    'lead/approval/revoke': 'answer',
     'lead/budget/raise': 'answer',
   },
   topics: { lead: 'read', workspace: 'read' },

@@ -1,3 +1,4 @@
+import { LEAD_APPROVAL_DETAIL_CHARS, parseLeadApprovalEntries, type LeadSavedApproval } from './goal-worker-approval.js'
 import { CLIENT_ACTION_TIERS, CLIENT_METHODS, type ClientMethodName } from './client-surface.js'
 import type { CeilingLevel } from './evidence.js'
 import type { FlowSeat } from './flow.js'
@@ -189,12 +190,15 @@ export interface LeadProactive {
   readonly ask: string
   readonly action?: 'plan' | 'changes' | 'approvals'
 }
+export interface LeadApprovalAudit { readonly ruleId: string; readonly target: string; readonly diff?: string }
 export interface LeadMessage {
+  /** Host acknowledgement, never supplied by the Lead model. */
+  readonly approval?: LeadApprovalAudit
   readonly proactive?: LeadProactive
   readonly version: 1
   readonly id: string
   readonly revision: LeadRevision
-  readonly role: 'user' | 'assistant' | 'system'
+  readonly role: 'user' | 'assistant' | 'system' | 'notice'
   /** Untrusted prose; rendering still requires the transcript sanitizer. */
   readonly text: string
 }
@@ -205,7 +209,7 @@ export const LEAD_MANAGEMENT_REASONS = [
   'lead-result-awaiting-person', 'lead-handback-limit', 'lead-handback-pending', 'lead-publication-needs-you', 'lead-pr-head-changed', 'lead-pr-branch-rewritten', 'lead-result-revisions-exhausted', 'lead-start-binding-failed', 'lead-plan-refused', 'lead-activity-failed', 'lead-subscription-failed', 'lead-tools-refused',
   'lead-repair-failed', 'lead-repair-withdrawn', 'lead-repair-abandoned', 'lead-repair-unverified', 'lead-repair-recovery-failed',
   'lead-card-too-large', 'lead-send-deadline', 'lead-request-refused', 'lead-request-rate-limited', 'lead-request-failed', 'lead-request-max-tokens', 'lead-request-invalid-response', 'lead-request-cancelled', 'lead-request-uncertain',
-  'lead-chat-effect-uncertain', 'lead-run-not-started', 'lead-budget-unknown', 'lead-plan-unseatable', 'lead-plan-not-independent',
+  'lead-worker-audit-failed', 'lead-chat-effect-uncertain', 'lead-run-not-started', 'lead-budget-unknown', 'lead-plan-unseatable', 'lead-plan-not-independent',
 ] as const
 export interface LeadThread {
   readonly version: 1
@@ -342,11 +346,13 @@ export interface LeadSteer { readonly id: string; readonly text: string; readonl
   readonly after?: number }
 /** Live host-owned requests. These are not model-proposed cards or LeadCardDecision inputs. */
 export type LeadAction =
-  | { readonly kind: 'worker-approval'; readonly id: string; readonly runId: string; readonly role: string; readonly request: string; readonly choices: readonly ('yes-once' | 'no')[] }
+  | { readonly kind: 'worker-approval'; readonly id: string; readonly runId: string; readonly role: string; readonly request: string; readonly choices: readonly ('yes-once' | 'yes-goal' | 'no')[]; readonly details?: string }
   | { readonly kind: 'check'; readonly id: string; readonly runId: string; readonly name: string; readonly command: string }
-export interface LeadActionInput { readonly id: string; readonly contractDigest: string; readonly choice: 'yes-once' | 'no' | 'run' }
+export interface LeadActionInput { readonly id: string; readonly contractDigest: string; readonly choice: 'yes-once' | 'yes-goal' | 'no' | 'run' }
 /** Window projection adds the host's guarded way out; child observations grant no control. */
 export interface LeadWindowProjection extends LeadHostProjection {
+  readonly savedApprovals?: readonly LeadSavedApproval[]
+  readonly revokedApprovals?: readonly LeadSavedApproval[]
   readonly personActions?: readonly LeadAction[]
   readonly requestInFlight: boolean
   readonly wayOut: LeadPersonAction
@@ -370,7 +376,7 @@ export interface LeadNameReceipt {
   readonly settings: { readonly name: LeadName; readonly nameChosen?: boolean }
 }
 export const LEAD_CONTROL_REFUSALS = ['lead-runtime-unsupported', 'lead-unavailable', 'lead-operation-refused', 'lead-secret-refused', 'lead-revision-stale',
-  'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
+  'lead-approval-not-live', 'lead-no-person-wait', 'lead-plan-pending', 'lead-card-stale', 'lead-card-decided', 'lead-worker-approval',
   'lead-gate-changed', 'lead-gate-save-failed', 'lead-settings-combination', 'lead-evidence-read-refused',
   'lead-change-pending', 'lead-card-too-large', 'lead-projection-failed', 'lead-key-missing', 'lead-secret-in-thread',
   'lead-chat-effect-uncertain', 'lead-thread-closed', 'lead-budget-stopped', 'lead-protection-unavailable', 'lead-request-in-flight', 'lead-project-missing', 'lead-steer-unavailable', 'lead-repeat-missing', 'lead-repeat-quiet', 'lead-repeat-cleanup-pending'] as const
@@ -665,7 +671,16 @@ export const leadProactiveReport = (value: LeadProactive, evidenceAt: number, la
     caveat: 'I could not verify this against the latest desk read.',
   }
 }
-export const parseLeadMessage: Validator<LeadMessage> = omitUnset(object<LeadMessage>({ version, id, revision, proactive: optional(parseLeadProactive), role: literalUnion('user', 'assistant', 'system'), text: content }), ['proactive'])
+export const parseLeadApprovalAudit: Validator<LeadApprovalAudit> = omitUnset(object({ ruleId: id, target: (value, path) => {
+  const target = text(240)(value, path)
+  return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(target) ? fail(path ?? '', 'hidden audit target') : target
+}, diff: optional(boundedText(LEAD_APPROVAL_DETAIL_CHARS, true, proseControls)) }), ['diff'])
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, proactive: optional(parseLeadProactive), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content }), ['proactive', 'approval'])
+export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
+  const message = leadMessageShape(value, path)
+  if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
+  return message
+}
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {
   const entries = Object.entries(isObject(value, path))
   if (entries.length > LEAD_LIMITS.cards) fail(path, 'too many card positions')
@@ -814,17 +829,21 @@ const parseLeadAction: Validator<LeadAction> = (value, path = '') => {
   const kind = (value as { kind?: unknown })?.kind
   return kind === 'worker-approval'
     ? object<Extract<LeadAction, { kind: 'worker-approval' }>>({ ...actionBase, kind: literalUnion('worker-approval'), role: text(80),
-      request: text(240), choices: list(literalUnion('yes-once', 'no'), 2) })(value, path)
+      request: text(240), details: optional(boundedText(LEAD_APPROVAL_DETAIL_CHARS, false, proseControls)), choices: list(literalUnion('yes-once', 'yes-goal', 'no'), 3) })(value, path)
     : object<Extract<LeadAction, { kind: 'check' }>>({ ...actionBase, kind: literalUnion('check'), name: text(40), command: boundedText(2000, false, proseControls) })(value, path)
 }
 export const parseLeadWindowProjection: Validator<LeadWindowProjection> = ipc(object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection, requestInFlight: isBoolean, wayOut: nullable(literalUnion('resume', 'decide-plan')),
   waitReason: nullable(literalUnion(...LEAD_MANAGEMENT_REASONS)), planConsentExpiresAt: nullable(integer(0, Number.MAX_SAFE_INTEGER)), progress: optional(parseLeadProgress), team: optional(id),
+  savedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
+  revokedApprovals: optional(list(object<LeadSavedApproval>({ id, target: text(240), count: integer(), uncertain: optional((value, path) => value === true ? true : fail(path ?? '', 'expected true')), entries: optional(parseLeadApprovalEntries) }), 128, 0, rule => rule.id)),
   personActions: optional(list(parseLeadAction, 1024, 0, action => action.id)), presence: optional(parseLeadPresence),
   steers: optional(list(parseLeadSteer, 64, 0, steer => steer.id)),
 }))
 
-export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, contractDigest: digest, choice: literalUnion('yes-once', 'no', 'run') })
+export const parseLeadActionInput: Validator<LeadActionInput> = object({ id, contractDigest: digest, choice: literalUnion('yes-once', 'yes-goal', 'no', 'run') })
 
 export const parseLeadWakeRecord: Validator<LeadWakeRecord> = object({ id, at: integer(0, Number.MAX_SAFE_INTEGER), source: literalUnion('schedule', 'desk-change', 'person', 'trigger'), decision: literalUnion('silent', 'spoke', 'asked'), modelTurn: isBoolean, usdMicros: nullable(micros) })
 export const parseLeadWakeLog: Validator<LeadWakeLog> = object({ revision: integer(), wakes: list(parseLeadWakeRecord, 128, 0, wake => wake.id) })
+
+export const parseLeadApprovalRevoke: Validator<{ readonly id: string; readonly contractDigest: string }> = object({ id, contractDigest: digest })

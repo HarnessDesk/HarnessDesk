@@ -30,7 +30,7 @@ const planClick = { version: 1 as const, cardId: 'plan', cardType: 'plan' as con
 /** The desk's Lead, over real controls and a fake model, reachable the way the host reaches it. */
 const desk = async () => {
   const performed: unknown[] = []
-  let personActions: any[] = [{ kind: 'worker-approval', id: 'worker', runId: 'run', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'no'] }, { kind: 'check', id: 'check', runId: 'run', name: 'verify', command: 'node --test' }]
+  let personActions: any[] = [{ kind: 'worker-approval', id: 'worker', runId: 'run', role: 'code reviewer', request: 'read the git log', choices: ['yes-once', 'yes-goal', 'no'] }, { kind: 'check', id: 'check', runId: 'run', name: 'verify', command: 'node --test' }]
   const records: LeadJournalRecord[] = []
   const journal = await createLeadJournal({ async read() { return records }, async append(record: LeadJournalRecord) { records.push(record) } })
   await journal.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
@@ -43,13 +43,14 @@ const desk = async () => {
       async send() { return { status: 'completed', text: 'Ready to inspect' } } },
     push: (notification: WireNotification) => broadcasters.forEach(f => f(notification)),
     decidePerson: async () => {}, decideResult: async () => {},
+    revokeApproval: async (input: any) => journal.revokeWorkerApproval(input.id, input.contractDigest),
     readPersonActions: async () => journal.state.contract ? personActions : [], performAction: async (input: any) => { if (!personActions.some(one => one.id === input.id)) throw Object.assign(new Error('stale'), { wireCode: 'lead-card-stale' }); performed.push({ id: input.id, choice: input.choice }); personActions = personActions.filter(one => one.id !== input.id) },
   } as never)
   let attached: PhoneLinkControl | null = null
   const ctx = {
     phone: { state: () => attached?.state() ?? phoneLinkOff, pairing: () => attached!.pairing(), allow: (...a: never[]) => (attached!.allow as any)(...a),
       deny: (id: string) => attached!.deny(id), revoke: (d: string) => attached!.revoke(d) },
-    leadActionPerform: (p: unknown) => (controls as any).perform(p), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p as never), leadCardDecide: (p: unknown) => controls.decide(p as never),
+    leadApprovalRevoke: (p: any) => controls.revokeApproval(p), leadActionPerform: (p: unknown) => (controls as any).perform(p), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p as never), leadCardDecide: (p: unknown) => controls.decide(p as never),
     leadSettingsRead: () => controls.readSettings(), leadSettingsUpdate: (p: unknown) => controls.updateSettings(p as never),
     leadStop: (p: unknown) => controls.stop(p as never), leadResume: (p: unknown) => controls.resume(p as never),
   } as unknown as HostContext
@@ -65,13 +66,13 @@ const rig = async () => {
   const home = await mkdtemp(join(tmpdir(), 'hd-phone-server-'))
   const d = await desk()
   const running = await startPhoneLink(d.host as never, new Logger('test', { console: false }), { home, host: '127.0.0.1', includeLoopback: true, name: 'Test desk' })
-  const pair = async () => {
+  const pair = async (tiers?: readonly import('@harnessdesk/protocol').PhoneTier[]) => {
     const code = running.control.pairing()
     const phone = await PhoneSim.fromCode(code.url)
     await phone.open(running.service.port, phone.offer!.deskPub)
     await phone.enroll(phone.offer!.enroll, 'Jane’s phone')
     for (let i = 0; i < 200 && running.control.state().pending.length === 0; i++) await new Promise(r => setTimeout(r, 10))
-    running.control.allow(running.control.state().pending[0]!.id)
+    running.control.allow(running.control.state().pending[0]!.id, tiers)
     await phone.next(m => m.t === 'enroll.ok')
     return phone
   }
@@ -148,7 +149,7 @@ test('with the phone link off, the window is told so', async () => {
   assert.deepEqual(state.devices, [])
 })
 
-for (const choice of ['yes-once', 'no', 'run']) test(`paired phone performs person action ${choice} and replays are refused`, async () => {
+for (const choice of ['yes-once', 'yes-goal', 'no', 'run']) test(`paired phone performs person action ${choice} and replays are refused`, async () => {
   const s = await rig()
   try {
     await s.journal.offerCard(plan); await s.controls.decide(planClick)
@@ -162,6 +163,64 @@ for (const choice of ['yes-once', 'no', 'run']) test(`paired phone performs pers
     const device = s.running.control.state().devices[0]!
     await s.running.control.revoke(device.id)
     assert.equal((await phone.closedWith()).code, 4423)
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('paired phone reads saved approvals and revokes through the answer tier', async () => {
+  const s = await rig()
+  try {
+    await s.journal.offerCard(plan); await s.controls.decide(planClick)
+    await s.journal.saveWorkerApproval({ id: 'rule-demo', contractDigest: contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq,
+      key: { kind: 'fileChange', path: project.path + '/demo.ts' }, target: '/workspace/demo/demo.ts', count: 0 })
+    await s.journal.useWorkerApproval('rule-demo', () => true, async () => {}, '+export const demo = 2')
+    const auditId = s.journal.state.workerApprovals[0]!.entries![0]!.id
+    const phone = await s.pair()
+    const read = await phone.request('lead/thread/read', {})
+    assert.deepEqual(read.result.savedApprovals, [{ id: 'rule-demo', target: '/workspace/demo/demo.ts', count: 1, entries: [{ id: auditId, number: 1, diff: '+export const demo = 2' }] }])
+    assert.equal(read.result.thread.messages.some((message: any) => message.approval), false)
+    assert.equal(read.result.personActions[0].choices.includes('yes-goal'), true)
+    assert.equal(PHONE_POLICY.methods['lead/approval/revoke'], 'answer')
+    const revoked = await phone.request('lead/approval/revoke', { id: 'rule-demo', contractDigest: contract.digest })
+    assert.equal(revoked.ok, true, JSON.stringify(revoked))
+    assert.deepEqual(revoked.result.savedApprovals, [])
+    assert.deepEqual(revoked.result.revokedApprovals, read.result.savedApprovals)
+    assert.equal(s.journal.state.workerApprovals[0]!.revoked, true)
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('a paired phone without answer authority cannot save or revoke goal approvals', async () => {
+  const s = await rig()
+  try {
+    await s.journal.offerCard(plan); await s.controls.decide(planClick)
+    const phone = await s.pair(['read', 'run'])
+    for (const [method, params] of [['lead/action/perform', { id: 'worker', contractDigest: contract.digest, choice: 'yes-goal' }], ['lead/approval/revoke', { id: 'rule-demo', contractDigest: contract.digest }]] as const) {
+      const reply = await phone.request(method, params)
+      assert.equal(reply.error.code, 'tierNotGranted')
+    }
+    assert.deepEqual(s.performed, []); assert.deepEqual(s.journal.state.workerApprovals, [])
+    phone.close()
+  } finally { await s.done() }
+})
+
+test('phone projects uncertain dispatches and keeps revoked history after Answer-tier revocation', async () => {
+  const s = await rig()
+  try {
+    await s.journal.offerCard(plan); await s.controls.decide(planClick)
+    await s.journal.saveWorkerApproval({ id: 'uncertain', contractDigest: contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq,
+      key: { kind: 'tool', tool: 'get_team_status' }, target: 'get_team_status', count: 0 })
+    await assert.rejects(s.journal.useWorkerApproval('uncertain', () => true, async () => { throw Error('fixture lost acknowledgement') }))
+    const phone = await s.pair()
+    const read = await phone.request('lead/thread/read', {})
+    assert.equal(read.result.savedApprovals[0].uncertain, true)
+    assert.equal(read.result.waitReason, 'lead-worker-audit-failed')
+    assert.equal(read.result.wayOut, null)
+    const revoked = await phone.request('lead/approval/revoke', { id: 'uncertain', contractDigest: contract.digest })
+    assert.deepEqual(revoked.result.savedApprovals, [])
+    assert.deepEqual(revoked.result.revokedApprovals, [{ id: 'uncertain', target: 'get_team_status', count: 0 }])
+    const again = await phone.request('lead/approval/revoke', { id: 'uncertain', contractDigest: contract.digest })
+    assert.equal(again.error.code, 'lead-approval-not-live')
     phone.close()
   } finally { await s.done() }
 })

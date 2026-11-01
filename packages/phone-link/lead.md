@@ -321,3 +321,87 @@ The ordinary plan card shape is unchanged except that its `contract` may now car
 ## Relay boundary
 
 The cloud relay's Room forwards phone binary payloads through a connection-id frame and forwards desk payloads back to the matching socket. It does not decode phone method names or dispatch any `lead/` method. Its binary splice and control-message handling were read for this change; no cloud source was changed. Local phone method authorization remains in the desk's method table.
+
+
+### Goal worker approval rules
+
+`lead/thread/read` and `lead/changed` add optional
+`savedApprovals: LeadSavedApproval[]` (shape below) on the window
+projection. `count` is later acknowledged automatic answers, excluding the
+creating click. An absent list means no saved approvals.
+
+A `personActions` entry with `kind: "worker-approval"` may include `"yes-goal"`
+in `choices` beside `"yes-once"` and `"no"`. Render it as **Yes for this goal**
+only when present. Optional `details: string` contains complete bounded request details, including
+file content, command/folder and any extra-grant facts, and must be shown before
+granting. Command approvals never include `"yes-goal"`. The person sends:
+
+```json
+{"method":"lead/action/perform","params":{"id":"worker-demo","contractDigest":"<current contract digest>","choice":"yes-goal"}}
+```
+
+Revoke a listed rule with:
+
+```json
+{"method":"lead/approval/revoke","params":{"id":"rule-demo","contractDigest":"<current contract digest>"}}
+```
+
+Both require the phone's `answer` tier and return a complete `LeadWindowProjection`.
+Stale contracts or requests are refused. These are person controls; they are not
+on the worker client surface or the child RPC port. Rules end when the goal ends
+or its approved contract changes, and never transfer to the next repeated run.
+
+
+Acknowledged automatic answers update `savedApprovals` without adding messages
+to the conversation window. The additive shape is:
+
+```ts
+interface LeadApprovalEntry {
+  readonly id: string;     // stable audit id
+  readonly number: number; // this rule's acknowledged automatic-answer number
+  readonly diff: string;
+}
+interface LeadSavedApproval {
+  readonly id: string;
+  readonly target: string;
+  readonly count: number;
+  readonly entries?: readonly LeadApprovalEntry[];
+  readonly uncertain?: true; // a durable dispatch has no acknowledgement
+}
+```
+
+File entries are newest first. Each diff is whole, includes an empty diff, and
+is at most 8,000 characters. History retains at most eight entries and 32,768
+UTF-8 JSON bytes per rule, with a 262,144-byte goal-wide history cap. Oldest
+entries drop first; `count` remains exact and excludes the creating click. Tool
+rules omit `entries`. An absent entries list means no retained diffs. Active rules
+remain in `savedApprovals`; the additive `revokedApprovals?: readonly
+LeadSavedApproval[]` contains read-only revoked rows. Both share the history
+byte limits and a combined maximum of 128 rows. Revoke preserves confirmed
+entries and count. Goal expiry or a changed contract clears both lists. Render a
+Revoked chip and the diff reader on a revoked row, with no Revoke action.
+
+Render at most one host notice per used rule, keyed by its `id`, updating the
+line “Allowed under your rule for this goal: <target> · N times” from `count`.
+Offer View allowed diffs on the saved row, newest first, with complete text.
+Do not insert these notices into assistant history. The entries arrive through
+the existing `lead/thread/read` and `lead/changed`; no new method is needed.
+Legacy `thread.messages` notices may still have `approval: { ruleId, target,
+diff? }`; `approval` is optional on host notices, and current automatic answers
+do not create those message entries.
+
+`LeadWindowProjection.waitReason` additionally accepts
+`"lead-worker-audit-failed"`. It accompanies `thread.state: "waiting-for-user"`
+while a durable dispatch intent has no acknowledgement, including after a host
+restart. An active row with `uncertain: true` earns a Needs review chip. Show a
+host error: inspect the worker changes and revoke that uncertain rule before
+Resume can continue. A failed writer must first be restarted; the durable
+intent preserves this fence. Uncertain requests do not increment the confirmed
+count or create an allowed-diff entry. Once the rule is revoked, its row moves
+to `revokedApprovals` without `uncertain`. Missing or repeated live revokes return
+`lead-approval-not-live` without appending a journal record.
+
+Ordinary worker phone cards cannot display extra-grant scope. When it is present,
+their existing `why` field says “Extra permissions need review on the desk.” and
+the host refuses approval from that card; the Lead card's complete `details`
+continues to support an informed one-time answer.

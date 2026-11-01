@@ -4924,6 +4924,82 @@ Known Lead and worker spend reaching 80% produces a journaled At 80% entry with 
 
 Raise limit… is a person-only direct caps update in the shared Dialog. It can increase dollars, rounds or both and preserves an existing stop latch. The raise belongs to its goal: the next goal starts from the caps in force before it, and a fresh approval of a stopped repeat turns that repeat back on. A second Lead approval card for the person's own choice, changing the standing prompt mid-goal, estimating unknown spend and automatically clearing a stopped goal were rejected: none is needed to make the remaining allowance useful.
 
+
+## Worker approvals can be remembered for one Lead goal — 2026-10-31
+
+“Yes for this goal” is a person's decision through the authenticated window or
+paired-phone answer path. The host persists an exact key bound to the goal-start
+sequence and approved contract. Child RPC and worker clients have no save or
+revoke operation; the worker-approval permission floor remains in place.
+
+Commands never receive a reusable key because repository configuration and gitfile indirection can make even read-looking commands execute worker-controlled programs. A check before execution cannot prevent a worker changing that configuration or indirection between the check and the run.
+
+File rules match one exact absolute path for an add or update under the approved
+project. The closed source/document extension allowlist is: `c`, `cc`, `cpp`,
+`cxx`, `h`, `hpp`, `cs`, `fs`, `go`, `rs`, `java`, `kt`, `swift`, `m`, `mm`,
+`py`, `rb`, `php`, `js`, `jsx`, `ts`, `tsx`, `css`, `scss`, `sass`, `less`,
+`html`, `htm`, `vue`, `svelte`, `md`, `mdx`. XML, Kotlin scripts and SVG are
+excluded because they commonly define builds or carry executable content. JSON,
+YAML, TOML, lockfiles and shell scripts are also outside this list.
+
+Eligibility is checked on the path relative to the approved project, allowing a
+project itself to live below a dot folder. Every relative segment must be plain printable ASCII (U+0020–U+007E). This prevents Unicode-equivalent instruction and build names from borrowing a source-file key on filesystems that fold those names. The key, checkpoint admission and fresh path check enforce it; the project root itself may contain Unicode or dot folders. No relative segment may start with a
+dot, or name a `script`, `scripts`, `bin` or `hooks` directory (case insensitive).
+Basenames use the lowercase rc-file pattern `^\.?[a-z0-9_-]*rc(\.[a-z]+)?$`, except short ordinary source stems of the form `<letter>rc` (such as `src.ts` and `arc.ts`). This exception follows the explicitly required source-file acceptance cases, which the general rc pattern also matches. Basenames also refuse `*.local.*`, `*.conf.*`, `conf.py`, `*.config.*`,
+`*.setup.*`, `*.gradle*`, `*file.js`, `*file.ts`, `*file.mjs`, `*.gemspec`,
+`*.podspec`, `package.json`, `Makefile`, `Dockerfile`, `pom.xml`, `Package.swift`,
+`build.*`, `setup.py`, `setup.cfg`, `conftest.py`, `noxfile.py`, `tasks.py`,
+`fabfile.py`, `manage.py`, `Rakefile`, `Gemfile`, `Podfile`, `CMakeLists.txt` and
+`meson.build`. Agent instructions (`AGENT.md`, `AGENTS.md`, their dotted variants,
+`CLAUDE.md`, `GEMINI.md`, `INSTRUCTIONS.md`, `RULES.md`, `SKILL.md`,
+`copilot-instructions.md`, `CONVENTIONS.md`) are refused in any case. Ordinary
+names such as `resource.ts` and `source.ts` remain eligible. The implementation
+is `LEAD_APPROVAL_FILE_EXTENSIONS` and `safeFile` in
+`packages/protocol/src/goal-worker-approval.ts`.
+
+Only regular existing files with one hard link, or new files with an existing
+regular directory parent, qualify. Symbolic links below the project root,
+multiple paths, deletion, movement and root grants do not qualify. The host
+rechecks paths and link counts at each use; a background process can still swap
+a link after the check and before the runtime applies the change.
+
+Tool permissions match the exact trusted `flowBoardTool.tool` in the closed read
+set: `list_intents`, `get_context`, `get_team_status`, `review_candidates`,
+`list_findings`. Permission summaries cannot prove tool identity. Rationale,
+extra grant facts of any kind, filesystem/network scope, gateway questions and
+held requests exclude reusable keys. Extra permissions and network context are
+normalized to labeled display facts on the ordinary approval card and on the
+Lead's complete one-time request. Questions, elicitations and stdin never get a
+key. Targets and paths containing Unicode control, format or line/paragraph
+separator characters are refused.
+
+Audit traffic never enters the conversation message window or the Lead's prompt.
+Each rule keeps its exact acknowledged-answer count; file rules separately keep
+newest-first entries containing the answer number and exact diff (including an
+empty diff). Each diff is limited to the card's 8,000 characters. History retains
+at most eight entries and 32 KiB of UTF-8 JSON per rule, with a 256 KiB goal-wide
+cap; oldest entries drop first and never change the count. Tool rules retain no
+diffs. Revocation disables matching and moves the rule to read-only revoked history, retaining its entries under the same bounds and shared 128-rule limit. Goal expiry and contract changes clear both active and revoked history. A renewed grant for the same target has a new id.
+
+The conversation derives one host notice line per active used rule, updating it
+in place with its count. View allowed diffs belongs to the saved rule's row and
+opens retained entries newest first in the shared Dialog. These values pass the
+transcript text sanitizer and never appear as assistant prose. A dispatch intent containing the exact bounded request is journaled before answering, and admission is checked again after that write. Acknowledgement writes history and count, clears the intent and restores the prior phase. An unmatched intent persists across checkpoint and journal replay as `waiting-for-user` with `lead-worker-audit-failed`; neither another automatic answer nor Resume can bypass it. The person inspects the worker changes and revokes the uncertain rule through the Answer-tier path before Resume can continue. A response failure also leaves the intent uncertain, without claiming an allowed answer or incrementing its count. A failed writer must first be restarted; the durable intent retains the fence. Live revokes of missing or already revoked ids fail without an append, while historical replay remains lenient.
+
+Strict checkpoint loading drops structurally valid but obsolete rules with one
+host removal notice, rather than refusing the whole checkpoint. Other malformed
+state remains an error. Former command keys are recognized only for removal;
+legacy use records retain counts without inventing missing diffs. Retained
+round-one diff notices migrate into file history and leave the message window.
+Journal authentication checks the original stored record before migration.
+
+Saved approvals and read-only revoked history use a plain Rows/Row list; revoked rows show a Revoked chip and keep their diff reader without a Revoke control. Active rows use secondary Revoke controls and the
+dock's shared busy state. Revocation and automatic admission share the journal
+writer queue. Accepted, declined, stopped and fresh or repeated goals, or an
+approved contract change, discard the rules. A pending plan suspends automatic
+answers. Strict journal and checkpoint parsers retain only the closed keys;
+obsolete keys are removed rather than widened or reinterpreted.
+
 ## Lead message provenance is verified and chat control belongs to the person — 2026-10-30
 
 A sender label is text anyone can type. The host composes the Lead envelope and

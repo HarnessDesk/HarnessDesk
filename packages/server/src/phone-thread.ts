@@ -127,7 +127,7 @@ export const assessApproval = (approval: Approval, cwd: string | null | undefine
   const sessions = options.filter(option => option.intent === 'approveAlways' && (option.grant === 'session-tool' || option.grant === 'session-server'))
   const session = sessions.find(option => option.grant === 'session-tool') ?? sessions[0]
   const deny = options.find(option => option.intent === 'deny') ?? options.find(option => option.intent === 'cancel')
-  const why = scrub(approval.reason ?? '', 200)
+  let why = scrub(approval.reason ?? '', 200)
 
   let title: string, command: string, highRisk: boolean, readable = true
   if (approval.type === 'command' && approval.kind !== 'stdin') {
@@ -154,6 +154,12 @@ export const assessApproval = (approval: Approval, cwd: string | null | undefine
     title = 'Change what the agent may do'
     command = scrub(approval.summary, 300)
     highRisk = true
+  }
+
+  if (approval.extraGrants?.length) {
+    readable = false
+    highRisk = true
+    why = 'Extra permissions need review on the desk.'
   }
 
   return {

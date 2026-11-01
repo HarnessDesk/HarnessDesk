@@ -51,9 +51,16 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       emit({ ...current, revision, settings, thread: { ...current.thread, cards } })
       return params.name ? { version: 1, revision, settings: { name: settings.name, nameChosen: true } } : current
     }
+    if (method === 'lead/approval/revoke') {
+      if (params.contractDigest !== current.thread.contract?.digest) throw { code: 'lead-card-stale' }
+      const revoked = current.savedApprovals?.find(rule => rule.id === params.id)
+      if (!revoked) throw { code: 'lead-approval-not-live' }
+      emit({ ...current, revision: current.revision + 1, savedApprovals: current.savedApprovals?.filter(rule => rule.id !== params.id), revokedApprovals: [...current.revokedApprovals ?? [], revoked] })
+      return current
+    }
     if (method === 'lead/action/perform') {
       if (params.contractDigest !== current.thread.contract?.digest || !current.personActions?.some(action => action.id === params.id)) throw { code: 'lead-card-stale' }
-      emit({ ...current, personActions: current.personActions.filter(action => action.id !== params.id), thread: { ...current.thread, cards: current.thread.cards.filter(card => card.id !== params.id) } })
+      emit({ ...current, revision: current.revision + 1, ...(params.choice === 'yes-goal' ? { savedApprovals: [...current.savedApprovals ?? [], { id: 'rule-new', target: '/workspace/demo/src/panel.tsx', count: 0 }] } : {}), personActions: current.personActions.filter(action => action.id !== params.id), thread: { ...current.thread, cards: current.thread.cards.filter(card => card.id !== params.id) } })
       return current
     }
     if (method === 'lead/card/decide') {
@@ -66,7 +73,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       return current
     }
     if (method === 'lead/thread/send') { const revision = current.revision + 1; emit({ ...current, revision, thread: { ...current.thread, messages: [...current.thread.messages, { version: 1, id: `message-${revision}`, revision, role: 'user', text: params.text }] } }); return { messageId: `message-${revision}`, revision } }
-    if (method === 'lead/stop') { const { progress: _running, ...rest } = current; emit({ ...rest, revision: current.revision + 1, requestInFlight: false, wayOut: null, waitReason: null, thread: { ...current.thread, state: 'stopped', cards: [] } }); return current }
+    if (method === 'lead/stop') { const { progress: _running, ...rest } = current; emit({ ...rest, revision: current.revision + 1, savedApprovals: [], revokedApprovals: [], requestInFlight: false, wayOut: null, waitReason: null, thread: { ...current.thread, state: 'stopped', cards: [] } }); return current }
     if (method === 'lead/resume') { emit({ ...current, revision: current.revision + 1, wayOut: null }); return current }
     if (method === 'trigger/list') return { project: '/workspace/demo', revision: 1, path: '/workspace/demo/.harnessdesk/triggers.yml', exists: true, workingCopyChanged: false, problems: [], triggers: [{ id: 'failed-checks', definition: { opens: { lead: true } } }] }
     if (method === 'trigger/preview') return { lead: { summary: 'Checks failed on acme/widgets', approvalRequired: true } }

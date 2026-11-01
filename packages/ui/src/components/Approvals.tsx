@@ -333,6 +333,7 @@ export const Approvals = ({ placement = 'overlay', takeFocus = false, requester,
       placement={placement}
     >
           {requester && <ApprovalMeta label={requester.mark ? <>{requester.mark}<span className="sr-only">From</span></> : 'From'} kind="person"><Text>{sanitizeText(requester.name)}</Text><Button variant="link" size="inline-link" onClick={requester.open}>Open conversation</Button></ApprovalMeta>}
+          {approval.extraGrants?.map((fact, index) => <div key={`grant-${index}`}><ApprovalReason>{sanitizeText(fact.label)}</ApprovalReason><ApprovalCode>{sanitizeText(fact.value)}</ApprovalCode></div>)}
           {approval.type === 'command' && (
             <CommandBody
               approval={approval}

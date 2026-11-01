@@ -217,6 +217,13 @@ it('shows a second stale authority refusal without another retry', async () => {
   expect(request).toHaveBeenCalledTimes(3)
 })
 
+it('retains revoked approval history separately from active rules', async () => {
+  const { createLeadState } = await load(), facade = createLeadState({ request: vi.fn() }, () => true)
+  const row = { id: 'old', target: '/workspace/demo/demo.ts', count: 1, entries: [{ id: 'audit-3', number: 1, diff: '+retained' }] }
+  facade.changed({ method: 'lead/changed', params: { ...projection(4), savedApprovals: [], revokedApprovals: [row] } })
+  expect(facade.state.revokedApprovals).toEqual([row])
+})
+
 
 import { createLeadState } from './lead'
 

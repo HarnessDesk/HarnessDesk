@@ -28,23 +28,25 @@ const personSurface = async (rig: Awaited<ReturnType<typeof createLeadRig>>, sur
 }
 
 // Every case owns the actual host, child, restricted door, journal and Flow engine.
-
-// Every case owns the actual host, child, restricted door, journal and Flow engine.
 // These assertions must also hold when guards are deliberately removed locally.
 // One of the Lead end-to-end files (what a person approves and runs through the window and the phone, and step acceptance); they share only the rig,
-// so CI runs them side by side, and the cases of each run one at a time.
+// and each CI invocation keeps its files and cases serial, with a wider file deadline.
 
-for (const surface of ['window', 'phone']) test(`worker approval reaches the ${surface} and no Lead answer frame reaches the worker`, async t => {
-  const rig = await createLeadRig({ scenario: 'worker-approval', eager: true }); t.after(() => rig.dispose())
+for (const { surface, hidden } of [{ surface: 'window', hidden: false }, { surface: 'phone', hidden: false }, { surface: 'window', hidden: true }]) test(`${hidden ? 'hidden' : 'visible'} worker approval reaches the ${surface} and no Lead answer frame reaches the worker`, async t => {
+  const command = `node -e process.exit(0)${hidden ? '\u0007' : ''}`
+  const rig = await createLeadRig({ scenario: 'worker-approval', eager: true, workerApprovalCommand: command }); t.after(() => rig.dispose())
   await rig.sendGoal(); await rig.waitFor(() => !!rig.pending('plan'), 'plan')
   await rig.assertEagerRefused('eager-start')
   await rig.decide(rig.pending('plan')!, 'approve')
   await rig.waitFor(() => rig.windowNotifications.some((one: any) => one.method === 'lead/changed' && one.params.thread?.cards.some((card: any) => card.kind === 'worker-approval')), 'worker approval card')
   const card = (await rig.host.call('lead/thread/read', {})).thread.cards.find(one => one.type === 'waiting')!
   assert.equal(card.type === 'waiting' && card.kind, 'worker-approval')
-  // A command request is more than the compact card can carry whole, so its details stay on the desk.
-  assert.match('summary' in card ? card.summary : '', /implementer.*details are hidden/i)
-  assert.doesNotMatch('summary' in card ? card.summary : '', /process\.exit/)
+  // Whole, bounded public commands are shown; control characters keep the request hidden.
+  const summary = 'summary' in card ? card.summary : ''
+  if (hidden) {
+    assert.match(summary, /implementer.*details are hidden/i)
+    assert.doesNotMatch(summary, /process\.exit/)
+  } else assert.equal(summary, `The implementer wants to run ${command}. Answer on the card.`)
   await assert.rejects(rig.decide(card, 'accept'), { wireCode: 'lead-worker-approval' })
   await rig.eagerApprovalTurn()
   assert.equal((await rig.workerCalls()).filter(one => one.method === 'worker-approval-answer').length, 0)
@@ -52,10 +54,19 @@ for (const surface of ['window', 'phone']) test(`worker approval reaches the ${s
   const action = projection.personActions.find((one: any) => one.kind === 'worker-approval')
   assert.ok(action, 'person can answer the real worker approval')
   const perform = await personSurface(rig, surface, t)
-  // A hidden request is approved on the desk where it is shown whole; the card can only refuse it.
-  assert.deepEqual(action.choices, ['no'])
-  await perform({ id: action.id, contractDigest: rig.journal.state.contract!.digest, choice: 'no' })
+  // Commands never offer a goal rule. A hidden request can only be refused here.
+  assert.deepEqual(action.choices, hidden ? ['no'] : ['yes-once', 'no'])
+  assert.ok(!action.choices.includes('yes-goal'))
+  if (hidden) assert.equal(action.details, undefined)
+  else {
+    const approval = rig.host.registry.all().flatMap(record => [...record.approvals.values()]).find(one => one.type === 'command')
+    assert.ok(approval?.type === 'command' && approval.cwd, 'the runtime supplied a working folder')
+    assert.equal(action.details, `Command: ${command}\nWorking folder: ${approval.cwd}\nThe worker needs permission before continuing the approved work.`)
+  }
+  await perform({ id: action.id, contractDigest: rig.journal.state.contract!.digest, choice: hidden ? 'no' : 'yes-once' })
   await rig.waitFor(async () => (await rig.workerCalls()).some(one => one.method === 'worker-approval-answer'), 'person answer reaches worker')
+  const answer = (await rig.workerCalls()).find(one => one.method === 'worker-approval-answer')!
+  assert.deepEqual(answer.result, { decision: hidden ? 'decline' : 'accept' })
   await rig.assertNoForbiddenEffects()
 })
 

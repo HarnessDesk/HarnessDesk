@@ -836,6 +836,8 @@ export class Host {
   readonly #lanes: LaneAllocator
   readonly #harnessDeskAccount: HarnessDeskAccount
   #leadService: LeadService | null = null
+  #leadHasWorkerRules: (() => boolean) | null = null
+  #leadAutoApproval: ((runtime: string, sessionId: string, approvalId: string) => Promise<boolean>) | null = null
   #leadControls: LeadControls | null = null
   #leadChatControl: LeadChatControlStore | null = null
   #leadChatProject: LeadProject | null = null
@@ -3683,6 +3685,8 @@ export class Host {
     const detach = journal.onChange(trackOwned)
     this.onDispose(detach)
     const personActions = new LeadPersonActions(journal, this, this.#evidence, async value => { await this.#leadService!.assertPublic(value) })
+    this.#leadHasWorkerRules = () => journal.state.workerApprovals.length > 0
+    this.#leadAutoApproval = (runtime, sessionId, approvalId) => personActions.autoAnswer(runtime, sessionId, approvalId)
     const secondLooks = new Map<string, Promise<void>>()
     const secondLook = (runId: string): Promise<void> => {
       const pending = secondLooks.get(runId)
@@ -3945,6 +3949,7 @@ export class Host {
         return false
       },
       performAction: input => personActions.perform(input),
+      revokeApproval: input => personActions.revoke(input),
       decidePerson: (card, decision, contract) => answerLeadPersonGate({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
         readEvidence: runId => options.readEvidence(runId, call => {
           if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
@@ -5229,6 +5234,7 @@ export class Host {
         start: params => this.leadChats.start(params), send: params => this.leadChats.send(params), stop: params => this.leadChats.stop(params) },
       leadThreadRead: async () => (await this.#leadWindow()).readThread(),
       leadThreadSend: async (params) => (await this.#leadWindow()).send(params),
+      leadApprovalRevoke: async params => (await this.#leadWindow()).revokeApproval(params),
       leadActionPerform: async params => (await this.#leadWindow()).perform(params),
       leadCardDecide: async (params) => (await this.#leadWindow()).decide(params),
       leadSettingsRead: async () => (await this.#leadWindow()).readSettings(),
@@ -9969,7 +9975,15 @@ export class Host {
     return this.#phoneLink
   }
 
-  #push(notification: WireNotification): void {
+  #push(notification: WireNotification, goalApprovalChecked = false): void {
+    if (!goalApprovalChecked && this.#leadHasWorkerRules?.() && this.#leadAutoApproval && notification.method === 'event' && notification.params.event.type === 'approval/requested' && !String(notification.params.event.approval.id).startsWith('held-') &&
+      this.#leadOwnsWorker?.(String(notification.params.runtime), String(notification.params.event.approval.sessionId), false)) {
+      const { runtime, event } = notification.params
+      void this.#leadAutoApproval(String(runtime), String(event.approval.sessionId), String(event.approval.id))
+        .then(answered => { if (!answered && this.registry.hasApproval(runtime, event.approval.sessionId, event.approval.id)) this.#push(notification, true) })
+        .catch(() => { this.#logger.warn('Goal approval could not be applied'); if (this.registry.hasApproval(runtime, event.approval.sessionId, event.approval.id)) this.#push(notification, true) })
+      return
+    }
     // This machine's roster changed — however: the watch noticed, or a method wrote it — so the
     // Agent folders linked into it may have too.
     if (notification.method === 'agent/changed' && notification.params.project === null) this.#agentFileRoots.invalidate()

@@ -886,6 +886,12 @@ test.describe('preview coverage', () => {
     })
   })
 
+  test('preview shows a counted host approval notice as desk data', async ({ page }) => {
+    await page.goto('/preview.html?lead-chat=lead')
+    const frame = page.locator('[data-frame-id="lead-host-notice"]')
+    await expect(frame.getByRole('article', { name: 'Desk', exact: true })).toHaveText('Allowed under your rule for this goal: /workspace/demo/src/panel.tsx · 3 times')
+  })
+
   test('preview shows the three board-tool permission card states and keeps grants quiet', async ({ page }) => {
     await page.goto('/preview.html?board-tool-approvals')
     const session = page.locator('[data-frame-id="board-tool-approval-always"] [data-slot="approval-card"]')

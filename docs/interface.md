@@ -2253,8 +2253,24 @@ The shared ApprovalDialog docks the question and buttons above the composer.
 Plans and widenings offer Approve and Decline; a result offers Open changes,
 Decline, Accept and Accept and open PR. The fourth action sends accept-open-pr
 through the same revision-bound decision. A worker request names its role and what it asks, with Yes once
-and No when those choices are supported. The person answers directly in Lead or
-on a paired phone; Lead cannot answer it. After an approving review, each required
+and No when those choices are supported. An eligible request also offers Yes for
+this goal: the person answers once and the host remembers that exact target for
+this goal and approved contract. Saved approvals for this goal lists each target,
+the number of later requests answered, and Revoke. Each used rule has one Desk
+notice line, updated in place: “Allowed under your rule for this goal: <target> ·
+N times”. It never consumes conversation history. A file rule’s row offers View
+allowed diffs, opening its bounded retained history newest first in a shared
+dialog. Counts remain exact when older diffs are dropped. Revoke applies to
+the next request and keeps the row as read-only history with a Revoked chip and
+its diff reader. Accepted, declined, stopped and fresh goals clear these rules,
+as does changing the approved contract. The person can use these controls on a
+paired phone with answer permission; Lead cannot create or revoke a rule.
+Commands offer only Yes once and No, with additional grants shown in full. If an
+automatic answer has no acknowledgement, its durable intent pauses automatic
+work across restarts. The row shows Needs review. The person inspects the
+changes and revokes that uncertain rule before Resume is available.
+Questions, stdin, publication, irreversible actions and changes to permissions,
+allowances or branch ownership always ask separately. After an approving review, each required
 check without counted evidence offers Run check with its whole command. That
 person's run counts on the Team; a worker's own run stays advisory. Chat replies
 answer neither request. These live actions are bound to the approved contract and

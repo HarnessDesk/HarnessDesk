@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { CLIENT_METHODS, knownMethods, parseClientMessage } from '../src/index.js'
 
-const names = ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/repeat/control', 'lead/budget/raise', 'lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/schedule/read', 'lead/schedule/update']
+const names = ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/approval/revoke', 'lead/repeat/control', 'lead/budget/raise', 'lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/schedule/read', 'lead/schedule/update']
 const chatNames = ['lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
@@ -61,4 +61,10 @@ test('repeat controls and direct allowance raises are person-only closed inputs'
   for (const action of ['pause', 'resume', 'stop', 'run-now']) assert.doesNotThrow(() => request('lead/repeat/control', { taskId: 'repeat-1', action }))
   assert.doesNotThrow(() => request('lead/budget/raise', { logicalGoalId: 'goal-1', caps: { usdMicros: 6_000_000, rounds: 3 }, expectedRevision: 1 }))
   for (const [method, params] of [['lead/repeat/control', { taskId: 'repeat-1', action: 'approve' }], ['lead/budget/raise', { logicalGoalId: 'goal-1', caps: { usdMicros: -1, rounds: 3 }, expectedRevision: 1 }]]) assert.throws(() => request(method as string, params))
+})
+
+test('goal approval decisions and revocation have closed person wire shapes', () => {
+  assert.doesNotThrow(() => request('lead/action/perform', { id: 'worker', contractDigest: 'a'.repeat(64), choice: 'yes-goal' }))
+  assert.doesNotThrow(() => request('lead/approval/revoke', { id: 'rule', contractDigest: 'a'.repeat(64) }))
+  for (const params of [{ id: 'rule' }, { id: 'rule', contractDigest: 'a'.repeat(64), source: 'worker' }]) assert.throws(() => request('lead/approval/revoke', params))
 })

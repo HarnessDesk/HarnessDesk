@@ -505,6 +505,13 @@ test('Lead read omission metadata keeps raw source turns separate from projected
   assert.equal('omittedPhoneEntries' in JSON.parse(JSON.stringify(projected)), false)
 })
 
+test('ordinary phone approvals cannot allow undisplayed extra grants', () => {
+  const assessed = assessApproval(command('git status', { extraGrants: [{ label: 'Additional permissions', value: '{"fileSystem":{"write":["/"]}}' }] }), CWD, { home: HOME, seat: 'Agent A' })!
+  assert.equal(assessed.readable, false)
+  assert.equal(assessed.turn.highRisk, true)
+  assert.match(assessed.turn.why, /Extra permissions.*desk/)
+  assert.equal(assessed.turn.sessionGrant, undefined)
+})
 
 test('phone threads expose only host-verified Lead words, historical name and the current holder', async () => {
   const envelope = leadMessageEnvelope('Dex', 'Run the tests.')

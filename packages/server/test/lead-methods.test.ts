@@ -2081,3 +2081,39 @@ test('a declined goal refuses a limit raise with a closed person-facing code', a
     await assert.rejects(s.call('lead/budget/raise', { logicalGoalId: 'logical', caps: { ...contract.caps, usdMicros: contract.caps.usdMicros + 100 }, expectedRevision: s.journal.state.seq }), code('lead-thread-closed'))
   } finally { s.controls.close() }
 })
+
+test('host approval notices never enter the Lead prompt as assistant messages', async () => {
+  const s = await rig({ configured: true })
+  await s.journal.appendMessage('seed', 'Inspect demo')
+  const read = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(s.journal), 'state')!.get!
+  Object.defineProperty(s.journal, 'state', { get: () => { const state = read.call(s.journal); return { ...state, messages: [...state.messages, { version: 1, id: 'notice-demo', revision: state.seq, role: 'notice', text: 'worker-controlled audit payload', approval: { ruleId: 'demo', target: '/workspace/demo/demo.ts', diff: '+worker-controlled audit payload' } }] } } })
+  await s.controls.send({ idempotencyKey: 'next-notice', text: 'Continue inspection' }); await s.controls.idle()
+  assert.equal(JSON.stringify(s.sends).includes('worker-controlled audit payload'), false)
+})
+
+for (const kind of ['tool', 'fileChange'] as const) test(`${kind} automatic approval traffic preserves the person's prompt history`, async () => {
+  const s = await rig({ configured: true })
+  try {
+    await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
+    await s.journal.appendMessage('steering', 'Preserve this steering from the person')
+    await s.journal.appendReply('I will preserve the requested scope')
+    const ruleKey = kind === 'tool' ? { kind, tool: 'get_team_status' } : { kind, path: project.path + '/panel.tsx' }
+    await s.journal.saveWorkerApproval({ id: 'burst', contractDigest: contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq, key: ruleKey, target: kind === 'tool' ? 'get_team_status' : project.path + '/panel.tsx', count: 0 })
+    const count = kind === 'tool' ? 300 : 20
+    for (let i = 1; i <= count; i++) await s.journal.useWorkerApproval('burst', () => true, async () => {}, kind === 'tool' ? null : `${i}:` + 'x'.repeat(7800))
+    await s.controls.send({ idempotencyKey: 'after-burst', text: 'Continue within that scope' }); await s.controls.idle()
+    assert.ok(JSON.stringify(s.sends).includes('Preserve this steering from the person'))
+    assert.ok(JSON.stringify(s.sends).includes('I will preserve the requested scope'))
+    assert.equal(s.journal.state.workerApprovals[0]!.count, count)
+  } finally { s.controls.close() }
+})
+
+test('a trailing host notice does not hide the unanswered resume offer', async () => {
+  const s = await rig({ configured: true })
+  try {
+    await s.journal.appendMessage('unanswered-notice', 'Inspect this request')
+    const read = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(s.journal), 'state')!.get!
+    Object.defineProperty(s.journal, 'state', { get: () => { const state = read.call(s.journal); return { ...state, messages: [...state.messages, { version: 1, id: 'notice-trailing', revision: state.seq, role: 'notice', text: 'Host notice', approval: { ruleId: 'legacy', target: 'get_team_status' } }] } } })
+    assert.equal((await s.controls.readThread()).wayOut, 'resume')
+  } finally { s.controls.close() }
+})

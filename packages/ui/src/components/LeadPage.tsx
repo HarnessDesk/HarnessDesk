@@ -11,7 +11,7 @@ import { leadOpeningJobs } from '../lib/lead-opening'
 import { LeadAway } from './LeadAway'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
-import { LeadMessage } from './LeadMessage'
+import { LeadHostNotice, LeadMessage } from './LeadMessage'
 import { LeadCards, leadDollars } from './LeadCards'
 import { leadRepeatTaskFor } from '../lib/lead-repeat'
 import { leadOriginText } from '../lib/lead-time'
@@ -52,6 +52,7 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-chat-effect-uncertain': 'The chat operation may have started. Inspect that chat on the desk, then start a new request when ready.',
   'lead-tools-refused': 'The requested desk operation was refused.',
   'lead-card-too-large': 'The request is too large to display safely.',
+  'lead-worker-audit-failed': 'A worker approval may have run. Inspect its changes and revoke the uncertain saved rule before resuming. Restart first if saving failed.',
   'lead-budget-unknown': "HarnessDesk can't confirm what the workers have spent, so the Lead won't make another request. Sending a message tries again.",
   'lead-run-not-started': 'The plan is approved, but no work has started. Sending a message also continues.',
   'lead-request-failed': 'The request was interrupted. Sending a message also continues.',
@@ -126,7 +127,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   const { owner } = useDestinationPage(), controls = useLeadControls(), { name, label, presence } = controls
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
   const terminalWait = state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable'
-  const setupWait = leadWaitNeedsChange(state.waitReason)
+  const setupWait = leadWaitNeedsChange(state.waitReason) || state.waitReason === 'lead-worker-audit-failed' && state.wayOut !== 'resume'
   const canStop = !!state.thread && !['stopped', 'accepted', 'declined'].includes(state.thread.state) &&
     (!!state.thread.contract || !!state.thread.pr || state.requestInFlight || terminalWait)
   const goalActive = canStop && (!!state.thread?.contract || !!state.thread?.pr) && !terminalWait
@@ -254,13 +255,15 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {state.thread?.olderMessages ? <Text as="p" role="muted">{state.thread.olderMessages} older messages remain in the journal.</Text> : null}
         {origin && <Text as="p" role="meta" data-slot="lead-origin">{origin.url && /^https?:\/\//i.test(origin.url) ? <Button variant="link" size="inline-link" onClick={() => openExternal(origin.url!)}>{leadOriginText(origin)}</Button> : leadOriginText(origin)}</Text>}
         {entries.map(entry => entry.kind === 'message'
-          ? <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
+          ? entry.message.role === 'notice' ? <LeadHostNotice key={`message:${entry.message.id}`} message={entry.message} /> : <LeadMessage key={`message:${entry.message.id}`} role={entry.message.role === 'user' ? 'user' : 'assistant'} name={label} lead={name} text={entry.message.text}
             proactive={entry.message.proactive} onAction={entry.message.proactive?.action === 'plan' && !actionablePlan || entry.message.proactive?.action === 'approvals' && !state.personActions.length ? undefined : action => { if (action === 'plan') scrollToPlan(); else if (action === 'changes') cardProps.onChanges(); else { const runId = state.personActions[0]?.runId; if (runId) cardProps.onApprovals(runId) } }} face={faces.has(entry.message.id)} />
           : entry.kind === 'steer' ? <LeadMessage key={`steer:${entry.steer.id}`} role="user" text={entry.steer.text}
             note={<Chip tone={entry.steer.state === 'acknowledged' ? 'neutral' : 'warning'} data-slot="lead-steer">{`Steer ${entry.index + 1} · ${entry.steer.state === 'acknowledged' ? 'Acknowledged' : 'Not taken'}`}</Chip>} />
           : entry.kind === 'decided' ? <LeadCards key={`decided:${entry.decision.card.id}:${entry.decision.card.revision}`} {...cardProps} cards={[]} decisions={[entry.decision]} placement="thread" />
           : <LeadCards key={`card:${entry.card.id}`} {...cardProps} cards={[entry.card]} placement="thread" />)}
 
+        {(state.savedApprovals ?? []).filter(rule => rule.count > 0).map(rule => <LeadHostNotice key={`approval:${rule.id}`} message={{ version: 1, id: `approval:${rule.id}`, revision: state.revision, role: 'notice', text: `Allowed under your rule for this goal: ${rule.target} · ${rule.count} ${rule.count === 1 ? 'time' : 'times'}` }} />)}
+        <LeadCards {...cardProps} cards={[]} savedApprovals={state.savedApprovals} revokedApprovals={state.revokedApprovals} onRevoke={input => store.lead.revokeApproval(input)} placement="thread" />
         {pr && <div data-slot="lead-pr-status"><InlineParts>
           <Button variant="link" size="inline-link" title={pr.observedHead ?? pr.head} onClick={() => openExternal(`https://github.com/${pr.repository}/pull/${pr.number}`)}>{`#${pr.number}`}</Button>
           <Text role="meta">{pr.state === 'merged' ? 'Merged' : pr.state === 'closed' ? 'Closed' : `Checks ${pr.check?.state ?? 'not confirmed'} · Review ${pr.review?.state?.replace(/-/g, ' ') ?? 'not confirmed'}`}</Text>

@@ -1091,7 +1091,7 @@ test('a connected outside client cannot call any Lead window control even with a
   const peer = await Peer.open(door.socketPath)
   t.after(() => peer.socket.close())
   await peer.hello()
-  for (const method of ['lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume',
+  for (const method of ['lead/action/perform', 'lead/approval/revoke', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume',
     'lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
     const result = await peer.call(method, {})
     assert.equal(result.ok, false)

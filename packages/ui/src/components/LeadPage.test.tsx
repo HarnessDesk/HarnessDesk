@@ -642,3 +642,63 @@ it('uncertain chat notice acknowledges with Stop only and preserves the draft', 
   expect(resume).not.toHaveBeenCalled()
   expect(composer.value).toBe('My separate next request')
 })
+
+it('renders saved approvals as a plain list with quiet row actions sharing the dock busy state', async () => {
+  const base = leadProjection(), action = { kind: 'worker-approval', id: 'worker', runId: 'run', role: 'worker', request: 'change demo.ts', choices: ['yes-once', 'yes-goal', 'no'] } as any
+  const { box, request } = await mount({ ...base, thread: { ...base.thread, state: 'running', contract: leadPlan.contract }, personActions: [action], savedApprovals: [{ id: 'saved', target: '/workspace/demo/demo.ts', count: 1 }] })
+  expect(box.querySelector('[data-lead-card="saved-approvals"]')).toBeNull()
+  const revoke = [...box.querySelectorAll('button')].find(button => button.textContent === 'Revoke')!
+  expect(revoke.dataset.variant).toBe('secondary')
+  let settle!: () => void
+  request.mockImplementation(async () => new Promise<any>(resolve => { settle = () => resolve(base) }))
+  await act(async () => revoke.click())
+  expect([...box.querySelectorAll('button')].find(button => button.textContent === 'Yes for this goal')!.disabled).toBe(true)
+  await act(async () => settle())
+})
+
+it('shows host approval notices separately and opens the exact allowed diff', async () => {
+  const base = leadProjection(), diff = '+export const demo = 2'
+  const notice: any = { version: 1, id: 'message-2', revision: 2, role: 'notice', text: 'Allowed under your rule for this goal: /workspace/demo/demo.ts', approval: { ruleId: 'saved', target: '/workspace/demo/demo.ts', diff } }
+  const { box } = await mount({ ...base, thread: { ...base.thread, messages: [notice] } })
+  expect(box.querySelector('article[aria-label="Desk"]')).not.toBeNull()
+  const open = [...box.querySelectorAll('button')].find(button => button.textContent === 'View allowed diff')!
+  await act(async () => open.click())
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(diff)
+})
+
+it('updates one rule notice in place and reads newest diffs from its saved row', async () => {
+  const base = leadProjection(), saved = { id: 'saved', target: '/workspace/demo/panel.tsx', count: 20, entries: [{ id: 'audit-20', number: 20, diff: '+newest whole diff' }, { id: 'audit-19', number: 19, diff: '+previous whole diff' }] }
+  const { box, update } = await mount({ ...base, thread: { ...base.thread, messages: [goalMessage] }, savedApprovals: [saved] } as any)
+  const line = box.querySelector('article[aria-label="Desk"]')!
+  expect(line?.textContent).toContain('20 times')
+  expect(box.querySelectorAll('article[aria-label="Desk"]')).toHaveLength(1)
+  await update({ savedApprovals: [{ ...saved, count: 21 }] } as any)
+  expect(box.querySelector('article[aria-label="Desk"]')).toBe(line)
+  expect(line.textContent).toContain('21 times')
+  const list = box.querySelector('section[aria-label="Saved approvals for this goal"]')!
+  const open = [...list.querySelectorAll('button')].find(button => button.textContent === 'View allowed diffs')!
+  await act(async () => open.click())
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.textContent).toContain('+newest whole diff')
+  expect(dialog.textContent!.indexOf('+newest')).toBeLessThan(dialog.textContent!.indexOf('+previous'))
+})
+
+it('sanitizes host notice text, target and retained diff text', async () => {
+  const base = leadProjection(), escape = '\x1b[31m', diff = escape + '+whole diff'
+  const notice: any = { version: 1, id: 'host', revision: 1, role: 'notice', text: escape + 'Host fact', approval: { ruleId: 'old', target: escape + '/workspace/demo/demo.ts', diff } }
+  const { box } = await mount({ ...base, thread: { ...base.thread, messages: [notice] } })
+  expect(box.textContent).not.toContain(escape)
+  await act(async () => button('View allowed diff').click())
+  expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain(escape)
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('+whole diff')
+})
+
+it('keeps revoked history openable with a Revoked chip and no Revoke action', async () => {
+  const base = leadProjection(), revoked = { id: 'revoked', target: '/workspace/demo/panel.tsx', count: 1, entries: [{ id: 'audit-4', number: 1, diff: '+evidence survives revocation' }] }
+  const { box } = await mount({ ...base, savedApprovals: [], revokedApprovals: [revoked] } as any)
+  expect(box.textContent).toContain('Revoked')
+  expect([...box.querySelectorAll('button')].some(button => button.textContent === 'Revoke')).toBe(false)
+  await act(async () => button('View allowed diffs').click())
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('+evidence survives revocation')
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Revoked')
+})

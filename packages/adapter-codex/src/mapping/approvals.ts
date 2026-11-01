@@ -187,6 +187,10 @@ export const mapCommandApproval = (
     params.availableDecisions ?? DEFAULT_COMMAND_DECISIONS,
     describeCommandDecision,
   )
+  const extraGrants = [
+    ...(params.additionalPermissions != null ? [{ label: 'Additional permissions', value: JSON.stringify(params.additionalPermissions) }] : []),
+    ...(params.networkApprovalContext != null ? [{ label: 'Network approval context', value: JSON.stringify(params.networkApprovalContext) }] : []),
+  ]
   // 0.153.0 added `kind`. A stdin approval is input to a command that is
   // already running: its `command` is the `write_stdin --session-id <id>
   // <text>` line Codex composed, and `cwd` is where that command was
@@ -199,6 +203,7 @@ export const mapCommandApproval = (
     return {
       approval: {
         ...base(params, requestId),
+        ...(extraGrants.length ? { extraGrants } : {}),
         type: 'command',
         kind: 'stdin',
         command: runningCommand ?? '(a running command)',
@@ -213,6 +218,7 @@ export const mapCommandApproval = (
   return {
     approval: {
       ...base(params, requestId),
+      ...(extraGrants.length ? { extraGrants } : {}),
       type: 'command',
       command: params.command ?? '(unknown command)',
       cwd: params.cwd ?? '',
