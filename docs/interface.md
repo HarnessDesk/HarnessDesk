@@ -1363,6 +1363,12 @@ section appears on a runtime's detail page, where an idle runtime says **Not run
 reading process cost never starts one. Opening the detail page begins a costly
 or unmeasured start in the background; the page can show the last learned models,
 options and account while it waits. Shared recycling refusals are stated once below the table.
+An ordinary extra Codex account whose process is not running shows its account as
+not yet verified, rather than treating its last observation as a current sign-in.
+Removing one warns that agent or system credentials may remain when its identity
+cannot be established; its conversations stay with the runtime. A retained
+account with no known sign-in methods offers **Check account**, which starts
+that agent on request and reads its account without changing the default.
 
 It has a page per runtime (health, update, the runtime's own options) or per account;
 *Add a runtime* lists the runtimes this machine can register. **Browse more…**

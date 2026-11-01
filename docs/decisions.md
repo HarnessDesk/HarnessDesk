@@ -3550,6 +3550,15 @@ a method forbidden by the last effective configuration. Descriptors are rebuilt
 by the adapter; without an observed policy it offers no invented method. A live
 read replaces the recorded policy along with the account display fields.
 
+An ordinary extra Codex account's saved row is retained even when its home has no
+credential file: a file's absence does not establish that another credential
+store is empty. The host does not probe extra agents at startup to decide.
+Its restored or idle account observation is unverified until a live read.
+Explicit removal persists the row change before stopping its exact owner; if
+the identity is unknown it neither signs out nor purges the credential home.
+This preserves ambiguous accounts and can leave an unfinished row until the
+person removes it. It does not establish isolation between provider stores.
+
 Automatic catalogue refresh skips idle agents. An explicit refresh is intent and
 still starts one through the host. File-based usage meters and process-cost
 observations keep their passive reads. Resuming a conversation or opening a Seat

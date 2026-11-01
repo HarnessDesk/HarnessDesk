@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import childProcess from 'node:child_process'
+import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 import { existsSync, realpathSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises'
@@ -904,6 +905,281 @@ test('removing an account unregisters it and forgets its home', async (t) => {
     [FAKE_RUNTIME_ID],
   )
   assert.equal(slots.list().length, 0)
+})
+
+test('a disposal failure after durable removal does not purge the credential home', async t => {
+  const { host, stateDir, slots, accounts, created } = await hostWithAccounts()
+  t.after(async () => { await rm(stateDir, { recursive: true, force: true }) })
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const slot = slots.find(added.runtime)!
+  await writeFile(join(slot.home, 'auth.json'), chatgptAuth('person', 'workspace'))
+  const owner = created.get(added.runtime)!
+  owner.logout = async () => {}
+  let attempts = 0
+  owner.dispose = async () => { if (++attempts === 1) throw new Error('synthetic dispose failure') }
+  accounts.prepareRemove = runtime => {
+    assert.equal(runtime, owner)
+    slots.forgetDurably(runtime.info.id, slot)
+    return purge => { if (purge) slots.purge(slot) }
+  }
+  await assert.rejects(host.call('runtime/account/remove', { runtime: added.runtime }), /did not shut down/)
+  assert.equal(slots.find(added.runtime), null)
+  assert.equal(await readFile(join(slot.home, 'auth.json'), 'utf8'), chatgptAuth('person', 'workspace'))
+  await host.dispose()
+  assert.equal(attempts, 2, 'host shutdown retries the exact failed runtime handle')
+})
+
+test('host shutdown waits for an in-flight removal failure and retries that exact handle', async t => {
+  const { host, stateDir, slots, accounts, created } = await hostWithAccounts()
+  t.after(async () => { await rm(stateDir, { recursive: true, force: true }) })
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const slot = slots.find(added.runtime)!
+  await writeFile(join(slot.home, 'auth.json'), chatgptAuth('person', 'workspace'))
+  const owner = created.get(added.runtime)!
+  let enter!: () => void, release!: () => void
+  const entered = new Promise<void>(resolve => { enter = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let attempts = 0
+  owner.logout = async () => {}
+  owner.dispose = async () => { if (++attempts === 1) { enter(); await gate; throw new Error('synthetic shutdown failure') } }
+  accounts.prepareRemove = runtime => {
+    slots.forgetDurably(runtime.info.id, slot)
+    return purge => { if (purge) slots.purge(slot) }
+  }
+  const removal = host.call('runtime/account/remove', { runtime: added.runtime })
+  await entered
+  const closing = host.dispose()
+  release()
+  await assert.rejects(removal, /did not shut down/)
+  await closing
+  assert.equal(attempts, 2, 'the in-flight owner is retried before shutdown completes')
+  assert.equal(existsSync(slot.home), true)
+})
+
+test('a failed managed logout restores the exact row and leaves owner and home intact', async t => {
+  const { host, stateDir, slots, accounts, created } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const slot = slots.find(added.runtime)!
+  await writeFile(join(slot.home, 'auth.json'), chatgptAuth('person', 'workspace'))
+  const owner = created.get(added.runtime)!
+  owner.logout = async () => { throw new Error('synthetic logout failure') }
+  accounts.prepareRemove = runtime => {
+    assert.equal(runtime, owner)
+    slots.forgetDurably(runtime.info.id, slot)
+    const finish = (purge: boolean) => { if (purge) slots.purge(slot) }
+    Object.assign(finish, { rollback: () => (slots as unknown as { restoreDurably(value: typeof slot): void }).restoreDurably(slot) })
+    return finish
+  }
+  await assert.rejects(host.call('runtime/account/remove', { runtime: added.runtime }), /synthetic logout failure/)
+  assert.equal(host.ownsRuntime(owner), true)
+  assert.equal(slots.find(added.runtime), slot)
+  assert.ok(new AccountSlots(join(stateDir, 'accounts.json')).find(added.runtime))
+  assert.equal(await readFile(join(slot.home, 'auth.json'), 'utf8'), chatgptAuth('person', 'workspace'))
+})
+
+test('an unconfirmed rollback after failed logout reports both failures and keeps the home', async t => {
+  const { host, stateDir, slots, accounts, created } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const slot = slots.find(added.runtime)!
+  await writeFile(join(slot.home, 'auth.json'), chatgptAuth('person', 'workspace'))
+  const owner = created.get(added.runtime)!
+  owner.logout = async () => { throw new Error('synthetic logout failure') }
+  accounts.prepareRemove = runtime => {
+    slots.forgetDurably(runtime.info.id, slot)
+    return Object.assign((_purge: boolean) => { throw new Error('must not purge') }, { rollback: () => { throw new Error('synthetic rollback failure') } })
+  }
+  await assert.rejects(host.call('runtime/account/remove', { runtime: added.runtime }), /row could not be restored.*synthetic rollback failure/)
+  assert.equal(host.ownsRuntime(owner), true)
+  assert.equal(await readFile(join(slot.home, 'auth.json'), 'utf8'), chatgptAuth('person', 'workspace'))
+})
+
+test('a failed real roster restore keeps the exact slot available for a retry', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const primary = join(root, 'agent')
+  await mkdir(primary, { recursive: true })
+  const slots = new AccountSlots(join(root, 'accounts.json'))
+  const slot = slots.add(FAKE_RUNTIME_ID, primary, root)
+  slots.forgetDurably(slot.id, slot)
+  const write = fs.writeFileSync
+  fs.writeFileSync = ((...args: Parameters<typeof write>) => {
+    if (String(args[0]).startsWith(join(root, 'accounts.json.tmp-'))) throw new Error('synthetic restore write failure')
+    return write(...args)
+  }) as typeof write
+  syncBuiltinESMExports()
+  try { assert.throws(() => slots.restoreDurably(slot), /restore write failure/) }
+  finally { fs.writeFileSync = write; syncBuiltinESMExports() }
+  assert.equal(slots.find(slot.id), null, 'failed restore does not claim a durable row')
+  assert.equal(existsSync(slot.home), true)
+  assert.equal(slots.forgetDurably(slot.id, slot), slot, 'the exact owner can retry')
+})
+
+test('a failed restore protects its home from a different shared slot removal', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const primary = join(root, 'agent')
+  await mkdir(primary, { recursive: true })
+  const file = join(root, 'accounts.json')
+  const initial = new AccountSlots(file)
+  const first = initial.add(FAKE_RUNTIME_ID, primary, root)
+  const second = initial.add(FAKE_RUNTIME_ID, primary, root)
+  await writeFile(join(first.home, 'sentinel'), 'keep')
+  await writeFile(file, JSON.stringify({ accounts: [first, { ...second, home: first.home }] }))
+  const slots = new AccountSlots(file)
+  const a = slots.list()[0]!
+  const b = slots.list()[1]!
+  slots.forgetDurably(a.id, a)
+  const write = fs.writeFileSync
+  fs.writeFileSync = ((...args: Parameters<typeof write>) => {
+    if (String(args[0]).startsWith(join(root, 'accounts.json.tmp-'))) throw new Error('synthetic restore write failure')
+    return write(...args)
+  }) as typeof write
+  syncBuiltinESMExports()
+  try { assert.throws(() => slots.restoreDurably(a), /restore write failure/) }
+  finally { fs.writeFileSync = write; syncBuiltinESMExports() }
+  slots.remove(b.id, true, b)
+  assert.equal(await readFile(join(a.home, 'sentinel'), 'utf8'), 'keep')
+})
+
+test('a failed restore protects its nested home from an ancestor slot removal', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const primary = join(root, 'agent')
+  await mkdir(primary, { recursive: true })
+  const file = join(root, 'accounts.json')
+  const initial = new AccountSlots(file)
+  const first = initial.add(FAKE_RUNTIME_ID, primary, root)
+  const second = initial.add(FAKE_RUNTIME_ID, primary, root)
+  const nested = join(second.home, 'nested')
+  await mkdir(nested)
+  await writeFile(join(nested, 'sentinel'), 'keep')
+  await writeFile(file, JSON.stringify({ accounts: [{ ...first, home: nested }, second] }))
+  const slots = new AccountSlots(file)
+  const a = slots.list()[0]!
+  const b = slots.list()[1]!
+  slots.forgetDurably(a.id, a)
+  const write = fs.writeFileSync
+  fs.writeFileSync = ((...args: Parameters<typeof write>) => {
+    if (String(args[0]).startsWith(join(root, 'accounts.json.tmp-'))) throw new Error('synthetic restore write failure')
+    return write(...args)
+  }) as typeof write
+  syncBuiltinESMExports()
+  try { assert.throws(() => slots.restoreDurably(a), /restore write failure/) }
+  finally { fs.writeFileSync = write; syncBuiltinESMExports() }
+  slots.remove(b.id, true, b)
+  assert.equal(await readFile(join(nested, 'sentinel'), 'utf8'), 'keep')
+})
+
+test('home leases release only their own token', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const primary = join(root, 'agent')
+  await mkdir(primary, { recursive: true })
+  const file = join(root, 'accounts.json')
+  const initial = new AccountSlots(file)
+  const parent = initial.add(FAKE_RUNTIME_ID, primary, root)
+  const child = initial.add(FAKE_RUNTIME_ID, primary, root)
+  const nested = join(parent.home, 'nested')
+  await mkdir(nested)
+  await writeFile(join(nested, 'sentinel'), 'keep')
+  await writeFile(file, JSON.stringify({ accounts: [parent, { ...child, home: nested }] }))
+  const slots = new AccountSlots(file)
+  const a = slots.list()[0]!
+  const b = slots.list()[1]!
+  slots.forgetDurably(a.id, a)
+  slots.forgetDurably(b.id, b)
+  const releaseFirst = slots.holdHome(b)
+  const releaseSecond = slots.holdHome(b)
+  releaseFirst()
+  releaseFirst() // A repeated release cannot consume another owner's token.
+  slots.purge(a)
+  assert.equal(await readFile(join(nested, 'sentinel'), 'utf8'), 'keep')
+  releaseSecond()
+  slots.purge(a)
+  assert.equal(existsSync(parent.home), false)
+})
+
+test('an uncertain removal retry preserves the original repeated-id ordering on rollback', async t => {
+  const root = await home()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const primary = join(root, 'agent')
+  await mkdir(primary, { recursive: true })
+  const file = join(root, 'accounts.json')
+  const initial = new AccountSlots(file)
+  const first = initial.add(FAKE_RUNTIME_ID, primary, root)
+  const second = initial.add(FAKE_RUNTIME_ID, primary, root)
+  const third = initial.add(FAKE_RUNTIME_ID, primary, root)
+  await writeFile(file, JSON.stringify({ accounts: [first, { ...second, id: first.id }, third] }))
+  const slots = new AccountSlots(file)
+  const selected = slots.list()[1]!
+  const rename = fs.renameSync
+  fs.renameSync = ((...args: Parameters<typeof rename>) => { rename(...args); throw new Error('synthetic after rename') }) as typeof rename
+  syncBuiltinESMExports()
+  try { assert.throws(() => slots.forgetDurably(selected.id, selected), /after rename/) }
+  finally { fs.renameSync = rename; syncBuiltinESMExports() }
+  const position = slots.positionOf(selected)
+  assert.equal(position, 1)
+  slots.forgetDurably(selected.id, selected)
+  slots.restoreDurably(selected, position)
+  assert.deepEqual(slots.list().map(row => row.home), [first.home, second.home, third.home])
+})
+
+test('a replacement registered during disposal receives no stale removed notification', async t => {
+  const { host, stateDir, slots, accounts, created } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const slot = slots.find(added.runtime)!
+  await writeFile(join(slot.home, 'auth.json'), chatgptAuth('person', 'workspace'))
+  const owner = created.get(added.runtime)!
+  let enter!: () => void, release!: () => void
+  const entered = new Promise<void>(resolve => { enter = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  owner.logout = async () => {}
+  owner.dispose = async () => { enter(); await gate }
+  accounts.prepareRemove = runtime => {
+    slots.forgetDurably(runtime.info.id, slot)
+    return purge => { if (purge) slots.purge(slot) }
+  }
+  const seen: string[] = []
+  host.addBroadcaster(notification => { if (notification.method === 'runtime/removed' && notification.params.runtime === added.runtime) seen.push('removed') })
+  const removal = host.call('runtime/account/remove', { runtime: added.runtime })
+  await entered
+  const replacement = new FakeRuntime({ id: added.runtime, name: 'Replacement' })
+  host.register(replacement)
+  release()
+  await assert.rejects(removal, /owner changed|did not shut down/)
+  assert.equal(host.ownsRuntime(replacement), true)
+  assert.deepEqual(seen, [])
+  assert.equal(await readFile(join(slot.home, 'auth.json'), 'utf8'), chatgptAuth('person', 'workspace'))
+})
+
+test('a replacement runtime registered during logout is never removed or purged', async t => {
+  const { host, stateDir, slots, accounts, created } = await hostWithAccounts()
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const added = await host.call('runtime/account/add', { runtime: FAKE_RUNTIME_ID })
+  const slot = slots.find(added.runtime)!
+  await writeFile(join(slot.home, 'auth.json'), chatgptAuth('person', 'workspace'))
+  const owner = created.get(added.runtime)!
+  let enter!: () => void, release!: () => void
+  const entered = new Promise<void>(resolve => { enter = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  owner.logout = async () => { enter(); await gate }
+  accounts.prepareRemove = runtime => {
+    assert.equal(runtime, owner)
+    slots.forgetDurably(runtime.info.id, slot)
+    return purge => { if (purge) slots.purge(slot) }
+  }
+  const removal = host.call('runtime/account/remove', { runtime: added.runtime })
+  await entered
+  await host.unregister(added.runtime)
+  const replacement = new FakeRuntime({ id: added.runtime, name: 'Replacement' })
+  host.register(replacement)
+  release()
+  await assert.rejects(removal, /owner changed/)
+  assert.equal(host.ownsRuntime(replacement), true)
+  assert.equal(await readFile(join(slot.home, 'auth.json'), 'utf8'), chatgptAuth('person', 'workspace'))
 })
 
 test('a sign-in that lands on the account you already have is undone, with a reason', async (t) => {

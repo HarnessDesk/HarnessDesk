@@ -552,6 +552,7 @@ const AgentAccounts = ({
   // out and forgets its credential home — so it asks first, as an answered
   // account's removal does on its own page.
   const [removing, setRemoving] = useState<RuntimeInfo | null>(null)
+  const [checking, setChecking] = useState<RuntimeId | null>(null)
   const status = snapshot.accountsByRuntime[info.id]
   // One flat list of rows across the agent's runtimes, each row remembering
   // which runtime it belongs to — that is what a sign-out or a removal needs.
@@ -568,9 +569,9 @@ const AgentAccounts = ({
   const extras = siblings.filter((entry) => entry !== info && !entry.slot?.gateway)
   const empties = extras.filter((entry) => {
     const answer = snapshot.accountsByRuntime[entry.id]
-    return answer !== undefined && answer.accounts.length === 0
+    return answer !== undefined && !answer.unchecked && answer.accounts.length === 0
   })
-  const pending = extras.filter((entry) => snapshot.accountsByRuntime[entry.id] === undefined)
+  const pending = extras.filter((entry) => snapshot.accountsByRuntime[entry.id] === undefined || snapshot.accountsByRuntime[entry.id]?.unchecked)
   // The ones still expected to answer: an account that could not start will
   // not, and its own row already says "Unavailable" (#1038).
   const answering = pending.filter((entry) => snapshot.healthByRuntime[entry.id]?.state !== 'unavailable')
@@ -754,7 +755,17 @@ const AgentAccounts = ({
             {...(entry.slot?.home ? { desc: shortPath(entry.slot.home, snapshot.home) } : {})}
             truncateDesc
             control={
-              <SettingsRowMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.name} onRemove={() => setRemoving(entry)} />
+              <>
+                {entry.slot?.forgetUnknown && entry.capabilities.account && snapshot.accountsByRuntime[entry.id]?.unchecked && snapshot.accountsByRuntime[entry.id]?.signInMethods.some(method => method.flow !== 'external') ? (
+                  <Button size="sm" variant="outline" onClick={() => onSignIn(entry.id)}><SignInIcon size={13} />Sign in</Button>
+                ) : entry.slot?.forgetUnknown ? (
+                  <Button size="sm" variant="outline" disabled={checking !== null} title="Starts this agent to check its account." onClick={() => {
+                    setChecking(entry.id)
+                    void store.checkAccount(entry.id).finally(() => setChecking(null))
+                  }}>{checking === entry.id ? 'Checking…' : 'Check account'}</Button>
+                ) : null}
+                <SettingsRowMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.name} onRemove={() => setRemoving(entry)} />
+              </>
             }
           />
         ))}
@@ -767,14 +778,13 @@ const AgentAccounts = ({
             kind="record"
             face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
             title="Waiting to be signed in"
-            desc="Added, but the sign-in never finished."
             control={
               <>
                 <Button size="sm" variant="outline" onClick={() => void store.signInAgent(entry.id)}>
                   <SignInIcon size={13} />
                   Sign in
                 </Button>
-                <SettingsRowMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.name} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
+                <SettingsRowMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.name} label={entry.slot?.forgetUnknown ? 'Remove…' : 'Remove'} onRemove={() => entry.slot?.forgetUnknown ? setRemoving(entry) : void store.removeAccount(entry.id)} />
               </>
             }
           />
@@ -867,7 +877,9 @@ const AgentAccounts = ({
             void store.removeAccount(entry.id)
           }}
         >
-          {removing.slot?.home
+          {removing.slot?.forgetUnknown
+            ? 'Removes this account from HarnessDesk. Its agent or system credentials may remain. Conversations stay with the runtime.'
+            : removing.slot?.home
             ? `It may be signed in already. Its sign-in at ${shortPath(removing.slot.home, snapshot.home)} is forgotten; conversations stay with the runtime.`
             : 'It may be signed in already. Its sign-in is forgotten; conversations stay with the runtime.'}
         </ConfirmDialog>
@@ -1487,7 +1499,9 @@ const AccountDetail = ({
           }}
         >
           {info.slot?.removable
-            ? 'Its sign-in is forgotten. Conversations stay with the runtime.'
+            ? info.slot.forgetUnknown
+              ? 'Removes this account from HarnessDesk. Its agent or system credentials may remain. Conversations stay with the runtime.'
+              : 'Its sign-in is forgotten. Conversations stay with the runtime.'
             : `${info.presentation.name} forgets this sign-in. Signing in again is the only way back.`}
         </ConfirmDialog>
       )}

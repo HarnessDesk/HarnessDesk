@@ -457,6 +457,8 @@ sample.
   The host persists display observations in `runtime-cache.json` beside `state.json`,
   without credentials. Launch starts only the default runtime, in the background.
   Idle health preserves learned capabilities, models, account and cached history;
+  ordinary extra Codex account slots retain their row without a credential file, and
+  their prior account observation is unverified after their process stops.
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
   retain their live sessions. Opening
   or addressing the conversation resumes its own history; wrap, release and

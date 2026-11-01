@@ -12,6 +12,7 @@ import type {
   AgentTemplateInfo,
   InstallInfo,
   RuntimeInfo,
+  RuntimeId,
 } from '@harnessdesk/protocol'
 import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
@@ -411,6 +412,7 @@ const ROSTER = {
 
 const mountList = async (
   over: Record<string, unknown> & { store?: Record<string, unknown> } = {},
+  onSignIn: (runtime: RuntimeId) => void = () => {},
 ): Promise<void> => {
   const snapshot = {
     ...emptySnapshot(),
@@ -438,7 +440,7 @@ const mountList = async (
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <RuntimesSection onSignIn={() => {}} />
+        <RuntimesSection onSignIn={onSignIn} />
       </StoreProvider>,
     )
   })
@@ -1278,6 +1280,52 @@ it('removes an empty account slot immediately and labels the menu action Remove'
   expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
 })
 
+it('an unverified retained account asks before forgetting and explains credentials may remain', async () => {
+  const removeAccount = vi.fn(async () => {})
+  const extra = runtime({ id: 'alpha#2', name: 'Alpha', slot: { agent: 'alpha', home: '/tmp/alpha-2', removable: true, forgetUnknown: true } })
+  await mountList({ runtimes: ROSTER.runtimes.map(entry => entry.id === extra.id ? extra : entry), accountsByRuntime: { ...ROSTER.accountsByRuntime, 'alpha#2': { accounts: [], signInMethods: [], unchecked: true } }, store: { removeAccount } })
+  await act(async () => line('Alpha').click())
+  expect(container.textContent).not.toContain('sign-in never finished')
+  expect(container.textContent).not.toContain('Waiting to be signed in')
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label^="Alpha actions"]')!
+  await act(async () => trigger.click())
+  await act(async () => document.body.querySelector<HTMLElement>('[role="menuitem"]')!.click())
+  expect(removeAccount).not.toHaveBeenCalled()
+  expect(document.body.querySelector('[role="alertdialog"]')?.textContent).toContain('credentials may remain')
+  const confirm = [...document.body.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Remove account')!
+  await act(async () => confirm.click())
+  expect(removeAccount).toHaveBeenCalledWith('alpha#2')
+})
+
+it('offers the exact unverified extra slot its declared sign-in without opening a browser', async () => {
+  const onSignIn = vi.fn()
+  const signInAgent = vi.fn()
+  const extra = runtime({ id: 'alpha#2', name: 'Alpha', slot: { agent: 'alpha', home: '/tmp/alpha-2', removable: true, forgetUnknown: true } })
+  await mountList({ runtimes: ROSTER.runtimes.map(entry => entry.id === extra.id ? extra : entry), accountsByRuntime: { ...ROSTER.accountsByRuntime, 'alpha#2': { ...signedIn([], ['browser']), unchecked: true } }, store: { signInAgent } }, onSignIn)
+  await act(async () => line('Alpha').click())
+  const pending = [...container.querySelectorAll('[data-kind="record"]')].find(row => row.textContent?.includes('/tmp/alpha-2'))!
+  const signIn = [...pending.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Sign in')!
+  expect(signIn).toBeTruthy()
+  await act(async () => signIn.click())
+  expect(onSignIn).toHaveBeenCalledWith('alpha#2')
+  expect(signInAgent).not.toHaveBeenCalled()
+})
+
+it('offers an explicit check for a retained slot that has never reported methods', async () => {
+  const checkAccount = vi.fn(async () => {})
+  const extra = runtime({ id: 'alpha#2', name: 'Alpha', slot: { agent: 'alpha', home: '/tmp/alpha-2', removable: true, forgetUnknown: true } })
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({ runtimes: ROSTER.runtimes.map(entry => entry.id === extra.id ? extra : entry), accountsByRuntime: accounts, store: { checkAccount } })
+  await act(async () => line('Alpha').click())
+  expect(checkAccount).not.toHaveBeenCalled()
+  const pending = [...container.querySelectorAll('[data-kind="record"]')].find(row => row.textContent?.includes('/tmp/alpha-2'))!
+  const check = [...pending.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Check account')!
+  expect(check).toBeTruthy()
+  await act(async () => check.click())
+  expect(checkAccount).toHaveBeenCalledWith('alpha#2')
+})
+
 it('the signed-in account page labels Remove with an ellipsis and asks before removing', async () => {
   const removeAccount = vi.fn(async () => {})
   await mountList({ store: { removeAccount, limitsFor: async () => null } })
@@ -1293,6 +1341,19 @@ it('the signed-in account page labels Remove with an ellipsis and asks before re
   const confirm = [...document.body.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Remove account')!
   await act(async () => confirm.click())
   expect(removeAccount).toHaveBeenCalledWith('alpha#2')
+})
+
+it('a signed-in removable account warns that credentials may remain', async () => {
+  const removeAccount = vi.fn(async () => {})
+  const extra = runtime({ id: 'alpha#2', name: 'Alpha', slot: { agent: 'alpha', home: '/tmp/alpha-2', removable: true, forgetUnknown: true } })
+  await mountList({ runtimes: ROSTER.runtimes.map(entry => entry.id === extra.id ? extra : entry), store: { removeAccount, limitsFor: async () => null } })
+  await act(async () => line('Alpha').click())
+  const account = [...container.querySelectorAll('button')].find(node => node.textContent?.includes('grace@example.com'))!
+  await act(async () => account.click())
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label^="grace actions"]')!.click())
+  await act(async () => document.body.querySelector<HTMLElement>('[role="menuitem"]')!.click())
+  expect(document.body.querySelector('[role="alertdialog"]')?.textContent).toContain('credentials may remain')
+  expect(removeAccount).not.toHaveBeenCalled()
 })
 
 it('unanswered extra account menus name the credential homes that distinguish them', async () => {

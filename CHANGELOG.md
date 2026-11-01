@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Saved extra accounts survive without a credential file.** Their status is checked when the agent runs; removing an account whose identity cannot be verified leaves its agent or system credentials in place.
+
 - **Saved approvals end when a goal enters Following.** Their audit history remains available, and a revised plan cannot clear an unresolved worker audit. Unreviewed orphan requests require explicit Resume.
 
 - **Worker approval recovery uses one fence across live and stored state.** Repair hand-backs retain uncertain changes, repair refreshes preserve Resume revisions, and older renewal journals remain readable. Diff actions say View changes.

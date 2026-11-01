@@ -348,6 +348,8 @@ export const slotConfigured = (slot: AccountSlot): boolean =>
  */
 export class AccountSlots {
   #slots: AccountSlot[]
+  readonly #uncertainRemovals = new Map<AccountSlot, number>()
+  readonly #heldHomes = new Map<symbol, AccountSlot>()
 
   constructor(
     private readonly file: string,
@@ -366,6 +368,18 @@ export class AccountSlots {
 
   of(agent: RuntimeId): readonly AccountSlot[] {
     return this.#slots.filter((slot) => slot.agent === agent)
+  }
+
+  positionOf(slot: AccountSlot): number {
+    const index = this.#slots.indexOf(slot)
+    return index < 0 ? (this.#uncertainRemovals.get(slot) ?? -1) : index
+  }
+
+  /** Protect one exact owner's home until its removal can safely release it. */
+  holdHome(slot: AccountSlot): () => void {
+    const token = Symbol('account home owner')
+    this.#heldHomes.set(token, slot)
+    return () => { this.#heldHomes.delete(token) }
   }
 
   /**
@@ -415,35 +429,87 @@ export class AccountSlots {
     // ignored row precedes it. The id-only API forgets just the first match.
     this.#slots = this.#slots.filter((entry) => entry !== slot)
     this.#write()
-    if (purge) {
-      if (this.#homeStillReferenced(slot.home)) {
-        this.log?.('account slot home kept for a retained row')
-        return slot
-      }
-      // Only ever the farm: every shared entry inside it is a symlink, and
-      // `rm` of a symlink removes the link, never what it points at.
-      try {
-        const accountsDir = resolve(dirname(this.file), 'accounts')
-        if (isUnder(slot.home, accountsDir)) {
-          // If slot.home itself is a symlink, delete the link without recursing into target
-          if (lstatSync(slot.home, { throwIfNoEntry: false })?.isSymbolicLink()) {
-            rmSync(slot.home, { force: true })
-          } else {
-            rmSync(slot.home, { recursive: true, force: true })
-          }
-        } else {
-          this.log?.('account slot home outside accounts directory, skipping removal', { home: slot.home })
-        }
-      } catch (error) {
-        this.log?.('account slot home could not be removed', { home: slot.home, error: String(error) })
-      }
-    }
+    if (purge) this.purge(slot)
     return slot
   }
 
+  /** Persist an exact removal before the host stops its owner. */
+  forgetDurably(id: RuntimeId, selected: AccountSlot): AccountSlot {
+    const slot = this.#slots.find(entry => entry === selected && entry.id === id)
+      ?? (selected.id === id && this.#uncertainRemovals.has(selected) ? selected : undefined)
+    if (!slot) throw new Error('The account slot is no longer owned by this runtime.')
+    const position = this.positionOf(slot)
+    const remaining = this.#slots.filter(entry => entry !== slot)
+    const body = `${JSON.stringify({ accounts: remaining }, null, 2)}\n`
+    mkdirSync(dirname(this.file), { recursive: true })
+    const temporary = `${this.file}.tmp-${process.pid}`
+    writeFileSync(temporary, body, 'utf8')
+    try {
+      renameSync(temporary, this.file)
+    } catch (error) {
+      // Some failures can be reported after the rename took effect. Reconcile
+      // only an exact observed body and remember the owner so a retry can
+      // confirm the removal; neither outcome authorizes a home purge here.
+      try {
+        if (readFileSync(this.file, 'utf8') === body) {
+          this.#slots = remaining
+          this.#uncertainRemovals.set(slot, position)
+        }
+      } catch {}
+      throw error
+    }
+    this.#slots = remaining
+    this.#uncertainRemovals.delete(slot)
+    return slot
+  }
+
+  /** Restore an exact row after a failed sign-out, without purging its home. */
+  restoreDurably(slot: AccountSlot, position = this.#slots.length): void {
+    if (this.#slots.includes(slot)) return
+    // Keep the exact owner retryable even if writing the restoration fails.
+    this.#uncertainRemovals.set(slot, position)
+    const restored = [...this.#slots]
+    restored.splice(Math.max(0, Math.min(position, restored.length)), 0, slot)
+    const body = `${JSON.stringify({ accounts: restored }, null, 2)}\n`
+    mkdirSync(dirname(this.file), { recursive: true })
+    const temporary = `${this.file}.tmp-${process.pid}`
+    writeFileSync(temporary, body, 'utf8')
+    try { renameSync(temporary, this.file) } catch (error) {
+      try { if (readFileSync(this.file, 'utf8') === body) { this.#slots = restored; this.#uncertainRemovals.delete(slot) } } catch {}
+      throw error
+    }
+    this.#slots = restored
+    this.#uncertainRemovals.delete(slot)
+  }
+
+  /** Purge only after the owner has stopped and the row has been persisted. */
+  purge(slot: AccountSlot): void {
+    if (this.#homeStillReferenced(slot.home)) {
+      this.log?.('account slot home kept for a retained row')
+      return
+    }
+    // Only ever the farm: every shared entry inside it is a symlink, and
+    // `rm` of a symlink removes the link, never what it points at.
+    try {
+      const accountsDir = resolve(dirname(this.file), 'accounts')
+      if (isUnder(slot.home, accountsDir)) {
+        // If slot.home itself is a symlink, delete the link without recursing into target
+        if (lstatSync(slot.home, { throwIfNoEntry: false })?.isSymbolicLink()) {
+          rmSync(slot.home, { force: true })
+        } else {
+          rmSync(slot.home, { recursive: true, force: true })
+        }
+      } else {
+        this.log?.('account slot home outside accounts directory, skipping removal', { home: slot.home })
+      }
+    } catch (error) {
+      this.log?.('account slot home could not be removed', { home: slot.home, error: String(error) })
+    }
+  }
   /** A hand-edited roster may share, alias or nest credential homes. */
   #homeStillReferenced(home: string): boolean {
-    if (this.#slots.length === 0) return false
+    const retained = [...this.#slots, ...this.#uncertainRemovals.keys(), ...this.#heldHomes.values()]
+    if (retained.length === 0) return false
     // An unreadable or missing path may conceal an alias. Keep the removed
     // home when either side cannot be resolved, even if that leaves an orphan.
     const physical = (path: string): string | null => {
@@ -451,7 +517,7 @@ export class AccountSlots {
     }
     const removed = physical(home)
     if (removed === null) return true
-    return this.#slots.some(entry => {
+    return retained.some(entry => {
       const retained = physical(entry.home)
       return retained === null || retained === removed || isUnder(retained, removed) || isUnder(removed, retained)
     })
