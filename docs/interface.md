@@ -493,7 +493,7 @@ above the seat names that host and shows the matching short code,
 **Open the page again** and **Cancel**. The notice
 uses the seat’s inset and stacks its header above full-width copy and actions. A signed-in
 account instead opens a **HarnessDesk account** submenu with **Linked phones**
-and its count, **Account settings**, and **Sign out of HarnessDesk…**. The
+and its count, **Account settings**, and **Sign out…** (the group already names the account). The
 confirmation explains that agent accounts stay signed in. If the cloud cannot
 be reached, it also offers **Sign out on this desk only**, which removes the
 local sign-in and explains that the desk stays linked to the account until it
@@ -1172,7 +1172,7 @@ the right of each row. The rail starts with **Back** and a **Search settings**
 box above every group. **Account** in Preferences opens the account and local
 profile page; the seat at the foot of the rail keeps your current identity.
 
-Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. That row is one bar tall and starts at the body's top, so the title stands on the sidebar wordmark's line. Their chooser or verb sits on the right of the same row, centred on that line, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title.
+Standalone pages name themselves once with a visible h1 in the first body row, on the content column's left edge. That row is one bar tall and starts at the body's top, so the title stands on the sidebar wordmark's line. Their chooser or verb sits on the right of the same row, centred on that line, with the page stack gap before the next block. The title scrolls away; the fixed bar keeps its height and tools. Sessions, Teams and edited Flows retain their subject menu in the bar; canvas surfaces have no body title. A Team also heads its body: its name as the h1 with Findings, Review stopped Run and the view's verb (Stop run…) on the same bar-tall line, and its tabs on the line below. The head stays put while the view under it scrolls.
 
 The page name is a visible h1 above its description. The Settings top bar
 keeps only the column toggle; it carries no page title or breadcrumb.

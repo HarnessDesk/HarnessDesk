@@ -1214,7 +1214,7 @@ export const TeamRoomPane = ({
   return (
     <PaneSurface className={`${styles.pane} h-full`} data-slot="team-room">
       {actions.dialogs}
-      <PaneTabsRow controls={<>
+      <PaneTabsRow title={title ? sanitizeText(title) : undefined} controls={<>
         {(open === 'board' || open === 'findings') && <span data-slot="task-navigation"><Button variant="ghost" size="sm"
           disabled={!goal} aria-label={`Findings${findingCount ? ` ${findingCount}` : ''}`} aria-pressed={open === 'findings'}
           title={!goal ? 'Findings are available for a Team with a goal' : undefined}

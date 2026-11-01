@@ -26,7 +26,7 @@ afterEach(() => {
 
 it('keeps a card button on the card border token rather than inheriting label ink', () => {
   act(()=>root.render(<Button variant="ghost" size="pattern" render={<Card as="button" spacing="compact"/>}>Open work</Button>))
-  expect(container.querySelector('button')?.className).toContain('border-(--hd-border)')
+  expect(container.querySelector('button')?.className).toContain('border-(--hd-border-strong)')
 })
 
 it('draws an unavailable card as a quiet dashed surface', () => {
@@ -184,7 +184,7 @@ it('draws the plate card from the app card family, with its hairline inside the 
   const card = container.firstElementChild as HTMLElement | null
   expect(card?.dataset['variant']).toBe('plate')
   expect(card?.className).toContain('bg-(--hd-card-fill,var(--hd-card))')
-  expect(card?.className).toContain('rounded-(--hd-card-radius,var(--hd-radius-lg))')
+  expect(card?.className).toContain('rounded-(--hd-card-radius,var(--hd-radius))')
   expect(card?.className).toContain('shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]')
   expect(card?.className).toContain('border-0')
   /* The registry card's own ground and edge are replaced, not stacked. */
@@ -200,7 +200,7 @@ it('lifts a card off a canvas of its own with the one soft shadow, keeping its h
   expect(card?.className).toContain('shadow-(--hd-shadow-sm)')
   /* Raised adds a shadow; it does not replace the registry card's edge or ground. */
   expect(card?.className).toMatch(/(^|\s)border(\s|$)/)
-  expect(card?.className).toMatch(/(^|\s)bg-card(\s|$)/)
+  expect(card?.className).toContain('bg-(--hd-background)')
   expect(card?.className).toContain('p-(--hd-inset-row)')
 })
 

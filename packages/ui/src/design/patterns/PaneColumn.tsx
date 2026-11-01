@@ -1,3 +1,4 @@
+import { PageHead } from './PageOptions'
 import { forwardRef, useEffect, useState, type ComponentProps, type RefCallback, type RefObject, type ReactNode } from 'react'
 
 /**
@@ -109,13 +110,23 @@ export const PaneColumn = forwardRef<HTMLDivElement, PaneColumnProps>(
 PaneColumn.displayName = 'PaneColumn'
 
 /** Tabs under a pane's top bar keep the reading gutter and a small vertical
- * step. Tabs yield and scroll; their current view and action stay beside them. */
-export const PaneTabsRow = ({ children, controls }: { readonly children: ReactNode; readonly controls?: ReactNode }) => (
-  <PaneColumn inset="reading" className="flex shrink-0 items-start gap-2" data-pane-tabs-row="">
-    <div className="min-w-0">{children}</div>
-    {controls != null && <div className="ms-auto flex shrink-0 items-center gap-2">{controls}</div>}
-  </PaneColumn>
-)
+ * step. Tabs yield and scroll; their current view and action stay beside them.
+ *
+ * With a `title` the pane has a head: its name as the page's h1, with the
+ * controls at its end on one bar-tall line, and the tabs on their own line
+ * below. A page says what it is and what it can do before the views it has. */
+export const PaneTabsRow = ({ children, controls, title }: { readonly children: ReactNode; readonly controls?: ReactNode; readonly title?: ReactNode }) => {
+  const actions = controls != null && <div className="ms-auto flex shrink-0 items-center gap-2">{controls}</div>
+  return title != null
+    ? <PaneColumn inset="reading" className="flex shrink-0 flex-col gap-2" data-pane-tabs-row="" data-pane-head="">
+      <PageHead title={title}>{actions}</PageHead>
+      <div className="min-w-0">{children}</div>
+    </PaneColumn>
+    : <PaneColumn inset="reading" className="flex shrink-0 items-start gap-2" data-pane-tabs-row="">
+      <div className="min-w-0">{children}</div>
+      {actions}
+    </PaneColumn>
+}
 
 /**
  * The transcript's composer floats over its own scrolling column, so the

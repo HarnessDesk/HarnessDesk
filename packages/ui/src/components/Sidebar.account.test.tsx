@@ -582,7 +582,7 @@ it('uses the HarnessDesk identity and confirms its own sign-out separately', asy
   click(row())
   click(document.querySelector('[role="menu"] [role="menuitem"]')!)
   expect(document.body.textContent).toContain('Linked phones')
-  const item = [...document.querySelectorAll('[role="menuitem"]')].find(one => one.textContent?.includes('Sign out of HarnessDesk…'))!
+  const item = [...document.querySelectorAll('[role="menuitem"]')].find(one => one.textContent?.trim() === 'Sign out…')!
   click(item)
   const dialog = document.querySelector('[role="alertdialog"]')!
   expect(dialog.textContent).toContain('Sign out of HarnessDesk?')

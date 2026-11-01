@@ -2,6 +2,7 @@ import { Fragment, useLayoutEffect, useRef, useState } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
+import { ChipLook } from './tone'
 
 /**
  * A line in a list of things, each of which has a face, a name and a reading.
@@ -314,7 +315,7 @@ const ListRow = ({
           size === 'sm' ? 'text-xs text-(--hd-muted-foreground)' : 'text-xs',
         )}
       >
-        {trail}
+        <ChipLook.Provider value="quiet">{trail}</ChipLook.Provider>
       </div>
     )}
     </Heading>

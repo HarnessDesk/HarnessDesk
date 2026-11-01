@@ -366,6 +366,17 @@ export const AppearanceSection = () => {
           control={<AccentSwatches />}
         />
         <Row
+          title="Surface"
+          /* Earned: the label cannot say what the two shapes are. */
+          desc="Cards box each group; Sheet lays groups flat with lines between."
+          control={
+            <PageOptions choices={[{id:"Surface",label:"Surface",value:snapshot.surface,items:[
+                { value: 'cards', label: 'Cards' },
+                { value: 'sheet', label: 'Sheet' },
+              ],change:next => store.setSurface((next as typeof snapshot.surface))}]}/>
+          }
+        />
+        <Row
           title="Corners"
           control={
             <PageOptions choices={[{id:"Corners",label:"Corners",value:snapshot.corners,items:[

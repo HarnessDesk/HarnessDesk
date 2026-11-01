@@ -469,7 +469,7 @@ it('puts the reason where the composer would be, in the agent’s own words', ()
   expect(refusal.textContent).not.toContain('/repo')
   expect(refusal.querySelector('[title="/repo"] .sr-only')?.textContent).toBe('repo')
   const folderFact = [...container.querySelectorAll('[data-slot="summary-item"]')].find(one => one.querySelector('dt')?.textContent === 'Folder')!
-  expect(folderFact.querySelector('.sr-only')?.textContent).toBe('/repo')
+  expect(folderFact.querySelector('dd .sr-only')?.textContent).toBe('/repo')
   expect(container.textContent).toContain('Open a copy in another folder')
   expect(container.textContent).toContain('Archive')
   // Nothing to type into: there is nowhere for it to go.

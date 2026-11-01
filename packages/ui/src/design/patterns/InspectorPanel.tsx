@@ -8,6 +8,7 @@ import { ChangeStats } from './Change'
 import { MiddleTruncate } from '../ui/key-value'
 import { PaneColumn } from './PaneColumn'
 import { Chip, Dot, Search, Text } from './Settings'
+import { ChipLook } from '../ui/tone'
 
 /**
  * The anatomy shared by the right-hand inspectors.
@@ -133,7 +134,7 @@ const PanelRow = ({
         {ask ? <Text role="meta" ink="secondary" className={cn('mt-(--hd-table-line-gap) [overflow-wrap:anywhere]', askLines === 2 && 'line-clamp-2')}>{ask}</Text> : null}
         {meta ? <Text role="meta" numeric className="mt-1">{meta}</Text> : null}
       </span>
-      {trail}
+      {trail != null && <ChipLook.Provider value="quiet">{trail}</ChipLook.Provider>}
     </>
   )
   const className = cn(

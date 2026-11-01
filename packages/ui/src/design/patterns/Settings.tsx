@@ -13,7 +13,7 @@ import { cn } from '../../lib/utils'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
-import { dotTone as dotToneClass, inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
+import { ChipLook, dotTone as dotToneClass, inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import { GroupLabel } from '../ui/group-label'
 import { useInPageSection } from '../ui/section'
 import { ChoiceRow, choiceListClass, dialogSectionStackClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
@@ -133,7 +133,12 @@ type ChipBaseProps = {
   /** Leave clipped words to a surrounding labelled hover card. */
   autoTitle?: boolean
   size?: 'default' | 'sm'
-  /** Quiet keeps the tone and type, without a pill or horizontal padding. */
+  /**
+   * Quiet keeps the tone and type, without a pill or horizontal padding: the
+   * status word. A neutral word takes fact ink. Absent, the chip follows the
+   * slot it stands in (`ChipLook`): a word on a label line, a panel row's end,
+   * a fact's value or a section's value; a pill everywhere else.
+   */
   variant?: 'default' | 'outline' | 'quiet'
   /**
    * A count the chip leads with — `count={3}` and `copies differ` read as
@@ -228,16 +233,18 @@ export const Chip = (props: ChipProps) => {
     title,
     autoTitle = true,
     size = 'default',
-    variant = 'default',
     count,
     showZero = false,
     dotTone,
     dotPulse = false,
     dotShape,
   } = props
+  const look = useContext(ChipLook)
   if (count === 0 && !showZero) return null
   const state = props.state
   const tint = props.tint
+  /* In a word slot (`ChipLook`) a judged chip is its word; a tint keeps its pill. */
+  const variant = props.variant ?? (tint ? 'default' : look)
   const emphasis = props.emphasis
   const requestedTone = props.tone ?? ((stale || unknown) && state ? READINESS_TONE[state] : undefined)
   /* An unknown fact claims no judgement. A stale pass no longer vouches for
@@ -960,7 +967,7 @@ const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: Re
     {kind === 'record'
       ? <Clipped data-slot={chip ? 'row-title-name' : undefined} className={cx(styles.rowClippedTitle, Boolean(chip) && styles.rowTitleName)}>{title}</Clipped>
       : chip ? <span data-slot="row-title-name" className={styles.rowTitleName}>{title}</span> : title}
-    {chip ? <span className={styles.rowTitleChip} data-slot="row-title-chip">{chip}</span> : null}
+    {chip ? <span className={styles.rowTitleChip} data-slot="row-title-chip"><ChipLook.Provider value="quiet">{chip}</ChipLook.Provider></span> : null}
   </span>
 )
 
@@ -1019,10 +1026,10 @@ export const Row = ({
     </span>
     {control ? reserveChevronSlot ? (
       <span className={styles.rowEnd} data-slot="row-end">
-        <span className={styles.rowCtl} data-slot="row-ctl">{control}</span>
+        <span className={styles.rowCtl} data-slot="row-ctl"><ChipLook.Provider value="quiet">{control}</ChipLook.Provider></span>
         <span className={styles.rowChev} data-slot="row-chevron-space" aria-hidden="true" />
       </span>
-    ) : <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
+    ) : <span className={styles.rowCtl} data-slot="row-ctl"><ChipLook.Provider value="quiet">{control}</ChipLook.Provider></span> : null}
   </div>
 )
 
@@ -1126,7 +1133,7 @@ export const RowButton = ({
           end on either line. */}
       {control || (chevron && !fold && !action) ? (
         <span className={styles.rowEnd}>
-          {control ? <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
+          {control ? <span className={styles.rowCtl} data-slot="row-ctl"><ChipLook.Provider value="quiet">{control}</ChipLook.Provider></span> : null}
           {chevron && !fold && !action ? (
             <span className={styles.rowChev}>
               <ChevronIcon size={ROW_CHEVRON} />

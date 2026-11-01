@@ -1961,11 +1961,15 @@ it('names the room once, on a row that is also the window’s handle', async () 
   expect(memberList().querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
   const toggle = bar.querySelector('button[title="More"]')
   expect(toggle, 'the messaging toggle is on this row').not.toBeNull()
-  // Said once. The name used to be printed by the strip above and the rail
-  // head below it, so a room called "Checkout rewrite" said so twice before
-  // anything in it had been read.
+  // Said once by each of its two owners: the bar's subject menu and the
+  // page's h1, which heads the body above the tabs. The name used to be
+  // printed by the strip above and the rail head below it as well, so a room
+  // called "Checkout rewrite" said so four times before anything was read.
   const named = container.textContent?.split('Checkout rewrite').length ?? 1
-  expect(named - 1, 'the room is named once').toBe(1)
+  expect(named - 1, 'the bar and the page head name the room').toBe(2)
+  const head = container.querySelector('[data-pane-head] h1')
+  expect(head?.textContent).toBe('Checkout rewrite')
+  expect(container.querySelector('[data-pane-head]')?.firstElementChild?.contains(head!), 'the h1 comes before the tabs').toBe(true)
   // A top row moves the window, like the conversation's header and the
   // sidebar's title bar. Read as a class rather than a computed style: the
   // property is Electron's and jsdom has never heard of it.
@@ -1994,7 +1998,8 @@ it('renders exactly one header, naming the Goal once, with the project’s short
   const headers = container.querySelectorAll('header')
   expect(headers.length, 'exactly one header').toBe(1)
   const bar = headers[0]!
-  expect(container.textContent?.split('Checkout rewrite').length ?? 1, 'named once').toBe(2)
+  expect(container.textContent?.split('Checkout rewrite').length ?? 1, 'named by the bar and the page head').toBe(3)
+  expect(container.querySelectorAll('h1')).toHaveLength(1)
   // The state, on the header's own line, as a chip.
   expect(bar.querySelector('[data-slot="dot"]')?.getAttribute('aria-label')).toBe('Running')
   // The project's short name is visible; its absolute path is not, anywhere.

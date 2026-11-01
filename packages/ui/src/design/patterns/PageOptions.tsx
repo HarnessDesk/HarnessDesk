@@ -55,10 +55,18 @@ export const PageOptions = ({ title, choices = [], search, read, action, actionL
   {primary && actionLast && verb}
 </div>
   return title ? <div data-slot="page-options" className={styles.group}>
-    <div data-page-head className={styles.head}>
-      <Text as="h1" role="page" className={styles.title}>{title}</Text>
-      {controls(choices.slice(0, 1), true, false)}
-    </div>
+    <PageHead title={title}>{controls(choices.slice(0, 1), true, false)}</PageHead>
     {(choices.length > 1 || search || read) && controls(choices.slice(1), false)}
   </div> : controls(choices)
 }
+
+/** A page's name as its h1 and what the page can do at its end, on one line as
+ * tall as the bar, so the title stands on the sidebar wordmark's line.
+ * `PageOptions` heads a page with it; a pane heads its tabs with it
+ * (`PaneTabsRow title`). */
+export const PageHead = ({ title, children }: { readonly title: ReactNode; readonly children?: ReactNode }) => (
+  <div data-page-head className={styles.head}>
+    <Text as="h1" role="page" className={styles.title}>{title}</Text>
+    {children}
+  </div>
+)

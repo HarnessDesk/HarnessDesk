@@ -321,6 +321,13 @@ agent card and the transcript's small tags — are the burn-down.
 Settings names each page with a visible h1 in the page role, above its
 description. Its bar carries no title, so the name is shown once.
 
+A Team page heads its body the same way: `PaneTabsRow title` puts the Team's
+name as the h1 with the page's actions — Findings, Review stopped Run, the
+view's verb such as Stop run… — at its end on one bar-tall line, and the
+Team's tabs on their own line below it. A page says what it is and what it can
+do before the views it has. The bar keeps its subject menu, so the Team is
+named twice: by the bar that owns its menu, and by the page that owns its head.
+
 A page title is the wordmark's type, and it stands on the wordmark's line.
 `PageOptions` makes the titled head one bar tall (`--hd-bar-h`), the sidebar
 brand row's counterpart, and `Page` drops its top gutter above a first block
@@ -504,7 +511,7 @@ ground reads thin.
 | --- | --- | --- | --- |
 | `--hdp-alias-label-primary` | `rgb(25, 27, 30)` | `rgb(229, 231, 234)` | anything a person reads: titles, rows, prose, values |
 | `--hd-secondary-foreground` | `rgb(49, 49, 49)` | `rgb(224, 224, 224)` | structure and explanation: section headings, hints, blurbs, icons beside a label |
-| `--hd-muted-foreground` | `rgb(71, 71, 71)` | `rgb(208, 208, 208)` | facts at the edge of a row: counts, times, keyboard hints |
+| `--hd-muted-foreground` | `rgb(107, 107, 107)` | `rgb(156, 156, 156)` | facts at the edge of a row: counts, times, keyboard hints |
 | `--hd-disabled-foreground` | about `rgb(147, 147, 147)` | `rgb(107, 107, 107)` | disabled popup labels, icons and trailing values; refusal reasons stay secondary |
 
 In components, reach for the semantic tokens `--hd-foreground`,
@@ -514,9 +521,10 @@ palette's quietest label tier and measures about 3:1 against popup surfaces.
 
 The three ordinary ink levels have to read as three, not two. Secondary uses
 the existing grey-800 step in light mode and grey-200 in dark mode; muted uses
-grey-750 and grey-300. These steps preserve the distinction from primary and
-between secondary and muted, while keeping both lower tiers on their existing
-palette ramps. The contrast test measures the semantic tokens on the app's real
+grey-600 and grey-500. Muted used to sit one step from secondary (grey-750 and
+grey-400), close enough that a count read as a second tier of prose; it now
+sits a clear step further out, still above AA on every ground it is set on.
+These steps keep both lower tiers on their existing palette ramps. The contrast test measures the semantic tokens on the app's real
 text grounds in both themes. Disabled ink is a separate state: clearly fainter
 than an enabled label, while remaining legible on the popup surface.
 
@@ -1002,6 +1010,25 @@ narrow, each key rises over its value and the action keeps the end. An account's
 sign-in, plan, credential and default are one card; so should be an Agent's
 file, ceiling, skills, servers and brief.
 
+**A rail's facts can be icon rows.** `SummaryList keys="icon"` draws each key
+as its `SummaryItem icon` in a 16px column, the name kept for a screen reader
+and on hover, so a rail reads as a column of values: the session rail's agent,
+ceiling, folder, branch and context, and a Team's Run. A value that cannot be
+read without its name says what it is missing ("Time not recorded", not "Not
+recorded"), and a fact that needs its name at all ("Requested ceiling", "No
+progress") stays in a keyed list — the Run's record details keep their keys.
+
+**A status is a word, not a pill.** A state, a plan or a kind on a row's label
+line, at a panel row's or a list row's end, as a fact's value, as a section's
+value or in an account head reads as a word: those slots provide `ChipLook`
+`quiet`, and a `Chip` there draws its ink alone. A word that judges nothing —
+Default, Pro, Revoked, Your branch — is in fact ink, and so is the word of a
+ready state, whose dot already says it is all right; only a tone that is data
+(running, needs you, failed, done) keeps its colour. An explicit `variant`
+wins over the slot, and a `tint` keeps its pill, because an identity is not a
+status. A chip in a screen's own body opts in with `variant="quiet"`; the
+Team overview, the Lead page and the Flow step rows do.
+
 **A wrapped control lands by what it is.** When a row is too narrow for its
 control beside the title, the control drops under it. A compact control — a
 switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the
@@ -1046,6 +1073,37 @@ blocks keep at least one stack gap between them unless they are nested inside
 one grouped surface. The 12px stack rule replaces the earlier 8px page
 label-to-content and child-to-child entries in the page rhythm table above;
 the 32px space between page sections remains.
+
+## Surfaces: Cards and Sheet
+
+The app draws its groups one way by default and offers a second as a
+foundation, so every screen gets both without a screen naming either.
+
+**Cards** is the default (`tokens.css`). A group of settings rows, a section of
+the right panel and an object on a page (an account, a plan, a Seat) are each
+one card: the main ground, the strong hairline, the 10px corner. Labels in the
+main column and in Settings sit on the same 40px edge. The left column keeps
+its plate; its search field is framed, not filled.
+
+**Sheet** (`tokens.sheet.css`, `body[data-hd-surface='sheet']`) lays the same
+groups flat. Rows stand on the page's text edge with a hairline between them
+and no box; right-panel sections are split by one hairline instead of being
+spaced as cards; the left column takes the page's ground and only its edge
+hairline separates it. An object stays boxed — `Card`'s default and its
+`plate` (the files card under an answer, a transcript item, a timeline step):
+it is a thing on a page, not a group of rows.
+
+The overlay only redefines the `--hd-card-*`, `--hd-panel-card-*`,
+`--hd-sidebar-plate`, `--hd-sidebar-edge` and `--hd-left-search-*` tokens. A
+border Sheet removes stays transparent rather than gone, so every inset the
+frame contract measures is the same in both. Everything both share — the left
+row, group labels, the page head, the composer, menus, dialogs — is not named
+there and cannot drift. Settings › Appearance › Surface writes the
+preference; the preview's `surface` dial and the frame wall's `?surface=`
+parameter show either.
+
+A rail section head puts its chevron after the label, in fact ink. Open has no
+fill; only hover fills the head.
 
 ## The rules
 

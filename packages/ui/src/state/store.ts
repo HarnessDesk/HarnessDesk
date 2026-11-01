@@ -7531,6 +7531,9 @@ export class AppStore {
         ...(preferences['look'] === 'desk' || preferences['look'] === 'studio'
           ? { look: preferences['look'] }
           : {}),
+        ...(preferences['surface'] === 'cards' || preferences['surface'] === 'sheet'
+          ? { surface: preferences['surface'] }
+          : {}),
       })
       setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
     } catch {
@@ -8145,6 +8148,11 @@ export class AppStore {
   setLook(next: AppSnapshot['look']): void {
     this.#patch({ look: next })
     void this.#writePreference({ look: next }, 'The interface')
+  }
+
+  setSurface(surface: AppSnapshot['surface']): void {
+    this.#patch({ surface })
+    void this.#writePreference({ surface }, 'The surface')
   }
 
   /**
