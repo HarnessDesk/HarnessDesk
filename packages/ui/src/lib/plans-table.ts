@@ -218,15 +218,15 @@ export const statusOf = (
   shape: RowShape,
   view: ReportView,
   now: number,
-  preference?: UsagePreference,
 ): RowStatus => {
-  const standing = usageStandingOf(raw, now, preference)
+  const standing = usageStandingOf(raw, now)
+  // A failed read keeps the last good lanes and balance, but nothing in them is current: say Unknown, as the card and the phone do.
+  if (standing.status === 'unknown') return 'unknown'
   const balance = shape === 'balance' ? (balanceOf(raw.credits)?.remaining ?? null) : null
   if (balance !== null && balance < 0) return 'overdrawn'
   if (view.blocked || standing.status === 'out' || balance === 0) return 'out'
   if (standing.status === 'overdrawn') return 'overdrawn'
   if (shape === 'none') return 'notReporting'
-  if (standing.status === 'unknown') return 'unknown'
   // The card's chip says the same standing, so Short and Low win over overage; the card's note carries the overage.
   if (standing.status === 'short') return 'short'
   if (standing.status === 'low') return 'low'
@@ -388,7 +388,7 @@ export const describeRow = (report: UsageReport, now: number, preference?: Usage
     shape,
     view,
     left,
-    status: statusOf(report, shape, statusView, now, preference),
+    status: statusOf(report, shape, statusView, now),
     ownUnit: ownUnitOf(shape, drawn, view),
     approxTurns: approxTurnsOf(shape, drawn),
     resets: resetsOf(view),

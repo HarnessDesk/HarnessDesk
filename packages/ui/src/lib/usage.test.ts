@@ -787,6 +787,12 @@ describe('standingSentence', () => {
     expect(standingSentence(short, NOON)).toMatch(/^Runs out ~12:40 PM, before its 4:00 PM reset$/)
   })
 
+  it('says no Back time once the reset has passed but the report has not been read again', () => {
+    const spent = usageStandingOf(report({ lanes: [lane({ id: 'weekly', usedPercent: 100, resetsAt: at(-2) })] }), NOON)
+    expect(spent.status).toBe('out')
+    expect(standingSentence(spent, NOON)).toBeNull()
+  })
+
   it('never says pace in words that need a legend', () => {
     const text = [30, 60, 95].map((used) =>
       standingSentence(usageStandingOf(report({ lanes: [lane({ id: 's', usedPercent: used, windowMinutes: 300, resetsAt: at(2) })] }), NOON), NOON),
@@ -820,6 +826,18 @@ describe('rightNow', () => {
       NOON,
     )
     expect(line).toBe('Nothing has room right now — Agent B is back first, at 1:00 PM.')
+  })
+
+  it('names the account when two runtimes share one name', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), account: 'jane@example.com', lanes: [lane({ id: 'session', usedPercent: 15, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+        report({ runtime: runtimeId('b'), account: 'dev@example.com', lanes: [lane({ id: 'session', usedPercent: 60, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+      ],
+      () => 'Agent',
+      NOON,
+    )
+    expect(line).toMatch(/^Start on Agent \(jane@example\.com\) — 85% left/)
   })
 
   it('has nothing to choose between with one measured account', () => {

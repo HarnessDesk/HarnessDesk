@@ -86,14 +86,12 @@ export const OverviewView = ({
   // neither a backend id nor the attention threshold decides membership.
   const remaining = reports.filter(report => {
     const drawn = drawnReport(report)
-    return drawn.lanes.some(lane => !lane.placeholder) || drawn.credits != null || reportNeedsAttention(report, now,
-      prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs))
+    return drawn.lanes.some(lane => !lane.placeholder) || drawn.credits != null || reportNeedsAttention(report, now)
   })
   // Which agent to start on, across every agent; scoped to one, there is no
   // choice to make and the page's own headline stands.
   const startOn = scope === null
-    ? rightNow(reports, (report) => byId.get(report.runtime)?.presentation.name ?? 'Runtime', now,
-      (report) => prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs))
+    ? rightNow(reports, (report) => byId.get(report.runtime)?.presentation.name ?? 'Runtime', now)
     : null
   return (
     <>

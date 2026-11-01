@@ -586,11 +586,8 @@ export const balanceOf = (credits: UsageReport['credits']): Balance | null => {
  * there, disagreeing on `report.error`, `view.gated`, a `severity: 'critical'`
  * lane, and exactly this "healthy Session, low Weekly" case.
  */
-export const reportNeedsAttention = (
-  report: UsageReport,
-  now: number,
-  preference?: UsagePreference,
-): boolean => usageStandingOf(report, now, preference).status !== 'ready'
+export const reportNeedsAttention = (report: UsageReport, now: number): boolean =>
+  usageStandingOf(report, now).status !== 'ready'
 
 /*
  * Where an account stands, in one word every surface shares — decided in
@@ -643,7 +640,8 @@ export const standingSentence = (standing: UsageStanding, now: number): string |
   const resetsAt = standing.lane?.resetsAt ?? null
   switch (standing.status) {
     case 'out':
-      return standing.backAt !== null ? `Back ${formatWhen(standing.backAt, now)}` : null
+      // Past its reset the cached report is still Out until the next read; "Back 10:00 AM" at noon would be wrong.
+      return standing.backAt !== null && standing.backAt > now ? `Back ${formatWhen(standing.backAt, now)}` : null
     case 'short':
       return standing.runsOutAt === null
         ? null
@@ -788,15 +786,15 @@ export const rightNow = (
   reports: readonly UsageReport[],
   nameFor: (report: UsageReport) => string,
   now: number,
-  preferenceFor: (report: UsageReport) => UsagePreference | undefined = () => undefined,
 ): string | null => {
   const read = reports
     .filter((report) => bindingLane(report.lanes) !== null)
-    .map((report) => ({ report, standing: usageStandingOf(report, now, preferenceFor(report)) }))
+    .map((report) => ({ report, standing: usageStandingOf(report, now) }))
   if (read.length < 2) return null
-  const sameAgent = (report: UsageReport): number => reports.filter((other) => other.runtime === report.runtime).length
+  // By the name said, not the runtime: two runtimes registered under one name are as ambiguous as one runtime's two accounts.
+  const sameName = (report: UsageReport): number => reports.filter((other) => nameFor(other) === nameFor(report)).length
   const label = (report: UsageReport): string =>
-    sameAgent(report) > 1 && report.account ? `${nameFor(report)} (${report.account})` : nameFor(report)
+    sameName(report) > 1 && report.account ? `${nameFor(report)} (${report.account})` : nameFor(report)
 
   const ORDER: Partial<Record<UsageStandingStatus, number>> = { ready: 0, low: 1, short: 2 }
   const usable = read

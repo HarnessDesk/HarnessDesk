@@ -615,13 +615,16 @@ export const isBlocked = (report: UsageReport): boolean => {
  * - `ready` — none of the above.
  *
  * Signed out is not here: that is the account's state, not its usage, and a
- * report only exists for an account that answered.
+ * report only exists for an account that answered. Nor is a pinned lane: a
+ * pin chooses which window a summary leads with, so it lives in the renderer
+ * and never reaches the host — a standing that read it would be Short on the
+ * desk and Ready on the phone for the same account.
  */
 export type UsageStandingStatus = 'ready' | 'low' | 'short' | 'out' | 'overdrawn' | 'unknown'
 
 export interface UsageStanding {
   readonly status: UsageStandingStatus
-  /** The lane the standing is about — the binding one, or null with none. */
+  /** The lane the standing is about — the binding one, never a pin, or null with none. */
   readonly lane: UsageLane | null
   /** What that lane has left, 0..100; null when unmeasured or there is no lane. */
   readonly left: number | null
@@ -665,12 +668,8 @@ export const laneRunsOutAt = (lane: UsageLane, now: number): number | null => {
   return now + Math.max(0, (crossesAt - elapsed) * windowMs)
 }
 
-export const usageStandingOf = (
-  report: UsageReport,
-  now: number,
-  preference: UsagePreference = {},
-): UsageStanding => {
-  const lane = bindingLane(report.lanes, preference)
+export const usageStandingOf = (report: UsageReport, now: number): UsageStanding => {
+  const lane = bindingLane(report.lanes)
   const left = lane ? remainingOf(lane) : null
   const reached = reachedLaneOf(report)
   const scopedOut =

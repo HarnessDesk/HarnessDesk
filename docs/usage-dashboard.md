@@ -953,6 +953,12 @@ hard way somewhere and is cheaper to design out than to fix:
   Unknown. The card's chip, the Plans table, the needs-attention count and the
   phone all read it, so an account cannot be Out in one place and Ready in
   another. An overdrawn balance is `$2.15 overdrawn`, never `−$2.15 left`.
+  A failed read is Unknown before anything else, even with a cached balance
+  or a spent lane behind it. A pinned lane does not change it: the pin picks
+  the card's headline, and the host, which decides the word for the phone,
+  never sees it. When the binding window is not the pinned headline, the
+  line under the bar names it — `Session runs out ~2:47 PM, before its 4:43
+  PM reset`. `Back …` is said only while that time is still ahead.
 - **The headline's meter is a countable budget**, forty segments rather than a
   continuous bar: a smooth bar reads as a percentage and a segmented one reads
   as a budget being spent, which is the thing being drawn. It still fills with

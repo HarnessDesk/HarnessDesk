@@ -543,7 +543,15 @@ describe('statusOf', () => {
     const view = describeReport(subject, { now: NOON, maxLanes: 3, preference })
     expect(view.hero?.id).toBe('session')
     expect(view.tone).toBe('good')
-    expect(statusOf(subject, 'windows', view, NOON, preference)).toBe('low')
+    expect(statusOf(subject, 'windows', view, NOON)).toBe('low')
+  })
+
+  // A failed refresh keeps the last good figures; the card and the phone say Unknown, so Plans does too.
+  it('is "unknown" for a failed read, even with a cached balance below zero or a spent lane', () => {
+    const owing = report({ credits: { remaining: -2, unit: 'USD' }, error: { message: 'Could not reach the account' } })
+    expect(statusOf(owing, 'balance', describeReport(owing, { now: NOON }), NOON)).toBe('unknown')
+    const spent = report({ lanes: [lane({ id: 'weekly', usedPercent: 100 })], error: { message: 'Could not reach the account' } })
+    expect(statusOf(spent, 'windows', describeReport(spent, { now: NOON }), NOON)).toBe('unknown')
   })
 })
 

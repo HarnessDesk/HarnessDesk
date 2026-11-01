@@ -235,10 +235,24 @@ export const Card = ({
   const balance = balanceOf(report.credits)
   // The agent's own standing, read from its own report: a borrowed sign-in's
   // figures are drawn, never judged as this agent's.
-  const standing = usageStandingOf(report, now, preference)
+  const standing = usageStandingOf(report, now)
   const hero = view.hero
-  const sentence = hero ? standingSentence(borrowed ? usageStandingOf(drawn, now, preference) : standing, now) : null
-  const headlineReset = hero ? [view.all.length > 1 && hero.title, sentence ?? resetOf(hero, false)].filter(Boolean).join(' · ') : null
+  const own = borrowed ? usageStandingOf(drawn, now) : standing
+  // A pin picks the headline; the standing is the account's own. When the standing is about another window, the
+  // sentence names that window rather than borrowing the headline's reset, and says only what is urgent about it.
+  const elsewhere = Boolean(hero) && own.lane !== null && own.lane.id !== hero?.id
+  const said = hero ? standingSentence(own, now) : null
+  const sentence = !elsewhere
+    ? said
+    : said && (own.status === 'short' || own.status === 'out')
+      ? `${own.lane?.label} ${said.charAt(0).toLowerCase()}${said.slice(1)}`
+      : null
+  const headlineReset = hero
+    ? (elsewhere
+        ? [view.all.length > 1 && hero.title, resetOf(hero, false), sentence]
+        : [view.all.length > 1 && hero.title, sentence ?? resetOf(hero, false)]
+      ).filter(Boolean).join(' · ')
+    : null
   const agent = info?.presentation.name ?? 'Runtime'
   // A stale or failed reading says where it came from; a current one does not
   // need to, on every card — the page says how fresh it is, once.
