@@ -73,7 +73,7 @@ const HarnessDeskDeleteAccount = ({ onClose }: { onClose: () => void }) => {
 /** The Account page owns the HarnessDesk identity, desk and account-linked phones. */
 export const HarnessDeskAccountSection = () => {
   const store = useStore()
-  const { harnessDeskAccount: status, sidebarCollapsed, phoneLink } = useSnapshot()
+  const { harnessDeskAccount: status, sidebarCollapsed, phoneLink, hideAccountAddresses: hide } = useSnapshot()
   const { busy, error, run } = useHarnessDeskAccountAction()
   const [signOut, setSignOut] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -83,8 +83,8 @@ export const HarnessDeskAccountSection = () => {
   const signedIn = status?.status === 'signedIn'
   const account = status?.account
   return <>
-    <Rows><Row kind="record" face={<Face pictureDataUrl={account?.pictureDataUrl} />} title={signedIn ? account?.name || account?.email || 'HarnessDesk account' : 'Sign in to HarnessDesk'}
-      desc={signedIn ? account?.email : 'Open this desk from your phone.'} control={signedIn
+    <Rows><Row kind="record" face={<Face pictureDataUrl={account?.pictureDataUrl} />} title={signedIn ? account?.name || (hide ? null : account?.email) || 'HarnessDesk account' : 'Sign in to HarnessDesk'}
+      desc={signedIn ? (hide ? undefined : account?.email) : 'Open this desk from your phone.'} control={signedIn
         ? <Button variant="outline" onClick={() => setSignOut(true)}>Sign out…</Button>
         : <Button disabled={busy || status?.status === 'pending'} onClick={() => void run(() => store.signInToHarnessDesk())}>Sign in…</Button>} /></Rows>
     {sidebarCollapsed && <HarnessDeskSignInPending />}

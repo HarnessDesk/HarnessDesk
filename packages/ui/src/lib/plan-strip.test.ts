@@ -175,7 +175,7 @@ describe('the token', () => {
         a: signedIn,
         b: signedIn,
         // c–f have all answered, and confirmed nobody is signed in — the
-        // fixture's point is a real "Needs sign-in", not an unheard-from one.
+        // fixture's point is a real "Sign in needed", not an unheard-from one.
         c: signedOut,
         d: signedOut,
         e: signedOut,
@@ -188,10 +188,10 @@ describe('the token', () => {
     // The four with nothing to report are why the count and the bars differ,
     // so the panel has to hold them.
     expect(view.rest?.asides.map((aside) => aside.detail)).toEqual([
-      'Needs sign-in',
-      'Needs sign-in',
-      'Needs sign-in',
-      'Needs sign-in',
+      'Sign in needed',
+      'Sign in needed',
+      'Sign in needed',
+      'Sign in needed',
     ])
     expect(view.rest?.signIn).toBe(4)
   })
@@ -206,7 +206,7 @@ describe('the token', () => {
       sessionRuntime: runtimeId('a'),
     })
     expect(view.rest?.signIn).toBe(0)
-    expect(view.rest?.asides.map((aside) => aside.detail)).not.toContain('Needs sign-in')
+    expect(view.rest?.asides.map((aside) => aside.detail)).not.toContain('Sign in needed')
   })
 
   it('is absent when there is nobody else', () => {

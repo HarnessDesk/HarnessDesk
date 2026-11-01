@@ -32,6 +32,8 @@ import { describeLimits } from '../lib/limits'
 import { composerPaceVisible } from '../lib/composer-usage'
 import { teamInboxAction } from '../lib/team-inbox'
 import { conditionFor } from '../lib/usage-alerts'
+import { inPoolOrder, whenOutOf } from '../lib/account-pool'
+import { accountKey, accountName, agentKey } from '../lib/accounts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
 import { useMount } from '../panels/mount'
@@ -178,8 +180,19 @@ const useStanding = (): Standing | null => {
   const runtime = useRuntime()
   const health = useRuntimeHealth()
   const account = useRuntimeAccount()
-  const nameFor = (id: RuntimeId): string =>
-    snapshot.runtimes.find((entry) => entry.id === id)?.presentation.name ?? String(id)
+  const agent = agentKey(runtime)
+  const siblings = snapshot.runtimes.filter((entry) => agentKey(entry) === agent)
+  const pool = snapshot.accountPools[agent]
+  // Another account of this same agent is named as the account — "Switch to
+  // Codex" over a Codex conversation would say nothing about where it goes.
+  const nameFor = (id: RuntimeId): string => {
+    const info = snapshot.runtimes.find((entry) => entry.id === id)
+    const account = snapshot.accountsByRuntime[id]?.accounts[0]
+    if (id !== runtime.id && siblings.length > 1 && info && agentKey(info) === agent && account) {
+      return accountName(account, snapshot.accountPrefs[accountKey(id, account)], info.presentation.name)
+    }
+    return info?.presentation.name ?? String(id)
+  }
 
   const notice = ((): Notice | null => {
     if (health?.state === 'unavailable') {
@@ -217,7 +230,10 @@ const useStanding = (): Standing | null => {
     }
     // What the agent this conversation talks to is up against, and somewhere
     // else to take the work.
-    const condition = conditionFor(runtime.id, snapshot.usage, nameFor, Date.now())
+    const condition = conditionFor(runtime.id, snapshot.usage, nameFor, Date.now(), {
+      prefer: inPoolOrder(siblings, pool).map((entry) => entry.id),
+      offer: whenOutOf(pool) !== 'stop',
+    })
     if (condition) {
       const elsewhere = condition.handoff
       return {

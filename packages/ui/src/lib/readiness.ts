@@ -40,11 +40,11 @@ const RANK: Readonly<Record<Readiness, number>> = {
 export const READINESS_LABEL: Readonly<Record<Readiness, string>> = {
   ready: 'Ready',
   starting: 'Starting',
-  signin: 'Needs sign-in',
+  signin: 'Sign in needed',
   limit: 'Limit reached',
-  broken: 'Unavailable',
+  broken: 'Not working',
   available: 'Not added',
-  unknown: 'Not answered yet',
+  unknown: 'Not checked yet',
 }
 
 /**

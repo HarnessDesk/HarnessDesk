@@ -104,7 +104,7 @@ const mount = async (over: Partial<AppSnapshot>, on = 'codex', onClose: () => vo
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <SignIn runtime={on as never} onClose={onClose} />
+        <SignIn runtime={on as never} roster onClose={onClose} />
       </StoreProvider>,
     )
   })
@@ -150,9 +150,9 @@ it('renders an empty adapter identity record as signed out in both rail and card
   }, 'agent')
 
   const rail = container.querySelector('nav[aria-label="Runtimes"]')
-  expect(rail?.querySelector('[aria-label="Connected"]')).toBeNull()
-  expect(rail?.querySelector('[aria-label="Not connected"]')?.textContent).toContain('Agent')
-  expect(detail().querySelector('[data-slot="sign-in-head"]')?.textContent).toContain('Not connected.')
+  expect(rail?.querySelector('[aria-label="Signed in"]')).toBeNull()
+  expect(rail?.querySelector('[aria-label="Sign in needed"]')?.textContent).toContain('Agent')
+  expect(detail().querySelector('[data-slot="sign-in-head"]')?.textContent).toContain('Sign in needed.')
   expect(detail().textContent).toContain('Sign in outside HarnessDesk')
   expect(container.textContent).not.toContain('Runs without one')
   expect(container.textContent).not.toContain('needs no account here')
@@ -312,9 +312,9 @@ it('a starting account is not counted as connected, and the rail does not call i
   expect(rail?.textContent).not.toContain('Runs without one')
   // It waits with the ones not connected, saying it is starting, and the
   // connected group counts only the account that answered.
-  const waiting = rail?.querySelector('[role="group"][aria-label="Not connected"]')
+  const waiting = rail?.querySelector('[role="group"][aria-label="Sign in needed"]')
   expect(waiting?.textContent).toContain('Starting')
-  expect(rail?.querySelector('[role="group"][aria-label="Connected"]')?.textContent).toContain('ada@example.com')
+  expect(rail?.querySelector('[role="group"][aria-label="Signed in"]')?.textContent).toContain('ada@example.com')
 })
 
 it('says an account did not start, rather than spinning on an answer that is not coming', async () => {
@@ -396,14 +396,14 @@ it('composes the shared roster, state and text roles', async () => {
   // Named groups rather than region landmarks; the count is the head's to show.
   expect(rail?.querySelector('section')).toBeNull()
   expect([...(rail?.querySelectorAll('[role="group"]') ?? [])].map((node) => node.getAttribute('aria-label')))
-    .toEqual(['Not connected', 'Connected'])
+    .toEqual(['Sign in needed', 'Signed in'])
   expect([...(rail?.querySelectorAll('[role="group"] [data-slot="section-name"]') ?? [])].map((node) => node.parentElement?.parentElement?.textContent))
-    .toEqual(['Not connected1', 'Connected1'])
+    .toEqual(['Sign in needed1', 'Signed in1'])
   expect(detail().getAttribute('data-slot')).toBe('modal-dialog-body')
   expect(detail().getAttribute('data-layout')).toBe('reading')
 
-  // Under "Not connected" a row does not repeat its group's name.
-  const out = rail?.querySelector('[role="group"][aria-label="Not connected"]')
+  // Under "Sign in needed" a row does not repeat its group's name.
+  const out = rail?.querySelector('[role="group"][aria-label="Sign in needed"]')
   expect(out?.querySelector('[data-slot="list-row"]')?.textContent).toBe('Codex')
 
   // The card opens on the agent: its mark in a tile, in the subject's ink,
@@ -628,8 +628,8 @@ it('lists an agent signed out as not connected, whatever its ways in are', async
   } as never, 'codex-7f3a91')
 
   const rail = container.querySelector('nav[aria-label="Runtimes"]')
-  expect(rail?.querySelector('[role="group"][aria-label="Connected"]')).toBeNull()
-  const out = rail?.querySelector('[role="group"][aria-label="Not connected"]')
+  expect(rail?.querySelector('[role="group"][aria-label="Signed in"]')).toBeNull()
+  const out = rail?.querySelector('[role="group"][aria-label="Sign in needed"]')
   expect(out?.querySelectorAll('[data-slot="list-row"]')).toHaveLength(2)
   // The way in taken elsewhere is the line, because it differs.
   expect(out?.textContent).toContain('Use an API key')
@@ -646,7 +646,7 @@ it('names a connected account once: no second line that only says it is connecte
     },
   } as never)
   const rail = container.querySelector('nav[aria-label="Runtimes"]')
-  const connected = rail?.querySelector('[role="group"][aria-label="Connected"]')
+  const connected = rail?.querySelector('[role="group"][aria-label="Signed in"]')
   expect(connected?.querySelector('[data-slot="list-row"]')?.textContent).toBe('Codex')
   const account = detail().querySelector('[data-slot="sign-in-account"]')
   expect(account?.textContent).toBe('Signed in')
@@ -789,6 +789,36 @@ it.each([
   expect(card.textContent).toContain('Install the agent CLI.')
   expect(card.textContent).not.toContain('needs no account here')
   const rail = container.querySelector('nav')
-  expect(rail?.querySelector('[aria-label="Connected"]')).toBeNull()
-  expect(rail?.querySelector('[aria-label="Not connected"]')?.textContent).toContain('Did not start')
+  expect(rail?.querySelector('[aria-label="Signed in"]')).toBeNull()
+  expect(rail?.querySelector('[aria-label="Sign in needed"]')?.textContent).toContain('Did not start')
+})
+
+it('opened for one runtime, is about that runtime alone', async () => {
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: 'codex',
+    runtimes: [PRIMARY, SECOND],
+    accountsByRuntime: { codex: status([], ['browser']), [SECOND.id]: status([{ label: 'dev@example.com' }], ['browser']) },
+  } as unknown as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    loadAccounts: vi.fn(async () => {}),
+    acpRegistry: vi.fn(async () => ({ agents: [], fetchedAt: 1 })),
+  } as unknown as AppStore
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <SignIn runtime={'codex' as never} onClose={() => {}} />
+      </StoreProvider>,
+    )
+  })
+  const dialog = container.querySelector('[role=dialog]')!
+  expect(dialog.getAttribute('aria-label')).toBe('Sign in to Codex')
+  // No second copy of the Runtimes list around the one row the person came for.
+  expect(dialog.querySelector('[aria-label="Runtimes"]')).toBeNull()
+  expect(dialog.querySelector('[role="group"][aria-label="Signed in"]')).toBeNull()
+  // Nor the roster's "next one waiting" — there is no roster to walk.
+  expect(dialog.textContent).not.toContain('is still waiting')
 })

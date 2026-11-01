@@ -203,7 +203,7 @@ export const signInSeed = (scene: SignInScene): Partial<AppSnapshot> => ({
 
 /**
  * The same roster for Settings › Runtimes, with one agent that did not start
- * as well — so the page's "Needs attention" group holds every kind of
+ * as well — so the page's "Needs you" group holds every kind of
  * attention at once: signed out, at a limit, and unavailable — and two that
  * have not answered yet. A scene says where DeepSeek's key already lives, for
  * the page that names where a key is read from.

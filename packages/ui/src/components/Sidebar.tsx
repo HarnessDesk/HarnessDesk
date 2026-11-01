@@ -21,9 +21,6 @@ import {
   Banner,
   MenuFacts,
   Submenu,
-  ConfirmDialog,
-  ActionError,
-  useDismissOverlays,
   Button,
   Bar,
   Menu,
@@ -401,15 +398,12 @@ export const AccountFooter = ({
   // and not the focused conversation's.
   const runtime = useRuntime()
   const quotaWarning = useAccountQuotaWarning()
-  const [confirmingSignOut, setConfirmingSignOut] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [signOutError, setSignOutError] = useState<string | null>(null)
-  useDismissOverlays(confirmingSignOut, () => { setSignOutError(null); setConfirmingSignOut(false) })
   const accountRef = useRef<HTMLDivElement>(null)
   const [deskSignOut, setDeskSignOut] = useState(false)
   const deskAction = useHarnessDeskAccountAction()
   const deskAccount = snapshot.harnessDeskAccount
   const deskSignedIn = deskAccount?.status === 'signedIn'
+  const hide = snapshot.hideAccountAddresses
 
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
     const status = snapshot.accountsByRuntime[info.id] ?? null
@@ -468,7 +462,8 @@ export const AccountFooter = ({
         info,
         account,
         name: accountName(account, snapshot.accountPrefs[key], info.presentation.name),
-        sub: accountIdentity(account) || info.presentation.name,
+        // With addresses hidden, the name stands in for the address too.
+        sub: (hide ? accountName(account, snapshot.accountPrefs[key], info.presentation.name) : accountIdentity(account)) || info.presentation.name,
         state,
         answered: true,
         figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
@@ -486,11 +481,10 @@ export const AccountFooter = ({
     prefsForUsage(one.runtime, one.account, snapshot.accountsByRuntime, snapshot.accountPrefs) ?? {})
   const here = seats.find(seat => seat.current && seat.report === report) ?? seats.find(seat => seat.current) ?? null
   const currentFigure = here ? figureOf(here) : undefined
-  const signedIn = here?.account !== null && here?.account !== undefined
   const agentName = brandOf(runtime.presentation.name)
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
   // You: the profile's name, which is HarnessDesk until you choose one.
-  const yourName = deskSignedIn ? deskAccount.account?.name || deskAccount.account?.email || 'HarnessDesk' : profileName(snapshot.profile)
+  const yourName = deskSignedIn ? deskAccount.account?.name || (hide ? null : deskAccount.account?.email) || 'HarnessDesk' : profileName(snapshot.profile)
   // The chairs you can sit in. An agent that is waiting for a sign-in is not
   // one — choosing it would start nothing — so it waits behind "Add an
   // account…", whose chooser is where signing in happens. The default stays
@@ -536,23 +530,9 @@ export const AccountFooter = ({
     }
     const twins = group.filter((other) => other !== seat && labelOf(other) === label)
     if (twins.length === 0) return null
-    const domain = domainOf(seat.account)
+    const domain = hide ? null : domainOf(seat.account)
     if (domain && twins.every((other) => domainOf(other.account) !== domain)) return domain
     return seat.sub && seat.sub !== label ? seat.sub : null
-  }
-
-  const signOut = async (close: () => void): Promise<void> => {
-    if (!snapshot.activeRuntime) return
-    setBusy(true)
-    setSignOutError(null)
-    try {
-      await store.signOutAgent(snapshot.activeRuntime)
-      close()
-    } catch (error) {
-      setSignOutError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setBusy(false)
-    }
   }
 
   const accountTrigger = (
@@ -591,7 +571,7 @@ export const AccountFooter = ({
               accountRef.current?.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')?.focus()
             }}
           >
-          {deskSignedIn ? <Submenu icon={<Face pictureDataUrl={deskAccount.account?.pictureDataUrl} size={16} />} label={yourName} hint={deskAccount.account?.email ?? undefined} icons="all">
+          {deskSignedIn ? <Submenu icon={<Face pictureDataUrl={deskAccount.account?.pictureDataUrl} size={16} />} label={yourName} hint={hide ? undefined : deskAccount.account?.email ?? undefined} icons="all">
             <MenuLabel>HarnessDesk account</MenuLabel>
             <MenuItem icon={<UserIcon size={16} />} label="Linked phones" value={String(deskAccount.phones.length)} onSelect={() => onOpenSettings('profile')} />
             <MenuItem icon={<SettingsIcon size={16} />} label="Account settings" onSelect={() => onOpenSettings('profile')} />
@@ -647,13 +627,9 @@ export const AccountFooter = ({
                 onOpenSettings()
               }}
             />
-            {signedIn && <MenuItem icon={<SignOutIcon size={16} />} label={`Sign out of ${agentName}…`} danger onSelect={() => { setSignOutError(null); setConfirmingSignOut(true) }} />}
           </Menu>
         )}
       </Popover>
-      {confirmingSignOut && <ConfirmDialog title={`Sign out of ${agentName}?`} confirmLabel="Sign out" cancelLabel="Keep signed in" tone="destructive" busy={busy} onCancel={() => { setSignOutError(null); setConfirmingSignOut(false) }} onConfirm={() => void signOut(() => setConfirmingSignOut(false))}>
-        <>You'll need to sign in again before the next turn.{signOutError && <ActionError>{signOutError}</ActionError>}</>
-      </ConfirmDialog>}
     </div>} />
     {deskSignOut && <HarnessDeskSignOut onClose={() => setDeskSignOut(false)} />}
     </>

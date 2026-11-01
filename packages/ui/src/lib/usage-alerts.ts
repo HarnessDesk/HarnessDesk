@@ -210,6 +210,15 @@ export const conditionFor = (
   reports: readonly UsageReport[],
   nameFor: (runtime: RuntimeId) => string,
   now: number,
+  /**
+   * The agent's own other accounts, in the order its pool uses them
+   * (`lib/account-pool.ts`), and whether to offer a way out at all. Another
+   * account of the same agent is the cheaper move — same models, same tools,
+   * the conversation's own history format — so one with room is offered
+   * before the roomiest agent of any kind. A pool whose rule is "Stop" offers
+   * nothing: the person said they would rather wait.
+   */
+  pool: { readonly prefer?: readonly RuntimeId[]; readonly offer?: boolean } = {},
 ): UsageCondition | null => {
   if (runtime === null) return null
   const report = reports.find((entry) => entry.runtime === runtime)
@@ -225,8 +234,21 @@ export const conditionFor = (
     .map((entry) => ({ entry, left: leftOn(entry) }))
     .filter((option): option is { entry: UsageReport; left: number } => option.left !== null && option.left >= 20)
     .sort((a, b) => b.left - a.left)
-  const best = alternatives[0]
-  const handoff = best ? { runtime: best.entry.runtime, name: nameFor(best.entry.runtime) } : null
+  // A sibling with room, first in the pool's order. One that reports no
+  // figure yet is still an account that is not out, which is enough for the
+  // same agent; a stranger agent has to show its room.
+  const sibling = (pool.prefer ?? [])
+    .filter((id) => id !== runtime)
+    .find((id) => {
+      const own = reports.filter((entry) => entry.runtime === id)
+      if (own.length === 0 || own.every(isBlocked)) return false
+      return own.some((entry) => {
+        const left = leftOn(entry)
+        return left === null || left >= 20
+      })
+    })
+  const best = sibling ?? alternatives[0]?.entry.runtime
+  const handoff = pool.offer === false || !best ? null : { runtime: best, name: nameFor(best) }
 
   // Only an account-wide limit earns a banner. One model being spent is a
   // fact for the card, not a reason to offer someone another agent.

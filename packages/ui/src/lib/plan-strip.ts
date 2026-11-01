@@ -2,7 +2,7 @@ import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport 
 
 import type { Tone } from './limits'
 import { prefsForUsage, type AccountPrefsMap } from './accounts'
-import { readinessOf } from './readiness'
+import { READINESS_LABEL, readinessOf } from './readiness'
 import { describeReport, toneForRemaining, workingAccount, type LaneView, type UsagePreference } from './usage'
 
 /**
@@ -66,7 +66,7 @@ export type StripAnchor =
 export interface StripAside {
   readonly runtime: RuntimeId
   readonly info: RuntimeInfo
-  /** "Needs sign-in", "Unavailable", "No usage reported". */
+  /** "Sign in needed", "Not working", "No usage reported". */
   readonly detail: string
 }
 
@@ -209,7 +209,7 @@ const entryFor = (info: RuntimeInfo, input: StripInput): Entry => {
     // told us what it has left is not an agent to ask for a password.
     needsSignIn: state === 'signin' && meters.length === 0,
     detail:
-      state === 'signin' ? 'Needs sign-in' : state === 'broken' ? 'Unavailable' : 'No usage reported',
+      state === 'signin' || state === 'broken' ? READINESS_LABEL[state] : 'No usage reported',
   }
 }
 

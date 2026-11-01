@@ -193,6 +193,31 @@ describe('conditionFor', () => {
     expect(condition?.handoff).toBeNull()
   })
 
+  it('offers the agent\'s own next account, in its pool\'s order, before a roomier stranger', () => {
+    const reports = [
+      report('codex', [lane({ usedPercent: 100 })], { reached: 'weekly' }),
+      report('codex-2', [lane({ usedPercent: 60 })]),
+      report('claude', [lane({ usedPercent: 5 })]),
+    ]
+    const condition = conditionFor(id('codex'), reports, nameFor, NOON, { prefer: [id('codex'), id('codex-2')] })
+    expect(condition?.handoff?.runtime).toBe(id('codex-2'))
+    // A sibling that is spent too is passed over for the roomiest elsewhere.
+    const spent = [reports[0]!, report('codex-2', [lane({ usedPercent: 100 })], { reached: 'weekly' }), reports[2]!]
+    expect(conditionFor(id('codex'), spent, nameFor, NOON, { prefer: [id('codex'), id('codex-2')] })?.handoff?.runtime).toBe(id('claude'))
+  })
+
+  it('offers nothing when the pool says to stop', () => {
+    const condition = conditionFor(
+      id('codex'),
+      [report('codex', [lane({ usedPercent: 100 })], { reached: 'weekly' }), report('codex-2', [lane({ usedPercent: 10 })])],
+      nameFor,
+      NOON,
+      { prefer: [id('codex'), id('codex-2')], offer: false },
+    )
+    expect(condition?.title).toBe('OpenAI Codex is out of quota')
+    expect(condition?.handoff).toBeNull()
+  })
+
   it('warns when the pace will not reach the reset', () => {
     // Half a day into a seven-day window and already 40% spent.
     const condition = conditionFor(

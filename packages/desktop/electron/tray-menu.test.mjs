@@ -51,7 +51,7 @@ test('unavailable and other attention facts survive without usage readings', () 
 
 test('unreported ready and unanswered runtimes take one quiet note, not one row each', () => {
   const { usage } = setup([
-    agent('ready'), agent('available', { detail: 'Not added' }), agent('unknown', { detail: 'Not answered yet' }),
+    agent('ready'), agent('available', { detail: 'Not added' }), agent('unknown', { detail: 'Not checked yet' }),
   ])
   assert.deepEqual(usage.filter(one => one.type !== 'separator').map(one => one.label), ['No usage reported for 3 runtimes', 'Open Dashboard…'])
   assert.equal(usage[0].enabled, false)
