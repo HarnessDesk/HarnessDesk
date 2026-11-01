@@ -94,6 +94,22 @@ export const runtimeOut = (runtime: RuntimeId, reports: readonly UsageReport[]):
 }
 
 /**
+ * Whether an account could take a session at all, quota aside: started, and
+ * either signed in or a gateway, which brings its own key and so has no
+ * vendor account to show. The pool moves to, and the banner offers, only
+ * these — a signed-out sibling is not somewhere to go.
+ */
+export const canTakeTurn = (
+  entry: RuntimeInfo,
+  view: {
+    readonly healthByRuntime: Readonly<Record<string, { readonly state: string } | null | undefined>>
+    readonly accountsByRuntime: Readonly<Record<string, { readonly accounts: readonly unknown[] } | null | undefined>>
+  },
+): boolean =>
+  view.healthByRuntime[entry.id]?.state !== 'unavailable' &&
+  (Boolean(entry.slot?.gateway) || (view.accountsByRuntime[entry.id]?.accounts.length ?? 0) > 0)
+
+/**
  * The account after `from` in the pool that could take a session now:
  * signed in, started, and not out. Wraps around, so the first account comes
  * back once a later one runs out in its turn.

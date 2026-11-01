@@ -1493,7 +1493,7 @@ const AccountDetail = ({
             }
           >
             {snapshot.hideAccountAddresses
-              ? <span title={account.label}>{accountName(account, prefs, info.presentation.name)}</span>
+              ? accountName(account, prefs, info.presentation.name)
               : account.label}
           </SummaryItem>
           {planLabel && <SummaryItem label="Plan">{planLabel}</SummaryItem>}

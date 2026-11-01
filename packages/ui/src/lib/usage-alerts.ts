@@ -234,14 +234,16 @@ export const conditionFor = (
     .map((entry) => ({ entry, left: leftOn(entry) }))
     .filter((option): option is { entry: UsageReport; left: number } => option.left !== null && option.left >= 20)
     .sort((a, b) => b.left - a.left)
-  // A sibling with room, first in the pool's order. One that reports no
-  // figure yet is still an account that is not out, which is enough for the
-  // same agent; a stranger agent has to show its room.
+  // A sibling with room, first in the pool's order. `prefer` names only
+  // accounts that could take a turn (`canTakeTurn`), so one with no report,
+  // or no figure yet, is still not out, which is enough for the same agent;
+  // a stranger agent has to show its room.
   const sibling = (pool.prefer ?? [])
     .filter((id) => id !== runtime)
     .find((id) => {
       const own = reports.filter((entry) => entry.runtime === id)
-      if (own.length === 0 || own.every(isBlocked)) return false
+      if (own.length === 0) return true
+      if (own.every(isBlocked)) return false
       return own.some((entry) => {
         const left = leftOn(entry)
         return left === null || left >= 20

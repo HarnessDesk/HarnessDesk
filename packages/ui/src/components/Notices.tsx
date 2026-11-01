@@ -32,7 +32,7 @@ import { describeLimits } from '../lib/limits'
 import { composerPaceVisible } from '../lib/composer-usage'
 import { teamInboxAction } from '../lib/team-inbox'
 import { conditionFor } from '../lib/usage-alerts'
-import { inPoolOrder, whenOutOf } from '../lib/account-pool'
+import { canTakeTurn, inPoolOrder, whenOutOf } from '../lib/account-pool'
 import { accountKey, accountName, agentKey } from '../lib/accounts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
@@ -231,7 +231,7 @@ const useStanding = (): Standing | null => {
     // What the agent this conversation talks to is up against, and somewhere
     // else to take the work.
     const condition = conditionFor(runtime.id, snapshot.usage, nameFor, Date.now(), {
-      prefer: inPoolOrder(siblings, pool).map((entry) => entry.id),
+      prefer: inPoolOrder(siblings.filter((entry) => canTakeTurn(entry, snapshot)), pool).map((entry) => entry.id),
       offer: whenOutOf(pool) !== 'stop',
     })
     if (condition) {

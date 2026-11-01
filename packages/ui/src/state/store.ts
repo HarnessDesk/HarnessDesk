@@ -161,7 +161,7 @@ import {
 
 import { staleDefaults, type StaleDefault } from '../lib/composer-slots'
 import { accountKey, accountName, agentKeyOf, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
-import { inPoolOrder, nextInPool, readAccountPools, runtimeOut, whenOutOf, type AccountPool } from '../lib/account-pool'
+import { canTakeTurn, inPoolOrder, nextInPool, readAccountPools, runtimeOut, whenOutOf, type AccountPool } from '../lib/account-pool'
 import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
@@ -8211,10 +8211,10 @@ export class AppStore {
     const pool = this.#snapshot.accountPools[agent]
     if (whenOutOf(pool) !== 'next') return
     const siblings = inPoolOrder(runtimes.filter((entry) => agentKeyOf(entry.id, runtimes) === agent), pool)
-    const usable = (runtime: RuntimeId): boolean =>
-      !runtimeOut(runtime, reports) &&
-      this.#snapshot.healthByRuntime[runtime]?.state !== 'unavailable' &&
-      (this.#snapshot.accountsByRuntime[runtime]?.accounts.length ?? 0) > 0
+    const usable = (runtime: RuntimeId): boolean => {
+      const entry = siblings.find((sibling) => sibling.id === runtime)
+      return entry !== undefined && !runtimeOut(runtime, reports) && canTakeTurn(entry, this.#snapshot)
+    }
     const next = nextInPool(siblings, active, usable)
     if (!next) return
     const name = (runtime: RuntimeId): string => {

@@ -80,6 +80,17 @@ describe('the account pool', () => {
     expect(store.getSnapshot().activeRuntime).toBe('codex')
   })
 
+  it('moves to a gateway, which has a key rather than a vendor account', async () => {
+    push({
+      method: 'runtime/added',
+      params: { info: { id: runtimeId('codex-gw'), name: 'Agent', slot: { agent: runtimeId('codex'), gateway: { name: 'Team gateway', endpoint: 'https://gateway.acme.dev' } }, presentation: { name: 'Agent' }, capabilities: {} } },
+    } as unknown as WireNotification)
+    preferences = { activeRuntime: 'codex', accountPools: { codex: { order: ['codex', 'codex-gw', 'codex-2'], whenOut: 'next' } } }
+    await store.loadPreferences()
+    push({ method: 'usage/updated', params: { report: report(100, 'codex') } })
+    await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-gw'))
+  })
+
   it('remembers a new order', async () => {
     store.setAccountPool(runtimeId('codex'), { order: [runtimeId('codex-2'), runtimeId('codex')] })
     expect(store.getSnapshot().accountPools['codex']).toEqual({ order: ['codex-2', 'codex'] })

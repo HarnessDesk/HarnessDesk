@@ -1581,12 +1581,17 @@ it('a runtime page reads in the order it is used: accounts first, the build afte
 })
 
 it('names only, when account addresses are hidden', async () => {
-  await mountList({ hideAccountAddresses: true })
+  await mountList({ hideAccountAddresses: true, store: { limitsFor: async () => null } })
   expect(line('Alpha').textContent).not.toContain('@')
   expect([...line('Alpha').querySelectorAll('[data-slot="desc-line"]')].map((node) => node.getAttribute('title'))).toEqual([null, null])
   await act(async () => line('Alpha').click())
   const accounts = [...container.querySelectorAll('[data-kind="record"]')].filter((row) => row.textContent?.includes('ada') || row.textContent?.includes('grace'))
   expect(accounts.map((row) => row.textContent).join(' ')).not.toContain('@')
+  // Nor on the account's own page, where a hover is as public as the text.
+  await act(async () => (accounts.find((row) => row.textContent?.includes('ada')) as HTMLElement).click())
+  expect(container.textContent).toContain('Signed in as')
+  expect(container.textContent).not.toContain('@')
+  expect([...container.querySelectorAll('[title]')].map((node) => node.getAttribute('title')).join(' ')).not.toContain('@')
 })
 
 it('an agent page is the default while new sessions run as any of its accounts', async () => {
