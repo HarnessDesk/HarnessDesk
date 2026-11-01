@@ -539,6 +539,15 @@ when it is this server's HTTP origin or one explicitly supplied through
 token gates. The packaged window, development window and native rigs load
 the server's own origin; the UI's standalone dev server has no host proxy.
 
+Managed chat roots are host-owned in-memory state. `app/state/get` and
+`app/state/set` include a `chatsFolderRootsSnapshot` with an opaque StateStore
+lifetime epoch and monotonic revision; `chats/rootsChanged` broadcasts only that
+snapshot when roots change. It includes allocated and canonical spellings, not
+other preferences. A backup import can replace the roots. State changes precede
+disk persistence, so a failed write still publishes the in-memory snapshot while
+the initiating request fails; it does not promise durability. Clients discard
+older snapshots within an epoch and refresh on reconnect.
+
 The wire is a token-gated loopback WebSocket. `packages/protocol/src/wire.ts`
 declares every method with its params and result, `wire-validators.ts` checks
 every inbound frame before the host sees it, and one module under

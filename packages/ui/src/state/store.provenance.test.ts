@@ -77,13 +77,21 @@ it('disconnect clears health and rejects stale response application; reconnect r
   const pending = deferred<readonly CaptureHealth[]>(); request.mockReturnValueOnce(pending.promise)
   const read = store.loadCaptureHealth(); handlers().onStatus('reconnecting'); pending.resolve([health({ revision: 90 })]); await read
   expect(store.getSnapshot().captureHealth.size).toBe(0)
-  request.mockImplementation(async (method: HostMethodName) => method === 'host/hello' ? {} : [health({ revision: 1 })])
+  request.mockImplementation(async (method: HostMethodName) => {
+    if (method === 'host/hello') return {}
+    if (method === 'app/state/get') return { chatsFolder: '/work/chats', chatsFolderRootsSnapshot: { epoch: 'reconnected-host', revision: 1, roots: ['/work/chats/one'] } }
+    if (method === 'provenance/status') return [health({ revision: 1 })]
+    throw new Error(`Unexpected reconnect request: ${method}`)
+  })
   const before = request.mock.calls.length; handlers().onStatus('open'); handlers().onStatus('open'); await Promise.resolve()
   const reconnected = request.mock.calls.slice(before)
-  expect(reconnected).toHaveLength(2)
-  expect(reconnected.filter(([method]) => method === 'provenance/status')).toHaveLength(1)
-  expect(reconnected.filter(([method]) => method === 'host/hello')).toHaveLength(1)
+  expect(reconnected).toEqual([
+    ['host/hello', { clientVersion: '0.1.0' }],
+    ['app/state/get', {}],
+    ['provenance/status', {}],
+  ])
   expect(store.getSnapshot().provenanceRevision.get(ROOT)).toBe(1)
+  expect(store.getSnapshot().chatsFolderRoots).toEqual(['/work/chats/one'])
 })
 
 it('a later complete list owns pruning even when an earlier request arrives last', async () => {

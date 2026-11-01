@@ -242,3 +242,86 @@ it('starts an unknown-folder sender’s task in the open project', async () => {
   await store.startSuggestedTask('task')
   expect(request).toHaveBeenCalledWith('session/create', { runtime, options: { cwd: '/project' } })
 })
+
+it('keeps a newer roots event over delayed get and set replies', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const handlers = (store.transport as unknown as { handlers: { onNotification(value: unknown): void } }).handlers
+  let get!: (value: unknown) => void, set!: (value: unknown) => void
+  vi.spyOn(store.transport, 'request').mockImplementation(((method: string) => {
+    if (method === 'app/state/get') return new Promise(resolve => { get = resolve })
+    if (method === 'app/state/set') return new Promise(resolve => { set = resolve })
+    return Promise.resolve([])
+  }) as never)
+  const loading = store.loadPreferences(), saving = store.setChatsFolder('/custom')
+  handlers.onNotification({ method: 'chats/rootsChanged', params: { epoch: 'host-a', revision: 2, roots: ['/chat'] } })
+  const roots = store.getSnapshot().chatsFolderRoots
+  handlers.onNotification({ method: 'chats/rootsChanged', params: { epoch: 'host-a', revision: 2, roots: ['/chat'] } })
+  expect(store.getSnapshot().chatsFolderRoots).toBe(roots)
+  const stale = { chatsFolder: '/custom', chatsFolderRoots: [], chatsFolderRootsSnapshot: { epoch: 'host-a', revision: 1, roots: [] } }
+  get(stale); set(stale)
+  await Promise.all([loading, saving])
+  expect(store.getSnapshot().chatsFolderRoots).toEqual(['/chat'])
+})
+
+it('uses a new epoch after reconnect and ignores old pending preferences', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const handlers = (store.transport as unknown as { handlers: { onNotification(value: unknown): void; onStatus(value: string): void } }).handlers
+  let finish!: (value: unknown) => void
+  vi.spyOn(store.transport, 'request').mockImplementation(((method: string) => method === 'app/state/get' ? new Promise(resolve => { finish = resolve }) : Promise.resolve([])) as never)
+  handlers.onNotification({ method: 'chats/rootsChanged', params: { epoch: 'old', revision: 9, roots: ['/old'] } })
+  const oldRead = store.loadPreferences(), oldFinish = finish
+  handlers.onStatus('reconnecting')
+  handlers.onStatus('open')
+  handlers.onNotification({ method: 'chats/rootsChanged', params: { epoch: 'new', revision: 1, roots: ['/new'] } })
+  oldFinish({ chatsFolderRoots: ['/old'], chatsFolderRootsSnapshot: { epoch: 'old', revision: 99, roots: ['/old'] } })
+  await oldRead
+  expect(store.getSnapshot().chatsFolderRoots).toEqual(['/new'])
+  finish({ chatsFolderRoots: [], chatsFolderRootsSnapshot: { epoch: 'new', revision: 0, roots: [] } })
+  await Promise.resolve()
+  expect(store.getSnapshot().chatsFolderRoots).toEqual(['/new'])
+})
+
+it('ignores malformed roots metadata rather than trusting its legacy roots', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockResolvedValue({ chatsFolderRoots: ['/bad'], chatsFolderRootsSnapshot: { epoch: '', revision: -1, roots: ['/bad'] } } as never)
+  await store.loadPreferences()
+  expect(store.getSnapshot().chatsFolderRoots).toEqual([])
+})
+
+it('opening a notified managed chat beside a project keeps the current workspace', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const workspace = { path: '/project', name: 'Project', lastOpenedAt: 1 }
+  Object.assign(store.getSnapshot(), { workspace })
+  const opened = chat()
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'session/read' || method === 'session/resume') return opened
+    return []
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: { onNotification(value: unknown): void } }).handlers
+  handlers.onNotification({ method: 'chats/rootsChanged', params: { epoch: 'host', revision: 1, roots: [opened.cwd] } })
+  expect(await store.openSession(opened.id, { runtime, area: 'right' })).toBe(true)
+  expect(store.getSnapshot().workspace).toEqual(workspace)
+  expect(store.getSnapshot().chatsFolderRoots).toContain(opened.cwd)
+})
+
+
+it('deduplicates unchanged roots from an older host', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockResolvedValue({ chatsFolderRoots: ['/chat', '/chat'] } as never)
+  await store.loadPreferences()
+  const roots = store.getSnapshot().chatsFolderRoots
+  expect(roots).toEqual(['/chat'])
+  await store.loadPreferences()
+  expect(store.getSnapshot().chatsFolderRoots).toBe(roots)
+})
+
+it('keeps a completed folder change after its picker was dismissed', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let finish!: (value: unknown) => void
+  vi.spyOn(store.transport, 'request').mockImplementation((() => new Promise(resolve => { finish = resolve })) as never)
+  const saving = store.setChatsFolder('/custom')
+  store.clearChatsFolderProblem()
+  finish({ chatsFolder: '/custom', chatsFolderRoots: [] })
+  expect(await saving).toBe(false)
+  expect(store.getSnapshot().chatsFolder).toBe('/custom')
+})

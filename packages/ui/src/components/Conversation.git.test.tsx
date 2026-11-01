@@ -454,3 +454,23 @@ it('uses the handoff source for draft Folder actions until a place is chosen',()
  menu()
  expect(document.querySelector('[role="menu"]')?.textContent).toContain('checkout-retry')
 })
+
+
+it('removes repository actions when a chat root arrives despite reported Git metadata', async () => {
+  const cwd = '/work/chats/2026-10-16-a1b2'
+  const session = { ...conversation(cwd), git: { branch: 'main' } }
+  let snapshot = { ...emptySnapshot(), status: 'open', activeSessionKey: KEY, sessions: new Map([[KEY, session]]),
+    workspace: { path: cwd, name: 'Chat', lastOpenedAt: 1, git: { branch: 'main' }, repo: { root: cwd, worktree: false } },
+    history: [{ runtime: runtimeId('fake'), id: session.id, cwd, repo: { root: cwd, worktree: false } }],
+    runtimes: [{ id: runtimeId('fake'), name: 'Demo runtime', presentation: { name: 'Demo runtime' }, capabilities: { ...NO_CAPABILITIES, review: true } }] } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
+  const store = { getSnapshot: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    listBranches: vi.fn(async () => []), setDetailsTab: vi.fn(), openGitHistory: vi.fn(), seatRecord: vi.fn(async () => null), refreshTasks: vi.fn(async () => {}) } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><ConversationDetails session={session} placeAction={<GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} />} /></StoreProvider>))
+  let rows = menu()
+  for (const label of ['History', 'Review uncommitted changes', 'Commit the changes']) expect(rows).toContain(label)
+  await act(async () => { snapshot = { ...snapshot, chatsFolderRoots: [cwd] }; for (const listener of listeners) listener() })
+  rows = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(row => row.querySelector('[data-menu-label]')?.textContent ?? '')
+  expect(rows).toContain('Changes')
+  for (const label of ['History', 'Review uncommitted changes', 'Commit the changes']) expect(rows).not.toContain(label)
+})
