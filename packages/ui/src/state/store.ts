@@ -1422,12 +1422,35 @@ export class AppStore {
    * awaiting — the flow finishes in another application, often after the
    * window that started it has been closed and reopened.
    */
+  readonly #loginStartEpoch = new Map<RuntimeId, number>()
+  readonly #loginStarts = new Map<RuntimeId, Set<Map<string, Extract<AgentEvent, { type: 'account/loginCompleted' }>>>>()
+
   async startLogin(runtime: RuntimeId, method: string): Promise<void> {
+    const epoch = (this.#loginStartEpoch.get(runtime) ?? 0) + 1
+    this.#loginStartEpoch.set(runtime, epoch)
+    const early = new Map<string, Extract<AgentEvent, { type: 'account/loginCompleted' }>>()
+    const starts = this.#loginStarts.get(runtime) ?? new Set<typeof early>()
+    starts.add(early)
+    this.#loginStarts.set(runtime, starts)
     try {
       const start = await this.transport.request('runtime/login', { runtime, method })
-      this.#setLogin(runtime, startedLogin(method, start))
+      if (this.#loginStartEpoch.get(runtime) !== epoch) {
+        void this.transport.request('runtime/login/cancel', { runtime, loginId: start.loginId }).catch(() => {})
+        return
+      }
+      const event = early.get(start.loginId)
+      if (event?.reason === 'wait-expired' && !event.success) {
+        this.#setLogin(runtime, null)
+        this.resultNotice('info', 'Stopped waiting. The agent may still finish signing in.')
+      } else {
+        const login = startedLogin(method, start)
+        this.#setLogin(runtime, event ? applyLoginCompleted(login, event) : login)
+      }
     } catch (error) {
-      this.resultNotice('error', describe(error))
+      if (this.#loginStartEpoch.get(runtime) === epoch) this.resultNotice('error', describe(error))
+    } finally {
+      starts.delete(early)
+      if (starts.size === 0) this.#loginStarts.delete(runtime)
     }
   }
 
@@ -2036,6 +2059,7 @@ export class AppStore {
 
   /** Abandons a sign-in still in flight, and tells the runtime so. */
   async cancelLogin(runtime: RuntimeId): Promise<void> {
+    this.#loginStartEpoch.set(runtime, (this.#loginStartEpoch.get(runtime) ?? 0) + 1)
     const pending = this.#snapshot.logins[runtime]
     this.#setLogin(runtime, null)
     if (!pending || pending.outcome.type !== 'pending') return
@@ -8740,6 +8764,16 @@ export class AppStore {
     }
     if (event.type === 'account/loginCompleted') {
       const current = this.#snapshot.logins[event.runtime] ?? null
+      if (event.loginId) {
+        for (const early of this.#loginStarts.get(event.runtime) ?? []) {
+          if (!early.has(event.loginId)) early.set(event.loginId, event)
+        }
+      }
+      if (event.reason === 'wait-expired' && !event.success && current?.outcome.type === 'pending' && event.loginId === current.start.loginId) {
+        this.#setLogin(event.runtime, null)
+        this.resultNotice('info', 'Stopped waiting. The agent may still finish signing in.')
+        return
+      }
       const login = applyLoginCompleted(current, event)
       if (login !== current) this.#setLogin(event.runtime, login)
       // Signing in changes what the runtime can do — models, limits, history —
