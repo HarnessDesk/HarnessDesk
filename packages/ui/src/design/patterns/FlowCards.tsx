@@ -203,7 +203,8 @@ const miniRoute = (from: MiniCell, to: MiniCell, lift: number, targetSelf: boole
     // A self-loop stays between the top-edge skip lane and the forward arrow at mid-height.
     const x = from.x + from.w, y = from.y, out = MINI.selfOut
     const end = Math.min(out, from.h / 2 - MINI.head * 0.6 - 1.2)
-    return { path: `M${x - out} ${y + 1}C${x + out} ${y + 1} ${x + out} ${y + end} ${x + MINI.head} ${y + end}`, head: arrow(x, y + end, -1, 0) }
+    // Continue beneath the arrowhead into the card; the card masks the inner part at rounded corners.
+    return { path: `M${x - out} ${y + 1}C${x + out} ${y + 1} ${x + out} ${y + end} ${x + MINI.head} ${y + end}H${x - MINI.head}`, head: arrow(x, y + end, -1, 0) }
   }
   if (from.row === to.row) {
     const forward = to.col > from.col
@@ -227,7 +228,8 @@ const miniRoute = (from: MiniCell, to: MiniCell, lift: number, targetSelf: boole
   const x2 = right ? to.x : to.x + to.w
   // An arrow entering from the right sits below a self-loop on that edge.
   const entryY = !right && targetSelf ? Math.min(to.cy + MINI.head, to.y + to.h - MINI.head) : to.cy
-  return { path: `M${from.cx} ${y1}V${entryY}H${x2 - (right ? MINI.head : -MINI.head)}`, head: arrow(x2, entryY, right ? 1 : -1, 0) }
+  const connect = !right && targetSelf ? `H${x2 - MINI.head}` : ''
+  return { path: `M${from.cx} ${y1}V${entryY}H${x2 - (right ? MINI.head : -MINI.head)}${connect}`, head: arrow(x2, entryY, right ? 1 : -1, 0) }
 }
 
 /** Flow destinations and New Team pickers share one content-sized, responsive card grid. */
