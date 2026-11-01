@@ -230,6 +230,7 @@ jobs:
 
       - name: Install fixture shell
         run: sudo apt-get update && sudo apt-get install --yes zsh
+        timeout-minutes: 10
 
       - run: pnpm install --frozen-lockfile
 
@@ -549,6 +550,7 @@ jobs:
       - name: Install the browser to try the build
         if: needs.changes.outputs.record == 'true'
         run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 10
       - name: Try the build
         if: needs.changes.outputs.record == 'true'
         env:
@@ -617,6 +619,7 @@ jobs:
       # A clean runner has none until the Node build creates them.
       - run: pnpm run build:node
       - run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 10
       - uses: actions/download-artifact@v8
         if: needs.changes.outputs.record != 'true'
         with:
@@ -720,6 +723,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build:node
       - run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 10
       - name: Run specs that import packages outside the UI
         env:
           SERVER_SPECS: ${{ needs.changes.outputs.server_specs }}
