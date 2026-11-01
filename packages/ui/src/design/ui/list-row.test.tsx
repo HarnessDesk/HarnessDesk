@@ -242,3 +242,13 @@ it('gives wrapping compact copy the dense inset and keeps unwrapped rows tight',
   expect(renderToStaticMarkup(<ListRow density="compact" title="Review" />)).toContain('py-px')
   expect(renderToStaticMarkup(<ListRow size="sm" wrapTitle title="Review" />)).toContain('py-1.5')
 })
+
+it('renders adaptive facts once and leaves the original row contract alone', () => {
+  const host = document.createElement('div')
+  host.innerHTML = renderToStaticMarkup(<ListRow subtitleLayout="below" title="Alpha" headingFacts={<><span>Working</span><span>8 turns</span></>} subtitle="Reviewer" trail={<span>Open</span>} />)
+  const row = host.firstElementChild!
+  expect(row.querySelectorAll('[data-slot="list-row-heading-facts"]')).toHaveLength(1)
+  expect(row.querySelector('[data-slot="list-row-heading-facts"]')?.textContent).toBe('Working8 turns')
+  expect(row.querySelector('[data-slot="list-row-heading-facts"]')?.parentElement?.getAttribute('data-slot')).toBe('list-row-heading')
+  expect(row.querySelector('[data-slot="list-row-subtitle"]')?.parentElement).toBe(row)
+})
