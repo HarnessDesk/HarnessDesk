@@ -1022,7 +1022,8 @@ progress") stays in a keyed list — the Run's record details keep their keys.
 line, at a panel row's or a list row's end, as a fact's value, as a section's
 value or in an account head reads as a word: those slots provide `ChipLook`
 `quiet`, and a `Chip` there draws its ink alone. A word that judges nothing —
-Default, Pro, Revoked, Your branch — is in fact ink; only a tone that is data
+Default, Pro, Revoked, Your branch — is in fact ink, and so is the word of a
+ready state, whose dot already says it is all right; only a tone that is data
 (running, needs you, failed, done) keeps its colour. An explicit `variant`
 wins over the slot, and a `tint` keeps its pill, because an identity is not a
 status. A chip in a screen's own body opts in with `variant="quiet"`; the

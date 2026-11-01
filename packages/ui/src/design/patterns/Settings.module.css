@@ -273,9 +273,11 @@
 }
 
 /* A status word that judges nothing reads in fact ink, the quietest of the
-   three: only a tone that is data (running, needs you, failed) keeps a colour. */
+   three: only a tone that is data (running, needs you, failed) keeps a colour.
+   A ready state is all right and its dot already says so, so the word beside
+   it (Default, Pro) is a fact too. */
 .chip[data-slot='chip'][data-variant='quiet'][data-tone='neutral'],
-.chip[data-slot='chip'][data-variant='quiet']:is([data-state='available'], [data-state='unknown'], [data-state='starting']):not([data-tone]) {
+.chip[data-slot='chip'][data-variant='quiet']:is([data-state='ready'], [data-state='available'], [data-state='unknown'], [data-state='starting']):not([data-tone]) {
   color: var(--hd-muted-foreground);
 }
 
