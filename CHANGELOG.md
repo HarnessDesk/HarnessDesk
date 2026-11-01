@@ -9,6 +9,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Lead chat holds stay protected when project folders change.** Temporary read failures offer Try again and recover without clearing holds, including after repeated failures. Hand back releases the chat’s hold across project changes. An unavailable folder explains how to restore access.
 
+- **Overview seat states and costs stay readable in narrow panes.** Facts move below the name when they need more room.
+
 - Messages the Lead sends into a chat now say so, and you can take a chat over from the Lead and hand it back. Temporary control-read failures retry without asking you to reset your holds.
 
 - **Renamed files no longer create a false ignored-file warning.** A staged rename whose original name starts with `!! ` is no longer mistaken for an ignored file when removing a worktree.
