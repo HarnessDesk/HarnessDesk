@@ -1,0 +1,51 @@
+{
+  "issue": 601,
+  "head": "a2f8c95713632efb313ec91eb0b8b5ba73580c34",
+  "tree": "d6aab640ab4cfa9b29b6e8604b2021aaf82136ae",
+  "surface": "Real Electron/Host, isolated fake runtime and fake forge; native read/person paths, auto merge authority proven by separate Host fixtures. Test Chromium sandbox disabled inside unchanged OS loopback profile; no production sandbox/provider parity claim.",
+  "privacy": "Six original frames individually viewed, source-scoped privacy audits and two reversible controls passed. Isolated synthetic workspace and accounts only.",
+  "frames": [
+    {
+      "name": "review-chooser-light.png",
+      "sha256": "bce586356d2c15f51118c197724924f9514e985f75c504e28db1b6b840cc463f",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Person review choice in Light theme; synthetic PR head and base ref/tip are shown as reviewed-target metadata, not an integrated merge tree."
+    },
+    {
+      "name": "review-chooser-dark.png",
+      "sha256": "4dec0813d78e2e5ee7f408e75c514cacba3db91095f3177ec94db3ba525ff7a0",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Person review choice in Dark theme; synthetic PR head and base ref/tip are shown as reviewed-target metadata, not an integrated merge tree."
+    },
+    {
+      "name": "compare-reviewed-commits-dark.png",
+      "sha256": "2e883f4d647ccab4d25a0c04c16c468141acdd18475b25f35b8daaa7d3e643e3",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Actual two-commit comparison in Dark theme; destination-only and head-only files are visible."
+    },
+    {
+      "name": "manual-no-fresh-proof-light.png",
+      "sha256": "0f8b80d3207aebc293d3cab348b5c40dd45f4f87fd7f33d7d47a93a5d2a6d120",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Ordinary manual merge approval in Light theme; prompt discloses that no fresh review proof is checked."
+    },
+    {
+      "name": "git-record-unknown-light.png",
+      "sha256": "4190416f4caeff936dc0cea03c35b6b20abad5d43470c1f50bf394d76fb2c6ad",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Project Git Record in Light theme after fake forge accepted the merge request but the queued response was lost; outcome is unknown and needs inspection."
+    },
+    {
+      "name": "git-record-unknown-dark.png",
+      "sha256": "74b8a65aa98ce4462b47e9ea2e3f940b3ee35e29a60fb73a336a26f2f934c07e",
+      "width": 2560,
+      "height": 1680,
+      "caption": "Project Git Record in Dark theme for the same synthetic unknown outcome; no merge success is attributed."
+    }
+  ]
+}
