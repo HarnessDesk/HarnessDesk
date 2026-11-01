@@ -318,7 +318,7 @@ test('nothing in the store can change or remove a line once it is written: it on
   assert.deepEqual(
     Object.getOwnPropertyNames(EvidenceStore.prototype).sort(),
     // `onDurable` only listens; `generation` is a read-only fence and changes no line.
-    ['append', 'constructor', 'flush', 'folderOf', 'generation', 'merge', 'onDurable', 'projects', 'read'],
+    ['append', 'constructor', 'flush', 'folderOf', 'generation', 'generationFor', 'merge', 'onDurable', 'projects', 'read'],
   )
 })
 
@@ -331,6 +331,57 @@ test('the generation changes when a write is queued, before it can alter evidenc
   assert.equal(store.generation, start + 2)
   await Promise.all([first, second])
   assert.equal(store.generation, start + 2)
+})
+
+test('a review fence ignores other Goals and projects while advancing for its own queued evidence', async () => {
+  const store = new EvidenceStore(tempDir('hd-evidence-goal-fence-'))
+  const generation = (project: string, goal: string): number | string => {
+    const scoped = store as EvidenceStore & { generationFor?: (project: string, goal: string) => number | string }
+    return scoped.generationFor?.(project, goal) ?? store.generation
+  }
+  const before = generation('/work/repo', 'room-1')
+  const pending: Promise<unknown>[] = []
+  try {
+    pending.push(store.append('/work/repo', 'evidence', [factLine({ id: 'other-goal', card: { board: 'room-2', id: 3 } })]))
+    assert.equal(generation('/work/repo', 'room-1'), before, 'another Goal in this project is independent')
+    pending.push(store.append('/work/other', 'evidence', [factLine({ id: 'other-project' })]))
+    assert.equal(generation('/work/repo', 'room-1'), before, 'another project is independent')
+    pending.push(store.append('/work/repo', 'evidence', [factLine({ id: 'same-goal' })]))
+    assert.notEqual(generation('/work/repo', 'room-1'), before, 'a relevant write invalidates synchronously, before durability')
+  } finally { await Promise.all(pending) }
+})
+
+test('queued Seat closings fence their recorded Goal, including after store restart', async () => {
+  const dir = tempDir('hd-evidence-seat-fence-')
+  const first = new EvidenceStore(dir)
+  await first.append('/work/repo', 'seats', [seatLine({ id: 'seat-a', board: 'room-1' }), seatLine({ id: 'seat-b', board: 'room-2' })])
+  const store = new EvidenceStore(dir)
+  await store.read('/work/repo', 'seats')
+  const a = store.generationFor('/work/repo', 'room-1')
+  const b = store.generationFor('/work/repo', 'room-2')
+  const other = store.merge('/work/repo', 'seats', [{ type: 'seat-closed', closing: { seat: 'seat-b', at: 2, why: 'test' } }], () => 'add')
+  assert.equal(store.generationFor('/work/repo', 'room-1'), a)
+  assert.notEqual(store.generationFor('/work/repo', 'room-2'), b)
+  const relevant = store.merge('/work/repo', 'seats', [{ type: 'seat-closed', closing: { seat: 'seat-a', at: 3, why: 'test' } }], () => 'add')
+  assert.notEqual(store.generationFor('/work/repo', 'room-1'), a)
+  await Promise.all([other, relevant])
+})
+
+test('unscoped or conflicting queued records conservatively fence the project', async () => {
+  const store = new EvidenceStore(tempDir('hd-evidence-unknown-fence-'))
+  await store.append('/work/repo', 'seats', [seatLine({ id: 'seat-a', board: 'room-1' })])
+  const start = store.generationFor('/work/repo', 'room-1')
+  const unknown = store.merge('/work/repo', 'seats', [{ type: 'seat-closed', closing: { seat: 'missing-seat', at: 2, why: 'test' } }], () => 'refused')
+  assert.notEqual(store.generationFor('/work/repo', 'room-1'), start)
+  await unknown
+  const beforeConflict = store.generationFor('/work/repo', 'room-1')
+  const duplicate = store.merge('/work/repo', 'seats', [seatLine({ id: 'seat-a', board: 'room-2' })], () => 'refused')
+  assert.notEqual(store.generationFor('/work/repo', 'room-1'), beforeConflict, 'a conflicting opening fences the old Goal immediately')
+  await duplicate
+  const after = store.generationFor('/work/repo', 'room-1')
+  const close = store.merge('/work/repo', 'seats', [{ type: 'seat-closed', closing: { seat: 'seat-a', at: 3, why: 'test' } }], () => 'refused')
+  assert.notEqual(store.generationFor('/work/repo', 'room-1'), after, 'a conflicting opening cannot redirect a closing fence')
+  await close
 })
 
 // ------------------------------------------------------------- findings (phase 7)

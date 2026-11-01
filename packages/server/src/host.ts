@@ -1335,7 +1335,12 @@ export class Host {
           })
         },
         retiredPersonFence: (scope) => this.#retiredPersonFence(scope),
-        mergeGeneration: () => this.#evidence.store.generation,
+        mergeGeneration: (scope) => {
+          if (!scope.runtime || !scope.sessionId) return undefined
+          const seat = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+          const project = seat && this.#evidence.seats.projectFor(seat.id)
+          return seat?.board && project ? this.#evidence.store.generationFor(project, seat.board) : undefined
+        },
         mergeFence: (scope, target) => {
           if (!scope.runtime || !scope.sessionId || this.#ceilingOf(scope.runtime, scope.sessionId)?.level !== 'merge') return null
           const kept = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
@@ -6801,7 +6806,7 @@ export class Host {
   }
 
   #retiredPersonSeat(record: SessionRecord): string | null {
-    if (this.#disposed || this.registry.get(record.runtime, record.session.id) !== record) return null
+    if (this.#disposed || !record.live || this.registry.get(record.runtime, record.session.id) !== record) return null
     const seat = this.#evidence.seats.latestKeptOf(String(record.runtime), String(record.session.id))
     return seat?.board && seat.closed && !seat.restored ? seat.id : null
   }

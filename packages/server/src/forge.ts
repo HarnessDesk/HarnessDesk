@@ -43,7 +43,7 @@ export interface ForgePort {
   retiredPersonFence?(scope: ForgeScope): string | null
   mergeAuthority?(scope: ForgeScope, target: { readonly repository: string; readonly number: number; readonly head: string }): Promise<import('@harnessdesk/protocol').ReviewTargetBinding | null>
   mergeFence?(scope: ForgeScope, target: { readonly repository: string; readonly number: number; readonly head: string }): string | null
-  mergeGeneration?(): number
+  mergeGeneration?(scope: ForgeScope): number | string | undefined
   /** The agent behind a runtime — its presentation name and version — or null when the host has no such runtime. */
   agentOf(runtime: string): { readonly name: string; readonly version: string | null } | null
   /** The controls of a conversation with their current values, or null when the host holds no such conversation. */
@@ -302,11 +302,11 @@ export class ForgePlane implements ForgeEngine {
       checkManualFence()
       let approval: GitApproval = { by: 'ceiling', at: Date.now() }
       const target = { repository, number: args.number, head: args.head }
-      const generation = guarded ? this.port.mergeGeneration?.() : undefined
+      const generation = guarded ? this.port.mergeGeneration?.(scope) : undefined
       const fence = guarded ? this.port.mergeFence?.(scope, target) : null
       const binding = guarded ? await this.port.mergeAuthority?.(scope, target) : null
       this.#live(scope)
-      if (guarded && (!binding || generation === undefined || !fence || this.port.mergeGeneration?.() !== generation || this.port.mergeFence?.(scope, target) !== fence)) {
+      if (guarded && (!binding || generation === undefined || !fence || this.port.mergeGeneration?.(scope) !== generation || this.port.mergeFence?.(scope, target) !== fence)) {
         const reason = 'This Flow merge requires a fresh review of its current pull request target.'
         await gateway.refuse('pr.merge', { repository, requester, number: args.number, sha: args.head }, reason)
         throw new Error(reason)
@@ -325,15 +325,15 @@ export class ForgePlane implements ForgeEngine {
       checkManualFence()
       const checkAuthority = binding ? async () => {
         this.#live(scope)
-        if (!this.port.guardedMerge?.(scope) || this.port.mergeGeneration?.() !== generation || this.port.mergeFence?.(scope, target) !== fence) return false
+        if (!this.port.guardedMerge?.(scope) || this.port.mergeGeneration?.(scope) !== generation || this.port.mergeFence?.(scope, target) !== fence) return false
         const current = await this.port.mergeAuthority?.(scope, target)
         this.#live(scope)
-        return this.port.mergeGeneration?.() === generation && this.port.mergeFence?.(scope, target) === fence && !!current && current.repository === binding.repository && current.number === binding.number && current.head === binding.head && current.baseRef === binding.baseRef && current.baseTip === binding.baseTip
+        return this.port.mergeGeneration?.(scope) === generation && this.port.mergeFence?.(scope, target) === fence && !!current && current.repository === binding.repository && current.number === binding.number && current.head === binding.head && current.baseRef === binding.baseRef && current.baseTip === binding.baseTip
       } : undefined
       const beforeSpawn = () => {
         this.#live(scope)
         checkManualFence()
-        if (binding && (this.port.mergeGeneration?.() !== generation || this.port.mergeFence?.(scope, target) !== fence)) throw new Error('The merge authority changed before submission. Start a fresh review.')
+        if (binding && (this.port.mergeGeneration?.(scope) !== generation || this.port.mergeFence?.(scope, target) !== fence)) throw new Error('The merge authority changed before submission. Start a fresh review.')
       }
       const beforeWrite = this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository)
       return { output: await gateway.mergePullRequest({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, approval, beforeWrite: async () => { await beforeWrite(); checkManualFence() }, beforeSpawn, ...(binding ? { reviewedTarget: binding, checkAuthority } : {}) }), repository }

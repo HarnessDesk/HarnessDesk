@@ -13,7 +13,7 @@ import { GitGateway } from '../src/git-gateway/index.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { projectOf } from '../src/evidence/revision.js'
 import { HoldFake, HOLD_CEILINGS } from './fixtures/hold-runtime.js'
-import { answer, board, claimed, desk, E2E, git, scopeOf, whenChanged } from './fixtures/flow-host-evidence.js'
+import { answer, board, claimed, desk, E2E, execution, git, scopeOf, whenChanged } from './fixtures/flow-host-evidence.js'
 
 const execute = promisify(execFile)
 const source = `version: 2
@@ -150,21 +150,29 @@ for (const mode of ['bound', 'unpinned', 'released', 'closed', 'pr-observation',
   await new Promise(resolve => setTimeout(resolve, 60))
   kernel.setWorkspace({ root: d.root, branch: 'work' })
   const tool = kernel.list('tool').find(one => one.name === 'pr_merge')!
+  // `claimed` permits a prepared order while the Seat is still answering its
+  // brief. Wait until this particular card order has actually started before
+  // completing its turn and retiring the Seat.
+  if (['retired-person', 'retired-queue', 'retired-busy-queue', 'retired-internal-queue', 'retired-old-queue', 'retired-allow', 'held-retirement', 'late-manual', 'delayed-person', 'reused-turn'].includes(mode)) {
+    const session = held.held.find(one => one.id === merger!.claim!.sessionId)!
+    const cardTurn = () => {
+      const record = d.host.registry.get(held.info.id, session.id)!
+      return record.session.turns.find(turn => record.running.has(turn.id) && turn.items.some(item => item.type === 'notice' && item.text.includes(`Card #${merger!.id} `)))?.id ?? null
+    }
+    if (!cardTurn()) session.finish()
+    await whenChanged(d, cardTurn, 'the merger card order to start')
+    await whenChanged(d, async () => (await execution(d, run.id)).operations.some(one => one.kind === 'turn' && one.card === merger!.id && one.state === 'finished') ? true : null, 'the merger card dispatch to finish')
+  }
   if (mode === 'retired-old-queue') {
     const session = held.held.find(one => one.id === merger!.claim!.sessionId)!
+    const before = await d.host.call('goal/read', { goal: run.goal })
+    const seat = before.members.find(one => one.session.runtime === merger!.claim!.runtime && one.session.sessionId === merger!.claim!.sessionId)!
+    assert.ok(seat)
     const queued = await d.host.call('turn/queue', { runtime: held.info.id, sessionId: session.id, input: [{ type: 'text', text: 'Earlier queued request.' }] })
     assert.equal(queued.sent, false, 'the message was queued before retirement')
-    session.fail('Synthetic interruption')
-    for (const id of [...d.host.registry.get(held.info.id, session.id)!.running]) held.emit({ type: 'turn/completed', sessionId: session.id, turn: { id, items: [], status: 'failed', error: { message: 'Synthetic interruption' } } })
-    held.emit({ type: 'session/status', sessionId: session.id, status: { type: 'idle' } })
+    await d.host.call('flow/execution/stop', { run: run.id, reason: 'Synthetic person stop' })
+    assert.ok((await d.host.call('goal/read', { goal: run.goal })).pastMembers?.some(one => one.id === seat.id && one.closed), 'stop durably retires the Seat')
     assert.equal(d.host.registry.get(held.info.id, session.id)!.queue.status, 'paused')
-    const goal = await d.host.call('goal/read', { goal: run.goal })
-    const seat = goal.members.find(one => one.session.runtime === merger!.claim!.runtime && one.session.sessionId === merger!.claim!.sessionId)!
-    await d.host.call('goal/release', { goal: run.goal, seat: seat.id })
-    assert.ok((await d.host.call('goal/read', { goal: run.goal })).pastMembers?.some(one => one.id === seat.id && one.closed))
-    session.fail('Synthetic interruption')
-    for (const id of [...d.host.registry.get(held.info.id, session.id)!.running]) held.emit({ type: 'turn/completed', sessionId: session.id, turn: { id, items: [], status: 'failed', error: { message: 'Synthetic interruption' } } })
-    held.emit({ type: 'session/status', sessionId: session.id, status: { type: 'idle' } })
     await d.host.call('turn/queue/flush', { runtime: held.info.id, sessionId: session.id })
     const turnId = await whenChanged(d, () => {
       const record = d.host.registry.get(held.info.id, session.id)!
@@ -189,22 +197,12 @@ for (const mode of ['bound', 'unpinned', 'released', 'closed', 'pr-observation',
       heldInvocation = kernel.invokeTool(tool.id, { number: 7, head }, { ...scopeOf(merger!), turnId: oldTurn, signal: new AbortController().signal } as never)
       await readEntered
     }
-    session.finish()
-    if ((mode === 'retired-queue' || mode === 'retired-busy-queue' || mode === 'retired-internal-queue')) {
-      held.emit({ type: 'turn/completed', sessionId: session.id, turn: { id: oldTurn, items: [], status: 'completed' } })
-      held.emit({ type: 'session/status', sessionId: session.id, status: { type: 'idle' } })
-    }
-    const goal = await d.host.call('goal/read', { goal: run.goal })
-    const seat = goal.members.find(one => one.session.runtime === merger!.claim!.runtime && one.session.sessionId === merger!.claim!.sessionId)
+    const before = await d.host.call('goal/read', { goal: run.goal })
+    const seat = before.members.find(one => one.session.runtime === merger!.claim!.runtime && one.session.sessionId === merger!.claim!.sessionId)
     assert.ok(seat)
-    await d.host.call('goal/release', { goal: run.goal, seat: seat.id })
+    await d.host.call('flow/execution/stop', { run: run.id, reason: 'Synthetic person stop' })
     const after = await d.host.call('goal/read', { goal: run.goal })
-    assert.ok(after.pastMembers?.some(one => one.id === seat.id && one.closed), 'retirement is durable before the new turn')
-    if ((mode === 'retired-queue' || mode === 'retired-busy-queue' || mode === 'retired-internal-queue')) {
-      session.finish()
-      for (const id of [...d.host.registry.get(held.info.id, session.id)!.running]) held.emit({ type: 'turn/completed', sessionId: session.id, turn: { id, items: [], status: 'completed' } })
-      held.emit({ type: 'session/status', sessionId: session.id, status: { type: 'idle' } })
-    }
+    assert.ok(after.pastMembers?.some(one => one.id === seat.id && one.closed), 'stop durably retires the Seat before the new turn')
     const beforeNew = await kernel.invokeTool(tool.id, { number: 7, head }, { ...scopeOf(merger!), turnId: oldTurn, signal: new AbortController().signal } as never)
     assert.equal(beforeNew.ok, false)
     assert.match(JSON.stringify(beforeNew), /fresh review/i)

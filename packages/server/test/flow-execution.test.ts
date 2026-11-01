@@ -2202,7 +2202,12 @@ rules: []
     const scope = rig.sessionOf('seat-1')
     if (kind === 'pull-request') {
       observed = live
-      await assert.rejects(() => rig.review.candidates(1, scope), /Pull request #7.*moved/)
+      await assert.rejects(() => rig.review.candidates(1, scope), (error: Error) => {
+        assert.match(error.message, /Pull request target changed/)
+        assert.match(error.message, /Expected acme\/widgets #7 head aaaaaaaaaaaa base main@cccccccccccc/)
+        assert.match(error.message, /observed acme\/widgets #7 head bbbbbbbbbbbb base main@cccccccccccc/)
+        return true
+      })
       assert.ok(requested.every((request) => request.number === 7), 'observations keep the frozen PR identity')
       observed = frozen
     }

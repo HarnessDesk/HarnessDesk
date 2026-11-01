@@ -11,6 +11,7 @@ import { gitPlugin } from '@harnessdesk/plugins'
 import type { ForgeReference } from '@harnessdesk/protocol'
 import { ForgePlane } from '../src/forge.js'
 import { GitGateway } from '../src/git-gateway/index.js'
+import { EvidenceStore } from '../src/evidence/store.js'
 import { GitSteering } from '../src/git-gateway/steering.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 import { sourceDigest } from '../src/flow-execution.js'
@@ -42,13 +43,15 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
   const questions: HeldQuestion[] = [], publications: ForgeReference[] = [], admissions: string[] = []
   let onQuestion: (() => void | Promise<void>) | undefined
   let onCheckout: (() => void | Promise<void>) | undefined
+  let onAuthority: (() => void | Promise<void>) | undefined
+  let generation: () => number | string = () => 0
   let retiredFence: string | null = null
   let answer: 'allowed' | 'standing' | 'refused' | 'unanswered' = 'allowed', mergeStep = false, guardedMerge = false, ceiling: 'read' | 'publish' | 'merge' = 'merge'
   let reviewBinding: import('@harnessdesk/protocol').ReviewTargetBinding | null = null
   const plane = new ForgePlane({ gitGateway: gateway, checkoutOf: async () => { await onCheckout?.(); return { cwd: checkout, root: checkout } },
     admitWrite: async verb => { admissions.push(verb); if (ceiling === 'read' || verb === 'merge' && ceiling !== 'merge') throw new Error('Ceiling refused') },
     askPerson: async (_scope, question) => { questions.push(question); await onQuestion?.(); return answer }, mergeStep: (_scope, target) => mergeStep && ceiling === 'merge' && target.number === 1 && target.head === git(checkout, 'rev-parse', 'HEAD'),
-    guardedMerge: () => guardedMerge, retiredPersonFence: () => retiredFence, mergeAuthority: async () => reviewBinding, mergeFence: () => guardedMerge ? 'fixture-owner' : null, mergeGeneration: () => 0,
+    guardedMerge: () => guardedMerge, retiredPersonFence: () => retiredFence, mergeAuthority: async () => { await onAuthority?.(); return reviewBinding }, mergeFence: () => guardedMerge ? 'fixture-owner' : null, mergeGeneration: () => generation(),
     agentOf: () => ({ name: 'Test Agent', version: null }), optionsOf: () => [], toolsOffered: () => true,
     record: (_runtime, _session, item) => { publications.push(item.reference); return true },
   }, { gh: async args => ({ stdout: args[0] === 'api' ? 'jane-doe' : '', stderr: '', exitCode: 0 }) })
@@ -68,6 +71,7 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
   const trace = () => !existsSync(tracePath) ? [] : readFileSync(tracePath, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { argv: string[]; cwd: string; hasCredential: boolean; envKeys: string[] })
   return { gateway, plane, kernel, root, checkout, remote, host, run, invoke, rows, questions, publications, admissions, trace, statePath,
     onQuestion: (hook: () => void | Promise<void>) => { onQuestion = hook },
+    onAuthority: (hook: () => void | Promise<void>) => { onAuthority = hook }, generation: (read: () => number | string) => { generation = read },
     onCheckout: (hook: () => void | Promise<void>) => { onCheckout = hook }, retiredFence: (value: string | null) => { retiredFence = value },
     answer: (value: typeof answer) => { answer = value }, mergeStep: (value: boolean) => { mergeStep = value }, guardedMerge: (value: boolean) => { guardedMerge = value }, reviewBinding: (value: typeof reviewBinding) => { reviewBinding = value }, ceiling: (value: typeof ceiling) => { ceiling = value } }
 }
@@ -90,6 +94,38 @@ test('a merge held at destination cannot borrow a replacement person fence', asy
   await assert.rejects(merge, /no longer in the approved person turn/i)
   assert.equal(f.questions.length, questions)
   assert.equal(f.trace().filter(call => call.argv[0] === 'pr' && call.argv[1] === 'merge').length, 0)
+})
+
+for (const kind of ['other-goal', 'other-project', 'same-goal'] as const) test(`a queued ${kind} evidence write ${kind === 'same-goal' ? 'fences' : 'does not block'} a guarded merge`, async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  await f.run('pr_create', { title: 'Widgets', body: 'Body' })
+  const head = git(f.checkout, 'rev-parse', 'HEAD')
+  const state = JSON.parse(readFileSync(f.statePath, 'utf8'))
+  state.pulls[0].checks = [{ name: 'build', id: 1, status: 'completed', conclusion: 'success' }]
+  writeFileSync(f.statePath, JSON.stringify(state))
+  const store = new EvidenceStore(join(f.root, 'scoped-evidence'))
+  f.generation(() => store.generationFor(f.checkout, 'goal-a'))
+  f.guardedMerge(true)
+  f.reviewBinding({ repository: 'acme/widgets', number: 1, head, baseRef: 'main', baseTip: head })
+  let entered!: () => void, release!: () => void, first = true
+  const waiting = new Promise<void>(resolve => { entered = resolve })
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  f.onAuthority(async () => { if (first) { first = false; entered(); await barrier } })
+  const scope = { actor: 'agent', runtime: 'fixture', sessionId: 's1', plugin: 'fixture', signal: new AbortController().signal } as ForgeScope
+  const merge = f.plane.pullRequest.merge({ number: 1, head, method: 'squash' }, scope)
+  await waiting
+  const project = kind === 'other-project' ? join(f.root, 'other') : f.checkout
+  const goal = kind === 'other-goal' ? 'goal-b' : 'goal-a'
+  const writing = store.append(project, 'evidence', [{ type: 'evidence', record: {
+    id: 'fixture-fact', fact: { kind: 'check', name: 'verify', run: 'test', exit: 0, timedOut: false, at: head, dirty: false, tail: '' },
+    card: { board: goal, id: 1 }, checkout: { cwd: project, branch: 'feature/widgets' }, seat: null, round: null, observedAt: 1, posted: null,
+  } }])
+  release()
+  if (kind === 'same-goal') await assert.rejects(merge, /fresh review/i)
+  else await merge
+  await writing
+  assert.equal(f.trace().filter(call => call.argv[0] === 'pr' && call.argv[1] === 'merge').length, kind === 'same-goal' ? 0 : 1)
 })
 
 test('a guarded Flow merge with missing authority refuses without a person fallback', async t => {
