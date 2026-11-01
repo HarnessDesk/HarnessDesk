@@ -822,3 +822,15 @@ it('opened for one runtime, is about that runtime alone', async () => {
   // Nor the roster's "next one waiting" — there is no roster to walk.
   expect(dialog.textContent).not.toContain('is still waiting')
 })
+
+it('names connected accounts without their addresses while addresses are hidden', async () => {
+  await mount({
+    hideAccountAddresses: true,
+    accountsByRuntime: {
+      codex: status([{ label: 'ada@example.com', email: 'ada@example.com' }], ['browser']),
+      'codex-7f3a91': status([{ label: 'grace@example.com', email: 'grace@example.com' }], ['browser']),
+    },
+  } as never)
+  expect(container.textContent).toContain('ada')
+  expect(container.textContent).not.toContain('@')
+})

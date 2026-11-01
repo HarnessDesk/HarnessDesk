@@ -6,6 +6,7 @@ import { paidRatioCaption } from '../../lib/overview-strip'
 import { planLabel } from '../../lib/usage'
 import { formatMoney } from '../../lib/usage'
 import { statusPresentation, type MoneyRow, type RowShape, type RowStatus } from '../../lib/plans-table'
+import { useAccountLabel } from '../../state/context'
 import { RuntimeMark } from '../BrandIcons'
 import {
   Button,
@@ -48,12 +49,14 @@ export const PlanFrame = ({
   children: ReactNode
 }) => {
   const agent = info?.presentation.name ?? 'Runtime'
+  const label = useAccountLabel()
+  const account = report.account ? label(report.runtime, report.account) : null
   const plan = report.planLabel ?? planLabel(report.plan)
   return (
     <SurfaceCard as="article" data-shape={shape}>
       {/* The canonical card inset holds the recorded heading and its state. */}
       <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
-        name={report.account ?? agent} agent={report.account ? agent : undefined}
+        name={account ?? agent} agent={account ? agent : undefined}
         states={<>{shapeChip}{plan && <Chip label={plan} title={report.plan ?? undefined} tone="neutral" />}<Chip tone={statusPresentation(status).tone} label={statusPresentation(status).label} /></>} />
 
       <MoneyRowView money={money} onOpenPlanSettings={onOpenPlanSettings} />

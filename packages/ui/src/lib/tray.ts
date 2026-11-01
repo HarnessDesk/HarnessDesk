@@ -1,8 +1,8 @@
-import type { Account, AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
+import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import { brandForRuntime } from './brands'
 import type { TrayAgent, TraySummary } from './desktop'
-import { accountForUsage, accountName, prefsForUsage } from './accounts'
+import { prefsForUsage, shownAccountLabel } from './accounts'
 import { READINESS_LABEL, readinessOf } from './readiness'
 import { describeReport, workingAccount, type UsagePreference } from './usage'
 
@@ -28,13 +28,6 @@ export interface TrayInput {
   readonly hideAddresses?: boolean
 }
 
-/** The account a reading belongs to, as the row names it: by name only while addresses are hidden. */
-const shownAccount = (report: UsageReport, input: TrayInput): string | null => {
-  const label = report.account ?? null
-  if (label === null || !input.hideAddresses) return label
-  const account = accountForUsage(report.runtime, label, input.accountsByRuntime) ?? ({ kind: 'oauth', label } as unknown as Account)
-  return accountName(account, prefsForUsage(report.runtime, label, input.accountsByRuntime, input.accountPrefs))
-}
 
 /**
  * A name says which agent only while it is the agent's alone.
@@ -82,7 +75,9 @@ const agentOf = (info: RuntimeInfo, input: TrayInput, names: ReadonlyMap<string,
   // The account goes in front of the em dash, where the row says who it is —
   // the same side of the sentence the strip puts it on, and the side a menu
   // is read from. Nothing to say when the reading carries no account.
-  const account = (names.get(name) ?? 0) > 1 && report ? shownAccount(report, input) : null
+  const account = (names.get(name) ?? 0) > 1 && report?.account
+    ? shownAccountLabel(report.runtime, report.account, { ...input, hideAccountAddresses: input.hideAddresses })
+    : null
   return {
     id: info.id,
     name: account === null ? name : `${name} · ${account}`,

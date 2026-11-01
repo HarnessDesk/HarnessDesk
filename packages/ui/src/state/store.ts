@@ -760,6 +760,8 @@ export class AppStore {
             },
             ...(unverified ? { accountsByRuntime: { ...this.#snapshot.accountsByRuntime, [id]: { accounts: [], signInMethods: previous?.signInMethods ?? [], unchecked: true } } } : {}),
           })
+          // A sibling that came back may be where a spent account's sessions go.
+          this.#followPool(this.#snapshot.usage)
           // `health` stays the *active* runtime's; taking any runtime's would
           // let a second account still starting up report the one you are
           // using as unavailable.
@@ -1896,6 +1898,8 @@ export class AppStore {
     }
     this.#patch({ accountsByRuntime })
     this.#scheduleAccountRetry()
+    // A sibling just signed in may be where a spent account's sessions go.
+    this.#followPool(this.#snapshot.usage)
   }
 
   /**

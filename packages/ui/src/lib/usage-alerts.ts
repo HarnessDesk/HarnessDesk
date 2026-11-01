@@ -238,7 +238,11 @@ export const conditionFor = (
   // accounts that could take a turn (`canTakeTurn`), so one with no report,
   // or no figure yet, is still not out, which is enough for the same agent;
   // a stranger agent has to show its room.
-  const sibling = (pool.prefer ?? [])
+  // Searched from the account after this one, wrapping, as `nextInPool`
+  // moves: with [A, B, C] and B spent, C is next and A comes after it.
+  const order = pool.prefer ?? []
+  const at = order.indexOf(runtime)
+  const sibling = [...order.slice(at + 1), ...order.slice(0, Math.max(at, 0))]
     .filter((id) => id !== runtime)
     .find((id) => {
       const own = reports.filter((entry) => entry.runtime === id)

@@ -39,7 +39,7 @@ import {
   type MenuAccountFigure,
   type Tone,
 } from '../design'
-import { accountForUsage, accountKey, accountName, accountIdentity, agentKey, prefsForUsage, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
+import { accountForUsage, accountKey, accountName, accountIdentity, agentKey, prefsForUsage, runtimeLabel, shownAccountLabel, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken } from '../lib/agents'
 import { FlowIcon } from './Icons'
@@ -642,7 +642,8 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
   const [now, setNow] = useState(Date.now)
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
   const view = describeStrip({ runtimes: snapshot.runtimes, usage: snapshot.usage, accountsByRuntime: snapshot.accountsByRuntime,
-    accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: null, now })
+    accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: null, now,
+    hideAddresses: snapshot.hideAccountAddresses })
   const current = view.anchor?.kind === 'meter' ? view.anchor.meter : null
   const others = view.rest?.meters ?? []
   const shortAccountName = (meter: StripMeter): string => {
@@ -659,7 +660,7 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
   }
   return <Submenu icon={<UsageIcon size={16} />} label="Usage" icons="all"
     value={current ? <Text role="muted" tone={usageReadingTone(current.tone)} numeric>{current.figure.endsWith('%') ? `${current.figure} left` : current.figure}</Text> : undefined}>
-    {current ? <SeatUsageFacts meter={current} now={now} /> : <MenuNote>No usage reported for this account.</MenuNote>}
+    {current ? <SeatUsageFacts meter={current} now={now} account={current.report.account && shownAccountLabel(current.runtime, current.report.account, snapshot)} /> : <MenuNote>No usage reported for this account.</MenuNote>}
     {view.anchor?.kind === 'signIn' && <MenuItem icon={<RuntimeMark runtime={view.anchor.info} size={16} />}
       label={`Sign in to ${view.anchor.info.presentation.name}`}
       onSelect={() => { if (view.anchor?.kind === 'signIn') onSignIn(view.anchor.info.id) }} />}
@@ -679,9 +680,9 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
   </Submenu>
 }
 
-const SeatUsageFacts = ({ meter, now }: { meter: StripMeter; now: number }) => <div data-usage-details>
+const SeatUsageFacts = ({ meter, now, account }: { meter: StripMeter; now: number; account: string | null }) => <div data-usage-details>
   <MenuLabel size="compact">{meter.name}{meter.report.plan ? ` · ${meter.report.plan}` : ''}</MenuLabel>
-  {meter.report.account && <MenuNote><Text as="div" role="meta" truncate title={meter.report.account}>{meter.report.account}</Text></MenuNote>}
+  {account && <MenuNote><Text as="div" role="meta" truncate title={account}>{account}</Text></MenuNote>}
   <MenuFacts rows={meter.report.lanes.map(raw => {
     const lane = describeLane(raw, now, meter.report.lanes)
     return { id: lane.id, name: lane.title, percent: lane.remainingPercent,

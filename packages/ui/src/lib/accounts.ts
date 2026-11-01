@@ -104,6 +104,27 @@ export const accountName = (
   return label
 }
 
+/**
+ * An account as a row writes it: as the runtime wrote it, or — while
+ * Settings › General › Hide account addresses is on — by name only, its
+ * nickname or the address cut at the @. Every surface that names an account
+ * from a usage report or a sign-in goes through here, so the switch is one
+ * rule rather than a promise each screen keeps on its own.
+ */
+export const shownAccountLabel = (
+  runtime: RuntimeId,
+  label: string,
+  view: {
+    readonly hideAccountAddresses?: boolean
+    readonly accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
+    readonly accountPrefs: AccountPrefsMap
+  },
+): string => {
+  if (!view.hideAccountAddresses) return label
+  const account = accountForUsage(runtime, label, view.accountsByRuntime) ?? ({ kind: 'oauth', label } as unknown as Account)
+  return accountName(account, prefsForUsage(runtime, label, view.accountsByRuntime, view.accountPrefs))
+}
+
 /** The line under the name: who it really is, and on what plan. */
 export const accountIdentity = (account: Account): string =>
   [account.email ?? account.label, account.planType].filter(Boolean).join(' · ')

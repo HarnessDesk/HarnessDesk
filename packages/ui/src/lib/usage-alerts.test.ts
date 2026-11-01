@@ -215,6 +215,18 @@ describe('conditionFor', () => {
     expect(condition?.handoff?.runtime).toBe(id('codex-2'))
   })
 
+  it('offers the account after the spent one, wrapping, as the pool moves', () => {
+    const reports = [
+      report('codex', [lane({ usedPercent: 30 })]),
+      report('codex-2', [lane({ usedPercent: 100 })], { reached: 'weekly' }),
+      report('codex-3', [lane({ usedPercent: 50 })]),
+    ]
+    const prefer = [id('codex'), id('codex-2'), id('codex-3')]
+    expect(conditionFor(id('codex-2'), reports, nameFor, NOON, { prefer })?.handoff?.runtime).toBe(id('codex-3'))
+    const lastSpent = [reports[0]!, report('codex-2', [lane({ usedPercent: 40 })]), report('codex-3', [lane({ usedPercent: 100 })], { reached: 'weekly' })]
+    expect(conditionFor(id('codex-3'), lastSpent, nameFor, NOON, { prefer })?.handoff?.runtime).toBe(id('codex'))
+  })
+
   it('offers nothing when the pool says to stop', () => {
     const condition = conditionFor(
       id('codex'),

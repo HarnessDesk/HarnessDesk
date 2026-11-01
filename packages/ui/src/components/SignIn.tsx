@@ -9,7 +9,7 @@ import type {
   RuntimeInfo,
 } from '@harnessdesk/protocol'
 
-import { credentialHome } from '../lib/accounts'
+import { credentialHome, shownAccountLabel } from '../lib/accounts'
 import {
   registryAddLabel,
   registryMatches,
@@ -157,7 +157,7 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
       info,
       status: kind,
       state,
-      detail: key ? account.planType || account.label : account.label || STATUS_LABEL[kind],
+      detail: key ? account.planType || account.label : (account.label && shownAccountLabel(info.id, account.label, snapshot)) || STATUS_LABEL[kind],
       methods,
       pending,
     }
@@ -513,8 +513,8 @@ const METHOD_ICON: Record<AuthMethod['flow'], typeof KeyIcon> = {
  * — so the email is only worth repeating here when the label is something
  * else, and the plan is what a person actually wants beside it.
  */
-const connectedHint = (account: Account): string | undefined => {
-  const extra = account.email && account.email !== account.label ? account.email : null
+const connectedHint = (account: Account, hide: boolean): string | undefined => {
+  const extra = !hide && account.email && account.email !== account.label ? account.email : null
   return [account.planType, extra].filter(Boolean).join(' · ') || undefined
 }
 
@@ -562,7 +562,7 @@ const peerAccount = (info: RuntimeInfo, snapshot: AppSnapshot): string | null =>
     if (other.slot?.agent !== agent && other.id !== agent) continue
     const account = snapshot.accountsByRuntime[other.id]?.accounts[0]
     const name = account?.email ?? account?.label
-    if (name) return name
+    if (name) return shownAccountLabel(other.id, name, snapshot)
   }
   return null
 }
@@ -763,8 +763,8 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
             <SettingsRow
               data-slot="sign-in-account"
               mark={<StateMark tone="success"><CheckIcon size={14} /></StateMark>}
-              title={account.label || 'Already connected'}
-              {...(connectedHint(account) ? { desc: connectedHint(account) } : {})}
+              title={(account.label && shownAccountLabel(info.id, account.label, snapshot)) || 'Already connected'}
+              {...(connectedHint(account, snapshot.hideAccountAddresses) ? { desc: connectedHint(account, snapshot.hideAccountAddresses) } : {})}
             />
           </Rows>
           <SignOut

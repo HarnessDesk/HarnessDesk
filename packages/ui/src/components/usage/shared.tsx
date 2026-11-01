@@ -6,6 +6,7 @@ import { burnWord } from '../../lib/burn'
 import { dashboardReadLabel } from '../../lib/dashboard-read'
 import { prefsForUsage, runtimeTint, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
+import { useAccountLabel } from '../../state/context'
 import { agentCoverage, ledgerRuntimeIds } from '../../lib/overview-strip'
 import {
   alignGhost,
@@ -412,6 +413,7 @@ export const Runway = ({
   accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
   accountPrefs: AccountPrefsMap
 }) => {
+  const label = useAccountLabel()
   const many = reports.length > 1
   const cards = reports.flatMap((report) => {
     const view = describeReport(report, {
@@ -422,7 +424,7 @@ export const Runway = ({
     return view.all
       .filter((lane) => lane.burn !== null)
       .slice(0, many ? 2 : 3)
-      .map((lane) => ({ lane, account: many ? report.account : null, report }))
+      .map((lane) => ({ lane, account: many && report.account ? label(report.runtime, report.account) : null, report }))
   })
   if (cards.length === 0) return null
   return (

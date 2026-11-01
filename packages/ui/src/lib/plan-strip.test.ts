@@ -341,6 +341,17 @@ describe('two accounts, one agent', () => {
     expect(view.rest?.meters[0]?.title).toBe('OpenAI Codex · work@example.com — Weekly, 42% left')
   })
 
+  it('names a shared agent\'s accounts by name only while addresses are hidden', () => {
+    const view = strip({
+      runtimes: [runtime('codex', 'OpenAI Codex'), runtime('codex-2', 'OpenAI Codex'), runtime('c', 'Agent C')],
+      usage: [at('codex', 42, { account: 'work@example.com' }), at('codex-2', 88, { account: 'me@example.com' })],
+      sessionRuntime: runtimeId('c'),
+      hideAddresses: true,
+    })
+    expect(view.rest?.meters.map((meter) => meter.account)).toEqual(['work', 'me'])
+    expect(view.rest?.meters[0]?.title).toBe('OpenAI Codex · work — Weekly, 42% left')
+  })
+
   it('lists both accounts in the token panel, so the count is not the whole story', () => {
     const view = strip({
       runtimes: six,
