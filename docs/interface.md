@@ -529,11 +529,16 @@ measure keeps the shared quiet button's visible fill after the pointer leaves,
 without a Selected chip. **What is left** includes
 every account reporting limits, including healthy accounts and limits supplied
 by a host meter. Plan labels come from adapter presentation, with the raw plan
-type in the title. Pace badges describe remaining allowance against an even
-burn: **▼ 39% under pace**, **▲ 39% over pace**, or **● 0% on pace**, with no
-signed percentage. A read observed before this window opened says **From a
-cached read**; a reading made in this window says **Read … ago**. The page's
-read note follows the selected accounts and uses their oldest observation.
+type in the title. Each card leads with the agent, the account on the line
+beside it, and one status word every surface shares — **Ready**, **Low**,
+**Short**, **Out**, **Overdrawn** or **Unknown** (`usageStandingOf` in
+`@harnessdesk/protocol`, the same word the phone receives). Pace is said as a
+time under the bar — **Lasts to its 3:53 PM reset**, **Runs out ~2:47 PM,
+before its 4:43 PM reset**, **Back Thu 9:00 AM** — never as "over" or "under"
+pace. The rows under it are the limits the headline does not already say. A
+card names where its reading came from only when that reading is stale or
+failed; the page's read note follows the selected accounts and uses their
+oldest observation.
 
 The quota forecast, "&lt;runtime&gt; will run out before it refills", stays on the
 Dashboard. Above a visible composer it appears only after a desk conversation

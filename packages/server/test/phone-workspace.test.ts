@@ -307,6 +307,37 @@ test('a plan with no short window shows a seat with no bar, and an agent the des
   } finally { await f.done() }
 })
 
+test('a phone allowance says the desk’s own standing, counts down to times and names no account', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    f.reports = [
+      report(HOSTILE.email, { fetchedAt: NOW - 5000, error: { message: `token refused for ${HOSTILE.email}` } } as never),
+      report('john@example.com', { lanes: [{ id: 'session', label: '5-hour', usedPercent: 100, windowMinutes: 300, resetsAt: NOW + HOUR }] }),
+      report('kim@example.com', { lanes: [], credits: { remaining: -2.15, unit: 'USD' } }),
+    ]
+    const rows = (await f.workspace.workUsage())!.runtimes
+    assert.deepEqual(rows.map(row => row.id), ['fake-agent', 'fake-agent:2', 'fake-agent:3'], 'one agent signed in three times sends three ids')
+    assert.deepEqual(rows.map(row => [row.standing, row.status]), [['unknown', 'Unknown'], ['out', 'Out'], ['overdrawn', 'Overdrawn']])
+    const [failed, out, overdrawn] = rows as [typeof rows[0], typeof rows[0], typeof rows[0]]
+    assert.equal(failed.stale, true)
+    assert.equal(failed.readAt, NOW - 5000)
+    assert.equal(failed.problem, 'token refused for …')
+    assert.equal(failed.plan, 'Pro')
+    assert.deepEqual(failed.lanes, [
+      { label: '5-hour', left: 0.576, resetsAt: NOW + 2 * HOUR },
+      { label: 'Weekly', left: 0.388, resetsAt: NOW + 70 * HOUR },
+      { label: 'Weekly (one model)', scope: 'one model', left: 0.01 },
+    ])
+    assert.equal(out.backAt, NOW + HOUR)
+    assert.equal(out.left, 0)
+    assert.equal(out.resetsIn, '1h 00m', 'an older phone still reads the string')
+    assert.deepEqual(overdrawn.balance, { amount: -2.15, unit: 'USD' })
+    assert.equal(overdrawn.lanes, undefined)
+    assert.deepEqual(leaks(rows), [])
+  } finally { await f.done() }
+})
+
 // -------------------------------------------------------------- the phone door
 
 /** A paired phone, and the real link, over a desk that answers only the three reads. */

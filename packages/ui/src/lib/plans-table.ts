@@ -4,7 +4,7 @@ import { bindingLane } from '@harnessdesk/protocol'
 import { paidForAccount, cycleStartFromLanes, periodBounds } from './paid'
 import { paidRatio } from './overview-strip'
 import { formatTokens } from './context-usage'
-import { balanceOf, DEFAULT_RANGE, describeReport, drawnReport, formatMoney, reportNeedsAttention, type ReportView } from './usage'
+import { balanceOf, DEFAULT_RANGE, describeReport, drawnReport, formatMoney, usageStandingOf, type ReportView } from './usage'
 import { paletteTone, type Tone } from './limits'
 
 /**
@@ -166,23 +166,29 @@ export const leftOf = (shape: RowShape, report: UsageReport, view: ReportView): 
   }
 }
 
-export type RowStatus = 'ready' | 'low' | 'out' | 'overage' | 'unlimited' | 'notReporting'
+export type RowStatus = 'ready' | 'low' | 'short' | 'out' | 'overdrawn' | 'overage' | 'unlimited' | 'unknown' | 'notReporting'
 
 export const STATUS_LABEL: Readonly<Record<RowStatus, string>> = {
   ready: 'Ready',
   low: 'Low',
+  short: 'Short',
   out: 'Out',
+  overdrawn: 'Overdrawn',
   overage: 'On overage',
   unlimited: 'Ready',
+  unknown: 'Unknown',
   notReporting: 'Not reporting',
 }
 
 export const STATUS_TONE: Readonly<Record<RowStatus, Tone>> = {
   ready: 'good',
   low: 'warn',
+  short: 'warn',
   out: 'bad',
+  overdrawn: 'bad',
   overage: 'warn',
   unlimited: 'good',
+  unknown: 'good',
   notReporting: 'good',
 }
 
@@ -193,9 +199,10 @@ export const statusPresentation = (status: RowStatus): { readonly label: string;
 })
 
 /**
- * The status chip, from the one needs-attention rule (`reportNeedsAttention`,
- * `lib/usage.ts`) — never a second judgement of whether an account is in
- * trouble.
+ * The status chip, from the one standing every surface shares
+ * (`usageStandingOf`, `@harnessdesk/protocol`) — never a second judgement of
+ * whether an account is in trouble. The table adds only what is about the
+ * plan's shape: on overage, unlimited, not reporting.
  *
  * It used to test `view.tone === 'warn'` directly, which missed everything
  * `reportNeedsAttention` was written to catch: `report.error`, `view.gated`,
@@ -213,12 +220,17 @@ export const statusOf = (
   now: number,
   preference?: UsagePreference,
 ): RowStatus => {
+  const standing = usageStandingOf(raw, now, preference)
   const balance = shape === 'balance' ? (balanceOf(raw.credits)?.remaining ?? null) : null
-  if (view.blocked || (balance !== null && balance <= 0)) return 'out'
+  if (balance !== null && balance < 0) return 'overdrawn'
+  if (view.blocked || standing.status === 'out' || balance === 0) return 'out'
+  if (standing.status === 'overdrawn') return 'overdrawn'
   const overage = raw.billing?.overage
   if (overage?.enabled && (overage.spent ?? 0) > 0) return 'overage'
   if (shape === 'none') return 'notReporting'
-  if (reportNeedsAttention(raw, now, preference)) return 'low'
+  if (standing.status === 'unknown') return 'unknown'
+  if (standing.status === 'short') return 'short'
+  if (standing.status === 'low') return 'low'
   if (shape === 'free') return 'unlimited'
   if (shape === 'metered' && !raw.billing?.budget) return 'unlimited'
   return 'ready'
@@ -402,12 +414,12 @@ export const sortRows = (rows: readonly PlanRow[]): readonly PlanRow[] =>
   [...rows].sort((a, b) => rankOf(a) - rankOf(b) || tiebreak(a, b))
 
 const rankOf = (row: PlanRow): number => {
-  if (row.status === 'out') return -1
+  if (row.status === 'out' || row.status === 'overdrawn') return -1
   if (row.left.percent !== null) return row.left.percent
   return row.shape === 'none' ? 1_001 : 1_000
 }
 
-const SEVERITY_RANK: Readonly<Record<RowStatus, number>> = { out: 0, low: 1, overage: 2, ready: 3, unlimited: 4, notReporting: 5 }
+const SEVERITY_RANK: Readonly<Record<RowStatus, number>> = { out: 0, overdrawn: 1, short: 2, low: 3, unknown: 4, overage: 5, ready: 6, unlimited: 7, notReporting: 8 }
 
 const tiebreak = (a: PlanRow, b: PlanRow): number =>
   SEVERITY_RANK[a.status] - SEVERITY_RANK[b.status] ||

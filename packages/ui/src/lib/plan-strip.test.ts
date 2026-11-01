@@ -237,7 +237,7 @@ describe('promotion', () => {
       sessionRuntime: runtimeId('a'),
     })
     expect(view.promoted.map((meter) => meter.runtime)).toEqual(['b'])
-    expect(view.promoted[0]?.figure).toBe('2h')
+    expect(view.promoted[0]?.figure).toMatch(/^back /)
     expect(view.promoted[0]?.tone).toBe('bad')
   })
 
@@ -286,7 +286,7 @@ describe('promotion', () => {
     const view = strip({ runtimes: six, usage: [spent('a', HOUR), at('b', 80)], sessionRuntime: runtimeId('a') })
     expect(view.promoted).toHaveLength(0)
     expect(view.anchor?.kind === 'meter' && view.anchor.meter.out).toBe(true)
-    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('1h')
+    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toMatch(/^back /)
   })
 })
 
@@ -311,7 +311,7 @@ describe('two accounts, one agent', () => {
     })
     expect(view.promoted.map((meter) => meter.runtime)).toEqual(['b'])
     // The one that comes back soonest decides: when is the only question left.
-    expect(view.promoted[0]?.figure).toBe('1h')
+    expect(view.promoted[0]?.figure).toMatch(/^back /)
     expect(view.rest?.out).toBe(1)
   })
 

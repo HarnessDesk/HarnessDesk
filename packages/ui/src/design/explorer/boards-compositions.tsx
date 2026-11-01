@@ -1626,7 +1626,7 @@ const ChartKitBoard = () => {
         <div className="flex flex-wrap items-center gap-2">
           <PaceBadge status="conserving" margin={14} word="conserving" />
           <PaceBadge status="onPace" margin={1} word="on pace" />
-          <PaceBadge status="overPace" margin={-33} word="over pace" tone="warning" />
+          <PaceBadge status="overPace" margin={-33} word="overspending" tone="warning" />
           <PaceBadge status="spent" word="spent" tone="danger" />
         </div>
       </Case>

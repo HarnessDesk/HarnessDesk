@@ -27,16 +27,18 @@ import type { UsageLane } from '@harnessdesk/protocol'
  * the *shape* of a barely-opened window is not a lie — only the prediction is.
  */
 
+import { FORECAST_NEEDS_ELAPSED } from '@harnessdesk/protocol'
+
 const MINUTE = 60_000
 
 /**
  * How much of the window has to be gone before the slope means anything.
  *
- * The same 5% `pace()` has always used, kept as one constant rather than two,
- * so the chart's projection and the sentence under it can never disagree
- * about whether there is anything to say.
+ * Read from `@harnessdesk/protocol`, where `usageStandingOf` decides "Short"
+ * on the same threshold, so the chart's projection, the sentence under it and
+ * the status word can never disagree about whether there is anything to say.
  */
-export const FORECAST_NEEDS_ELAPSED = 0.05
+export { FORECAST_NEEDS_ELAPSED }
 
 /**
  * How far off the sustainable rate counts as off it.
@@ -174,8 +176,10 @@ const statusOf = (left: number, margin: number): BurnStatus => {
 /**
  * The word the badge wears.
  *
- * Deliberately not the same vocabulary as the tone: "over pace" is a fact
- * about the rate, and whether that is *bad* depends on how much is left and
+ * One meaning per word, matching `PaceBadge`'s margin: room above the even
+ * burn is "to spare", below it is "overspending". ("Over pace" meant the
+ * first on the badge and the second here.) Not the tone: overspending is a
+ * fact about the rate, and whether that is *bad* depends on how much is left and
  * how long is left, which the card decides.
  */
 export const burnWord = (status: BurnStatus): string => {
@@ -183,11 +187,11 @@ export const burnWord = (status: BurnStatus): string => {
     case 'fresh':
       return 'full'
     case 'conserving':
-      return 'conserving'
+      return 'to spare'
     case 'onPace':
       return 'on pace'
     case 'overPace':
-      return 'over pace'
+      return 'overspending'
     case 'spent':
       return 'spent'
   }

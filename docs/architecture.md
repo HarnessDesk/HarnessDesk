@@ -925,7 +925,11 @@ and general settings methods are outside that surface. The LAN listener is
 closed with the host. Account relay transport remains inactive.
 
 The phone's `workspace/read` snapshot carries capabilities, Teams and recent
-sessions. `workspace/sessions/list` pages the same session index for active
+sessions, and its usage. Each signed-in account is one allowance row with the
+standing the desk's own screens show (`usageStandingOf`), its windows as "left"
+fractions, and reset, back and run-out times as epoch milliseconds the phone
+counts down to; a source's error is scrubbed and the account is never sent.
+`workspace/sessions/list` pages the same session index for active
 and archived conversations, so the recent snapshot is not a limit on what a
 phone can show. The native client follows those pages and refreshes them on
 workspace changes. `workspace/session/start`, `workspace/session/send` and

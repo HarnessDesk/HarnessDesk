@@ -3,7 +3,7 @@ import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport 
 import type { Tone } from './limits'
 import { prefsForUsage, type AccountPrefsMap } from './accounts'
 import { readinessOf } from './readiness'
-import { describeReport, toneForRemaining, workingAccount, type LaneView, type UsagePreference } from './usage'
+import { describeReport, formatWhen, toneForRemaining, workingAccount, type LaneView, type UsagePreference } from './usage'
 
 /**
  * What the strip in the conversation header draws, whatever the size of the
@@ -143,8 +143,9 @@ const meterFor = (
     // panel and the card, where a sentence sits beside it.
     tone: view.gated || view.blocked ? 'bad' : lane.tone,
     // Out of quota is the one state where the percentage is not the useful
-    // number. When it comes back is.
-    figure: spent ? (lane.shortCountdown ?? 'out') : `${lane.remainingPercent}%`,
+    // number. When it comes back is — as a time, which stays true without a
+    // refresh, where "3h" was already wrong by the time it was read.
+    figure: spent ? (lane.resetsAt !== null && lane.resetsAt > now ? `back ${formatWhen(lane.resetsAt, now)}` : 'out') : `${lane.remainingPercent}%`,
     low: spent || lane.remainingPercent < LOW,
     out: view.blocked,
     title: `${name} — ${lane.title}, ${lane.remainingPercent}% left`,

@@ -55,7 +55,7 @@ describe('noteOf, for an account that cannot run', () => {
     // balance does not come back on its own.
     const overdrawn = report({ credits: { remaining: -0.016, unit: 'USD' }, reached: 'credits' })
     expect(note(overdrawn)).toEqual({
-      text: 'The balance is spent — new turns will fail until it is topped up',
+      text: 'New turns will fail until it is topped up',
       tone: 'bad',
     })
   })

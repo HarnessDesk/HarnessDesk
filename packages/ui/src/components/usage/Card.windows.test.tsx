@@ -28,12 +28,12 @@ describe('plan card windows', () => {
     expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(1)
     expect(host.querySelectorAll('[data-slot="usage-meter-row"]')).toHaveLength(0)
   })
-  it('keeps the named window rows when there is more than one window', () => {
+  it('lists the windows the headline does not already say', () => {
     const host = render({ ...report, lanes: [
       { id: 'session', label: 'Session', usedPercent: 10, windowMinutes: 300, resetsAt: null },
       ...report.lanes,
     ] })
-    expect(host.querySelectorAll('[data-slot="usage-meter-row"]')).toHaveLength(2)
-    expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(3)
+    expect(host.querySelectorAll('[data-slot="usage-meter-row"]')).toHaveLength(1)
+    expect(host.querySelectorAll('[role="progressbar"]')).toHaveLength(2)
   })
 })

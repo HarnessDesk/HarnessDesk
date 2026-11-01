@@ -460,9 +460,11 @@ describe('statusOf', () => {
     expect(statusOf(subject, 'windows', describeReport(subject, { now: NOON }), NOON)).toBe('out')
   })
 
-  it('is "out" for a spent balance', () => {
+  it('is "overdrawn" below zero and "out" at zero', () => {
     const subject = report({ billing: billing(['balance']), credits: { remaining: -2, unit: 'USD' } })
-    expect(statusOf(subject, 'balance', describeReport(subject, { now: NOON }), NOON)).toBe('out')
+    expect(statusOf(subject, 'balance', describeReport(subject, { now: NOON }), NOON)).toBe('overdrawn')
+    const empty = report({ billing: billing(['balance']), credits: { remaining: 0, unit: 'USD' } })
+    expect(statusOf(empty, 'balance', describeReport(empty, { now: NOON }), NOON)).toBe('out')
   })
 
   it('is "on overage" once metered spend is enabled and something has been spent', () => {
@@ -502,12 +504,12 @@ describe('statusOf', () => {
 
   // The four cases `reportNeedsAttention` (`lib/usage.ts`) already caught
   // that the card's own tone check missed — review of #1069, B2.
-  it('is "low" for a report carrying its own error, even with a fine-looking view', () => {
+  it('is "unknown" for a report carrying its own error, even with a fine-looking view', () => {
     const subject = report({
       lanes: [lane({ id: 'weekly', usedPercent: 10 })],
       error: { message: 'Could not reach the account' },
     })
-    expect(statusOf(subject, 'windows', describeReport(subject, { now: NOON }), NOON)).toBe('low')
+    expect(statusOf(subject, 'windows', describeReport(subject, { now: NOON }), NOON)).toBe('unknown')
   })
 
   it('is "low" for a severity: critical lane, whose tone is bad rather than warn', () => {

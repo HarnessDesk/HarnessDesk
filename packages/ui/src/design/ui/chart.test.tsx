@@ -487,11 +487,11 @@ describe('PaceBadge', () => {
     container.querySelector('[data-slot="pace-badge"]') as HTMLElement
 
   it.each([
-    [-39, 'overPace', '▼39%under pace'],
-    [39, 'conserving', '▲39%over pace'],
+    [-39, 'overPace', '▼39%overspending'],
+    [39, 'conserving', '▲39%to spare'],
     [0, 'onPace', '●0%on pace'],
   ])('keeps arrow, magnitude and position consistent for margin %s', (margin, status, text) => {
-    mount(<PaceBadge status={status} margin={margin} word="over pace" tone="warning" />)
+    mount(<PaceBadge status={status} margin={margin} word="overspending" tone="warning" />)
     expect(badge().textContent).toBe(text)
   })
 
