@@ -435,3 +435,23 @@ for (const reader of ['Lead', 'phone'] as const) test(`${reader} recovery clears
   assert.equal(changed.params.problem, undefined)
   assert.equal(changed.params.chats.find(chat => chat.id === id)?.holder, 'person')
 })
+
+test('the selected window list and Hand back agree with a person hold under another project key', async t => {
+  const h = await boot(t)
+  const { id } = await h.execute({ method: 'lead/chat/start', params: { text: 'first task' } })
+  h.runtime.sessions.get(sessionId(id.slice(id.indexOf(':') + 1)))!.finish()
+  const old = join(h.project.path, 'old'); await mkdir(old)
+  const file = join(h.stateDir, 'lead', 'chat-control.json')
+  const other = new LeadChatControlStore(file)
+  await other.noteSent(old, id, 'a'.repeat(64)); await other.setHolder(old, id, 'person')
+  const list = await h.host.call('lead/chats/control', {})
+  assert.equal(list.chats.find(chat => chat.id === id)?.holder, 'person')
+  assert.equal((await h.host.call('workspace/thread/read', { id })).leadChatHolder, 'person')
+  const handed = await h.host.call('lead/chat/handBack', { id })
+  assert.equal(handed.chats.find(chat => chat.id === id)?.holder, 'lead')
+  assert.equal(await new LeadChatControlStore(file).holder(old, id), 'lead')
+  let sends = 0
+  h.runtime.onSend = () => { sends++ }
+  await h.execute({ method: 'lead/chat/send', params: { id, text: 'after global Hand back' } })
+  assert.equal(sends, 1)
+})

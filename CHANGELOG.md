@@ -7,7 +7,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **Lead chat holds stay protected when project folders change.** Temporary read failures recover without clearing holds, including after repeated failures. An unavailable folder explains how to restore access.
+- **Lead chat holds stay protected when project folders change.** Temporary read failures offer Try again and recover without clearing holds, including after repeated failures. Hand back releases the chat’s hold across project changes. An unavailable folder explains how to restore access.
 
 - Messages the Lead sends into a chat now say so, and you can take a chat over from the Lead and hand it back. Temporary control-read failures retry without asking you to reset your holds.
 

@@ -26,15 +26,19 @@ export const LeadChatNotice = ({ runtime, sessionId }: { runtime: RuntimeId; ses
     catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
     finally { setBusy(false) }
   }
-  if (!holder && problem?.kind !== 'invalid') return null
+  if (!holder && (problem?.kind !== 'invalid' || problem.retryable)) return null
+  const resetAction = { label: 'Reset chat control', onSelect: () => { if (!busy) { setError(null); setConfirmReset(true) } } }
+  const retryAction = { label: 'Try again', onSelect: () => void run(() => store.lead.readChatControl()) }
   return <>
     {problem?.kind === 'unavailable' && <ComposerNotice message={{ id: `lead-chat-project-${id}`, tone: 'warning', title: 'Lead project folder needs attention.', body: problem.message,
       action: { label: 'Try again', onSelect: () => void run(() => store.lead.readChatControl()) } }} />}
     {problem?.kind === 'transient' && <ComposerNotice message={{ id: `lead-chat-retry-${id}`, tone: 'neutral', title: 'Lead chat control could not be read.', body: problem.message,
       action: { label: 'Try again', onSelect: () => void run(() => store.lead.readChatControl()) } }} />}
-    {problem?.kind === 'invalid'
+    {problem?.kind === 'invalid' && problem.retryable && <ComposerNotice message={{ id: `lead-chat-reread-${id}`, tone: 'warning', title: 'Lead chat control could not be read.', body: problem.message,
+      action: retryAction }} secondaryAction={resetAction} />}
+    {problem?.kind === 'invalid' && !problem.retryable
       ? <ComposerNotice message={{ id: `lead-chat-${id}`, tone: 'warning', title: 'Lead chat control is unavailable.', body: problem.message,
-        action: { label: 'Reset chat control', onSelect: () => { if (!busy) { setError(null); setConfirmReset(true) } } } }} />
+        action: resetAction }} />
       : holder === 'lead'
         ? <ComposerNotice message={{ id: `lead-chat-${id}`, tone: 'info', title: `${name} is managing this chat.`, action: { label: 'Take over', onSelect: () => void run(() => store.lead.takeOverChat(id)) } }} />
         : holder === 'person' ? <ComposerNotice message={{ id: `lead-chat-${id}`, tone: 'neutral', title: 'You have this chat.', action: { label: `Hand back to ${name}`, onSelect: () => void run(() => store.lead.handBackChat(id)) } }} /> : null}

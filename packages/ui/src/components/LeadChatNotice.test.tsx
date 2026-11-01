@@ -24,7 +24,7 @@ afterEach(() => {
   container.remove()
 })
 
-const renderNotice = (holder: 'lead' | 'person' | null, problem: { kind: 'invalid' | 'transient' | 'unavailable'; message: string } | null = null) => {
+const renderNotice = (holder: 'lead' | 'person' | null, problem: { kind: 'invalid' | 'transient' | 'unavailable'; message: string; retryable?: boolean } | null = null) => {
   const snapshot = emptySnapshot()
   const listeners = new Set<() => void>()
   const lead = {
@@ -114,4 +114,18 @@ it('shows project repair guidance for an unavailable folder without offering Res
 it('does not show an unavailable warning on a chat without a Lead record', () => {
   renderNotice(null, { kind: 'unavailable', message: 'Restore the selected project folder.' })
   expect(container.textContent).toBe('')
+})
+
+for (const holder of ['lead', 'person'] as const) it(`re-reads an escalated I/O notice and restores ${holder} controls without resetting`, async () => {
+  const lead = renderNotice(holder, { kind: 'invalid', retryable: true, message: 'Try again to read chat control. Reset clears the record.' })
+  const buttons = Array.from(container.querySelectorAll('button'))
+  expect(buttons.slice(0, 2).map(button => button.textContent)).toEqual(['Try again', 'Reset chat control'])
+  expect(container.textContent).toContain(holder === 'person' ? 'Hand back to Dex' : 'Take over')
+  lead.readChatControl.mockImplementationOnce(async () => { lead.state = { ...lead.state, chatControlProblem: null }; lead.notify() })
+  await act(async () => { buttons[0]!.click() })
+  expect(lead.readChatControl).toHaveBeenCalledOnce()
+  expect(lead.resetChatControl).not.toHaveBeenCalled()
+  expect(container.textContent).not.toContain('Try again')
+  expect(container.textContent).not.toContain('Reset chat control')
+  expect(container.textContent).toContain(holder === 'person' ? 'Hand back to Dex' : 'Take over')
 })

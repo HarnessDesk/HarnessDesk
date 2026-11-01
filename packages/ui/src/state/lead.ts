@@ -53,23 +53,29 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
         requestInFlight: projection.requestInFlight, waitReason: projection.waitReason, planConsentExpiresAt: projection.planConsentExpiresAt, progress: projection.progress ?? null, team: projection.team ?? null, presence: projection.presence ?? null, steers: projection.steers ?? null, error: null })
     for (const listener of listeners) listener()
   }
-  let controlVersion = 0, retriedControl = false
+  let controlVersion = 0
+  const retriedControl = new Set<'transient' | 'escalated'>()
   let controlRetry: ReturnType<typeof setTimeout> | undefined
-  const cancelControlRetry = () => { clearTimeout(controlRetry); controlRetry = undefined }
+  let controlRetryKind: 'transient' | 'escalated' | undefined
+  const cancelControlRetry = () => { clearTimeout(controlRetry); controlRetry = undefined; controlRetryKind = undefined }
   const applyChats = (list: LeadChatControlList) => {
     if (!available()) return
     ++controlVersion
     state = { ...state, chats: list.chats, chatControlProblem: list.problem ?? null }
-    // Retry once per failure episode; a successful read re-arms recovery.
-    if (list.problem?.kind === 'transient') {
-      if (!retriedControl) {
-        retriedControl = true
+    // Each retryable state gets one attempt, including an escalation caused
+    // by other readers after the initial transient retry has been used.
+    const retryKind = list.problem?.kind === 'transient' ? 'transient' : list.problem?.retryable ? 'escalated' : null
+    if (retryKind) {
+      if (controlRetryKind && controlRetryKind !== retryKind) cancelControlRetry()
+      if (!retriedControl.has(retryKind)) {
+        retriedControl.add(retryKind)
+        controlRetryKind = retryKind
         controlRetry = setTimeout(() => {
-          controlRetry = undefined
+          controlRetry = undefined; controlRetryKind = undefined
           if (available()) void readChatControl().catch(() => {})
         }, 750)
       }
-    } else { cancelControlRetry(); retriedControl = false }
+    } else { cancelControlRetry(); retriedControl.clear() }
     for (const listener of listeners) listener()
   }
   const readChatControl = async () => {
@@ -87,7 +93,7 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
   }
   return {
     get state(): LeadState { return state },
-    reset(): void { ++controlVersion; cancelControlRetry(); retriedControl = false; state = initial(); wakeRevision = -1; for (const listener of listeners) listener() },
+    reset(): void { ++controlVersion; cancelControlRetry(); retriedControl.clear(); state = initial(); wakeRevision = -1; for (const listener of listeners) listener() },
     subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } },
     changed(notification: WireNotification): void {
       if (!available()) return

@@ -52,7 +52,7 @@ export class LeadChatControlStore {
     const persistent = ++this.#readFailures >= 3
     if (persistent && source === 'project') return this.#projectUnavailable()
     this.#readProblem = persistent
-      ? { kind: 'invalid', message: `The Lead chat control record is still temporarily unavailable (${code}). Lead actions are blocked. Read again when access recovers, or use Reset chat control to clear the record.` }
+      ? { kind: 'invalid', retryable: true, message: `Chat control still cannot be read (${code}). Try again to re-read it. Reset chat control clears all projects' holds and verified message labels.` }
       : { kind: 'transient', message: `The Lead chat control record is temporarily unavailable (${code}). Lead actions are blocked for this operation. Try again.` }
     throw new Error(this.#readProblem.message)
   }
@@ -96,18 +96,18 @@ export class LeadChatControlStore {
     }
     return projects
   }
-  #merge(projects: Projects, release?: string): Projects {
+  #merge(projects: Projects, release?: { id: string; through: number }): Projects {
     for (const [project, chats] of this.#projects) {
       const next = [...(projects.get(project) ?? [])]
       for (const chat of chats) {
-        if (chat.holder !== 'person' || projectKey(project, chat.id) === release) continue
+        if (chat.holder !== 'person' || chat.id === release?.id) continue
         const index = next.findIndex(one => one.id === chat.id)
         if (index < 0) next.push(chat)
         else next[index] = { ...next[index]!, holder: 'person' }
       }
       projects.set(project, next)
     }
-    for (const [project, chats] of projects) projects.set(project, chats.map(chat => this.#holds.has(projectKey(project, chat.id)) && projectKey(project, chat.id) !== release ? { ...chat, holder: 'person' } : chat))
+    for (const [project, chats] of projects) projects.set(project, chats.map(chat => this.#holds.has(projectKey(project, chat.id)) ? { ...chat, holder: 'person' } : chat))
     return projects
   }
   async #read(project: string): Promise<Projects> {
@@ -120,11 +120,16 @@ export class LeadChatControlStore {
   /** Installs the person's fence before any I/O, including when a previous admission is awaiting a path check. */
   hold(project: string, id: string): void {
     if (!validId(id)) throw new Error('Invalid Lead chat record.')
-    this.#holds.set(projectKey(project, id), { id, epoch: ++this.#epoch })
+    this.#installHold(project, id, ++this.#epoch)
+  }
+  #installHold(project: string, id: string, epoch: number): void {
+    const key = projectKey(project, id)
+    if ((this.#holds.get(key)?.epoch ?? -1) > epoch) return
+    this.#holds.set(key, { id, epoch })
     const chats = this.#projects.get(project)
     if (chats) this.#projects.set(project, chats.map(chat => chat.id === id ? { ...chat, holder: 'person' } : chat))
   }
-  current(project: string): LeadChatControlList { return { project, chats: this.#projects.get(project) ?? [] } }
+  current(project: string): LeadChatControlList { return { project, chats: (this.#projects.get(project) ?? []).map(chat => this.#heldByPerson(chat.id) ? { ...chat, holder: 'person' } : chat) } }
   /** Chat identity is global even when its cwd or selected project changes. */
   #heldByPerson(id: string): boolean {
     for (const hold of this.#holds.values()) if (hold.id === id) return true
@@ -141,9 +146,9 @@ export class LeadChatControlStore {
     const { chats } = await this.list(project)
     if (chats.length >= MAX_CHATS && chats.every(chat => chat.holder === 'person')) throw new Error(LEAD_CONTROL_FULL)
   }
-  #write(project: string, change: (chats: readonly LeadChatControl[]) => readonly LeadChatControl[] | null, release?: { key: string; epoch: number | undefined }): Promise<boolean> {
+  #write(project: string, change: (chats: readonly LeadChatControl[], projects: Projects) => readonly LeadChatControl[] | null, release?: { id: string; through: number }): Promise<boolean> {
     const write = this.#tail.then(async () => {
-      const projects = new Map(await this.#read(project)), next = change(projects.get(project) ?? [])
+      const projects = new Map(await this.#read(project)), next = change(projects.get(project) ?? [], projects)
       if (next === null) return false
       const bounded = [...next]
       while (bounded.length > MAX_CHATS) {
@@ -158,9 +163,10 @@ export class LeadChatControlStore {
         if (!await this.#canonical(project)) return this.#projectUnavailable()
         await this.#disk(project) // Never replace a record that became unreadable during the write.
       })
-      const released = release && this.#holds.get(release.key)?.epoch === release.epoch ? release.key : undefined
-      if (released) this.#holds.delete(released)
-      this.#projects = this.#merge(projects, released)
+      if (release) for (const [key, hold] of this.#holds) {
+        if (hold.id === release.id && hold.epoch <= release.through) this.#holds.delete(key)
+      }
+      this.#projects = this.#merge(projects, release)
       return true
     })
     this.#tail = write.catch(() => {})
@@ -168,7 +174,8 @@ export class LeadChatControlStore {
   }
   async list(project: string): Promise<LeadChatControlList> {
     await this.#tail
-    return { project, chats: (await this.#read(project)).get(project) ?? [] }
+    await this.#read(project)
+    return this.current(project)
   }
   async holder(project: string, id: string): Promise<LeadChatHolder | null> {
     const list = await this.list(project)
@@ -186,16 +193,25 @@ export class LeadChatControlStore {
   /** Only the host may admit an unrecorded chat, after finding it in its chat list. */
   async setHolder(project: string, id: string, holder: LeadChatHolder, knownChat = false): Promise<boolean> {
     if (!validId(id)) return false
-    if (holder === 'person' && (knownChat || this.#projects.get(project)?.some(chat => chat.id === id))) this.hold(project, id)
-    const key = projectKey(project, id), epoch = this.#holds.get(key)?.epoch
-    return this.#write(project, chats => {
+    const epoch = holder === 'person' ? ++this.#epoch : this.#epoch
+    if (holder === 'person' && (knownChat || this.#projects.get(project)?.some(chat => chat.id === id))) this.#installHold(project, id, epoch)
+    const release = holder === 'lead' ? { id, through: epoch } : undefined
+    return this.#write(project, (chats, projects) => {
       const exists = chats.some(chat => chat.id === id)
-      if (!exists && (holder !== 'person' || !knownChat)) return null
-      if (holder === 'person') this.hold(project, id)
+      if (holder === 'lead') {
+        const held = this.#heldByPerson(id)
+        if (!exists && !held) return null
+        // Release every durable copy together. A take-over newer than this
+        // request keeps its synchronous fence and its queued persistence.
+        for (const [root, entries] of projects) projects.set(root, entries.map(chat => chat.id === id ? { ...chat, holder: 'lead' } : chat))
+        return projects.get(project) ?? []
+      }
+      if (!exists && !knownChat) return null
+      this.#installHold(project, id, epoch)
       return exists ? chats.map(chat => chat.id === id ? { ...chat, holder } : chat) : [...chats, { id, holder, sent: [] }]
-    },
-      holder === 'lead' ? { key, epoch } : undefined)
+    }, release)
   }
+
   /** Explicit window-only recovery; a failure keeps every in-memory hold and the unreadable fence. */
   async reset(): Promise<void> {
     const through = this.#epoch

@@ -2137,7 +2137,8 @@ A message about the conversation it sits over, fastened to the top of that
 conversation's composer — the control it is about. A calm bar the
 composer's own width: the tone is in the tile, the words wrap, and the
 action sits at the right as a small button, moving below the copy in a
-narrow container.
+narrow container. An optional secondary action keeps the primary choice
+prominent while retaining a distinct alternative in the same action group.
 
 ### `ComposerNoticeStack`
 

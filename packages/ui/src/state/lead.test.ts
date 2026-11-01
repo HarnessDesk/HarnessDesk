@@ -285,3 +285,30 @@ it('does not retry invalid control data or let a pending retry outlive reset', a
     expect(request).not.toHaveBeenCalled()
   } finally { vi.useRealTimers() }
 })
+
+for (const upgrade of [false, true]) it(`automatically re-reads an escalated I/O state once (transient upgrade=${upgrade})`, async () => {
+  vi.useFakeTimers()
+  try {
+    const good = { project: '/w', chats: [{ id: 'fixture:s1', holder: 'person', sent: [] }] }
+    const escalated = { ...good, problem: { kind: 'invalid', retryable: true, message: 'Try again, or confirm Reset.' } }
+    const request = vi.fn().mockResolvedValue(upgrade ? { ...good, problem: { kind: 'transient', message: 'Read failed' } } : escalated)
+    const lead = createLeadState({ request } as never, () => true)
+    if (upgrade) {
+      lead.changed({ method: 'lead/chats/controlChanged', params: { ...good, problem: { kind: 'transient', message: 'Read failed' } } } as never)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(request).toHaveBeenCalledOnce()
+    }
+    request.mockResolvedValue(escalated)
+    lead.changed({ method: 'lead/chats/controlChanged', params: escalated } as never)
+    const before = request.mock.calls.length
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(request).toHaveBeenCalledTimes(before + 1)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(request).toHaveBeenCalledTimes(before + 1)
+    request.mockResolvedValue(good)
+    await lead.readChatControl()
+    expect(lead.state.chatControlProblem).toBeNull()
+    expect(lead.state.chats[0]?.holder).toBe('person')
+    lead.reset()
+  } finally { vi.useRealTimers() }
+})

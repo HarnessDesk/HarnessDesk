@@ -244,7 +244,12 @@ export interface LeadChatControl {
   /** Keys (`leadMessageKey`) of the envelopes the host delivered, newest last. */
   readonly sent: readonly string[]
 }
-export interface LeadChatControlProblem { readonly kind: 'invalid' | 'transient' | 'unavailable'; readonly message: string }
+export interface LeadChatControlProblem {
+  readonly kind: 'invalid' | 'transient' | 'unavailable'
+  readonly message: string
+  /** Window-only: escalated I/O still permits a read and one automatic retry. */
+  readonly retryable?: boolean
+}
 /** Chat holders and verification keys in the selected project; `project` is null when no Lead project is set. */
 export interface LeadChatControlList { readonly project: string | null; readonly chats: readonly LeadChatControl[]; readonly problem?: LeadChatControlProblem }
 

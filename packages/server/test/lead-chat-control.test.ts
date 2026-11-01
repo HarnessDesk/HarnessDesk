@@ -311,8 +311,9 @@ for (const code of ['EMFILE', 'EBUSY']) for (const caller of ['window', 'lead', 
     const leadReads = [() => store.holder(project, 'fixture:chat'), () => store.assertCanStart(project), () => store.noteSent(project, 'fixture:chat', 'b'.repeat(64))]
     for (let i = 0; i < 3; i++) {
       await assert.rejects(caller === 'window' || caller === 'mixed' && i === 0 ? store.list(project) : leadReads[i]!())
-      assert.throws(() => store.assertDispatch(project, 'fixture:chat'), /unavailable|read safely/)
+      assert.throws(() => store.assertDispatch(project, 'fixture:chat'), /unavailable|read safely|cannot be read/)
       assert.equal(store.failure?.kind, i < 2 ? 'transient' : 'invalid')
+      if (i === 2) assert.equal((store.failure as { retryable?: boolean })?.retryable, true)
     }
     assert.equal(failures, 3)
     assert.equal(store.problem, null, 'only corrupt content or permanent access failures latch')
@@ -352,4 +353,66 @@ test('an unpersisted person hold in another project fences the same chat id', as
   store.hold(join(root, 'old'), 'fixture:held')
   assert.throws(() => store.assertDispatch(project, 'fixture:held'), /taken this chat over/)
   assert.equal(await store.holder(project, 'fixture:held'), 'person')
+})
+
+for (const check of ['list', 'current'] as const) test(`${check} projects a global person hold without changing project-local verification keys`, async t => {
+  const { root, project, file } = await fixture(t)
+  const old = join(root, 'old'); await mkdir(old)
+  const store = new LeadChatControlStore(file)
+  await store.noteSent(old, 'fixture:held', 'a'.repeat(64))
+  await store.noteSent(project, 'fixture:held', 'b'.repeat(64))
+  await store.setHolder(old, 'fixture:held', 'person')
+  const before = await readFile(file, 'utf8')
+  const list = check === 'list' ? await store.list(project) : store.current(project)
+  assert.equal(list.chats[0]?.holder, 'person')
+  assert.deepEqual(list.chats[0]?.sent, ['b'.repeat(64)])
+  assert.equal(await readFile(file, 'utf8'), before, 'a projection does not duplicate holds into another project')
+})
+
+for (const selectedHasRecord of [false, true]) test(`Hand back releases every project key for the chat (selected record=${selectedHasRecord})`, async t => {
+  const { root, project, file } = await fixture(t)
+  const old = join(root, 'old'), other = join(root, 'other'); await mkdir(old); await mkdir(other)
+  const store = new LeadChatControlStore(file)
+  for (const folder of [old, other, ...(selectedHasRecord ? [project] : [])]) {
+    await store.noteSent(folder, 'fixture:held', 'a'.repeat(64))
+    await store.setHolder(folder, 'fixture:held', 'person')
+  }
+  assert.equal(await store.setHolder(project, 'fixture:held', 'lead'), true)
+  assert.notEqual(await store.holder(project, 'fixture:held'), 'person')
+  assert.doesNotThrow(() => store.assertDispatch(project, 'fixture:held'))
+  const restored = new LeadChatControlStore(file)
+  for (const folder of [old, other, ...(selectedHasRecord ? [project] : [])]) {
+    assert.equal(await restored.holder(folder, 'fixture:held'), 'lead')
+    assert.deepEqual((await restored.list(folder)).chats[0]?.sent, ['a'.repeat(64)])
+  }
+})
+
+test('a newer take-over in another project survives global Hand back and remains visible', async t => {
+  const { root, project, file } = await fixture(t)
+  const old = join(root, 'old'); await mkdir(old)
+  const store = new LeadChatControlStore(file)
+  for (const folder of [old, project]) {
+    await store.noteSent(folder, 'fixture:held', 'a'.repeat(64))
+    await store.setHolder(folder, 'fixture:held', 'person')
+  }
+  const handing = store.setHolder(project, 'fixture:held', 'lead')
+  const taking = store.setHolder(old, 'fixture:held', 'person')
+  await handing; await taking
+  assert.equal(store.current(project).chats[0]?.holder, 'person')
+  assert.throws(() => store.assertDispatch(project, 'fixture:held'), /taken this chat over/)
+  assert.equal(await new LeadChatControlStore(file).holder(project, 'fixture:held'), 'person')
+})
+
+for (const cold of [false, true]) test(`Hand back releases an earlier pending take-over across projects (cold=${cold})`, async t => {
+  const { root, project, file } = await fixture(t)
+  const old = join(root, 'old'); await mkdir(old)
+  const prior = new LeadChatControlStore(file)
+  for (const folder of [old, project]) await prior.noteSent(folder, 'fixture:held', 'a'.repeat(64))
+  const store = cold ? new LeadChatControlStore(file) : prior
+  const taking = store.setHolder(old, 'fixture:held', 'person')
+  const handing = store.setHolder(project, 'fixture:held', 'lead')
+  await taking; await handing
+  assert.equal(await store.holder(project, 'fixture:held'), 'lead')
+  assert.equal(store.current(project).chats[0]?.holder, 'lead')
+  assert.doesNotThrow(() => store.assertDispatch(project, 'fixture:held'))
 })
