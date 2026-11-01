@@ -118,13 +118,17 @@ it('does not compare a complete current total with a partial previous period', (
     daily: [{ day: today, runtime: alpha, cost: 0, tokens: 1, turns: 8 }] }
   const wide = { ...current, days: 2, daily: [
     { day: yesterday, runtime: alpha, cost: 0, tokens: 1, turns: 2 },
-    { day: yesterday, runtime: beta, cost: 0, tokens: 1 },
+    { day: yesterday, runtime: beta, cost: 0, tokens: 1, turns: 0 },
     ...current.daily,
   ] }
   const draw = (previous: typeof wide) => act(() => root.render(<OverviewStrip reports={[]} ledger={current} wideLedger={previous} range={1} now={now} metric="value" onMetricChange={() => {}} onOpenPlan={() => {}} />))
   draw({ ...wide, coverage: { ...wide.coverage, turnsKnownFor: [alpha, beta] } })
   expect(host.querySelector('button[title^="Turns"]')?.textContent).toContain('%')
   draw(wide)
+  expect(host.querySelector('button[title^="Turns"]')?.textContent).not.toContain('%')
+  const missing = { ...wide, coverage: { ...wide.coverage, turnsKnownFor: [alpha, beta] },
+    daily: wide.daily.map(entry => entry.runtime === beta ? { ...entry, turns: undefined } : entry) }
+  draw(missing)
   expect(host.querySelector('button[title^="Turns"]')?.textContent).not.toContain('%')
 })
 

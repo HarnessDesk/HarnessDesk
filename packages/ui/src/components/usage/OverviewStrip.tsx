@@ -101,7 +101,8 @@ export const OverviewStrip = ({
     [wideLedger, now, range, currentTurns],
   )
   const wideTurnsCoverage = agentCoverage(wideLedger?.coverage, wideLedger?.daily.map((entry) => entry.runtime) ?? [])
-  const turnsChange = currentTurns !== null && turnsPrevious.complete && !wideTurnsCoverage.partial ? turnsPrevious.change : null
+  const wideTurnsComplete = !wideTurnsCoverage.partial && (wideLedger?.daily.every((entry) => entry.turns !== undefined) ?? false)
+  const turnsChange = currentTurns !== null && turnsPrevious.complete && wideTurnsComplete ? turnsPrevious.change : null
 
   const currentTokens = ledger?.totalTokens ?? null
   const tokensPrevious = useMemo(
