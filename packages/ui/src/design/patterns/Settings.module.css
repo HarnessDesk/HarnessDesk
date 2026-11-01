@@ -884,19 +884,21 @@
  * four now read the same `--hd-card-*` tokens, which is the only reason one
  * setting can restyle every card in the app.
  *
- * Desk draws it white on white with a 1px hairline. Studio fills it with a
- * wash of the brand and drops the line, which is what the reference does and
- * what stops a settings page reading as a stack of boxes: a tinted block
- * separates by *area* rather than by edge, so it holds up next to another
- * block and needs nothing inverted at night.
+ * Desk draws it on the main ground with the strong hairline at 10px — the
+ * same card as the right panel's. Studio fills it with a wash of the brand
+ * and drops the line, and the Sheet surface (tokens.sheet.css) takes the box
+ * away and leaves only the dividers.
  */
 .rows {
   --stack-surface: var(--hd-card-fill, var(--hd-card));
-  border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));
+  border: var(--hd-card-border-width, var(--hd-border-width)) solid var(--hd-card-border, var(--hd-border)); /* desk: hairline → strong hairline, the one card edge (Cards surface) */
   border-radius: var(--hd-card-radius, var(--hd-radius-lg));
   background: var(--hd-card-fill, var(--hd-card));
   overflow: hidden;
   margin-bottom: var(--hd-space-1-5);
+  /* The rows' side inset. A card insets them; a foundation that lays the
+     group flat (tokens.sheet.css) puts them on the page's text edge. */
+  --rows-edge: var(--hd-card-inset, var(--hd-table-edge));
 }
 
 /* A group inset in another card inherits that card's surface. */
@@ -904,6 +906,8 @@
 /* In a dialog the form stack spaces its cards. */
 .rows[data-context='dialog'] {
   margin-bottom: 0;
+  /* A dialog is boxed in every surface, so its rows keep their inset. */
+  --rows-edge: var(--hd-table-edge);
 }
 
 /* The divider between rows. It is its own token because the two interfaces
@@ -920,7 +924,7 @@
   align-items: center;
   gap: var(--hd-space-2) var(--hd-space-6); /* desk: 24 → 8 24, the row gap only exists once a control has wrapped, and 8 keeps it with its title */
   min-height: var(--hd-table-row-min-bare);
-  padding: var(--hd-inset-row) var(--hd-table-edge); /* desk: row inset 12/16 → 12 on all sides (#1363) */
+  padding: var(--hd-inset-row) var(--rows-edge, var(--hd-table-edge)); /* desk: row inset 12/16 → 12 on all sides (#1363) */
   border-bottom: 0; /* desk: separator lives in ::after so row rules do not read as surfaces */
   padding-bottom: calc(var(--hd-inset-row) + var(--hd-border-width));
 }

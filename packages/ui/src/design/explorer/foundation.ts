@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import tokensCss from '../foundation/tokens.css?raw'
+import sheetCss from '../foundation/tokens.sheet.css?raw'
 
 /**
  * A foundation is a set of token overrides — and so is a theme.
@@ -22,6 +23,12 @@ export type Foundation = {
   overrides: Record<string, string>
 }
 
+/** A stylesheet's custom-property declarations, as an override map. */
+const declarations = (css: string): Record<string, string> =>
+  Object.fromEntries(
+    [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/(--hd-[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1]!, m[2]!.trim()]),
+  )
+
 export const FOUNDATIONS: Foundation[] = [
   {
     id: 'current',
@@ -30,20 +37,13 @@ export const FOUNDATIONS: Foundation[] = [
     overrides: {},
   },
   {
-    id: 'flat',
-    title: 'Flat cards',
-    // The card is now tinted and borderless by default, which is the
-    // reference's answer and the one the settings pages are drawn for. This
-    // is the way back: white cards with a hairline, the way the app read
-    // before. Kept switchable because "does a settings page want blocks of
-    // colour or blocks of outline" is a taste question, and the token layer
-    // is where a taste question should be answerable in four lines.
-    about: 'Cards as white sheets with a hairline, instead of a wash of the brand.',
-    overrides: {
-      '--hd-card-fill': 'var(--hd-card)',
-      '--hd-card-border': 'var(--hd-border-strong)',
-      '--hd-card-radius': 'var(--hd-radius)',
-    },
+    id: 'sheet',
+    title: 'Sheet',
+    // The app's second surface, read straight from its own overlay so the
+    // explorer cannot show a Sheet the app does not draw. Settings ›
+    // Appearance › Surface applies the same file through an attribute.
+    about: 'Groups laid flat on one page, a hairline between rows instead of a box around them.',
+    overrides: declarations(sheetCss),
   },
   {
     id: 'dense-pages',

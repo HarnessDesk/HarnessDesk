@@ -504,7 +504,7 @@ ground reads thin.
 | --- | --- | --- | --- |
 | `--hdp-alias-label-primary` | `rgb(25, 27, 30)` | `rgb(229, 231, 234)` | anything a person reads: titles, rows, prose, values |
 | `--hd-secondary-foreground` | `rgb(49, 49, 49)` | `rgb(224, 224, 224)` | structure and explanation: section headings, hints, blurbs, icons beside a label |
-| `--hd-muted-foreground` | `rgb(71, 71, 71)` | `rgb(208, 208, 208)` | facts at the edge of a row: counts, times, keyboard hints |
+| `--hd-muted-foreground` | `rgb(107, 107, 107)` | `rgb(156, 156, 156)` | facts at the edge of a row: counts, times, keyboard hints |
 | `--hd-disabled-foreground` | about `rgb(147, 147, 147)` | `rgb(107, 107, 107)` | disabled popup labels, icons and trailing values; refusal reasons stay secondary |
 
 In components, reach for the semantic tokens `--hd-foreground`,
@@ -514,9 +514,10 @@ palette's quietest label tier and measures about 3:1 against popup surfaces.
 
 The three ordinary ink levels have to read as three, not two. Secondary uses
 the existing grey-800 step in light mode and grey-200 in dark mode; muted uses
-grey-750 and grey-300. These steps preserve the distinction from primary and
-between secondary and muted, while keeping both lower tiers on their existing
-palette ramps. The contrast test measures the semantic tokens on the app's real
+grey-600 and grey-500. Muted used to sit one step from secondary (grey-750 and
+grey-400), close enough that a count read as a second tier of prose; it now
+sits a clear step further out, still above AA on every ground it is set on.
+These steps keep both lower tiers on their existing palette ramps. The contrast test measures the semantic tokens on the app's real
 text grounds in both themes. Disabled ink is a separate state: clearly fainter
 than an enabled label, while remaining legible on the popup surface.
 
@@ -1046,6 +1047,37 @@ blocks keep at least one stack gap between them unless they are nested inside
 one grouped surface. The 12px stack rule replaces the earlier 8px page
 label-to-content and child-to-child entries in the page rhythm table above;
 the 32px space between page sections remains.
+
+## Surfaces: Cards and Sheet
+
+The app draws its groups one way by default and offers a second as a
+foundation, so every screen gets both without a screen naming either.
+
+**Cards** is the default (`tokens.css`). A group of settings rows, a section of
+the right panel and an object on a page (an account, a plan, a Seat) are each
+one card: the main ground, the strong hairline, the 10px corner. Labels in the
+main column and in Settings sit on the same 40px edge. The left column keeps
+its plate; its search field is framed, not filled.
+
+**Sheet** (`tokens.sheet.css`, `body[data-hd-surface='sheet']`) lays the same
+groups flat. Rows stand on the page's text edge with a hairline between them
+and no box; right-panel sections are split by one hairline instead of being
+spaced as cards; the left column takes the page's ground and only its edge
+hairline separates it. An object stays boxed — `Card`'s default and its
+`plate` (the files card under an answer, a transcript item, a timeline step):
+it is a thing on a page, not a group of rows.
+
+The overlay only redefines the `--hd-card-*`, `--hd-panel-card-*`,
+`--hd-sidebar-plate`, `--hd-sidebar-edge` and `--hd-left-search-*` tokens. A
+border Sheet removes stays transparent rather than gone, so every inset the
+frame contract measures is the same in both. Everything both share — the left
+row, group labels, the page head, the composer, menus, dialogs — is not named
+there and cannot drift. Settings › Appearance › Surface writes the
+preference; the preview's `surface` dial and the frame wall's `?surface=`
+parameter show either.
+
+A rail section head puts its chevron after the label, in fact ink. Open has no
+fill; only hover fills the head.
 
 ## The rules
 

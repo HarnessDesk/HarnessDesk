@@ -596,7 +596,7 @@ export const AccountFooter = ({
             <MenuItem icon={<UserIcon size={16} />} label="Linked phones" value={String(deskAccount.phones.length)} onSelect={() => onOpenSettings('profile')} />
             <MenuItem icon={<SettingsIcon size={16} />} label="Account settings" onSelect={() => onOpenSettings('profile')} />
             <MenuSeparator />
-            <MenuItem icon={<SignOutIcon size={16} />} label="Sign out of HarnessDesk…" danger onSelect={() => setDeskSignOut(true)} />
+            <MenuItem icon={<SignOutIcon size={16} />} label="Sign out…" danger onSelect={() => setDeskSignOut(true)} />
           </Submenu> : <MenuItem icon={<SignInIcon size={16} />} label="Sign in to HarnessDesk…" hint="Open this desk from your phone"
             disabled={deskAction.busy || deskAccount?.status === 'pending'} onSelect={() => { void deskAction.run(() => store.signInToHarnessDesk()) }} />}
 
