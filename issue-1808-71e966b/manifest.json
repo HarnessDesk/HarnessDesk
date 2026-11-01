@@ -1,0 +1,35 @@
+{
+  "issue": 1808,
+  "head": "71e966b6288a589c5aff454b1c08200f0eb064d9",
+  "frames": [
+    {
+      "name": "light-compact-multi-240.png",
+      "sha256": "da88d8828367778f7c31e3d7212baf8728cde0e9a879bd62a576f7f8b58cee71",
+      "width": 900,
+      "height": 700,
+      "path": "issue-1808-71e966b/light-compact-multi-240.png"
+    },
+    {
+      "name": "dark-compact-multi-240.png",
+      "sha256": "a7c39d6e6d5d4c7c98a7ca28666782c0d2b169a10f6d7d5139b60a8c8e51296e",
+      "width": 900,
+      "height": 700,
+      "path": "issue-1808-71e966b/dark-compact-multi-240.png"
+    },
+    {
+      "name": "light-large-single-360.png",
+      "sha256": "f874fff24b6cc760f7fc7d3307c785ca12d4c6ac29450418805804d5b2dbf5b8",
+      "width": 900,
+      "height": 700,
+      "path": "issue-1808-71e966b/light-large-single-360.png"
+    },
+    {
+      "name": "dark-large-single-360.png",
+      "sha256": "eff381a826ef04eaa7ec6d4386d36a882bfdf29ea755e6fd7e29ac7761d5476e",
+      "width": 900,
+      "height": 700,
+      "path": "issue-1808-71e966b/dark-large-single-360.png"
+    }
+  ],
+  "surface": "Synthetic contextual component specimens rendering actual FlowCard and design source; real isolated Electron functional proof was recorded separately."
+}
