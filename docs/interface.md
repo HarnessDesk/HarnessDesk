@@ -995,6 +995,9 @@ until its first conversation; one run through a package runner (`npx`, `uvx`)
 names the missing runner and what provides it instead of offering the agent's
 own install command.
 
+Storing a key while an ACP agent is not ready says it can pick up the key on
+its next start; it does not claim the agent restarted with it.
+
 A runtime that can hold more than one account offers **Add another account**
 once signed in. Antigravity asks for a name first; an empty one gives
 “Antigravity 2”, “Antigravity 3” and so on. Each account is its own row over a

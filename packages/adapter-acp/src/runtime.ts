@@ -1757,7 +1757,7 @@ export class AcpRuntime implements AgentRuntime {
     // Whatever happens below, the next handshake is the one that hands the
     // changed key over, so that is when the agent is told to use it.
     if (this.#config.secrets?.some((secret) => secret.acpMethod)) this.#keyAuthPending = true
-    if (this.#health.state !== 'ready') return 'restarted'
+    if (this.#health.state !== 'ready') return 'deferred'
     const busy = [...this.#sessions.values()].some(
       (session) => !this.#isProbe(session.id) && session.busy,
     )
