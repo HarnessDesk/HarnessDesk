@@ -12,7 +12,7 @@
   display: grid;
   gap: var(--hd-space-0-5);
   width: max-content;
-  min-width: max(100%, var(--heat-grid-min-width, 480px));
+  min-width: max(100%, var(--heat-grid-min-width, 480px)); /* desk: fill the scroller while preserving the full today ring at its edge */
   align-items: center;
 }
 
