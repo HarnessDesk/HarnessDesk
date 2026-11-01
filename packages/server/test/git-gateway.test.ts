@@ -103,6 +103,170 @@ test('forge operations use explicit pinned repository and host cwd with a ledger
   assert.equal((await gateway.record({ repository: f.request.repository, limit: 100 })).length, 2)
 })
 
+test('a possibly submitted merge blocks a new attempt after restart while read-back is inconclusive', async () => {
+  const f = await fixture()
+  let submissions = 0
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    if (args[1] === 'merge') { submissions++; throw new Error('connection lost after submission') }
+    throw new Error('forge read unavailable')
+  }
+  const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const }
+  const first = new f.module.GitGateway({ ...f.options, gh })
+  await assert.rejects(first.mergePullRequest(target), /connection lost/)
+  const restarted = new f.module.GitGateway({ ...f.options, gh })
+  await assert.rejects(restarted.mergePullRequest(target), /unresolved|unknown|reconcil/i)
+  assert.equal(submissions, 1, 'a new attempt must not submit while the previous outcome is unknown')
+})
+
+test('an open unqueued snapshot cannot clear an earlier request that may be accepted later', async () => {
+  const f = await fixture()
+  let submissions = 0, acceptedLater = false
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    if (args[1] === 'merge') { submissions++; if (submissions === 1) throw new Error('connection lost'); return { stdout: 'second submission', stderr: '', exitCode: 0 } }
+    const wasMerged = acceptedLater
+    acceptedLater = true
+    return { stdout: JSON.stringify({ data: { repository: { pullRequest: { state: wasMerged ? 'MERGED' : 'OPEN', merged: wasMerged, mergeQueueEntry: null, autoMergeRequest: null } } } }), stderr: '', exitCode: 0 }
+  }
+  const gateway = new f.module.GitGateway({ ...f.options, gh })
+  const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const }
+  await assert.rejects(gateway.mergePullRequest(target), /connection lost/)
+  await assert.rejects(gateway.mergePullRequest(target), /unresolved|unknown/i)
+  assert.equal(submissions, 1, 'the still-in-flight first request must not be followed by another')
+})
+
+test('concurrent merge requests for the same canonical PR cannot submit twice when the first becomes unknown', async () => {
+  const f = await fixture()
+  let submissions = 0, started!: () => void, release!: () => void
+  const entered = new Promise<void>(resolve => { started = resolve }), held = new Promise<void>(resolve => { release = resolve })
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    if (args[1] === 'merge') { submissions++; started(); await held; throw new Error('connection lost') }
+    throw new Error('read unavailable')
+  }
+  const gateway = new f.module.GitGateway({ ...f.options, gh })
+  const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const }
+  const first = gateway.mergePullRequest(target)
+  await entered
+  const second = gateway.mergePullRequest({ ...target, repository: 'ACME/widgets' })
+  release()
+  const outcomes = await Promise.allSettled([first, second])
+  assert.ok(outcomes.every(one => one.status === 'rejected'))
+  assert.equal(submissions, 1)
+})
+
+test('merge recovery never resubmits an open, queued, merged or malformed PR after an uncertain attempt', async () => {
+  for (const mode of ['open', 'queued', 'merged', 'malformed'] as const) {
+    const f = await fixture()
+    let submissions = 0
+    const gh = async (_cwd: string, args: readonly string[]) => {
+      if (args[1] === 'merge') {
+        submissions++
+        if (submissions === 1) throw new Error('connection lost after submission')
+        return { stdout: 'merged', stderr: '', exitCode: 0 }
+      }
+      const merged = mode === 'merged' || mode === 'open' && submissions === 2
+      const pr = mode === 'malformed' ? {} : { state: merged ? 'MERGED' : 'OPEN', merged, mergeQueueEntry: mode === 'queued' ? { id: 'queue-1' } : null, autoMergeRequest: null }
+      return { stdout: JSON.stringify({ data: { repository: { pullRequest: pr } } }), stderr: '', exitCode: 0 }
+    }
+    const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const }
+    const first = new f.module.GitGateway({ ...f.options, gh })
+    await assert.rejects(first.mergePullRequest(target), /connection lost/)
+    const restarted = new f.module.GitGateway({ ...f.options, gh })
+    await assert.rejects(restarted.mergePullRequest(target), /unresolved|unknown|reconcil|already merged/i)
+    assert.equal(submissions, 1, mode)
+    if (mode === 'merged') assert.equal((await restarted.record({ repository: target.repository, number: 7, limit: 10 }))[0]?.outcome, 'observed-merged')
+  }
+})
+
+test('a successful merge command that only enqueued the PR remains unresolved', async () => {
+  const f = await fixture()
+  let submissions = 0
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    if (args[1] === 'merge') { submissions++; return { stdout: 'Pull request added to merge queue', stderr: '', exitCode: 0 } }
+    return { stdout: JSON.stringify({ data: { repository: { pullRequest: { state: 'OPEN', merged: false, mergeQueueEntry: { id: 'queue-1' }, autoMergeRequest: null } } } }), stderr: '', exitCode: 0 }
+  }
+  const gateway = new f.module.GitGateway({ ...f.options, gh })
+  const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const }
+  await assert.rejects(gateway.mergePullRequest(target), /queued|unknown|unresolved/i)
+  await assert.rejects(gateway.mergePullRequest(target), /queued|unknown|unresolved/i)
+  assert.equal(submissions, 1)
+  assert.equal((await gateway.record({ repository: target.repository, number: 7, limit: 10 }))[0]?.outcome, 'unknown')
+})
+
+test('the serialized merge preflight refuses a destination tip that moved after review', async () => {
+  const f = await fixture(), baseTip = 'b'.repeat(40), advanced = 'c'.repeat(40)
+  let submitted = 0
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === 'pr' && args[1] === 'merge') { submitted++; return { stdout: 'merged', stderr: '', exitCode: 0 } }
+    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: f.request.sha, baseRefName: 'main', baseRefOid: baseTip, url: 'https://github.com/acme/widgets/pull/7' }), stderr: '', exitCode: 0 }
+    return { stdout: JSON.stringify({ name: 'main', commit: { sha: advanced } }), stderr: '', exitCode: 0 }
+  }
+  const gateway = new f.module.GitGateway({ ...f.options, gh })
+  const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const,
+    reviewedTarget: { repository: f.request.repository, number: 7, head: f.request.sha, baseRef: 'main', baseTip }, checkAuthority: async () => true }
+  await assert.rejects(gateway.mergePullRequest(target), /target.*changed|fresh review/i)
+  assert.equal(submitted, 0)
+  assert.ok((await gateway.record({ repository: target.repository, limit: 20 })).some((row: { op: string; outcome: string }) => row.op === 'pr.merge' && row.outcome === 'refused'))
+})
+
+for (const mode of ['retarget', 'wrong-repository', 'head', 'unreadable'] as const) test(`serialized merge preflight refuses ${mode}`, async () => {
+  const f = await fixture(), baseTip = 'b'.repeat(40)
+  let submitted = 0
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === 'pr' && args[1] === 'merge') { submitted++; return { stdout: 'merged', stderr: '', exitCode: 0 } }
+    if (mode === 'unreadable') throw new Error('read unavailable')
+    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: mode === 'head' ? 'c'.repeat(40) : f.request.sha, baseRefName: mode === 'retarget' ? 'release' : 'main', baseRefOid: baseTip, url: `https://github.com/${mode === 'wrong-repository' ? 'acme/other' : 'acme/widgets'}/pull/7` }), stderr: '', exitCode: 0 }
+    return { stdout: JSON.stringify({ name: 'main', commit: { sha: baseTip } }), stderr: '', exitCode: 0 }
+  }
+  const gateway = new f.module.GitGateway({ ...f.options, gh })
+  const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const,
+    reviewedTarget: { repository: f.request.repository, number: 7, head: f.request.sha, baseRef: 'main', baseTip }, checkAuthority: async () => true }
+  await assert.rejects(gateway.mergePullRequest(target), /target.*changed|fresh review/i)
+  assert.equal(submitted, 0)
+  assert.ok((await gateway.record({ repository: target.repository, limit: 20 })).some((row: { op: string; outcome: string }) => row.op === 'pr.merge' && row.outcome === 'refused'))
+})
+
+test('a synchronous invocation fence refuses immediately before merge spawn', async () => {
+  const f = await fixture(), baseTip = 'b'.repeat(40)
+  let submitted = 0, checked = 0
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === 'pr' && args[1] === 'merge') { submitted++; return { stdout: 'merged', stderr: '', exitCode: 0 } }
+    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: f.request.sha, baseRefName: 'main', baseRefOid: baseTip, url: 'https://github.com/acme/widgets/pull/7' }), stderr: '', exitCode: 0 }
+    return { stdout: JSON.stringify({ name: 'main', commit: { sha: baseTip } }), stderr: '', exitCode: 0 }
+  }
+  const gateway = new f.module.GitGateway({ ...f.options, gh })
+  const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const,
+    reviewedTarget: { repository: f.request.repository, number: 7, head: f.request.sha, baseRef: 'main', baseTip }, checkAuthority: async () => true,
+    beforeSpawn: () => { checked++; throw new Error('invocation retired') } }
+  await assert.rejects(gateway.mergePullRequest(target), /invocation retired/)
+  assert.equal(checked, 1)
+  assert.equal(submitted, 0)
+  assert.ok((await gateway.record({ repository: target.repository, limit: 20 })).every((row: { outcome: string }) => row.outcome !== 'unknown'))
+})
+
+test('cancellation after the last asynchronous authority read prevents actual merge submission', async () => {
+  const f = await fixture(), baseTip = 'b'.repeat(40), controller = new AbortController()
+  let submitted = 0, checks = 0, spawnChecks = 0
+  const gh = async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === 'pr' && args[1] === 'merge') { submitted++; return { stdout: 'merged', stderr: '', exitCode: 0 } }
+    if (args[0] === 'pr') return { stdout: JSON.stringify({ number: 7, state: 'OPEN', headRefOid: f.request.sha, baseRefName: 'main', baseRefOid: baseTip, url: 'https://github.com/acme/widgets/pull/7' }), stderr: '', exitCode: 0 }
+    return { stdout: JSON.stringify({ name: 'main', commit: { sha: baseTip } }), stderr: '', exitCode: 0 }
+  }
+  const gateway = new f.module.GitGateway({ ...f.options, gh })
+  const target = { repository: f.request.repository, requester: f.request.requester, number: 7, head: f.request.sha, method: 'squash' as const,
+    reviewedTarget: { repository: f.request.repository, number: 7, head: f.request.sha, baseRef: 'main', baseTip },
+    checkAuthority: () => {
+      checks++
+      if (checks === 5) return new Promise<boolean>(resolve => { resolve(true); queueMicrotask(() => controller.abort(new Error('invocation cancelled'))) })
+      return Promise.resolve(true)
+    },
+    beforeSpawn: () => { spawnChecks++; controller.signal.throwIfAborted() } }
+  await assert.rejects(gateway.mergePullRequest(target), /invocation cancelled/)
+  assert.equal(checks, 5)
+  assert.equal(spawnChecks, 1)
+  assert.equal(submitted, 0)
+  assert.ok((await gateway.record({ repository: target.repository, limit: 20 })).every((row: { outcome: string }) => row.outcome !== 'unknown'))
+})
+
 test('mirror intake accepts the exact commit from a linked worktree object store', async () => {
   const f = await fixture(), checkout = join(f.root, 'checkout')
   git(f.worker, 'worktree', 'add', '-b', 'linked-worker', checkout)
@@ -262,6 +426,10 @@ test('all forge writes journal intent and outcome and fake gh enforces a head-bo
   const gateway = new f.module.GitGateway({ ...f.options, gh: async (cwd: string, args: string[], env: any) => {
     assert.equal(env.GH_REPO, undefined); assert.equal(env.GH_HOST, 'github.com')
     assert.equal(existsSync(join(cwd, '.git')), false)
+    if (args[0] === 'api' && args[1] === 'graphql') {
+      const merged = !!JSON.parse(readFileSync(state, 'utf8')).pulls[0]?.merged
+      return { stdout: JSON.stringify({ data: { repository: { pullRequest: { state: merged ? 'MERGED' : 'OPEN', merged, mergeQueueEntry: null, autoMergeRequest: null } } } }), stderr: '', exitCode: 0 }
+    }
     const rows = await gateway.gitRecord.list({ repository: f.request.repository, limit: 100 })
     assert.equal(rows[0].outcome, 'intent', 'intent is durable before fake gh executes')
     try { return { ...await execute(process.execPath, [fileURLToPath(new URL('./fixtures/fake-gh.mjs', import.meta.url)), ...args],
@@ -276,15 +444,15 @@ test('all forge writes journal intent and outcome and fake gh enforces a head-bo
   await gateway.comment({ ...target, subject: 'pullRequest', body: 'PR comment' })
   await gateway.comment({ ...target, subject: 'issue', number: 9, body: 'Issue comment' })
   await gateway.review({ ...target, event: 'approve', body: 'Reviewed' })
-  await assert.rejects(gateway.mergePullRequest({ ...target, head: 'b'.repeat(40), method: 'squash' }), /head|forge/)
   await gateway.mergePullRequest({ ...target, head: f.request.sha, method: 'squash' })
+  await assert.rejects(gateway.mergePullRequest({ ...target, head: 'b'.repeat(40), method: 'squash' }), /head|forge/)
   const rows = (await gateway.record({ repository: f.request.repository, limit: 100 })).filter((row: any) => row.op !== 'issue.comment')
   assert.equal(rows.length, 12)
   for (const row of rows.filter((row: any) => row.outcome === 'intent')) {
     const pair = rows.filter((other: any) => other.id === row.id)
     assert.equal(pair.length, 2); assert.notEqual(pair[0].outcome, 'intent')
   }
-  assert.equal(rows.find((row: any) => row.outcome === 'rejected')?.op, 'pr.merge')
+  assert.equal(rows.find((row: any) => row.outcome === 'unknown')?.op, 'pr.merge')
   const calls = readFileSync(trace, 'utf8').trim().split('\n').map(line => JSON.parse(line))
   assert.equal(calls.length, 7)
   for (const call of calls) {

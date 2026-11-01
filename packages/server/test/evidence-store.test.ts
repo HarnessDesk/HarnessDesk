@@ -71,6 +71,17 @@ const seatLine = (over: Partial<SeatOpening> = {}): StoredLine => ({ type: 'seat
 const factLine = (over: Partial<EvidenceRecord> = {}): StoredLine => ({ type: 'evidence', record: checkFact(over) })
 const ids = (lines: readonly StoredLine[]): string[] => lines.map((line) => (line.type === 'evidence' ? line.record.id : ''))
 
+test('review compare-and-merge is idempotent only for the same complete PR target', async () => {
+  const plane = new EvidencePlane({ dir: tempDir('hd-review-cas-'), seenFile: join(tempDir('hd-review-seen-'), 'seen.json') }, planePort)
+  const target = { repository: 'acme/widgets', number: 7, head: A, baseRef: 'main', baseTip: 'b'.repeat(40) }
+  const fact = { kind: 'review' as const, at: A, by: 'seat-1' as never, verdict: 'approve', reviewTarget: target }
+  const record = checkFact({ id: 'review-1', fact, seat: 'seat-1' as never, round: 1 })
+  assert.equal((await plane.appendReview('/work/repo', record)).outcome, 'added')
+  assert.equal((await plane.appendReview('/work/repo', { ...record, id: 'same' })).outcome, 'duplicate')
+  assert.equal((await plane.appendReview('/work/repo', { ...record, id: 'different', fact: { ...fact, reviewTarget: { ...target, baseTip: 'c'.repeat(40) } } })).outcome, 'conflict')
+  assert.equal((await plane.store.read('/work/repo', 'evidence')).lines.length, 1)
+})
+
 test('what is appended is read back in the order it was written, apart per project and per file', async () => {
   const dir = tempDir('hd-evidence-store-')
   const store = new EvidenceStore(dir)
@@ -306,9 +317,20 @@ test('a folder whose name does not match the project it claims is not listed', a
 test('nothing in the store can change or remove a line once it is written: it only appends', () => {
   assert.deepEqual(
     Object.getOwnPropertyNames(EvidenceStore.prototype).sort(),
-    // `onDurable` only listens: it is told of lines once they are synced, and hands nothing a way to write.
-    ['append', 'constructor', 'flush', 'folderOf', 'merge', 'onDurable', 'projects', 'read'],
+    // `onDurable` only listens; `generation` is a read-only fence and changes no line.
+    ['append', 'constructor', 'flush', 'folderOf', 'generation', 'merge', 'onDurable', 'projects', 'read'],
   )
+})
+
+test('the generation changes when a write is queued, before it can alter evidence', async () => {
+  const store = new EvidenceStore(tempDir('hd-evidence-generation-'))
+  const start = store.generation
+  const first = store.append('/work/repo', 'evidence', [factLine()])
+  assert.equal(store.generation, start + 1)
+  const second = store.merge('/work/repo', 'evidence', [factLine({ id: 'next' })], () => 'add')
+  assert.equal(store.generation, start + 2)
+  await Promise.all([first, second])
+  assert.equal(store.generation, start + 2)
 })
 
 // ------------------------------------------------------------- findings (phase 7)

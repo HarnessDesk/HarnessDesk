@@ -6,6 +6,8 @@ import type { EvidenceRecord, EvidenceView, ReviewInput } from '@harnessdesk/pro
 
 import { FlowReview, PERSON_REVIEWER_ID, type ReviewAppendOutcome, type ReviewBinding, type ReviewSubjectPort } from '../src/flow-evidence.js'
 import { evidenceRecordOf, factOf } from '../src/evidence/records.js'
+import { EvidenceStore } from '../src/evidence/store.js'
+import { tempDir } from './scratch.js'
 import type { TeamCallScope } from '../src/team.js'
 
 /*
@@ -22,11 +24,36 @@ import type { TeamCallScope } from '../src/team.js'
 const SHA_A = 'a'.repeat(40)
 const SHA_B = 'f'.repeat(40)
 
+test('review target facts round-trip and reject incomplete or inconsistent bindings', () => {
+  const target = { repository: 'acme/widgets', number: 7, head: SHA_A, baseRef: 'main', baseTip: SHA_B }
+  const fact = { kind: 'review', verdict: 'approve', by: 'seat-reviewer', at: SHA_A, reviewTarget: target }
+  assert.deepEqual(factOf(JSON.parse(JSON.stringify(fact))), fact)
+  assert.ok(factOf({ kind: 'review', verdict: 'approve', by: 'seat-reviewer', at: SHA_A }), 'legacy unbound fact remains readable')
+  for (const bad of [{ ...target, baseTip: undefined }, { ...target, repository: '../wrong' }, { ...target, repository: 'Acme/widgets' }, { ...target, number: 0 }, { ...target, head: SHA_B }, { ...target, baseRef: '-invalid' }]) {
+    assert.equal(factOf({ ...fact, reviewTarget: bad }), null)
+  }
+})
+
+test('a bound review survives evidence journal reopen without upgrading legacy records', async () => {
+  const directory = tempDir('hd-review-binding-replay-')
+  const store = new EvidenceStore(directory)
+  const target = { repository: 'acme/widgets', number: 7, head: SHA_A, baseRef: 'main', baseTip: SHA_B }
+  const bound: EvidenceRecord = { id: randomUUID(), fact: { kind: 'review', by: 'seat-reviewer' as never, verdict: 'approve', at: SHA_A, reviewTarget: target }, observedAt: 1 }
+  const legacy: EvidenceRecord = { ...bound, id: randomUUID(), fact: { kind: 'review', by: 'seat-reviewer' as never, verdict: 'approve', at: SHA_A } }
+  await store.append('/project', 'evidence', [{ type: 'evidence', record: bound }, { type: 'evidence', record: legacy }])
+  const replay = await new EvidenceStore(directory).read('/project', 'evidence')
+  assert.equal(replay.skipped, 0)
+  assert.deepEqual(replay.lines, [{ type: 'evidence', record: bound }, { type: 'evidence', record: legacy }])
+})
+
 class FakePort implements ReviewSubjectPort {
   readonly facts_ = new Map<string, EvidenceRecord[]>()
   bindings = new Map<string, ReviewBinding>()
   personBindings = new Map<string, ReviewBinding>()
   now_ = 1
+  currentTarget_ = true
+
+  async currentTarget(): Promise<boolean> { return this.currentTarget_ }
 
   key(runtime: string | undefined, sessionId: string | undefined): string {
     return `${runtime ?? ''}\u0000${sessionId ?? ''}`
@@ -141,6 +168,48 @@ test('record_review refuses a candidate whose head moved since it was offered', 
     () => review.record({ intent: 3, candidate: candidate!.id, verdict: 'approve' }, scope),
     /moved on/,
   )
+})
+
+test('record_review refuses the same head when its host-observed PR base moved', async () => {
+  const port = new FakePort()
+  const scope = scopeOf('alpha', 's1')
+  const target = { repository: 'acme/widgets', number: 7, head: SHA_A, baseRef: 'main', baseTip: SHA_B }
+  const binding: ReviewBinding = {
+    goal: 'goal-1', seat: 'seat-reviewer', answers: ['approve'], round: 1,
+    subjects: [{ card: 1, round: 1, checkout: { cwd: '/repo', branch: 'work' }, at: SHA_A, reviewTarget: target } as ReviewBinding['subjects'][number]],
+  }
+  const key = `3\u0000${port.key('alpha', 's1')}`
+  port.bindings.set(key, binding)
+  const review = new FlowReview(port)
+  const [candidate] = await review.candidates(3, scope)
+  port.bindings.set(key, { ...binding, subjects: [{ ...binding.subjects[0]!, reviewTarget: { ...target, baseTip: 'b'.repeat(40) } } as ReviewBinding['subjects'][number]] })
+  await assert.rejects(() => review.record({ intent: 3, candidate: candidate!.id, verdict: 'approve' }, scope), /moved on/)
+  assert.deepEqual(port.facts_.get('goal-1') ?? [], [])
+  const [fresh] = await review.candidates(3, scope)
+  const recorded = await review.record({ intent: 3, candidate: fresh!.id, verdict: 'approve' }, scope)
+  assert.equal(recorded.fact.kind, 'review')
+  assert.deepEqual(recorded.fact.kind === 'review' ? recorded.fact.reviewTarget : null, { ...target, baseTip: 'b'.repeat(40) })
+  assert.equal((await review.record({ intent: 3, candidate: fresh!.id, verdict: 'approve' }, scope)).id, recorded.id)
+  port.currentTarget_ = false
+  await assert.rejects(review.record({ intent: 3, candidate: fresh!.id, verdict: 'approve' }, scope), /moved on/)
+  assert.equal(port.facts_.get('goal-1')?.length, 1)
+})
+
+test('a closed person review cannot reuse its prior verdict after the PR target moved', async () => {
+  const port = new FakePort()
+  const target = { repository: 'acme/widgets', number: 7, head: SHA_A, baseRef: 'main', baseTip: SHA_B }
+  const binding: ReviewBinding = {
+    goal: 'goal-1', seat: PERSON_REVIEWER_ID, answers: ['picked'], round: 4,
+    subjects: [{ card: 7, round: 2, checkout: { cwd: '/repo', branch: 'work' }, at: SHA_A, reviewTarget: target }],
+  }
+  port.personBindings.set('run-1\u00005', binding)
+  const review = new FlowReview(port)
+  const [candidate] = await review.personCandidates('run-1', 5)
+  await review.recordPerson('run-1', 5, candidate!.id, 'picked')
+  port.personBindings.delete('run-1\u00005')
+  port.currentTarget_ = false
+  await assert.rejects(review.recordPerson('run-1', 5, candidate!.id, 'picked'), /moved on/)
+  assert.equal(port.facts_.get('goal-1')?.length, 1)
 })
 
 for (const changed of ['branch', 'cwd'] as const) {

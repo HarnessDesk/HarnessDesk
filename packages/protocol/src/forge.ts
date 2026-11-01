@@ -17,7 +17,7 @@ export interface ForgeGitEntry {
   readonly requester: ForgeRequester | { readonly kind: 'outside' }
   readonly approval: { readonly by: 'person' | 'standing' | 'ceiling' | 'steered'; readonly at?: number } | null
   readonly at: number; readonly op: 'push' | 'pr.create' | 'pr.update' | 'pr.merge' | 'pr.comment' | 'pr.review' | 'issue.comment' | 'observed'
-  readonly outcome: 'intent' | 'ok' | 'refused' | 'failed' | 'rejected'; readonly reason?: string
+  readonly outcome: 'intent' | 'unknown' | 'observed-merged' | 'ok' | 'refused' | 'failed' | 'rejected'; readonly reason?: string
 }
 export interface ForgeWriteResult { readonly output: string; readonly repository: string }
 export type ForgeVerb = 'push' | 'create' | 'update' | 'merge' | 'review' | 'comment' | 'record' | 'attribute' | 'repository' | 'associatedPullRequest'

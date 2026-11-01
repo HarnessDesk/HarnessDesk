@@ -81,6 +81,17 @@ const subject = (card: number, at: string): FlowSubject => ({ card, round: 1, ch
 const A = subject(1, 'sha-a')
 const B = subject(2, 'sha-b')
 
+test('a review at the same head cannot satisfy a different host-bound PR base', () => {
+  const first = { repository: 'acme/widgets', number: 7, head: 'sha-a', baseRef: 'main', baseTip: 'base-one' }
+  const next = { ...first, baseTip: 'base-two' }
+  const old = view({ kind: 'review', card: 5, round: 3, at: 'sha-a', verdict: 'picked' })
+  assert.equal(old.record.fact.kind, 'review')
+  if (old.record.fact.kind !== 'review') return
+  const fact = { ...old, record: { ...old.record, fact: { ...old.record.fact, reviewTarget: first } } }
+  assert.equal(evidenceGuard([{ review: 'picked' }], judged([{ ...A, reviewTarget: next }], [fact])).state, 'waiting')
+  assert.equal(evidenceGuard([{ review: 'picked' }], judged([{ ...A, reviewTarget: first }], [fact])).state, 'matched')
+})
+
 /** The judge round finished, over the writers `subjects`, with the check cards between. */
 const judged = (subjects: readonly FlowSubject[], facts: readonly EvidenceView[], extra: Partial<FlowEvidenceContext> = {}): FlowEvidenceContext => ({
   goal: 'goal-1',

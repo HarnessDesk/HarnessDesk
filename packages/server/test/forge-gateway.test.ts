@@ -11,6 +11,7 @@ import { gitPlugin } from '@harnessdesk/plugins'
 import type { ForgeReference } from '@harnessdesk/protocol'
 import { ForgePlane } from '../src/forge.js'
 import { GitGateway } from '../src/git-gateway/index.js'
+import { GitSteering } from '../src/git-gateway/steering.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 import { sourceDigest } from '../src/flow-execution.js'
 import { CeilingGate, GatedRegistry } from '../src/ceilings/gate.js'
@@ -40,10 +41,12 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
   } })
   const questions: HeldQuestion[] = [], publications: ForgeReference[] = [], admissions: string[] = []
   let onQuestion: (() => void | Promise<void>) | undefined
-  let answer: 'allowed' | 'standing' | 'refused' | 'unanswered' = 'allowed', mergeStep = false, ceiling: 'read' | 'publish' | 'merge' = 'merge'
+  let answer: 'allowed' | 'standing' | 'refused' | 'unanswered' = 'allowed', mergeStep = false, guardedMerge = false, ceiling: 'read' | 'publish' | 'merge' = 'merge'
+  let reviewBinding: import('@harnessdesk/protocol').ReviewTargetBinding | null = null
   const plane = new ForgePlane({ gitGateway: gateway, checkoutOf: async () => ({ cwd: checkout, root: checkout }),
     admitWrite: async verb => { admissions.push(verb); if (ceiling === 'read' || verb === 'merge' && ceiling !== 'merge') throw new Error('Ceiling refused') },
     askPerson: async (_scope, question) => { questions.push(question); await onQuestion?.(); return answer }, mergeStep: (_scope, target) => mergeStep && ceiling === 'merge' && target.number === 1 && target.head === git(checkout, 'rev-parse', 'HEAD'),
+    guardedMerge: () => guardedMerge, mergeAuthority: async () => reviewBinding, mergeFence: () => guardedMerge ? 'fixture-owner' : null, mergeGeneration: () => 0,
     agentOf: () => ({ name: 'Test Agent', version: null }), optionsOf: () => [], toolsOffered: () => true,
     record: (_runtime, _session, item) => { publications.push(item.reference); return true },
   }, { gh: async args => ({ stdout: args[0] === 'api' ? 'jane-doe' : '', stderr: '', exitCode: 0 }) })
@@ -63,8 +66,76 @@ const fixture = async (t: { after(fn: () => void | Promise<void>): void }) => {
   const trace = () => !existsSync(tracePath) ? [] : readFileSync(tracePath, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { argv: string[]; cwd: string; hasCredential: boolean; envKeys: string[] })
   return { gateway, plane, kernel, root, checkout, remote, host, run, invoke, rows, questions, publications, admissions, trace, statePath,
     onQuestion: (hook: () => void | Promise<void>) => { onQuestion = hook },
-    answer: (value: typeof answer) => { answer = value }, mergeStep: (value: boolean) => { mergeStep = value }, ceiling: (value: typeof ceiling) => { ceiling = value } }
+    answer: (value: typeof answer) => { answer = value }, mergeStep: (value: boolean) => { mergeStep = value }, guardedMerge: (value: boolean) => { guardedMerge = value }, reviewBinding: (value: typeof reviewBinding) => { reviewBinding = value }, ceiling: (value: typeof ceiling) => { ceiling = value } }
 }
+
+test('a guarded Flow merge with missing authority refuses without a person fallback', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  await f.run('pr_create', { title: 'Widgets', body: 'Body' })
+  const state = JSON.parse(readFileSync(f.statePath, 'utf8'))
+  state.pulls[0].checks = [{ name: 'build', id: 1, status: 'completed', conclusion: 'success' }]
+  writeFileSync(f.statePath, JSON.stringify(state))
+  const questions = f.questions.length
+  f.guardedMerge(true)
+  await assert.rejects(f.run('pr_merge', { number: 1, head: git(f.checkout, 'rev-parse', 'HEAD') }), /fresh review/i)
+  assert.equal(f.questions.length, questions)
+  assert.equal(f.trace().filter(call => call.argv[1] === 'merge').length, 0)
+})
+
+test('a custom forge plugin cannot bypass guarded merge authority', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  await f.run('pr_create', { title: 'Widgets', body: 'Body' })
+  f.guardedMerge(true)
+  await f.kernel.load({ manifest: { id: 'merge-probe', name: 'Merge probe', permissions: { forge: { publish: true, write: true } } }, plugin: { name: 'merge-probe', inject: ['tools', 'forge'], apply(ctx: any) {
+    ctx.tools.register({ name: 'merge_probe', description: 'Fixture', inputSchema: { type: 'object' }, execute: (_args: unknown, scope: any) => ctx.forge.pullRequest.merge({ number: 1, head: git(f.checkout, 'rev-parse', 'HEAD'), method: 'squash' }, scope) })
+  } } })
+  await new Promise(resolve => setTimeout(resolve, 60))
+  const tool = f.kernel.list('tool').find(one => one.name === 'merge_probe')!
+  const result = await f.kernel.invokeTool(tool.id, {}, { runtime: 'fixture', sessionId: 's1' } as never)
+  assert.equal(result.ok, false)
+  assert.match(JSON.stringify(result), /fresh review/i)
+  assert.equal(f.questions.length, 1)
+  assert.equal(f.trace().filter(call => call.argv[0] === 'pr' && call.argv[1] === 'merge').length, 0)
+})
+
+test('a steered merge cannot bypass guarded merge authority', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  await f.run('pr_create', { title: 'Widgets', body: 'Body' })
+  const state = JSON.parse(readFileSync(f.statePath, 'utf8'))
+  state.pulls[0].checks = [{ name: 'build', id: 1, status: 'completed', conclusion: 'success' }]
+  writeFileSync(f.statePath, JSON.stringify(state))
+  f.guardedMerge(true)
+  const head = git(f.checkout, 'rev-parse', 'HEAD')
+  const scope = { runtime: 'fixture', sessionId: 's1', cwd: f.checkout, root: f.checkout, turn: 't1', name: 'Test Agent' }
+  const steering = new GitSteering(join(f.root, 'steering'), f.gateway, { preferences: () => ({ gitWrites: { steer: 'redirect' } }), projectOf: async () => f.checkout, scope: async () => scope,
+    admit: async () => {}, ask: async () => 'allowed', say: () => {}, invoke: async (_scope, name, input) => f.invoke(name, input) })
+  const reply = await steering.handle('fixture', 's1', { binary: 'gh', argv: ['pr', 'merge', '1', '--squash', '--match-head-commit', head], cwd: f.checkout }, new AbortController().signal)
+  assert.equal(reply.action, 'done')
+  assert.equal(reply.ok, false)
+  assert.match(reply.output ?? '', /fresh review/i)
+  assert.equal(f.questions.length, 1)
+  assert.equal(f.trace().filter(call => call.argv[0] === 'pr' && call.argv[1] === 'merge').length, 0)
+})
+
+test('a host-bound guarded merge reaches the serialized forge write with no manual fallback', async t => {
+  const f = await fixture(t)
+  await f.run('git_push', { set_upstream: true })
+  await f.run('pr_create', { title: 'Widgets', body: 'Body' })
+  const head = git(f.checkout, 'rev-parse', 'HEAD')
+  const state = JSON.parse(readFileSync(f.statePath, 'utf8'))
+  state.pulls[0].checks = [{ name: 'build', id: 1, status: 'completed', conclusion: 'success' }]
+  writeFileSync(f.statePath, JSON.stringify(state))
+  f.guardedMerge(true)
+  f.reviewBinding({ repository: 'acme/widgets', number: 1, head, baseRef: 'main', baseTip: head })
+  const questions = f.questions.length
+  await f.run('pr_merge', { number: 1, head })
+  assert.equal(f.questions.length, questions)
+  assert.equal(f.trace().filter(call => call.argv[1] === 'merge').length, 1)
+  assert.ok(f.trace().some(call => call.argv[0] === 'api' && call.argv[1] === 'repos/acme/widgets/branches/main'))
+})
 
 test('a detached conversation resolves only its own recorded PR through the plugin', async t => {
   const f = await fixture(t)
@@ -126,6 +197,7 @@ test('every plugin forge write runs in the host, records its requester, preserve
   const head = git(f.checkout, 'rev-parse', 'HEAD')
   await f.run('pr_merge', { number: 1, head })
   assert.equal(f.questions.length, 2, 'ordinary merge asks even with a merge ceiling')
+  assert.match(f.questions[1]!.reason ?? '', /no fresh review proof/i)
   assert.ok((await f.gateway.record({ repository: 'acme/widgets', number: 1, limit: 100 })).some(row => row.op === 'pr.create' && row.outcome === 'ok'))
   const rows = (await f.rows()).filter(one => one.outcome === 'ok')
   for (const op of ['push', 'pr.create', 'pr.update', 'pr.review', 'pr.comment', 'issue.comment', 'pr.merge']) {
@@ -144,8 +216,8 @@ test('every plugin forge write runs in the host, records its requester, preserve
   assert.ok(writes.every(call => call.hasCredential), 'only the host runner receives its credential')
   f.mergeStep(true)
   await f.run('pr_merge', { number: 1, head })
-  assert.equal(f.questions.length, 2, 'the authorized Team merge step does not ask again')
-  assert.equal((await f.rows())[0]?.approval?.by, 'ceiling')
+  assert.equal(f.questions.length, 3, 'an unbound boolean exemption is not review authority')
+  assert.equal((await f.rows())[0]?.approval?.by, 'person')
   assert.match(JSON.parse(readFileSync(f.statePath, 'utf8')).pulls[0].body, /Test Agent/)
 })
 
@@ -337,6 +409,57 @@ rules:
   assert.equal(rig.flows.isMergeStep(run.goal, card, { number: 9, head }), false)
   assert.equal(rig.flows.isMergeStep(run.goal, card, { number: 5, head: 'b'.repeat(40) }), false)
   assert.equal(rig.flows.isMergeStep(run.goal, 99, { number: 5, head }), false)
+})
+
+for (const unbound of [false, true]) test(`a Flow merge authority ${unbound ? 'does not promote an initially unbound review' : 'comes from its newly recorded host-bound review evidence'}`, async t => {
+  const head = 'a'.repeat(40), baseTip = 'b'.repeat(40)
+  const binding = { repository: 'acme/widgets', number: 5, head, baseRef: 'main', baseTip }
+  const rig = await goalRig(t, { reviewTarget: async () => ({ at: head, number: 5, reviewTarget: binding }) })
+  rig.heads.set('/repo', { at: head, dirty: false })
+  const reviewerBase = agent('reviewer', ['approve'])
+  const reviewer = { ...reviewerBase, definition: { ...reviewerBase.definition!, ceiling: 'read' as const, produces: ['review' as const] } }
+  const mergerBase = agent('merger', ['merged'])
+  const merger = { ...mergerBase, definition: { ...mergerBase.definition!, ceiling: 'merge' as const } }
+  const source = `version: 2
+name: Review then merge
+roles:
+  reviewer: { kind: agent, uses: reviewer, grant: read }
+  merger: { kind: agent, uses: merger, grant: merge }
+seed: { role: reviewer, title: Review pull request 5 }
+rules:
+  - { id: merge, on: reviewer, when: { evidence: [{ review: approve }] }, then: { role: merger, title: Merge pull request 5 } }
+`
+  const run = await rig.flows.startGoal({ root: '/repo', sentence: 'Review PR', source, sourcePath: null, compiled: rig.compile(source, [reviewer, merger]),
+    target: { kind: 'pull-request', label: 'PR 5', base: baseTip, head, pr: 5, baseRef: 'main', repository: binding.repository, ...(unbound ? { reviewBound: false as const } : {}), dirty: false },
+    requireHeld: true, authorization: { sourceDigest: sourceDigest(source), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' },
+  })
+  assert.equal(run.state, 'running', run.reason ?? '')
+  const [candidate] = await rig.review.candidates(1, rig.sessionOf('seat-1'))
+  assert.deepEqual(candidate?.reviewTarget, unbound ? undefined : binding)
+  await rig.review.record({ intent: 1, candidate: candidate!.id, verdict: 'approve' }, rig.sessionOf('seat-1'))
+  await rig.team.complete(1, { outcome: 'approve' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  const card = rig.board(run.goal).intents.find(one => one.role === 'merger')!
+  assert.ok(card, 'the review-backed merge card opened')
+  const authority = (rig.flows as any).mergeAuthority.bind(rig.flows)
+  assert.deepEqual(await authority(run.goal, card.id, { number: 5, head, repository: binding.repository }), unbound ? null : binding)
+  assert.equal(await authority(run.goal, card.id, { number: 5, head, repository: 'acme/other' }), null)
+  const facts = rig.facts.get(run.goal)!
+  const fact = facts.find(one => one.fact.kind === 'review')!
+  if (!unbound) {
+    rig.staleFacts.add(fact.id)
+    assert.equal(await authority(run.goal, card.id, { number: 5, head, repository: binding.repository }), null)
+    rig.staleFacts.delete(fact.id)
+    assert.equal(fact.fact.kind, 'review')
+    if (fact.fact.kind !== 'review') throw new Error('expected review')
+    const { reviewTarget: _omitted, ...legacy } = fact.fact
+    rig.facts.set(run.goal, facts.map(one => one.id === fact.id ? { ...one, fact: legacy } : one))
+    assert.equal(await authority(run.goal, card.id, { number: 5, head, repository: binding.repository }), null, 'legacy verdict cannot authorize')
+    rig.facts.set(run.goal, [...facts, { ...fact, id: 'competing', fact: { ...fact.fact, verdict: 'request-changes' } }])
+    assert.equal(await authority(run.goal, card.id, { number: 5, head, repository: binding.repository }), null, 'later competing verdict defeats the old selection')
+  }
+  rig.facts.set(run.goal, [...facts, { ...fact, restored: { at: 1 } }])
+  assert.equal(await authority(run.goal, card.id, { number: 5, head, repository: binding.repository }), null)
 })
 
 test('non-push refusals keep operation and number for a known pin', async t => {

@@ -78,7 +78,10 @@ const answer = (state, path) => {
     throw new Error(`unexpected path ${path}`)
   }
   if (parts[3] === 'rules' && parts[4] === 'branches') return []
-  if (parts[3] === 'branches') return { protected: (state.protectedBranches ?? []).includes(decodeURIComponent(parts[4])), protection: { enabled: false } }
+  if (parts[3] === 'branches') {
+    const name = decodeURIComponent(parts[4])
+    return { name, commit: { sha: state.baseTips?.[name] ?? state.publicationHead }, protected: (state.protectedBranches ?? []).includes(name), protection: { enabled: false } }
+  }
   if (parts.length === 3) return { squash_merge_commit_message: 'PR_BODY', merge_commit_message: 'PR_TITLE' }
   if (parts[3] === 'pulls' && parts.length === 4) {
     const wantState = url.searchParams.get('state')
@@ -168,7 +171,7 @@ if (args[0] === 'repo' && args[1] === 'view') {
   const after = (flag) => args[args.indexOf(flag) + 1]
   const pullView = one => ({ number: one.number, title: one.title ?? `Change ${one.number}`, body: one.body ?? '',
     state: one.merged ? 'MERGED' : one.state === 'closed' ? 'CLOSED' : 'OPEN', url: `https://github.com/${state.repo}/pull/${one.number}`,
-    baseRefName: one.base ?? 'main', headRefName: one.branch ?? 'worker', headRefOid: one.head, isCrossRepository: false, headRepositoryOwner: { login: state.repo.split('/')[0] }, author: { login: state.user?.login ?? 'demo' } })
+    baseRefName: one.base ?? 'main', baseRefOid: state.baseTips?.[one.base ?? 'main'] ?? state.publicationHead, headRefName: one.branch ?? 'worker', headRefOid: one.head, isCrossRepository: false, headRepositoryOwner: { login: state.repo.split('/')[0] }, author: { login: state.user?.login ?? 'demo' } })
   if (args[1] === 'list') {
     process.stdout.write(JSON.stringify(state.pulls.filter(one => one.state === 'open' && (!args.includes('--head') || one.branch === after('--head'))).map(pullView)))
   } else if (args[1] === 'create') {
@@ -219,6 +222,12 @@ if (args[0] === 'repo' && args[1] === 'view') {
     process.exitCode = 0
   }
 } else if (args[0] === 'api') {
+  if (args[1] === 'graphql') {
+    const numberArg = args.find(arg => arg.startsWith('number='))
+    const one = state.pulls.find(pull => pull.number === Number(numberArg?.slice(7)))
+    process.stdout.write(JSON.stringify({ data: { repository: { pullRequest: one ? { state: one.merged ? 'MERGED' : one.state === 'closed' ? 'CLOSED' : 'OPEN', merged: !!one.merged, mergeQueueEntry: one.queued ? { id: 'fixture-queue' } : null, autoMergeRequest: null } : null } } }))
+    process.exit(0)
+  }
   const path = args.find(arg => arg === 'user' || arg.startsWith('repos/')) ?? args[args.length - 1]
   try {
     const body = answer(state, path)

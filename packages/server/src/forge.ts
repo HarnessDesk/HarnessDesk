@@ -38,6 +38,10 @@ export interface ForgePort {
   admitWrite?(verb: ForgeVerb, scope: ForgeScope, args?: unknown): Promise<void>
   askPerson?(scope: ForgeScope, question: HeldQuestion, signal?: AbortSignal): Promise<'allowed' | 'standing' | 'refused' | 'unanswered'>
   mergeStep?(scope: ForgeScope, target: { readonly number: number; readonly head: string }): boolean
+  guardedMerge?(scope: ForgeScope): boolean
+  mergeAuthority?(scope: ForgeScope, target: { readonly repository: string; readonly number: number; readonly head: string }): Promise<import('@harnessdesk/protocol').ReviewTargetBinding | null>
+  mergeFence?(scope: ForgeScope, target: { readonly repository: string; readonly number: number; readonly head: string }): string | null
+  mergeGeneration?(): number
   /** The agent behind a runtime — its presentation name and version — or null when the host has no such runtime. */
   agentOf(runtime: string): { readonly name: string; readonly version: string | null } | null
   /** The controls of a conversation with their current values, or null when the host holds no such conversation. */
@@ -283,9 +287,20 @@ export class ForgePlane implements ForgeEngine {
     merge: async (args: ForgeMerge, scope: ForgeScope): Promise<ForgeWriteResult> => {
       const { gateway, checkout, requester, repository } = await this.#destination(scope, 'merge', args)
       let approval: GitApproval = { by: 'ceiling', at: Date.now() }
-      if (!this.port.mergeStep?.(scope, { number: args.number, head: args.head })) {
+      const guarded = this.port.guardedMerge?.(scope) ?? false
+      const target = { repository, number: args.number, head: args.head }
+      const generation = guarded ? this.port.mergeGeneration?.() : undefined
+      const fence = guarded ? this.port.mergeFence?.(scope, target) : null
+      const binding = guarded ? await this.port.mergeAuthority?.(scope, target) : null
+      this.#live(scope)
+      if (guarded && (!binding || generation === undefined || !fence || this.port.mergeGeneration?.() !== generation || this.port.mergeFence?.(scope, target) !== fence)) {
+        const reason = 'This Flow merge requires a fresh review of its current pull request target.'
+        await gateway.refuse('pr.merge', { repository, requester, number: args.number, sha: args.head }, reason)
+        throw new Error(reason)
+      }
+      if (!guarded) {
         const answer = await this.port.askPerson?.(scope, { gateway: true, summary: `Merge pull request #${args.number} in ${repository}`,
-          reason: `Merge the reviewed head ${args.head}.`, facts: [{ label: 'Repository', value: repository }, { label: 'Branch', value: await gateway.pullRequestHeadRef(repository, args.number) }, { label: 'Head', value: args.head }],
+          reason: `Merge head ${args.head}. No fresh review proof is checked for this manual approval.`, facts: [{ label: 'Repository', value: repository }, { label: 'Branch', value: await gateway.pullRequestHeadRef(repository, args.number) }, { label: 'Head', value: args.head }],
           options: [{ id: 'allow', label: 'Merge', intent: 'approve' }, { id: 'refuse', label: "Don't merge", intent: 'deny' }] }, gitSteerContext.getStore()?.signal)
         if (answer !== 'allowed') {
           await gateway.refuse('pr.merge', { repository, requester, number: args.number, sha: args.head }, 'Merge refused: the person did not approve it.')
@@ -294,7 +309,18 @@ export class ForgePlane implements ForgeEngine {
         approval = { by: 'person', at: Date.now() }
       }
       this.#live(scope)
-      return { output: await gateway.mergePullRequest({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, approval, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository) }), repository }
+      const checkAuthority = binding ? async () => {
+        this.#live(scope)
+        if (!this.port.guardedMerge?.(scope) || this.port.mergeGeneration?.() !== generation || this.port.mergeFence?.(scope, target) !== fence) return false
+        const current = await this.port.mergeAuthority?.(scope, target)
+        this.#live(scope)
+        return this.port.mergeGeneration?.() === generation && this.port.mergeFence?.(scope, target) === fence && !!current && current.repository === binding.repository && current.number === binding.number && current.head === binding.head && current.baseRef === binding.baseRef && current.baseTip === binding.baseTip
+      } : undefined
+      const beforeSpawn = () => {
+        this.#live(scope)
+        if (binding && (this.port.mergeGeneration?.() !== generation || this.port.mergeFence?.(scope, target) !== fence)) throw new Error('The merge authority changed before submission. Start a fresh review.')
+      }
+      return { output: await gateway.mergePullRequest({ ...args, repository, requester, steeredFrom: gitSteerContext.getStore()?.command, approval, beforeWrite: this.#beforeWrite(scope, gateway, checkout.root, checkout.cwd, repository), beforeSpawn, ...(binding ? { reviewedTarget: binding, checkAuthority } : {}) }), repository }
     },
   }
   async review(args: ForgeReview, scope: ForgeScope): Promise<ForgeWriteResult> {

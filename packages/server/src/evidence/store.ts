@@ -110,6 +110,8 @@ export class EvidenceStore {
   #queue: Promise<void> = Promise.resolve()
   /** The first write that failed since the last `flush()`. */
   #failure: unknown = null
+  #generation = 0
+  get generation(): number { return this.#generation }
   readonly #durable = new Set<(project: string, file: StoreFile, lines: readonly StoredLine[]) => void>()
 
   constructor(dir: string, log: (message: string, details: Readonly<Record<string, unknown>>) => void = () => {}) {
@@ -225,6 +227,7 @@ export class EvidenceStore {
   }
 
   #enqueue<T>(step: () => Promise<T>): Promise<T> {
+    this.#generation += 1
     const run = this.#queue.then(step)
     this.#queue = run.then(
       () => undefined,
