@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Account status keeps the last accepted sign-in mode.** A refused key switch no longer erases it, and successful sign-in or sign-out updates it.
+
 - **Overview seat states and costs stay readable in narrow panes.** Facts move below the name when they need more room.
 
 - Messages the Lead sends into a chat now say so, and you can take a chat over from the Lead and hand it back.
