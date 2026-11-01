@@ -246,12 +246,23 @@ test('a declared transition arrives at once, and a declared delay still holds', 
     column.style.width = '0px'
     column.style.visibility = 'hidden'
     const now = { width: column.getBoundingClientRect().width, visibility: getComputedStyle(column).visibility }
-    await new Promise((resolve) => setTimeout(resolve, 450))
+    const transitions = column.getAnimations().filter((animation): animation is CSSTransition =>
+      animation instanceof CSSTransition && animation.transitionProperty === 'visibility',
+    )
+    const timing = transitions[0]?.effect?.getComputedTiming()
+    // Delay the first rendering opportunity past the old 450ms timer. The
+    // transition's own clock begins with rendering, not with that timer.
+    const barrier = performance.now() + 650
+    while (performance.now() < barrier) {}
+    await Promise.all(transitions.map((transition) => transition.finished))
     const later = getComputedStyle(column).visibility
     column.remove()
-    return { now, later }
+    return { now, later, count: transitions.length, delay: timing?.delay, duration: timing?.duration }
   })
   expect(read.now).toEqual({ width: 0, visibility: 'visible' })
+  expect(read.count).toBe(1)
+  expect(read.delay).toBe(300)
+  expect(read.duration).toBe(0)
   expect(read.later).toBe('hidden')
 })
 
