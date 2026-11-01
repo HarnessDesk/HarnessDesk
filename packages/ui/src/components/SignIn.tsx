@@ -41,6 +41,7 @@ import {
   AlertTitle,
   SignInRail,
   Button,
+  ConfirmDialog,
   CodeText,
   DialogBody,
   DialogContent,
@@ -611,6 +612,14 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
   const account = status?.accounts[0]
   const [adding, setAdding] = useState(false)
   const [namingAccount, setNamingAccount] = useState(false)
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
+  const requestRemove = () => info.slot?.forgetUnknown ? setConfirmingRemove(true) : void store.removeAccount(info.id)
+  const removalConfirmation = confirmingRemove ? (
+    <ConfirmDialog title={`Remove this ${info.presentation.name} account?`} confirmLabel="Remove account" tone="destructive"
+      onCancel={() => setConfirmingRemove(false)} onConfirm={() => { setConfirmingRemove(false); void store.removeAccount(info.id) }}>
+      Removes this account from HarnessDesk. Its agent or system credentials may remain. Conversations stay with the runtime.
+    </ConfirmDialog>
+  ) : null
   const addAccount = async (name?: string): Promise<void> => {
     if (adding) return
     setAdding(true)
@@ -666,12 +675,13 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
         {broken.remediation ? <Note className={own.noteFlush}>{broken.remediation}</Note> : null}
         {info.slot?.removable ? (
           <div className={own.actions}>
-            <Button variant="ghost" onClick={() => void store.removeAccount(info.id)}>
+            <Button variant="ghost" onClick={requestRemove}>
               Remove this account
             </Button>
           </div>
         ) : null}
       </div>
+      {removalConfirmation}
     </>
   )
 
@@ -693,7 +703,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           stay below in case it is not signed in (#1759). */}
       {status?.unchecked && !account && !pending ? (
         <Note className={own.noteFlush}>
-          Not checked yet. {info.presentation.name} says whether it is signed in when its first conversation opens.
+          {info.slot?.forgetUnknown ? 'Not checked yet.' : `Not checked yet. ${info.presentation.name} says whether it is signed in when its first conversation opens.`}
         </Note>
       ) : null}
 
@@ -774,7 +784,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
               describes. */}
           {info.slot?.removable ? (
             <div className={own.actions}>
-              <Button variant="ghost" onClick={() => void store.removeAccount(info.id)}>
+              <Button variant="ghost" onClick={requestRemove}>
                 Remove this account
               </Button>
             </div>
@@ -827,6 +837,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
       ) : null}
       {namingAccount && <AccountNameDialog info={info} adding={adding}
         onAdd={addAccount} onClose={() => setNamingAccount(false)} />}
+      {removalConfirmation}
     </>
   )
 }

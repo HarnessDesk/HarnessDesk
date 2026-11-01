@@ -154,8 +154,9 @@ export interface AccountStatus {
    */
   readonly refusal?: string
   /**
-   * True while the agent has not been asked yet: nobody is listed because
-   * nothing has shown either way, not because nobody is signed in. An ACP
+   * True while the current account has not been verified: nobody is listed
+   * because nothing has shown either way now, not because nobody is signed in.
+   * A previous process's observation may no longer apply. An ACP
    * agent says whether it is signed in only when a session opens (or is
    * refused), so until then an empty list is "not checked", and a surface
    * that read it as "needs no account" or "not signed in" was wrong both
@@ -572,6 +573,8 @@ export interface RuntimeInfo {
     readonly home: string | null
     /** False for the agent's original account, which owns the real home. */
     readonly removable: boolean
+    /** Removing this slot can leave credentials with the agent or system. */
+    readonly forgetUnknown?: true
     /** Whether the host can make one more account of this agent. */
     readonly canAdd: boolean
     /** The credential cannot name this account, so the person names it when adding it. */

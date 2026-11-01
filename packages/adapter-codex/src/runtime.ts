@@ -134,6 +134,8 @@ export interface CodexRuntimeOptions {
    * account would show every Codex thread as many times as there are accounts.
    */
   readonly sharesHistory?: boolean
+  /** A saved account observation is not proof that an extra slot remains signed in. */
+  readonly unverifiedIdleAccount?: boolean
   readonly clientName?: string
   readonly clientVersion?: string
   readonly binaryPath?: string | null
@@ -302,6 +304,7 @@ export class CodexRuntime implements AgentRuntime {
   #idleStopped = true
   #discoveredFailure: RuntimeHealth | null = null
   #lastAccount: AccountStatus | null = null
+  #accountEpoch = 0
   #lastRateLimits: RateLimits | null = null
   #lastAccountActivity: AccountActivity | null = null
   #lastFeatures: CodexProtocol.v2.ExperimentalFeature[] = []
@@ -317,6 +320,7 @@ export class CodexRuntime implements AgentRuntime {
   readonly #id: RuntimeId
   readonly #name: string
   readonly #sharesHistory: boolean
+  readonly #unverifiedIdleAccount: boolean
   /** How long a thread's settings change waits for Codex's word on it; see `CodexSession.setOption`. */
   readonly #settleMs: number | undefined
   /** Source paths observed on native reads, creates and resumes. */
@@ -339,6 +343,7 @@ export class CodexRuntime implements AgentRuntime {
     this.#id = options.id ?? CODEX_RUNTIME_ID
     this.#name = options.name ?? 'Codex'
     this.#sharesHistory = options.sharesHistory ?? false
+    this.#unverifiedIdleAccount = options.unverifiedIdleAccount ?? false
     this.#settleMs = options.settleMs
     this.#codexHome = options.codexHome ?? null
     this.#sessionStore = sessionStoreOf(this.#codexHome)
@@ -754,15 +759,25 @@ export class CodexRuntime implements AgentRuntime {
   async getAccount(): Promise<AccountStatus> {
     const restoredAccount = this.health().state !== 'ready' ? this.#restored?.account : undefined
     if (restoredAccount) return {
-      accounts: restoredAccount.accounts,
+      accounts: this.#unverifiedIdleAccount ? [] : restoredAccount.accounts,
       signInMethods: signInMethods(null).filter(method => restoredAccount.signInFlows?.includes(method.flow)),
+      ...(this.#unverifiedIdleAccount ? { unchecked: true } : {}),
+    }
+    if (this.#idleStopped && this.#unverifiedIdleAccount && !this.#lastAccount) {
+      return { accounts: [], signInMethods: [], unchecked: true }
     }
     if (this.#idleStopped && !this.#everStarted) throw new Error('Account status is not known yet; start the runtime first.')
-    if (this.#idleStopped && this.#lastAccount) return this.#lastAccount
+    if (this.#idleStopped && this.#lastAccount) return this.#unverifiedIdleAccount
+      ? { accounts: [], signInMethods: this.#lastAccount.signInMethods, unchecked: true }
+      : this.#lastAccount
+    const epoch = this.#accountEpoch
     const [response, forced] = await Promise.all([
       this.#server.request('account/read', {}),
       this.#forcedLoginMethod(),
     ])
+    if (this.#unverifiedIdleAccount && epoch !== this.#accountEpoch) {
+      return { accounts: [], signInMethods: signInMethods(forced), unchecked: true }
+    }
     this.#lastAccount = { accounts: mapAccount(response.account), signInMethods: signInMethods(forced) }
     return this.#lastAccount
   }
@@ -814,6 +829,10 @@ export class CodexRuntime implements AgentRuntime {
 
   async logout(): Promise<void> {
     await this.#server.request('account/logout', undefined)
+    if (this.#unverifiedIdleAccount) {
+      this.#accountEpoch++
+      this.#lastAccount = null
+    }
   }
 
   /**

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   allItems,
@@ -167,6 +170,58 @@ test('restored account without an observed sign-in policy offers no invented met
   assert.deepEqual((await runtime.getAccount()).signInMethods, [])
   assert.equal(runtime.health().state, 'idle')
   assert.deepEqual(runtime.resourceProcessIds(), [])
+})
+
+test('an extra slot treats restored and idle account observations as unverified', async t => {
+  const runtime = makeRuntime({}, { unverifiedIdleAccount: true } as CodexRuntimeOptions)
+  t.after(() => runtime.dispose())
+  runtime.restoreObservations({ account: { accounts: [{ kind: 'chatgpt', label: 'dev@example.com' }], signInMethods: [] } })
+  assert.deepEqual(await runtime.getAccount(), { accounts: [], signInMethods: [], unchecked: true })
+  assert.deepEqual(runtime.resourceProcessIds(), [])
+  await runtime.start()
+  assert.equal((await runtime.getAccount()).accounts.length, 1)
+  assert.equal(await runtime.stopForIdle(), true)
+  const idle = await runtime.getAccount()
+  assert.deepEqual(idle.accounts, [])
+  assert.equal(idle.unchecked, true)
+})
+
+test('an unobserved extra slot answers unchecked without starting its process', async t => {
+  const runtime = makeRuntime({}, { unverifiedIdleAccount: true } as CodexRuntimeOptions)
+  t.after(() => runtime.dispose())
+  assert.deepEqual(await runtime.getAccount(), { accounts: [], signInMethods: [], unchecked: true })
+  assert.deepEqual(runtime.resourceProcessIds(), [])
+})
+
+test('an extra slot stays unverified after logout and an idle stop', async t => {
+  const runtime = makeRuntime({}, { unverifiedIdleAccount: true })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  await runtime.getAccount()
+  await runtime.logout()
+  assert.equal(await runtime.stopForIdle(), true)
+  const account = await runtime.getAccount()
+  assert.deepEqual(account.accounts, [])
+  assert.equal(account.unchecked, true)
+  assert.deepEqual(runtime.resourceProcessIds(), [])
+})
+
+test('an extra slot cannot restore a read that finished after logout', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-account-logout-'))
+  const hold = join(dir, 'hold')
+  await writeFile(hold, '')
+  const runtime = makeRuntime({ FAKE_CODEX_HOLD_ACCOUNT: hold }, { unverifiedIdleAccount: true } as CodexRuntimeOptions)
+  t.after(async () => { await rm(hold, { force: true }); await runtime.dispose(); await rm(dir, { recursive: true, force: true }) })
+  await runtime.start()
+  const tape = recorder(runtime)
+  const oldRead = runtime.getAccount()
+  await tape.until(events => noticeMessages(events).some(message => message.includes('ACCOUNT_HELD')))
+  await runtime.logout()
+  await rm(hold)
+  const stale = await oldRead
+  assert.deepEqual(stale.accounts, [])
+  assert.equal(stale.unchecked, true)
+  assert.deepEqual((await runtime.getAccount()).accounts, [])
 })
 
 test('browser sign-in returns a URL and finishes as an event, never a poll', async (t) => {

@@ -37,6 +37,78 @@ beforeEach(() => {
 })
 
 describe('signing in to an agent the snapshot has no account status for', () => {
+  const retained = async () => {
+    const handlers = (store.transport as unknown as { handlers: { onNotification: (n: unknown) => void } }).handlers
+    handlers.onNotification({ method: 'sync', params: { sessions: [], runtimes: [{ id: 'primary', name: 'Primary', presentation: { name: 'Primary' } }, { id: ADDED, name: 'Agent', presentation: { name: 'Agent' }, slot: { agent: 'primary', removable: true, forgetUnknown: true } }] } })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    asked.length = 0
+  }
+  it('checks only the requested extra account and preserves the active runtime', async () => {
+    await retained()
+    answers['runtime/refreshCatalog'] = { checkedAt: 1, installation: null, refreshed: true }
+    answers['runtime/account'] = { accounts: [], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] }
+    const active = store.getSnapshot().activeRuntime
+    expect(active).toBe('primary')
+    await (store as unknown as { checkAccount(id: typeof ADDED): Promise<void> }).checkAccount(ADDED)
+    expect(store.transport.request).toHaveBeenCalledWith('runtime/refreshCatalog', { runtime: ADDED })
+    expect(store.transport.request).toHaveBeenCalledWith('runtime/account', { runtime: ADDED }, expect.anything())
+    expect(store.getSnapshot().activeRuntime).toBe(active)
+    expect(asked).not.toContain('runtime/login')
+  })
+
+  it('reports a declined account check without claiming a fresh read', async () => {
+    await retained()
+    answers['runtime/refreshCatalog'] = { checkedAt: 1, installation: null, refreshed: false, reason: 'A turn is running.' }
+    await (store as unknown as { checkAccount(id: typeof ADDED): Promise<void> }).checkAccount(ADDED)
+    expect(asked).not.toContain('runtime/account')
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('A turn is running.')
+  })
+
+  it('reports a failed account check', async () => {
+    await retained()
+    refusals['runtime/refreshCatalog'] = new Error('The agent did not start.')
+    await (store as unknown as { checkAccount(id: typeof ADDED): Promise<void> }).checkAccount(ADDED)
+    expect(asked).not.toContain('runtime/account')
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('The agent did not start.')
+  })
+
+  it('continues the check when the same runtime publishes updated information', async () => {
+    await retained()
+    const handlers = (store.transport as unknown as { handlers: { onNotification: (n: unknown) => void } }).handlers
+    const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+      if (method === 'runtime/refreshCatalog') {
+        handlers.onNotification({ method: 'runtime/infoChanged', params: { runtime: ADDED, info: { id: ADDED, name: 'Agent', presentation: { name: 'Agent' }, slot: { agent: 'primary', removable: true, forgetUnknown: true } } } })
+        return { checkedAt: 1, installation: null, refreshed: true }
+      }
+      if (method === 'runtime/account') return { accounts: [], signInMethods: [] }
+      return null
+    }) as never)
+    request.mockClear()
+    await (store as unknown as { checkAccount(id: typeof ADDED): Promise<void> }).checkAccount(ADDED)
+    expect(store.transport.request).toHaveBeenCalledWith('runtime/account', { runtime: ADDED }, expect.anything())
+  })
+
+  it('does not read a replacement with the same id after a pending check', async () => {
+    await retained()
+    const handlers = (store.transport as unknown as { handlers: { onNotification: (n: unknown) => void } }).handlers
+    let release!: (value: unknown) => void
+    const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+      if (method === 'runtime/refreshCatalog') return new Promise(resolve => { release = resolve })
+      if (method === 'runtime/account') return null
+      return null
+    }) as never)
+    request.mockClear()
+    const checking = (store as unknown as { checkAccount(id: typeof ADDED): Promise<void> }).checkAccount(ADDED)
+    handlers.onNotification({ method: 'runtime/removed', params: { runtime: ADDED } })
+    handlers.onNotification({ method: 'runtime/added', params: { info: { id: ADDED, name: 'Replacement', presentation: { name: 'Replacement' } } } })
+    // The add starts its own account read; only the old check must not add another.
+    await Promise.resolve()
+    const before = request.mock.calls.filter(call => call[0] === 'runtime/account').length
+    release({ checkedAt: 1, installation: null, refreshed: true })
+    await checking
+    expect(request.mock.calls.filter(call => call[0] === 'runtime/account')).toHaveLength(before)
+  })
+
   it('asks the host how, rather than treating silence as “no way in”', async () => {
     answers['runtime/account'] = {
       accounts: [],
@@ -189,6 +261,27 @@ describe('an account read that fails (#1021)', () => {
     per[ADDED] = 'fail'
     await store.loadAccounts()
     expect(store.getSnapshot().accountsByRuntime[ADDED]?.accounts).toHaveLength(1)
+  })
+
+  it('marks an extra slot unverified on idle and rejects an older in-flight signed-in read', async () => {
+    handlers().onNotification({ method: 'sync', params: { sessions: [], runtimes: [
+      { id: ADDED, name: 'Agent', presentation: { name: 'Agent' }, slot: { agent: 'primary', removable: true, forgetUnknown: true } },
+      { id: OTHER, name: 'Other', presentation: { name: 'Other' } },
+    ] } })
+    const signed = { accounts: [{ kind: 'chatgpt', label: 'dev@example.com' }], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] }
+    per[ADDED] = signed
+    per[OTHER] = signed
+    await store.loadAccounts()
+    let release!: (value: unknown) => void
+    per[ADDED] = () => new Promise(resolve => { release = resolve })
+    const stale = store.loadAccounts()
+    await vi.advanceTimersByTimeAsync(0)
+    handlers().onNotification({ method: 'runtime/healthChanged', params: { runtime: ADDED, health: { state: 'idle' } } })
+    expect(store.getSnapshot().accountsByRuntime[ADDED]).toEqual({ accounts: [], signInMethods: signed.signInMethods, unchecked: true })
+    release(signed)
+    await stale
+    expect(store.getSnapshot().accountsByRuntime[ADDED]?.unchecked).toBe(true)
+    expect(store.getSnapshot().accountsByRuntime[OTHER]?.accounts).toHaveLength(1)
   })
 
   it('asks again on its own, less often each time, and stops once it is answered', async () => {

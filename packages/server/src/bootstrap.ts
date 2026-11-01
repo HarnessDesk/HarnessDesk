@@ -303,8 +303,10 @@ export const createDefaultHost = (
     logger.child('accounts').info(message, details),
   )
   const codexHome = codexPrimaryHome(options.codexHome)
-  slots.pruneEmpty(CODEX_RUNTIME_ID)
-  // Then the ones that were finished, but as somebody the user is already
+  // A missing auth file cannot establish that a slot is empty: the agent may
+  // keep its credential elsewhere, or the slot may need to be signed in again.
+  // Retain it until the person explicitly removes it.
+  // Fold only the ones that were finished as somebody the user is already
   // signed in as. A second sign-in cannot be refused at the door in every
   // case — one may have been made by an older build, or by signing the same
   // account in again outside a flow we drive — so the roster is swept here
@@ -322,10 +324,11 @@ export const createDefaultHost = (
     return owned && host.ownsRuntime(owned.runtime) ? owned.slot : undefined
   }
 
-  const codexAccount = (id: ReturnType<typeof runtimeId>, home: string): CodexRuntime =>
+  const codexAccount = (id: ReturnType<typeof runtimeId>, home: string, gateway: boolean): CodexRuntime =>
     new CodexRuntime({
       id,
       sharesHistory: true,
+      unverifiedIdleAccount: !gateway,
       clientName: 'harnessdesk',
       clientVersion: options.version ?? '0.1.0',
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
@@ -353,6 +356,7 @@ export const createDefaultHost = (
             home: slot.home,
             removable: true,
             gateways: true,
+            ...(!slot.gateway ? { forgetUnknown: true as const } : {}),
             ...(slot.gateway ? { gateway: { ...slot.gateway } } : {}),
           }
         : { agent: CODEX_RUNTIME_ID, home: codexHome, removable: false, gateways: true }
@@ -381,7 +385,7 @@ export const createDefaultHost = (
       const slot = slots.add(agent, codexHome, stateDir, gateway, id =>
         !host.hasRuntime(id) && !pendingCodexSlots.has(id) && agentRegistry.entry(id) === null)
       try {
-        const runtime = codexAccount(slot.id, slot.home)
+        const runtime = codexAccount(slot.id, slot.home, !!slot.gateway)
         pendingCodexSlots.set(slot.id, { slot, runtime })
         return runtime
       } catch (error) {
@@ -402,6 +406,18 @@ export const createDefaultHost = (
         if (pendingCodexSlots.get(runtime.info.id)?.runtime === runtime) pendingCodexSlots.delete(runtime.info.id)
         if (codexSlots.get(runtime.info.id)?.runtime === runtime) codexSlots.delete(runtime.info.id)
       }
+    },
+    prepareRemove: (runtime) => {
+      const owned = codexSlots.get(runtime.info.id)
+      if (!owned || owned.runtime !== runtime || owned.slot.gateway) return null
+      const position = slots.positionOf(owned.slot)
+      slots.forgetDurably(runtime.info.id, owned.slot)
+      const finish = (purge: boolean) => {
+        if (codexSlots.get(runtime.info.id) !== owned) return
+        codexSlots.delete(runtime.info.id)
+        if (purge && !host.hasRuntime(runtime.info.id)) slots.purge(owned.slot)
+      }
+      return Object.assign(finish, { rollback: () => slots.restoreDurably(owned.slot, position) })
     },
     remove: async (id) => {
       // The host has unregistered the runtime. Its native ownership wins over
@@ -712,7 +728,7 @@ export const createDefaultHost = (
       })
       continue
     }
-    const runtime = codexAccount(slot.id, slot.home)
+    const runtime = codexAccount(slot.id, slot.home, !!slot.gateway)
     host.register(runtime)
     codexSlots.set(slot.id, { slot, runtime })
   }

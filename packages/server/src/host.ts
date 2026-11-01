@@ -662,6 +662,8 @@ export interface AccountFactory {
     ownSessions?: true
     /** The agent can also run an account against the person’s own endpoint. */
     gateways?: true
+    /** Unknown identity must be forgotten without touching its credential. */
+    forgetUnknown?: true
     /** Present when this account pays through an endpoint of the user's own. */
     gateway?: { name: string; endpoint: string; credentialRef: string }
   } | null
@@ -678,6 +680,8 @@ export interface AccountFactory {
   /** Undo a failed allocation after setup or commit, without touching its competitor. */
   rollbackAdd?(runtime: AgentRuntime): Promise<void>
   remove(runtime: RuntimeId): Promise<void>
+  /** Persist first; finish cleanup only after the exact owner has stopped. */
+  prepareRemove?(runtime: AgentRuntime): (((purge: boolean) => void) & { rollback?: () => void }) | null
   /**
    * Who this account is signed in as, as a string the host only ever compares
    * with another of its own. Opaque on purpose: what makes two credentials the
@@ -795,6 +799,10 @@ export class Host {
     send: (activity) => this.#push({ method: 'seat/activity', params: activity }),
   })
   readonly #runtimes = new Map<string, AgentRuntime>()
+  /** Removed runtime handles whose first shutdown failed, retried on host quit. */
+  readonly #failedRuntimeDisposals = new Set<AgentRuntime>()
+  /** Managed removals already stopping when host shutdown begins. */
+  readonly #removalDisposals = new Set<Promise<void>>()
   readonly #coldRuntimes = new Set<string>()
   readonly #runtimeSources = new Map<string, AgentRuntime>()
   readonly #runtimeCache: RuntimeCache
@@ -2560,7 +2568,7 @@ export class Host {
     this.#catalogs.watch(managed)
     this.#runtimeSubscriptions.set(id, [
       runtime.subscribe((event) => this.#onEvent(id, event)),
-      runtime.onHealthChange((health) => this.#onHealthChange(id, health)),
+      runtime.onHealthChange((health) => { if (this.ownsRuntime(runtime)) this.#onHealthChange(id, health) }),
       // A capability the agent only reveals by refusing it. Optional, so a
       // runtime whose description is settled at construction says nothing.
       ...(runtime.onInfoChange
@@ -2582,7 +2590,7 @@ export class Host {
    * Its sessions are detached first: a pane still holding one would otherwise
    * keep sending turns to a runtime nothing can resolve.
    */
-  async unregister(id: RuntimeId): Promise<void> {
+  async unregister(id: RuntimeId, onStopped?: () => void): Promise<void> {
     this.#historyImport.cancel(id)
     const runtime = this.#runtimes.get(id)
     if (!runtime) return
@@ -2609,12 +2617,19 @@ export class Host {
     this.#idleSince.delete(String(id))
     this.#updates.delete(id)
     this.#meters.delete(id)
+    let stopping: Promise<void> | undefined
     try {
-      await runtime.dispose()
+      stopping = runtime.dispose()
+      if (onStopped) this.#removalDisposals.add(stopping)
+      await stopping
+      if (!this.#runtimes.has(id)) onStopped?.()
     } catch (error) {
+      if (onStopped) this.#failedRuntimeDisposals.add(runtime)
       this.#logger.warn('a removed runtime did not shut down cleanly', { runtime: id, error: String(error) })
+    } finally {
+      if (stopping) this.#removalDisposals.delete(stopping)
     }
-    this.#push({ method: 'runtime/removed', params: { runtime: id } })
+    if (!this.#runtimes.has(id)) this.#push({ method: 'runtime/removed', params: { runtime: id } })
   }
 
   /**
@@ -3545,6 +3560,13 @@ export class Host {
         }),
       ),
     )
+    const removedGone = Promise.all([...this.#removalDisposals].map(stopping => stopping.catch(() => {}))).then(async () => {
+      const failed = [...this.#failedRuntimeDisposals]
+      this.#failedRuntimeDisposals.clear()
+      await Promise.all(failed.map(runtime => Promise.resolve().then(() => runtime.dispose()).catch(error => {
+        this.#logger.warn('a removed runtime still did not shut down cleanly', { runtime: runtime.info.id, error: String(error) })
+      })))
+    })
     await leadClosed
     for (const disposer of this.#disposers.splice(0)) {
       await Promise.resolve()
@@ -3573,6 +3595,7 @@ export class Host {
     this.#usage?.dispose()
     this.#ledger?.close()
     await runtimesGone
+    await removedGone
     await this.#runtimeCache.flush()
     await Promise.all(this.#runtimeNoticeWrites)
     await this.#transcripts.close()
@@ -9348,6 +9371,11 @@ export class Host {
     if (!accounts || !slot?.removable) {
       throw new Error(`${runtime.info.presentation.name} is this agent's original account and cannot be removed.`)
     }
+    const identity = accounts.identityOf?.(runtime.info) ?? null
+    const forgetOnly = slot.forgetUnknown === true && identity === null
+    const source = this.#runtimeSources.get(String(id)) ?? runtime
+    const finish = accounts.prepareRemove?.(source) ?? null
+    if (slot.forgetUnknown && !finish) throw new Error('This account no longer has its registered owner.')
     // A gateway account has no vendor session to end — its credential is ours
     // to destroy. The gateway process goes first, so nothing is left holding
     // the key in memory once the reference it came from is gone.
@@ -9366,9 +9394,10 @@ export class Host {
       // unless another account of this agent is signed in as the same person.
       // Then the credential is a copy, revoking it would take the account the
       // user is keeping down with it, and dropping the copy is the whole job.
-      const identity = accounts.identityOf?.(runtime.info) ?? null
       const twin = identity === null ? null : (this.#peerAccounts(runtime, identity)[0] ?? null)
-      if (twin) {
+      if (forgetOnly) {
+        this.#logger.info('an account with unknown identity was forgotten without signing out', { runtime: id })
+      } else if (twin) {
         this.#logger.info('a duplicate account was removed without signing out', {
           runtime: id,
           shares: twin.info.id,
@@ -9377,12 +9406,27 @@ export class Host {
         try {
           await runtime.logout?.()
         } catch (error) {
+          if (finish) {
+            if (this.ownsRuntime(source)) {
+              try { finish.rollback?.() } catch (restoreError) {
+                throw new Error(`Sign-out failed and the account row could not be restored: ${String(restoreError)}`, { cause: error })
+              }
+            } else finish(false)
+            throw error
+          }
           this.#logger.warn('an account was removed without signing out', { runtime: id, error: String(error) })
         }
       }
     }
-    await this.unregister(id)
-    await accounts.remove(id)
+    if (!this.ownsRuntime(source)) {
+      finish?.(false)
+      throw new Error('The account owner changed while it was being removed.')
+    }
+    let stopped = false
+    await this.unregister(id, finish ? () => { stopped = true } : undefined)
+    if (finish) finish(stopped && !forgetOnly)
+    else await accounts.remove(id)
+    if (finish && !stopped) throw new Error('The account was removed, but its runtime did not shut down cleanly; its credential home was kept.')
     this.#logger.info('account removed', { runtime: id, gateway: slot.gateway !== undefined })
   }
 
@@ -9603,6 +9647,7 @@ export class Host {
               agent: slot.agent,
               home: slot.home,
               removable: slot.removable,
+              ...(slot.forgetUnknown ? { forgetUnknown: true as const } : {}),
               canAdd: accounts?.canAdd(runtime.info) ?? false,
               ...(slot.asksName ? { asksName: true as const } : {}),
               ...(slot.ownSessions ? { ownSessions: true as const } : {}),

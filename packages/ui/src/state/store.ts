@@ -611,6 +611,7 @@ export class AppStore {
   }
 
   #snapshot: AppSnapshot = emptySnapshot()
+  #accountOwners = new Map<RuntimeId, number>()
   #teamFrameSerial = 0
   /**
    * The Library's view choices per section, for as long as this window is
@@ -720,6 +721,9 @@ export class AppStore {
           const runtimes = Array.isArray(notification.params.runtimes)
             ? notification.params.runtimes
             : []
+          for (const id of new Set([...this.#snapshot.runtimes.map(runtime => runtime.id), ...runtimes.map(runtime => runtime.id)])) {
+            this.#accountOwners.set(id, (this.#accountOwners.get(id) ?? 0) + 1)
+          }
           this.#patch({
             sessions,
             seatActivities: new Map(),
@@ -741,6 +745,11 @@ export class AppStore {
           this.#onExtensionEvent(notification.params.event)
         }
         if (notification.method === 'runtime/healthChanged') {
+          const id = notification.params.runtime
+          const previous = this.#snapshot.accountsByRuntime[id]
+          const unverified = notification.params.health.state !== 'ready'
+            && this.#snapshot.runtimes.find(entry => entry.id === id)?.slot?.forgetUnknown
+          if (unverified) this.#accountReads.set(id, (this.#accountReads.get(id) ?? 0) + 1)
           // Every runtime's health is kept, so pickers and settings can draw
           // a dead agent dead wherever it appears.
           this.#patch({
@@ -748,6 +757,7 @@ export class AppStore {
               ...this.#snapshot.healthByRuntime,
               [notification.params.runtime]: notification.params.health,
             },
+            ...(unverified ? { accountsByRuntime: { ...this.#snapshot.accountsByRuntime, [id]: { accounts: [], signInMethods: previous?.signInMethods ?? [], unchecked: true } } } : {}),
           })
           // `health` stays the *active* runtime's; taking any runtime's would
           // let a second account still starting up report the one you are
@@ -773,6 +783,7 @@ export class AppStore {
           // than re-synced: a full sync would drop the panes' scroll and the
           // history page the user is halfway down.
           const { info } = notification.params
+          this.#accountOwners.set(info.id, (this.#accountOwners.get(info.id) ?? 0) + 1)
           this.#historyRemovedRuntimes.delete(info.id)
           if (!this.#snapshot.runtimes.some((entry) => entry.id === info.id)) {
             this.#patch({ runtimes: [...this.#snapshot.runtimes, info] })
@@ -783,6 +794,7 @@ export class AppStore {
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
+          this.#accountOwners.set(runtime, (this.#accountOwners.get(runtime) ?? 0) + 1)
           // In-flight searches include this runtime's response. Invalidate
           // the request before filtering visible history so a late response
           // cannot put this runtime's rows back. A combined search is then
@@ -1803,6 +1815,26 @@ export class AppStore {
 
   async loadAccounts(): Promise<void> {
     await this.#askAccounts(this.#snapshot.runtimes.map((runtime) => runtime.id))
+  }
+
+  /** Explicitly start and read one retained account, without changing selection. */
+  async checkAccount(id: RuntimeId): Promise<void> {
+    const owner = this.#snapshot.runtimes.find(runtime => runtime.id === id)
+    if (!owner?.slot?.forgetUnknown) return
+    const generation = this.#accountOwners.get(id)
+    try {
+      const verdict = await this.transport.request('runtime/refreshCatalog', { runtime: id })
+      if (!verdict.refreshed) throw new Error(verdict.reason ?? 'The agent could not be checked.')
+      if (this.#accountOwners.get(id) !== generation) return
+      const read = (this.#accountReads.get(id) ?? 0) + 1
+      this.#accountReads.set(id, read)
+      const status = await this.#requestAccount(id)
+      if (this.#accountOwners.get(id) !== generation) return
+      this.#applyAccounts([[id, read, { failed: false, status }]])
+      if (!status || status.unchecked) throw new Error('The agent did not confirm its account status.')
+    } catch (error) {
+      this.resultNotice('error', describe(error))
+    }
   }
 
   async #askAccounts(ids: readonly RuntimeId[]): Promise<void> {

@@ -202,6 +202,31 @@ it('says an unchecked agent is not checked even before it has declared a way in'
   expect(container.textContent).not.toContain('Runs without one')
 })
 
+it('describes an unverified extra account without an ACP-specific first-conversation claim', async () => {
+  const extra = { ...SECOND, slot: { ...SECOND.slot!, forgetUnknown: true as const } }
+  await mount({ runtimes: [PRIMARY, extra], accountsByRuntime: { [extra.id]: { ...status([], ['browser']), unchecked: true } } } as never, extra.id)
+  expect(detail().textContent).toContain('Not checked yet')
+  expect(detail().textContent).not.toContain('when its first conversation opens')
+  expect(detail().querySelector('[aria-label="Ways to connect"]')?.textContent).toContain('Sign in browser')
+})
+
+for (const broken of [false, true]) {
+  it(`confirms forgetting an unknown extra from the ${broken ? 'unavailable' : 'sign-in'} card`, async () => {
+    const extra = { ...SECOND, slot: { ...SECOND.slot!, forgetUnknown: true as const } }
+    const removeAccount = vi.fn(async () => {})
+    await mount({ runtimes: [PRIMARY, extra], accountsByRuntime: { [extra.id]: status([], ['browser']) }, ...(broken ? { healthByRuntime: { [extra.id]: { state: 'unavailable', reason: 'notInstalled', message: 'Unavailable' } } } : {}) } as never, extra.id, () => {}, { removeAccount })
+    const remove = [...detail().querySelectorAll('button')].find(button => button.textContent?.trim() === 'Remove this account')!
+    expect(remove).toBeTruthy()
+    await act(async () => remove.click())
+    expect(removeAccount).not.toHaveBeenCalled()
+    const dialog = document.body.querySelector('[role="alertdialog"]')!
+    expect(dialog?.textContent).toContain('credentials may remain')
+    const confirm = [...dialog.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Remove account')!
+    await act(async () => confirm.click())
+    expect(removeAccount).toHaveBeenCalledWith(extra.id)
+  })
+}
+
 it('names the account already held before sending you to the browser', async () => {
   await mount(
     {

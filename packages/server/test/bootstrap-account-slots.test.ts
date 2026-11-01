@@ -10,6 +10,7 @@ import { tempDir } from './scratch.js'
 const READ_SLOTS = `
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -30,7 +31,7 @@ writeFileSync(join(root, 'agents.json'), JSON.stringify({ agents: [
 const { AccountSlots } = await import(process.env.HD_ACCOUNTS)
 const slots = new AccountSlots(join(root, 'accounts.json'))
 const extraCodex = slots.add('codex', codexHome, root)
-writeFileSync(join(extraCodex.home, 'auth.json'), '{}')
+if (process.env.HD_FILELESS !== '1') writeFileSync(join(extraCodex.home, 'auth.json'), '{}')
 const ignoredHome = join(root, 'accounts', 'ignored-acp')
 const trashed = []
 if (process.env.HD_REMOVE_FOREIGN_FIRST === '1') {
@@ -90,11 +91,41 @@ try {
   for (const id of ['codex', extraCodex.id]) {
     await assert.rejects(host.call('acp/remove', { runtime: id }), /not in the agent registry/)
   }
-  assert.equal(existsSync(join(extraCodex.home, 'auth.json')), true, 'ignored rows never authorize deleting an account home')
+  assert.equal(existsSync(join(extraCodex.home, 'auth.json')), process.env.HD_FILELESS !== '1', 'bootstrap does not invent credentials')
+  assert.equal(existsSync(extraCodex.home), true, 'a saved account home survives without an auth file')
   if (process.env.HD_DUPLICATE_IDS === '1') {
     assert.equal(JSON.parse(readFileSync(join(root, 'agents.json'), 'utf8')).agents.some(row => row.id === 'codex'), true, 'ignored configuration is preserved')
   }
   assert.equal(existsSync(marker), false, 'no agent binary was invoked')
+  if (process.env.HD_REMOVE_WRITE_FAILURE !== '0') {
+    await host.start()
+    const rename = fs.renameSync
+    const write = fs.writeFileSync
+    fs.writeFileSync = (...args) => {
+      if (process.env.HD_REMOVE_WRITE_FAILURE === 'write' && String(args[0]).startsWith(join(root, 'accounts.json.tmp-'))) throw new Error('synthetic roster write failure')
+      return write(...args)
+    }
+    fs.renameSync = (...args) => {
+      if (process.env.HD_REMOVE_WRITE_FAILURE !== 'write' && String(args[1]) === join(root, 'accounts.json')) {
+        if (process.env.HD_REMOVE_WRITE_FAILURE === 'after') rename(...args)
+        throw new Error('synthetic roster rename failure')
+      }
+      return rename(...args)
+    }
+    syncBuiltinESMExports()
+    try {
+      await assert.rejects(host.call('runtime/account/remove', { runtime: extraCodex.id }), /synthetic roster (?:write|rename) failure/)
+      assert.ok(host.syncPayload().params.runtimes.find(info => info.id === extraCodex.id), 'owner remains registered')
+      const saved = new AccountSlots(join(root, 'accounts.json')).find(extraCodex.id)
+      if (process.env.HD_REMOVE_WRITE_FAILURE === 'after') assert.equal(saved, null, 'the rename may already have committed')
+      else assert.ok(saved, 'durable row remains before rename')
+      assert.equal(existsSync(extraCodex.home), true, 'credential home remains')
+    } finally { fs.renameSync = rename; fs.writeFileSync = write; syncBuiltinESMExports() }
+    await host.call('runtime/account/remove', { runtime: extraCodex.id })
+    assert.equal(host.syncPayload().params.runtimes.some(info => info.id === extraCodex.id), false, 'retry removes the same registered owner')
+    assert.equal(new AccountSlots(join(root, 'accounts.json')).find(extraCodex.id), null, 'retry confirms durable removal')
+    assert.equal(existsSync(extraCodex.home), true, 'unknown credential home stays intact after retry')
+  }
   if (process.env.HD_ALLOCATOR_CONTROL === '1') {
     const state = join(root, 'allocator')
     const file = join(state, 'accounts.json')
@@ -131,7 +162,7 @@ try {
     assert.equal(retained.length, 1, 'only the registered native slot is forgotten')
     assert.equal(retained[0].agent, 'future-runtime', 'the foreign row is preserved')
     assert.equal(retained[0].home, ignoredHome)
-    assert.equal(existsSync(extraCodex.home), false, 'the registered native home is purged')
+    assert.equal(existsSync(extraCodex.home), true, 'an unknown identity keeps its credential home')
     assert.equal(readFileSync(join(ignoredHome, 'auth.json'), 'utf8'), '{"marker":"preserved"}', 'the foreign home is untouched')
     const remaining = host.syncPayload().params.runtimes
     assert.equal(remaining.some(info => info.id === extraCodex.id), false)
@@ -162,7 +193,7 @@ try {
     if (process.env.HD_ACCOUNT_LIFECYCLE === '1') {
       await host.call('runtime/account/remove', { runtime: extraCodex.id })
       assert.equal(new AccountSlots(join(root, 'accounts.json')).find(extraCodex.id), null, 'removal forgets the registered native slot')
-      assert.equal(existsSync(extraCodex.home), false, 'the removed native account home is purged')
+      assert.equal(existsSync(extraCodex.home), true, 'the unknown-identity native home is retained')
       assert.equal(readFileSync(join(ignoredHome, 'auth.json'), 'utf8'), '{"marker":"preserved"}', 'the ignored ACP account home is untouched')
       assert.deepEqual(trashed, [], 'a native removal never follows the ignored ACP home')
       const registryFile = join(root, 'agents.json')
@@ -256,6 +287,10 @@ try {
 `
 
 for (const scenario of [
+  { name: 'bootstrap retains a fileless account without starting its runtime', agents: false, slots: '', fileless: true },
+  { name: 'failed roster removal preserves the runtime and its credential home', agents: false, slots: '', removeWriteFailure: true },
+  { name: 'ambiguous post-rename failure preserves owner and home', agents: false, slots: '', removeWriteAfter: true },
+  { name: 'failed roster temporary write preserves owner and home', agents: false, slots: '', removeWriteTemp: true },
   { name: 'bootstrap declares naming and private sessions for ACP accounts, and gateways only for native accounts', agents: false, slots: '' },
   { name: 'bootstrap skips configured ids already held by native runtimes and starts the host', agents: true, slots: '' },
   { name: 'bootstrap skips a repeated account slot and starts the host', agents: false, slots: 'repeated' },
@@ -275,6 +310,8 @@ for (const scenario of [
       HOME: tempDir('hd-slot-home-'),
       HARNESSDESK_NO_UPDATE_CHECK: '1',
       HD_STATE: root,
+      HD_FILELESS: 'fileless' in scenario && scenario.fileless ? '1' : '0',
+      HD_REMOVE_WRITE_FAILURE: 'removeWriteTemp' in scenario && scenario.removeWriteTemp ? 'write' : 'removeWriteAfter' in scenario && scenario.removeWriteAfter ? 'after' : 'removeWriteFailure' in scenario && scenario.removeWriteFailure ? '1' : '0',
       HD_BOOTSTRAP: new URL('../src/bootstrap.js', import.meta.url).href,
       HD_ACCOUNTS: new URL('../src/accounts.js', import.meta.url).href,
       HD_DUPLICATE_IDS: scenario.agents ? '1' : '0',
