@@ -100,7 +100,8 @@ export const OverviewStrip = ({
     () => previousPeriod(stackDailyMetric(wideLedger, now, 'turns'), range, currentTurns ?? 0),
     [wideLedger, now, range, currentTurns],
   )
-  const turnsChange = currentTurns !== null && turnsPrevious.complete ? turnsPrevious.change : null
+  const wideTurnsCoverage = agentCoverage(wideLedger?.coverage, wideLedger?.daily.map((entry) => entry.runtime) ?? [])
+  const turnsChange = currentTurns !== null && turnsPrevious.complete && !wideTurnsCoverage.partial ? turnsPrevious.change : null
 
   const currentTokens = ledger?.totalTokens ?? null
   const tokensPrevious = useMemo(
@@ -109,7 +110,17 @@ export const OverviewStrip = ({
   )
   const tokensChange = currentTokens !== null && tokensPrevious.complete ? tokensPrevious.change : null
 
-  const turnsCoverage = useMemo(() => agentCoverage(ledger?.coverage, ledgerRuntimeIds(ledger)), [ledger])
+  const turnsCoverage = useMemo(() => agentCoverage(ledger?.coverage,
+    ledger?.daily.length ? ledger.daily.map((entry) => entry.runtime) : ledgerRuntimeIds(ledger)), [ledger])
+  // Aggregate turns intentionally disappears for mixed coverage. The daily
+  // entries retain their runtime attribution and can supply the known share.
+  const knownTurns = useMemo(() => {
+    if (!ledger || !turnsCoverage.partial || turnsCoverage.known === 0) return null
+    const known = new Set(ledger.coverage.turnsKnownFor ?? [])
+    const entries = ledger.daily.filter((entry) => known.has(entry.runtime))
+    if (entries.length === 0 || entries.some((entry) => entry.turns === undefined)) return null
+    return entries.reduce((sum, entry) => sum + (entry.turns ?? 0), 0)
+  }, [ledger, turnsCoverage])
   const tokensCoverage = useMemo(() => tokenCoverage(ledger), [ledger])
   const cacheHit = cacheHitRate(ledger?.totals)
   const valuePricing = ledger ? provenanceLabel(ledger).replace(/^./, (letter) => letter.toLowerCase()) : null
@@ -121,7 +132,7 @@ export const OverviewStrip = ({
   // numbers that answer different questions.
   const scopeMatches = paidScopeMatchesLedger(currentPaid, ledger?.currency ?? null)
   const ratio = scopeMatches ? paidRatio(currentCost, currentPaid.amount) : null
-  const perTurn = scopeMatches ? paidPerTurn(currentPaid.amount, currentTurns) : null
+  const perTurn = scopeMatches && !turnsCoverage.partial ? paidPerTurn(currentPaid.amount, currentTurns) : null
 
   const missingFeeReport = useMemo(
     () => reports.find((report) => paidSummary([billingOf(report)], start, end).amount === null),
@@ -164,9 +175,9 @@ export const OverviewStrip = ({
       trend:valueChange !== null ? <Delta value={Math.round(valueChange)} better="down" tone="neutral" /> : undefined,
       title:valuePricing ? `Usage cost (${valuePricing}). Switch the chart below to cost per day` : 'Usage cost. Switch the chart below to cost per day',
       selected:metric === 'value',run:()=>onMetricChange('value')},
-    ...(currentTurns !== null || turnsCoverage.known > 0 ? [{id:'turns',label:'Turns',value:currentTurns !== null ? currentTurns.toLocaleString() : '—',
-      caption:perTurn !== null ? `${formatMoney(perTurn,currentPaid.currency ?? 'USD')} paid a turn` : turnsCoverage.partial ? `known for ${turnsCoverage.known} of ${turnsCoverage.total} runtimes` : '',
-      trend:turnsChange !== null ? <Delta value={Math.round(turnsChange)} better="down" tone="neutral" /> : undefined,
+    ...(currentTurns !== null || turnsCoverage.known > 0 ? [{id:'turns',label:'Turns',value:(turnsCoverage.partial ? knownTurns : currentTurns)?.toLocaleString() ?? '—',
+      caption:turnsCoverage.partial ? `known for ${turnsCoverage.known} of ${turnsCoverage.total} runtimes` : perTurn !== null ? `${formatMoney(perTurn,currentPaid.currency ?? 'USD')} paid a turn` : '',
+      trend:!turnsCoverage.partial && turnsChange !== null ? <Delta value={Math.round(turnsChange)} better="down" tone="neutral" /> : undefined,
       title:'Turns — switch the chart below to turns per day',selected:metric === 'turns',run:()=>onMetricChange('turns')}] : []),
     {id:'tokens',label:'Tokens',value:currentTokens !== null ? formatTokens(currentTokens) : '—',
       caption:tokensCoverage.partial ? `known for ${tokensCoverage.known} of ${tokensCoverage.total} runtimes` : tokenSplitCaption(ledger?.totals) ?? '',
