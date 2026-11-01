@@ -48,6 +48,12 @@ test('a spent account-wide lane is out, and says when it is back', () => {
   assert.equal(standing.backAt, NOW + 4 * HOUR)
 })
 
+test('a reached limit that names no lane is out, but borrows no reset from a healthy lane', () => {
+  const standing = usageStandingOf(report({ reached: 'spend_limit_reached' }), NOW)
+  assert.equal(standing.status, 'out')
+  assert.equal(standing.backAt, null)
+})
+
 test('a spent model is not a spent account', () => {
   const standing = usageStandingOf(
     report({ lanes: [lane(), lane({ id: 'opus', label: 'Weekly', scope: 'Opus', usedPercent: 100, windowMinutes: 10_080 })] }),

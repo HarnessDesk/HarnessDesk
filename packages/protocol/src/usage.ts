@@ -692,7 +692,10 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
   }
 
   if (isBlocked(report)) {
-    const spent = reached && !reached.scope ? reached : lane
+    // Only a lane known to be spent says when it is back. A `reached` naming no lane (a spend limit, say) gives no
+    // reset, and a healthy binding lane's reset is not when that limit clears.
+    const laneSpent = lane !== null && left !== null && left <= 0
+    const spent = reached && !reached.scope ? reached : laneSpent ? lane : null
     return { ...base, status: 'out', runsOutAt: null, backAt: spent?.resetsAt ?? null }
   }
 
