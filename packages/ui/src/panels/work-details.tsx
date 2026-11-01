@@ -37,7 +37,7 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
       <SummaryList surface="panel" keys="icon" aria-label="Conversation facts">
         <SummaryItem kind="name" label={seated?.name ? 'Agent' : 'Runtime'} icon={<AgentIcon />}>{agentName}</SummaryItem>
         {shown && <SummaryItem label="Ceiling" icon={<ShieldIcon />}>
-          <Chip tone="neutral" title={ceilingTitle(shown.ceiling, shown.note)}>{`${ceilingWords(shown.ceiling.level)} · ${shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}`}</Chip>
+          <span title={ceilingTitle(shown.ceiling, shown.note)}>{`${ceilingWords(shown.ceiling.level)} · ${shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}`}</span>
         </SummaryItem>}
         <SummaryItem label="Folder" icon={<FolderIcon />} kind="name" action={placeAction}>
           {cwd ?? 'Not chosen'}
