@@ -7,8 +7,10 @@ it('handles a missing account label when no agent name is supplied', () => {
   expect(accountName(account, undefined)).toBe('')
   expect(accountName({ ...account, email: 'dev@example.com' }, undefined)).toBe('dev')
   expect(accountName(account, { nickname: 'Work' })).toBe('Work')
-  // A nickname typed as an address is a name all the same, cut at the @.
-  expect(accountName(account, { nickname: 'jane@example.com' })).toBe('jane')
+  // A nickname typed as an address is shown as typed, and cut at the @ only
+  // while addresses are hidden.
+  expect(accountName(account, { nickname: 'jane@example.com' })).toBe('jane@example.com')
+  expect(accountName(account, { nickname: 'jane@example.com' }, undefined, true)).toBe('jane')
 })
 
 describe('the HarnessDesk account name while addresses are hidden', () => {

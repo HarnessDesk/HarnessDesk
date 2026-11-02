@@ -461,9 +461,9 @@ export const AccountFooter = ({
         key,
         info,
         account,
-        name: accountName(account, snapshot.accountPrefs[key], info.presentation.name),
+        name: accountName(account, snapshot.accountPrefs[key], info.presentation.name, snapshot.hideAccountAddresses),
         // With addresses hidden, the name stands in for the address too.
-        sub: (hide ? accountName(account, snapshot.accountPrefs[key], info.presentation.name) : accountIdentity(account)) || info.presentation.name,
+        sub: (hide ? accountName(account, snapshot.accountPrefs[key], info.presentation.name, snapshot.hideAccountAddresses) : accountIdentity(account)) || info.presentation.name,
         state,
         answered: true,
         figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
@@ -649,7 +649,7 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
   const shortAccountName = (meter: StripMeter): string => {
     const account = accountForUsage(meter.runtime, meter.report.account, snapshot.accountsByRuntime)
     return account
-      ? accountName(account, snapshot.accountPrefs[accountKey(meter.runtime, account)], meter.name)
+      ? accountName(account, snapshot.accountPrefs[accountKey(meter.runtime, account)], meter.name, snapshot.hideAccountAddresses)
       : meter.account?.split('@')[0] ?? meter.name
   }
   const usageAccountName = (meter: StripMeter): string => {
@@ -669,7 +669,7 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
       <MenuSeparator />
       <MenuLabel size="compact">Other accounts</MenuLabel>
       {others.map(meter => {
-        const name = meter.account ? `${meter.name} · ${usageAccountName(meter)}` : runtimeLabel(meter.info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)
+        const name = meter.account ? `${meter.name} · ${usageAccountName(meter)}` : runtimeLabel(meter.info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs, snapshot.hideAccountAddresses)
         return <MenuItem key={`${meter.runtime}:${meter.report.account ?? ''}`}
           icon={<RuntimeMark runtime={meter.info} size={16} />}
           label={<span data-menu-account-name="" title={meter.title}>{name}</span>}

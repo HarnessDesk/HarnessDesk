@@ -189,7 +189,7 @@ const useStanding = (): Standing | null => {
     const info = snapshot.runtimes.find((entry) => entry.id === id)
     const account = snapshot.accountsByRuntime[id]?.accounts[0]
     if (id !== runtime.id && siblings.length > 1 && info && agentKey(info) === agent && account) {
-      return accountName(account, snapshot.accountPrefs[accountKey(id, account)], info.presentation.name)
+      return accountName(account, snapshot.accountPrefs[accountKey(id, account)], info.presentation.name, snapshot.hideAccountAddresses)
     }
     return info?.presentation.name ?? String(id)
   }

@@ -94,11 +94,15 @@ export const accountName = (
   prefs: AccountPrefs | undefined,
   /** The agent's own name, which stands in for a person the runtime cannot name. */
   agent?: string,
+  /**
+   * Settings › General › Hide account addresses. A nickname is shown as it
+   * was typed, except that while addresses are hidden one typed as an address
+   * is cut at the @ like the address itself.
+   */
+  hide = false,
 ): string => {
-  // A name, never an address: a nickname typed as an address is cut at the @
-  // like the address itself, so no surface that names an account shows one.
   const nickname = prefs?.nickname?.trim()
-  if (nickname) return nickname.includes('@') ? nickname.slice(0, nickname.indexOf('@')) || nickname : nickname
+  if (nickname) return hide && nickname.includes('@') ? nickname.slice(0, nickname.indexOf('@')) || nickname : nickname
   if (account.anonymous && agent) return agent
   const label = account.label ?? ''
   const email = account.email ?? (label.includes('@') ? label : null)
@@ -138,7 +142,7 @@ export const shownAccountLabel = (
 ): string => {
   if (!view.hideAccountAddresses) return label
   const account = accountForUsage(runtime, label, view.accountsByRuntime) ?? ({ kind: 'oauth', label } as unknown as Account)
-  return accountName(account, prefsForUsage(runtime, label, view.accountsByRuntime, view.accountPrefs))
+  return accountName(account, prefsForUsage(runtime, label, view.accountsByRuntime, view.accountPrefs), undefined, true)
 }
 
 /** The line under the name: who it really is, and on what plan. */
@@ -175,6 +179,7 @@ export const runtimeLabel = (
   runtimes: readonly RuntimeInfo[],
   accounts: Readonly<Partial<Record<RuntimeId, { readonly accounts: readonly Account[] }>>>,
   prefs: AccountPrefsMap,
+  hide = false,
 ): string => {
   const agent = info.slot?.agent
   if (!agent) return info.name
@@ -182,7 +187,7 @@ export const runtimeLabel = (
   if (siblings.length < 2) return info.name
   const account = accounts[info.id]?.accounts[0]
   if (!account) return `${info.name} \u00b7 not signed in`
-  return `${info.name} \u00b7 ${accountName(account, prefs[accountKey(info.id, account)])}`
+  return `${info.name} \u00b7 ${accountName(account, prefs[accountKey(info.id, account)], undefined, hide)}`
 }
 
 /**

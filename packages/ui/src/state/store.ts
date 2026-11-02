@@ -8232,7 +8232,7 @@ export class AppStore {
     const name = (runtime: RuntimeId): string => {
       const agentName = runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? String(runtime)
       const account = this.#snapshot.accountsByRuntime[runtime]?.accounts[0]
-      return account ? accountName(account, this.#snapshot.accountPrefs[accountKey(runtime, account)], agentName) : agentName
+      return account ? accountName(account, this.#snapshot.accountPrefs[accountKey(runtime, account)], agentName, this.#snapshot.hideAccountAddresses) : agentName
     }
     void this.selectRuntime(next.id)
     this.infoNotice('info', `${name(active)} reached its limit. New sessions use ${name(next.id)}.`, 'usage:switched')

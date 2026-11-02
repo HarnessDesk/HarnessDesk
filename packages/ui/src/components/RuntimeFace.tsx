@@ -13,7 +13,7 @@ export const RuntimeFace = ({ runtime, size = 'default', ...props }: {
 } & Omit<ComponentProps<typeof IconTile>, 'children' | 'shape' | 'tint' | 'tone' | 'color' | 'badge'>) => {
   const snapshot = useSnapshot()
   const account = snapshot.accountsByRuntime[runtime.id]?.accounts[0]
-  const name = account && accountName(account, snapshot.accountPrefs[accountKey(runtime.id, account)], runtime.presentation.name)
+  const name = account && accountName(account, snapshot.accountPrefs[accountKey(runtime.id, account)], runtime.presentation.name, snapshot.hideAccountAddresses)
   const badge = size === 'navigation' || size === 'stack' || size === 'xs' ? undefined
     : runtimeAccountBadge(runtime, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)
   return <IconTile {...props} size={size} shape="face" tint={runtimeTint(runtime)} badge={badge}

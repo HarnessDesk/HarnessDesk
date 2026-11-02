@@ -497,9 +497,9 @@ const AgentRow = ({
     ? null
     : first
       ? (snapshot.accountPrefs[accountKey(first.entry.id, first.account)]?.nickname?.trim()
-          ? accountName(first.account, snapshot.accountPrefs[accountKey(first.entry.id, first.account)])
+          ? accountName(first.account, snapshot.accountPrefs[accountKey(first.entry.id, first.account)], undefined, snapshot.hideAccountAddresses)
           : null) ||
-        (first.account.anonymous ? 'Signed in' : shownIdentity(first.account, snapshot) ?? accountName(first.account, undefined, info.presentation.name))
+        (first.account.anonymous ? 'Signed in' : shownIdentity(first.account, snapshot) ?? accountName(first.account, undefined, info.presentation.name, snapshot.hideAccountAddresses))
       : gateways[0]!.slot!.gateway!.name
   // One queue in the pool's order, gateways in their places, as the account
   // page draws it.
@@ -518,7 +518,7 @@ const AgentRow = ({
           )
         }
         const { key, blocked, left } = accountStanding(entry, account, snapshot)
-        const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name)
+        const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
         const identity = shownIdentity(account, snapshot)
         const hit = query !== '' && `${name} ${identity ?? ''}`.toLowerCase().includes(query)
         return (
@@ -791,7 +791,7 @@ const AgentAccounts = ({
             )
           }
           const { key, blocked, left } = accountStanding(entry, account, snapshot)
-          const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name)
+          const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
           const identity = shownIdentity(account, snapshot)
           return (
             <RowButton
@@ -1447,7 +1447,7 @@ const AccountDetail = ({
   // typed as an address is shown as the name it stands for, and is saved
   // again only once it is edited — looking at the page never rewrites it.
   const saved = prefs?.nickname ?? ''
-  const shownSaved = snapshot.hideAccountAddresses && saved.includes('@') ? accountName(account, prefs) : saved
+  const shownSaved = snapshot.hideAccountAddresses && saved.includes('@') ? accountName(account, prefs, undefined, true) : saved
   const [edited, setEdited] = useState<string | null>(null)
   const name = edited ?? shownSaved
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
@@ -1487,7 +1487,7 @@ const AccountDetail = ({
   return (
     <>
       {/* Back to the agent it belongs to, which is where its accounts are listed. */}
-<DestinationBar place={accountName(account, prefs, info.presentation.name)} />
+<DestinationBar place={accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)} />
       <Toolbar>
         <Button variant="ghost" size="sm" onClick={onBack}>Back to {info.presentation.name}</Button>
         <RuntimeMark runtime={info} size={16} />
@@ -1523,13 +1523,13 @@ const AccountDetail = ({
                 </Button>
               ) : (
                 info.slot?.removable
-                  ? <SettingsRowMenu location={credentialHome(info) ?? info.id} name={accountName(account, prefs, info.presentation.name)} onRemove={() => setConfirmingSignOut(true)} />
+                  ? <SettingsRowMenu location={credentialHome(info) ?? info.id} name={accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)} onRemove={() => setConfirmingSignOut(true)} />
                   : <Button variant="outline" size="sm" onClick={() => setConfirmingSignOut(true)}><SignOutIcon size={13} />Sign out…</Button>
               )
             }
           >
             {snapshot.hideAccountAddresses
-              ? accountName(account, prefs, info.presentation.name)
+              ? accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)
               : account.label}
           </SummaryItem>
           {planLabel && <SummaryItem label="Plan">{planLabel}</SummaryItem>}
@@ -1615,7 +1615,7 @@ const AccountDetail = ({
 
       {destinationActive && confirmingSignOut && (
         <ConfirmDialog
-          title={info.slot?.removable ? `Remove ${accountName(account, prefs, info.presentation.name)}?` : `Sign out of ${accountName(account, prefs, info.presentation.name)}?`}
+          title={info.slot?.removable ? `Remove ${accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)}?` : `Sign out of ${accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)}?`}
           confirmLabel={info.slot?.removable ? 'Remove account' : 'Sign out'}
           tone="destructive"
           onCancel={() => setConfirmingSignOut(false)}

@@ -149,7 +149,7 @@ export const toastName = (
   // While addresses are hidden the report's own label is named the way
   // `shownAccountLabel` names one, never shown whole.
   const shown = known
-    ? accountName(known, prefs[accountKey(runtime, known)], agent)
+    ? accountName(known, prefs[accountKey(runtime, known)], agent, hideAddresses)
     : hideAddresses ? accountName({ kind: 'oauth', label: account } as unknown as Account, undefined) : account
   /* An account the runtime cannot name is not an address. `accountName` hands
      back the agent's own name for an anonymous one, so the toast read "Claude
