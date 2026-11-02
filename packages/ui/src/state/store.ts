@@ -648,6 +648,8 @@ export class AppStore {
   // A gap or contradictory cursor needs semantic reconciliation, not merely
   // another numerically newer snapshot. No unload is enabled in this state.
   readonly #transcriptRecoveryBlocked = new Set<SessionKey>()
+  // Only an unbroken, verified-cursor invalidation chain may be re-proved.
+  readonly #transcriptReproof = new Map<SessionKey, { watermark: TranscriptWatermark; change: number; connection: number; removal: number; draftRevision: number; body: WeakRef<Session>; fingerprint: string; owners: Set<symbol> }>()
   readonly #transcriptOrphans = new Set<PendingTranscript>()
   readonly #releasedTranscripts = new Map<SessionKey, { identity: string; watermark: TranscriptWatermark; connection: number; removal: number; metadata: string; hostMetadata: string; owner: object; pending: PendingTranscript; changed: boolean; eligible: boolean; dirty: boolean; invalidation?: TranscriptWatermark; inFlight?: Promise<boolean>; flightConnection?: number }>()
   readonly #releasedOrphans: { identity: string; watermark: TranscriptWatermark; pending: PendingTranscript }[] = []
@@ -681,12 +683,25 @@ export class AppStore {
     return () => {
       if (released) return
       released = true
+      const reproof = this.#transcriptReproof.get(key), current = this.#snapshot.sessions.get(key)
+      let advance = false
+      try {
+        advance = !!reproof && reproof.change === this.#transcriptChange && reproof.owners.has(token) &&
+          reproof.connection === this.#chatConnectionGeneration && reproof.removal === (this.#sessionRemovalRevisions.get(key) ?? 0) &&
+          reproof.draftRevision === this.drafts.revision && current === reproof.body.deref() && !!current?.itemsLoaded &&
+          transcriptSessionFingerprint(current) === reproof.fingerprint && !this.#transcriptPending.has(key) &&
+          this.#transcriptOrphans.size === 0 && this.#releasedOrphans.length === 0
+      } catch { /* An unrepresentable body cannot advance the proof chain. */ }
       owners.delete(token)
       if (owners.size === 0 && this.#transcriptOwners.get(key) === owners) {
         this.#transcriptOwners.delete(key)
         this.#transcriptChange++
         this.#scheduleTranscriptPressure()
       } else this.#transcriptChange++
+      if (advance && reproof && this.#transcriptReproof.get(key) === reproof) {
+        reproof.owners.delete(token)
+        reproof.change = this.#transcriptChange
+      }
     }
   }
 
@@ -802,7 +817,7 @@ export class AppStore {
       if (!Number.isSafeInteger(limits.count) || limits.count < 0 || !Number.isSafeInteger(limits.bytes) || limits.bytes < 0) return []
       const candidates: { key: SessionKey; bytes: number; touched: number }[] = []
       for (const [key, session] of this.#snapshot.sessions) {
-        if (!session.itemsLoaded || this.#transcriptRecoveryBlocked.has(key) || this.#transcriptProtected(key, session)) continue
+        if (!session.itemsLoaded || (this.#transcriptRecoveryBlocked.has(key) && !this.#canReproofTranscript(key, session)) || this.#transcriptProtected(key, session)) continue
         try { candidates.push({ key, bytes: canonicalTranscriptBody(session.turns).bytes, touched: this.#transcriptTouches.get(key) ?? 0 }) } catch { /* Keep unsupported bodies. */ }
       }
       if (candidates.length <= limits.count && candidates.reduce((sum, item) => sum + item.bytes, 0) <= limits.bytes) return []
@@ -864,9 +879,21 @@ export class AppStore {
       session.status.type !== 'idle' || session.turns.some(turn => turn.status === 'inProgress') || !!session.partialHistory
   }
 
+  #canReproofTranscript(key: SessionKey, session: Session): boolean {
+    const proof = this.#transcriptReproof.get(key)
+    if (!proof || proof.change !== this.#transcriptChange || proof.connection !== this.#chatConnectionGeneration ||
+        proof.removal !== (this.#sessionRemovalRevisions.get(key) ?? 0) || proof.draftRevision !== this.drafts.revision ||
+        proof.body.deref() !== session || !session.itemsLoaded || this.#transcriptPending.has(key) ||
+        this.#transcriptOrphans.size > 0 || this.#releasedOrphans.length > 0) return false
+    try { return transcriptSessionFingerprint(session) === proof.fingerprint } catch { return false }
+  }
+
   async verifyTranscriptCache(runtime: RuntimeId, id: SessionId): Promise<boolean> {
     const key = sessionKey(runtime, id), before = this.#snapshot.sessions.get(key), change = this.#transcriptChange, draftRevision = this.drafts.revision
-    if (!before?.itemsLoaded || this.#transcriptRecoveryBlocked.has(key) || this.#transcriptProtected(key, before) || !globalThis.crypto?.subtle) return false
+    const reproof = this.#transcriptReproof.get(key)
+    const blocked = this.#transcriptRecoveryBlocked.has(key)
+    const safeReproof = blocked && !!before && this.#canReproofTranscript(key, before)
+    if (!before?.itemsLoaded || (blocked && !safeReproof) || this.#transcriptPending.has(key) || this.#transcriptProtected(key, before) || !globalThis.crypto?.subtle) return false
     const request = Symbol()
     this.#transcriptReceipts.delete(key)
     this.#transcriptSnapshotRequests.set(key, request)
@@ -892,6 +919,15 @@ export class AppStore {
           (snapshot.watermark.sequence < current.sequence || snapshot.watermark.revision < current.revision ||
             (snapshot.watermark.sequence === current.sequence && snapshot.watermark.revision !== current.revision))) return false
       if (sessionFingerprint !== transcriptSessionFingerprint(before)) return false
+      if (safeReproof) {
+        if (!reproof || this.#transcriptReproof.get(key) !== reproof || this.#transcriptPending.has(key) || this.#transcriptOrphans.size || this.#releasedOrphans.length ||
+            snapshot.watermark.epoch !== reproof.watermark.epoch || snapshot.watermark.generation !== reproof.watermark.generation ||
+            snapshot.watermark.sequence < reproof.watermark.sequence || snapshot.watermark.revision < reproof.watermark.revision ||
+            (snapshot.watermark.sequence === reproof.watermark.sequence && snapshot.watermark.revision !== reproof.watermark.revision)) return false
+        this.#transcriptRecoveryBlocked.delete(key)
+        this.#transcriptReproof.delete(key)
+      }
+      this.#transcriptReproof.delete(key)
       this.#transcriptAuthority.set(key, { watermark: snapshot.watermark, lastFingerprint: null, sessionFingerprint })
       this.#transcriptCursors.set(key, { watermark: snapshot.watermark, lastFingerprint: null })
       return true
@@ -941,6 +977,7 @@ export class AppStore {
     sessions.set(key, { ...session, turns: [], itemsLoaded: false })
     this.#transcriptReceipts.delete(key)
     this.#transcriptAuthority.delete(key)
+    this.#transcriptReproof.delete(key)
     this.#patch({ sessions }, { preserveSessionMembership: true })
     return true
   }
@@ -1186,6 +1223,23 @@ export class AppStore {
           this.#transcriptChange++
           const key = sessionKey(notification.params.runtime, notification.params.sessionId)
           const released = this.#releasedTranscripts.get(key)
+          const cursor = this.#transcriptCursors.get(key)?.watermark, prior = this.#transcriptReproof.get(key)
+          const floor = cursor ?? (prior?.change === this.#transcriptChange - 1 && prior.connection === this.#chatConnectionGeneration &&
+            prior.removal === (this.#sessionRemovalRevisions.get(key) ?? 0) ? prior.watermark : undefined)
+          const incoming = notification.params.watermark
+          if (!released && !this.#transcriptPending.has(key) && floor && this.#validTranscriptFence(incoming) &&
+              incoming.epoch === floor.epoch && incoming.generation === floor.generation &&
+              incoming.sequence > floor.sequence && incoming.revision >= floor.revision) {
+            const body = this.#snapshot.sessions.get(key)
+            try {
+              if (!body?.itemsLoaded) throw new Error('No loaded transcript')
+              const fingerprint = transcriptSessionFingerprint(body)
+              if (!cursor && prior && (prior.body.deref() !== body || prior.fingerprint !== fingerprint || prior.draftRevision !== this.drafts.revision)) throw new Error('Transcript changed during invalidation')
+              this.#transcriptReproof.set(key, { watermark: incoming, change: this.#transcriptChange, connection: this.#chatConnectionGeneration,
+                removal: this.#sessionRemovalRevisions.get(key) ?? 0, draftRevision: this.drafts.revision, body: new WeakRef(body),
+                fingerprint, owners: new Set(this.#transcriptOwners.get(key)) })
+            } catch { this.#transcriptReproof.delete(key) }
+          } else this.#transcriptReproof.delete(key)
           if (released) {
             const watermark = notification.params.watermark
             const floor = released.invalidation ?? released.watermark
@@ -4228,6 +4282,7 @@ export class AppStore {
     this.#transcriptReceipts.delete(key)
     this.#transcriptTouches.delete(key)
     // Reads already in flight cannot recreate what the host has confirmed gone.
+    this.#transcriptReproof.delete(key)
     this.#sessionRemovalRevisions.set(key, (this.#sessionRemovalRevisions.get(key) ?? 0) + 1)
     this.#cancelTerminalOpenings(`session:${key}`)
     const { runtime, id } = splitSessionKey(key)
