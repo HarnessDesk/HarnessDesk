@@ -911,6 +911,8 @@ export class AppStore {
               (entry) => entry.runtime !== runtime || usageAccount(entry) !== usageAccount({ account }),
             ),
           })
+          // A sibling whose spent report went away is not out any more.
+          this.#followPool(this.#snapshot.usage)
         }
         if (notification.method === 'usage/scanProgress') {
           this.#patch({ scan: notification.params.progress })

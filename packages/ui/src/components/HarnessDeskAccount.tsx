@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ActionError, Banner, BannerAction, Button, CodeText, ConfirmDialog, Dialog, Face, Input, Note, NoticeHost, Row, Rows, RowValue, SectionHead, Spinner, Switch } from '../design'
 import { useSnapshot, useStore } from '../state/context'
+import { shownDeskName } from '../lib/accounts'
 import { formatAge } from '../lib/usage'
 import { MobileIcon } from './Icons'
 
@@ -83,7 +84,7 @@ export const HarnessDeskAccountSection = () => {
   const signedIn = status?.status === 'signedIn'
   const account = status?.account
   return <>
-    <Rows><Row kind="record" face={<Face pictureDataUrl={account?.pictureDataUrl} />} title={signedIn ? account?.name || (hide ? null : account?.email) || 'HarnessDesk account' : 'Sign in to HarnessDesk'}
+    <Rows><Row kind="record" face={<Face pictureDataUrl={account?.pictureDataUrl} />} title={signedIn ? shownDeskName(account, hide) || 'HarnessDesk account' : 'Sign in to HarnessDesk'}
       desc={signedIn ? (hide ? undefined : account?.email) : 'Open this desk from your phone.'} control={signedIn
         ? <Button variant="outline" onClick={() => setSignOut(true)}>Sign out…</Button>
         : <Button disabled={busy || status?.status === 'pending'} onClick={() => void run(() => store.signInToHarnessDesk())}>Sign in…</Button>} /></Rows>

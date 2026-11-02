@@ -124,6 +124,16 @@ describe('the account pool', () => {
     await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-2'))
   })
 
+  it('moves once a spent sibling\'s report goes away', async () => {
+    preferences = { activeRuntime: 'codex', accountPools: { codex: { whenOut: 'next' } } }
+    await store.loadPreferences()
+    push({ method: 'usage/updated', params: { report: report(100, 'codex-2') } })
+    push({ method: 'usage/updated', params: { report: report(100, 'codex') } })
+    expect(store.getSnapshot().activeRuntime).toBe('codex')
+    push({ method: 'usage/removed', params: { runtime: runtimeId('codex-2'), account: null } } as unknown as WireNotification)
+    await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-2'))
+  })
+
   it('remembers a new order', async () => {
     store.setAccountPool(runtimeId('codex'), { order: [runtimeId('codex-2'), runtimeId('codex')] })
     expect(store.getSnapshot().accountPools['codex']).toEqual({ order: ['codex-2', 'codex'] })

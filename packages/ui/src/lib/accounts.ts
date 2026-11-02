@@ -105,6 +105,20 @@ export const accountName = (
 }
 
 /**
+ * The HarnessDesk account's own name, under the same switch: a name that is
+ * itself an address (some providers name you by your login) is cut at the @
+ * while addresses are hidden, and the email is never the fallback then.
+ */
+export const shownDeskName = (
+  account: { readonly name?: string | null; readonly email?: string | null } | null | undefined,
+  hide: boolean,
+): string | null => {
+  const name = account?.name?.trim() || null
+  if (!hide) return name || account?.email || null
+  return name?.includes('@') ? name.slice(0, name.indexOf('@')) || null : name
+}
+
+/**
  * An account as a row writes it: as the runtime wrote it, or — while
  * Settings › General › Hide account addresses is on — by name only, its
  * nickname or the address cut at the @. Every surface that names an account

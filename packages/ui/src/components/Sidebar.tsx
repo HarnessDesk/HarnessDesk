@@ -39,7 +39,7 @@ import {
   type MenuAccountFigure,
   type Tone,
 } from '../design'
-import { accountForUsage, accountKey, accountName, accountIdentity, agentKey, prefsForUsage, runtimeLabel, shownAccountLabel, tintOf, type AccountPrefs } from '../lib/accounts'
+import { accountForUsage, accountKey, accountName, accountIdentity, agentKey, prefsForUsage, runtimeLabel, shownAccountLabel, shownDeskName, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken } from '../lib/agents'
 import { FlowIcon } from './Icons'
@@ -484,7 +484,7 @@ export const AccountFooter = ({
   const agentName = brandOf(runtime.presentation.name)
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
   // You: the profile's name, which is HarnessDesk until you choose one.
-  const yourName = deskSignedIn ? deskAccount.account?.name || (hide ? null : deskAccount.account?.email) || 'HarnessDesk' : profileName(snapshot.profile)
+  const yourName = deskSignedIn ? shownDeskName(deskAccount.account, hide) || 'HarnessDesk' : profileName(snapshot.profile)
   // The chairs you can sit in. An agent that is waiting for a sign-in is not
   // one — choosing it would start nothing — so it waits behind "Add an
   // account…", whose chooser is where signing in happens. The default stays
