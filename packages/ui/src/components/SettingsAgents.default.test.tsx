@@ -123,6 +123,22 @@ it.each([true, false])('keeps the runtime default choice in the Settings body wi
   }
 })
 
+it('puts new sessions on the first account of the pool, as the Accounts list orders them', async () => {
+  const second = { ...info, id: runtimeId('claude-2'), slot: { agent: CLAUDE, home: '/tmp/claude-2', removable: true } } as unknown as RuntimeInfo
+  const workbench = emptySnapshot().workbench
+  const store = await mount({
+    runtimes: [info, second],
+    activeRuntime: runtimeId('another'),
+    accountsByRuntime: { [CLAUDE]: signedIn, [second.id]: { accounts: [{ kind: 'oauth', label: 'jane@example.com' }], signInMethods: [] } as unknown as AccountStatus },
+    accountPools: { [CLAUDE]: { order: [second.id, CLAUDE] } },
+    workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } } } },
+  })
+  await click(agentName(), 'the runtime row')
+  const use = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Use for new sessions')
+  await click(use, 'the default action')
+  expect(store.selectRuntime).toHaveBeenCalledWith(second.id)
+})
+
 /** The Default chip's state, wherever on the current screen it is. */
 const chip = (): string => {
   const found = [...container.querySelectorAll('[data-state]')].find(

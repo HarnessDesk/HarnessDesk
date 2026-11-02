@@ -53,7 +53,7 @@ import { withCount } from '../lib/with-count'
 import { Prose } from './Prose'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
-import { inPoolOrder, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, whenOutOf, type WhenOut } from '../lib/account-pool'
+import { firstInPool, inPoolOrder, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, whenOutOf, type WhenOut } from '../lib/account-pool'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { copyReason, describeCopy, describeFallback, installSummary, standingChip, pinHolds } from '../lib/installs'
 import { useSnapshot, useStore } from '../state/context'
@@ -2065,7 +2065,11 @@ const AgentDetail = ({
           // is the Accounts section's to say, and the pool's to move.
           control={snapshot.runtimes.some((entry) => entry.id === snapshot.activeRuntime && agentKey(entry) === agentKey(info))
             ? <Chip state={defaultChipState(info, snapshot)} label="Default" />
-            : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(info.id)}>Use for new sessions</Button>}
+            : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(firstInPool(
+                inPoolOrder(snapshot.runtimes.filter((entry) => agentKey(entry) === agentKey(info)), snapshot.accountPools[agentKey(info)]),
+                snapshot,
+                info.id,
+              ))}>Use for new sessions</Button>}
         />
       </Rows>
 

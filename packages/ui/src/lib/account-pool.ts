@@ -113,6 +113,18 @@ export const canTakeTurn = (
   (Boolean(entry.slot?.gateway) || (view.accountsByRuntime[entry.id]?.accounts.length ?? 0) > 0)
 
 /**
+ * Where "use this agent" puts new sessions: the first account in the pool's
+ * order that could take a turn and is not out — the order the Accounts list
+ * shows — else the first in that order, else `fallback`.
+ */
+export const firstInPool = (
+  ordered: readonly RuntimeInfo[],
+  view: Parameters<typeof canTakeTurn>[1] & { readonly usage: readonly UsageReport[] },
+  fallback: RuntimeId,
+): RuntimeId =>
+  (ordered.find((entry) => canTakeTurn(entry, view) && !runtimeOut(entry.id, view.usage)) ?? ordered[0])?.id ?? fallback
+
+/**
  * The account after `from` in the pool that could take a session now:
  * signed in, started, and not out. Wraps around, so the first account comes
  * back once a later one runs out in its turn.
