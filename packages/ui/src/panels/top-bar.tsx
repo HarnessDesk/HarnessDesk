@@ -74,6 +74,10 @@ export const useRegisteredDetails = (owner: string): boolean => {
   return useSyncExternalStore(source.subscribe,
     () => source.getSnapshot().get(owner)?.value.details != null, () => false)
 }
+const RailHost = createContext(false)
+/** Set by the shell that draws page rails; a page mounted without one has no rail to toggle. */
+export const PageRailHost = RailHost.Provider
+export const usePageRailHost = (): boolean => useContext(RailHost)
 export const WorkDetailsOutlet = ({ owner }: { owner: string }) => {
   const source = useContext(Context)
   if (!source) throw new Error('WorkDetailsOutlet requires TopBarProvider')

@@ -1,14 +1,14 @@
 import { useState, useSyncExternalStore } from 'react'
 import { LEAD_LIMITS, type LeadThreadState, type LeadWindowProjection } from '@harnessdesk/protocol'
-import { Button, Checklist, ChecklistItem, Chip, FormStack, InlineParts, Input, LeadSlot, ListRow, ListRows, Popover, Progress, SummaryItem, SummaryList, Text, ToolBody, ToolProse, ToolSection, type ChecklistState } from '../design'
+import { Button, Checklist, ChecklistItem, Chip, FormStack, InlineParts, Input, LeadSlot, ListRow, ListRows, Popover, Progress, SummaryItem, SummaryList, Text, ToolBody, ToolProse, ToolSection, leadRoleWord, type ChecklistState } from '../design'
 import { useStore } from '../state/context'
 import { sanitizeText } from '../lib/sanitize'
 import { leadRefusalText } from './lead-refusals'
 import { leadDollars } from './LeadCards'
 import { PencilIcon } from './Icons'
 
-/** A Flow role is an id (`implement`); the rail says it as a word. */
-const roleWord = (role: string) => role.charAt(0).toUpperCase() + role.slice(1)
+/** A Flow role is an id (`implement`); the rail says it in the plan card's word, capitalised for a row title. */
+const roleTitle = (role: string) => { const word = leadRoleWord(sanitizeText(role)); return word.charAt(0).toUpperCase() + word.slice(1) }
 const roundsWords = (rounds: number) => `${rounds} ${rounds === 1 ? 'round' : 'rounds'}`
 
 /** The plan's state in a word; the two that wait on the person carry the warning tone. */
@@ -54,7 +54,11 @@ export const LeadDetails = () => {
   const caps = budget?.caps ?? state.settings?.caps
   const current = progress ? progress.step - 1 : 0
   const stepState = (at: number): ChecklistState => phase === 'accepted' || progress && at < current ? 'done' : progress && at === current ? 'active' : 'pending'
-  const workers = contract?.steps[current]?.assignments ?? []
+  // Which step is under way is known only while it runs; before the run starts the card names every role the
+  // plan seats, and once it has stopped or waits on the person it says nothing rather than guess the step.
+  const seated = progress ? contract?.steps[current]?.assignments ?? []
+    : phase === 'draft' || phase === 'planning' || phase === 'awaiting-plan' ? contract?.steps.flatMap(step => step.assignments) ?? [] : []
+  const workers = [...new Set(seated.map(worker => roleTitle(worker.role)))]
   const known = budget?.spend === 'known', spent = budget ? budget.leadUsdMicros + (known ? budget.workerUsdMicros : 0) : 0
   return <ToolBody>
     {contract && phase && <>
@@ -63,7 +67,7 @@ export const LeadDetails = () => {
         <Checklist surface="panel">{contract.steps.map((step, at) => <ChecklistItem key={step.id} state={stepState(at)}>{sanitizeText(step.title)}</ChecklistItem>)}</Checklist>
       </ToolSection>
       {workers.length > 0 && <ToolSection label="Workers" fold value={workers.length}>
-        <ListRows>{workers.map((worker, at) => <ListRow key={at} size="sm" title={roleWord(sanitizeText(worker.role))} subtitle={<Text role="meta">{sanitizeText(worker.agent)}</Text>} />)}</ListRows>
+        <ListRows>{workers.map(role => <ListRow key={role} size="sm" title={role} />)}</ListRows>
       </ToolSection>}
     </>}
     {caps && <ToolSection label="Spend" value={budget ? known ? `${leadDollars(spent)} of ${leadDollars(caps.usdMicros)}` : 'Not confirmed' : `Up to ${leadDollars(caps.usdMicros)}`}

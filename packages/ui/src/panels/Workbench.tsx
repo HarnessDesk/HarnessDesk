@@ -1,6 +1,6 @@
 import { effectiveWindowMode } from '../editor'
 import { tileBrowserWorkbench } from '../lib/browser-tiles'
-import { WorkDetailsOutlet, useRegisteredDetails, useRegisteredOwner } from './top-bar'
+import { PageRailHost, WorkDetailsOutlet, useRegisteredDetails, useRegisteredOwner } from './top-bar'
 import { useShellHosts } from './shell-hosts'
 import { RunDockProvider, RunDetailsView } from './run-dock'
 import {
@@ -262,7 +262,7 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
         }}><FixedPanelBody heading={expanded ? mainTitle : undefined} actions={expanded ? <>
           <Button variant="ghost" size="icon-sm" aria-label="Swap back" title="Swap back" onClick={() => store.swapWorkPane()}><SwapIcon size={16} /></Button>
           <Button variant="ghost" size="icon-sm" aria-label="Close pane" title="Close pane" onClick={() => store.toggleWorkPanel()}><CrossIcon size={16} /></Button>
-        </> : undefined}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><MainDestination page={pageActive} work={<KeyboardHereContext.Provider value={pageActive ? false : null}><Panes /></KeyboardHereContext.Provider>} pages={pages} /></FixedPanelBody></div>}
+        </> : undefined}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><MainDestination page={pageActive} work={<KeyboardHereContext.Provider value={pageActive ? false : null}><Panes /></KeyboardHereContext.Provider>} pages={<PageRailHost value>{pages}</PageRailHost>} /></FixedPanelBody></div>}
       rail={pageActive ? <PageRail owner={pageOwner} drawn={railOpen} /> : <WorkRail drawn={railOpen} />}
       right={<RightWorkActive.Provider value={paneActive}><RightPanel /></RightWorkActive.Provider>} bottom={null}>
       {narrow && <WorkbenchScrim className={styles.scrim} {...(floating ? { 'data-open': '' } : {})} aria-hidden

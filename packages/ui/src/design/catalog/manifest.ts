@@ -819,6 +819,10 @@ export const CATALOG_EXPORT_EXEMPTIONS = [
     reason: 'AgentCardModeContext carries the card presentation mode; the registered AgentCard renders its full and facts-only anatomy.',
   },
   {
+    export: 'packages/ui/src/design/patterns/LeadPlanFlow.tsx#leadRoleWord',
+    reason: 'leadRoleWord maps a plan role to its word without rendering; the registered LeadPlanFlow shows those words on its worker rows.',
+  },
+  {
     export: 'packages/ui/src/design/ui/dialog.tsx#renderShellSlot',
     reason: 'renderShellSlot portals children into an existing shell host; the registered dialog and frame patterns own the visible content.',
   },

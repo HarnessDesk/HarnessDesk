@@ -18,7 +18,7 @@ import { leadOriginText } from '../lib/lead-time'
 import { LEAD_HANDBACK_LIMIT, LEAD_REPAIR_RECOVERY_FAILED } from './lead-wait-copy'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
-import { useWorkDetails } from '../panels/top-bar'
+import { usePageRailHost, useWorkDetails } from '../panels/top-bar'
 import { PageRailToggle } from '../panels/WorkTools'
 import { LeadDetails } from './LeadDetails'
 import { AtIcon, FolderIcon, PlusIcon, RouteIcon, SendIcon, SettingsIcon, StopIcon } from './Icons'
@@ -118,8 +118,9 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     catch (error) { refusal(error) }
     finally { stoppingRef.current = false; decisionLock.current = false; setStopping(false); input.current?.focus() }
   }
+  const railHosted = usePageRailHost()
   useConversationTopBar(owner, { mark: <LeadAvatar name={name} size="header" />, place: label, placeTitle: `${label} · ${presence.word}`, placeMenu: close => <LeadStatusPanel close={close} controls={controls} />,
-    state: <Text role="muted" data-slot="lead-presence">{presence.word}</Text>, tools: <><PageRailToggle page="lead" /><Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={controls.openSettings}><SettingsIcon /></Button></>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
+    state: <Text role="muted" data-slot="lead-presence">{presence.word}</Text>, tools: <>{railHosted && <PageRailToggle page="lead" />}<Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={controls.openSettings}><SettingsIcon /></Button></>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
   useWorkDetails(owner, <LeadDetails />, active)
   // The run strip's clock: a minute is its smallest step, so it ticks twice a minute while a goal runs.
   const [now, setNow] = useState(() => Date.now())

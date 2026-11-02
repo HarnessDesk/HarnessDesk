@@ -8,7 +8,7 @@ import { previewStore } from '../preview/harness'
 import { leadBudget, leadPlan, leadProjection } from '../preview/lead-fixture'
 import { DestinationPageScope } from '../panels/destination-page'
 import { LeadSettingsSection } from './LeadSettings'
-import { TopBarOutlet, TopBarProvider, WorkDetailsOutlet } from '../panels/top-bar'
+import { PageRailHost, TopBarOutlet, TopBarProvider, WorkDetailsOutlet } from '../panels/top-bar'
 import { formatLeadConsentTime } from './lead-consent-time'
 import leadSettingsSource from './LeadSettings.tsx?raw'
 const decisionHandlers = vi.hoisted(() => [] as { onApprove?: () => void; onDecline?: () => void }[])
@@ -36,7 +36,7 @@ it('shows one plain runtime reason and cannot retry an unavailable Lead', async 
   expect(send).not.toHaveBeenCalled()
   expect(request.mock.calls.filter(([method]) => method === 'lead/thread/read')).toHaveLength(1)
 })
-const mount = async (projection = leadProjection(), loading = false) => {
+const mount = async (projection = leadProjection(), loading = false, hosted = false) => {
   const store = new AppStore('ws://localhost:0/'), box = document.createElement('div'); document.body.append(box)
   Object.assign(store.getSnapshot(), previewStore({ leadAvailable: true }).getSnapshot())
   if (!loading) store.lead.changed({ method: 'lead/changed', params: projection })
@@ -47,7 +47,7 @@ const mount = async (projection = leadProjection(), loading = false) => {
   vi.spyOn(store, 'openDestination').mockImplementation(destination => navigate(destination.kind === 'settings'))
   const Surface = () => {
     const [settings, setSettings] = useState(false), [focus, focusDecision] = useState<string | null>(null); navigate = setSettings; setFocus = focusDecision
-    return <TopBarProvider><TopBarOutlet owner="lead" fallback={{ place: null, more: () => null }} /><DestinationPageScope owner="lead" active>{settings ? <><button onClick={() => setSettings(false)}>Back</button><LeadSettingsSection /></> : <LeadPage focus={focus} />}</DestinationPageScope><aside data-testid="lead-rail"><WorkDetailsOutlet owner="lead" /></aside></TopBarProvider>
+    return <TopBarProvider><TopBarOutlet owner="lead" fallback={{ place: null, more: () => null }} /><PageRailHost value={hosted}><DestinationPageScope owner="lead" active>{settings ? <><button onClick={() => setSettings(false)}>Back</button><LeadSettingsSection /></> : <LeadPage focus={focus} />}</DestinationPageScope></PageRailHost><aside data-testid="lead-rail"><WorkDetailsOutlet owner="lead" /></aside></TopBarProvider>
   }
   await act(async () => root.render(<StoreProvider store={store}><Surface /></StoreProvider>))
   clean.push(() => { act(() => root.unmount()); box.remove() })
@@ -86,6 +86,10 @@ it.each([null, 'resume', 'decide-plan'] as const)('shows Resume only for wayOut=
   expect(Boolean(button('Resume'))).toBe(wayOut === 'resume')
   if (wayOut === 'resume') expect(box.textContent).toContain('Sending a message also continues')
   if (wayOut === 'decide-plan') { expect(button('Review plan')).toBeUndefined(); await focusDecision('plan'); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('plan') }
+})
+it('offers the rail toggle only where a shell draws the rail', async () => {
+  expect((await mount()).box.querySelector('[aria-label="Toggle rail"]')).toBeNull()
+  expect((await mount(leadProjection(), false, true)).box.querySelector('[aria-label="Toggle rail"]')).not.toBeNull()
 })
 it('shows initial allowances in the rail, not the composer, and disables Send during requestInFlight', async () => {
   const { box, update } = await mount()

@@ -1021,7 +1021,9 @@ progress") stays in a keyed list — the Run's record details keep their keys.
 **A page earns the rail by registering one.** A destination page has no work
 subject, so the shell draws a rail column for it only when the page registers
 details under its own owner (`useWorkDetails('destination:<kind>', …)`) and puts
-`PageRailToggle` in its bar; the open state is kept per page and, like the
+`PageRailToggle` in its bar — only under `PageRailHost`, which the Workbench
+provides, so a page mounted outside the shell shows no toggle with nothing to
+toggle; the open state is kept per page and, like the
 session rail, stands open until closed. The Lead page is the first: Goal, Plan,
 Workers and Spend, in the same `ToolSection` cards the session rail uses.
 

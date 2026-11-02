@@ -34,8 +34,8 @@ it('reads a plan that waits for the person back from the conversation', async ()
   expect(section(box, 'Goal')!.textContent).toContain(leadContract.goal)
   expect(section(box, 'Plan')!.textContent).toContain('Waiting for you')
   expect(section(box, 'Plan')!.querySelectorAll('[data-state="active"]')).toHaveLength(0)
-  expect(section(box, 'Workers')!.textContent).toContain('Implement')
-  expect(section(box, 'Workers')!.textContent).toContain('reviewer')
+  expect([...section(box, 'Workers')!.querySelectorAll('[data-slot="list-row"]')].map(row => row.textContent)).toEqual(['Write', 'Review'])
+  expect(section(box, 'Workers')!.textContent).not.toContain('builder')
 })
 
 it('marks the running step and counts what the goal has spent against its cap', async () => {
@@ -46,6 +46,20 @@ it('marks the running step and counts what the goal has spent against its cap', 
   expect(section(box, 'Plan')!.textContent).toContain('Step 1 of 1')
   expect(section(box, 'Spend')!.textContent).toContain('$0.26 of $5.00')
   expect(section(box, 'Spend')!.textContent).toContain('1 of 4')
+})
+
+const twoSteps = { ...leadContract, steps: [leadContract.steps[0]!, { ...leadContract.steps[0]!, id: 'check', title: 'Check the result', assignments: [leadContract.steps[0]!.assignments[1]!] }] }
+it('marks the steps before the running one done and seats only the running step', async () => {
+  const box = await mount(leadProjection({ thread: { ...leadProjection().thread!, state: 'running', contract: twoSteps }, progress: { step: 2, steps: 2, runs: 2 } }))
+  expect([...section(box, 'Plan')!.querySelectorAll('[data-state]')].map(item => item.getAttribute('data-state'))).toEqual(['done', 'active'])
+  expect([...section(box, 'Workers')!.querySelectorAll('[data-slot="list-row"]')].map(row => row.textContent)).toEqual(['Review'])
+})
+
+it('does not guess the step while the goal waits on the person', async () => {
+  const box = await mount(leadProjection({ thread: { ...leadProjection().thread!, state: 'waiting-for-user', contract: twoSteps } }))
+  expect(section(box, 'Plan')!.textContent).toContain('Needs you')
+  expect(section(box, 'Plan')!.querySelectorAll('[data-state="done"], [data-state="active"]')).toHaveLength(0)
+  expect(section(box, 'Workers')).toBeNull()
 })
 
 it('does not claim a total while worker spend is unconfirmed', async () => {
