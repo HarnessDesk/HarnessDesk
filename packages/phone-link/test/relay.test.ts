@@ -258,6 +258,25 @@ describe('the relay link', () => {
     ws.close()
   })
 
+  test('a phone the desk closes gets what was already queued for it before the close', async () => {
+    startLink({ framesPerSecond: 200, attach: (_conn, _dev, transport) => {
+      setTimeout(() => {
+        for (let i = 0; i < 120; i++) transport.send(new Uint8Array([i]))
+        transport.close(CloseCode.REVOKED, 'removed')
+      }, 10)
+      return { receive: () => {}, gone: () => {} }
+    } })
+    await until(() => link!.state === 'connected', 'connected')
+    const ticket = await relay.ticketFor(await PhoneSim.create())
+    const ws = new WebSocket(`${relay.url}/v1/phone/${DESK}`, { headers: { authorization: `Bearer ${ticket}` } })
+    let got = 0
+    let closedAfter = -1
+    ws.on('message', () => { got++ })
+    ws.on('close', code => { if (code === CloseCode.REVOKED) closedAfter = got })
+    await until(() => closedAfter >= 0, 'the close', 3000)
+    assert.equal(closedAfter, 120, 'the paced frames arrived before the close')
+  })
+
   test('a relay that drops the desk right after ready still backs off, and says it cannot be reached', async () => {
     relay.dropAfterReady = true
     startLink({ maxBackoffMs: 20 })

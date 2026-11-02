@@ -224,23 +224,25 @@ export class RelayLink {
     if (live.phones.size >= live.maxPhones) return live.closePhone(conn, CloseCode.RATE_LIMITED, 'too many phones')
     // The phone link may refuse while it attaches, before there is an attachment to hold; the relay is told either way.
     let closed = false
-    const close = (code: number, reason: string) => {
+    // The desk's own close follows what it already sent, so a sealed refusal still reaches the phone ahead of it; a
+    // phone let go for sending too much loses what is still waiting.
+    const close = (code: number, reason: string, dropQueued = false) => {
       if (closed) return
       closed = true
       const phone = live.phones.get(conn)
       live.phones.delete(conn)
-      live.forget(conn)
-      live.closePhone(conn, code, reason)
+      if (dropQueued) live.forget(conn)
+      live.closePhoneAfterSends(conn, code, reason)
       phone?.gone()
     }
     const transport: EndpointTransport = {
       send: bytes => {
         if (closed || this.#live !== live) return
         // The relay closes the whole desk socket over a frame larger than it allows, so only this phone is let go.
-        if (bytes.length + 4 > live.maxFrame) return close(CloseCode.FRAME_TOO_LARGE, 'message too large')
-        if (!live.send(conn, encodeDeskFrame(conn, bytes))) close(CloseCode.RATE_LIMITED, 'too much to send')
+        if (bytes.length + 4 > live.maxFrame) return close(CloseCode.FRAME_TOO_LARGE, 'message too large', true)
+        if (!live.send(conn, encodeDeskFrame(conn, bytes))) close(CloseCode.RATE_LIMITED, 'too much to send', true)
       },
-      close,
+      close: (code, reason) => close(code, reason),
     }
     const attachment = this.#options.attach(conn, message.dev, transport)
     if (!closed) live.phones.set(conn, attachment)
@@ -295,7 +297,7 @@ class Live {
   readyAt: number | null = null
   maxPhones: number = RelayLimits.maxPhonesPerDesk
   maxFrame: number = RelayLimits.maxFrameBytes
-  readonly #queue: { conn: number; frame: Uint8Array }[] = []
+  readonly #queue: ({ conn: number; frame: Uint8Array } | { conn: number; close: { code: number; reason: string } })[] = []
   #tokens: number
   #filled = Date.now()
   #drain: ReturnType<typeof setTimeout> | null = null
@@ -312,6 +314,12 @@ class Live {
     this.#queue.push({ conn, frame })
     this.#schedule()
     return true
+  }
+
+  /** Closes a phone once the frames already queued for it have gone out, in their order. */
+  closePhoneAfterSends(conn: number, code: number, reason: string): void {
+    if (!this.#queue.some(queued => queued.conn === conn)) return this.closePhone(conn, code, reason)
+    this.#queue.push({ conn, close: { code, reason } })
   }
 
   /** A phone that has gone sends nothing more. */
@@ -352,7 +360,13 @@ class Live {
     if (this.#drain) return
     this.#drain = setTimeout(() => {
       this.#drain = null
-      while (this.#queue.length > 0 && this.#take()) this.#write(this.#queue.shift()!.frame)
+      while (this.#queue.length > 0) {
+        const next = this.#queue[0]!
+        if ('close' in next) { this.#queue.shift(); this.closePhone(next.conn, next.close.code, next.close.reason); continue }
+        if (!this.#take()) break
+        this.#queue.shift()
+        this.#write(next.frame)
+      }
       if (this.#queue.length > 0) this.#schedule()
     }, Math.ceil(1000 / this.perSecond))
     this.#drain.unref()
