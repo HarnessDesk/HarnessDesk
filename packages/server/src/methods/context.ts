@@ -363,6 +363,7 @@ export interface HostContext {
     live(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly route?: ResolvedModelRoute }): Promise<AgentSession>
     /** The host's record of a conversation, or a refusal. */
     record(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): SessionRecord
+    prepareReopenTranscript(runtime: RuntimeId, id: SessionId): Promise<void>
     prepareEviction(params: HostParams<'session/prepare-eviction'>): Promise<HostResult<'session/prepare-eviction'>>
     cacheSnapshot(params: HostParams<'session/cache-snapshot'>): HostResult<'session/cache-snapshot'>
     conflictOwners(runtime: RuntimeId, id: SessionId): readonly string[]

@@ -485,6 +485,30 @@ test('settled synthetic Flow runs stay within the retained-heap and main-thread 
   assert.ok(d.host.registry.all().every(record => !record.live && !record.session.itemsLoaded && record.watched.size === 0), 'every closed body was unloaded')
 })
 
+test('a cross-generation pending conflict refuses a full snapshot, receipt, and body release', async t => {
+  const root = tempDir('hd-retention-generation-conflict-')
+  let store: TranscriptStore | undefined
+  const original = TranscriptStore.prototype.record
+  t.mock.method(TranscriptStore.prototype, 'record', function(this: TranscriptStore, ...args: Parameters<typeof original>) {
+    store = this; return original.apply(this, args)
+  })
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 })
+  const runtime = new FakeRuntime(); host.register(runtime); await host.start()
+  t.after(async () => { await host.dispose().catch(() => {}) })
+  const { body, record } = await loadedReceiptFixture(host, runtime, root)
+  assert.ok(store)
+  store.record(body, { generation: record.bodyGeneration, authorityEpoch: record.bodyAuthorityEpoch })
+  store.record({ ...body, turns: [{ ...body.turns[0]!, items: [{ id: itemId('other'), type: 'assistantMessage', text: 'other generation' }] }] },
+    { generation: 'foreign-generation', authorityEpoch: record.bodyAuthorityEpoch })
+  assert.equal(store.hasGenerationConflict(body.runtime, body.id), true)
+  assert.equal(await host.call('session/cache-snapshot', { runtime: body.runtime, sessionId: body.id }), null)
+  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  assert.equal(await host.call('session/prepare-eviction', { runtime: body.runtime, sessionId: body.id, identity }), null)
+  await host.call('session/close', { runtime: body.runtime, sessionId: body.id })
+  assert.equal(record.session.itemsLoaded, true)
+  await store.forget(body.runtime, body.id)
+})
+
 test('a quiet exact host body receives a storage-verified, incarnation-bound receipt', async t => {
   const root = tempDir('hd-retention-receipt-')
   const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 })

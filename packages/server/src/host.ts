@@ -1127,6 +1127,9 @@ export class Host {
   constructor(private readonly options: HostOptions) {
     this.#recoveryDescriptors = new DescriptorCache(options.transcriptDescriptorBudgetBytes ?? 8 * 1024 * 1024)
     this.registry.onBodyChanged(record => { if (!this.#runtimeFolds.has(recordKey(record))) this.#invalidateTranscriptCache(record) })
+    this.registry.onDeleted(record => this.#transcripts.unbindBase(record.session, record.bodyGeneration))
+    this.registry.onReconciled((record, previous) => this.#recordRegistryMutation(record, previous))
+    this.registry.onDetached((record, previous) => this.#recordRegistryMutation(record, previous))
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
     this.#unsubscribeChatRoots = this.#state.onChatRootsChanged(snapshot => {
@@ -1197,7 +1200,7 @@ export class Host {
     this.#transcripts = new TranscriptStore(join(this.#state.directory, 'transcripts'), (message, details) =>
       this.#logger.warn(message, details),
       () => this.#scheduleCacheEviction(),
-      (runtime, id, generation, session, _revision, authorityEpoch) => {
+      (runtime, id, generation, session, _revision, authorityEpoch, allowPartial) => {
         const record = this.registry.get(runtime, id)
         // Only facts actually written by TranscriptStore participate here.
         // A later handle-settings change is kept by the Host and must not
@@ -1206,7 +1209,7 @@ export class Host {
           usage: value.usage ?? null, title: value.title ?? null, preview: value.preview ?? null,
           cwd: value.cwd, createdAt: value.createdAt, updatedAt: value.updatedAt })
         return record?.bodyGeneration === generation && (authorityEpoch === undefined || record.bodyAuthorityEpoch === authorityEpoch) &&
-          !record.transcriptIncomplete && record.session.itemsLoaded && !record.session.partialHistory && session.itemsLoaded && !session.partialHistory &&
+          !record.transcriptIncomplete && record.session.itemsLoaded && (allowPartial || !record.session.partialHistory) && session.itemsLoaded && (allowPartial || !session.partialHistory) &&
           isDeepStrictEqual(persisted(record.session), persisted(session))
       },
       (runtime, id, generation, base) => {
@@ -2702,7 +2705,7 @@ export class Host {
     this.#runtimes.set(id, managed)
     this.#catalogs.watch(managed)
     this.#runtimeSubscriptions.set(id, [
-      runtime.subscribe((event) => this.#onEvent(id, event)),
+      runtime.subscribe((event) => { if (this.ownsRuntime(runtime)) this.#onEvent(id, event, runtime) }),
       runtime.onHealthChange((health) => { if (this.ownsRuntime(runtime)) this.#onHealthChange(id, health) }),
       // A capability the agent only reveals by refusing it. Optional, so a
       // runtime whose description is settled at construction says nothing.
@@ -2733,6 +2736,7 @@ export class Host {
     this.#invalidateDelegations(id)
     this.#settleHeld(id)
     this.registry.detachAll(id)
+    this.#recordDetachedTranscripts(id)
     this.#terminals.detachAll(id)
     // Whatever was waiting on that agent's conversations can never arrive.
     this.#team.onRuntimeDetached(id, 'The agent was removed before the message was read.')
@@ -5617,6 +5621,7 @@ export class Host {
         dispatch: (params, work) => this.#dispatch(params, work),
         live: (params) => this.#live(params),
         record: (params) => this.#record(params),
+        prepareReopenTranscript: (runtime, id) => this.#prepareReopenTranscript(runtime, id),
         prepareEviction: (params) => this.#prepareEviction(params),
         cacheSnapshot: (params) => this.#cacheSnapshot(params),
         conflictOwners: (runtime, id) => [...this.#conflictingTranscripts].flatMap(([key, conflict]) =>
@@ -6819,7 +6824,9 @@ export class Host {
     if (kept && (!source || source.kind !== 'changed')) return { ...kept, ...(source ? { deskCopy: source.kind === 'gone' } : {}) }
     try {
       const live = await this.#liveFor(runtime.info.id, id)
-      const enriched = await this.#transcripts.enrichForRefresh(await runtime.readSession(live.id))
+      const raw = await runtime.readSession(live.id)
+      this.#admitFirstReadBase(raw)
+      const enriched = await this.#transcripts.enrichForRefresh(raw)
       if (source) return this.#cacheRead(enriched.session, source.source, enriched.base)
       const stable = this.#preserveReadRecency(enriched.session)
       this.#transcripts.rememberReadBase(stable, enriched.base)
@@ -7506,6 +7513,24 @@ export class Host {
     }
   }
 
+  async #prepareReopenTranscript(runtime: RuntimeId, id: SessionId): Promise<void> {
+    // Rehydrate an existing durable body before the runtime can synchronously
+    // announce a replay. This gives that replay the current record and exact
+    // observed base, so it cannot replace a richer, unbound startup snapshot.
+    if (!this.registry.get(runtime, id) && !this.#sessionIndex.isRemoved(runtime, id)) {
+      const kept = await this.#transcripts.recover(runtime, id)
+      if (kept && !this.registry.get(runtime, id) && !this.#sessionIndex.isRemoved(runtime, id)) {
+        const base = this.#transcripts.observeBase(kept, false)
+        if (base) {
+          const record = this.registry.upsert(kept, null)
+          this.#durableTranscriptBases.set(record, base)
+          this.#transcripts.bindBase(record.session, record.bodyGeneration, base)
+          this.#transcripts.record(record.session, { generation: record.bodyGeneration, revision: record.bodyRevision, authorityEpoch: record.bodyAuthorityEpoch })
+        }
+      }
+    }
+  }
+
   async #reattach(runtime: AgentRuntime, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
     if (this.#coldRuntimes.has(String(runtime.info.id)) || this.#startingRuntimes.has(String(runtime.info.id))) await this.#ensureStarted(runtime)
     const name = runtime.info.presentation.name
@@ -7522,6 +7547,7 @@ export class Host {
         `${name} cannot reopen a conversation after it restarts, so this one has ended. Start a new one — what you typed is still in the box.`,
       )
     }
+    await this.#prepareReopenTranscript(runtime.info.id, id)
     let live: AgentSession | undefined
     // A Seat that froze attachments reopens on that same filter, revalidated
     // — never on the runtime's own defaults, which would load every ambient
@@ -7732,6 +7758,18 @@ export class Host {
     return stable
   }
 
+  /** A successful full agent read may establish a verified-missing initial base. */
+  #admitFirstReadBase(read: Session): void {
+    const record = this.registry.get(read.runtime, read.id)
+    if (!record || this.#sessionIndex.isRemoved(read.runtime, read.id) || this.#durableTranscriptBases.has(record) ||
+        record.transcriptIncomplete || record.session.partialHistory || !record.session.itemsLoaded ||
+        read.partialHistory || !read.itemsLoaded || !this.#transcripts.ownsUnboundWrite(record.session, record.bodyGeneration, record.bodyAuthorityEpoch)) return
+    const base = this.#transcripts.observeBase(record.session, true)
+    if (base?.kind !== 'missing') return
+    this.#durableTranscriptBases.set(record, base)
+    this.#transcripts.bindBase(record.session, record.bodyGeneration, base)
+  }
+
   #readBaseOwner(session: Session): { record: SessionRecord; revision: number; epoch: number } | undefined {
     const record = this.registry.get(session.runtime, session.id)
     return record ? { record, revision: record.bodyRevision, epoch: record.bodyAuthorityEpoch } : undefined
@@ -7786,10 +7824,12 @@ export class Host {
       if (cached) return { ...held?.session, ...cached, deskCopy: source.kind === 'gone' }
     }
     try {
+      await this.#prepareReopenTranscript(runtime.info.id, id)
       const raw = await runtime.readSession(id)
       // The index owns the desk's display location, not proof of a runtime
       // transcript's scope. Check the body being returned before replacing cwd.
       await admitCwd?.(raw.cwd)
+      this.#admitFirstReadBase(raw)
       const enriched = await this.#transcripts.enrichForRefresh(raw)
       const session = { ...enriched.session,
         ...(runtime.info.capabilities.sourceTranscript ? { deskCopy: false } : {}) }
@@ -8467,7 +8507,7 @@ export class Host {
   /** A cache snapshot never reopens a runtime or changes the closed record. */
   #cacheSnapshot(params: HostParams<'session/cache-snapshot'>): HostResult<'session/cache-snapshot'> {
     const record = this.registry.get(params.runtime, params.sessionId)
-    if (!record || record.session.partialHistory || record.transcriptIncomplete || this.#importedTranscriptBases.has(record) ||
+    if (!record || record.session.partialHistory || record.transcriptIncomplete || this.#transcripts.hasGenerationConflict(params.runtime, params.sessionId) || this.#importedTranscriptBases.has(record) ||
         this.#pendingTranscriptOverlays.has(record.bodyGeneration) || this.#recoveredTranscriptBases.has(record.bodyGeneration) ||
         this.#transcriptOperations.has(recordKey(record))) return null
     let session: Session
@@ -8493,7 +8533,7 @@ export class Host {
   async #prepareEviction(params: HostParams<'session/prepare-eviction'>): Promise<HostResult<'session/prepare-eviction'>> {
     if (!/^[a-f0-9]{64}$/.test(params.identity)) return null
     const record = this.registry.get(params.runtime, params.sessionId)
-    if (!record || !record.cacheClosed || record.transcriptIncomplete || this.#pendingTranscriptOverlays.has(record.bodyGeneration) || this.#recoveredTranscriptBases.has(record.bodyGeneration)) return null
+    if (!record || !record.cacheClosed || record.transcriptIncomplete || this.#transcripts.hasGenerationConflict(params.runtime, params.sessionId) || this.#pendingTranscriptOverlays.has(record.bodyGeneration) || this.#recoveredTranscriptBases.has(record.bodyGeneration)) return null
     const key = recordKey(record)
     const quiet = () => record.cacheClosed && !record.live && !record.detached && record.running.size === 0 &&
       record.approvals.size === 0 && record.queue.messages.length === 0 &&
@@ -8568,7 +8608,7 @@ export class Host {
       !this.#reattaching.has(recordKey(record)) && !this.#reopenWaiters.has(recordKey(record)) &&
       !this.#dispatching.has(recordKey(record)) && !this.#draining.has(recordKey(record)) &&
       (this.#transcriptOperations.get(recordKey(record)) ?? 0) <= (ownsOperation ? 1 : 0)
-    if (!quiet() || record.transcriptIncomplete || !record.session.itemsLoaded || record.session.partialHistory || this.#pendingTranscriptOverlays.has(record.bodyGeneration)) return
+    if (!quiet() || record.transcriptIncomplete || this.#transcripts.hasGenerationConflict(record.runtime, record.session.id) || !record.session.itemsLoaded || record.session.partialHistory || this.#pendingTranscriptOverlays.has(record.bodyGeneration)) return
     const recovered = this.#recoveredTranscriptBases.get(record.bodyGeneration)
     if (recovered) {
       this.#saveRecoveredTranscript(record)
@@ -8887,6 +8927,28 @@ export class Host {
     if (pending) this.#recordSessionIndex(pending, true)
   }
 
+  /** Registry-only body changes have no runtime event to schedule their write. */
+  #recordRegistryMutation(record: SessionRecord, previous: Session): void {
+    const key = recordKey(record), next = record.session
+    const persisted = (value: Session) => ({ turns: value.turns, cwd: value.cwd, title: value.title, preview: value.preview,
+      usage: value.usage, createdAt: value.createdAt, updatedAt: value.updatedAt })
+    if (this.#disposed || this.registry.get(record.runtime, next.id) !== record || this.#runtimeFolds.has(key) ||
+        this.#transcriptOperations.has(key) || !this.#durableTranscriptBases.has(record) || record.transcriptIncomplete ||
+        this.#recoveredTranscriptBases.has(record.bodyGeneration) || !next.itemsLoaded || next.partialHistory ||
+        isDeepStrictEqual(persisted(previous), persisted(next))) return
+    this.#transcripts.record(next, { now: true, insight: this.#turnInsight.forSession(record.runtime, next.id),
+      generation: record.bodyGeneration, revision: record.bodyRevision, authorityEpoch: record.bodyAuthorityEpoch })
+  }
+
+  /** Detachment can settle running turn statuses without emitting a session event. */
+  #recordDetachedTranscripts(runtime: RuntimeId): void {
+    for (const record of this.registry.all()) {
+      if (record.runtime !== runtime || record.transcriptIncomplete || this.#recoveredTranscriptBases.has(record.bodyGeneration)) continue
+      this.#transcripts.record(record.session, { now: true, insight: this.#turnInsight.forSession(runtime, record.session.id),
+        generation: record.bodyGeneration, revision: record.bodyRevision, authorityEpoch: record.bodyAuthorityEpoch })
+    }
+  }
+
   /** Shares the transcript writer's settle window; completed turns land at once. */
   #recordSessionIndex(session: Session, now = false): void {
     const key = String(sessionKey(session.runtime, session.id))
@@ -9009,17 +9071,24 @@ export class Host {
     return [...byBrand.values()]
   }
 
-  #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+  #onEvent(runtime: RuntimeId, event: AgentEvent, source?: AgentRuntime): void {
     if (this.#disposed) return
     const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
     if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     const held = id ? this.registry.get(runtime, id) : undefined
+    const initial = !held && source && this.ownsRuntime(source) && event.type === 'session/started' &&
+      event.session.runtime === runtime && event.session.itemsLoaded && !event.session.partialHistory &&
+      !this.#sessionIndex.isRemoved(runtime, event.session.id) && this.#transcripts.mayObserveInitialBase(event.session)
+      ? this.#transcripts.observeBase(event.session, true) : undefined
+    if (held && event.type === 'session/started') {
+      event = { ...event, session: this.#transcripts.replayWithPendingMetadata(event.session, held.bodyGeneration, held.bodyAuthorityEpoch) }
+    }
     if (held) {
       const key = `${held.bodyGeneration}\u0000${held.bodyAuthorityEpoch}`
       let conflict = this.#conflictingTranscripts.get(key)
       const hasOldConflict = [...this.#conflictingTranscripts.keys()].some(entry => entry.startsWith(`${held.bodyGeneration}\u0000`))
       if (!conflict && ((event.type === 'session/started' && !held.transcriptIncomplete &&
-          this.#transcripts.pendingReplayConflict(event.session, held.bodyGeneration, held.bodyAuthorityEpoch)) ||
+          this.#transcripts.pendingReplayConflict(event.session, held.bodyGeneration, held.bodyAuthorityEpoch, held.session)) ||
           (held.transcriptIncomplete && hasOldConflict))) {
         const owner = {}, capture = new PendingTranscript({ runtime: String(runtime), sessionId: String(held.session.id), owner })
         if (!capture.retainLocal(held.session, owner)) throw new Error('Cannot protect the current conversation body')
@@ -9070,7 +9139,7 @@ export class Host {
       const owner = this.#runtimeSources.get(String(runtime))
       if (owner?.observations && owner.health().state === 'ready') this.#recordObservations(owner, owner.observations())
     }
-    withCanonicalPaths(() => this.#foldEvent(runtime, event))
+    withCanonicalPaths(() => this.#foldEvent(runtime, event, initial?.kind === 'missing' ? initial : undefined, source))
     if (hydrated && held?.session.itemsLoaded && !this.#pendingTranscriptOverlays.has(held.bodyGeneration)) {
       this.#recoveryDescriptors.remove(held.bodyGeneration)
       this.#descriptorOwners.delete(held.bodyGeneration)
@@ -9140,7 +9209,7 @@ export class Host {
     })()
   }
 
-  #foldEvent(runtime: RuntimeId, event: AgentEvent): void {
+  #foldEvent(runtime: RuntimeId, event: AgentEvent, initialBase?: import('./transcripts.js').DurableTranscriptBase, source?: AgentRuntime): void {
     if (event.type === 'approval/requested') {
       this.#abandonedApprovals.delete(`${runtime}\u0000${event.approval.sessionId}\u0000${event.approval.id}`)
     } else if (event.type === 'approval/resolved' && this.#abandonedApprovals.has(`${runtime}\u0000${event.sessionId}\u0000${event.approvalId}`)) {
@@ -9298,6 +9367,12 @@ export class Host {
         if (remaining) this.#runtimeFolds.set(foldKey, remaining)
         else this.#runtimeFolds.delete(foldKey)
       }
+    }
+    if (initialBase && source && this.ownsRuntime(source) && !priorRecord && record && event.type === 'session/started' &&
+        record === this.registry.get(runtime, event.session.id) && this.#transcripts.mayObserveInitialBase(record.session) &&
+        this.#transcripts.matchesBase(record.session, initialBase)) {
+      this.#durableTranscriptBases.set(record, initialBase)
+      this.#transcripts.bindBase(record.session, record.bodyGeneration, initialBase)
     }
     if (record?.transcriptIncomplete && record.session.itemsLoaded) record.session = { ...record.session, turns: [], itemsLoaded: false }
     if (event.type === 'item/completed' || event.type === 'turn/completed') {
@@ -10400,6 +10475,7 @@ export class Host {
       this.#invalidateDelegations(runtime)
       this.#settleHeld(runtime)
       for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)
+      this.#recordDetachedTranscripts(runtime)
       this.#terminals.detachAll(runtime)
       // Same reason as `unregister`: these sessions went down without a
       // `session/closed` each, and a message marked queued against a

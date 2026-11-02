@@ -269,8 +269,14 @@ const charsOf = (input: readonly UserContent[]): number =>
  */
 export class SessionRegistry {
   #bodyChanged: ((record: SessionRecord) => void) | undefined
+  #deleted: ((record: SessionRecord) => void) | undefined
+  #reconciled: ((record: SessionRecord, previous: Session) => void) | undefined
+  #detached: ((record: SessionRecord, previous: Session) => void) | undefined
 
   onBodyChanged(listener: (record: SessionRecord) => void): void { this.#bodyChanged = listener }
+  onDeleted(listener: (record: SessionRecord) => void): void { this.#deleted = listener }
+  onReconciled(listener: (record: SessionRecord, previous: Session) => void): void { this.#reconciled = listener }
+  onDetached(listener: (record: SessionRecord, previous: Session) => void): void { this.#detached = listener }
   readonly #records = new Map<SessionKey, SessionRecord>()
   readonly #removed = new Map<SessionKey, { record: SessionRecord; undoUntil: number }>()
   readonly #pendingNotices = new PendingConversationNotices()
@@ -302,6 +308,7 @@ export class SessionRegistry {
     session = this.#pendingNotices.apply(session)
     const existing = this.#records.get(sessionKey(session.runtime, session.id))
     if (existing) {
+      const previous = existing.session
       existing.session = seatedSession(
         mergeRead(existing.session, this.#settle(existing, session), (turn) => existing.watched.has(turn.id)),
         existing.seatedAs,
@@ -311,6 +318,7 @@ export class SessionRegistry {
         existing.detached = false
         existing.reopenRefusals = 0
       }
+      this.#reconciled?.(existing, previous)
       return existing
     }
     const inherited = session.forkedFrom
@@ -412,6 +420,8 @@ export class SessionRegistry {
 
   delete(runtime: RuntimeId, id: SessionId): void {
     this.#pendingNotices.delete(runtime, id)
+    const record = this.#records.get(sessionKey(runtime, id))
+    if (record) this.#deleted?.(record)
     this.#records.delete(sessionKey(runtime, id))
     this.#removed.delete(sessionKey(runtime, id))
   }
@@ -701,7 +711,9 @@ export class SessionRegistry {
       // The runtime restarted: whatever was in flight died with it, and the
       // next read must not be believed when it says otherwise.
       record.running.clear()
+      const previous = record.session
       record.session = this.#settle(record, record.session)
+      this.#detached?.(record, previous)
       // A detached session has no turn to wait for, so nothing would ever
       // drain the queue. Hold it rather than dropping it: the agent came back
       // once already, and the user's words are the thing worth keeping.
