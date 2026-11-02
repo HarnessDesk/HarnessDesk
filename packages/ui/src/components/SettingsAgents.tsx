@@ -440,7 +440,11 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
 const accountStanding = (entry: RuntimeInfo, account: Account, snapshot: AppSnapshot) => {
   const key = accountKey(entry.id, account)
   const own = snapshot.usage.filter((report) => report.runtime === entry.id)
-  const report = own.find((item) => usageAccount(item) === account.label.trim()) ?? own[0]
+  // A report that names no matching account is this account's only when the
+  // runtime has no other: two identities one runtime reports (an agent
+  // identity and its key) never borrow each other's figures.
+  const single = (snapshot.accountsByRuntime[entry.id]?.accounts.length ?? 0) <= 1
+  const report = own.find((item) => usageAccount(item) === account.label.trim()) ?? (single ? own[0] : undefined)
   const binding = report ? bindingLane(report.lanes, snapshot.accountPrefs[key]) : null
   const remaining = binding === null ? null : remainingOf(binding)
   return {

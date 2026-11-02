@@ -1616,6 +1616,19 @@ it('two identities one runtime reports are one place in the queue, with no order
   expect(document.body.textContent).not.toContain('Move up')
 })
 
+it('an identity with no report of its own does not borrow another identity\'s standing', async () => {
+  await mountList({
+    accountsByRuntime: {
+      ...ROSTER.accountsByRuntime,
+      beta: signedIn([{ kind: 'agent', label: 'Jane Doe' }, { kind: 'externalKey', label: 'API key' }], ['apiKey']),
+    },
+    usage: [{ runtime: 'beta', account: 'Jane Doe', plan: null, lanes: [{ label: 'weekly', usedPercent: 100 }], reached: 'weekly' }] as never,
+  })
+  const lines = [...line('Beta').querySelectorAll('[data-slot="desc-line"]')].map((node) => node.textContent ?? '')
+  expect(lines.find((text) => text.includes('Jane Doe'))).toMatch(/Limit/)
+  expect(lines.find((text) => text.includes('API key'))).not.toMatch(/Limit|left/)
+})
+
 it('a runtime page reads in the order it is used: accounts first, the build after', async () => {
   await mountList({ runtimes: ROSTER.runtimes.map((entry) => entry.id === 'alpha' ? { ...entry, update: { version: '1.3.0', command: 'npm i -g alpha' } } : entry) })
   await act(async () => line('Alpha').click())
