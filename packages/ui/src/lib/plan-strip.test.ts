@@ -110,6 +110,17 @@ describe('the anchor', () => {
     expect(view.rest?.low).toBe(1)
   })
 
+  it('says a debt beside a healthy key limit is out of credits, not quota, and shows no window figure', () => {
+    const debt = report('b', [lane({ id: 'key', label: 'Key limit', usedPercent: 20 })], {
+      credits: { remaining: -0.4, unit: 'USD' },
+      reached: 'credits',
+    })
+    const view = strip({ runtimes: six, usage: [at('a', 70), debt], sessionRuntime: runtimeId('a') })
+    expect(view.promoted.map((meter) => meter.figure)).toEqual(['overdrawn'])
+    expect(view.rest?.title).toContain('1 out of credits')
+    expect(view.rest?.title).not.toContain('out of quota')
+  })
+
   it('neither promotes nor counts a failed read as out, though its cached lane was spent', () => {
     const failed = spent('b', HOUR, { error: { message: 'no answer' } })
     const view = strip({ runtimes: six, usage: [at('a', 70), failed], sessionRuntime: runtimeId('a') })

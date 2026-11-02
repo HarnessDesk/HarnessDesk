@@ -600,6 +600,14 @@ describe('runway', () => {
       '2 runtimes are out of quota.',
     )
     expect(runway([ampOut, windowOut], nameFor, NOON).headline).toBe('2 runtimes are out of credits or quota.')
+    // A debt the source reached beside a healthy key limit is credits too, not quota.
+    const keyDebt = report({
+      runtime: runtimeId('router'),
+      lanes: [lane({ id: 'key', usedPercent: 20 })],
+      credits: { remaining: -0.4, unit: 'USD' },
+      reached: 'credits',
+    })
+    expect(runway([ampOut, keyDebt], nameFor, NOON).headline).toBe('2 runtimes are out of credits.')
   })
 
   it('treats a reached limit as out even when the lane reads fine', () => {

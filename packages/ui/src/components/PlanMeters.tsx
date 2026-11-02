@@ -115,7 +115,7 @@ export const PlanMeters = ({
 
 // A spent meter says when it is back, as its figure does; the headline's own reset can come before another window's.
 const meterTitle = (view: StripMeter, now: number): string => {
-  if (view.unread) return view.title
+  if (view.unread || view.onCredits) return view.title
   if (view.lane.remainingPercent === 0) return `${view.title} · out of quota${view.backAt !== null && view.backAt > now ? ` · back ${formatWhen(view.backAt, now)}` : ''}`
   return `${view.title}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`
 }

@@ -689,8 +689,8 @@ const isBalanceOnly = (report: UsageReport): boolean => bindingLane(report.lanes
  * word a single spent account already gets, said for a group (review round 4:
  * this used to say "quota" even when every exhausted account was a balance).
  */
-const exhaustedWord = (reports: readonly UsageReport[]): string => {
-  const credits = reports.filter(isBalanceOnly).length
+const exhaustedWord = (reports: readonly UsageReport[], onCredits: (report: UsageReport) => boolean): string => {
+  const credits = reports.filter(onCredits).length
   if (credits === 0) return 'quota'
   if (credits === reports.length) return 'credits'
   return 'credits or quota'
@@ -723,6 +723,9 @@ export const runway = (
   const statusOf = (report: UsageReport): UsageStandingStatus | undefined => standings.get(report)?.status
   const exhausted = metered.filter((report) => statusOf(report) === 'out' || statusOf(report) === 'overdrawn')
   const low = metered.filter((report) => statusOf(report) === 'low' || statusOf(report) === 'short')
+  // Out of credits when the balance decided — no window at all, or the source said the credits are what it hit.
+  const onCredits = (report: UsageReport): boolean =>
+    isBalanceOnly(report) || (hasBalance(report) && standings.get(report)?.lane === null)
 
   const returns = exhausted
     .map((report) => standings.get(report)?.backAt ?? null)
@@ -734,9 +737,9 @@ export const runway = (
     exhausted.length === 1 && only
       ? statusOf(only) === 'overdrawn'
         ? `${nameFor(only)} is overdrawn.`
-        : `${nameFor(only)} is out of ${isBalanceOnly(only) ? 'credits' : 'quota'}.`
+        : `${nameFor(only)} is out of ${onCredits(only) ? 'credits' : 'quota'}.`
       : exhausted.length > 1
-        ? `${exhausted.length} runtimes are out of ${exhaustedWord(exhausted)}.`
+        ? `${exhausted.length} runtimes are out of ${exhaustedWord(exhausted, onCredits)}.`
         : low.length === 1
           ? `${nameFor(low[0] as UsageReport)} is running low.`
           : low.length > 1
