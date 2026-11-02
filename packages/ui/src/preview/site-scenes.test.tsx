@@ -156,7 +156,8 @@ it('changes the chart, breakdown, range, account detail and activity through rea
   expect(host.textContent).toMatch(/22%\s*left/)
   expect(host.textContent).toContain('Pro')
   expect(host.textContent).toContain('Value')
-  expect(host.textContent).toContain('runs out')
+  // Pace is said as a time: the demo's Weekly runs out before its reset.
+  expect(host.textContent).toMatch(/Runs out ~[^,]+, before its [^.]+ reset/)
   const activity = host.querySelector('section[aria-label="When it ran"]')!
   await press('By hour', activity)
   expect(activity.querySelector('[aria-label="Tokens or calls by local weekday and hour, last 12 months"]')).not.toBeNull()
@@ -204,7 +205,8 @@ it('supplies a busy, consistent year and six correctly classified demo accounts'
     'dev@example.com', 'assistant@example.com', 'review@example.com', 'studio@example.com', null, 'api@example.com',
   ])
   const rows = planRows(snapshot.usage, NOW)
-  expect(rows.map(row => row.status)).toEqual(['low', 'ready', 'ready', 'ready', 'ready', 'ready'])
+  // The demo's Codex Weekly runs out before its reset, which is Short, not merely Low.
+  expect(rows.map(row => row.status)).toEqual(['short', 'ready', 'ready', 'ready', 'ready', 'ready'])
   expect(Object.fromEntries(rows.map(row => [row.report.account ?? 'signed-in', row.view.hero?.remainingPercent ?? null]))).toEqual({
     'dev@example.com': 22, 'assistant@example.com': 64, 'review@example.com': 93,
     'studio@example.com': 88, 'signed-in': 100, 'api@example.com': null,
