@@ -139,6 +139,8 @@ Development restores its last full-run map first, then main's, then legacy
 `ui-impact-map-<sha>` entries. The planner keeps the most specific selections
 first within four shards of at most 1,000 recorded test seconds each. Edited
 specs and the readers of changed files always survive that budget.
+The catalogue metrics spec is also a mandatory reader of production design
+pattern source and stylesheets; its dynamic catalogue walk is not an import edge.
 If the map's environment differs (protocol, client, UI configuration or root
 setup), its recorded per-file reach still ranks specs first, then the cap fills;
 the summary names the mismatch and every

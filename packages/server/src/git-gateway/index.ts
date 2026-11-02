@@ -3,10 +3,11 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import type { ForgeAssociatedPullRequest } from '@harnessdesk/protocol'
+import type { ForgeAssociatedPullRequest, ReviewTargetBinding } from '@harnessdesk/protocol'
 import { HARDENED_GIT_CONFIG } from '../git-hardening.js'
 import { GitRecord, canonicalRepository, validateRepository, isGitRequester, type GitApproval, type GitRecordEntry, type GitRecordQuery, type GitRequester, type SucceededPushQuery } from './record.js'
 import { GitPins } from './pins.js'
+import { observedReviewTarget, reviewTargetDiagnostic } from '../review-target-diagnostic.js'
 export { GitRecord, GitPins }
 export type { GitRequester, GitApproval, GitRecordEntry, GitRecordQuery, SucceededPushQuery } from './record.js'
 
@@ -22,7 +23,7 @@ export interface GitPush extends GitTarget {
   readonly allowRewrite?: boolean
   readonly steeredFrom?: string
 }
-interface GitWrite { readonly beforeWrite?: () => Promise<void>; readonly repository: string; readonly requester: GitRequester; readonly approval?: GitApproval; readonly steeredFrom?: string; readonly branch?: string; readonly number?: number; readonly sha?: string; readonly previousSha?: string | null; readonly lease?: string | null }
+interface GitWrite { readonly beforeWrite?: () => Promise<void>; readonly beforeSpawn?: () => void; readonly reviewedTarget?: ReviewTargetBinding; readonly checkAuthority?: () => Promise<boolean>; readonly repository: string; readonly requester: GitRequester; readonly approval?: GitApproval; readonly steeredFrom?: string; readonly branch?: string; readonly number?: number; readonly sha?: string; readonly previousSha?: string | null; readonly lease?: string | null }
 export interface GitGatewayOptions {
   readonly directory: string
   readonly recordOutside?: () => boolean
@@ -126,15 +127,22 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
     if (/remote rejected|hook declined|pre-receive hook declined/i.test(output)) return { outcome: 'refused', reason: output.trim() }
     if (reason === 'git-gateway-owned-head-changed' || /\[rejected\][^\r\n]*\(stale info\)/i.test(value.stdout ?? '') ||
       op === 'pr.merge' && /match.head|head.*changed/i.test(output)) return { outcome: 'rejected', reason }
-    if (/git-gateway-(reviewed-sha-mismatch|tree-invalid|branch-exists-not-owned|not-fast-forward|default-branch|protected-branch|target-invalid|repository-changed)/.test(reason))
+    if (/git-gateway-(reviewed-sha-mismatch|tree-invalid|branch-exists-not-owned|not-fast-forward|default-branch|protected-branch|target-invalid|repository-changed)/.test(reason) || /Pull request target changed or could not be verified|merge authority changed before submission/.test(reason))
       return { outcome: 'refused', reason }
     return { outcome: 'failed', reason }
   }
-  async #effect<T>(entry: Omit<GitRecordEntry, 'prev' | 'outcome'>, work: () => Promise<T>, completed?: (result: T) => Pick<GitRecordEntry, 'number'>): Promise<T> {
+  async #effect<T>(entry: Omit<GitRecordEntry, 'prev' | 'outcome'>, work: () => Promise<T>, completed?: (result: T) => Pick<GitRecordEntry, 'number'>, submitted?: () => boolean): Promise<T> {
     await this.gitRecord.append({ ...entry, outcome: 'intent' })
     let result: T
     try { result = await work() }
-    catch (error) { await this.gitRecord.append({ ...entry, at: Date.now(), ...this.#failure(error, entry.op) }); throw error }
+    catch (error) {
+      await this.gitRecord.append({ ...entry, at: Date.now(), ...(entry.op === 'pr.merge' && submitted?.() ? { outcome: 'unknown' as const, reason: 'Merge submission outcome is unknown.' } : this.#failure(error, entry.op)) })
+      throw error
+    }
+    if (entry.op === 'pr.merge' && await this.#readMergeState(entry) !== 'merged') {
+      await this.gitRecord.append({ ...entry, at: Date.now(), outcome: 'unknown', reason: 'Merge may be queued or its outcome is unknown.' })
+      throw new Error('Merge may be queued or its outcome is unknown; reconcile before trying again.')
+    }
     await this.gitRecord.append({ ...entry, ...completed?.(result), at: Date.now(), outcome: 'ok' })
     return result
   }
@@ -149,6 +157,7 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
     for (const [repository, entries] of repositories) {
       const recovery = (async () => {
         for (const entry of entries) {
+          if (entry.op === 'pr.merge') continue
           // Forge writes have no remotely provable idempotency key. Never
           // replay one: GitHub may have accepted it just before the crash.
           let reconciled = false
@@ -412,10 +421,11 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       return { status: 'unavailable' }
     }
   }
-  async #gh(repository: string, args: readonly string[]): Promise<string> {
+  async #gh(repository: string, args: readonly string[], beforeSpawn?: () => void): Promise<string> {
     repository = canonicalRepository(repository)
     await this.#init()
     const command = ['pr', 'issue'].includes(args[0] ?? '') ? [...args, '--repo', repository] : [...args]
+    beforeSpawn?.()
     if (this.options.gh) {
       const result = await this.options.gh(resolve(this.options.directory), command, this.#env)
       if (result.exitCode !== 0) throw new Error(`git-gateway-forge-unavailable: ${result.stderr}`)
@@ -438,18 +448,90 @@ catch { try { process.stdout.write(execFileSync('gh',['auth','git-credential','g
       return pr.headRefName
     })
   }
+  async #readMergeState(entry: Omit<GitRecordEntry, 'prev' | 'outcome'>): Promise<'open' | 'merged' | 'unknown'> {
+    if (!entry.number) return 'unknown'
+    const [owner, name] = canonicalRepository(entry.repository).split('/')
+    try {
+      const query = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){state merged mergeQueueEntry{id} autoMergeRequest{enabledAt}}}}'
+      const value: unknown = JSON.parse(await this.#gh(entry.repository, ['api', 'graphql', '-f', `query=${query}`, '-f', `owner=${owner}`, '-f', `name=${name}`, '-F', `number=${entry.number}`]))
+      if (!value || typeof value !== 'object' || 'errors' in value) return 'unknown'
+      const pr = (value as { data?: { repository?: { pullRequest?: Record<string, unknown> } } }).data?.repository?.pullRequest
+      if (!pr || !Object.hasOwn(pr, 'mergeQueueEntry') || !Object.hasOwn(pr, 'autoMergeRequest')) return 'unknown'
+      if (pr.state === 'MERGED' && pr.merged === true) return 'merged'
+      if (pr.state === 'OPEN' && pr.merged === false && pr.mergeQueueEntry === null && pr.autoMergeRequest === null) return 'open'
+    } catch { /* An unavailable or malformed read cannot settle a submission. */ }
+    return 'unknown'
+  }
+  async #reconcileMerge(entry: GitRecordEntry): Promise<'merged' | 'unknown'> {
+    const state = await this.#readMergeState(entry)
+    if (state === 'merged') {
+      await this.gitRecord.append({ ...entry, at: Date.now(), outcome: 'observed-merged', reason: 'The pull request is merged; the submitting client could not be confirmed.' })
+      return 'merged'
+    }
+    // An open, unqueued snapshot cannot prove an earlier request has stopped
+    // in flight. Keep the durable fence until the merge is observed.
+    return 'unknown'
+  }
+  async #checkReviewedTarget(target: GitWrite): Promise<void> {
+    const expected = target.reviewedTarget
+    const refused = (observed?: ReviewTargetBinding, unavailable?: string) => { throw new Error(expected ? reviewTargetDiagnostic(expected, observed, unavailable) : 'Pull request target changed or could not be verified. Start a fresh review.') }
+    if (!expected || !target.checkAuthority || expected.repository !== canonicalRepository(target.repository) || expected.number !== target.number || expected.head !== target.sha) refused()
+    if (!await target.checkAuthority!()) refused(undefined, 'review authority')
+    let pr: { number?: unknown; state?: unknown; url?: unknown; headRefOid?: unknown; baseRefName?: unknown; baseRefOid?: unknown } | null = null
+    try { pr = JSON.parse(await this.#gh(target.repository, ['pr', 'view', String(expected!.number), '--json', 'number,state,url,headRefOid,baseRefName,baseRefOid'])) }
+    catch { refused(undefined, 'pull request read') }
+    if (!await target.checkAuthority!()) refused(undefined, 'review authority')
+    const url = typeof pr?.url === 'string' ? /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/([1-9]\d*)$/i.exec(pr.url) : null
+    const observed = url && Number(url[2]) === pr!.number && ['OPEN', 'CLOSED', 'MERGED'].includes(String(pr!.state)) ? observedReviewTarget({ repository: url[1], number: pr!.number, head: pr!.headRefOid, baseRef: pr!.baseRefName, baseTip: pr!.baseRefOid }) : null
+    if (!pr! || pr!.number !== expected!.number || pr!.state !== 'OPEN' || typeof pr!.url !== 'string' || pr!.url.toLowerCase() !== `https://github.com/${expected!.repository}/pull/${expected!.number}` ||
+        pr!.headRefOid !== expected!.head || pr!.baseRefName !== expected!.baseRef || pr!.baseRefOid !== expected!.baseTip) {
+      if (observed && (pr?.state === 'CLOSED' || pr?.state === 'MERGED')) throw new Error(`Pull request is ${pr.state.toLowerCase()}. ${reviewTargetDiagnostic(expected!, observed)}`)
+      refused(observed ?? undefined, observed ? undefined : 'pull request read')
+    }
+    let branch: { name?: unknown; commit?: { sha?: unknown } } | null = null
+    try { branch = JSON.parse(await this.#gh(target.repository, ['api', `repos/${expected!.repository}/branches/${encodeURIComponent(expected!.baseRef)}`])) }
+    catch { refused(undefined, 'destination branch read') }
+    if (!await target.checkAuthority!()) refused(undefined, 'review authority')
+    if (!branch! || branch!.name !== expected!.baseRef || branch!.commit?.sha !== expected!.baseTip) {
+      const branchTarget = observedReviewTarget({ ...expected!, baseRef: branch?.name, baseTip: branch?.commit?.sha })
+      refused(branchTarget ?? undefined, branchTarget ? undefined : 'destination branch read')
+    }
+  }
   #forgeWrite(op: GitRecordEntry['op'], target: GitWrite, args: readonly string[]): Promise<string> {
     return this.#queue(target.repository, async () => {
       const entry = this.#entry(op, target)
       try { await this.#validateWrite(target, op) }
       catch (error) { await this.gitRecord.append({ ...entry, ...this.#failure(error) }); throw error }
-      return this.#effect(entry, async () => { await target.beforeWrite?.(); return this.#gh(target.repository, args) }, op === 'pr.create' ? output => {
+      if (op === 'pr.merge') {
+        const pending = await this.gitRecord.unresolvedMerge(target.repository, target.number!)
+        if (pending) {
+          const state = await this.#reconcileMerge(pending)
+          if (state === 'unknown') throw new Error('An earlier merge is unresolved and may still complete. Inspect or complete it outside the app; the app will not submit another.')
+          if (state === 'merged') throw new Error('This pull request is already merged; no new merge was submitted.')
+        }
+        try { await target.beforeWrite?.() }
+        catch (error) { await this.gitRecord.append({ ...entry, ...this.#failure(error) }); throw error }
+        if (target.reviewedTarget) {
+          try { await this.#checkReviewedTarget(target) }
+          catch (error) { await this.gitRecord.append({ ...entry, outcome: 'refused', reason: error instanceof Error ? error.message : String(error) }); throw error }
+        }
+      }
+      let submitted = false
+      return this.#effect(entry, async () => {
+        if (op !== 'pr.merge') await target.beforeWrite?.()
+        else if (target.reviewedTarget && !await target.checkAuthority?.()) throw new Error(reviewTargetDiagnostic(target.reviewedTarget, undefined, 'review authority'))
+        if (op === 'pr.merge') {
+          await this.#init()
+          if (target.reviewedTarget && !await target.checkAuthority?.()) throw new Error(reviewTargetDiagnostic(target.reviewedTarget, undefined, 'review authority'))
+        }
+        return this.#gh(target.repository, args, () => { target.beforeSpawn?.(); submitted = true })
+      }, op === 'pr.create' ? output => {
         const prefix = `https://github.com/${canonicalRepository(target.repository)}/pull/`
         const url = output.split(/\r?\n/).map(line => line.trim()).find(line => line.toLowerCase().startsWith(prefix))
         const numberText = url?.slice(prefix.length)
         const number = numberText !== undefined && /^[1-9]\d*$/.test(numberText) ? Number(numberText) : NaN
         return Number.isSafeInteger(number) && number > 0 ? { number } : {}
-      } : undefined)
+      } : undefined, () => submitted)
     })
   }
   createPullRequest(target: GitWrite & { readonly branch: string; readonly title: string; readonly body: string; readonly base?: string; readonly draft?: boolean }): Promise<string> {

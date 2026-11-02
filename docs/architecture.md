@@ -172,7 +172,19 @@ paths and prompting disabled. PR creation, update, merge, review and comments
 use this executor. A recorded gateway continuation can satisfy the plugin’s
 preliminary publication check even when the checkout’s upstream ref is stale;
 the host still verifies the actual remote head before opening the PR. Merge is bound to the reviewed head and the existing
-required-check gate.
+required-check gate. A Flow's automatic PR merge also requires the host's
+recorded review of the pinned repository, PR number, head, destination ref and
+destination tip. The gateway rechecks that tuple and the live authority before
+launch; this is a preflight, not an atomic lease on GitHub's base branch.
+Unbound older reviews remain readable but need a fresh PR review to authorize
+that merge. An interrupted or queued merge remains unresolved until the PR is
+observed merged, and cannot be silently resubmitted. An open, unqueued snapshot
+cannot prove that an earlier request has stopped; a person may need to inspect
+or complete it externally.
+An unpinned project's explicit GitHub origin can still supply an informational
+PR review; adding a pin later does not promote that earlier review.
+The mutation queue is per host gateway. Another host or an external client
+does not share that queue, so this is not cross-process exactly-once merging.
 
 The gateway clears proxy environment variables and uses its own Git
 configuration. It does not fall back to global/system Git proxy configuration
