@@ -2038,7 +2038,9 @@ export class AppStore {
           ? `Key stored. ${name ?? 'The runtime'} restarted with it.`
           : applied === 'busy'
             ? `Key stored. ${name ?? 'The runtime'} is mid-turn; it picks the key up on its next start.`
-            : 'Key stored.',
+            : applied === 'deferred'
+              ? 'Key stored. It can be picked up the next time the agent starts.'
+              : 'Key stored.',
       )
       return true
     } catch (error) {

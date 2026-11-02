@@ -987,7 +987,7 @@ test('a key stored while the agent was starting is not asked for until a process
   let reads = 0
   const runtime = keyed(() => (reads++ === 0 ? undefined : 'placeholder-key'), { FAKE_ACP_AUTH_LOG: log })
   const starting = runtime.start()
-  assert.equal(await runtime.reloadSecrets(), 'restarted')
+  assert.equal(await runtime.reloadSecrets(), 'deferred')
   await starting
   try {
     await new Promise((resolve) => setTimeout(resolve, 200))
@@ -997,6 +997,41 @@ test('a key stored while the agent was starting is not asked for until a process
     while (!existsSync(log) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20))
     assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), ['api-key'], 'told once the key reached a process')
   } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a key stored before a starting agent captures its environment is deferred without another restart', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'hd-acp-key-before-spawn-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const log = join(dir, 'auth.log')
+  let key: string | undefined
+  let entered!: () => void, release!: () => void
+  const waiting = new Promise<void>(resolve => { entered = resolve })
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const runtime = new AcpRuntime({ id: 'fake-acp', name: 'Fake ACP Agent', command: process.execPath, args: [FAKE_AGENT],
+    env: { FAKE_ACP_AUTH_METHODS: KEYED_METHODS, FAKE_ACP_AUTH_NEEDS_ENV: JSON.stringify({ 'api-key': 'HD_FAKE_KEY' }), FAKE_ACP_AUTH_LOG: log },
+    secrets: [{ env: 'HD_FAKE_KEY', label: 'Fake API key', optional: true, acpMethod: 'api-key' }],
+    resolveSecret: () => key,
+    resolveLaunch: async () => { entered(); await gate; return null },
+  })
+  const events: AgentEvent[] = []
+  runtime.subscribe(event => events.push(event))
+  const starting = runtime.start()
+  try {
+    await waiting
+    assert.equal(runtime.health().state, 'starting')
+    assert.deepEqual(runtime.resourceProcessIds(), [])
+    key = 'placeholder-key'
+    assert.equal(await runtime.reloadSecrets(), 'deferred')
+    release()
+    await starting
+    await until(events, event => event.type === 'account/changed')
+    assert.equal(readFileSync(log, 'utf8').trim(), 'api-key', 'the first child accepted the key it captured')
+    assert.equal(runtime.resourceProcessIds().length, 1, 'the pending start captured the key without an extra restart')
+  } finally {
+    release()
+    await starting.catch(() => {})
     await runtime.dispose()
   }
 })

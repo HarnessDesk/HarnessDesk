@@ -36,6 +36,24 @@ beforeEach(() => {
   }) as never)
 })
 
+it('says a deferred key will be used on the next start without claiming a restart', async () => {
+  answers['runtime/apiKey/store'] = { applied: 'deferred' }
+  expect(await store.storeApiKey(ADDED, 'apiKey:SYNTHETIC_KEY', 'synthetic-value')).toBe(true)
+  const message = store.getSnapshot().notices.at(-1)?.message ?? ''
+  expect(message).toContain('next time')
+  expect(message).not.toContain('restarted')
+})
+
+it.each([
+  ['restarted', 'restarted with it'],
+  ['busy', 'mid-turn'],
+  ['unsupported', 'Key stored.'],
+])('keeps the existing %s key receipt notice', async (applied, expected) => {
+  answers['runtime/apiKey/store'] = { applied }
+  expect(await store.storeApiKey(ADDED, 'apiKey:SYNTHETIC_KEY', 'synthetic-value')).toBe(true)
+  expect(store.getSnapshot().notices.at(-1)?.message).toContain(expected)
+})
+
 describe('signing in to an agent the snapshot has no account status for', () => {
   const retained = async () => {
     const handlers = (store.transport as unknown as { handlers: { onNotification: (n: unknown) => void } }).handlers
