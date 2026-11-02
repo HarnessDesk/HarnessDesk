@@ -848,6 +848,19 @@ describe('rightNow', () => {
     expect(line).toBeNull()
   })
 
+  it('makes no nothing-has-room claim while a balance-only account still has credit', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'w', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + 3 * HOUR })] }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'w', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + HOUR })] }),
+        report({ runtime: runtimeId('c'), lanes: [], credits: { remaining: 12, unit: 'USD' } as UsageReport['credits'] }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBeNull()
+  })
+
   it('recommends nothing when two of one name have no account to tell them apart', () => {
     const line = rightNow(
       [
