@@ -21,9 +21,6 @@ import {
   Banner,
   MenuFacts,
   Submenu,
-  ConfirmDialog,
-  ActionError,
-  useDismissOverlays,
   Button,
   Bar,
   Menu,
@@ -42,7 +39,7 @@ import {
   type MenuAccountFigure,
   type Tone,
 } from '../design'
-import { accountForUsage, accountKey, accountName, accountIdentity, agentKey, prefsForUsage, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
+import { accountForUsage, accountKey, accountName, accountIdentity, agentKey, prefsForUsage, runtimeLabel, shownAccountLabel, shownDeskName, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken } from '../lib/agents'
 import { FlowIcon } from './Icons'
@@ -401,15 +398,12 @@ export const AccountFooter = ({
   // and not the focused conversation's.
   const runtime = useRuntime()
   const quotaWarning = useAccountQuotaWarning()
-  const [confirmingSignOut, setConfirmingSignOut] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [signOutError, setSignOutError] = useState<string | null>(null)
-  useDismissOverlays(confirmingSignOut, () => { setSignOutError(null); setConfirmingSignOut(false) })
   const accountRef = useRef<HTMLDivElement>(null)
   const [deskSignOut, setDeskSignOut] = useState(false)
   const deskAction = useHarnessDeskAccountAction()
   const deskAccount = snapshot.harnessDeskAccount
   const deskSignedIn = deskAccount?.status === 'signedIn'
+  const hide = snapshot.hideAccountAddresses
 
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
     const status = snapshot.accountsByRuntime[info.id] ?? null
@@ -467,8 +461,9 @@ export const AccountFooter = ({
         key,
         info,
         account,
-        name: accountName(account, snapshot.accountPrefs[key], info.presentation.name),
-        sub: accountIdentity(account) || info.presentation.name,
+        name: accountName(account, snapshot.accountPrefs[key], info.presentation.name, snapshot.hideAccountAddresses),
+        // With addresses hidden, the name stands in for the address too.
+        sub: (hide ? accountName(account, snapshot.accountPrefs[key], info.presentation.name, snapshot.hideAccountAddresses) : accountIdentity(account)) || info.presentation.name,
         state,
         answered: true,
         figure: lane?.known && lane.remainingPercent !== null ? `${lane.remainingPercent}%` : null,
@@ -486,11 +481,10 @@ export const AccountFooter = ({
     prefsForUsage(one.runtime, one.account, snapshot.accountsByRuntime, snapshot.accountPrefs) ?? {})
   const here = seats.find(seat => seat.current && seat.report === report) ?? seats.find(seat => seat.current) ?? null
   const currentFigure = here ? figureOf(here) : undefined
-  const signedIn = here?.account !== null && here?.account !== undefined
   const agentName = brandOf(runtime.presentation.name)
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
   // You: the profile's name, which is HarnessDesk until you choose one.
-  const yourName = deskSignedIn ? deskAccount.account?.name || deskAccount.account?.email || 'HarnessDesk' : profileName(snapshot.profile)
+  const yourName = deskSignedIn ? shownDeskName(deskAccount.account, hide) || 'HarnessDesk' : profileName(snapshot.profile)
   // The chairs you can sit in. An agent that is waiting for a sign-in is not
   // one — choosing it would start nothing — so it waits behind "Add an
   // account…", whose chooser is where signing in happens. The default stays
@@ -536,23 +530,9 @@ export const AccountFooter = ({
     }
     const twins = group.filter((other) => other !== seat && labelOf(other) === label)
     if (twins.length === 0) return null
-    const domain = domainOf(seat.account)
+    const domain = hide ? null : domainOf(seat.account)
     if (domain && twins.every((other) => domainOf(other.account) !== domain)) return domain
     return seat.sub && seat.sub !== label ? seat.sub : null
-  }
-
-  const signOut = async (close: () => void): Promise<void> => {
-    if (!snapshot.activeRuntime) return
-    setBusy(true)
-    setSignOutError(null)
-    try {
-      await store.signOutAgent(snapshot.activeRuntime)
-      close()
-    } catch (error) {
-      setSignOutError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setBusy(false)
-    }
   }
 
   const accountTrigger = (
@@ -591,7 +571,7 @@ export const AccountFooter = ({
               accountRef.current?.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')?.focus()
             }}
           >
-          {deskSignedIn ? <Submenu icon={<Face pictureDataUrl={deskAccount.account?.pictureDataUrl} size={16} />} label={yourName} hint={deskAccount.account?.email ?? undefined} icons="all">
+          {deskSignedIn ? <Submenu icon={<Face pictureDataUrl={deskAccount.account?.pictureDataUrl} size={16} />} label={yourName} hint={hide ? undefined : deskAccount.account?.email ?? undefined} icons="all">
             <MenuLabel>HarnessDesk account</MenuLabel>
             <MenuItem icon={<UserIcon size={16} />} label="Linked phones" value={String(deskAccount.phones.length)} onSelect={() => onOpenSettings('profile')} />
             <MenuItem icon={<SettingsIcon size={16} />} label="Account settings" onSelect={() => onOpenSettings('profile')} />
@@ -647,13 +627,9 @@ export const AccountFooter = ({
                 onOpenSettings()
               }}
             />
-            {signedIn && <MenuItem icon={<SignOutIcon size={16} />} label={`Sign out of ${agentName}…`} danger onSelect={() => { setSignOutError(null); setConfirmingSignOut(true) }} />}
           </Menu>
         )}
       </Popover>
-      {confirmingSignOut && <ConfirmDialog title={`Sign out of ${agentName}?`} confirmLabel="Sign out" cancelLabel="Keep signed in" tone="destructive" busy={busy} onCancel={() => { setSignOutError(null); setConfirmingSignOut(false) }} onConfirm={() => void signOut(() => setConfirmingSignOut(false))}>
-        <>You'll need to sign in again before the next turn.{signOutError && <ActionError>{signOutError}</ActionError>}</>
-      </ConfirmDialog>}
     </div>} />
     {deskSignOut && <HarnessDeskSignOut onClose={() => setDeskSignOut(false)} />}
     </>
@@ -666,13 +642,14 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
   const [now, setNow] = useState(Date.now)
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
   const view = describeStrip({ runtimes: snapshot.runtimes, usage: snapshot.usage, accountsByRuntime: snapshot.accountsByRuntime,
-    accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: null, now })
+    accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: null, now,
+    hideAddresses: snapshot.hideAccountAddresses })
   const current = view.anchor?.kind === 'meter' ? view.anchor.meter : null
   const others = view.rest?.meters ?? []
   const shortAccountName = (meter: StripMeter): string => {
     const account = accountForUsage(meter.runtime, meter.report.account, snapshot.accountsByRuntime)
     return account
-      ? accountName(account, snapshot.accountPrefs[accountKey(meter.runtime, account)], meter.name)
+      ? accountName(account, snapshot.accountPrefs[accountKey(meter.runtime, account)], meter.name, snapshot.hideAccountAddresses)
       : meter.account?.split('@')[0] ?? meter.name
   }
   const usageAccountName = (meter: StripMeter): string => {
@@ -683,7 +660,7 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
   }
   return <Submenu icon={<UsageIcon size={16} />} label="Usage" icons="all"
     value={current ? <Text role="muted" tone={usageReadingTone(current.tone)} numeric>{current.figure.endsWith('%') ? `${current.figure} left` : current.figure}</Text> : undefined}>
-    {current ? <SeatUsageFacts meter={current} now={now} /> : <MenuNote>No usage reported for this account.</MenuNote>}
+    {current ? <SeatUsageFacts meter={current} now={now} account={current.report.account && shownAccountLabel(current.runtime, current.report.account, snapshot)} /> : <MenuNote>No usage reported for this account.</MenuNote>}
     {view.anchor?.kind === 'signIn' && <MenuItem icon={<RuntimeMark runtime={view.anchor.info} size={16} />}
       label={`Sign in to ${view.anchor.info.presentation.name}`}
       onSelect={() => { if (view.anchor?.kind === 'signIn') onSignIn(view.anchor.info.id) }} />}
@@ -692,7 +669,7 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
       <MenuSeparator />
       <MenuLabel size="compact">Other accounts</MenuLabel>
       {others.map(meter => {
-        const name = meter.account ? `${meter.name} · ${usageAccountName(meter)}` : runtimeLabel(meter.info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)
+        const name = meter.account ? `${meter.name} · ${usageAccountName(meter)}` : runtimeLabel(meter.info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs, snapshot.hideAccountAddresses)
         return <MenuItem key={`${meter.runtime}:${meter.report.account ?? ''}`}
           icon={<RuntimeMark runtime={meter.info} size={16} />}
           label={<span data-menu-account-name="" title={meter.title}>{name}</span>}
@@ -703,9 +680,9 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime?: RuntimeId) => 
   </Submenu>
 }
 
-const SeatUsageFacts = ({ meter, now }: { meter: StripMeter; now: number }) => <div data-usage-details>
+const SeatUsageFacts = ({ meter, now, account }: { meter: StripMeter; now: number; account: string | null }) => <div data-usage-details>
   <MenuLabel size="compact">{meter.name}{meter.report.plan ? ` · ${meter.report.plan}` : ''}</MenuLabel>
-  {meter.report.account && <MenuNote><Text as="div" role="meta" truncate title={meter.report.account}>{meter.report.account}</Text></MenuNote>}
+  {account && <MenuNote><Text as="div" role="meta" truncate title={account}>{account}</Text></MenuNote>}
   <MenuFacts rows={meter.report.lanes.map(raw => {
     const lane = describeLane(raw, now, meter.report.lanes)
     return { id: lane.id, name: lane.title, percent: lane.remainingPercent,

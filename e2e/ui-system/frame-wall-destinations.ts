@@ -89,7 +89,6 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-branch-context', query: 'frame-wall=conversation', git: true, gitRef: true },
   { id: 'popup-create-branch', query: 'frame-wall=conversation', git: true, branch: true, createBranch: true },
   { id: 'popup-account-menu', query: 'frame-wall=conversation', account: true },
-  { id: 'popup-sign-out-confirmation', query: 'frame-wall=conversation', account: true, signOut: true },
   { id: 'popup-other-agents', query: 'frame-wall=conversation&popup=other-agents', plan: 'rest' },
   { id: 'popup-info-card', query: 'frame-wall=conversation&popup=info', hover: 'Storefront catalogue review' },
   { id: 'popup-info-card-focused', query: 'frame-wall=conversation&popup=info', focus: 'Storefront catalogue review' },

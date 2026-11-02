@@ -53,6 +53,7 @@ import { withCount } from '../lib/with-count'
 import { Prose } from './Prose'
 import { bindingLane, isBlocked, remainingOf } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
+import { firstInPool, inPoolOrder, movedInPool, WHEN_OUT, WHEN_OUT_LABEL, whenOutOf, type WhenOut } from '../lib/account-pool'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { copyReason, describeCopy, describeFallback, installSummary, standingChip, pinHolds } from '../lib/installs'
 import { useSnapshot, useStore } from '../state/context'
@@ -69,6 +70,8 @@ import {
   RingChoices,
   IconTile,
   InlineParts,
+  DescLines,
+  DescLine,
   SettingsRowMenu,
   Button,
   Banner,
@@ -425,6 +428,41 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
  * account" nine times is one fact said nine times, and a method is the
  * agent's definition, which its page and Sign in show where it is chosen.
  */
+/**
+ * What one account has left, as its own row on the agent's page and its own
+ * line on the list both say it. What is left is the account's binding window
+ * — the tightest of the *account-wide* lanes, which is what `bindingLane`
+ * picks. Taking the tightest of every lane instead read `0% left` beside a
+ * row with no limit mark, because a spent model-scoped week is the tightest
+ * lane and is not the account's figure. Rounded the way `describeLane`
+ * rounds, so this and the Dashboard cannot disagree about the same account.
+ */
+const accountStanding = (entry: RuntimeInfo, account: Account, snapshot: AppSnapshot) => {
+  const key = accountKey(entry.id, account)
+  const own = snapshot.usage.filter((report) => report.runtime === entry.id)
+  // A report that names no matching account is this account's only when the
+  // runtime has no other: two identities one runtime reports (an agent
+  // identity and its key) never borrow each other's figures.
+  const single = (snapshot.accountsByRuntime[entry.id]?.accounts.length ?? 0) <= 1
+  const report = own.find((item) => usageAccount(item) === account.label.trim()) ?? (single ? own[0] : undefined)
+  const binding = report ? bindingLane(report.lanes, snapshot.accountPrefs[key]) : null
+  const remaining = binding === null ? null : remainingOf(binding)
+  return {
+    key,
+    report,
+    blocked: report ? isBlocked(report) : false,
+    left: remaining === null ? null : Math.round(remaining),
+  }
+}
+
+/**
+ * The address under an account's name, unless the person asked for names
+ * only (Settings › General) — then nothing, and the address waits for a
+ * hover on the agent's own page.
+ */
+export const shownIdentity = (account: Account, snapshot: Pick<AppSnapshot, 'hideAccountAddresses'>): string | null =>
+  snapshot.hideAccountAddresses ? null : account.email ?? account.label
+
 const AgentRow = ({
   info,
   siblings,
@@ -446,28 +484,66 @@ const AgentRow = ({
   const snapshot = useSnapshot()
   const status = snapshot.accountsByRuntime[info.id]
   const build = describeVersion(info)?.replace(`${info.presentation.name} `, '') ?? null
-  const names = siblings.flatMap((entry) => [
-    // The whole address, not its local part: on a list of agents the address
-    // is what tells two of them apart, and a nickname you gave it wins. An
-    // agent that cannot say who it is signed in as says only that it is.
-    ...(snapshot.accountsByRuntime[entry.id]?.accounts ?? []).map((account) =>
-      snapshot.accountPrefs[accountKey(entry.id, account)]?.nickname?.trim() ||
-      (account.anonymous ? 'Signed in' : account.email ?? account.label),
-    ),
-    ...(entry.slot?.gateway ? [entry.slot.gateway.name] : []),
-  ])
-  // A search hit on a second account leads the line, so what was searched
-  // for is what is shown; and accounts that cannot say who they are count.
-  const hit = query ? names.findIndex((name) => name.toLowerCase().includes(query)) : -1
-  const ordered = hit > 0 ? [names[hit]!, ...names.filter((_, index) => index !== hit)] : names
-  const who =
-    ordered.length === 0
-      ? null
-      : ordered.length === 1
-        ? ordered[0]!
-        : ordered[0] === 'Signed in'
-          ? `${ordered.length} accounts`
-          : `${ordered[0]} and ${ordered.length - 1} more`
+  const ordered = inPoolOrder(siblings, snapshot.accountPools[agentKey(info)])
+  const accounts = ordered.flatMap((entry) =>
+    (snapshot.accountsByRuntime[entry.id]?.accounts ?? []).map((account) => ({ entry, account })),
+  )
+  const gateways = ordered.filter((entry) => entry.slot?.gateway)
+  /* One account says who it is in one line, as the whole address: on a list
+     of agents the address is what tells two of them apart, and a nickname you
+     gave it wins. An agent that cannot say who it is signed in as says only
+     that it is. Two or more are each named on a line of their own — "the
+     first and 1 more" hid exactly the account a person had come to find, and
+     which one is spent — in the order new sessions use them. */
+  const single = accounts.length + gateways.length === 1
+  const first = accounts[0]
+  const who = !single
+    ? null
+    : first
+      ? (snapshot.accountPrefs[accountKey(first.entry.id, first.account)]?.nickname?.trim()
+          ? accountName(first.account, snapshot.accountPrefs[accountKey(first.entry.id, first.account)], undefined, snapshot.hideAccountAddresses)
+          : null) ||
+        (first.account.anonymous ? 'Signed in' : shownIdentity(first.account, snapshot) ?? accountName(first.account, undefined, info.presentation.name, snapshot.hideAccountAddresses))
+      : gateways[0]!.slot!.gateway!.name
+  // One queue in the pool's order, gateways in their places, as the account
+  // page draws it.
+  const queue = ordered.flatMap((entry): { entry: RuntimeInfo; account: Account | null }[] =>
+    entry.slot?.gateway ? [{ entry, account: null }] : accounts.filter((row) => row.entry === entry),
+  )
+  const lines = accounts.length + gateways.length > 1 ? (
+    <DescLines>
+      {queue.map(({ entry, account }) => {
+        if (account === null) {
+          return (
+            <DescLine key={entry.id} name={entry.slot?.gateway?.name ?? entry.name}>
+              {snapshot.activeRuntime === entry.id && <Text role="meta" ink="muted">Default</Text>}
+              <Text role="meta" ink="muted">Gateway</Text>
+            </DescLine>
+          )
+        }
+        const { key, blocked, left } = accountStanding(entry, account, snapshot)
+        const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
+        const identity = shownIdentity(account, snapshot)
+        const hit = query !== '' && `${name} ${identity ?? ''}`.toLowerCase().includes(query)
+        return (
+          <DescLine
+            key={key}
+            mark={<AccountMark size="dot" aria-hidden="true" data-tint={tintOf(key, snapshot.accountPrefs)}>{null}</AccountMark>}
+            name={hit ? <Text role="meta" ink="primary">{name}</Text> : name}
+            {...(identity && identity !== name ? { title: identity } : {})}
+          >
+            {snapshot.activeRuntime === entry.id && <Text role="meta" ink="muted">Default</Text>}
+            {account.planType && <Text role="meta" ink="muted">{account.planType}</Text>}
+            {blocked ? (
+              <Text role="meta" tone="warning">{READINESS_LABEL.limit}</Text>
+            ) : left !== null ? (
+              <Text role="meta" ink="muted" numeric>{left}% left</Text>
+            ) : null}
+          </DescLine>
+        )
+      })}
+    </DescLines>
+  ) : null
   const canSignIn = info.capabilities.account && (status?.signInMethods ?? []).some((method) => method.flow !== 'external')
   // A key has to be typed somewhere, so those methods hand off to the sign-in
   // page instead of being started from a button with nowhere to type.
@@ -488,11 +564,11 @@ const AgentRow = ({
         <InlineParts title={info.presentation.tagline}>
           <span data-slot="runtime-name">{info.presentation.name}</span>
           {build && <Text role="muted" ink="muted" numeric data-runtime-version="">{build}</Text>}
-          {snapshot.activeRuntime === info.id && <Chip tone="neutral" size="sm">Default</Chip>}
+          {siblings.some((entry) => entry.id === snapshot.activeRuntime) && <Chip tone="neutral" size="sm">Default</Chip>}
         </InlineParts>
       }
-      desc={failure ? <Prose text={splitHealth(failure).lead} /> : who ?? (state === 'signin' ? 'Signed out' : undefined)}
-      truncateDesc={!failure}
+      desc={failure ? <Prose text={splitHealth(failure).lead} /> : lines ?? who ?? (state === 'signin' ? 'Signed out' : undefined)}
+      truncateDesc={!failure && !lines}
       control={state === 'limit' || state === 'broken' ? <Chip state={state} /> : undefined}
       {...(signIn
         ? {
@@ -554,15 +630,36 @@ const AgentAccounts = ({
   const [removing, setRemoving] = useState<RuntimeInfo | null>(null)
   const [checking, setChecking] = useState<RuntimeId | null>(null)
   const status = snapshot.accountsByRuntime[info.id]
+  const agent = agentKey(info)
+  const pool = snapshot.accountPools[agent]
+  // In the order new sessions use them, so the list is the queue.
+  const queue = inPoolOrder(siblings, pool)
+  const order = queue.map((entry) => entry.id)
   // One flat list of rows across the agent's runtimes, each row remembering
   // which runtime it belongs to — that is what a sign-out or a removal needs.
-  const rows = siblings.flatMap((entry) =>
+  const rows = queue.flatMap((entry) =>
     (snapshot.accountsByRuntime[entry.id]?.accounts ?? []).map((account) => ({ entry, account })),
   )
   // A gateway account never signs in, so it has no vendor account to list and
   // would otherwise fall into `empties` and be offered a sign-in it does not
   // want. It is complete the moment it exists; it gets a row of its own.
-  const gateways = siblings.filter((entry) => entry.slot?.gateway)
+  const gateways = queue.filter((entry) => entry.slot?.gateway)
+  // The queue as it is drawn: signed-in accounts and gateways, one list in
+  // pool order. A move acts on this list, so a step up is a step up on
+  // screen; runtimes not drawn here keep their places behind it.
+  const listed = queue.filter((entry) => entry.slot?.gateway || rows.some((row) => row.entry === entry))
+  const listedOrder = listed.map((entry) => entry.id)
+  // An order and a rule for running out mean something only once there is a
+  // second runtime to run on. Two identities one runtime reports (an agent
+  // identity and its key) are one place in the queue, not two.
+  const ordered = listed.length > 1
+  const movesFor = (runtime: RuntimeId) => {
+    const at = listedOrder.indexOf(runtime)
+    const move = (delta: number) => () => store.setAccountPool(agent, {
+      order: [...movedInPool(listedOrder, runtime, delta), ...order.filter((id) => !listedOrder.includes(id))],
+    })
+    return { ...(at > 0 ? { up: move(-1) } : {}), ...(at < listedOrder.length - 1 ? { down: move(1) } : {}) }
+  }
   // An extra slot is only "waiting to be signed in" once it has answered
   // with no account. One that has not answered yet (#986) may be signed in
   // already, so it gets a neutral row of its own rather than that claim.
@@ -667,26 +764,51 @@ const AgentAccounts = ({
         }
       />
       <Rows>
-        {rows.map(({ entry, account }) => {
-          const key = accountKey(entry.id, account)
-          const own = snapshot.usage.filter((report) => report.runtime === entry.id)
-          const report = own.find((item) => usageAccount(item) === account.label.trim()) ?? own[0]
-          // What is left is the account's binding window — the tightest of the
-          // *account-wide* lanes, which is what `bindingLane` picks. Taking the
-          // tightest of every lane instead read `0% left` beside a row with
-          // no limit mark, because a spent model-scoped
-          // week is the tightest lane and is not the account's figure. Rounded
-          // the way `describeLane` rounds, so this row and the Dashboard cannot
-          // disagree about the same account.
-          const binding = report ? bindingLane(report.lanes, snapshot.accountPrefs[key]) : null
-          const remaining = binding === null ? null : remainingOf(binding)
-          const left = remaining === null ? null : Math.round(remaining)
-          const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name)
-          const identity = account.email ?? account.label
+        {listed.flatMap((entry): { entry: RuntimeInfo; account: Account | null }[] => (entry.slot?.gateway ? [{ entry, account: null }] : rows.filter((row) => row.entry === entry))).map(({ entry, account }) => {
+          // An account of this same agent, on the user's own endpoint. Same
+          // models, same everything — the bill is what moved, so the row says
+          // where it goes and nothing about signing in.
+          if (account === null) {
+            return (
+              <Row
+                key={entry.id}
+                kind="record"
+                face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
+                title={entry.slot?.gateway?.name}
+                titleChip={
+                  entry.id === snapshot.activeRuntime && ordered
+                    ? <InlineParts><Chip tone="neutral" size="sm">Gateway</Chip><Chip tone="neutral" size="sm">Default</Chip></InlineParts>
+                    : <Chip tone="neutral" size="sm">Gateway</Chip>
+                }
+                desc={entry.slot?.gateway?.endpoint}
+                truncateDesc
+                control={
+                  <SettingsRowMenu
+                    location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)}
+                    name={entry.slot?.gateway?.name ?? 'Gateway'}
+                    label="Remove"
+                    onRemove={() => void store.removeAccount(entry.id)}
+                    {...(ordered ? { moves: movesFor(entry.id) } : {})}
+                  />
+                }
+              />
+            )
+          }
+          const { key, blocked, left } = accountStanding(entry, account, snapshot)
+          const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name, snapshot.hideAccountAddresses)
+          const identity = shownIdentity(account, snapshot)
           return (
             <RowButton
               key={key}
               onClick={() => onOpenAccount(entry.id, key)}
+              {...(ordered ? {
+                action: (
+                  <SettingsRowMenu
+                    name={name}
+                    moves={movesFor(entry.id)}
+                  />
+                ),
+              } : {})}
               kind="record"
               face={
                 <AccountMark size="row" data-tint={tintOf(key, snapshot.accountPrefs)} badge={runtimeAccountBadge(entry, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs, account)}>
@@ -694,7 +816,7 @@ const AgentAccounts = ({
                 </AccountMark>
               }
               title={name}
-              titleChip={entry.id === info.id && rows.length > 1 ? <Chip tone="neutral" size="sm">Default</Chip> : undefined}
+              titleChip={entry.id === snapshot.activeRuntime && ordered ? <Chip tone="neutral" size="sm">Default</Chip> : undefined}
               /* The plan used to ride along in this line as "…@acme.dev · Pro".
                  It is the one word that answers "what am I paying for", so it
                  moved to the right where the other answers are, and the line
@@ -703,7 +825,7 @@ const AgentAccounts = ({
               {...(identity && identity !== name ? { desc: identity, truncateDesc: true } : {})}
               control={
                 <>
-                  {report && isBlocked(report) && <Chip state="limit" />}
+                  {blocked && <Chip state="limit" />}
                   {account.planType && (
                     <Chip tint={tintOf(key, snapshot.accountPrefs)}>
                       {account.planType}
@@ -719,28 +841,11 @@ const AgentAccounts = ({
           )
         })}
 
-        {/* An account of this same agent, on the user's own endpoint. Same
-            models, same everything — the bill is what moved, so the row says
-            where it goes and nothing about signing in. */}
-        {gateways.map((entry) => (
-          <Row
-            key={entry.id}
-            kind="record"
-            face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
-            title={entry.slot?.gateway?.name}
-            titleChip={<Chip tone="neutral" size="sm">Gateway</Chip>}
-            desc={entry.slot?.gateway?.endpoint}
-            truncateDesc
-            control={
-              <SettingsRowMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.slot?.gateway?.name ?? 'Gateway'} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
-            }
-          />
-        ))}
 
         {/* An extra account that has not answered yet. Its line is where its
             credential lives — the one thing that tells two of them apart.
             One that could not start will not answer at all: it says so, as
-            the list does when it puts this agent under "Needs attention"
+            the list does when it puts this agent under "Needs you"
             (#1038), rather than waiting on an answer that is not coming. */}
         {pending.map((entry) => (
           <Row
@@ -795,9 +900,9 @@ const AgentAccounts = ({
              "runs without an account" about an agent that could not start —
              a true sentence about the wrong subject. The page's own "Why it
              will not start" says why, above; here it is only named. */
-          <EmptyState variant="row" title="Unavailable" description="Its accounts show once it starts." />
+          <EmptyState variant="row" title={READINESS_LABEL.broken} description="Its accounts show once it starts." />
         ) : rows.length === 0 && gateways.length === 0 && info.capabilities.account && status === undefined ? (
-          /* Not answered yet (#986): the agent has not said who is signed in,
+          /* Not checked yet (#986): the agent has not said who is signed in,
              so "Signed out" would be a guess. */
           <EmptyState variant="row" title={READINESS_LABEL.unknown} description="Its accounts show once it answers." />
         ) : rows.length === 0 && gateways.length === 0 && status?.unchecked ? (
@@ -861,6 +966,26 @@ const AgentAccounts = ({
           )
         )}
       </Rows>
+
+      {/* The queue's rule, beside the queue. Only new sessions move: a
+          conversation's thread lives in the account it started on. */}
+      {ordered && (
+        <Rows>
+          <Row
+            title="When an account runs out"
+            desc="New sessions follow the order above. A conversation already running stays on its account."
+            control={
+              <NativeSelect
+                aria-label="When an account runs out"
+                value={whenOutOf(pool)}
+                onChange={(event) => store.setAccountPool(agent, { whenOut: event.target.value as WhenOut })}
+              >
+                {WHEN_OUT.map((rule) => <option key={rule} value={rule}>{WHEN_OUT_LABEL[rule]}</option>)}
+              </NativeSelect>
+            }
+          />
+        </Rows>
+      )}
 
       {destinationActive && namingAccount && <AccountNameDialog info={info} adding={adding}
         onAdd={addAccount} onClose={() => setNamingAccount(false)} />}
@@ -1322,7 +1447,13 @@ const AccountDetail = ({
   const snapshot = useSnapshot()
   const key = accountKey(info.id, account)
   const prefs = snapshot.accountPrefs[key]
-  const [name, setName] = useState(prefs?.nickname ?? '')
+  // The field edits the saved nickname, but while addresses are hidden one
+  // typed as an address is shown as the name it stands for, and is saved
+  // again only once it is edited — looking at the page never rewrites it.
+  const saved = prefs?.nickname ?? ''
+  const shownSaved = snapshot.hideAccountAddresses && saved.includes('@') ? accountName(account, prefs, undefined, true) : saved
+  const [edited, setEdited] = useState<string | null>(null)
+  const name = edited ?? shownSaved
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [limits, setLimits] = useState<RateLimits | null>(null)
   // Strictly this account's own report — never a sibling account's, and
@@ -1360,64 +1491,19 @@ const AccountDetail = ({
   return (
     <>
       {/* Back to the agent it belongs to, which is where its accounts are listed. */}
-<DestinationBar place={accountName(account, prefs, info.presentation.name)} />
+<DestinationBar place={accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)} />
       <Toolbar>
         <Button variant="ghost" size="sm" onClick={onBack}>Back to {info.presentation.name}</Button>
         <RuntimeMark runtime={info} size={16} />
         <Chip state={state} />
       </Toolbar>
-<PageExplanation>{accountIdentity(account)}</PageExplanation>
-
-      {/* Three ways the desk shows this account, in one card: the name and ring
-          it wears, and the limit it leads with. The limit was a one-row card
-          of its own, under a second "Usage" heading above the real one. */}
-      <Section title="How it is shown">
-        <Rows>
-          <Row
-            title="Name"
-            desc="How the sidebar, the composer and the menu bar refer to this account."
-            control={
-              <Input
-                measure="name"
-                value={name}
-                placeholder={accountName(account, undefined, info.presentation.name)}
-                aria-label="Account name"
-                onChange={(event) => setName(event.target.value)}
-                onBlur={() => store.setAccountPrefs(key, { nickname: name })}
-              />
-            }
-          />
-          <Row
-            title="Ring"
-            desc="Tells this account apart from another one of the same runtime."
-            control={
-              <RingPicker
-                info={info}
-                value={tintOf(key, snapshot.accountPrefs)}
-                onChange={(tint) => store.setAccountPrefs(key, { tint })}
-              />
-            }
-          />
-          <Row
-            title="Primary usage window"
-            desc="Which limit appears first in the tray, account summary and menu."
-            control={
-              <NativeSelect
-                aria-label="Primary usage window"
-                value={pinLaneId}
-                disabled={usageOptions.length <= 1}
-                onChange={(event) => store.setAccountPrefs(key, { pinLaneId: event.target.value || undefined })}
-              >
-                {usageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </NativeSelect>
-            }
-          />
-        </Rows>
-      </Section>
+{!snapshot.hideAccountAddresses && <PageExplanation>{accountIdentity(account)}</PageExplanation>}
 
       {/* The facts about the sign-in, as one card: who, on what plan, where
           its credential lives, and whether new sessions start on it. They were
-          two cards under two headings ("Account", "Defaults"). */}
+          two cards under two headings ("Account", "Defaults"), and they come
+          first: a person opens an account to see who it is or to sign it out,
+          not to recolour it. */}
       <Section title="Account">
         <SummaryList>
           <SummaryItem
@@ -1441,12 +1527,14 @@ const AccountDetail = ({
                 </Button>
               ) : (
                 info.slot?.removable
-                  ? <SettingsRowMenu location={credentialHome(info) ?? info.id} name={accountName(account, prefs, info.presentation.name)} onRemove={() => setConfirmingSignOut(true)} />
+                  ? <SettingsRowMenu location={credentialHome(info) ?? info.id} name={accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)} onRemove={() => setConfirmingSignOut(true)} />
                   : <Button variant="outline" size="sm" onClick={() => setConfirmingSignOut(true)}><SignOutIcon size={13} />Sign out…</Button>
               )
             }
           >
-            {account.label}
+            {snapshot.hideAccountAddresses
+              ? accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)
+              : account.label}
           </SummaryItem>
           {planLabel && <SummaryItem label="Plan">{planLabel}</SummaryItem>}
           {credentialHome(info) && (
@@ -1478,13 +1566,60 @@ const AccountDetail = ({
         </SummaryList>
       </Section>
 
+      {/* Three ways the desk shows this account, in one card: the name and ring
+          it wears, and the limit it leads with. The limit was a one-row card
+          of its own, under a second "Usage" heading above the real one. */}
+      <Section title="How it is shown">
+        <Rows>
+          <Row
+            title="Name"
+            desc="How the sidebar, the composer and the menu bar refer to this account."
+            control={
+              <Input
+                measure="name"
+                value={name}
+                placeholder={accountName(account, undefined, info.presentation.name)}
+                aria-label="Account name"
+                onChange={(event) => setEdited(event.target.value)}
+                onBlur={() => { if (edited !== null) store.setAccountPrefs(key, { nickname: edited }) }}
+              />
+            }
+          />
+          <Row
+            title="Ring"
+            desc="Tells this account apart from another one of the same runtime."
+            control={
+              <RingPicker
+                info={info}
+                value={tintOf(key, snapshot.accountPrefs)}
+                onChange={(tint) => store.setAccountPrefs(key, { tint })}
+              />
+            }
+          />
+          <Row
+            title="Primary usage window"
+            desc="Which limit appears first in the tray, account summary and menu."
+            control={
+              <NativeSelect
+                aria-label="Primary usage window"
+                value={pinLaneId}
+                disabled={usageOptions.length <= 1}
+                onChange={(event) => store.setAccountPrefs(key, { pinLaneId: event.target.value || undefined })}
+              >
+                {usageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </NativeSelect>
+            }
+          />
+        </Rows>
+      </Section>
+
       <UsageSection limits={limits} name={info.presentation.name} />
 
       <PlanSection runtime={info.id} account={account.label.trim()} report={report} isKey={isKey} />
 
       {destinationActive && confirmingSignOut && (
         <ConfirmDialog
-          title={info.slot?.removable ? `Remove ${accountName(account, prefs, info.presentation.name)}?` : `Sign out of ${accountName(account, prefs, info.presentation.name)}?`}
+          title={info.slot?.removable ? `Remove ${accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)}?` : `Sign out of ${accountName(account, prefs, info.presentation.name, snapshot.hideAccountAddresses)}?`}
           confirmLabel={info.slot?.removable ? 'Remove account' : 'Sign out'}
           tone="destructive"
           onCancel={() => setConfirmingSignOut(false)}
@@ -1915,13 +2050,32 @@ const AgentDetail = ({
 <DestinationBar place={info.presentation.name} />
       <Toolbar>
         <Button variant="ghost" size="sm" onClick={onBack}>Back to Runtimes</Button>
-        <RuntimeMark runtime={info} size={16} />
       </Toolbar>
-      <Rows><Row title={info.presentation.name} control={snapshot.activeRuntime === info.id
-        ? <Chip state={defaultChipState(info, snapshot)} label="Default" />
-        : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(info.id)}>Use for new sessions</Button>} /></Rows>
-{build && <Text role="meta">{build}</Text>}
-{info.presentation.tagline && <PageExplanation>{info.presentation.tagline}</PageExplanation>}
+      {/* What it is and which build, on one line: the version used to float
+          under the card on its own, and an update was a section further down
+          that most visits never reached. */}
+      <Rows>
+        <Row
+          face={<RuntimeFace runtime={info} />}
+          title={
+            <InlineParts>
+              <span data-slot="runtime-name">{info.presentation.name}</span>
+              {build && <Text role="muted" ink="muted" numeric data-runtime-version="">{build}</Text>}
+              {info.update && <Chip tone="neutral" size="sm">{`${info.update.version} available`}</Chip>}
+            </InlineParts>
+          }
+          {...(info.presentation.tagline ? { desc: info.presentation.tagline } : {})}
+          // Default when new sessions run as any of its accounts: which one
+          // is the Accounts section's to say, and the pool's to move.
+          control={snapshot.runtimes.some((entry) => entry.id === snapshot.activeRuntime && agentKey(entry) === agentKey(info))
+            ? <Chip state={defaultChipState(info, snapshot)} label="Default" />
+            : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(firstInPool(
+                inPoolOrder(snapshot.runtimes.filter((entry) => agentKey(entry) === agentKey(info)), snapshot.accountPools[agentKey(info)]),
+                snapshot,
+                info.id,
+              ))}>Use for new sessions</Button>}
+        />
+      </Rows>
 
       {health?.state === 'unavailable' && (
         <>
@@ -1943,6 +2097,18 @@ const AgentDetail = ({
         onOpenAccount={onOpenAccount}
         onSignIn={onSignIn}
       />
+
+      {/* By how often each is reached for: who it runs as, then how a new
+          session starts, then the build and what it costs to keep running,
+          then what it has done, and last the way to take it out. */}
+      <NewSessionDefaults info={info} />
+
+      {options.length > 0 && (
+        <>
+          <SectionHead level="label" name="Settings" />
+          <OptionRows options={options} onSet={setOption} />
+        </>
+      )}
 
       {update && (
         <>
@@ -1967,18 +2133,9 @@ const AgentDetail = ({
       )}
 
       {info.origin === 'registry' && <InstallSection info={info} />}
-
-      <AgentHistory info={info} onBrowse={onBrowseHistory} />
       <RuntimeResources runtime={info.id} />
 
-      <NewSessionDefaults info={info} />
-
-      {options.length > 0 && (
-        <>
-          <SectionHead level="label" name="Settings" />
-          <OptionRows options={options} onSet={setOption} />
-        </>
-      )}
+      <AgentHistory info={info} onBrowse={onBrowseHistory} />
 
       {info.origin === 'registry' && (
         <>
@@ -2062,7 +2219,7 @@ export const RuntimesSection = ({
      page is usually one agent of many that will not take a turn, and sorting
      by that answer makes it the first line rather than the search. The groups
      are the status, so the page needs no status filter beside its search.
-     "Needs attention" is `isBlocking`, the same test the Runtimes nav dot
+     "Needs you" is `isBlocking`, the same test the Runtimes nav dot
      uses (`Settings.tsx`) — not "not literally ready" — because an agent
      that has not answered `runtime/account` yet has not asked anyone for
      anything: it may turn out to need a sign-in, or not, but it does not
@@ -2078,7 +2235,7 @@ export const RuntimesSection = ({
     // here and on the nav dot alike; one that does not lands under "Ready",
     // so a new quiet state needs a heading of its own decided here.
     // `agentReadiness` never answers `available`.
-    { name: 'Needs attention', agents: listed.filter(({ state }) => isBlocking(state)) },
+    { name: 'Needs you', agents: listed.filter(({ state }) => isBlocking(state)) },
     { name: READINESS_LABEL.unknown, agents: listed.filter(({ state }) => state === 'unknown') },
     { name: 'Ready', agents: listed.filter(({ state }) => !isBlocking(state) && state !== 'unknown') },
   ].filter((section) => section.agents.length > 0)

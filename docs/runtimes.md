@@ -177,8 +177,8 @@ Navigate to **Settings › Runtimes › [runtime]** to view its **Install** sect
 - **Runtime home and authentication:** Displays the runtime's home directory,
   environment variable overrides (such as `OPENCLAW_STATE_DIR` or
   `CLAUDE_CONFIG_DIR`), and sign-in instructions or terminal login commands.
-- **Roster view:** The runtime list groups runtimes under "Needs attention",
-  "Not answered yet" and "Ready", shows account counts when present, and
+- **Roster view:** The runtime list groups runtimes under "Needs you",
+  "Not checked yet" and "Ready", shows account counts when present, and
   names a state on the row only where its group does not already say it.
   Runtimes needing no accounts omit redundant status text. A failed account
   read keeps the last answer, and only the runtimes still failing are asked

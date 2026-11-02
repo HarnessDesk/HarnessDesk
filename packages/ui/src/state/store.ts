@@ -160,7 +160,8 @@ import {
 } from '@harnessdesk/protocol'
 
 import { staleDefaults, type StaleDefault } from '../lib/composer-slots'
-import { agentKeyOf, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
+import { accountKey, accountName, agentKeyOf, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
+import { canTakeTurn, inPoolOrder, nextInPool, readAccountPools, runtimeOut, whenOutOf, type AccountPool } from '../lib/account-pool'
 import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
@@ -759,6 +760,8 @@ export class AppStore {
             },
             ...(unverified ? { accountsByRuntime: { ...this.#snapshot.accountsByRuntime, [id]: { accounts: [], signInMethods: previous?.signInMethods ?? [], unchecked: true } } } : {}),
           })
+          // A sibling that came back may be where a spent account's sessions go.
+          this.#followPool(this.#snapshot.usage)
           // `health` stays the *active* runtime's; taking any runtime's would
           // let a second account still starting up report the one you are
           // using as unavailable.
@@ -898,6 +901,7 @@ export class AppStore {
           const usage = [...rest, report]
           this.#patch({ usage })
           this.#announceUsage(before, usage)
+          this.#followPool(usage)
         }
         if (notification.method === 'usage/removed') {
           const { runtime, account } = notification.params
@@ -907,6 +911,8 @@ export class AppStore {
               (entry) => entry.runtime !== runtime || usageAccount(entry) !== usageAccount({ account }),
             ),
           })
+          // A sibling whose spent report went away is not out any more.
+          this.#followPool(this.#snapshot.usage)
         }
         if (notification.method === 'usage/scanProgress') {
           this.#patch({ scan: notification.params.progress })
@@ -1818,7 +1824,7 @@ export class AppStore {
    *
    * A read that failed used to drop the agent's status and leave it there:
    * nothing asked again until some other event happened to, so an agent
-   * whose read failed once sat at "Not answered yet" with nothing on any
+   * whose read failed once sat at "Not checked yet" with nothing on any
    * surface to press (#1021). A failure now keeps the last answer that
    * arrived, if one did, and the agent is asked again on its own — soon at
    * first, then less often — until it answers.
@@ -1917,6 +1923,8 @@ export class AppStore {
     }
     this.#patch({ accountsByRuntime })
     this.#scheduleAccountRetry()
+    // A sibling just signed in may be where a spent account's sessions go.
+    this.#followPool(this.#snapshot.usage)
   }
 
   /**
@@ -2314,6 +2322,9 @@ export class AppStore {
         ...this.#snapshot.usage.filter((report) => !unchanged(report.runtime)),
         ...reports.filter((report) => unchanged(report.runtime)),
       ] })
+      // A host with a fresh reading cached answers here and sends no update,
+      // so a spent account found at connect is the pool's to move too.
+      this.#followPool(this.#snapshot.usage)
     } catch {
       // A host that cannot answer leaves the last reading in place; the cards
       // show their own age, which is the honest thing to show.
@@ -2356,6 +2367,7 @@ export class AppStore {
         account,
         this.#snapshot.accountsByRuntime[runtime]?.accounts ?? [],
         this.#snapshot.accountPrefs,
+        this.#snapshot.hideAccountAddresses,
       )
     for (const alert of crossings(before, after, nameFor, this.#snapshot.runtimes, Date.now())) {
       this.infoNotice('warning', alert.message, 'usage:crossing')
@@ -2385,6 +2397,7 @@ export class AppStore {
       const usage = [...kept, ...reports]
       this.#patch({ usage })
       this.#announceUsage(before, usage)
+      this.#followPool(usage)
     } catch {
       // Same as above: keep what we have rather than blank the screen.
     }
@@ -7490,6 +7503,8 @@ export class AppStore {
       const spendChartMode = preferences['spendChartMode'] === 'line' ? 'line' : 'bars'
       this.#patch({
         accountPrefs,
+        accountPools: readAccountPools(preferences['accountPools']),
+        hideAccountAddresses: preferences['hideAccountAddresses'] === true,
         profile,
         customPresets: readCustomPresets(preferences['customPresets']),
         planEdits,
@@ -7534,6 +7549,8 @@ export class AppStore {
           ? { look: preferences['look'] }
           : {}),
       })
+      // Usage may have arrived first; the saved rule applies to it now.
+      this.#followPool(this.#snapshot.usage)
       setDockIcon(isAvatarId(profile.avatar) ? profile.avatar : null)
     } catch {
       // Preferences are a convenience; their absence must not block startup —
@@ -8193,6 +8210,58 @@ export class AppStore {
     else accountPrefs[key] = cleaned
     this.#patch({ accountPrefs })
     void this.#writePreference({ accountPrefs }, 'The account name')
+  }
+
+  /**
+   * Changes one agent's account order or its rule for running out. Kept with
+   * the other preferences, so the order survives a restart; an agent whose
+   * pool says nothing is dropped rather than stored empty.
+   */
+  setAccountPool(agent: RuntimeId, patch: AccountPool): void {
+    const merged: AccountPool = { ...this.#snapshot.accountPools[agent], ...patch }
+    const accountPools = { ...this.#snapshot.accountPools }
+    if ((merged.order?.length ?? 0) === 0 && merged.whenOut === undefined) delete accountPools[agent]
+    else accountPools[agent] = merged
+    this.#patch({ accountPools })
+    void this.#writePreference({ accountPools }, 'The account order')
+    this.#followPool(this.#snapshot.usage)
+  }
+
+  /** Account names only, everywhere an account is drawn. */
+  setHideAccountAddresses(hide: boolean): void {
+    this.#patch({ hideAccountAddresses: hide })
+    void this.#writePreference({ hideAccountAddresses: hide }, 'Hide account addresses')
+  }
+
+  /**
+   * When the account new sessions run as is out and its agent's rule says to
+   * use the next one, new sessions move there — once, and said once. Only
+   * the pick for new sessions moves: an open conversation stays where its
+   * thread lives, and the banner over it still offers to continue elsewhere.
+   * Nothing moves to an account that could not take a turn either, so an
+   * agent whose every account is out stays put and says so the usual way.
+   */
+  #followPool(reports: readonly UsageReport[]): void {
+    const active = this.#snapshot.activeRuntime
+    if (!active || !runtimeOut(active, reports)) return
+    const runtimes = this.#snapshot.runtimes
+    const agent = agentKeyOf(active, runtimes)
+    const pool = this.#snapshot.accountPools[agent]
+    if (whenOutOf(pool) !== 'next') return
+    const siblings = inPoolOrder(runtimes.filter((entry) => agentKeyOf(entry.id, runtimes) === agent), pool)
+    const usable = (runtime: RuntimeId): boolean => {
+      const entry = siblings.find((sibling) => sibling.id === runtime)
+      return entry !== undefined && !runtimeOut(runtime, reports) && canTakeTurn(entry, this.#snapshot)
+    }
+    const next = nextInPool(siblings, active, usable)
+    if (!next) return
+    const name = (runtime: RuntimeId): string => {
+      const agentName = runtimes.find((entry) => entry.id === runtime)?.presentation.name ?? String(runtime)
+      const account = this.#snapshot.accountsByRuntime[runtime]?.accounts[0]
+      return account ? accountName(account, this.#snapshot.accountPrefs[accountKey(runtime, account)], agentName, this.#snapshot.hideAccountAddresses) : agentName
+    }
+    void this.selectRuntime(next.id)
+    this.infoNotice('info', `${name(active)} reached its limit. New sessions use ${name(next.id)}.`, 'usage:switched')
   }
 
   /** Shared diff choices, applied immediately and saved with the person's other preferences. */

@@ -2108,19 +2108,14 @@ remove the body's inset. `reading` is an inset document or facts column.
 
 One same-height footer band, with an optional quiet link at the left and actions at the right.
 
-### `Dialog`
+### `modalSurfaceClass`
 
 `packages/ui/src/design/patterns/ModalDialog.tsx`
 
-The application dialog pattern: Base UI owns focus, dismissal, stacking,
-the portal and accessibility; this layer owns HarnessDesk's header, body,
-footer and measured sizes.
-
-The body is a form stack (`DialogForm`) unless it is `flush`: its children
-are 16px apart, a `SectionHead` in it is a legend on the group it names,
-and a `Rows` radio group of `RowChoice` rows is a compact `ChoiceList`.
-The body keeps its 24px inset in every layout. A `flush` body is a list and
-is not a form, so it keeps the page's parts inside that inset.
+The surface `Dialog` wears — its width, its ceiling, a head and a body
+that scrolls — for a sheet that composes `DialogContent` itself because it
+needs what `Dialog` does not take (an embedded, non-modal specimen), so it
+is drawn the same and moves with it.
 
 ### `NoticeCard`
 
@@ -2760,6 +2755,21 @@ Initials inside a row's neutral mark. They identify the thing without becoming i
 
 Compact facts whose dot separators belong to the role, not to each caller.
 
+### `DescLines`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A row's second line when the row owns a short list — an agent's accounts —
+as one line per item instead of "the first and 2 more". Each line is a name
+that gives way at its end and the facts after it, which keep their width;
+a list long enough to need a fold is a page's, not a row's.
+
+### `DescLine`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+One line of `DescLines`: a mark, the name, then what is true of it.
+
 ### `InlineParts`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -2788,7 +2798,11 @@ Account ring colours, keeping the selected mark and current tint callback.
 
 `packages/ui/src/design/patterns/SettingsRowMenu.tsx`
 
-A Settings record's actions: its name and distinguishing location, with destructive removal.
+A Settings record's actions: its name and distinguishing location, its
+place in an order when the list is one (an agent's accounts, used first to
+last), and destructive removal. A move that cannot happen — the first row
+moving up — is drawn and refused rather than missing, so the menu keeps its
+shape from row to row.
 
 ### `SidebarMenuState`
 

@@ -417,7 +417,7 @@ const LibraryBody = ({ id, section: kind, onSection: setKind, importIntent }: Li
       (library?.runtimes ?? []).map((id: RuntimeId) => {
         const info = snapshot.runtimes.find((runtime) => runtime.id === id)
         const label = info
-          ? runtimeLabel(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)
+          ? runtimeLabel(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs, snapshot.hideAccountAddresses)
           : id
         // `runtimeLabel` may say "Agent · account" where an agent has more
         // than one signed in. The column speaks for the agent, whichever

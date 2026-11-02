@@ -175,7 +175,7 @@ describe('the token', () => {
         a: signedIn,
         b: signedIn,
         // c–f have all answered, and confirmed nobody is signed in — the
-        // fixture's point is a real "Needs sign-in", not an unheard-from one.
+        // fixture's point is a real "Sign in needed", not an unheard-from one.
         c: signedOut,
         d: signedOut,
         e: signedOut,
@@ -188,10 +188,10 @@ describe('the token', () => {
     // The four with nothing to report are why the count and the bars differ,
     // so the panel has to hold them.
     expect(view.rest?.asides.map((aside) => aside.detail)).toEqual([
-      'Needs sign-in',
-      'Needs sign-in',
-      'Needs sign-in',
-      'Needs sign-in',
+      'Sign in needed',
+      'Sign in needed',
+      'Sign in needed',
+      'Sign in needed',
     ])
     expect(view.rest?.signIn).toBe(4)
   })
@@ -206,7 +206,7 @@ describe('the token', () => {
       sessionRuntime: runtimeId('a'),
     })
     expect(view.rest?.signIn).toBe(0)
-    expect(view.rest?.asides.map((aside) => aside.detail)).not.toContain('Needs sign-in')
+    expect(view.rest?.asides.map((aside) => aside.detail)).not.toContain('Sign in needed')
   })
 
   it('is absent when there is nobody else', () => {
@@ -339,6 +339,17 @@ describe('two accounts, one agent', () => {
       ['OpenAI Codex', 'me@example.com'],
     ])
     expect(view.rest?.meters[0]?.title).toBe('OpenAI Codex · work@example.com — Weekly, 42% left')
+  })
+
+  it('names a shared agent\'s accounts by name only while addresses are hidden', () => {
+    const view = strip({
+      runtimes: [runtime('codex', 'OpenAI Codex'), runtime('codex-2', 'OpenAI Codex'), runtime('c', 'Agent C')],
+      usage: [at('codex', 42, { account: 'work@example.com' }), at('codex-2', 88, { account: 'me@example.com' })],
+      sessionRuntime: runtimeId('c'),
+      hideAddresses: true,
+    })
+    expect(view.rest?.meters.map((meter) => meter.account)).toEqual(['work', 'me'])
+    expect(view.rest?.meters[0]?.title).toBe('OpenAI Codex · work — Weekly, 42% left')
   })
 
   it('lists both accounts in the token panel, so the count is not the whole story', () => {

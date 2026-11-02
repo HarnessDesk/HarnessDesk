@@ -1574,6 +1574,32 @@ pre.mono:not([data-block])[data-wrap] {
 
 .metaListMuted { color: var(--hd-muted-foreground); }
 
+/* One line per item a row owns; each line a name that truncates and facts that do not. */
+.descLines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-table-line-gap);
+  min-width: 0;
+}
+
+.descLine {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.descLine > :not(.descLineName) {
+  flex: none;
+}
+
+.descLineName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .avatarMenu { width: var(--hd-space-4); height: var(--hd-space-4); }
 
 /* A record can be unavailable to an agent while remaining editable here. */

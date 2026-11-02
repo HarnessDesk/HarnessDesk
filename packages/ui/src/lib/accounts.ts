@@ -94,14 +94,55 @@ export const accountName = (
   prefs: AccountPrefs | undefined,
   /** The agent's own name, which stands in for a person the runtime cannot name. */
   agent?: string,
+  /**
+   * Settings › General › Hide account addresses. A nickname is shown as it
+   * was typed, except that while addresses are hidden one typed as an address
+   * is cut at the @ like the address itself.
+   */
+  hide = false,
 ): string => {
   const nickname = prefs?.nickname?.trim()
-  if (nickname) return nickname
+  if (nickname) return hide && nickname.includes('@') ? nickname.slice(0, nickname.indexOf('@')) || nickname : nickname
   if (account.anonymous && agent) return agent
   const label = account.label ?? ''
   const email = account.email ?? (label.includes('@') ? label : null)
   if (email) return email.slice(0, email.indexOf('@'))
   return label
+}
+
+/**
+ * The HarnessDesk account's own name, under the same switch: a name that is
+ * itself an address (some providers name you by your login) is cut at the @
+ * while addresses are hidden, and the email is never the fallback then.
+ */
+export const shownDeskName = (
+  account: { readonly name?: string | null; readonly email?: string | null } | null | undefined,
+  hide: boolean,
+): string | null => {
+  const name = account?.name?.trim() || null
+  if (!hide) return name || account?.email || null
+  return name?.includes('@') ? name.slice(0, name.indexOf('@')) || null : name
+}
+
+/**
+ * An account as a row writes it: as the runtime wrote it, or — while
+ * Settings › General › Hide account addresses is on — by name only, its
+ * nickname or the address cut at the @. Every surface that names an account
+ * from a usage report or a sign-in goes through here, so the switch is one
+ * rule rather than a promise each screen keeps on its own.
+ */
+export const shownAccountLabel = (
+  runtime: RuntimeId,
+  label: string,
+  view: {
+    readonly hideAccountAddresses?: boolean
+    readonly accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
+    readonly accountPrefs: AccountPrefsMap
+  },
+): string => {
+  if (!view.hideAccountAddresses) return label
+  const account = accountForUsage(runtime, label, view.accountsByRuntime) ?? ({ kind: 'oauth', label } as unknown as Account)
+  return accountName(account, prefsForUsage(runtime, label, view.accountsByRuntime, view.accountPrefs), undefined, true)
 }
 
 /** The line under the name: who it really is, and on what plan. */
@@ -138,6 +179,7 @@ export const runtimeLabel = (
   runtimes: readonly RuntimeInfo[],
   accounts: Readonly<Partial<Record<RuntimeId, { readonly accounts: readonly Account[] }>>>,
   prefs: AccountPrefsMap,
+  hide = false,
 ): string => {
   const agent = info.slot?.agent
   if (!agent) return info.name
@@ -145,7 +187,7 @@ export const runtimeLabel = (
   if (siblings.length < 2) return info.name
   const account = accounts[info.id]?.accounts[0]
   if (!account) return `${info.name} \u00b7 not signed in`
-  return `${info.name} \u00b7 ${accountName(account, prefs[accountKey(info.id, account)])}`
+  return `${info.name} \u00b7 ${accountName(account, prefs[accountKey(info.id, account)], undefined, hide)}`
 }
 
 /**

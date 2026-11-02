@@ -251,7 +251,7 @@ it('opens the roster behind the token, named account by account', () => {
     expect(row.querySelector('[role="progressbar"]')?.getAttribute('aria-label')).toBe(`Agent B · ${index === 0 ? 'work' : 'personal'} — what is left`)
   }
   expect(rows.slice(2).map(row => row.textContent)).toEqual([
-    'Agent CPlanNeeds sign-in', 'Agent DPlanNeeds sign-in', 'Agent EPlanNeeds sign-in', 'Agent FPlanNeeds sign-in',
+    'Agent CPlanSign in needed', 'Agent DPlanSign in needed', 'Agent EPlanSign in needed', 'Agent FPlanSign in needed',
   ])
 })
 
