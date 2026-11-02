@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { runtimeId, type AccountStatus, type RuntimeInfo, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import { describeStrip, MAX_PROMOTED, type StripInput } from './plan-strip'
+import { formatWhen } from './usage'
 
 /**
  * What the header strip says, whatever the size of the roster.
@@ -85,6 +86,17 @@ describe('the anchor', () => {
     expect(view.anchor?.kind).toBe('meter')
     expect(view.anchor?.kind === 'meter' && view.anchor.meter.runtime).toBe('b')
     expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('91%')
+  })
+
+  it('says back when the last spent window resets, not the headline alone', () => {
+    // The Weekly leads and resets in an hour; the Session behind it stays spent for four.
+    const both = report('a', [
+      lane({ id: 'weekly', label: 'Weekly', usedPercent: 100, resetsAt: NOON + HOUR }),
+      lane({ id: 'session', label: 'Session', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + 4 * HOUR }),
+    ], { reached: 'weekly' })
+    const view = strip({ runtimes: six, usage: [both], sessionRuntime: runtimeId('a') })
+    const figure = view.anchor?.kind === 'meter' ? view.anchor.meter.figure : null
+    expect(figure).toBe(`back ${formatWhen(NOON + 4 * HOUR, NOON)}`)
   })
 
   it('falls back to the selected agent when no conversation is open', () => {
