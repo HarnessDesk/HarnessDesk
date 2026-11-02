@@ -37,7 +37,7 @@ class TemplateRuntime extends CodexRuntime {
 }
 
 /** The shipped templates, actual Host, fake agent processes and a local forge. */
-export async function createTemplateRig({ home, work, template = 'comparison', readOnlyReviewer = false, reviewerId = 'codex-review', defaultPreferences = false }) {
+export async function createTemplateRig({ home, work, template = 'comparison', readOnlyReviewer = false, reviewerId = 'codex-review', defaultPreferences = false, phase = () => {} }) {
   const previous = { path: process.env.PATH, home: process.env.HARNESSDESK_HOME }
   const identityKeys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']
   const previousIdentity = Object.fromEntries(identityKeys.map(key => [key, process.env[key]]))
@@ -52,9 +52,11 @@ export async function createTemplateRig({ home, work, template = 'comparison', r
   for (const key of identityKeys) delete process.env[key]
   process.env.HARNESSDESK_HOME = home
   try {
+  phase('seed:begin')
   execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
     env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '1' }, stdio: 'pipe',
   })
+  phase('seed:end')
   const repo = join(work, 'storefront')
   const git = (...args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
   const gates = join(home, 'template-gates')
@@ -133,8 +135,12 @@ console.log('Retry attempt passed')
   for (const runtime of runtimes) { host.register(runtime); runtime.subscribe(event => { if (event.type === 'turn/completed' && event.turn?.error) errors.push(event.turn.error) }) }
   const dispose = async () => {
     try {
+      phase('host-dispose:begin')
       await host.dispose()
+      phase('host-dispose:end')
+      phase('extensions-dispose:begin')
       await extensions.dispose()
+      phase('extensions-dispose:end')
     } finally {
       setTeamEngine(null)
       setForgeEngine(null)
@@ -142,11 +148,21 @@ console.log('Retry attempt passed')
     }
   }
   try {
+    phase('team-extension:begin')
     await extensions.load(teamPlugin)
+    phase('team-extension:end')
+    phase('git-extension:begin')
     await extensions.load(gitPlugin)
+    phase('git-extension:end')
+    phase('host-start:begin')
     await host.start()
-    for (const runtime of runtimes) await runtime.start()
+    phase('host-start:end')
+    for (const [index, runtime] of runtimes.entries()) {
+      phase(index === 0 ? 'writer-start:begin' : 'reviewer-start:begin')
+      await runtime.start()
+      phase(index === 0 ? 'writer-start:end' : 'reviewer-start:end')
+    }
     return { host, logger, logFile, repo, errors, stateFile, git, publish: async () => { git('push', '-u', 'origin', TEMPLATE_PUBLISH_BRANCH); const result = await gh(['pr', 'create', '--title', TEMPLATE_TASK, '--body', 'Reviewed retry change.']); if (result.exitCode !== 0) throw new Error(result.stderr) }, release: name => writeFileSync(join(gates, name), ''), dispose }
-  } catch (error) { await dispose(); throw error }
-  } catch (error) { restoreEnvironment(); throw error }
+  } catch (error) { phase('construction-cleanup:begin'); await dispose(); phase('construction-cleanup:end'); throw error }
+  } catch (error) { phase('environment-restore:begin'); restoreEnvironment(); phase('environment-restore:end'); throw error }
 }
