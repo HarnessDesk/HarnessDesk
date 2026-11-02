@@ -29,12 +29,26 @@ const everything = async root => {
   return files
 }
 const codes = async run => { try { await run(); return null } catch (error) { return error.wireCode ?? error.code ?? String(error.message) } }
+const reply = 'Which retry status list do you mean?'
+const waitForReply = async (read, attempts = 300, interval = 100) => {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const snapshot = await read()
+    if (snapshot.requestInFlight === false && snapshot.thread.messages.some(message => message.role === 'assistant' && message.text === reply)) return snapshot
+    if (attempt + 1 < attempts) await sleep(interval)
+  }
+  throw new Error('lead-reply-not-settled')
+}
+out.missingReply = await codes(() => waitForReply(async () => ({ requestInFlight: false, thread: { messages: [] } }), 2, 0))
+out.inFlightReply = await codes(() => waitForReply(async () => ({ requestInFlight: true, thread: { messages: [{ role: 'assistant', text: reply }] } }), 2, 0))
 const scripted = () => {
   const requests = []
-  return { requests, transport: { async send(request) {
+  let release
+  const held = new Promise(resolve => { release = resolve })
+  return { requests, release, transport: { async send(request) {
     requests.push({ headers: request.headers, body: request.body })
+    await held
     return { status: 200, body: JSON.stringify({ id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5',
-      content: [{ type: 'text', text: 'Which retry status list do you mean?' }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } }) } } } }
+      content: [{ type: 'text', text: reply }], stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5 } }) } } } }
 }
 const cipher = { protection: 'synthetic cipher', encrypt: plain => Buffer.from(Buffer.from(plain).toString('hex')), decrypt: blob => Buffer.from(blob.toString(), 'hex').toString() }
 const start = async (stateDir, options) => {
@@ -86,8 +100,13 @@ const receipt = await made.host.call('lead/thread/send', { idempotencyKey: 'goal
 for (let waited = 0; provider.requests.length === 0 && waited < 30_000; waited += 100) await sleep(100)
 out.requestsWithKey = provider.requests.length
 out.requestHeaderHasKey = provider.requests.length > 0 && JSON.stringify(provider.requests[0].headers).includes(process.env.HD_CANARY)
-await sleep(500)
-const after = await made.host.call('lead/thread/read', {})
+// Seeing the request is not seeing its reply in the journal. Hold it until a
+// real read proves that the first projection still contains only the goal.
+const held = await made.host.call('lead/thread/read', {})
+out.heldMessages = held.thread.messages.map(one => one.text)
+out.heldInFlight = held.requestInFlight
+provider.release()
+const after = await waitForReply(() => made.host.call('lead/thread/read', {}))
 const bytes = []
 for (const file of await everything(stateDir)) bytes.push([file, (await readFile(file).catch(() => Buffer.alloc(0))).includes(process.env.HD_CANARY)])
 out.leaks = bytes.filter(([, hit]) => hit).map(([file]) => file.slice(stateDir.length))
@@ -146,6 +165,10 @@ test('the desktop path assembles the Lead only when enabled, keeps its journal u
   // No key: the thread says what is missing, and the provider is never called.
   assert.equal(result.noKey, 'lead-key-missing')
   assert.equal(result.requestsWithoutKey, 0)
+  assert.equal(result.missingReply, 'lead-reply-not-settled')
+  assert.equal(result.inFlightReply, 'lead-reply-not-settled')
+  assert.deepEqual(result.heldMessages, ['Make the retry status list complete'])
+  assert.equal(result.heldInFlight, true)
   // With the key stored through Settings the provider is called, and the key reaches only that request.
   assert.equal(result.keyAfter, true)
   assert.ok(result.requestsWithKey >= 1, `the provider was called: ${JSON.stringify(result.state)}`)
