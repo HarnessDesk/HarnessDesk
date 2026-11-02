@@ -837,6 +837,7 @@ export class Host {
   readonly #subscriptions: Unsubscribe[] = []
   /** Kept apart from `#subscriptions` so one runtime can be dropped alone. */
   readonly #runtimeSubscriptions = new Map<string, Unsubscribe[]>()
+  readonly #creatingTranscripts = new Map<RuntimeId, number>()
   /** Accounts a fold is in flight for; see `#foldDuplicateAccount`. */
   readonly #folding = new Set<string>()
   readonly #broadcasters = new Set<Broadcast>()
@@ -2681,18 +2682,27 @@ export class Host {
             const held = key === 'createSession' || key === 'forkSession'
               ? new Set(this.registry.all().filter(record => record.runtime === id).map(record => record.session.id))
               : null
-            const result = await Reflect.apply(member, target, args)
-            if (held) {
-              const live = result as AgentSession
-              if (!held.has(live.id)) {
-                // Registration here precedes the caller's Seat hold. The
-                // caller's explicit attach/keep starts its loadout observation.
-                const session = this.#attach(managed, live.id, live, false)
-                this.#noteCreatedTranscript(session)
-                this.#sessionIndex.promote(id, live.id)
+            if (held) this.#creatingTranscripts.set(id, (this.#creatingTranscripts.get(id) ?? 0) + 1)
+            try {
+              const result = await Reflect.apply(member, target, args)
+              if (held) {
+                const live = result as AgentSession
+                if (!held.has(live.id)) {
+                  // Registration here precedes the caller's Seat hold. The
+                  // caller's explicit attach/keep starts its loadout observation.
+                  const session = this.#attach(managed, live.id, live, false)
+                  this.#noteCreatedTranscript(session)
+                  this.#sessionIndex.promote(id, live.id)
+                }
+              }
+              return result
+            } finally {
+              if (held) {
+                const remaining = this.#creatingTranscripts.get(id)! - 1
+                if (remaining) this.#creatingTranscripts.set(id, remaining)
+                else this.#creatingTranscripts.delete(id)
               }
             }
-            return result
           }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'sourceOf' && key !== 'searchSessions' && key !== 'listHooks' ? args[0] : undefined)
         }
         return member.bind(target)
@@ -8936,7 +8946,14 @@ export class Host {
         this.#transcriptOperations.has(key) || !this.#durableTranscriptBases.has(record) || record.transcriptIncomplete ||
         this.#recoveredTranscriptBases.has(record.bodyGeneration) || !next.itemsLoaded || next.partialHistory ||
         isDeepStrictEqual(persisted(previous), persisted(next))) return
-    this.#transcripts.record(next, { now: true, insight: this.#turnInsight.forSession(record.runtime, next.id),
+    const insight = this.#turnInsight.forSession(record.runtime, next.id)
+    // Do not invalidate a source fingerprint for a registry fold that exactly
+    // reproduces the durable body and has no outstanding body or new insight.
+    if (!insight.length && !this.#transcripts.hasOutstandingWrite(record.runtime, next.id)) {
+      const observed = this.#transcripts.observeBase(next, false), base = this.#durableTranscriptBases.get(record)
+      if (observed && base && isDeepStrictEqual(observed, base)) return
+    }
+    this.#transcripts.record(next, { now: true, insight,
       generation: record.bodyGeneration, revision: record.bodyRevision, authorityEpoch: record.bodyAuthorityEpoch })
   }
 
@@ -9076,7 +9093,7 @@ export class Host {
     const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
     if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     const held = id ? this.registry.get(runtime, id) : undefined
-    const initial = !held && source && this.ownsRuntime(source) && event.type === 'session/started' &&
+    const initial = !held && source && this.ownsRuntime(source) && !this.#creatingTranscripts.has(runtime) && event.type === 'session/started' &&
       event.session.runtime === runtime && event.session.itemsLoaded && !event.session.partialHistory &&
       !this.#sessionIndex.isRemoved(runtime, event.session.id) && this.#transcripts.mayObserveInitialBase(event.session)
       ? this.#transcripts.observeBase(event.session, true) : undefined
