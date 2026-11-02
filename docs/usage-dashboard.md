@@ -958,7 +958,11 @@ hard way somewhere and is cheaper to design out than to fix:
   beside it, and nothing claims an account is "back first" while one is
   overdrawn, since a top-up can beat any reset.
   A failed read is Unknown before anything else, even with a cached balance
-  or a spent lane behind it. A pinned lane does not change it: the pin picks
+  or a spent lane behind it, and Unknown shows none of those cached figures:
+  the card's figure and the Plans table's reading are `—`, the meter has no
+  fill, the phone is sent no percent or balance for it, and it sorts after
+  every account that answered. The cards and the sidebar's count follow the
+  same word: in debt, then out, then short, low and ready. A pinned lane does not change it: the pin picks
   the card's headline, and the host, which decides the word for the phone,
   never sees it. Every account-wide window counts, not only the headline:
   Short is whichever runs dry first, Low whichever is lowest, and when that

@@ -380,10 +380,15 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
   const standing = usageStandingOf(report, now)
   const reset = seat.resetsAt === null ? null : resetsIn(seat.resetsAt - now)
   const fraction = (left: number): number => Math.round(Math.min(100, Math.max(0, left)) * 10) / 1000
+  // A failed read's figures are the last ones cached, and Unknown says none is current: send no percent from it.
+  const unread = standing.status === 'unknown'
+  // A balance that decided Out or Overdrawn is the whole story: a window's figures beside it would contradict it.
+  const onBalance = standing.lane === null && (standing.status === 'out' || standing.status === 'overdrawn') &&
+    typeof report.credits?.remaining === 'number'
   const lanes = report.lanes.filter(lane => !lane.placeholder).map(lane => ({
     label: scrub(lane.label, 40),
     ...(lane.scope ? { scope: scrub(lane.scope, 40) } : {}),
-    ...(lane.usageKnown === false ? {} : { left: fraction(100 - lane.usedPercent) }),
+    ...(lane.usageKnown === false || unread ? {} : { left: fraction(100 - lane.usedPercent) }),
     ...(lane.resetsAt === null || lane.resetsAt <= now ? {} : { resetsAt: lane.resetsAt }),
   }))
   const scoped = standing.scopedOut
@@ -393,18 +398,18 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
   const plan = report.planLabel ?? report.plan
   return {
     id: seat.id, name: seat.label, models: [], running: [], last7: [],
-    ...(seat.windowPercent === null ? {} : { used: seat.windowPercent / 100 }),
-    ...(reset === null ? {} : { resetsIn: reset }),
-    ...(seat.weekPercent === null ? {} : { weekUsed: seat.weekPercent / 100 }),
+    ...(seat.windowPercent === null || unread || onBalance ? {} : { used: seat.windowPercent / 100 }),
+    ...(reset === null || onBalance ? {} : { resetsIn: reset }),
+    ...(seat.weekPercent === null || unread || onBalance ? {} : { weekUsed: seat.weekPercent / 100 }),
     status: STANDING_WORD[standing.status],
     standing: standing.status,
-    ...(standing.left === null ? {} : { left: fraction(standing.left) }),
+    ...(standing.left === null || unread ? {} : { left: fraction(standing.left) }),
     ...(standing.lane?.resetsAt != null && standing.lane.resetsAt > now ? { resetsAt: standing.lane.resetsAt } : {}),
     ...(standing.backAt === null ? {} : { backAt: standing.backAt }),
     ...(standing.runsOutAt === null ? {} : { runsOutAt: Math.round(standing.runsOutAt) }),
     ...(scoped?.scope ? { scopedOut: { scope: scrub(scoped.scope, 40), ...(scoped.resetsAt === null || scoped.resetsAt <= now ? {} : { backAt: scoped.resetsAt }) } } : {}),
     ...(lanes.length === 0 ? {} : { lanes }),
-    ...(remaining === null || report.credits?.unlimited ? {} : { balance: { amount: remaining, unit: scrub(report.credits!.unit, 12) } }),
+    ...(remaining === null || unread || report.credits?.unlimited ? {} : { balance: { amount: remaining, unit: scrub(report.credits!.unit, 12) } }),
     ...(plan ? { plan: scrub(plan, 40) } : {}),
     readAt: report.fetchedAt,
     ...(now - report.fetchedAt > report.staleAfterMs ? { stale: true } : {}),

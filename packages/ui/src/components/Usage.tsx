@@ -206,7 +206,7 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
         staleAfterMs: Number.POSITIVE_INFINITY,
         error: null,
       }))
-    return byUrgency([...metered, ...silent])
+    return byUrgency([...metered, ...silent], now)
   }, [snapshot.usage, tracked, off, now])
 
   // Every view reads the same scope, applied here once.

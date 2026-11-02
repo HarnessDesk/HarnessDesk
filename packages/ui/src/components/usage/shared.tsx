@@ -273,7 +273,11 @@ export const Card = ({
   // ever "left", and which window it belongs to is said on the line under the
   // bar rather than smuggled into the figure.
   const money = spend?.windowCost != null ? formatMoney(spend.windowCost, spend.currency) : null
-  const figure = hero
+  // A failed read keeps the last figures it had, and the Unknown chip promises none is current: no figure, no fill. (Another sign-in's cached figures are labelled as such in the note.)
+  const unread = !borrowed && standing.status === 'unknown'
+  const figure = unread
+    ? '—'
+    : hero
     ? hero.remainingPercent === null
       ? '—'
       : `${hero.remainingPercent}%`
@@ -281,10 +285,10 @@ export const Card = ({
       ? amount(Math.abs(balance.remaining), balance.unit)
       : (money ?? '—')
   const word = hero
-    ? view.all.length === 1 ? `left · ${hero.title}` : 'left'
-    : balance
+    ? unread ? 'not reporting' : view.all.length === 1 ? `left · ${hero.title}` : 'left'
+    : balance && !unread
       ? balance.remaining < 0 ? 'overdrawn' : 'left on the balance'
-      : report.error
+      : unread || report.error
         ? 'not reporting'
         : money
           ? `spent in ${spend?.windowDays ?? 0}d`
@@ -312,7 +316,7 @@ export const Card = ({
       <DashboardAccountBody>
         <DashboardLanes>
           <DashboardFigure>
-            <Text role="figure" tone={hero ? usageReadingTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
+            <Text role="figure" tone={unread ? 'neutral' : hero ? usageReadingTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
             <Text role="muted" truncate>{word}</Text>
           </DashboardFigure>
         {/* No lane, no meter: an empty track under a balance or a month's spend
@@ -321,7 +325,7 @@ export const Card = ({
           {hero && (
             <>
               <SegmentMeter
-                percent={hero.known ? (hero.remainingPercent ?? 0) : null}
+                percent={hero.known && !unread ? (hero.remainingPercent ?? 0) : null}
                 tone={paletteTone(hero.tone)}
                 label={`${hero.title} — what is left`}
               />

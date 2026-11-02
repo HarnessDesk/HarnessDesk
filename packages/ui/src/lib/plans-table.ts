@@ -387,8 +387,10 @@ export const describeRow = (report: UsageReport, now: number, preference?: Usage
   const deciding =
     (standing?.status === 'short' || standing?.status === 'low') && standing.lane && !standing.lane.scope ? standing.lane.id : null
   const view = describeReport(drawn, { now, maxLanes: 3, preference: deciding ? { ...preference, pinLaneId: deciding } : preference })
-  const left = leftOf(shape, drawn, view)
   const statusView = borrowed ? describeReport(report, { now, maxLanes: 0 }) : view
+  const status = statusOf(report, shape, statusView, now)
+  // A failed read's figures are the last ones cached: Unknown draws no percent and sorts on none.
+  const left = status === 'unknown' ? { percent: null } : leftOf(shape, drawn, view)
   return {
     key: `${report.runtime}:${report.account ?? ''}`,
     report: drawn,
@@ -396,7 +398,7 @@ export const describeRow = (report: UsageReport, now: number, preference?: Usage
     shape,
     view,
     left,
-    status: statusOf(report, shape, statusView, now),
+    status,
     ownUnit: ownUnitOf(shape, drawn, view),
     approxTurns: approxTurnsOf(shape, drawn),
     resets: resetsOf(view),

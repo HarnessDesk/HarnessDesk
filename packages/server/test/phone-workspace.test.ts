@@ -325,15 +325,17 @@ test('a phone allowance says the desk’s own standing, counts down to times and
     assert.equal(failed.problem, 'token refused for …')
     assert.equal(failed.plan, 'Pro')
     assert.deepEqual(failed.lanes, [
-      { label: '5-hour', left: 0.576, resetsAt: NOW + 2 * HOUR },
-      { label: 'Weekly', left: 0.388, resetsAt: NOW + 70 * HOUR },
-      { label: 'Weekly (one model)', scope: 'one model', left: 0.01 },
-    ])
+      { label: '5-hour', resetsAt: NOW + 2 * HOUR },
+      { label: 'Weekly', resetsAt: NOW + 70 * HOUR },
+      { label: 'Weekly (one model)', scope: 'one model' },
+    ], 'a failed read names its windows but sends none of the cached figures')
+    assert.deepEqual([failed.left, failed.used, failed.weekUsed, failed.balance], [undefined, undefined, undefined, undefined])
     assert.equal(out.backAt, NOW + HOUR)
     assert.equal(out.left, 0)
     assert.equal(out.resetsIn, '1h 00m', 'an older phone still reads the string')
     assert.deepEqual(overdrawn.balance, { amount: -2.15, unit: 'USD' })
     assert.equal(overdrawn.lanes, undefined)
+    assert.deepEqual([overdrawn.used, overdrawn.weekUsed, overdrawn.resetsIn], [undefined, undefined, undefined])
     assert.deepEqual(leaks(rows), [])
   } finally { await f.done() }
 })

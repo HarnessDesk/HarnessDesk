@@ -151,7 +151,7 @@ it('shows the shortest default lane, unless a longer one is spent', () => {
 it('answers with the countdown once there is nothing left', () => {
   mount({ runtimes: [runtime('a', 'Agent A')], usage: [spent('a', 2 * HOUR)], ...conversationWith('a') })
   const bar = bars()[0]
-  expect(bar?.textContent).toMatch(/^back \d{1,2}:\d{2}/)
+  expect(bar?.textContent).toMatch(/^back (\w{3} )?\d{1,2}:\d{2}/)
   expect(bar?.getAttribute('data-tone')).toBe('danger')
 })
 

@@ -516,8 +516,27 @@ describe('byUrgency', () => {
       },
     })
     const nothing = report({ runtime: runtimeId('nothing') })
-    const order = byUrgency([nothing, fine, ledgerOnly, low, spent]).map((row) => row.runtime)
+    const order = byUrgency([nothing, fine, ledgerOnly, low, spent], NOON).map((row) => row.runtime)
     expect(order).toEqual(['spent', 'low', 'fine', 'ledger', 'nothing'])
+  })
+
+  it('orders by the standing the card says, and puts a failed read after every one that answered', () => {
+    // A failed read whose cached figure is the lowest of all: Unknown, so it sorts on no figure.
+    const failed = report({
+      runtime: runtimeId('failed'),
+      lanes: [lane({ id: 'w', usedPercent: 99 })],
+      error: { message: 'HTTP 503' } as UsageReport['error'],
+    })
+    // Short at 40% left (it runs dry before its reset) outranks a Low at 15% left that lasts.
+    const short = report({
+      runtime: runtimeId('short'),
+      lanes: [lane({ id: 'session', usedPercent: 60, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })],
+    })
+    const low = report({ runtime: runtimeId('low'), lanes: [lane({ id: 'w', usedPercent: 85 })] })
+    const fine = report({ runtime: runtimeId('fine'), lanes: [lane({ id: 'w', usedPercent: 4 })] })
+    const debt = report({ runtime: runtimeId('debt'), credits: { remaining: -2, used: null, unit: 'USD' } as UsageReport['credits'] })
+    const order = byUrgency([fine, failed, low, short, debt], NOON).map((row) => String(row.runtime))
+    expect(order).toEqual(['debt', 'short', 'low', 'fine', 'failed'])
   })
 })
 
@@ -842,6 +861,19 @@ describe('rightNow', () => {
       NOON,
     )
     expect(line).toBe('Nothing has room right now — Agent B is back first, at 1:00 PM.')
+  })
+
+  it('recommends nothing while an account with no window failed to read', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'session', usedPercent: 15, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'session', usedPercent: 40, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+        report({ runtime: runtimeId('c'), account: 'jane@example.com', error: { message: 'HTTP 503' } as UsageReport['error'] }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBeNull()
   })
 
   it('makes no nothing-has-room claim while one reading is unknown', () => {

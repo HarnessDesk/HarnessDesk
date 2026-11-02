@@ -521,21 +521,35 @@ export const describeReport = (
 }
 
 /**
- * Cards come in the order of what is about to bite: spent first, then least
- * left, then the ones with nothing to report. An agent that reports no lanes
- * still sorts by whether it has spend to show, so an empty card never
- * outranks a real one.
+ * Cards come in the order of what is about to bite, read on each account's
+ * standing (`usageStandingOf`) so the order never disagrees with the word on
+ * the card: in debt, then out, then running out before the reset, then low,
+ * then ready, and last an account whose read failed — its figures are a
+ * cached guess, so they never sort it ahead of one that answered. Within a
+ * standing, least left first; an agent with no figure to sort on still sorts
+ * by whether it has spend to show, so an empty card never outranks a real one.
  */
-export const byUrgency = (reports: readonly UsageReport[]): readonly UsageReport[] =>
-  [...reports].sort((a, b) => rank(a) - rank(b))
+export const byUrgency = (reports: readonly UsageReport[], now: number): readonly UsageReport[] => {
+  const ranks = new Map(reports.map((report) => [report, rank(report, now)] as const))
+  return [...reports].sort((a, b) => ranks.get(a)! - ranks.get(b)!)
+}
 
-const rank = (report: UsageReport): number => {
-  if (isBlocked(report)) return -1
-  const lane = bindingLane(report.lanes)
-  const remaining = lane ? remainingOf(lane) : null
-  if (remaining !== null) return remaining
-  // No measurable lane: after every metered account, but before an empty one.
-  return report.spend ? 1_000 : 1_001
+const STANDING_ORDER: Readonly<Record<UsageStandingStatus, number>> = {
+  overdrawn: 0,
+  out: 1,
+  short: 2,
+  low: 3,
+  ready: 4,
+  unknown: 5,
+}
+
+const rank = (report: UsageReport, now: number): number => {
+  const standing = usageStandingOf(report, now)
+  // An unknown standing's `left` is the cached figure: never sort on it.
+  const left = standing.status === 'unknown' ? null : standing.left
+  // No measurable lane: after every metered account in its standing, but before an empty one.
+  const within = left ?? (report.spend ? 1_000 : 1_001)
+  return STANDING_ORDER[standing.status] * 10_000 + within
 }
 
 /** A prepaid balance a card can actually print: every figure in it nameable. */
@@ -800,6 +814,8 @@ export const rightNow = (
     bindingLane(report.lanes) === null && !report.error && report.credits !== null &&
     (report.credits.unlimited === true || (typeof report.credits.remaining === 'number' && report.credits.remaining > 0))
   if (reports.some(funded)) return null
+  // Nor can it weigh an account whose read failed, windows or none: it may have more room than any it names.
+  if (reports.some((report) => report.error)) return null
   // A window with no reading, or an account whose read failed, may have more room than any measured one, so there is
   // no comparison to make.
   if (read.some(({ standing }) => standing.status === 'unknown' || (standing.left === null && (standing.status === 'ready' || standing.status === 'low' || standing.status === 'short')))) return null

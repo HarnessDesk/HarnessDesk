@@ -553,6 +553,14 @@ describe('statusOf', () => {
     const spent = report({ lanes: [lane({ id: 'weekly', usedPercent: 100 })], error: { message: 'Could not reach the account' } })
     expect(statusOf(spent, 'windows', describeReport(spent, { now: NOON }), NOON)).toBe('unknown')
   })
+
+  it('draws no percent for an Unknown row, and sorts it on none', () => {
+    const failed = describeRow(report({ lanes: [lane({ id: 'weekly', usedPercent: 95 })], error: { message: 'Could not reach the account' } }), NOON)
+    const fine = describeRow(report({ runtime: runtimeId('b'), lanes: [lane({ id: 'weekly', usedPercent: 40 })] }), NOON)
+    expect(failed.status).toBe('unknown')
+    expect(failed.left.percent).toBeNull()
+    expect(sortRows([failed, fine]).map((row) => row.status)).toEqual(['ready', 'unknown'])
+  })
 })
 
 describe('sortRows', () => {
