@@ -92,6 +92,7 @@ const contextFor = (options: {
       // A full read always follows a successful resume, into the same folder
       // the live handle just opened — the fixed KNOWN_CWD in every test here.
       read: async () => fakeTranscript(KNOWN_CWD),
+      noteReconciled: () => {},
       cannotReopen: (_runtime: unknown, error: unknown) => `Antigravity could not reopen this conversation: ${(error as Error).message}`,
     },
   } as unknown as HostContext
