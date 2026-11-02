@@ -9,6 +9,9 @@ import {
   type UsageLane,
   type UsagePreference,
   type UsageReport,
+  type UsageStanding,
+  type UsageStandingStatus,
+  usageStandingOf,
 } from '@harnessdesk/protocol'
 
 import { burn, MARGIN_BAND, type BurnView } from './burn'
@@ -278,7 +281,8 @@ export const describeLane = (
     shortCountdown:
       untilReset === null ? (lane.resetText ?? null) : formatCountdownShort(untilReset),
     resetCountdown: untilReset === null ? (lane.resetText ?? '—') : formatResetCountdown(untilReset),
-    resetClock: formatReset(lane.resetsAt, now),
+    // A reset already behind us is no time to wait for: a cached read past it would say "out until 10:00 AM" at noon.
+    resetClock: untilReset !== null && untilReset > 0 ? formatReset(lane.resetsAt, now) : null,
     known,
     spent: remaining !== null && remaining <= 0,
     burn: burn(lane, now),
@@ -517,21 +521,35 @@ export const describeReport = (
 }
 
 /**
- * Cards come in the order of what is about to bite: spent first, then least
- * left, then the ones with nothing to report. An agent that reports no lanes
- * still sorts by whether it has spend to show, so an empty card never
- * outranks a real one.
+ * Cards come in the order of what is about to bite, read on each account's
+ * standing (`usageStandingOf`) so the order never disagrees with the word on
+ * the card: in debt, then out, then running out before the reset, then low,
+ * then ready, and last an account whose read failed — its figures are a
+ * cached guess, so they never sort it ahead of one that answered. Within a
+ * standing, least left first; an agent with no figure to sort on still sorts
+ * by whether it has spend to show, so an empty card never outranks a real one.
  */
-export const byUrgency = (reports: readonly UsageReport[]): readonly UsageReport[] =>
-  [...reports].sort((a, b) => rank(a) - rank(b))
+export const byUrgency = (reports: readonly UsageReport[], now: number): readonly UsageReport[] => {
+  const ranks = new Map(reports.map((report) => [report, rank(report, now)] as const))
+  return [...reports].sort((a, b) => ranks.get(a)! - ranks.get(b)!)
+}
 
-const rank = (report: UsageReport): number => {
-  if (isBlocked(report)) return -1
-  const lane = bindingLane(report.lanes)
-  const remaining = lane ? remainingOf(lane) : null
-  if (remaining !== null) return remaining
-  // No measurable lane: after every metered account, but before an empty one.
-  return report.spend ? 1_000 : 1_001
+const STANDING_ORDER: Readonly<Record<UsageStandingStatus, number>> = {
+  overdrawn: 0,
+  out: 1,
+  short: 2,
+  low: 3,
+  ready: 4,
+  unknown: 5,
+}
+
+const rank = (report: UsageReport, now: number): number => {
+  const standing = usageStandingOf(report, now)
+  // An unknown standing's `left` is the cached figure: never sort on it.
+  const left = standing.status === 'unknown' ? null : standing.left
+  // No measurable lane: after every metered account in its standing, but before an empty one.
+  const within = left ?? (report.spend ? 1_000 : 1_001)
+  return STANDING_ORDER[standing.status] * 10_000 + within
 }
 
 /** A prepaid balance a card can actually print: every figure in it nameable. */
@@ -583,20 +601,80 @@ export const balanceOf = (credits: UsageReport['credits']): Balance | null => {
  * there, disagreeing on `report.error`, `view.gated`, a `severity: 'critical'`
  * lane, and exactly this "healthy Session, low Weekly" case.
  */
-export const reportNeedsAttention = (
-  report: UsageReport,
-  now: number,
-  preference?: UsagePreference,
-): boolean => {
-  if (report.error) return true
-  const view = describeReport(report, { now, maxLanes: Number.POSITIVE_INFINITY, preference })
-  if (view.blocked || view.gated) return true
-  if (view.pace && !view.pace.willLastToReset) return true
-  const accountWide = [view.hero, ...view.lanes.filter((lane) => lane.scope === null)]
-  if (accountWide.some((lane) => lane !== null && lane.tone !== 'good')) return true
-  if (view.hero) return false
-  const balance = balanceOf(report.credits)
-  return balance !== null && balance.remaining <= 0
+export const reportNeedsAttention = (report: UsageReport, now: number): boolean =>
+  usageStandingOf(report, now).status !== 'ready'
+
+/*
+ * Where an account stands, in one word every surface shares — decided in
+ * `@harnessdesk/protocol` (`usageStandingOf`), because the host sends the same
+ * word to the phone. Re-exported here so every surface keeps asking this module.
+ */
+export { usageStandingOf, type UsageStanding, type UsageStandingStatus }
+
+export const STANDING_LABEL: Readonly<Record<UsageStandingStatus, string>> = {
+  ready: 'Ready',
+  low: 'Low',
+  short: 'Short',
+  out: 'Out',
+  overdrawn: 'Overdrawn',
+  unknown: 'Unknown',
+}
+
+export const STANDING_TONE: Readonly<Record<UsageStandingStatus, 'success' | 'warning' | 'danger' | 'neutral'>> = {
+  ready: 'success',
+  low: 'warning',
+  short: 'warning',
+  out: 'danger',
+  overdrawn: 'danger',
+  unknown: 'neutral',
+}
+
+/**
+ * A moment to plan around, in the words a person would use: "2:47 PM" today,
+ * "Thu 9:00 AM" this week, "Nov 14" past that — a weekday a month out names
+ * four different days.
+ */
+export const formatWhen = (at: number, now: number): string => {
+  const date = new Date(at)
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  if (new Date(now).toDateString() === date.toDateString()) return time
+  if (at - now < 6 * DAY) return `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/**
+ * The standing as a time, never as a rate: "Runs out ~2:47 PM, before its
+ * 4:43 PM reset", "Lasts to its 3:53 PM reset", "Back Thu 9:00 AM". "Over
+ * pace" and "under pace" are gone — the same words meant opposite things on
+ * the badge and in the burn-down's own vocabulary, and a time needs no legend.
+ *
+ * Null when there is nothing true to say: no reset, or a window too new to
+ * forecast and nothing spent.
+ */
+export const standingSentence = (standing: UsageStanding, now: number): string | null => {
+  const resetsAt = standing.lane?.resetsAt ?? null
+  switch (standing.status) {
+    case 'out':
+      // Past its reset the cached report is still Out until the next read; "Back 10:00 AM" at noon would be wrong.
+      return standing.backAt !== null && standing.backAt > now ? `Back ${formatWhen(standing.backAt, now)}` : null
+    case 'short':
+      return standing.runsOutAt === null
+        ? null
+        : resetsAt !== null
+          ? `Runs out ~${formatWhen(standing.runsOutAt, now)}, before its ${formatWhen(resetsAt, now)} reset`
+          : `Runs out ~${formatWhen(standing.runsOutAt, now)}`
+    case 'ready':
+    case 'low':
+      return resetsAt !== null && resetsAt > now && standing.lane !== null && burn(standing.lane, now)?.forecast
+        ? `Lasts to its ${formatWhen(resetsAt, now)} reset`
+        : resetsAt !== null && resetsAt > now
+          ? `Resets ${formatWhen(resetsAt, now)}`
+          : null
+    case 'overdrawn':
+      return 'Overdrawn — top up to use it'
+    case 'unknown':
+      return null
+  }
 }
 
 export interface RunwaySummary {
@@ -625,8 +703,8 @@ const isBalanceOnly = (report: UsageReport): boolean => bindingLane(report.lanes
  * word a single spent account already gets, said for a group (review round 4:
  * this used to say "quota" even when every exhausted account was a balance).
  */
-const exhaustedWord = (reports: readonly UsageReport[]): string => {
-  const credits = reports.filter(isBalanceOnly).length
+const exhaustedWord = (reports: readonly UsageReport[], onCredits: (report: UsageReport) => boolean): string => {
+  const credits = reports.filter(onCredits).length
   if (credits === 0) return 'quota'
   if (credits === reports.length) return 'credits'
   return 'credits or quota'
@@ -654,25 +732,28 @@ export const runway = (
   const borrowed = reports.filter(
     (report) => report.lanes.length === 0 && (report.unverified?.lanes.length ?? 0) > 0,
   )
-  const exhausted = metered.filter(isBlocked)
-  const low = metered.filter((report) => {
-    if (exhausted.includes(report)) return false
-    const lane = bindingLane(report.lanes)
-    const remaining = lane ? remainingOf(lane) : null
-    return remaining !== null && remaining < LOW_AT
-  })
+  // Sorted by the one standing every card and the phone say, so the line above them never disagrees with them.
+  const standings = new Map(metered.map((report) => [report, usageStandingOf(report, now)] as const))
+  const statusOf = (report: UsageReport): UsageStandingStatus | undefined => standings.get(report)?.status
+  const exhausted = metered.filter((report) => statusOf(report) === 'out' || statusOf(report) === 'overdrawn')
+  const low = metered.filter((report) => statusOf(report) === 'low' || statusOf(report) === 'short')
+  // Out of credits when the balance decided — no window at all, or the source said the credits are what it hit.
+  const onCredits = (report: UsageReport): boolean =>
+    isBalanceOnly(report) || (hasBalance(report) && standings.get(report)?.lane === null)
 
   const returns = exhausted
-    .map((report) => bindingLane(report.lanes)?.resetsAt ?? null)
+    .map((report) => standings.get(report)?.backAt ?? null)
     .filter((at): at is number => at !== null && at > now)
   const nextReturn = returns.length > 0 ? Math.min(...returns) : null
 
   const only = exhausted[0]
   const headline =
     exhausted.length === 1 && only
-      ? `${nameFor(only)} is out of ${isBalanceOnly(only) ? 'credits' : 'quota'}.`
+      ? statusOf(only) === 'overdrawn'
+        ? `${nameFor(only)} is overdrawn.`
+        : `${nameFor(only)} is out of ${onCredits(only) ? 'credits' : 'quota'}.`
       : exhausted.length > 1
-        ? `${exhausted.length} runtimes are out of ${exhaustedWord(exhausted)}.`
+        ? `${exhausted.length} runtimes are out of ${exhaustedWord(exhausted, onCredits)}.`
         : low.length === 1
           ? `${nameFor(low[0] as UsageReport)} is running low.`
           : low.length > 1
@@ -707,6 +788,76 @@ export const runway = (
     headline,
     detail: parts.join(' · '),
   }
+}
+
+/**
+ * "Right now": the one sentence above the cards that answers which agent to
+ * start on, before anyone reads a card. "Start on Claude Code — 78% left, and
+ * it lasts to its 3:53 PM reset. Codex is out until 4:50 PM."
+ *
+ * Read on each account's own standing (`usageStandingOf`), so it can never
+ * recommend an account a card calls Out. Null when there is no choice to make
+ * — fewer than two measured accounts — so the page falls back to `runway`'s
+ * headline rather than telling someone with one agent to start on it.
+ */
+export const rightNow = (
+  reports: readonly UsageReport[],
+  nameFor: (report: UsageReport) => string,
+  now: number,
+): string | null => {
+  const read = reports
+    .filter((report) => bindingLane(report.lanes) !== null)
+    .map((report) => ({ report, standing: usageStandingOf(report, now) }))
+  if (read.length < 2) return null
+  // A funded balance with no window is room this comparison cannot weigh, so it is no comparison either.
+  const funded = (report: UsageReport): boolean =>
+    bindingLane(report.lanes) === null && !report.error && report.credits !== null &&
+    (report.credits.unlimited === true || (typeof report.credits.remaining === 'number' && report.credits.remaining > 0))
+  if (reports.some(funded)) return null
+  // Nor can it weigh an account whose read failed, windows or none: it may have more room than any it names.
+  if (reports.some((report) => report.error)) return null
+  // A window with no reading, or an account whose read failed, may have more room than any measured one, so there is
+  // no comparison to make.
+  if (read.some(({ standing }) => standing.status === 'unknown' || (standing.left === null && (standing.status === 'ready' || standing.status === 'low' || standing.status === 'short')))) return null
+  // By the name said, not the runtime: two runtimes registered under one name are as ambiguous as one runtime's two accounts.
+  const sameName = (report: UsageReport): number => reports.filter((other) => nameFor(other) === nameFor(report)).length
+  const label = (report: UsageReport): string =>
+    sameName(report) > 1 && report.account ? `${nameFor(report)} (${report.account})` : nameFor(report)
+  // Two of one name with no account to tell them apart: "Start on Agent" would not say which, so say nothing.
+  const ambiguous = (report: UsageReport | undefined): boolean =>
+    report !== undefined && sameName(report) > 1 && !report.account
+
+  const ORDER: Partial<Record<UsageStandingStatus, number>> = { ready: 0, low: 1, short: 2 }
+  const usable = read
+    .filter(({ standing }) => ORDER[standing.status] !== undefined && standing.left !== null)
+    .sort((a, b) => (ORDER[a.standing.status] ?? 9) - (ORDER[b.standing.status] ?? 9) || (b.standing.left ?? 0) - (a.standing.left ?? 0))
+  const out = read
+    .filter(({ standing }) => standing.status === 'out' && standing.backAt !== null && standing.backAt > now)
+    .sort((a, b) => (a.standing.backAt ?? 0) - (b.standing.backAt ?? 0))
+
+  const best = usable[0]
+  if (!best) {
+    // "Nothing has room" and "back first" are claims about every account: an unknown reading may have room, and an
+    // Out with no return time may come back sooner. Without that certainty, the page's own summary says it.
+    // Every report counts here, not only the measured ones: a funded balance is room even with no window to read.
+    // A debt has no return time to compare either — a top-up can restore it before any reset.
+    const settled = reports.every((report) => {
+      const standing = usageStandingOf(report, now)
+      return standing.status === 'out' && standing.backAt !== null && standing.backAt > now
+    })
+    const first = settled ? out[0] : undefined
+    return first && !ambiguous(first.report)
+      ? `Nothing has room right now — ${label(first.report)} is back first, at ${formatWhen(first.standing.backAt ?? now, now)}.`
+      : null
+  }
+  if (ambiguous(best.report)) return null
+  const sentence = standingSentence(best.standing, now)
+  const tail = sentence ? `, and it ${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}` : ''
+  const lead = `Start on ${label(best.report)} — ${best.standing.left}% left${tail}.`
+  const firstOut = out[0]
+  if (!firstOut || ambiguous(firstOut.report)) return lead
+  const more = out.length > 1 ? ` (and ${out.length - 1} more)` : ''
+  return `${lead} ${label(firstOut.report)}${more} is out until ${formatWhen(firstOut.standing.backAt ?? now, now)}.`
 }
 
 /** "$2.92", "$373", "$4,639" — cents only where they carry information. */

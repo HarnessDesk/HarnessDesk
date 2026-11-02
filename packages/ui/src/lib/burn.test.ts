@@ -133,9 +133,9 @@ describe('burn', () => {
 describe('burnWord', () => {
   it('names every status', () => {
     expect(burnWord('fresh')).toBe('full')
-    expect(burnWord('conserving')).toBe('conserving')
+    expect(burnWord('conserving')).toBe('to spare')
     expect(burnWord('onPace')).toBe('on pace')
-    expect(burnWord('overPace')).toBe('over pace')
+    expect(burnWord('overPace')).toBe('overspending')
     expect(burnWord('spent')).toBe('spent')
   })
 })

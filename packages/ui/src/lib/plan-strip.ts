@@ -3,7 +3,7 @@ import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport 
 import type { Tone } from './limits'
 import { prefsForUsage, shownAccountLabel, type AccountPrefsMap } from './accounts'
 import { READINESS_LABEL, readinessOf } from './readiness'
-import { describeReport, toneForRemaining, workingAccount, type LaneView, type UsagePreference } from './usage'
+import { describeReport, formatWhen, toneForRemaining, usageStandingOf, workingAccount, type LaneView, type UsagePreference } from './usage'
 
 /**
  * What the strip in the conversation header draws, whatever the size of the
@@ -53,6 +53,12 @@ export interface StripMeter {
   /** Spent, or under `LOW`: the figure is worth the pixels at any width. */
   readonly low: boolean
   readonly out: boolean
+  /** The last read failed: the cached lane is drawn, but no figure, out state or Back time is said from it. */
+  readonly unread: boolean
+  /** Its balance, not a window, stopped it: a top-up brings it back, not a reset. */
+  readonly onCredits: boolean
+  /** When a spent account is back: the last of the windows that stopped it, not the headline's own reset. */
+  readonly backAt: number | null
   /** "Codex — Weekly, 12% left" */
   readonly title: string
 }
@@ -75,6 +81,8 @@ export interface StripRest {
   /** How many agents it stands for — the anchor's is never one of them. */
   readonly count: number
   readonly out: number
+  /** Of `out`, the ones a spent or overdrawn balance stopped rather than a window. */
+  readonly outOfCredits: number
   readonly low: number
   readonly signIn: number
   /** Least left among the ones it stands for that report a figure. */
@@ -128,7 +136,16 @@ const meterFor = (
   // No lane is no bar. A permanent row of dashes teaches people to stop
   // looking, and the screen is where "why is this one missing" is answered.
   if (!lane || !lane.known || lane.remainingPercent === null) return null
-  const spent = lane.remainingPercent <= 0
+  // A failed read keeps its last lanes, but none of them is current: the card, Plans and the phone say Unknown, so
+  // the strip neither counts nor promotes it as out, and says no figure or Back time from the cached lane.
+  const standing = usageStandingOf(report, now)
+  const unread = standing.status === 'unknown'
+  // The balance decided (the source hit its credits): the healthy window beside it is no figure to show.
+  const onCredits = !unread && standing.lane === null && (standing.status === 'out' || standing.status === 'overdrawn')
+  const spent = !unread && !onCredits && lane.remainingPercent <= 0
+  // An out account is back when every window that stopped it has reset, which
+  // the standing knows; the headline's own reset can come hours earlier.
+  const backAt = standing.status === 'out' ? standing.backAt : lane.resetsAt
   const name = info.presentation.name
   return {
     runtime: report.runtime,
@@ -143,13 +160,22 @@ const meterFor = (
     // has no room to explain a prediction, and an unexplained amber at 71%
     // left is noise — so the strip colours what *is*, and pace stays on the
     // panel and the card, where a sentence sits beside it.
-    tone: view.gated || view.blocked ? 'bad' : lane.tone,
+    tone: unread ? 'warn' : onCredits || view.gated || view.blocked ? 'bad' : lane.tone,
     // Out of quota is the one state where the percentage is not the useful
-    // number. When it comes back is.
-    figure: spent ? (lane.shortCountdown ?? 'out') : `${lane.remainingPercent}%`,
-    low: spent || lane.remainingPercent < LOW,
-    out: view.blocked,
-    title: `${name} — ${lane.title}, ${lane.remainingPercent}% left`,
+    // number. When it comes back is — as a time, which stays true without a
+    // refresh, where "3h" was already wrong by the time it was read.
+    figure: unread ? '—' : onCredits ? (standing.status === 'overdrawn' ? 'overdrawn' : 'no credits') : spent ? (backAt !== null && backAt > now ? `back ${formatWhen(backAt, now)}` : 'out') : `${lane.remainingPercent}%`,
+    // Low as the standing says it, too: a healthy headline can sit in front of a Weekly that is the low one.
+    low: !unread && (onCredits || spent || lane.remainingPercent < LOW || standing.status === 'low'),
+    out: !unread && (onCredits || view.blocked),
+    unread,
+    onCredits,
+    backAt: spent ? backAt : null,
+    title: unread
+      ? `${name} — ${lane.title}, no current reading`
+      : onCredits
+        ? `${name} — ${standing.status === 'overdrawn' ? 'overdrawn' : 'out of credits'}, until it is topped up`
+        : `${name} — ${lane.title}, ${lane.remainingPercent}% left`,
   }
 }
 
@@ -172,7 +198,8 @@ const named = (meter: StripMeter, names: ReadonlyMap<string, number>, input: Str
   return {
     ...meter,
     account,
-    title: `${meter.name} · ${account} — ${meter.lane.title}, ${meter.lane.remainingPercent}% left`,
+    // The account goes beside the name; what the title says after it — a figure, Unknown, a debt — stays.
+    title: `${meter.name} · ${account}${meter.title.slice(meter.name.length)}`,
   }
 }
 
@@ -201,9 +228,12 @@ const entryFor = (info: RuntimeInfo, input: StripInput): Entry => {
   const meters = reports
     .map((report) => meterFor(info, report, input.now, preferenceFor(report)))
     .filter((meter): meter is StripMeter => meter !== null)
-  // The account that decides, not the first one that happened to arrive.
-  const decided = workingAccount(reports, preferenceFor)
-  const meter = meters.find((entry) => entry.report === decided) ?? meters[0] ?? null
+  // The account that decides, not the first one that happened to arrive — and one whose read failed only when no
+  // account has a current reading: a cached 90% is not a reason to stand in front of a live 40%.
+  const live = reports.filter((report) => usageStandingOf(report, input.now).status !== 'unknown')
+  const decided = workingAccount(live.length > 0 ? live : reports, preferenceFor)
+  const meter =
+    meters.find((entry) => entry.report === decided) ?? meters.find((entry) => !entry.unread) ?? meters[0] ?? null
   return {
     info,
     meter,
@@ -226,7 +256,8 @@ const restFigure = (out: number, leastLeft: number | null, count: number): strin
 const restTitle = (rest: Omit<StripRest, 'title' | 'figure' | 'tone'>): string => {
   const head = `${rest.count} other ${rest.count === 1 ? 'runtime' : 'runtimes'}`
   const parts: string[] = []
-  if (rest.out > 0) parts.push(`${rest.out} out of quota`)
+  if (rest.out > rest.outOfCredits) parts.push(`${rest.out - rest.outOfCredits} out of quota`)
+  if (rest.outOfCredits > 0) parts.push(`${rest.outOfCredits} out of credits`)
   if (rest.low > 0) parts.push(`${rest.low} running low`)
   if (rest.leastLeft !== null) parts.push(`least left ${rest.leastLeft}%`)
   if (rest.signIn > 0) parts.push(`${rest.signIn} needs sign-in`)
@@ -274,14 +305,16 @@ export const describeStrip = (input: StripInput): StripView => {
     .filter((meter): meter is StripMeter => meter !== null)
   const promoted = decided.filter((meter) => meter.out).slice(0, MAX_PROMOTED)
 
+  // A failed read's cached percentage is no figure: the least left is said only from current readings.
   const figures = decided
-    .filter((meter) => !meter.out)
+    .filter((meter) => !meter.out && !meter.unread)
     .map((meter) => meter.lane.remainingPercent)
     .filter((left): left is number => left !== null)
   const out = decided.filter((meter) => meter.out).length
   const counted = {
     count: others.length,
     out,
+    outOfCredits: decided.filter((meter) => meter.out && meter.onCredits).length,
     low: decided.filter((meter) => meter.low && !meter.out).length,
     signIn: others.filter((entry) => entry.needsSignIn).length,
     leastLeft: figures.length > 0 ? Math.min(...figures) : null,

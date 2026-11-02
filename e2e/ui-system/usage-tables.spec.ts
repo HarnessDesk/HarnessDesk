@@ -116,7 +116,8 @@ for (const theme of ['light', 'dark'] as const) {
     await page.evaluate(async () => { await document.fonts.ready })
     const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
     const card = dashboard.locator('[data-slot="card"]').filter({ has: page.locator('[data-slot="usage-meter-row"]') }).first()
-    await expect(card.locator('[data-slot="usage-meter-row"]')).toHaveCount(3)
+    // Three lanes, two rows: the headline is the 5 h window, and the rows say only the windows it does not.
+    await expect(card.locator('[data-slot="usage-meter-row"]')).toHaveCount(2)
     await alignedMeters(card.locator('[data-slot="usage-meter-row"]'))
     await page.evaluate(async () => {
       const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)

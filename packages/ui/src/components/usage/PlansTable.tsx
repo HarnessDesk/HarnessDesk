@@ -184,6 +184,7 @@ const shapeWords = (row: PlanRow): string => ({
 
 const LeftCell = ({ row, name }: { row: PlanRow; name: string }) => {
   if (row.shape === 'free' || (row.shape === 'metered' && !row.report.billing?.budget)) return <Text role="muted">No limit</Text>
+  if (row.status === 'unknown') return <Text role="meta">—</Text>
   if (row.shape === 'balance') return <DashboardPlanReading value={<Text role="value" numeric>{row.ownUnit.replace(/ balance$/, '')}</Text>}
     estimate={row.approxTurns !== '—' ? <Text role="meta" numeric>≈ {row.approxTurns.replace(/^~/, '')} turns</Text> : undefined} />
   if (row.left.percent === null) return <Text role="meta">—</Text>

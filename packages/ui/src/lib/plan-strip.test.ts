@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { runtimeId, type AccountStatus, type RuntimeInfo, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import { describeStrip, MAX_PROMOTED, type StripInput } from './plan-strip'
+import { formatWhen } from './usage'
 
 /**
  * What the header strip says, whatever the size of the roster.
@@ -85,6 +86,58 @@ describe('the anchor', () => {
     expect(view.anchor?.kind).toBe('meter')
     expect(view.anchor?.kind === 'meter' && view.anchor.meter.runtime).toBe('b')
     expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('91%')
+  })
+
+  it('says back when the last spent window resets, not the headline alone', () => {
+    // The Weekly leads and resets in an hour; the Session behind it stays spent for four.
+    const both = report('a', [
+      lane({ id: 'weekly', label: 'Weekly', usedPercent: 100, resetsAt: NOON + HOUR }),
+      lane({ id: 'session', label: 'Session', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + 4 * HOUR }),
+    ], { reached: 'weekly' })
+    const view = strip({ runtimes: six, usage: [both], sessionRuntime: runtimeId('a') })
+    const figure = view.anchor?.kind === 'meter' ? view.anchor.meter.figure : null
+    expect(figure).toBe(`back ${formatWhen(NOON + 4 * HOUR, NOON)}`)
+    // The popover title and accessible name carry the same time, not the Weekly's hour.
+    expect(view.anchor?.kind === 'meter' ? view.anchor.meter.backAt : null).toBe(NOON + 4 * HOUR)
+  })
+
+  it('marks an account low when a window behind its healthy headline is the low one', () => {
+    const behind = report('b', [
+      lane({ id: 'session', label: 'Session', usedPercent: 10, windowMinutes: 300, resetsAt: NOON + 4 * HOUR }),
+      lane({ id: 'weekly', label: 'Weekly', usedPercent: 85, windowMinutes: 10_080, resetsAt: NOON + 160 * HOUR }),
+    ])
+    const view = strip({ runtimes: six, usage: [at('a', 70), behind], sessionRuntime: runtimeId('a') })
+    expect(view.rest?.low).toBe(1)
+  })
+
+  it('says a debt beside a healthy key limit is out of credits, not quota, and shows no window figure', () => {
+    const debt = report('b', [lane({ id: 'key', label: 'Key limit', usedPercent: 20 })], {
+      credits: { remaining: -0.4, unit: 'USD' },
+      reached: 'credits',
+    })
+    const view = strip({ runtimes: six, usage: [at('a', 70), debt], sessionRuntime: runtimeId('a') })
+    expect(view.promoted.map((meter) => meter.figure)).toEqual(['overdrawn'])
+    expect(view.rest?.title).toContain('1 out of credits')
+    expect(view.rest?.title).not.toContain('out of quota')
+  })
+
+  it('neither promotes nor counts a failed read as out, though its cached lane was spent', () => {
+    const failed = spent('b', HOUR, { error: { message: 'no answer' } })
+    const view = strip({ runtimes: six, usage: [at('a', 70), failed], sessionRuntime: runtimeId('a') })
+    expect(view.promoted).toHaveLength(0)
+    expect(view.rest?.out ?? 0).toBe(0)
+    const anchored = strip({ runtimes: six, usage: [failed], sessionRuntime: runtimeId('b') })
+    const meter = anchored.anchor?.kind === 'meter' ? anchored.anchor.meter : null
+    expect(meter?.figure).toBe('—')
+    expect(meter?.out).toBe(false)
+    expect(meter?.backAt).toBeNull()
+  })
+
+  it('keeps a failed read out of the collapsed least-left figure', () => {
+    const failed = at('b', 5, { error: { message: 'no answer' } })
+    const view = strip({ runtimes: six, usage: [at('a', 70), failed, at('c', 60)], sessionRuntime: runtimeId('a') })
+    expect(view.rest?.leastLeft).toBe(60)
+    expect(view.rest?.figure).toBe('60%')
   })
 
   it('falls back to the selected agent when no conversation is open', () => {
@@ -237,7 +290,7 @@ describe('promotion', () => {
       sessionRuntime: runtimeId('a'),
     })
     expect(view.promoted.map((meter) => meter.runtime)).toEqual(['b'])
-    expect(view.promoted[0]?.figure).toBe('2h')
+    expect(view.promoted[0]?.figure).toMatch(/^back /)
     expect(view.promoted[0]?.tone).toBe('bad')
   })
 
@@ -286,7 +339,7 @@ describe('promotion', () => {
     const view = strip({ runtimes: six, usage: [spent('a', HOUR), at('b', 80)], sessionRuntime: runtimeId('a') })
     expect(view.promoted).toHaveLength(0)
     expect(view.anchor?.kind === 'meter' && view.anchor.meter.out).toBe(true)
-    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toBe('1h')
+    expect(view.anchor?.kind === 'meter' && view.anchor.meter.figure).toMatch(/^back /)
   })
 })
 
@@ -311,7 +364,7 @@ describe('two accounts, one agent', () => {
     })
     expect(view.promoted.map((meter) => meter.runtime)).toEqual(['b'])
     // The one that comes back soonest decides: when is the only question left.
-    expect(view.promoted[0]?.figure).toBe('1h')
+    expect(view.promoted[0]?.figure).toMatch(/^back /)
     expect(view.rest?.out).toBe(1)
   })
 
@@ -339,6 +392,36 @@ describe('two accounts, one agent', () => {
       ['OpenAI Codex', 'me@example.com'],
     ])
     expect(view.rest?.meters[0]?.title).toBe('OpenAI Codex · work@example.com — Weekly, 42% left')
+  })
+
+  it('anchors on the account with a current reading, not a failed one with a better cached figure', () => {
+    const view = strip({
+      runtimes: [runtime('a', 'Agent A')],
+      usage: [at('a', 90, { account: 'work', error: { message: 'no answer' } }), at('a', 40, { account: 'personal' })],
+      sessionRuntime: runtimeId('a'),
+    })
+    const meter = view.anchor?.kind === 'meter' ? view.anchor.meter : null
+    expect(meter?.account).toBe('personal')
+    expect(meter?.figure).toBe('40%')
+  })
+
+  it('keeps the Unknown and debt titles when it names the account', () => {
+    const view = strip({
+      runtimes: [runtime('codex', 'OpenAI Codex'), runtime('codex-2', 'OpenAI Codex'), runtime('c', 'Agent C')],
+      usage: [
+        at('codex', 42, { account: 'work@example.com', error: { message: 'no answer' } }),
+        report('codex-2', [lane({ id: 'key', label: 'Key limit', usedPercent: 20 })], {
+          account: 'me@example.com',
+          credits: { remaining: -0.4, unit: 'USD' },
+          reached: 'credits',
+        }),
+      ],
+      sessionRuntime: runtimeId('c'),
+    })
+    expect(view.rest?.meters.map((meter) => meter.title)).toEqual([
+      'OpenAI Codex · work@example.com — Weekly, no current reading',
+      'OpenAI Codex · me@example.com — overdrawn, until it is topped up',
+    ])
   })
 
   it('names a shared agent\'s accounts by name only while addresses are hidden', () => {

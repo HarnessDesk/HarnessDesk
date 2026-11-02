@@ -1203,7 +1203,7 @@ const PaceBadge = ({
   word: string
 }) => {
   const points = margin != null && Number.isFinite(margin) ? Math.round(margin) : null
-  const position = points === null ? word : points === 0 ? 'on pace' : points > 0 ? 'over pace' : 'under pace'
+  const position = points === null ? word : points === 0 ? 'on pace' : points > 0 ? 'to spare' : 'overspending'
   const glyph = points === null ? GLYPH[status] ?? '●' : points === 0 ? '●' : points > 0 ? '▲' : '▼'
   return (
     <span

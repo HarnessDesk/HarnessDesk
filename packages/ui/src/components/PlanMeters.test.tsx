@@ -151,8 +151,24 @@ it('shows the shortest default lane, unless a longer one is spent', () => {
 it('answers with the countdown once there is nothing left', () => {
   mount({ runtimes: [runtime('a', 'Agent A')], usage: [spent('a', 2 * HOUR)], ...conversationWith('a') })
   const bar = bars()[0]
-  expect(bar?.textContent).toBe('2h')
+  expect(bar?.textContent).toMatch(/^back (\w{3} )?\d{1,2}:\d{2}/)
   expect(bar?.getAttribute('data-tone')).toBe('danger')
+})
+
+it('draws no window bar beside a debt the balance decided', () => {
+  mount({
+    runtimes: [runtime('a', 'Agent A')],
+    usage: [
+      report('a', [{ id: 'key', label: 'Key limit', usedPercent: 20, windowMinutes: 10_080, resetsAt: null }], {
+        credits: { remaining: -0.4, unit: 'USD' },
+        reached: 'credits',
+      } as Partial<UsageReport>),
+    ],
+    ...conversationWith('a'),
+  })
+  const bar = bars()[0]
+  expect(bar?.textContent).toBe('overdrawn')
+  expect(bar?.querySelector('[role="progressbar"]')).toBeNull()
 })
 
 it('colours what is left, not what pace predicts', () => {
@@ -218,7 +234,7 @@ it('keeps other agents neutral when they do not block this conversation', () => 
 
 it('gives an out-of-quota agent a chip, because the token cannot say who', () => {
   mount({ runtimes: six, usage: [at('a', 70), spent('b', 2 * HOUR)], ...conversationWith('a') })
-  expect(bars().map((bar) => bar.textContent)).toEqual(['70%', '2h', '1 out'])
+  expect(bars().map((bar) => bar.textContent)).toEqual(['70%', expect.stringMatching(/^back /), '1 out'])
   expect(bars()[1]?.hasAttribute('data-promoted')).toBe(true)
   // The chip is the one member of the strip that is news rather than ambience,
   // so it is the one the narrow header drops — the token already counts it.
@@ -333,7 +349,8 @@ it('includes a promoted chip countdown and agent in its direct accessible name',
   act(() => root.render(<StoreProvider store={storeOf(snapshot)}><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></StoreProvider>))
   const promoted = container.querySelector('[data-promoted]')!
   const name = promoted.closest('button')!.getAttribute('aria-label')!
-  expect(name).toContain(`resets in ${promoted.textContent}`)
+  expect(name).toContain(' · back ')
+  expect(promoted.textContent).toMatch(/^back /)
   expect(name).toContain('Agent B')
   expect(name).toContain('out of quota')
 })

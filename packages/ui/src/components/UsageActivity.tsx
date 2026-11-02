@@ -260,8 +260,8 @@ export const UsageActivity = ({
             {id:'weekday',label:'Busiest day of the week',value:busiestHourWeekday === null ? '—' : WEEKDAY_NAMES[busiestHourWeekday]},
           ] : [
             {id:'total',label:view === 'year' ? 'Last 12 months' : 'Last 13 weeks',value:totalLabel,caption:somePartiallyUnpriced ? 'some unpriced' : undefined},
-            {id:'active',label:'Active days',value:activeCount,caption:`${scannedCount} days scanned`},
-            {id:'streak',label:`Streak · best ${streaks.best}`,value:`${streaks.current} days`},
+            {id:'active',label:'Active days',value:activeCount,caption:`${scannedCount} ${scannedCount === 1 ? 'day' : 'days'} scanned`},
+            {id:'streak',label:`Streak · best ${streaks.best}`,value:`${streaks.current} ${streaks.current === 1 ? 'day' : 'days'}`},
             {id:'busiest',label:busiest ? dayLabelLong(busiest.day) : 'Busiest day',value:busiest ? dayMetric === 'cost' && isUnpricedCost(busiest) ? 'unpriced' : format(dayMetric === 'tokens' ? busiest.tokens : busiest.cost) : '—'},
             ...(view === 'year' ? [{id:'leader',label:'Did the most',value:leader ? nameOf(leader) : '—'}] : []),
           ]} />

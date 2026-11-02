@@ -1,3 +1,5 @@
+import type { UsageStandingStatus } from './usage.js'
+
 /** What a paired phone may do. `answer` is the verb that settles a decision for the person. */
 export type PhoneTier = 'read' | 'run' | 'answer'
 
@@ -225,14 +227,55 @@ export interface PhoneWorkDay {
   readonly isToday: boolean
 }
 
+/** One window of an allowance, as the phone lists it under the headline. */
+export interface PhoneWorkLane {
+  readonly label: string
+  /** The model or feature the window belongs to; left out for a window the whole account shares. */
+  readonly scope?: string
+  /** 0–1 left, clamped; left out when the source gave no figure. */
+  readonly left?: number
+  /** Epoch milliseconds, so the phone counts down to a time rather than reading a string frozen when it was sent. */
+  readonly resetsAt?: number
+}
+
 export interface PhoneWorkAllowance {
+  /** Unique per row: an agent signed in twice sends two ids. */
   readonly id: string
   readonly name: string
   /** 0–1 of the short window used and not clamped; left out when the agent has no such window. */
   readonly used?: number
+  /** Kept for phones that read only this; a newer phone counts down to `resetsAt`. */
   readonly resetsIn?: string
   readonly weekUsed?: number
+  /** The standing in one word, as the desk's Plans table says it. */
   readonly status?: string
+  /**
+   * What the desk decided about this account, from the same `usageStandingOf` its own screens read, so the phone
+   * and the desk never disagree. Left out by a desk older than this field.
+   */
+  readonly standing?: UsageStandingStatus
+  /** 0–1 left of the window that decides the standing, clamped. */
+  readonly left?: number
+  /** When the window that decides the standing refills, in epoch milliseconds. */
+  readonly resetsAt?: number
+  /** When a spent account is back. */
+  readonly backAt?: number
+  /** When the current rate empties the deciding window, set only while that lands before its reset. */
+  readonly runsOutAt?: number
+  /** A model or feature that is spent while the account itself still works. */
+  readonly scopedOut?: { readonly scope: string; readonly backAt?: number }
+  /** Every window under the headline, in the source's order. */
+  readonly lanes?: readonly PhoneWorkLane[]
+  /** A prepaid balance, negative when it is overdrawn. */
+  readonly balance?: { readonly amount: number; readonly unit: string }
+  /** The plan's own name ("Max 20×"), when the source says. */
+  readonly plan?: string
+  /** When the desk read these figures, in epoch milliseconds. */
+  readonly readAt?: number
+  /** True once the reading is older than its source promises to stay right. */
+  readonly stale?: boolean
+  /** The source's own error, scrubbed, when the last reading failed; the figures are then the last good ones. */
+  readonly problem?: string
   readonly models: readonly string[]
   /** Never an account: the phone shows none, so the desk sends none. */
   readonly running: readonly string[]
