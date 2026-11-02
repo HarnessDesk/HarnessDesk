@@ -813,9 +813,10 @@ export const rightNow = (
     // "Nothing has room" and "back first" are claims about every account: an unknown reading may have room, and an
     // Out with no return time may come back sooner. Without that certainty, the page's own summary says it.
     // Every report counts here, not only the measured ones: a funded balance is room even with no window to read.
+    // A debt has no return time to compare either — a top-up can restore it before any reset.
     const settled = reports.every((report) => {
       const standing = usageStandingOf(report, now)
-      return standing.status === 'overdrawn' || (standing.status === 'out' && standing.backAt !== null && standing.backAt > now)
+      return standing.status === 'out' && standing.backAt !== null && standing.backAt > now
     })
     const first = settled ? out[0] : undefined
     return first && !ambiguous(first.report)

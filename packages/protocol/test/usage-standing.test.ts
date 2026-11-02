@@ -175,3 +175,28 @@ test('a debt beside a healthy key limit is overdrawn when the source says the cr
   assert.equal(standing.status, 'overdrawn')
   assert.equal(standing.backAt, null)
 })
+
+test('the scoped model the source reached is the one named out, ahead of an earlier spent one', () => {
+  const standing = usageStandingOf(
+    report({
+      lanes: [
+        lane(),
+        lane({ id: 'sonnet', label: 'Weekly', scope: 'Sonnet', usedPercent: 100, windowMinutes: 10_080 }),
+        lane({ id: 'opus', label: 'Weekly', scope: 'Opus', usedPercent: 100, windowMinutes: 10_080 }),
+      ],
+      reached: 'opus',
+    }),
+    NOW,
+  )
+  assert.equal(standing.status, 'ready')
+  assert.equal(standing.scopedOut?.id, 'opus')
+})
+
+test('a standing the balance decided carries no lane figure or reset beside it', () => {
+  for (const remaining of [-0.4, 0]) {
+    const standing = usageStandingOf(report({ credits: { remaining, unit: 'USD' }, reached: 'credits' }), NOW)
+    assert.equal(standing.status, remaining < 0 ? 'overdrawn' : 'out')
+    assert.equal(standing.lane, null)
+    assert.equal(standing.left, null)
+  }
+})

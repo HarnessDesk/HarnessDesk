@@ -953,6 +953,10 @@ hard way somewhere and is cheaper to design out than to fix:
   Unknown. The card's chip, the Plans table, the needs-attention count and the
   phone all read it, so an account cannot be Out in one place and Ready in
   another. An overdrawn balance is `$2.15 overdrawn`, never `−$2.15 left`.
+  A balance decides when there is no plan window, or when the source says
+  the credits are what it hit; then no window's figure or reset is said
+  beside it, and nothing claims an account is "back first" while one is
+  overdrawn, since a top-up can beat any reset.
   A failed read is Unknown before anything else, even with a cached balance
   or a spent lane behind it. A pinned lane does not change it: the pin picks
   the card's headline, and the host, which decides the word for the phone,

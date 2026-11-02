@@ -675,9 +675,10 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
   const lane = bindingLane(report.lanes)
   const left = lane ? remainingOf(lane) : null
   const reached = reachedLaneOf(report)
+  // The model the source says it hit first, then any other spent one: the card names the reached lane too.
   const scopedOut =
-    report.lanes.find((each) => each.scope && each.placeholder !== true && remainingOf(each) === 0) ??
-    (reached?.scope ? reached : null)
+    (reached?.scope ? reached : null) ??
+    report.lanes.find((each) => each.scope && each.placeholder !== true && remainingOf(each) === 0)
   const base = { lane, left: left === null ? null : Math.round(left), scopedOut: scopedOut ?? null }
 
   if (report.error) return { ...base, status: 'unknown', runsOutAt: null, backAt: null }
@@ -692,8 +693,10 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
   const measured = lane !== null && left !== null
   const creditsReached = report.reached === 'credits' && reached === null
   if ((!measured || creditsReached) && balance !== null && !credits?.unlimited) {
-    if (balance < 0) return { ...base, scopedOut: null, status: 'overdrawn', runsOutAt: null, backAt: null }
-    if (balance === 0) return { ...base, scopedOut: null, status: 'out', runsOutAt: null, backAt: null }
+    // The balance decided, not a window: no lane's figure or reset belongs beside it.
+    const onBalance = { lane: null, left: null, scopedOut: null, runsOutAt: null, backAt: null }
+    if (balance < 0) return { ...onBalance, status: 'overdrawn' }
+    if (balance === 0) return { ...onBalance, status: 'out' }
   }
 
   if (isBlocked(report)) {

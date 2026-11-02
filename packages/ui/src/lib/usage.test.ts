@@ -861,6 +861,18 @@ describe('rightNow', () => {
     expect(line).toBeNull()
   })
 
+  it('makes no back-first claim while an account is overdrawn, since a top-up can beat any reset', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'key', usedPercent: 20, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })], credits: { remaining: -0.4, unit: 'USD' } as UsageReport['credits'], reached: 'credits' }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'w', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + HOUR })] }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBeNull()
+  })
+
   it('recommends nothing when two of one name have no account to tell them apart', () => {
     const line = rightNow(
       [
