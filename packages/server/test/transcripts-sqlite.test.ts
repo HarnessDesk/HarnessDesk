@@ -821,6 +821,7 @@ test('a new generation cannot replace an older generation pending body', async t
     captured.push(structuredClone(body)); return retain.call(this, body, owner)
   })
   store.record(older, { generation: 'old', authorityEpoch: 1 })
+  assert.equal(store.hasOutstandingWrite(older.runtime, older.id), true, 'a prior generation is still outstanding')
   store.record(newer, { generation: 'new', authorityEpoch: 1 })
   assert.deepEqual(store.pendingBodies(older.runtime, older.id, 'old', 1), [older])
   assert.ok(captured.some(body => isDeepSession(body, older)))

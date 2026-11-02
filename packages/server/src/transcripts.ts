@@ -352,6 +352,13 @@ export class TranscriptStore {
     return this.#generationConflicts.has(keyOf(runtime, id))
   }
 
+  /** Any owner or in-flight writer prevents treating a registry fold as a durable no-op. */
+  hasOutstandingWrite(runtime: RuntimeId, id: SessionId): boolean {
+    const key = keyOf(runtime, id)
+    return this.#pending.has(key) || this.#retryHeld.has(key) || this.#writes.has(key) || this.#settling.has(key) ||
+      this.#protectedWrites.has(key) || this.#unboundWrites.has(key) || this.#generationConflicts.has(key)
+  }
+
   hasProtectedChanges(runtime: RuntimeId, id: SessionId): boolean {
     const key = keyOf(runtime, id)
     return this.#protectedWrites.has(key) || this.#unboundWrites.has(key) || this.#retryHeld.has(key)
