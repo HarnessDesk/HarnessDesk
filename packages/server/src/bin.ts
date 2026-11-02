@@ -94,6 +94,7 @@ const phoneLink = values['phone-link'] === true || process.env['HARNESSDESK_PHON
   ? await (await import('./phone-link.js')).startPhoneLink(host, logger, {
     home: defaultStateDir(), port: Number(flag('phone-port') ?? process.env['HARNESSDESK_PHONE_PORT'] ?? 0),
     includeLoopback: values['phone-loopback'] === true || process.env['HARNESSDESK_PHONE_LOOPBACK'] === '1',
+    account: host.phoneRelayAccount(),
   })
   : null
 

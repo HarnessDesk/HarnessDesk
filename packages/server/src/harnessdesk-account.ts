@@ -4,18 +4,50 @@ import { createHash } from 'node:crypto'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import {
-  DeskAccountResponse, DeskChallengeResponse, DeskSessionResponse, DeviceId, Name, Ok,
+  CreateInviteResponse, DeskAccountResponse, DeskChallengeResponse, DeskSessionResponse, DeviceId, Name, Ok,
   PollDeskLinkResponse, RenameDeskResponse, StartDeskLinkResponse,
 } from '@harnessdesk/contract'
 import {
-  b64u, fromB64u, generateSigningIdentity, idFromPub, signingIdentityFromPkcs8,
+  b64u, fromB64u, generateSigningIdentity, idFromPub, relayDeskProofMessage, signingIdentityFromPkcs8,
   webDeskLinkProofMessage, webDeskProofMessage, type SigningIdentity,
 } from '@harnessdesk/crypto'
 import type { HarnessDeskAccountStatus } from '@harnessdesk/protocol'
 import type { CredentialCipher } from './credentials.js'
 import type { StateStore } from './state.js'
 
-interface Session { token: string; expiresAt: number }
+/** `relayUrl` is absent from sessions saved before the relay was used; such a session is renewed when the relay needs it. */
+interface Session { token: string; expiresAt: number; relayUrl?: string }
+
+/** What the phone link needs to open the desk's relay socket. The desk key itself never leaves this class. */
+export interface RelayAccess {
+  readonly url: string
+  readonly deskId: string
+  readonly token: string
+  /** Signs the relay's challenge, and nothing else, with the desk key. */
+  prove(challenge: string): Promise<string>
+}
+
+/** A one-time invite for a pairing code, so a phone away from this network can link through the account. */
+export interface PhoneInvite {
+  readonly invite: string
+  readonly api: string
+  readonly relay: string
+  /** Epoch milliseconds. */
+  readonly expiresAt: number
+}
+
+/** The relay origin an account session names, or undefined when it is not one this desk will connect to. */
+export function relayOrigin(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  let url: URL
+  try { url = new URL(value) } catch { return undefined }
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+  if (url.protocol !== 'wss:' && !(loopback && url.protocol === 'ws:')) return undefined
+  if (url.username || url.password || url.search || url.hash || url.pathname !== '/') return undefined
+  return url.origin
+}
+
+const RELAY_CHALLENGE = /^[A-Za-z0-9_-]{40,64}$/
 interface Secrets { version: 1; origin: string; key: string; pending?: Pending; session?: Session; cached?: ReturnType<typeof DeskAccountResponse.parse>; picture?: { source: string; data: string } }
 interface Pending { userCode: string; pollSecret: string; verifyUrl: string; expiresAt: number; intervalSeconds: number }
 interface Options {
@@ -60,6 +92,7 @@ export class HarnessDeskAccount {
   #closed = false
   #writes: Promise<void> = Promise.resolve()
   #mutations: Promise<unknown> = Promise.resolve()
+  readonly #listeners = new Set<(status: HarnessDeskAccountStatus) => void>()
 
   constructor(options: Options) {
     this.#options = options
@@ -79,7 +112,18 @@ export class HarnessDeskAccount {
     return { name: savedName.success ? savedName.data : hostname().slice(0, 80) || 'This desk', reachable: prefs['accountReachable'] === true }
   }
   #signedOut(error?: string): HarnessDeskAccountStatus { return { status: 'signedOut', desk: this.#desk(), phones: [], ...(error ? { error } : {}) } }
-  #emit(status: HarnessDeskAccountStatus) { this.#snapshot = status; if (!this.#closed) this.#options.changed(status) }
+  #emit(status: HarnessDeskAccountStatus) {
+    this.#snapshot = status
+    if (this.#closed) return
+    this.#options.changed(status)
+    for (const listener of this.#listeners) listener(status)
+  }
+
+  /** Status changes for the host's own use, such as the phone link starting or stopping its relay socket. */
+  onChange(listener: (status: HarnessDeskAccountStatus) => void): () => void {
+    this.#listeners.add(listener)
+    return () => { this.#listeners.delete(listener) }
+  }
   #now() { return Math.floor((this.#options.now?.() ?? Date.now()) / 1000) }
   #encrypted() {
     const cipher = this.#options.cipher
@@ -129,7 +173,9 @@ export class HarnessDeskAccount {
         if (data.version !== 1 || data.origin !== this.#base.origin || typeof data.key !== 'string') throw new Error('invalid sealed identity')
         this.#identity = await signingIdentityFromPkcs8(fromB64u(data.key))
         this.#secrets = { version: 1, origin: data.origin, key: data.key,
-          ...(data.session && typeof data.session.token === 'string' && Number.isSafeInteger(data.session.expiresAt) ? { session: data.session } : {}) }
+          ...(data.session && typeof data.session.token === 'string' && Number.isSafeInteger(data.session.expiresAt)
+            ? { session: { token: data.session.token, expiresAt: data.session.expiresAt, ...(relayOrigin(data.session.relayUrl) ? { relayUrl: relayOrigin(data.session.relayUrl)! } : {}) } }
+            : {}) }
         const pending = StartDeskLinkResponse.safeParse(data.pending)
         if (pending.success) this.#secrets.pending = pending.data
         const cached = DeskAccountResponse.safeParse(data.cached)
@@ -277,15 +323,16 @@ export class HarnessDeskAccount {
     }
     return this.#snapshot
   }) }
-  async #session(generation: number): Promise<Session | undefined> {
-    if (this.#secrets?.session && this.#secrets.session.expiresAt > this.#now() + 60) return this.#secrets.session
+  async #session(generation: number, fresh = false): Promise<Session | undefined> {
+    if (!fresh && this.#secrets?.session && this.#secrets.session.expiresAt > this.#now() + 60) return this.#secrets.session
     const key = await this.#key(); const deskId = await idFromPub(key.pub)
     const { challenge } = this.#parse(DeskChallengeResponse, await this.#request('/desk/challenge', {}))
     if (!this.#current(generation)) return
     const response = this.#parse(DeskSessionResponse, await this.#request('/desk/session', { deskPub: b64u(key.pub), challenge, sig: b64u(await key.sign(webDeskProofMessage(deskId, challenge))) }))
     if (!this.#current(generation)) return
     if (response.expiresAt <= this.#now()) throw new Error('The account session expired. Try again.')
-    const session = { token: response.deskToken, expiresAt: response.expiresAt }
+    const relayUrl = relayOrigin(response.relayUrl)
+    const session: Session = { token: response.deskToken, expiresAt: response.expiresAt, ...(relayUrl ? { relayUrl } : {}) }
     return session
   }
   async #refresh(generation: number) {
@@ -441,6 +488,46 @@ export class HarnessDeskAccount {
     await this.#options.state.setPreferences({ accountReachable: reachable })
     this.#emit({ ...this.#snapshot, desk: this.#desk() }); return this.#snapshot
   }) }
+  /**
+   * The relay socket's credentials, while this desk is signed in and Reachable from your phone is on. `fresh` renews
+   * the desk session first, which the relay link asks for after the relay refused the saved one.
+   */
+  relayAccess(fresh = false): Promise<RelayAccess> { return this.#serialize(async () => {
+    if (!this.#desk().reachable) throw new Error('Reachable from your phone is off.')
+    const generation = this.#generation
+    const session = await this.#relaySession(generation, fresh)
+    const key = await this.#key()
+    const deskId = await idFromPub(key.pub)
+    return {
+      url: session.relayUrl, deskId, token: session.token,
+      prove: async challenge => {
+        if (!this.#current(generation)) throw new Error('This desk signed out.')
+        if (!RELAY_CHALLENGE.test(challenge)) throw new Error('The relay challenge was not understood.')
+        return b64u(await key.sign(relayDeskProofMessage(deskId, challenge)))
+      },
+    }
+  }, false) }
+
+  /** A one-time invite for the next pairing code. The phone redeems it with its own account, and the code still has to be allowed. */
+  createPhoneInvite(): Promise<PhoneInvite> { return this.#serialize(async () => {
+    if (!this.#desk().reachable) throw new Error('Reachable from your phone is off.')
+    const generation = this.#generation
+    const session = await this.#relaySession(generation, false)
+    const invite = this.#parse(CreateInviteResponse, await this.#request('/invites', {}, session.token))
+    if (!this.#current(generation)) throw new Error('This desk signed out.')
+    return { invite: invite.token, api: this.#base.origin, relay: session.relayUrl, expiresAt: invite.expiresAt * 1000 }
+  }, false) }
+
+  /** A session that names a relay, saved so the account's own refresh reuses it. */
+  async #relaySession(generation: number, fresh: boolean): Promise<Session & { relayUrl: string }> {
+    if (!this.#secrets?.session || this.#snapshot.status !== 'signedIn') throw new Error('Sign in to HarnessDesk first.')
+    const session = await this.#session(generation, fresh || !this.#secrets.session.relayUrl)
+    if (!session || !this.#current(generation)) throw new Error('This desk signed out.')
+    if (!session.relayUrl) throw new Error('The account did not name a relay this desk can use.')
+    if (session !== this.#secrets.session && this.#secrets) { this.#secrets = { ...this.#secrets, session }; await this.#persist() }
+    return session as Session & { relayUrl: string }
+  }
+
   unlinkPhone(deviceId: string) { return this.#serialize(async () => {
     DeviceId.parse(deviceId)
     const { token, deskId } = await this.#authorized()

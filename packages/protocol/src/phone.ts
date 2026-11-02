@@ -3,12 +3,24 @@ import type { UsageStandingStatus } from './usage.js'
 /** What a paired phone may do. `answer` is the verb that settles a decision for the person. */
 export type PhoneTier = 'read' | 'run' | 'answer'
 
+/** How a phone reaches the desk now: on the same network, or through the account's relay. */
+export type PhoneRoute = 'nearby' | 'account'
+
+/**
+ * The desk's socket to the account relay. `connecting` covers the first few failed tries, so a Mac waking up does not
+ * flash a warning; `unreachable` is the warning. `replaced` (another copy of this desk took the room) and `refused`
+ * (the account no longer lets this desk in) stop it until the person acts.
+ */
+export type PhoneRelayState = 'off' | 'connecting' | 'connected' | 'unreachable' | 'replaced' | 'refused'
+
 export interface PhoneDeviceView {
   readonly id: string
   readonly name: string
   readonly tiers: readonly PhoneTier[]
   readonly createdAt: number
   readonly lastSeenAt: number | null
+  /** Null while the phone is not connected. */
+  readonly route: PhoneRoute | null
 }
 
 /** A phone that showed a valid pairing code and is waiting for the person at the desk. */
@@ -25,6 +37,7 @@ export interface PhoneLinkState {
   readonly deskName: string
   readonly deskId: string
   readonly port: number | null
+  readonly relay: PhoneRelayState
   readonly devices: readonly PhoneDeviceView[]
   readonly pending: readonly PhonePendingView[]
 }
@@ -35,6 +48,8 @@ export interface PhonePairing {
   /** Epoch milliseconds. */
   readonly expiresAt: number
   readonly addresses: readonly { readonly host: string; readonly port: number }[]
+  /** True when the code also carries an account invite, so a phone away from this network can pair through the relay. */
+  readonly away: boolean
 }
 
 /*

@@ -5,9 +5,10 @@ import { join } from 'node:path'
 import { CloseCode, encodePairingOffer, type PairingOffer } from '@harnessdesk/contract'
 import { b64u } from '@harnessdesk/crypto'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { PhoneEndpoint, type Enrollment, type PhonePolicy } from './endpoint.js'
+import { PhoneEndpoint, type EndpointTransport, type Enrollment, type PhonePolicy } from './endpoint.js'
 import { loadOrCreateDeskIdentity, type DeskIdentity } from './identity.js'
 import { DeviceRegistry, PHONE_TIERS, type Device, type PhoneTier } from './registry.js'
+import type { RelayAttachment } from './relay.js'
 import { EventRing } from './ring.js'
 
 export interface PhoneLinkOptions {
@@ -35,6 +36,20 @@ export interface PendingEnrollment extends Enrollment {
   readonly requestedAt: number
 }
 
+/** How a phone is reaching this desk right now: on the same network, or through the account's relay. */
+export type PhoneRoute = 'nearby' | 'account'
+
+/** What the account adds to a pairing code so a phone away from this network can still pair. */
+export interface AccountOffer {
+  readonly invite: string
+  /** The account service's origin. */
+  readonly api: string
+  /** The relay's origin. */
+  readonly relay: string
+  /** Epoch milliseconds: the invite's own expiry, which can come before the code's. */
+  readonly expiresAt: number
+}
+
 export interface PairingCode {
   readonly url: string
   readonly offer: PairingOffer
@@ -54,6 +69,7 @@ const FAILURES_PER_MINUTE = 10
 export class PhoneLinkService {
   readonly #endpoints = new Set<PhoneEndpoint>()
   readonly #sockets = new Map<PhoneEndpoint, WebSocket>()
+  readonly #routes = new Map<PhoneEndpoint, PhoneRoute>()
   readonly #pending = new Map<string, PendingEnrollment & { settle(tiers: readonly PhoneTier[] | null): void }>()
   readonly #listeners = new Set<(change: PhoneLinkChange) => void>()
   readonly #failures = new Map<string, { count: number; resetAt: number }>()
@@ -121,14 +137,49 @@ export class PhoneLinkService {
     return hosts.slice(0, 8).map(host => ({ host, port: this.port }))
   }
 
-  /** A new pairing code: single-use, short-lived, carrying the desk's public key for the phone to pin. */
-  createPairingCode(ttlSeconds = 600): PairingCode {
-    const { secret, expiresAt } = this.registry.issueOffer(ttlSeconds * 1000, this.#now())
+  /**
+   * A new pairing code: single-use, short-lived, carrying the desk's public key for the phone to pin. With an account
+   * offer it also carries a one-time invite, so a phone away from this network can pair through the relay; the phone
+   * still has to show the code's secret, and the person still answers "Allow this phone?".
+   */
+  createPairingCode(ttlSeconds = 600, account?: AccountOffer): PairingCode {
+    const issued = this.registry.issueOffer(ttlSeconds * 1000, this.#now())
+    const expiresAt = account ? Math.min(issued.expiresAt, account.expiresAt) : issued.expiresAt
     const offer: PairingOffer = {
-      v: 1, deskPub: this.identity.pub, name: this.name.slice(0, 80) || 'Desk', enroll: b64u(secret),
+      v: 1, deskPub: this.identity.pub, name: this.name.slice(0, 80) || 'Desk', enroll: b64u(issued.secret),
+      ...(account ? { invite: account.invite, api: account.api, relay: account.relay } : {}),
       lan: this.lanAddresses(), exp: Math.floor(expiresAt / 1000),
     }
     return { url: encodePairingOffer(offer), offer, expiresAt }
+  }
+
+  /** How a paired phone is connected now, or null when it is not. The same network wins over the relay. */
+  routeOf(deviceId: string): PhoneRoute | null {
+    let found: PhoneRoute | null = null
+    for (const [endpoint, route] of this.#routes) {
+      if (!endpoint.open || endpoint.device?.id !== deviceId) continue
+      if (route === 'nearby') return route
+      found = route
+    }
+    return found
+  }
+
+  /**
+   * One phone the relay has announced. It runs the same encrypted session as a phone on this network, and must prove
+   * the key the account linked; the relay carries its frames and can read none of them.
+   */
+  attachRelay(conn: number, dev: string, transport: EndpointTransport): RelayAttachment {
+    const remote = `relay:${dev}`
+    const failures = this.#failures.get(remote)
+    if (failures && failures.resetAt > this.#now() && failures.count >= FAILURES_PER_MINUTE) {
+      transport.close(CloseCode.RATE_LIMITED, 'too many attempts')
+      return { receive: () => {}, gone: () => {} }
+    }
+    const endpoint = this.#endpoint(remote, transport, 'account', dev)
+    return {
+      receive: frame => void endpoint.receive(frame),
+      gone: () => this.#gone(endpoint),
+    }
   }
 
   /** Answer "Allow this phone?". An id that is no longer waiting is ignored. */
@@ -180,26 +231,42 @@ export class PhoneLinkService {
     if (this.#sockets.size >= limit) return void socket.close(CloseCode.RATE_LIMITED, 'busy')
     const failures = this.#failures.get(remote)
     if (failures && failures.resetAt > this.#now() && failures.count >= FAILURES_PER_MINUTE) return void socket.close(CloseCode.RATE_LIMITED, 'too many attempts')
-    const endpoint: PhoneEndpoint = new PhoneEndpoint({
-      identity: this.identity, registry: this.registry, ring: this.ring, policy: this.options.policy,
-      call: this.options.call, now: () => this.#now(),
-      confirm: enrollment => this.#ask(enrollment),
-      onFailure: reason => { this.#noteFailure(remote); this.options.log?.('phone link refused', { reason }) },
-      onAuthenticated: device => { this.options.log?.('phone signed in', { device: device.id }); this.#changed('devices') },
-    }, {
+    const endpoint = this.#endpoint(remote, {
       send: bytes => { if (socket.readyState === socket.OPEN) socket.send(bytes) },
       close: (code, reason) => { try { socket.close(code, reason) } catch { socket.terminate() } },
-    })
-    this.#endpoints.add(endpoint)
+    }, 'nearby')
     this.#sockets.set(endpoint, socket)
     socket.on('message', (data, isBinary) => {
       if (!isBinary) return void endpoint.kick(CloseCode.BAD_FRAME, 'binary frames only')
       const bytes = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer)
       void endpoint.receive(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength))
     })
-    const gone = () => { endpoint.dispose(); this.#endpoints.delete(endpoint); this.#sockets.delete(endpoint) }
+    const gone = () => this.#gone(endpoint)
     socket.on('close', gone)
     socket.on('error', gone)
+  }
+
+  #endpoint(remote: string, transport: EndpointTransport, route: PhoneRoute, expectDevice?: string): PhoneEndpoint {
+    const endpoint: PhoneEndpoint = new PhoneEndpoint({
+      identity: this.identity, registry: this.registry, ring: this.ring, policy: this.options.policy,
+      call: this.options.call, now: () => this.#now(), ...(expectDevice === undefined ? {} : { expectDevice }),
+      confirm: enrollment => this.#ask(enrollment),
+      onFailure: reason => { this.#noteFailure(remote); this.options.log?.('phone link refused', { reason, route }) },
+      onAuthenticated: device => { this.options.log?.('phone signed in', { device: device.id, route }); this.#changed('devices') },
+    }, transport)
+    this.#endpoints.add(endpoint)
+    this.#routes.set(endpoint, route)
+    return endpoint
+  }
+
+  #gone(endpoint: PhoneEndpoint): void {
+    if (!this.#endpoints.delete(endpoint)) return
+    const signedIn = endpoint.device !== null
+    endpoint.dispose()
+    this.#sockets.delete(endpoint)
+    this.#routes.delete(endpoint)
+    // The window shows how each phone is connected, so a phone leaving is a change too.
+    if (signedIn) this.#changed('devices')
   }
 
   #noteFailure(remote: string): void {

@@ -1,10 +1,13 @@
+import { randomUUID } from 'node:crypto'
+import { readFile, rename, writeFile } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import {
-  parseClientMessage, wireCodeOf, type HostMethodName, type HostParams, type PhoneLinkState, type PhonePairing, type PhoneTier,
-  type WireNotification,
+  parseClientMessage, wireCodeOf, type HarnessDeskAccountStatus, type HostMethodName, type HostParams, type PhoneLinkState,
+  type PhonePairing, type PhoneRelayState, type PhoneTier, type WireNotification,
 } from '@harnessdesk/protocol'
-import { PhoneCallError, PhoneLinkService, type Device, type PhonePolicy } from '@harnessdesk/phone-link'
+import { PhoneCallError, PhoneLinkService, RelayLink, type AccountOffer, type Device, type PhonePolicy } from '@harnessdesk/phone-link'
+import type { PhoneInvite, RelayAccess } from './harnessdesk-account.js'
 import type { Host } from './host.js'
 import type { Logger } from './log.js'
 import { WorkspaceFeed } from './phone-work.js'
@@ -12,7 +15,7 @@ import { WorkspaceFeed } from './phone-work.js'
 /** What the wire methods under `phone/` reach: the window decides, the service obeys. */
 export interface PhoneLinkControl {
   state(): PhoneLinkState
-  pairing(): PhonePairing
+  pairing(): Promise<PhonePairing>
   allow(id: string, tiers?: readonly PhoneTier[]): PhoneLinkState
   deny(id: string): PhoneLinkState
   revoke(device: string): Promise<PhoneLinkState>
@@ -68,6 +71,19 @@ export interface PhoneLinkOptions {
   readonly includeLoopback?: boolean
   /** How long changes to the work are gathered before one snapshot goes to the phones that are listening. */
   readonly workspaceDelayMs?: number
+  /** The desk's HarnessDesk account. With it, phones away from this network reach the desk through the relay. */
+  readonly account?: PhoneRelayAccount
+  /** For tests. */
+  readonly relay?: { readonly heartbeatMs?: number; readonly random?: () => number; readonly maxBackoffMs?: number }
+}
+
+/** The part of the HarnessDesk account the phone link uses. The desk key stays inside it. */
+export interface PhoneRelayAccount {
+  status(): Promise<HarnessDeskAccountStatus>
+  onChange(listener: (status: HarnessDeskAccountStatus) => void): () => void
+  relayAccess(fresh: boolean): Promise<RelayAccess>
+  createPhoneInvite(): Promise<PhoneInvite>
+  unlinkPhone(deviceId: string): Promise<HarnessDeskAccountStatus>
 }
 
 export interface RunningPhoneLink {
@@ -118,28 +134,137 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     else if (notification.method === 'session/indexChanged' || notification.method === 'lead/chats/controlChanged') feed.poke(true)
     else if (WORKSPACE_METHODS.has(notification.method) || (notification.method === 'event' && WORKSPACE_EVENTS.has(notification.params.event.type))) feed.poke()
   })
+  const listeners = new Set<() => void>()
+  const changed = () => { for (const listener of listeners) listener() }
+  const account = options.account
+  let relayState: PhoneRelayState = 'off'
+  const unlinks = account ? await UnlinkOutbox.open(join(options.home, 'phone-link', 'relay-unlinks.json'), account, log) : null
+  const relay = account ? new RelayLink({
+    credentials: fresh => account.relayAccess(fresh),
+    attach: (conn, dev, transport) => service.attachRelay(conn, dev, transport),
+    onState: next => {
+      relayState = next
+      if (next === 'connected') void unlinks!.flush()
+      changed()
+    },
+    log: (message, fields) => log.info(message, fields),
+    ...options.relay,
+  }) : null
+  // The relay runs while the desk is signed in and Reachable from your phone is on. It starts on the change to that,
+  // not on every status: a desk another copy replaced, or the account refused, stays stopped until the person acts.
+  let reachable = false
+  const follow = (status: HarnessDeskAccountStatus) => {
+    const next = status.status === 'signedIn' && status.desk.reachable
+    if (status.status === 'signedIn') void unlinks?.flush()
+    if (next === reachable) return
+    reachable = next
+    if (next) relay?.start()
+    else relay?.stop()
+  }
+  const unfollow = account?.onChange(follow)
+  if (account) void account.status().then(follow, error => log.info('account status failed', { error: error instanceof Error ? error.name : 'error' }))
+
   const state = (): PhoneLinkState => ({
-    enabled: true, deskName: service.name, deskId: service.deskId, port: service.port,
-    devices: service.devices().map(({ id, name, tiers, createdAt, lastSeenAt }) => ({ id, name, tiers, createdAt, lastSeenAt })),
+    enabled: true, deskName: service.name, deskId: service.deskId, port: service.port, relay: relayState,
+    devices: service.devices().map(({ id, name, tiers, createdAt, lastSeenAt }) => ({ id, name, tiers, createdAt, lastSeenAt, route: service.routeOf(id) })),
     pending: service.pending().map(({ id, name, deviceId, requestedAt }) => ({ id, name, deviceId, requestedAt })),
   })
   const control: PhoneLinkControl = {
     state,
-    pairing: () => {
-      const code = service.createPairingCode()
-      return { url: code.url, expiresAt: code.expiresAt, addresses: service.lanAddresses() }
+    pairing: async () => {
+      let invite: AccountOffer | undefined
+      // An invite that cannot be made leaves a code for this network, which still pairs.
+      if (account && reachable) invite = await account.createPhoneInvite().catch(error => {
+        log.info('phone invite failed', { error: error instanceof Error ? error.name : 'error' })
+        return undefined
+      })
+      const code = service.createPairingCode(600, invite)
+      return { url: code.url, expiresAt: code.expiresAt, addresses: service.lanAddresses(), away: invite !== undefined }
     },
     allow: (id, tiers) => { service.allow(id, tiers); return state() },
     deny: id => { service.deny(id); return state() },
-    revoke: async device => { await service.revoke(device); return state() },
-    onChange: listener => service.onChange(() => listener()),
+    revoke: async device => {
+      await service.revoke(device)
+      // Removed here first; the account link follows, now or once the account can be reached.
+      await unlinks?.add(device)
+      return state()
+    },
+    onChange: listener => {
+      listeners.add(listener)
+      const off = service.onChange(() => listener())
+      return () => { listeners.delete(listener); off() }
+    },
   }
   host.attachPhoneLink(control)
   log.info('phone link listening', { port: service.port, deskId: service.deskId })
-  return { service, control, close: async () => { detach(); feed.dispose(); await service.close() } }
+  return {
+    service, control,
+    close: async () => { detach(); unfollow?.(); relay?.stop(); feed.dispose(); await service.close() },
+  }
+}
+
+/**
+ * Phones removed on this desk whose account link has not been removed yet. The phone is refused here the moment it is
+ * removed; this only stops the account handing it new tickets for the relay, so it waits for the account when that
+ * cannot be reached, and survives a restart.
+ */
+class UnlinkOutbox {
+  #ids: Set<string>
+  #flushing: Promise<void> = Promise.resolve()
+
+  private constructor(private readonly file: string, private readonly account: PhoneRelayAccount, private readonly log: Logger, ids: readonly string[]) {
+    this.#ids = new Set(ids)
+  }
+
+  static async open(file: string, account: PhoneRelayAccount, log: Logger): Promise<UnlinkOutbox> {
+    const ids = await readFile(file, 'utf8').then(text => {
+      const value: unknown = JSON.parse(text)
+      return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string').slice(0, 64) : []
+    }).catch(() => [])
+    return new UnlinkOutbox(file, account, log, ids)
+  }
+
+  async add(id: string): Promise<void> {
+    this.#ids.add(id)
+    await this.#save()
+    await this.flush()
+  }
+
+  flush(): Promise<void> {
+    this.#flushing = this.#flushing.then(() => this.#flush(), () => this.#flush())
+    return this.#flushing
+  }
+
+  async #flush(): Promise<void> {
+    if (this.#ids.size === 0) return
+    let status: HarnessDeskAccountStatus
+    try { status = await this.account.status() } catch { return }
+    if (status.status === 'pending') return
+    let changed = false
+    for (const id of [...this.#ids]) {
+      // A desk that signed out took its links with it, and a phone the account never linked has nothing to remove.
+      if (status.status === 'signedIn' && status.phones.some(phone => phone.deviceId === id)) {
+        try { status = await this.account.unlinkPhone(id) } catch (error) {
+          this.log.info('phone unlink waits for the account', { error: error instanceof Error ? error.name : 'error' })
+          continue
+        }
+      }
+      this.#ids.delete(id)
+      changed = true
+    }
+    if (changed) await this.#save()
+  }
+
+  async #save(): Promise<void> {
+    const temporary = `${this.file}.${process.pid}.${randomUUID()}.tmp`
+    try {
+      await writeFile(temporary, JSON.stringify([...this.#ids]), { mode: 0o600 })
+      await rename(temporary, this.file)
+    } catch (error) { this.log.info('phone unlink list not saved', { error: error instanceof Error ? error.name : 'error' }) }
+  }
 }
 
 /** What the window sees when the phone link is not running. */
-export const phoneLinkOff: PhoneLinkState = { enabled: false, deskName: '', deskId: '', port: null, devices: [], pending: [] }
+export const phoneLinkOff: PhoneLinkState = { enabled: false, deskName: '', deskId: '', port: null, relay: 'off', devices: [], pending: [] }
 
 export type { HostParams }

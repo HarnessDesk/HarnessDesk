@@ -3,10 +3,10 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile, rm } from 'node:fs/promis
 import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import { b64u, fromB64u, idFromPub, verifyEd25519, webDeskLinkProofMessage, webDeskProofMessage } from '@harnessdesk/crypto'
+import { b64u, fromB64u, idFromPub, relayDeskProofMessage, verifyEd25519, webDeskLinkProofMessage, webDeskProofMessage } from '@harnessdesk/crypto'
 import { Client, start, stop } from './fixtures/harness.js'
 import { StateStore } from '../src/state.js'
-import { HarnessDeskAccount } from '../src/harnessdesk-account.js'
+import { HarnessDeskAccount, relayOrigin } from '../src/harnessdesk-account.js'
 
 const directories: string[] = []
 after(async () => { for (const dir of directories) await rm(dir, { recursive: true, force: true }) })
@@ -66,6 +66,7 @@ async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: bo
     assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer fake-desk-session')
     if (refuse) return Response.json({ error: { code: 'unauthorized' } }, { status: 401 })
     if (url.pathname === '/v1/desk/account') return Response.json({ account: { ...account, pictureUrl: options.pictureUrl ?? null }, desk: { deskId, name }, phones: revoked ? [] : [{ deviceId, name: 'Phone', lastSeenAt: null }] })
+    if (url.pathname === '/v1/invites') return Response.json({ inviteId: 'invite-id', token: 'i'.repeat(43), expiresAt: 99999 })
     if (url.pathname === '/v1/desk/rename') { name = body.name!; return Response.json({ deskId, name }) }
     if (url.pathname === '/v1/links/revoke') { assert.equal(body.deskId, deskId); revoked = true; return Response.json({ ok: true }) }
     if (url.pathname === '/v1/account/delete') {
@@ -459,4 +460,49 @@ for (const failure of ['offline', 500] as const) test(`delete ${failure} carries
   harness.host.call = ((method, params) => method === 'account/delete' ? r.service.deleteAccount() : call(method, params)) as typeof harness.host.call
   const client = await Client.connect(harness.server); t.after(() => client.close())
   await assert.rejects(client.call('account/delete', {}), { code: 'accountCloudUnreachable', message: "Can't reach HarnessDesk. Try again when you're online." })
+})
+
+test('the relay gets a desk token and a proof only while signed in and reachable, and the proof signs only its challenge', async () => {
+  const r = await rig()
+  await assert.rejects(r.service.relayAccess(), /Reachable/)
+  await r.service.setReachable(true)
+  await assert.rejects(r.service.relayAccess(), /Sign in/)
+  await r.service.signIn(); r.approve(); await r.timers.shift()!()
+  const access = await r.service.relayAccess()
+  assert.equal(access.url, 'wss://relay.example.com')
+  assert.equal(access.token, 'fake-desk-session')
+  const challenge = 'C'.repeat(43)
+  const proof = await access.prove(challenge)
+  const deskPub = fromB64u(r.calls.find(c => c.path === '/v1/desk/session')!.body.deskPub!)
+  assert.equal(access.deskId, await idFromPub(deskPub))
+  assert.equal(await verifyEd25519(deskPub, fromB64u(proof), relayDeskProofMessage(access.deskId, challenge)), true)
+  await assert.rejects(access.prove('not a challenge'), /not understood/)
+  const sessions = r.calls.filter(c => c.path === '/v1/desk/session').length
+  await r.service.relayAccess(true)
+  assert.equal(r.calls.filter(c => c.path === '/v1/desk/session').length, sessions + 1)
+  await r.service.setReachable(false)
+  await assert.rejects(r.service.relayAccess(), /Reachable/)
+  await r.service.signOut()
+  await assert.rejects(access.prove(challenge), /signed out/)
+  r.service.close()
+})
+test('a phone invite names the account service and the relay, and ends when the cloud says', async () => {
+  const r = await rig(); await r.service.setReachable(true)
+  await r.service.signIn(); r.approve(); await r.timers.shift()!()
+  const seen: string[] = []
+  const stop = r.service.onChange(status => seen.push(status.status))
+  assert.deepEqual(await r.service.createPhoneInvite(), { invite: 'i'.repeat(43), api: 'https://cloud.example.com', relay: 'wss://relay.example.com', expiresAt: 99_999_000 })
+  await r.service.setReachable(false)
+  assert.deepEqual(seen, ['signedIn'])
+  stop()
+  await assert.rejects(r.service.createPhoneInvite(), /Reachable/)
+  r.service.close()
+})
+test('a desk only connects to a relay origin over TLS, or to a loopback one in development', () => {
+  assert.equal(relayOrigin('wss://relay.example.com'), 'wss://relay.example.com')
+  assert.equal(relayOrigin('wss://relay.example.com/'), 'wss://relay.example.com')
+  assert.equal(relayOrigin('ws://localhost:8787'), 'ws://localhost:8787')
+  for (const bad of ['ws://relay.example.com', 'https://relay.example.com', 'wss://u:p@relay.example.com', 'wss://relay.example.com/v1', 'wss://relay.example.com?x=1', 'wss://relay.example.com#x', 'not a url', 42]) {
+    assert.equal(relayOrigin(bad), undefined, String(bad))
+  }
 })

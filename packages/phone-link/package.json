@@ -14,6 +14,10 @@
     "./sim": {
       "types": "./dist/src/sim.d.ts",
       "default": "./dist/src/sim.js"
+    },
+    "./relay-sim": {
+      "types": "./dist/src/relay-sim.d.ts",
+      "default": "./dist/src/relay-sim.js"
     }
   },
   "dependencies": {
