@@ -267,7 +267,8 @@ export const SignIn = ({
   }
 
   const groups = [
-    { name: 'Sign in needed', rows: rows.filter((entry) => !isConnected(entry)) },
+    { name: 'Sign in needed', rows: rows.filter(needsSignIn) },
+    { name: 'Not ready', rows: rows.filter((entry) => !isConnected(entry) && !needsSignIn(entry)) },
     { name: 'Signed in', rows: rows.filter(isConnected) },
   ].filter((group) => group.rows.length > 0)
 
@@ -444,6 +445,14 @@ export const SignIn = ({
  */
 const isConnected = (row: Row): boolean =>
   row.status !== 'out' && row.status !== 'asking' && row.status !== 'manual' && row.status !== 'unchecked'
+
+/**
+ * Signed out, as far as anyone knows. One still starting, not checked yet, or
+ * that did not start is not connected either, but nothing says its sign-in is
+ * missing, so it waits under "Not ready", where its line says which.
+ */
+const needsSignIn = (row: Row): boolean =>
+  row.state !== 'broken' && (row.status === 'out' || row.status === 'manual')
 
 /**
  * A rail row's second line: only what its group does not already say. Under

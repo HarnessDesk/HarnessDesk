@@ -310,9 +310,11 @@ it('a starting account is not counted as connected, and the rail does not call i
 
   const rail = container.querySelector('nav[aria-label="Runtimes"]')
   expect(rail?.textContent).not.toContain('Runs without one')
-  // It waits with the ones not connected, saying it is starting, and the
-  // connected group counts only the account that answered.
-  const waiting = rail?.querySelector('[role="group"][aria-label="Sign in needed"]')
+  // It waits under "Not ready", saying it is starting — nothing says its
+  // sign-in is missing — and the connected group counts only the account
+  // that answered.
+  expect(rail?.querySelector('[role="group"][aria-label="Sign in needed"]')).toBeNull()
+  const waiting = rail?.querySelector('[role="group"][aria-label="Not ready"]')
   expect(waiting?.textContent).toContain('Starting')
   expect(rail?.querySelector('[role="group"][aria-label="Signed in"]')?.textContent).toContain('ada@example.com')
 })
@@ -790,7 +792,7 @@ it.each([
   expect(card.textContent).not.toContain('needs no account here')
   const rail = container.querySelector('nav')
   expect(rail?.querySelector('[aria-label="Signed in"]')).toBeNull()
-  expect(rail?.querySelector('[aria-label="Sign in needed"]')?.textContent).toContain('Did not start')
+  expect(rail?.querySelector('[aria-label="Not ready"]')?.textContent).toContain('Did not start')
 })
 
 it('opened for one runtime, is about that runtime alone', async () => {

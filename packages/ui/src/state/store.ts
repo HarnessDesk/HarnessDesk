@@ -2339,6 +2339,7 @@ export class AppStore {
         account,
         this.#snapshot.accountsByRuntime[runtime]?.accounts ?? [],
         this.#snapshot.accountPrefs,
+        this.#snapshot.hideAccountAddresses,
       )
     for (const alert of crossings(before, after, nameFor, this.#snapshot.runtimes, Date.now())) {
       this.infoNotice('warning', alert.message, 'usage:crossing')

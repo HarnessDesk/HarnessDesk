@@ -142,10 +142,15 @@ export const toastName = (
   account: string | null,
   accounts: readonly Account[],
   prefs: AccountPrefsMap,
+  hideAddresses = false,
 ): string => {
   if (!account) return agent
   const known = accounts.find((one) => one.label.trim() === account)
-  const shown = known ? accountName(known, prefs[accountKey(runtime, known)], agent) : account
+  // While addresses are hidden the report's own label is named the way
+  // `shownAccountLabel` names one, never shown whole.
+  const shown = known
+    ? accountName(known, prefs[accountKey(runtime, known)], agent)
+    : hideAddresses ? accountName({ kind: 'oauth', label: account } as unknown as Account, undefined) : account
   /* An account the runtime cannot name is not an address. `accountName` hands
      back the agent's own name for an anonymous one, so the toast read "Claude
      Code (Claude Code)" — the agent twice and the account never (round 2 of

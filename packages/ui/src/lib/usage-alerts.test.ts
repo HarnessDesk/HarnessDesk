@@ -112,6 +112,14 @@ describe('crossings', () => {
   })
 })
 
+describe('how a toast names an account while addresses are hidden', () => {
+  it('names one the desk does not hold without its address', () => {
+    const name = toastName('Claude Code', id('claude'), 'olivia@acme.dev', [], {}, true)
+    expect(name).not.toContain('@')
+    expect(name).toBe('Claude Code (olivia)')
+  })
+})
+
 describe('how a toast names an anonymous account (round 2 of #216)', () => {
   it('names the agent once, not twice', () => {
     const anonymous = [{ label: 'Signed in', anonymous: true } as unknown as Account]
