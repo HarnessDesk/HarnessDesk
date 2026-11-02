@@ -378,7 +378,15 @@ export const describeRow = (report: UsageReport, now: number, preference?: Usage
   const drawn = drawnReport(report)
   const borrowed = drawn !== report
   const shape = primaryShapeOf(drawn)
-  const view = describeReport(drawn, { now, maxLanes: 3, preference })
+  // A row has one reading, so when a window other than the headline is what
+  // makes the account Short or Low, that window is the reading — never
+  // "Short · 90% left" off a healthy Session while the Weekly runs dry. A pin
+  // is the person's own choice of reading and stays; the card under the row
+  // names the deciding window.
+  const standing = borrowed || preference?.pinLaneId ? null : usageStandingOf(report, now)
+  const deciding =
+    (standing?.status === 'short' || standing?.status === 'low') && standing.lane && !standing.lane.scope ? standing.lane.id : null
+  const view = describeReport(drawn, { now, maxLanes: 3, preference: deciding ? { ...preference, pinLaneId: deciding } : preference })
   const left = leftOf(shape, drawn, view)
   const statusView = borrowed ? describeReport(report, { now, maxLanes: 0 }) : view
   return {

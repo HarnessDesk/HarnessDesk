@@ -791,6 +791,20 @@ describe('describeRow', () => {
     expect(row.key).toBe(`${subject.runtime}:`)
   })
 
+  it('reads the window that makes the account Short, not the healthy headline in front of it', () => {
+    const subject = report({
+      billing: billing(['windows']),
+      lanes: [
+        lane({ id: 'session', label: 'Session', usedPercent: 10, windowMinutes: 300, resetsAt: NOON + 4 * HOUR }),
+        lane({ id: 'weekly', label: 'Weekly', usedPercent: 90, resetsAt: NOON + DAY }),
+      ],
+    })
+    const row = describeRow(subject, NOON)
+    expect(row.status).toBe('short')
+    expect(row.left.percent).toBe(10)
+    expect(row.ownUnit).toBe('Weekly')
+  })
+
   // The row and the expanded card's chip must agree — both read `statusOf`
   // on the same rule now (review of #1069, B2).
   it('agrees with a headline pinned to a healthier lane than the account-wide one behind it', () => {
