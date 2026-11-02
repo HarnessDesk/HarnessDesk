@@ -3,7 +3,7 @@ import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport 
 import type { Tone } from './limits'
 import { prefsForUsage, type AccountPrefsMap } from './accounts'
 import { readinessOf } from './readiness'
-import { describeReport, toneForRemaining, workingAccount, type LaneView, type UsagePreference } from './usage'
+import { describeReport, formatWhen, toneForRemaining, usageStandingOf, workingAccount, type LaneView, type UsagePreference } from './usage'
 
 /**
  * What the strip in the conversation header draws, whatever the size of the
@@ -53,6 +53,8 @@ export interface StripMeter {
   /** Spent, or under `LOW`: the figure is worth the pixels at any width. */
   readonly low: boolean
   readonly out: boolean
+  /** When a spent account is back: the last of the windows that stopped it, not the headline's own reset. */
+  readonly backAt: number | null
   /** "Codex — Weekly, 12% left" */
   readonly title: string
 }
@@ -127,6 +129,10 @@ const meterFor = (
   // looking, and the screen is where "why is this one missing" is answered.
   if (!lane || !lane.known || lane.remainingPercent === null) return null
   const spent = lane.remainingPercent <= 0
+  // An out account is back when every window that stopped it has reset, which
+  // the standing knows; the headline's own reset can come hours earlier.
+  const standing = usageStandingOf(report, now)
+  const backAt = standing.status === 'out' ? standing.backAt : lane.resetsAt
   const name = info.presentation.name
   return {
     runtime: report.runtime,
@@ -143,10 +149,12 @@ const meterFor = (
     // panel and the card, where a sentence sits beside it.
     tone: view.gated || view.blocked ? 'bad' : lane.tone,
     // Out of quota is the one state where the percentage is not the useful
-    // number. When it comes back is.
-    figure: spent ? (lane.shortCountdown ?? 'out') : `${lane.remainingPercent}%`,
+    // number. When it comes back is — as a time, which stays true without a
+    // refresh, where "3h" was already wrong by the time it was read.
+    figure: spent ? (backAt !== null && backAt > now ? `back ${formatWhen(backAt, now)}` : 'out') : `${lane.remainingPercent}%`,
     low: spent || lane.remainingPercent < LOW,
     out: view.blocked,
+    backAt: spent ? backAt : null,
     title: `${name} — ${lane.title}, ${lane.remainingPercent}% left`,
   }
 }

@@ -938,23 +938,35 @@ hard way somewhere and is cheaper to design out than to fix:
   a number in it now has a column; what is left is the caveat, and there is
   only ever one: the error, or the block, or the gate, or the spent model, or the
   balance on top of the plan, or the pace.
-- **Pace is a badge in the header, not the card's one line.** It spent a
-  release as the *last* of six candidates for that line, which meant the only
-  card that ever showed it was one with nothing else wrong — the opposite of
-  when it matters. It is a standing rather than a sentence, so it wears the
-  same shape a standing wears everywhere: a glyph, a magnitude, a word.
-  `▲ 14% over pace`, `▼ 33% under pace`, `● 0% on pace`, `■ spent`. The margin
-  measures allowance left above or below the even-burn line; the arrow and
-  word carry its direction without a second sign. It is suppressed for a window
-  that has barely opened, where the arithmetic is noise, and it takes no tone
-  until the burn will actually cost something — a lane at 8% left is already
-  amber, and a second amber thing on the card saying the same would be one
-  fact wearing two alarms.
-- The card's line of prose is then only the *consequence* the badge cannot
-  state: `At this rate it runs out in 12h 36m — before the window resets.`
-  The two ran together for a while — `−33% over pace` beside `33% ahead of
-  pace · runs out in 12h 36m` — which is one number in two vocabularies, and
-  a reader has to check whether they agree before deciding to ignore one.
+- **Pace is a time, not a rate.** The card said it for a while as a badge —
+  `▲ 14% over pace`, `▼ 33% under pace` — and the same words meant the
+  opposite in the burn-down's own vocabulary, where "over pace" was burning
+  too fast. A time needs no legend, so the line under the bar says it:
+  `Lasts to its 3:53 PM reset`, `Runs out ~2:47 PM, before its 4:43 PM
+  reset`, `Back Thu 9:00 AM` (`standingSentence`). It is withheld for a window
+  that has barely opened, where the arithmetic is noise. The burn-down cards
+  keep a badge, in the same terms: `runs out ~2:47 PM` or `lasts to reset`,
+  and where a margin is drawn it is `to spare` above the even burn and
+  `overspending` below it — one meaning per word.
+- **One status word, decided once.** `usageStandingOf` in
+  `@harnessdesk/protocol` returns Ready, Low, Short, Out, Overdrawn or
+  Unknown. The card's chip, the Plans table, the needs-attention count and the
+  phone all read it, so an account cannot be Out in one place and Ready in
+  another. An overdrawn balance is `$2.15 overdrawn`, never `−$2.15 left`.
+  A failed read is Unknown before anything else, even with a cached balance
+  or a spent lane behind it. A pinned lane does not change it: the pin picks
+  the card's headline, and the host, which decides the word for the phone,
+  never sees it. Every account-wide window counts, not only the headline:
+  Short is whichever runs dry first, Low whichever is lowest, and when that
+  window is not the headline the line under the bar names it — `Weekly runs
+  out ~2:47 PM, before its Thu 8:11 AM reset`. A spent model is said as one
+  model out only while the account still works. An out account is back at
+  the last reset of the windows that stopped it (no time if one of them
+  gives none), or the first, when only models are spent. `Back …` is said
+  only while that time is still ahead, and so is
+  a spent model's `until …`. The line above the cards, when there is no
+  account to recommend, counts by the same word: Out and Overdrawn as out,
+  Short and Low as running low.
 - **The headline's meter is a countable budget**, forty segments rather than a
   continuous bar: a smooth bar reads as a percentage and a segmented one reads
   as a budget being spent, which is the thing being drawn. It still fills with

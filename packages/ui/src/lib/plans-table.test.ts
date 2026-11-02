@@ -460,9 +460,11 @@ describe('statusOf', () => {
     expect(statusOf(subject, 'windows', describeReport(subject, { now: NOON }), NOON)).toBe('out')
   })
 
-  it('is "out" for a spent balance', () => {
+  it('is "overdrawn" below zero and "out" at zero', () => {
     const subject = report({ billing: billing(['balance']), credits: { remaining: -2, unit: 'USD' } })
-    expect(statusOf(subject, 'balance', describeReport(subject, { now: NOON }), NOON)).toBe('out')
+    expect(statusOf(subject, 'balance', describeReport(subject, { now: NOON }), NOON)).toBe('overdrawn')
+    const empty = report({ billing: billing(['balance']), credits: { remaining: 0, unit: 'USD' } })
+    expect(statusOf(empty, 'balance', describeReport(empty, { now: NOON }), NOON)).toBe('out')
   })
 
   it('is "on overage" once metered spend is enabled and something has been spent', () => {
@@ -471,6 +473,14 @@ describe('statusOf', () => {
       lanes: [lane({ id: 'monthly', usedPercent: 20 })],
     })
     expect(statusOf(subject, 'allowance', describeReport(subject, { now: NOON }), NOON)).toBe('overage')
+  })
+
+  it('says the card\'s own standing before overage, so the two never disagree', () => {
+    const subject = report({
+      billing: billing(['allowance'], { overage: { enabled: true, spent: 4.5, currency: 'USD' } }),
+      lanes: [lane({ id: 'monthly', usedPercent: 85 })],
+    })
+    expect(statusOf(subject, 'allowance', describeReport(subject, { now: NOON }), NOON)).toBe('low')
   })
 
   it('is "low" under the card\'s own amber threshold', () => {
@@ -502,12 +512,12 @@ describe('statusOf', () => {
 
   // The four cases `reportNeedsAttention` (`lib/usage.ts`) already caught
   // that the card's own tone check missed — review of #1069, B2.
-  it('is "low" for a report carrying its own error, even with a fine-looking view', () => {
+  it('is "unknown" for a report carrying its own error, even with a fine-looking view', () => {
     const subject = report({
       lanes: [lane({ id: 'weekly', usedPercent: 10 })],
       error: { message: 'Could not reach the account' },
     })
-    expect(statusOf(subject, 'windows', describeReport(subject, { now: NOON }), NOON)).toBe('low')
+    expect(statusOf(subject, 'windows', describeReport(subject, { now: NOON }), NOON)).toBe('unknown')
   })
 
   it('is "low" for a severity: critical lane, whose tone is bad rather than warn', () => {
@@ -533,7 +543,15 @@ describe('statusOf', () => {
     const view = describeReport(subject, { now: NOON, maxLanes: 3, preference })
     expect(view.hero?.id).toBe('session')
     expect(view.tone).toBe('good')
-    expect(statusOf(subject, 'windows', view, NOON, preference)).toBe('low')
+    expect(statusOf(subject, 'windows', view, NOON)).toBe('low')
+  })
+
+  // A failed refresh keeps the last good figures; the card and the phone say Unknown, so Plans does too.
+  it('is "unknown" for a failed read, even with a cached balance below zero or a spent lane', () => {
+    const owing = report({ credits: { remaining: -2, unit: 'USD' }, error: { message: 'Could not reach the account' } })
+    expect(statusOf(owing, 'balance', describeReport(owing, { now: NOON }), NOON)).toBe('unknown')
+    const spent = report({ lanes: [lane({ id: 'weekly', usedPercent: 100 })], error: { message: 'Could not reach the account' } })
+    expect(statusOf(spent, 'windows', describeReport(spent, { now: NOON }), NOON)).toBe('unknown')
   })
 })
 
@@ -771,6 +789,20 @@ describe('describeRow', () => {
     expect(row.left.percent).toBe(29)
     expect(row.ownUnit).toBe('Weekly')
     expect(row.key).toBe(`${subject.runtime}:`)
+  })
+
+  it('reads the window that makes the account Short, not the healthy headline in front of it', () => {
+    const subject = report({
+      billing: billing(['windows']),
+      lanes: [
+        lane({ id: 'session', label: 'Session', usedPercent: 10, windowMinutes: 300, resetsAt: NOON + 4 * HOUR }),
+        lane({ id: 'weekly', label: 'Weekly', usedPercent: 90, resetsAt: NOON + DAY }),
+      ],
+    })
+    const row = describeRow(subject, NOON)
+    expect(row.status).toBe('short')
+    expect(row.left.percent).toBe(10)
+    expect(row.ownUnit).toBe('Weekly')
   })
 
   // The row and the expanded card's chip must agree — both read `statusOf`

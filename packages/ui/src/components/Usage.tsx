@@ -4,7 +4,6 @@ import type { ReactNode } from 'react'
 import type { MainPageInput } from '../app/main-page-entries'
 import type { InsightReport, LedgerReport, RuntimeId, UsageReport } from '@harnessdesk/protocol'
 
-import { prefsForUsage } from '../lib/accounts'
 import { byUrgency, costClause, runway } from '../lib/usage'
 import { dashboardReadLabel } from '../lib/dashboard-read'
 import { useSnapshot, useStore } from '../state/context'
@@ -219,13 +218,9 @@ export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPl
   const attention = useMemo(
     () =>
       reports.filter((report) =>
-        reportNeedsAttention(
-          report,
-          now,
-          prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs),
-        ),
+        reportNeedsAttention(report, now),
       ),
-    [reports, now, snapshot.accountsByRuntime, snapshot.accountPrefs],
+    [reports, now],
   )
 
   const summary = useMemo(

@@ -594,6 +594,161 @@ export const isBlocked = (report: UsageReport): boolean => {
   return remaining !== null && remaining <= 0
 }
 
+// ---------------------------------------------------------------- standing
+
+/**
+ * One word for where an account stands, decided once.
+ *
+ * Overview's card, the Plans table, the seat menu and the phone each used to
+ * judge this for themselves, and they disagreed: an account with an overdrawn
+ * balance was "Out" in the table and "Ready" on the card above it. Every
+ * surface now reads this and draws the word it returns.
+ *
+ * - `unknown` — the last reading failed; nothing below it is current.
+ * - `out` — the account-wide limit is spent (`isBlocked`), or a prepaid
+ *   balance with nothing else to run on is at zero.
+ * - `overdrawn` — a prepaid balance below zero. Said as a debt, never as a
+ *   negative "left".
+ * - `short` — at the rate it is going, the limit runs out before it resets.
+ * - `low` — an account-wide limit is under `LOW_PERCENT`, or the source
+ *   flagged one, but it lasts.
+ * - `ready` — none of the above.
+ *
+ * Signed out is not here: that is the account's state, not its usage, and a
+ * report only exists for an account that answered. Nor is a pinned lane: a
+ * pin chooses which window a summary leads with, so it lives in the renderer
+ * and never reaches the host — a standing that read it would be Short on the
+ * desk and Ready on the phone for the same account.
+ */
+export type UsageStandingStatus = 'ready' | 'low' | 'short' | 'out' | 'overdrawn' | 'unknown'
+
+export interface UsageStanding {
+  readonly status: UsageStandingStatus
+  /**
+   * The lane the standing is about — the binding one (never a pin), or for Short and Low the account-wide one
+   * that runs out first or is running low; null with none.
+   */
+  readonly lane: UsageLane | null
+  /** What that lane has left, 0..100; null when unmeasured or there is no lane. */
+  readonly left: number | null
+  /** Epoch ms when the lane runs out at the current rate, when that lands before its reset. */
+  readonly runsOutAt: number | null
+  /** Epoch ms when a spent account works again, when the source said. */
+  readonly backAt: number | null
+  /** A model-scoped lane that is spent while the account is not; null once the account itself is out. */
+  readonly scopedOut: UsageLane | null
+}
+
+/** Below this share left, an account-wide limit is low. The same 20 every surface uses. */
+export const LOW_PERCENT = 20
+
+/**
+ * How much of a window has to be gone before its slope means anything. Below
+ * it the rate is one sample, and extrapolating says "runs dry in minutes" at
+ * 99% left. The burn-down chart reads the same constant.
+ */
+export const FORECAST_NEEDS_ELAPSED = 0.05
+
+/**
+ * When a lane runs out at its current rate, or null when it lasts to the reset
+ * or there is not enough of the window gone to say.
+ */
+export const laneRunsOutAt = (lane: UsageLane, now: number): number | null => {
+  if (!isLaneKnown(lane) || lane.resetsAt === null) return null
+  if (lane.windowMinutes === null || lane.windowMinutes <= 0) return null
+  const windowMs = lane.windowMinutes * 60_000
+  const untilReset = lane.resetsAt - now
+  if (untilReset <= 0 || untilReset > windowMs) return null
+  const elapsed = clamp((windowMs - untilReset) / windowMs, 0.001, 0.999)
+  if (elapsed < FORECAST_NEEDS_ELAPSED) return null
+  const left = 100 - clamp(lane.usedPercent, 0, 100)
+  if (left <= 0) return null
+  const slope = (left - 100) / elapsed
+  if (slope >= -0.01) return null
+  const crossesAt = elapsed + left / -slope
+  // A burn that lands on empty exactly at the reset is the sustainable rate.
+  if (crossesAt >= 1) return null
+  return now + Math.max(0, (crossesAt - elapsed) * windowMs)
+}
+
+export const usageStandingOf = (report: UsageReport, now: number): UsageStanding => {
+  const lane = bindingLane(report.lanes)
+  const left = lane ? remainingOf(lane) : null
+  const reached = reachedLaneOf(report)
+  const scopedOut =
+    report.lanes.find((each) => each.scope && each.placeholder !== true && remainingOf(each) === 0) ??
+    (reached?.scope ? reached : null)
+  const base = { lane, left: left === null ? null : Math.round(left), scopedOut: scopedOut ?? null }
+
+  if (report.error) return { ...base, status: 'unknown', runsOutAt: null, backAt: null }
+
+  // A prepaid balance with no measured plan lane beside it is the account's
+  // whole allowance: below zero is a debt, at zero there is nothing to run on.
+  // Ahead of `isBlocked`, which also trusts a source's "credits" reached. Beside a measured lane a balance is a
+  // side figure, unless the source says the credits are what it hit.
+  const credits = report.credits
+  const balance =
+    credits && typeof credits.remaining === 'number' && Number.isFinite(credits.remaining) ? credits.remaining : null
+  const measured = lane !== null && left !== null
+  const creditsReached = report.reached === 'credits' && reached === null
+  if ((!measured || creditsReached) && balance !== null && !credits?.unlimited) {
+    if (balance < 0) return { ...base, scopedOut: null, status: 'overdrawn', runsOutAt: null, backAt: null }
+    if (balance === 0) return { ...base, scopedOut: null, status: 'out', runsOutAt: null, backAt: null }
+  }
+
+  if (isBlocked(report)) {
+    // Only a lane known to be spent says when it is back. A `reached` naming no lane (a spend limit, say) gives no
+    // reset, and a healthy binding lane's reset is not when that limit clears.
+    const isSpent = (each: UsageLane): boolean => each.placeholder !== true && (remainingOf(each) ?? 1) <= 0
+    // Account-wide limits all have to clear, so it is back at the last of their resets — and with no time at
+    // all if one of them gives none.
+    const blockers = report.lanes.filter((each) => !each.scope && isSpent(each))
+    if (reached && !reached.scope && !blockers.includes(reached)) blockers.push(reached)
+    // With only models left, any one coming back is enough: the first of their resets.
+    const models = lane?.scope && left !== null && left <= 0 ? report.lanes.filter((each) => each.scope && isSpent(each)) : []
+    const resets = (blockers.length > 0 ? blockers : models).map((each) => each.resetsAt)
+    const known = resets.filter((at): at is number => at !== null)
+    // A `reached` this report cannot resolve to a lane is a blocker with no known reset, whatever else is spent.
+    const unresolved = report.reached !== null && reached === null
+    const backAt = unresolved
+      ? null
+      : blockers.length > 0
+        ? known.length === resets.length ? Math.max(...known) : null
+        : known.length > 0 ? Math.min(...known) : null
+    // "One model is out, the others still work" is not true of an account that is out.
+    return { ...base, scopedOut: null, status: 'out', runsOutAt: null, backAt }
+  }
+
+  // Every account-wide limit counts, not only the headline: a healthy session
+  // hiding a weekly that is low, or that runs out before its reset, is not
+  // Ready. A scoped one counts only as the headline.
+  const wide = report.lanes.filter((each) => each.placeholder !== true && (!each.scope || each === lane))
+
+  // Short is the lane that runs dry first — whichever window would stop the account soonest.
+  let short: { lane: UsageLane; at: number } | null = null
+  for (const each of wide) {
+    const at = laneRunsOutAt(each, now)
+    if (at !== null && (short === null || at < short.at)) short = { lane: each, at }
+  }
+  if (short !== null) {
+    const shortLeft = remainingOf(short.lane)
+    return { ...base, lane: short.lane, left: shortLeft === null ? null : Math.round(shortLeft), status: 'short', runsOutAt: short.at, backAt: null }
+  }
+
+  const low = wide.filter((each) => {
+    if (each.severity === 'warning' || each.severity === 'critical') return true
+    const remaining = remainingOf(each)
+    return remaining !== null && remaining < LOW_PERCENT
+  })
+  if (low.length === 0) return { ...base, status: 'ready', runsOutAt: null, backAt: null }
+  // Low says what is low: the binding lane when it is one, otherwise the tightest of the others — never "Low, 90%
+  // left" from a healthy Session while the Weekly behind it is the one running low.
+  const tightness = (each: UsageLane): number => remainingOf(each) ?? Number.POSITIVE_INFINITY
+  const lowLane = lane !== null && low.includes(lane) ? lane : low.reduce((a, b) => (tightness(b) < tightness(a) ? b : a))
+  const lowLeft = remainingOf(lowLane)
+  return { ...base, lane: lowLane, left: lowLeft === null ? null : Math.round(lowLeft), status: 'low', runsOutAt: null, backAt: null }
+}
+
 // -------------------------------------------------------------- plan prices
 
 /**

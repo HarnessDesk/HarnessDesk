@@ -3,7 +3,7 @@ import type { LedgerReport, RuntimeId, RuntimeInfo, UsageReport } from '@harness
 
 import { prefsForUsage } from '../../lib/accounts'
 import type { HeatMetric, HourMetric } from '../../lib/heat'
-import { drawnReport, reportNeedsAttention, type RunwaySummary } from '../../lib/usage'
+import { drawnReport, reportNeedsAttention, rightNow, type RunwaySummary } from '../../lib/usage'
 import { Button, PageOptions, Text, Section, DashboardColumns, DashboardAccounts } from '../../design'
 import { UsageActivity, type HeatView } from '../UsageActivity'
 import { Card, PIVOTS, Ranked, Spend, type Pivot, type SilentAgent, type TintOf } from './shared'
@@ -86,9 +86,13 @@ export const OverviewView = ({
   // neither a backend id nor the attention threshold decides membership.
   const remaining = reports.filter(report => {
     const drawn = drawnReport(report)
-    return drawn.lanes.some(lane => !lane.placeholder) || drawn.credits != null || reportNeedsAttention(report, now,
-      prefsForUsage(report.runtime, report.account, snapshot.accountsByRuntime, snapshot.accountPrefs))
+    return drawn.lanes.some(lane => !lane.placeholder) || drawn.credits != null || reportNeedsAttention(report, now)
   })
+  // Which agent to start on, across every agent; scoped to one, there is no
+  // choice to make and the page's own headline stands.
+  const startOn = scope === null
+    ? rightNow(reports, (report) => byId.get(report.runtime)?.presentation.name ?? 'Runtime', now)
+    : null
   return (
     <>
       <OverviewStrip
@@ -102,7 +106,7 @@ export const OverviewView = ({
         onOpenPlan={onOpenPlan}
       />
 
-      <Section level="heading" title="What is left" description={summary.headline ?? undefined}>
+      <Section level="heading" title="What is left" description={startOn ?? summary.headline ?? undefined}>
         {remaining.length > 0 ? (
           <DashboardAccounts accounts={remaining.map((report) => (
               <Card

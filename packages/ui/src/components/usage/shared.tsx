@@ -2,7 +2,6 @@ import { type ReactNode, useMemo } from 'react'
 
 import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
-import { burnWord } from '../../lib/burn'
 import { dashboardReadLabel } from '../../lib/dashboard-read'
 import { prefsForUsage, runtimeTint, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
@@ -28,6 +27,7 @@ import {
   balanceOf,
   byUrgency,
   coverageLabel,
+  describeLane,
   describeReport,
   drawnReport,
   formatAge,
@@ -38,6 +38,11 @@ import {
   pricedNote,
   reportNeedsAttention,
   spendHint,
+  standingSentence,
+  formatWhen,
+  STANDING_LABEL,
+  STANDING_TONE,
+  usageStandingOf,
   type Balance,
   type LaneView,
   type ReportView,
@@ -229,10 +234,33 @@ export const Card = ({
   // A prepaid balance is something to say, so an agent that has one is not
   // "not metered" — it is an account with nothing to run out of.
   const balance = balanceOf(report.credits)
-  const state = stateOf(report, borrowed ? describeReport(report, { now, maxLanes: 0 }) : view)
+  // The agent's own standing, read from its own report: a borrowed sign-in's
+  // figures are drawn, never judged as this agent's.
+  const standing = usageStandingOf(report, now)
   const hero = view.hero
-  const headlineReset = hero ? resetOf(hero, view.all.length > 1) : null
+  const own = borrowed ? usageStandingOf(drawn, now) : standing
+  // A pin picks the headline; the standing is the account's own. When the standing is about another window, the
+  // sentence names that window rather than borrowing the headline's reset, and says only what is urgent about it.
+  const elsewhere = Boolean(hero) && own.lane !== null && own.lane.id !== hero?.id
+  const said = hero ? standingSentence(own, now) : null
+  const sentence = !elsewhere
+    ? said
+    : said && (own.status === 'short' || own.status === 'out')
+      ? `${own.lane?.label} ${said.charAt(0).toLowerCase()}${said.slice(1)}`
+      : own.status === 'low'
+        // A Low chip beside "90% left" has to say which window is low, even one past the drawn rows.
+        ? own.left !== null ? `${own.lane?.label} ${own.left}% left` : `${own.lane?.label} is low`
+        : null
+  const headlineReset = hero
+    ? (elsewhere
+        ? [view.all.length > 1 && hero.title, resetOf(hero, false), sentence]
+        : [view.all.length > 1 && hero.title, sentence ?? resetOf(hero, false)]
+      ).filter(Boolean).join(' · ')
+    : null
   const agent = info?.presentation.name ?? 'Runtime'
+  // A stale or failed reading says where it came from; a current one does not
+  // need to, on every card — the page says how fresh it is, once.
+  const speaks = view.stale || Boolean(report.error) || borrowed
 
   // The headline. It is not a second number: it is whichever row of the table
   // below has least left, promoted — which is why the word beside it is only
@@ -244,12 +272,12 @@ export const Card = ({
       ? '—'
       : `${hero.remainingPercent}%`
     : balance
-      ? amount(balance.remaining, balance.unit)
+      ? amount(Math.abs(balance.remaining), balance.unit)
       : (money ?? '—')
   const word = hero
     ? view.all.length === 1 ? `left · ${hero.title}` : 'left'
     : balance
-      ? 'left on the balance'
+      ? balance.remaining < 0 ? 'overdrawn' : 'left on the balance'
       : report.error
         ? 'not reporting'
         : money
@@ -261,7 +289,7 @@ export const Card = ({
           text: `Everything is spent on the ${drawn.account ?? 'other sign-in'} — ${agent} may be signed in as another account`,
           tone: 'warn' as const,
         }
-      : noteOf(drawn, view, balance, Boolean(spend))
+      : noteOf(drawn, view, balance, Boolean(spend), now)
 
   return (
     <SurfaceCard
@@ -270,8 +298,8 @@ export const Card = ({
     >
       {/* The canonical card inset holds the recorded heading and its state. */}
       <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
-        name={drawn.account ?? agent} agent={drawn.account ? agent : undefined}
-        states={<>{shapeChip}<Chip state={state} {...(plan ? { label: plan, title: report.plan ?? undefined } : {})} /></>} />
+        name={agent} agent={drawn.account ?? undefined}
+        states={<>{shapeChip}{plan && <Chip tone="neutral" label={plan} title={report.plan ?? undefined} />}<Chip tone={STANDING_TONE[standing.status]} label={STANDING_LABEL[standing.status]} /></>} />
 
       {moneyRow}
 
@@ -280,16 +308,6 @@ export const Card = ({
           <DashboardFigure>
             <Text role="figure" tone={hero ? usageReadingTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
             <Text role="muted" truncate>{word}</Text>
-            <ToolbarGap />
-          {/* The pace sits beside the figure it qualifies, not in the header.
-              It spent a year as the *last* of six candidates for the card's
-              one line of prose, which meant the only card that ever showed it
-              was one with nothing else wrong — the opposite of when it
-              matters; it is a standing rather than a sentence, so it wears a
-              badge. The header was the first place tried and it is the wrong
-              one: an account address, an agent name, a badge and a plan chip
-              on one 320px line truncated the agent to "Cur…". */}
-            {hero?.burn?.forecast && <LanePace lane={hero} />}
           </DashboardFigure>
         {/* No lane, no meter: an empty track under a balance or a month's spend
             reads as "nothing left", which is the opposite of what those cards
@@ -306,10 +324,12 @@ export const Card = ({
           )}
         </DashboardLanes>
 
-        {view.all.length > 1 && (
+        {/* The rows are the lanes the headline does not already say: the
+            promoted lane repeated as the first row was one fact twice. */}
+        {view.lanes.length > 0 && (
           <DashboardLanes>
             <Separator />
-          {view.all.map((lane) => (
+          {view.lanes.map((lane) => (
             <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} countdownTitle={lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={paletteTone(lane.tone)} />
           ))}
           {view.overflow > 0 && (
@@ -325,8 +345,8 @@ export const Card = ({
         )}
       </DashboardAccountBody>
 
-      <DashboardAccountFoot source={report.source.label} stale={view.stale}
-        age={hero ? <Text role="meta" tone={view.stale ? 'warning' : 'neutral'}>· {dashboardReadLabel(drawn.fetchedAt, now, performance.timeOrigin)}</Text> : undefined}
+      <DashboardAccountFoot source={speaks ? report.source.label : ''} stale={view.stale}
+        age={hero && speaks ? <Text role="meta" tone={view.stale ? 'warning' : 'neutral'}>· {dashboardReadLabel(drawn.fetchedAt, now, performance.timeOrigin)}</Text> : undefined}
         actions={        <Popover
           label={<MoreIcon size={14} />}
           title={`What to do about ${agent}`}
@@ -362,20 +382,24 @@ export const Card = ({
  * neutral until the burn is actually going to cost something — which is the
  * moment the projection crosses the floor before the reset does.
  */
-export const LanePace = ({ lane }: { lane: LaneView }) => {
+export const LanePace = ({ lane, now }: { lane: LaneView; now: number }) => {
   const burn = lane.burn
   if (!burn || !burn.forecast) return null
   const tone = burn.status === 'spent' ? 'danger' : burn.runsOut ? 'warning' : 'neutral'
-  const outcome = burn.runsOut
-    ? `runs out in ${formatCountdown(burn.etaMs ?? 0) ?? 'moments'}`
-    : 'lasts to the reset'
+  // Said as a time, never as a rate: "over pace" read as good news on this
+  // badge and as bad news in the burn-down's own words.
+  const word =
+    burn.status === 'spent'
+      ? 'spent'
+      : burn.runsOut
+        ? `runs out ~${formatWhen(now + (burn.etaMs ?? 0), now)}`
+        : 'lasts to reset'
   return (
     <PaceBadge
       status={burn.status}
-      {...(burn.status === 'fresh' || burn.status === 'spent' ? {} : { margin: burn.margin })}
       tone={tone}
-      word={burnWord(burn.status)}
-      title={`${lane.title}: ${describeMargin(burn.margin)} — at this rate it ${outcome}.`}
+      word={word}
+      title={`${lane.title}: ${describeMargin(burn.margin)}.`}
     />
   )
 }
@@ -465,7 +489,7 @@ const BurnCard = ({
             </ChartHint>
           </>
           <ChartTools>
-            <LanePace lane={lane} />
+            <LanePace lane={lane} now={now} />
           </ChartTools>
         </ChartHead>
 
@@ -587,11 +611,18 @@ export const noteOf = (
   view: ReportView,
   balance: Balance | null,
   hasSpend: boolean,
+  now: number,
 ): { text: string; tone?: Tone } | null => {
   if (report.error) return { text: report.error.message, tone: 'bad' }
+  const standing = usageStandingOf(report, now)
+  // The balance decides when there is no plan lane, or when the source says the credits are what it hit.
+  const onBalance = !view.hero || (report.reached === 'credits' && !view.reachedLane)
+  if (standing.status === 'overdrawn' || (onBalance && balance && balance.remaining < 0)) {
+    return { text: 'New turns will fail until it is topped up', tone: 'bad' }
+  }
   if (view.blocked) {
     // A prepaid balance does not come back on its own; a window does.
-    return !view.hero && balance && balance.remaining <= 0
+    return onBalance && balance && balance.remaining <= 0
       ? { text: 'The balance is spent — new turns will fail until it is topped up', tone: 'bad' }
       : { text: 'Reached — new turns will fail until it resets', tone: 'bad' }
   }
@@ -603,9 +634,13 @@ export const noteOf = (
     }
   }
   // One model is out, not the account. Saying "new turns will fail" here would
-  // send someone to another agent they do not need.
-  if (view.reachedLane?.scope) {
-    return { text: `${view.reachedLane.scope} is spent — other models still work`, tone: 'warn' }
+  // send someone to another agent they do not need. The standing reads every
+  // lane, so a spent model past the card's last drawn row is still said.
+  const scopedLane = view.reachedLane?.scope ? null : standing.scopedOut
+  const scopedOut = view.reachedLane?.scope ? view.reachedLane : scopedLane ? describeLane(scopedLane, now, report.lanes) : null
+  if (scopedOut?.scope) {
+    const back = scopedOut.resetClock ? ` until ${scopedOut.resetClock}` : ''
+    return { text: `${scopedOut.scope} is out${back} — other models still work`, tone: 'warn' }
   }
   // A balance beside a plan lane, not instead of it: the headline percentage is
   // the plan's included usage, and a pay-as-you-go balance is a second pot.
@@ -618,15 +653,8 @@ export const noteOf = (
   // "−33% over pace" beside "33% ahead of pace · runs out in 12h" was one
   // fact in two vocabularies on one card, and the reader has to check whether
   // they are the same number before deciding they can ignore one of them.
-  if (view.pace && !view.pace.willLastToReset) {
-    const eta = view.pace.etaMs === null ? null : formatCountdown(view.pace.etaMs)
-    return {
-      text: eta
-        ? `At this rate it runs out in ${eta} — before the window resets.`
-        : 'At this rate it runs out before the window resets.',
-      tone: 'warn',
-    }
-  }
+  // A pace that will not last is said under the bar, as a time
+  // ("Runs out ~2:47 PM, before its 4:43 PM reset") — `standingSentence`.
   if (!view.hero && !balance) {
     return {
       text: hasSpend
@@ -793,7 +821,7 @@ export const Spend = ({
             )}
           </ChartHead>
           <DashboardStats facts={periods.map(period => ({id:String(period.days),label:period.label,value:period.unknown ? 'Not read yet' : format(period.cost),
-            qualifier:!period.unknown && period.daysRead < period.days ? `· ${period.daysRead} of ${period.days} days with history` : !period.unknown ? 'so far' : undefined,
+            qualifier:!period.unknown && period.daysRead < period.days ? `· ${period.daysRead} of ${period.days} ${period.days === 1 ? 'day' : 'days'} with history` : !period.unknown ? 'so far' : undefined,
           }))} />
         </ChartCard>
 

@@ -173,7 +173,7 @@ describe("another sign-in's figures", () => {
       node.textContent?.includes('Antigravity'),
     )
     const warning = [...(article?.querySelectorAll<HTMLElement>('[data-slot="text"]') ?? [])].find((node) =>
-      node.textContent?.includes('Gemini Models is spent — other models still work'),
+      /Gemini Models is out( until .+)? — other models still work/.test(node.textContent ?? ''),
     )
 
     expect(warning?.dataset['tone']).toBe('warning')

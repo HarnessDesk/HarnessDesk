@@ -20,8 +20,11 @@ import {
   planLabel,
   pricedNote,
   provenanceLabel,
+  rightNow,
   runway,
   spendHint,
+  standingSentence,
+  usageStandingOf,
   workingAccount,
 } from './usage'
 
@@ -563,7 +566,7 @@ describe('runway', () => {
     expect(borrowed.exhausted).toEqual([])
   })
 
-  it('counts a prepaid balance as usage reported, and a spent one as out of credits', () => {
+  it('counts a prepaid balance as usage reported, and says one below zero as overdrawn, as its card does', () => {
     // Amp and Cline have a balance and nothing else. The line above the cards
     // once said "No agent here reports plan usage." beside a card reading
     // "Limit reached" for an overdrawn Cline account.
@@ -574,7 +577,10 @@ describe('runway', () => {
     expect(healthy.metered).toBe(1)
     const spent = runway([funded, overdrawn], nameFor, NOON)
     expect(spent.exhausted).toEqual([overdrawn])
-    expect(spent.headline).toBe(`${nameFor(overdrawn)} is out of credits.`)
+    expect(spent.headline).toBe(`${nameFor(overdrawn)} is overdrawn.`)
+    // At zero with no `reached` from the source, the card says Out, so the line above it does too.
+    const empty = report({ runtime: runtimeId('amp'), credits: { remaining: 0, unit: 'USD' } })
+    expect(runway([empty, report({})], nameFor, NOON).headline).toBe(`${nameFor(empty)} is out of credits.`)
     // A balance that cannot be named is not one.
     expect(runway([report({ credits: { remaining: Number.NaN, unit: 'USD' } })], nameFor, NOON).metered).toBe(0)
   })
@@ -766,3 +772,120 @@ describe('workingAccount', () => {
   expect(formatResetCountdown(null)).toBe('—')
   expect(formatResetCountdown(-1)).toBe('—')
  })
+
+describe('standingSentence', () => {
+  const at = (hours: number): number => NOON + hours * HOUR
+
+  it('says a lasting window as its reset time, and a spent one as when it is back', () => {
+    const lasting = usageStandingOf(report({ lanes: [lane({ id: 'session', usedPercent: 30, windowMinutes: 300, resetsAt: at(1) })] }), NOON)
+    expect(standingSentence(lasting, NOON)).toMatch(/^Lasts to its \d{1,2}:00 PM reset$/)
+    const spent = usageStandingOf(report({ lanes: [lane({ id: 'weekly', usedPercent: 100, resetsAt: at(3 * 24) })] }), NOON)
+    expect(spent.status).toBe('out')
+    expect(standingSentence(spent, NOON)).toMatch(/^Back [A-Z][a-z]{2} \d{1,2}:00 PM$/)
+  })
+
+  it('says a window that will not last as the time it runs out, before its reset', () => {
+    const short = usageStandingOf(report({ lanes: [lane({ id: 'session', usedPercent: 60, windowMinutes: 300, resetsAt: at(4) })] }), NOON)
+    expect(short.status).toBe('short')
+    expect(standingSentence(short, NOON)).toMatch(/^Runs out ~12:40 PM, before its 4:00 PM reset$/)
+  })
+
+  it('gives a lane no reset clock once its reset has passed', () => {
+    const view = describeReport(report({ lanes: [lane({ id: 'weekly', usedPercent: 100, scope: 'Opus', resetsAt: at(-2) })] }), { now: NOON })
+    expect(view.all[0]?.resetClock).toBeNull()
+  })
+
+  it('says no Back time once the reset has passed but the report has not been read again', () => {
+    const spent = usageStandingOf(report({ lanes: [lane({ id: 'weekly', usedPercent: 100, resetsAt: at(-2) })] }), NOON)
+    expect(spent.status).toBe('out')
+    expect(standingSentence(spent, NOON)).toBeNull()
+  })
+
+  it('never says pace in words that need a legend', () => {
+    const text = [30, 60, 95].map((used) =>
+      standingSentence(usageStandingOf(report({ lanes: [lane({ id: 's', usedPercent: used, windowMinutes: 300, resetsAt: at(2) })] }), NOON), NOON),
+    )
+    for (const line of text) expect(line ?? '').not.toMatch(/pace/)
+  })
+})
+
+describe('rightNow', () => {
+  const name = (r: UsageReport): string => (r.runtime === runtimeId('a') ? 'Agent A' : 'Agent B')
+
+  it('names the agent with the most room, and the one that is out with when it is back', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'session', usedPercent: 15, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'session', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + 2 * HOUR })] }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBe('Start on Agent A — 85% left, and it lasts to its 4:00 PM reset. Agent B is out until 2:00 PM.')
+  })
+
+  it('says when the first agent is back when nothing has room', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'w', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + 3 * HOUR })] }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'w', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + HOUR })] }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBe('Nothing has room right now — Agent B is back first, at 1:00 PM.')
+  })
+
+  it('makes no nothing-has-room claim while one reading is unknown', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'w', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + HOUR })] }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'w', usedPercent: 20, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })], error: { message: 'no answer' } }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBeNull()
+  })
+
+  it('makes no nothing-has-room claim while a balance-only account still has credit', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'w', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + 3 * HOUR })] }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'w', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + HOUR })] }),
+        report({ runtime: runtimeId('c'), lanes: [], credits: { remaining: 12, unit: 'USD' } as UsageReport['credits'] }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBeNull()
+  })
+
+  it('recommends nothing when two of one name have no account to tell them apart', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'session', usedPercent: 15, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'session', usedPercent: 60, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+      ],
+      () => 'Agent',
+      NOON,
+    )
+    expect(line).toBeNull()
+  })
+
+  it('names the account when two runtimes share one name', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), account: 'jane@example.com', lanes: [lane({ id: 'session', usedPercent: 15, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+        report({ runtime: runtimeId('b'), account: 'dev@example.com', lanes: [lane({ id: 'session', usedPercent: 60, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+      ],
+      () => 'Agent',
+      NOON,
+    )
+    expect(line).toMatch(/^Start on Agent \(jane@example\.com\) — 85% left/)
+  })
+
+  it('has nothing to choose between with one measured account', () => {
+    expect(rightNow([report({ lanes: [lane({ id: 'w', usedPercent: 10 })] })], name, NOON)).toBeNull()
+  })
+})

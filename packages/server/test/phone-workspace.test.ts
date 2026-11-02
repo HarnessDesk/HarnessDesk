@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { PhoneSim } from '@harnessdesk/phone-link/sim'
-import { runtimeId, sessionId, type GoalView, type LedgerQuery, type LedgerReport, type PhoneTier, type SessionSummary, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, type GoalView, type LedgerQuery, type LedgerReport, type PhoneTier, type PhoneWorkAllowance, type SessionSummary, type UsageReport } from '@harnessdesk/protocol'
 import { Logger } from '../src/log.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { phoneLinkOff, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
@@ -304,6 +304,63 @@ test('a plan with no short window shows a seat with no bar, and an agent the des
   try {
     f.reports = [report('a', { lanes: [] }), report('b', { runtime: stranger })]
     assert.deepEqual((await f.workspace.dashboardRead({})).seats, [{ label: 'Fake Agent', windowPercent: null, resetsAt: null, weekPercent: null }])
+  } finally { await f.done() }
+})
+
+test('a phone allowance says the desk’s own standing, counts down to times and names no account', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    f.reports = [
+      report(HOSTILE.email, { fetchedAt: NOW - 5000, error: { message: `token refused for ${HOSTILE.email}` } } as never),
+      report('john@example.com', { lanes: [{ id: 'session', label: '5-hour', usedPercent: 100, windowMinutes: 300, resetsAt: NOW + HOUR }] }),
+      report('kim@example.com', { lanes: [], credits: { remaining: -2.15, unit: 'USD' } }),
+    ]
+    const rows = (await f.workspace.workUsage())!.runtimes
+    assert.deepEqual(rows.map(row => row.id), ['fake-agent', 'fake-agent:2', 'fake-agent:3'], 'one agent signed in three times sends three ids')
+    assert.deepEqual(rows.map(row => [row.standing, row.status]), [['unknown', 'Unknown'], ['out', 'Out'], ['overdrawn', 'Overdrawn']])
+    const [failed, out, overdrawn] = rows as [typeof rows[0], typeof rows[0], typeof rows[0]]
+    assert.equal(failed.stale, true)
+    assert.equal(failed.readAt, NOW - 5000)
+    assert.equal(failed.problem, 'token refused for …')
+    assert.equal(failed.plan, 'Pro')
+    assert.deepEqual(failed.lanes, [
+      { label: '5-hour', left: 0.576, resetsAt: NOW + 2 * HOUR },
+      { label: 'Weekly', left: 0.388, resetsAt: NOW + 70 * HOUR },
+      { label: 'Weekly (one model)', scope: 'one model', left: 0.01 },
+    ])
+    assert.equal(out.backAt, NOW + HOUR)
+    assert.equal(out.left, 0)
+    assert.equal(out.resetsIn, '1h 00m', 'an older phone still reads the string')
+    assert.deepEqual(overdrawn.balance, { amount: -2.15, unit: 'USD' })
+    assert.equal(overdrawn.lanes, undefined)
+    assert.deepEqual(leaks(rows), [])
+  } finally { await f.done() }
+})
+
+test('a spent model says when it is back only while that time is ahead', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    const spentModel = (resetsAt: number) => report('dev@example.com', { lanes: [
+      { id: 'session', label: '5-hour', usedPercent: 10, windowMinutes: 300, resetsAt: NOW + HOUR },
+      { id: 'weekly:opus', label: 'Weekly', scope: 'Opus', usedPercent: 100, windowMinutes: 10_080, resetsAt },
+    ] })
+    f.reports = [spentModel(NOW + 3 * HOUR), spentModel(NOW - HOUR)]
+    const [ahead, passed] = (await f.workspace.workUsage())!.runtimes as [PhoneWorkAllowance, PhoneWorkAllowance]
+    assert.deepEqual(ahead.scopedOut, { scope: 'Opus', backAt: NOW + 3 * HOUR })
+    assert.deepEqual(passed.scopedOut, { scope: 'Opus' }, 'a cached read past its reset promises no time already gone')
+  } finally { await f.done() }
+})
+
+test('a balance that is not a finite number is left off the phone row', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    const odd = (remaining: number) => report('dev@example.com', { lanes: [], credits: { remaining, unit: 'USD' } })
+    f.reports = [odd(Number.NaN), odd(Number.POSITIVE_INFINITY), odd(4.5)]
+    const rows = (await f.workspace.workUsage())!.runtimes as PhoneWorkAllowance[]
+    assert.deepEqual(rows.map(row => row.balance), [undefined, undefined, { amount: 4.5, unit: 'USD' }])
   } finally { await f.done() }
 })
 

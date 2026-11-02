@@ -2,8 +2,8 @@ import {
   sessionIndexCursorOf,
   type GoalView, type LedgerQuery, type LedgerReport, type PhoneDashboard, type PhoneProjectShare, type PhoneRange, type PhoneSeatUsage,
   type PhoneSessionRow, type PhoneSessionsList, type PhoneSessionState, type PhoneTeamRow, type PhoneTeamsList, type PhoneTeamStage,
-  type PhoneTeamStatus, type PhoneWorkItem, type PhoneWorkPeriod, type PhoneWorkUsage, type PhoneWorkWorker, type RuntimeId, type SessionId,
-  type SessionSummary, type UsageLane, type UsageReport,
+  type PhoneTeamStatus, type PhoneWorkAllowance, type PhoneWorkItem, type PhoneWorkPeriod, type PhoneWorkUsage, type PhoneWorkWorker,
+  type RuntimeId, type SessionId, type SessionSummary, type UsageLane, type UsageReport, type UsageStandingStatus, usageStandingOf,
 } from '@harnessdesk/protocol'
 import { folderName, micros, money, scrub } from './phone-redact.js'
 
@@ -359,18 +359,56 @@ export class PhoneWorkspace {
     return {
       spentToday: days[6]!.cost,
       days,
-      runtimes: seatRows(reports, this.#ports.seatName).map(seat => {
-        const reset = seat.resetsAt === null ? null : resetsIn(seat.resetsAt - now)
-        return {
-          id: String(seat.runtime), name: seat.label, models: [], running: [], last7: [],
-          ...(seat.windowPercent === null ? {} : { used: seat.windowPercent / 100 }),
-          ...(reset === null ? {} : { resetsIn: reset }),
-          ...(seat.weekPercent === null ? {} : { weekUsed: seat.weekPercent / 100 }),
-        }
-      }),
+      runtimes: seatRows(reports, this.#ports.seatName).map(seat => allowanceRowOf(seat, now)),
       week: period(7, byRuntime7, byProject7, total14),
       month: period(30, byRuntime30, byProject30, total60),
     }
+  }
+}
+
+const STANDING_WORD: Record<UsageStandingStatus, string> = {
+  ready: 'Ready', low: 'Low', short: 'Short', out: 'Out', overdrawn: 'Overdrawn', unknown: 'Unknown',
+}
+
+/**
+ * One allowance row in the phone's shape. The standing is the desk's own `usageStandingOf`, so the phone's word
+ * and the Plans table's never disagree; times are epoch milliseconds the phone counts down to. The older string
+ * fields stay for a phone that reads only them. A source's error goes through `scrub`; the account never leaves.
+ */
+const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
+  const { report } = seat
+  const standing = usageStandingOf(report, now)
+  const reset = seat.resetsAt === null ? null : resetsIn(seat.resetsAt - now)
+  const fraction = (left: number): number => Math.round(Math.min(100, Math.max(0, left)) * 10) / 1000
+  const lanes = report.lanes.filter(lane => !lane.placeholder).map(lane => ({
+    label: scrub(lane.label, 40),
+    ...(lane.scope ? { scope: scrub(lane.scope, 40) } : {}),
+    ...(lane.usageKnown === false ? {} : { left: fraction(100 - lane.usedPercent) }),
+    ...(lane.resetsAt === null || lane.resetsAt <= now ? {} : { resetsAt: lane.resetsAt }),
+  }))
+  const scoped = standing.scopedOut
+  // A non-finite amount turns into null on the wire and breaks the phone's numeric field.
+  const raw = report.credits?.remaining
+  const remaining = typeof raw === 'number' && Number.isFinite(raw) ? raw : null
+  const plan = report.planLabel ?? report.plan
+  return {
+    id: seat.id, name: seat.label, models: [], running: [], last7: [],
+    ...(seat.windowPercent === null ? {} : { used: seat.windowPercent / 100 }),
+    ...(reset === null ? {} : { resetsIn: reset }),
+    ...(seat.weekPercent === null ? {} : { weekUsed: seat.weekPercent / 100 }),
+    status: STANDING_WORD[standing.status],
+    standing: standing.status,
+    ...(standing.left === null ? {} : { left: fraction(standing.left) }),
+    ...(standing.lane?.resetsAt != null && standing.lane.resetsAt > now ? { resetsAt: standing.lane.resetsAt } : {}),
+    ...(standing.backAt === null ? {} : { backAt: standing.backAt }),
+    ...(standing.runsOutAt === null ? {} : { runsOutAt: Math.round(standing.runsOutAt) }),
+    ...(scoped?.scope ? { scopedOut: { scope: scrub(scoped.scope, 40), ...(scoped.resetsAt === null || scoped.resetsAt <= now ? {} : { backAt: scoped.resetsAt }) } } : {}),
+    ...(lanes.length === 0 ? {} : { lanes }),
+    ...(remaining === null || report.credits?.unlimited ? {} : { balance: { amount: remaining, unit: scrub(report.credits!.unit, 12) } }),
+    ...(plan ? { plan: scrub(plan, 40) } : {}),
+    readAt: report.fetchedAt,
+    ...(now - report.fetchedAt > report.staleAfterMs ? { stale: true } : {}),
+    ...(report.error ? { problem: scrub(report.error.message, 120) } : {}),
   }
 }
 
@@ -412,8 +450,13 @@ const statusOf = (view: GoalView, execution: PhoneTeamInput['execution']): Phone
   return execution && (execution.state === 'stopped' || execution.state === 'stalled') ? 'stopped' : 'working'
 }
 
-/** One row per signed-in agent, with the runtime kept for the caller and never sent. */
-interface SeatRow extends PhoneSeatUsage { readonly runtime: RuntimeId }
+/** One row per signed-in agent, with the runtime and its report kept for the caller and never sent whole. */
+interface SeatRow extends PhoneSeatUsage {
+  readonly runtime: RuntimeId
+  /** The runtime, with the row's number when the agent is signed in more than once: never an account. */
+  readonly id: string
+  readonly report: UsageReport
+}
 
 /**
  * One row per signed-in agent. A name shared by several accounts gets a number so the rows can be told apart;
@@ -430,9 +473,12 @@ const seatRows = (reports: readonly UsageReport[], seatName: PhoneWorkspacePorts
     const planWide = report.lanes.filter(lane => !lane.scope)
     const short = pick(planWide.filter(lane => lane.windowMinutes !== null && lane.windowMinutes < WEEK_MINUTES), (a, b) => a.windowMinutes! - b.windowMinutes!)
     const week = planWide.find(lane => lane.id === 'weekly') ?? planWide.find(lane => lane.windowMinutes === WEEK_MINUTES)
+    const several = (total.get(name) ?? 0) > 1
     return {
       runtime: report.runtime,
-      label: (total.get(name) ?? 0) > 1 ? `${name} ${nth}` : name,
+      id: several && nth > 1 ? `${report.runtime}:${nth}` : String(report.runtime),
+      report,
+      label: several ? `${name} ${nth}` : name,
       windowPercent: short ? Math.round(short.usedPercent) : null,
       resetsAt: short?.resetsAt ?? null,
       weekPercent: week ? Math.round(week.usedPercent) : null,
