@@ -23,10 +23,16 @@ export type Foundation = {
   overrides: Record<string, string>
 }
 
-/** A stylesheet's custom-property declarations, as an override map. */
-const declarations = (css: string): Record<string, string> =>
+/** The custom-property declarations of one rule in a stylesheet, as an
+ * override map. Only the rule `selector` names: an override map is applied on
+ * `body`, so a nested rule's values (the Sheet's plate resets) would otherwise
+ * land on the whole page. */
+export const declarations = (css: string, selector: string): Record<string, string> =>
   Object.fromEntries(
-    [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/(--hd-[\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1]!, m[2]!.trim()]),
+    [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .filter((rule) => rule[1]!.trim() === selector)
+      .flatMap((rule) => [...rule[2]!.matchAll(/(--hd-[\w-]+)\s*:\s*([^;]+);/g)])
+      .map((m) => [m[1]!, m[2]!.trim()]),
   )
 
 export const FOUNDATIONS: Foundation[] = [
@@ -43,7 +49,7 @@ export const FOUNDATIONS: Foundation[] = [
     // explorer cannot show a Sheet the app does not draw. Settings ›
     // Appearance › Surface applies the same file through an attribute.
     about: 'Groups laid flat on one page, a hairline between rows instead of a box around them.',
-    overrides: declarations(sheetCss),
+    overrides: declarations(sheetCss, ":root body[data-hd-surface='sheet']"),
   },
   {
     id: 'dense-pages',

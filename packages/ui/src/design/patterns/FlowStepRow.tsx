@@ -31,8 +31,8 @@ const toneOf = (label: string): Tone => {
     default: return 'neutral'
   }
 }
-/** A recorded step or Seat state, toned once for the Flow list and main Run Timeline. Unknown outcomes stay neutral. */
-export const RunStateChip = ({ state }: { state: string }) => <Chip tone={toneOf(state)}>{sanitizeText(state)}</Chip>
+/** A recorded step or Seat state, toned once for the Flow list and main Run Timeline: a word, coloured only when the state is data. Unknown outcomes stay neutral, in fact ink. */
+export const RunStateChip = ({ state }: { state: string }) => <Chip tone={toneOf(state)} variant="quiet">{sanitizeText(state)}</Chip>
 
 const stateOf = (run: FlowStepRun): string => run.state === 'done' && run.line ? wordOf(words(run.line))
   : ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Waiting for you', blocked: 'Waiting for evidence', stopping: 'Stopping', stopped: 'Stopped' })[run.state]

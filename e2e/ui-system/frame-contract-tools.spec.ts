@@ -419,16 +419,19 @@ for (const theme of WALL_THEMES) {
       // Folded Seat records retain their facts, but have no laid-out key column yet.
       const keys = details.locator('[data-slot="summary-item"] dt:visible')
       expect(await keys.count()).toBeGreaterThanOrEqual(3)
-      const widths = await keys.evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().width)))
-      expect(widths).toEqual(widths.map(() => FRAME.summaryKey.panel))
+      // An icon-row list keys each row by its glyph; a labelled list by the panel column.
+      const keyed = (nodes: Element[]) => nodes.map(node => ({ width: Math.round(node.getBoundingClientRect().width), icon: node.closest('[data-keys="icon"]') !== null }))
+      const expected = (list: { icon: boolean }[]) => list.map(({ icon }) => ({ width: icon ? FRAME.summaryKey.icon : FRAME.summaryKey.panel, icon }))
+      const widths = await keys.evaluateAll(keyed)
+      expect(widths).toEqual(expected(widths))
       if (destination === 'conversation') {
         const recorded = details.getByRole('button', { name: 'Seat record', exact: true })
         await expect(recorded).toHaveAttribute('aria-expanded', 'false')
         await recorded.click()
         await expect(recorded).toHaveAttribute('aria-expanded', 'true')
         expect(await keys.count()).toBeGreaterThan(widths.length)
-        const expandedWidths = await keys.evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().width)))
-        expect(expandedWidths).toEqual(expandedWidths.map(() => FRAME.summaryKey.panel))
+        const expandedWidths = await keys.evaluateAll(keyed)
+        expect(expandedWidths).toEqual(expected(expandedWidths))
       }
     })
   }

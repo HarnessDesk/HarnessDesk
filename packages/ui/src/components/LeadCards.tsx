@@ -114,7 +114,7 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
       {card.type === 'branch-ownership' && !state && placement !== 'dock' && <OutsideHeadBanner branch={releasedBranch?.branch ?? `Branch for #${card.number}`} head={card.observedHead} previous={releasedBranch?.head} rewritten={releasedBranch?.branchChange === 'rewrite'} disabled={pending !== null} onReclaim={() => { void decide(card, 'reclaim-branch') }} />}
       {placement !== 'dock' && (card.type !== 'branch-ownership' || state) && <LeadContract cardId={card.id} cardType={card.type} summary={summary} state={state} focusRef={ref}>
         {card.type === 'plan' && <>
-          {card.contract.repeat && <><Chip tone="neutral">Repeats</Chip><Text as="p" role="subject">How it repeats</Text>
+          {card.contract.repeat && <><Chip variant="quiet" tone="neutral">Repeats</Chip><Text as="p" role="subject">How it repeats</Text>
             <Text as="p" role="prose">{leadRepeatWords[card.contract.repeat.every]} at {card.contract.repeat.at}</Text>
             <Text as="p" role="muted">{card.contract.repeat.every === 'mondays' || card.contract.repeat.every === 'fridays' ? 'Skips a week while the last run waits for you' : 'Skips a run while the last one waits for you'}</Text>
             <Text as="p" role="muted">Runs once when the desk wakes, if it was asleep</Text></>}
@@ -152,12 +152,12 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
     </> : <Button disabled={pending !== null || !onPerform} onClick={() => void perform(action, 'run')}>{`Run check ${action.name}`}</Button>} />)}
     {placement !== 'dock' && approvalRows.length > 0 && <section aria-label="Saved approvals for this goal">
       <Text as="p" role="subject">Saved approvals for this goal</Text>
-      <Rows>{approvalRows.map(rule => <Row key={rule.id} title={<>{sanitizeText(rule.target)}{rule.revoked ? <Chip tone="neutral">Revoked</Chip> : rule.uncertain ? <Chip tone="warning">Needs review</Chip> : null}</>} desc={`${rule.count} ${rule.count === 1 ? 'request' : 'requests'} answered`}
+      <Rows>{approvalRows.map(rule => <Row key={rule.id} title={<>{sanitizeText(rule.target)}{rule.revoked ? <Chip variant="quiet" tone="neutral">Revoked</Chip> : rule.uncertain ? <Chip variant="quiet" tone="warning">Needs review</Chip> : null}</>} desc={`${rule.count} ${rule.count === 1 ? 'request' : 'requests'} answered`}
         control={<>{!!rule.entries?.length && <Button variant="secondary" onClick={() => setReadingRule(rule.id)}>View changes</Button>}{!rule.revoked && <Button variant="secondary" disabled={pending !== null || !onRevoke || goalClosed} onClick={() => void revoke(rule.id)}>Revoke</Button>}</>} />)}</Rows>
     </section>}
     {reading && <Dialog title="Changes under this approval" description={sanitizeText(reading.target)} onClose={() => setReadingRule(null)} footer={<Button onClick={() => setReadingRule(null)}>Close</Button>}>
-      <Text as="p" role="meta">{reading.revoked && <Chip tone="neutral">Revoked</Chip>}{` Newest first · ${reading.entries?.filter(entry => !entry.uncertain).length ?? 0} of ${reading.count} ${reading.count === 1 ? 'answer' : 'answers'} retained${reviewCount > 0 ? ` · ${reviewCount} ${reviewCount === 1 ? 'needs' : 'need'} review` : ''}`}</Text>
-      <Rows>{reading.entries?.map(entry => <Row key={entry.id} kind="record" layout="record" title={<>{`Request ${entry.number}`}{entry.uncertain && <Chip tone="warning">Needs review</Chip>}</>} desc={<CodeText block wrap>{sanitizeText(entry.diff)}</CodeText>} />)}</Rows>
+      <Text as="p" role="meta">{reading.revoked && <Chip variant="quiet" tone="neutral">Revoked</Chip>}{` Newest first · ${reading.entries?.filter(entry => !entry.uncertain).length ?? 0} of ${reading.count} ${reading.count === 1 ? 'answer' : 'answers'} retained${reviewCount > 0 ? ` · ${reviewCount} ${reviewCount === 1 ? 'needs' : 'need'} review` : ''}`}</Text>
+      <Rows>{reading.entries?.map(entry => <Row key={entry.id} kind="record" layout="record" title={<>{`Request ${entry.number}`}{entry.uncertain && <Chip variant="quiet" tone="warning">Needs review</Chip>}</>} desc={<CodeText block wrap>{sanitizeText(entry.diff)}</CodeText>} />)}</Rows>
     </Dialog>}
   </>
 }

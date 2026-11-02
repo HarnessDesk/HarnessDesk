@@ -5,6 +5,7 @@ import { ToolPaneBody } from '../ui/tool-pane'
 import { SectionBody } from '../ui/section'
 import { Button } from '../ui/button'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
+import { ChipLook } from '../ui/tone'
 
 /** Registered sections share the shell's one scroll owner; standalone bodies keep theirs. */
 const SectionsOnly = createContext(false)
@@ -38,7 +39,7 @@ export const ToolSection = ({ label, children, action, value, fold, defaultOpen 
   const shown = !fold || open
   const summary = value !== undefined && value !== null
     ? <span id={`${bodyId}-summary`} data-slot="tool-section-value" title={typeof value === 'string' ? value : undefined}
-      className="ms-auto min-w-0 max-w-1/2 shrink-0 truncate tabular-nums"><Text role="muted" ink="secondary" truncate className="block">{value}</Text></span> : null
+      className="ms-auto min-w-0 max-w-1/2 shrink-0 truncate tabular-nums"><Text role="muted" ink="secondary" truncate className="block"><ChipLook.Provider value="quiet">{value}</ChipLook.Provider></Text></span> : null
   return <section data-slot="tool-section" data-folded={shown ? undefined : ''} aria-label={label}
     className="min-w-0 rounded-(--hd-panel-card-radius) border border-(--hd-panel-card-border) bg-(--hd-panel-card-fill) py-(--hd-panel-card-pad-y) [[data-slot=tool-section]+&]:shadow-[inset_0_1px_0_var(--hd-panel-card-rule)]">
     <GroupLabel as="div" surface="tool">

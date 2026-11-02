@@ -64,6 +64,7 @@ import { OverviewStrip, type StripMetric } from '../../components/usage/Overview
 import {
   AgentIcon,
   BranchIcon,
+  ClockIcon,
   CostIcon,
   ExtensionIcon,
   FolderIcon,
@@ -72,6 +73,7 @@ import {
   CommentIcon,
   SearchIcon,
   ShieldAlertIcon,
+  ShieldIcon,
   SideBySideIcon,
   TeamIcon,
   TerminalIcon,
@@ -3130,6 +3132,12 @@ const TOOLBODY_CATALOG_VARIANTS = ['light', 'dark'] as const
 const TOOLBODY_CATALOG_SIZES = ['default'] as const
 const TOOLBODY_CATALOG_STATES = ['default', 'empty', 'populated', 'editing'] as const
 export const ToolBodyBoard = () => <div data-catalog-variants={TOOLBODY_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={TOOLBODY_CATALOG_SIZES.join(' ')} data-catalog-states={TOOLBODY_CATALOG_STATES.join(' ')}>
+  <ToolBody><ToolSection label="Run" value={<Chip tone="info">Running</Chip>}><SummaryList surface="panel" keys="icon" aria-label="Icon rows">
+    <SummaryItem label="Agent" kind="name" icon={<AgentIcon />}>Writer 1</SummaryItem>
+    <SummaryItem label="Ceiling" icon={<ShieldIcon />}><Chip tone="neutral">Read · Held</Chip></SummaryItem>
+    <SummaryItem label="Branch" kind="path" icon={<BranchIcon />}>feature/長いブランチ名</SummaryItem>
+    <SummaryItem label="Elapsed" icon={<ClockIcon />}>Time not recorded</SummaryItem>
+  </SummaryList></ToolSection></ToolBody>
   <ToolBody><ToolSection label="Conversation"><SummaryList surface="panel">
     <SummaryItem label="Folder" kind="path">/work/storefront/packages/interface-with-a-long-name</SummaryItem>
     <SummaryItem label="Branch" kind="path">feature/長いブランチ名</SummaryItem>
