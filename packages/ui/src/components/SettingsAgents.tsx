@@ -496,7 +496,9 @@ const AgentRow = ({
   const who = !single
     ? null
     : first
-      ? snapshot.accountPrefs[accountKey(first.entry.id, first.account)]?.nickname?.trim() ||
+      ? (snapshot.accountPrefs[accountKey(first.entry.id, first.account)]?.nickname?.trim()
+          ? accountName(first.account, snapshot.accountPrefs[accountKey(first.entry.id, first.account)])
+          : null) ||
         (first.account.anonymous ? 'Signed in' : shownIdentity(first.account, snapshot) ?? accountName(first.account, undefined, info.presentation.name))
       : gateways[0]!.slot!.gateway!.name
   // One queue in the pool's order, gateways in their places, as the account
@@ -1441,7 +1443,13 @@ const AccountDetail = ({
   const snapshot = useSnapshot()
   const key = accountKey(info.id, account)
   const prefs = snapshot.accountPrefs[key]
-  const [name, setName] = useState(prefs?.nickname ?? '')
+  // The field edits the saved nickname, but while addresses are hidden one
+  // typed as an address is shown as the name it stands for, and is saved
+  // again only once it is edited — looking at the page never rewrites it.
+  const saved = prefs?.nickname ?? ''
+  const shownSaved = snapshot.hideAccountAddresses && saved.includes('@') ? accountName(account, prefs) : saved
+  const [edited, setEdited] = useState<string | null>(null)
+  const name = edited ?? shownSaved
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [limits, setLimits] = useState<RateLimits | null>(null)
   // Strictly this account's own report — never a sibling account's, and
@@ -1568,8 +1576,8 @@ const AccountDetail = ({
                 value={name}
                 placeholder={accountName(account, undefined, info.presentation.name)}
                 aria-label="Account name"
-                onChange={(event) => setName(event.target.value)}
-                onBlur={() => store.setAccountPrefs(key, { nickname: name })}
+                onChange={(event) => setEdited(event.target.value)}
+                onBlur={() => { if (edited !== null) store.setAccountPrefs(key, { nickname: edited }) }}
               />
             }
           />

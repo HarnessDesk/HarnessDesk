@@ -16,6 +16,7 @@ import type {
 } from '@harnessdesk/protocol'
 import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
+import { accountKey } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, AppStore, type AppSnapshot } from '../state/store'
 import { AddAgentsTestPage as AddAgents } from '../test-support/settings-page'
@@ -1638,6 +1639,25 @@ it('names only, when account addresses are hidden', async () => {
   expect(container.textContent).toContain('Signed in as')
   expect(container.textContent).not.toContain('@')
   expect([...container.querySelectorAll('[title]')].map((node) => node.getAttribute('title')).join(' ')).not.toContain('@')
+})
+
+it('a nickname typed as an address is shown by name while addresses are hidden, and is not rewritten', async () => {
+  const setAccountPrefs = vi.fn()
+  const ada = ROSTER.accountsByRuntime.alpha.accounts[0]!
+  await mountList({
+    hideAccountAddresses: true,
+    accountPrefs: { [accountKey('alpha' as never, ada)]: { nickname: 'work@acme.dev' } },
+    store: { limitsFor: async () => null, setAccountPrefs },
+  })
+  expect(line('Alpha').textContent).not.toContain('@')
+  await act(async () => line('Alpha').click())
+  const row = [...container.querySelectorAll<HTMLElement>('[data-kind="record"]')].find((node) => node.textContent?.includes('work'))!
+  await act(async () => row.click())
+  const field = container.querySelector<HTMLInputElement>('input[aria-label="Account name"]')!
+  expect(field.value).toBe('work')
+  // Looking is not editing: leaving the field untouched saves nothing.
+  await act(async () => { field.focus(); field.blur() })
+  expect(setAccountPrefs).not.toHaveBeenCalled()
 })
 
 it('a gateway that new sessions run on says Default beside Gateway', async () => {
