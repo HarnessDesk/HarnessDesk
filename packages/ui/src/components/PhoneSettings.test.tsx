@@ -9,11 +9,11 @@ const clean: (() => void)[] = []
 afterEach(() => { clean.splice(0).forEach(fn => fn()); document.body.innerHTML = '' })
 
 const linked: PhoneLinkState = {
-  enabled: true, deskName: 'Studio', deskId: 'desk', port: 4455,
-  devices: [{ id: 'd1', name: 'Jane Doe’s phone', tiers: ['read', 'run', 'answer'], createdAt: 1, lastSeenAt: null }],
+  enabled: true, deskName: 'Studio', deskId: 'desk', port: 4455, relay: 'off',
+  devices: [{ id: 'd1', name: 'Jane Doe’s phone', tiers: ['read', 'run', 'answer'], createdAt: 1, lastSeenAt: null, route: null }],
   pending: [{ id: 'p1', name: 'Jane Doe’s tablet', deviceId: 'd2', requestedAt: 2 }],
 }
-const mount = (state: PhoneLinkState, pairing: { url: string; expiresAt: number; addresses: [] } | null = null) => {
+const mount = (state: PhoneLinkState, pairing: { url: string; expiresAt: number; addresses: []; away: boolean } | null = null) => {
   const box = document.createElement('div'); document.body.append(box)
   const root = createRoot(box)
   const handlers = { onPair: vi.fn(), onAllow: vi.fn(), onDeny: vi.fn(), onRevoke: vi.fn() }
@@ -37,12 +37,19 @@ it('lists paired phones and waiting ones, and answers each', () => {
   press('Not now', box); expect(onDeny).toHaveBeenCalledWith(linked.pending[0])
 })
 it('draws the code from the link and asks before removing a phone', () => {
-  const { box, onRevoke, onPair } = mount(linked, { url: 'harnessdesk://pair?c=abc', expiresAt: Date.now() + 1000, addresses: [] })
+  const { box, onRevoke, onPair } = mount(linked, { url: 'harnessdesk://pair?c=abc', expiresAt: Date.now() + 1000, addresses: [], away: false })
   expect(box.querySelector('svg[aria-label="Pairing code"]')).not.toBeNull()
   press('New code', box); expect(onPair).toHaveBeenCalled()
   press('Remove', box)
   expect(onRevoke).not.toHaveBeenCalled()
   press('Remove phone'); expect(onRevoke).toHaveBeenCalledWith(linked.devices[0])
+})
+it('says how each phone is connected, and whether the code works away from this network', () => {
+  const { box } = mount({ ...linked, devices: [{ ...linked.devices[0]!, route: 'account' }, { ...linked.devices[0]!, id: 'd3', name: 'Tablet', route: 'nearby' }] },
+    { url: 'harnessdesk://pair?c=abc', expiresAt: Date.now() + 1000, addresses: [], away: true })
+  expect(box.textContent).toContain('Connected through your account')
+  expect(box.textContent).toContain('Connected on this network')
+  expect(box.textContent).toContain('on this network or away from it')
 })
 it('the state follows the host: notifications replace it, a reset turns it off, actions name the method', async () => {
   const request = vi.fn(async () => linked) as never

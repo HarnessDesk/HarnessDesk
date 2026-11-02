@@ -3,7 +3,7 @@ import type { HostMethodName, HostParams, HostResult, PhoneLinkState, PhonePairi
 interface PhoneTransport {
   request<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>>
 }
-const off: PhoneLinkState = { enabled: false, deskName: '', deskId: '', port: null, devices: [], pending: [] }
+const off: PhoneLinkState = { enabled: false, deskName: '', deskId: '', port: null, relay: 'off', devices: [], pending: [] }
 
 /**
  * The desk's phone link, as the window sees it: who is paired, who is asking,

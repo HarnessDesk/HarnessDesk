@@ -29,8 +29,9 @@ local connection and needs no account link.
   shared gateway. The local Git record retains approvals and outcomes; Git
   objects, pull-request text and comments go to the selected forge.
 
-The account's Reachable from your phone switch only saves a preference in
-this build. The desktop opens no account relay transport. Signing in does not
+The account's Reachable from your phone switch, off until turned on, opens
+the desk's connection to the account relay, which carries end-to-end encrypted
+phone frames it cannot read. Signing in does not
 upload conversations or files, synchronize work or enable hosted execution.
 The full request inventory, payloads, timing, retention and sign-out behavior
 are in [data-boundaries.md](data-boundaries.md).

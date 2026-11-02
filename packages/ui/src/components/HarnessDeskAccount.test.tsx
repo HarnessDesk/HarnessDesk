@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { HarnessDeskAccountStatus } from '@harnessdesk/protocol'
+import type { HarnessDeskAccountStatus, PhoneRelayState } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { HarnessDeskAccountSection } from './HarnessDeskAccount'
@@ -16,7 +16,7 @@ const account: HarnessDeskAccountStatus = {
   desk: { name: 'Jane’s MacBook Pro', reachable: true },
   phones: [{ deviceId: 'AAAAAAAAAAAAAAAAAAAAAA', name: 'iPhone', lastSeenAt: null }],
 }
-const mount = (status = account, sidebarCollapsed = false, phoneLink = false) => {
+const mount = (status = account, sidebarCollapsed = false, phoneLink = false, relay: PhoneRelayState = 'off') => {
   const openDestination = vi.fn()
   const setHarnessDeskReachable = vi.fn(async () => {})
   const unlinkHarnessDeskPhone = vi.fn(async () => {})
@@ -31,6 +31,7 @@ const mount = (status = account, sidebarCollapsed = false, phoneLink = false) =>
   })
   const store = { subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, getSnapshot: () => snapshot,
     setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk, deleteHarnessDeskAccount, openDestination,
+    phone: { subscribe: () => () => {}, state: { relay } },
   } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><HarnessDeskAccountSection /></StoreProvider>))
   return { setHarnessDeskReachable, unlinkHarnessDeskPhone, renameHarnessDesk, signInToHarnessDesk, signOutOfHarnessDesk, deleteHarnessDeskAccount, openDestination, store }
@@ -194,10 +195,22 @@ it.each(['not a URL', 'javascript:alert(1)', 'file:///tmp/link'])('uses a generi
 
 it('opens the existing LAN Phone settings when local pairing is available', async () => {
   const { openDestination } = mount(account, false, true)
-  expect(container.textContent).toContain('Connections through your account are not available in this build.')
+  expect(container.textContent).toContain('Your phones reach this desk through your account when they are away from its network. Messages stay encrypted end to end.')
   expect(button('Phone settings').disabled).toBe(false)
   await act(async () => button('Phone settings').click())
   expect(openDestination).toHaveBeenCalledExactlyOnceWith({ kind: 'settings', route: { kind: 'section', section: 'phone', focus: null } })
+})
+
+it('says beside Reachable how the relay stands, and warns only when the person has to act', () => {
+  mount(account, false, true, 'connected')
+  expect(container.textContent).toContain('Connected')
+  act(() => root.render(<></>))
+  mount(account, false, true, 'unreachable')
+  expect(container.textContent).toContain('Can’t reach HarnessDesk')
+  expect(container.querySelector('[data-tone="warning"], .warning, [class*="warning"]')).not.toBeNull()
+  act(() => root.render(<></>))
+  mount({ ...account, desk: { ...account.desk, reachable: false } }, false, true, 'connected')
+  expect(container.textContent).not.toContain('Connected')
 })
 
 it('describes account sign-out separately from LAN pairing', () => {

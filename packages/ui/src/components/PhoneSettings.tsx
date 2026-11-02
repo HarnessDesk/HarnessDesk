@@ -8,6 +8,13 @@ import { useDestinationActive } from '../panels/destination-page'
 const TIER_WORDS: Readonly<Record<PhoneTier, string>> = { read: 'Read', run: 'Run', answer: 'Answer' }
 const tiersText = (tiers: readonly PhoneTier[]) => tiers.map(tier => TIER_WORDS[tier]).join(', ') || 'None'
 const lastSeen = (at: number | null) => at === null ? 'Not connected yet' : `Last seen ${new Date(at).toLocaleString()}`
+const connection = (device: PhoneDeviceView) => device.route === 'nearby' ? 'Connected on this network'
+  : device.route === 'account' ? 'Connected through your account' : lastSeen(device.lastSeenAt)
+const pairingText = (pairing: PhonePairing) => {
+  const until = new Date(pairing.expiresAt).toLocaleTimeString()
+  return pairing.away ? `Scan it with the phone, on this network or away from it. It works once, until ${until}.`
+    : `Scan it with the phone on this network. It works once, until ${until}.`
+}
 
 const refusal = (error: unknown): string => {
   const code = (error as { wireCode?: string })?.wireCode
@@ -31,7 +38,7 @@ export const PhoneSettings = ({ state, pairing, error, busy, onPair, onAllow, on
     {error && <Banner role="alert" tone="warning">{error}</Banner>}
     <Section title="Add a phone">
       <Rows>
-        <Row title="Pairing code" desc={pairing ? `Scan it with the phone on this network. It works once, until ${new Date(pairing.expiresAt).toLocaleTimeString()}.` : 'Shows a code that works once, for ten minutes.'}
+        <Row title="Pairing code" desc={pairing ? pairingText(pairing) : 'Shows a code that works once, for ten minutes.'}
           control={<Button variant="outline" disabled={busy} onClick={onPair}>{pairing ? 'New code' : 'Show code'}</Button>} />
         {pairing && <Row title="Scan with the phone" desc="Open HarnessDesk on the phone and point it here." control={<QrCode text={pairing.url} label="Pairing code" />} />}
       </Rows>
@@ -43,7 +50,7 @@ export const PhoneSettings = ({ state, pairing, error, busy, onPair, onAllow, on
     </Section>}
     <Section title="Phones">
       {state.devices.length === 0 ? <Text role="prose">No phone is paired.</Text> : <Rows>{state.devices.map(device =>
-        <Row key={device.id} title={device.name} titleChip={<Chip tone="neutral">{tiersText(device.tiers)}</Chip>} desc={lastSeen(device.lastSeenAt)}
+        <Row key={device.id} title={device.name} titleChip={<Chip tone="neutral">{tiersText(device.tiers)}</Chip>} desc={connection(device)}
           control={<Button variant="destructive" disabled={busy} onClick={() => setRemoving(device)}>Remove</Button>} />)}</Rows>}
     </Section>
     {removing && <ConfirmDialog title={`Remove ${removing.name}?`} confirmLabel="Remove phone" cancelLabel="Keep phone" tone="destructive" busy={busy}

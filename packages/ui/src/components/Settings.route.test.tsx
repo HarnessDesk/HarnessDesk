@@ -117,6 +117,8 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
     // The Library page's own Agent filter roster read.
     loadAgents: vi.fn(async () => {}),
     loadHooks: vi.fn(async () => []),
+    // The Account page reads how the relay stands beside Reachable from your phone.
+    phone: { subscribe: () => () => {}, state: { relay: 'off' } },
   } as unknown as AppStore
 }
 
