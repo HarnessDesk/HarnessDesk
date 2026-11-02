@@ -29,6 +29,7 @@ import {
   splitDock,
   toggleDock,
   swapWorkPane,
+  togglePageRail,
   undock,
   zoomArea,
   type Workbench as Model,
@@ -36,7 +37,8 @@ import {
 import { toolOf } from '../state/frame-tools'
 import { Workbench as WorkbenchBody } from './Workbench'
 import * as terminalLabels from '../lib/terminal-labels'
-import { TopBarProvider } from './top-bar'
+import { TopBarProvider, useWorkDetails } from './top-bar'
+import { PageRailToggle } from './WorkTools'
 import { ShellHostsProvider, ShellOutlets } from './shell-hosts'
 import type { ComponentProps } from 'react'
 const Workbench = (props: ComponentProps<typeof WorkbenchBody>) => <TopBarProvider><ShellHostsProvider><WorkbenchBody {...props} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
@@ -179,6 +181,7 @@ const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<A
       settle({ ...next, right: { ...next.right, collapsed: current.open }, bottom: current.tool === 'terminal' ? { ...next.bottom, collapsed: current.open } : next.bottom, frameTools: { ...next.frameTools, [subject]: { ...current, open: !current.open, expanded: false } } })
     },
     swapWorkPane: () => settle(swapWorkPane(snapshot.workbench)),
+    togglePageRail: (page: string) => settle(togglePageRail(snapshot.workbench, page)),
     /* The main area's two halves of one press, in one write: the zoom hides
        the other *areas*, the expansion hides the other *panes*. A rig that
        implemented only the first would have passed through the bug where
@@ -1308,4 +1311,17 @@ it('a page with its chosen folder keeps the terminal pane beside its body', () =
   expect(container.querySelector('[data-testid="view-terminal"]')?.closest('[inert]')).toBeNull()
   expect(container.querySelector('[data-slot="destination-pages"]')?.textContent).toBe('Review')
   expect(container.querySelector('[data-slot="fixed-shell"]')?.getAttribute('data-rail-open')).toBe('false')
+})
+
+it('a page that registers a rail gets the rail column, open until its toggle closes it', () => {
+  const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }))
+  const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return <PageRailToggle page="lead" /> }
+  const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+  draw()
+  const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  expect(shell().getAttribute('data-rail-open')).toBe('true')
+  expect(container.querySelector('[data-frame-region="rail"]')?.textContent).toBe('Lead cards')
+  act(() => container.querySelector<HTMLButtonElement>('[data-work-rail-toggle]')!.click())
+  draw()
+  expect(shell().getAttribute('data-rail-open')).toBe('false')
 })

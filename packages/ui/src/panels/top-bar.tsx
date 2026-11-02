@@ -68,6 +68,12 @@ export const useRegisteredOwner = (owner: string): boolean => {
   return useSyncExternalStore(source.subscribe,
     () => source.getSnapshot().get(owner)?.value.base !== undefined, () => false)
 }
+/** Whether `owner` has a rail to draw: a page earns the rail column only by registering one. */
+export const useRegisteredDetails = (owner: string): boolean => {
+  const source = useContext(Context) ?? emptyRegistry
+  return useSyncExternalStore(source.subscribe,
+    () => source.getSnapshot().get(owner)?.value.details != null, () => false)
+}
 export const WorkDetailsOutlet = ({ owner }: { owner: string }) => {
   const source = useContext(Context)
   if (!source) throw new Error('WorkDetailsOutlet requires TopBarProvider')

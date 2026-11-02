@@ -8,7 +8,7 @@ import { previewStore } from '../preview/harness'
 import { leadBudget, leadPlan, leadProjection } from '../preview/lead-fixture'
 import { DestinationPageScope } from '../panels/destination-page'
 import { LeadSettingsSection } from './LeadSettings'
-import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
+import { TopBarOutlet, TopBarProvider, WorkDetailsOutlet } from '../panels/top-bar'
 import { formatLeadConsentTime } from './lead-consent-time'
 import leadSettingsSource from './LeadSettings.tsx?raw'
 const decisionHandlers = vi.hoisted(() => [] as { onApprove?: () => void; onDecline?: () => void }[])
@@ -47,7 +47,7 @@ const mount = async (projection = leadProjection(), loading = false) => {
   vi.spyOn(store, 'openDestination').mockImplementation(destination => navigate(destination.kind === 'settings'))
   const Surface = () => {
     const [settings, setSettings] = useState(false), [focus, focusDecision] = useState<string | null>(null); navigate = setSettings; setFocus = focusDecision
-    return <TopBarProvider><TopBarOutlet owner="lead" fallback={{ place: null, more: () => null }} /><DestinationPageScope owner="lead" active>{settings ? <><button onClick={() => setSettings(false)}>Back</button><LeadSettingsSection /></> : <LeadPage focus={focus} />}</DestinationPageScope></TopBarProvider>
+    return <TopBarProvider><TopBarOutlet owner="lead" fallback={{ place: null, more: () => null }} /><DestinationPageScope owner="lead" active>{settings ? <><button onClick={() => setSettings(false)}>Back</button><LeadSettingsSection /></> : <LeadPage focus={focus} />}</DestinationPageScope><aside data-testid="lead-rail"><WorkDetailsOutlet owner="lead" /></aside></TopBarProvider>
   }
   await act(async () => root.render(<StoreProvider store={store}><Surface /></StoreProvider>))
   clean.push(() => { act(() => root.unmount()); box.remove() })
@@ -87,9 +87,11 @@ it.each([null, 'resume', 'decide-plan'] as const)('shows Resume only for wayOut=
   if (wayOut === 'resume') expect(box.textContent).toContain('Sending a message also continues')
   if (wayOut === 'decide-plan') { expect(button('Review plan')).toBeUndefined(); await focusDecision('plan'); expect(document.activeElement?.closest('[data-lead-decision]')?.getAttribute('data-lead-decision')).toBe('plan') }
 })
-it('shows initial allowances and disables Send during requestInFlight', async () => {
+it('shows initial allowances in the rail, not the composer, and disables Send during requestInFlight', async () => {
   const { box, update } = await mount()
-  expect(box.textContent).toContain('$5'); expect(box.textContent).toContain('4 rounds')
+  const rail = box.querySelector('[data-testid="lead-rail"]')!
+  expect(rail.querySelector('[aria-label="Spend"]')?.textContent).toContain('$5'); expect(rail.textContent).toContain('4 rounds')
+  expect(box.querySelector('form[aria-label="Lead composer"]')?.textContent).not.toContain('$5')
   await input(box.querySelector('textarea')!, 'Inspect the empty state')
   expect(button('Send').disabled).toBe(false)
   await update({ requestInFlight: true })

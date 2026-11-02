@@ -277,6 +277,7 @@ import {
   terminals as terminalsIn,
   toggleDock as toggleDockIn,
   toggleWorkRail as toggleWorkRailIn,
+  togglePageRail as togglePageRailIn,
   swapWorkPane as swapWorkPaneIn,
   undock as undockIn,
   unzoom as unzoomIn,
@@ -4741,6 +4742,10 @@ export class AppStore {
   }
   toggleWorkRail(): void {
     this.#setWorkbench(toggleWorkRailIn(this.#snapshot.workbench))
+  }
+  /** A destination page's own rail, which has no work subject to belong to. */
+  togglePageRail(page: string): void {
+    this.#setWorkbench(togglePageRailIn(this.#snapshot.workbench, page))
   }
   swapWorkPane(): void {
     this.#setWorkbench(swapWorkPaneIn(this.#snapshot.workbench))

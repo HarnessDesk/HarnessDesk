@@ -2,7 +2,7 @@ import { effectiveWindowMode } from '../editor'
 import { MenuItem, TopBarToolButton } from '../design'
 import { FilePlusIcon, FolderIcon, GlobeIcon, SquareMenuIcon, SessionIcon, TerminalIcon } from '../components/Icons'
 import { useSnapshot, useStore } from '../state/context'
-import { workRailOpen } from '../state/workbench'
+import { pageRailOpen, workRailOpen } from '../state/workbench'
 const tools = [
   { value: 'terminal', label: 'Terminal', Icon: TerminalIcon },
   { value: 'changes', label: 'Changes', Icon: FilePlusIcon },
@@ -36,4 +36,10 @@ export const WorkTools = ({ draft = false, changesRefusal, menu = false, close }
         disabled={Boolean(reason)} aria-pressed={pressed} onClick={() => activate(one.value)}><one.Icon /></TopBarToolButton>
     })}
   </>
+}
+/** A destination page's rail, toggled from its bar the way a session's is. */
+export const PageRailToggle = ({ page }: { page: string }) => {
+  const store = useStore(), open = pageRailOpen(useSnapshot().workbench, page)
+  return <TopBarToolButton data-work-rail-toggle aria-label="Toggle rail" title="Toggle rail"
+    aria-expanded={open} aria-pressed={open} onClick={() => store.togglePageRail(page)}><SquareMenuIcon /></TopBarToolButton>
 }

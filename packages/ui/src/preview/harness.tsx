@@ -7,7 +7,7 @@ import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
 import { replaceTeamPayload } from '../state/workbench'
 import { toStored, type SideBySideState } from '../lib/side-by-side'
 import { fixedToolRefusal, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from '../state/frame-tools'
-import { toggleWorkRail as toggleWorkRailIn, swapWorkPane as swapWorkPaneIn, activeView, fixedSubject, dockViews } from '../state/workbench'
+import { toggleWorkRail as toggleWorkRailIn, togglePageRail as togglePageRailIn, swapWorkPane as swapWorkPaneIn, activeView, fixedSubject, dockViews } from '../state/workbench'
 import { browserView, drivenBrowserTab, findPane, show as showPane, type PaneView } from '../state/layout'
 import { BrowserTileRegistry, type BrowserTileMount } from '../lib/browser-tiles'
 import { addBrowserTab, patchBrowserTab, type BrowserView } from '../state/layout'
@@ -1379,6 +1379,7 @@ class PreviewStore {
       frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
   }
   toggleWorkRail(): void { this.#workbench(toggleWorkRailIn(this.#snapshot.workbench)) }
+  togglePageRail(page: string): void { this.#workbench(togglePageRailIn(this.#snapshot.workbench, page)) }
   swapWorkPane(): void { this.#workbench(swapWorkPaneIn(this.#snapshot.workbench)) }
   toggleWorkPanel(): void {
     const subject = this.workSubject()

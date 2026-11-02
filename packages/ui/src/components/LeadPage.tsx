@@ -1,7 +1,7 @@
 import { PullRequestRecord } from './GitRecord'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { LEAD_LIMITS, leadWaitNeedsChange, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, LeadSlot, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, Input, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
+import { leadWaitNeedsChange, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { Banner, Button, Chip, ConfirmDialog, InlineParts, LeadSlot, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { openExternal } from '../lib/desktop'
 import { leadWakeLine } from '../lib/lead-presence'
 import { LeadNameIntro } from './LeadNameIntro'
@@ -12,12 +12,15 @@ import { LeadAway } from './LeadAway'
 import { useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
 import { LeadHostNotice, LeadMessage } from './LeadMessage'
-import { LeadCards, leadDollars } from './LeadCards'
+import { LeadCards } from './LeadCards'
 import { leadRepeatTaskFor } from '../lib/lead-repeat'
 import { leadOriginText } from '../lib/lead-time'
 import { LEAD_HANDBACK_LIMIT, LEAD_REPAIR_RECOVERY_FAILED } from './lead-wait-copy'
 import { REFUSALS, leadRefusalText } from './lead-refusals'
 import { useConversationTopBar } from './use-conversation-top-bar'
+import { useWorkDetails } from '../panels/top-bar'
+import { PageRailToggle } from '../panels/WorkTools'
+import { LeadDetails } from './LeadDetails'
 import { AtIcon, FolderIcon, PlusIcon, RouteIcon, SendIcon, SettingsIcon, StopIcon } from './Icons'
 import { LeadStatusPanel, useLeadControls } from './LeadControls'
 import { sidebarPlacement } from '../state/workbench'
@@ -78,33 +81,7 @@ const STOPPED: Record<LeadStopReason, string> = {
 const runsWords = (runs: number) => runs ? `${runs} ${runs === 1 ? 'run' : 'runs'}` : 'no runs yet'
 /** Elapsed time beside Stop: minutes under an hour, then hours and minutes. */
 export const leadElapsed = (ms: number) => { const minutes = Math.max(0, Math.floor(ms / 60000)); return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m` }
-const roundsWords = (rounds: number) => `${rounds} ${rounds === 1 ? 'round' : 'rounds'}`
 
-/** The goal's limits as one chip; tightening applies at once, raising asks on a card in the conversation. */
-const LeadLimits = ({ disabled }: { readonly disabled: boolean }) => {
-  const store = useStore(), state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state), caps = state.settings?.caps
-  const [dollars, setDollars] = useState(''), [rounds, setRounds] = useState(''), [pending, setPending] = useState(false), [error, setError] = useState<string | null>(null)
-  if (!caps) return null
-  const micros = Math.round(Number(dollars) * 1000000), roundCount = Number(rounds)
-  const valid = dollars.trim() !== '' && rounds.trim() !== '' && Number.isSafeInteger(micros) && micros >= 0 && micros <= LEAD_LIMITS.maxUsdMicros && Number.isSafeInteger(roundCount) && roundCount >= 0 && roundCount <= LEAD_LIMITS.rounds
-  const raises = valid && (micros > caps.usdMicros || roundCount > caps.rounds)
-  return <ComposerTrack name="mode">
-    <Popover title="Lead and reviewed-run limits" drop="up" align="left" disabled={disabled} label={`Up to ${leadDollars(caps.usdMicros)} · ${roundsWords(caps.rounds)}`}
-      onOpenChange={open => { if (open) { setDollars(String(caps.usdMicros / 1000000)); setRounds(String(caps.rounds)); setError(null) } }}>
-      {close => <LeadSlot slot="lead-limits"><FormStack>
-        <Text role="muted">Covers Lead replies and reviewed runs. Ordinary chats have their own session spend.</Text>
-        <InlineParts><Text role="muted">Up to $</Text><Input aria-label="Dollar limit" type="number" min={0} step="0.01" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} /></InlineParts>
-        <InlineParts><Input aria-label="Round limit" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} /><Text role="muted">rounds</Text></InlineParts>
-        <Text role="muted">{raises ? 'Raising asks for your approval in the conversation.' : 'Tightening applies at once.'}</Text>
-        {error && <Text role="muted">{error}</Text>}
-        <Button disabled={pending || !valid || micros === caps.usdMicros && roundCount === caps.rounds} aria-busy={pending} onClick={async () => {
-          setPending(true); setError(null)
-          try { await store.lead.updateSettings({ caps: { usdMicros: micros, rounds: roundCount } }); close() } catch (failure) { setError(leadRefusalText(failure)) } finally { setPending(false) }
-        }}>{raises ? 'Ask to raise' : 'Apply'}</Button>
-      </FormStack></LeadSlot>}
-    </Popover>
-  </ComposerTrack>
-}
 export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialGoal?: string; readonly focus?: string | null }) => {
   const store = useStore(), snapshot = useSnapshot(), active = useDestinationActive()
   const state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
@@ -142,7 +119,8 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     finally { stoppingRef.current = false; decisionLock.current = false; setStopping(false); input.current?.focus() }
   }
   useConversationTopBar(owner, { mark: <LeadAvatar name={name} size="header" />, place: label, placeTitle: `${label} · ${presence.word}`, placeMenu: close => <LeadStatusPanel close={close} controls={controls} />,
-    state: <Text role="muted" data-slot="lead-presence">{presence.word}</Text>, tools: <Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={controls.openSettings}><SettingsIcon /></Button>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
+    state: <Text role="muted" data-slot="lead-presence">{presence.word}</Text>, tools: <><PageRailToggle page="lead" /><Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={controls.openSettings}><SettingsIcon /></Button></>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
+  useWorkDetails(owner, <LeadDetails />, active)
   // The run strip's clock: a minute is its smallest step, so it ticks twice a minute while a goal runs.
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { if (!goalActive) return; const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [goalActive])
@@ -306,7 +284,6 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
                     </Menu>}
                   </Popover>
                 </ComposerTrack>
-                <LeadLimits disabled={!!state.error || state.revision < 0} />
                 <ComposerGap /><ComposerTrack name="send">
                   {state.requestInFlight && !goalActive
                     ? <ComposerSend type="button" disabled={stopping} aria-label="Stop reply" title="Stop this reply" onClick={() => void stop()}><StopIcon size={12} /></ComposerSend>

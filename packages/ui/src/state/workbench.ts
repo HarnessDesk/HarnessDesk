@@ -1040,6 +1040,12 @@ export const toggleWorkRail = (workbench: Workbench): Workbench => {
   return { ...workbench, frameTools: { ...workbench.frameTools, [subject]: { ...intent, railOpen: shown,
     ...(rightPanelDrawn(workbench) && intent.tool !== 'conversation' ? { railWithTool: shown } : {}) } } }
 }
+/** A page has no work subject, so its rail is kept under `page:<kind>` beside
+ * the subjects' intents; like the session rail, it stands open until closed. */
+const pageRailKey = (page: string) => `page:${page}`
+export const pageRailOpen = (workbench: Workbench, page: string): boolean => workbench.frameTools[pageRailKey(page)]?.railOpen !== false
+export const togglePageRail = (workbench: Workbench, page: string): Workbench => ({ ...workbench, frameTools: { ...workbench.frameTools,
+  [pageRailKey(page)]: { tool: 'details', mode: 'details', open: false, railOpen: !pageRailOpen(workbench, page) } } })
 export const workPaneExpanded = (workbench: Workbench): boolean => {
   const subject = fixedSubject(workbench.main)
   return rightPanelDrawn(workbench) && subject !== null && workbench.frameTools[subject]?.expanded === true
