@@ -215,6 +215,10 @@ export const FrameWall = () => {
   useEffect(() => {
     if (requestedTheme === 'light' || requestedTheme === 'dark') themeStore.setTheme(requestedTheme)
   }, [requestedTheme, themeStore])
+  const requestedSurface = query.get('surface')
+  useEffect(() => {
+    if (requestedSurface === 'cards' || requestedSurface === 'sheet') themeStore.setSurface(requestedSurface)
+  }, [requestedSurface, themeStore])
   const store = useMemo(() => {
     const complete = previewStore()
     const ids = framePageIds(complete.getSnapshot())
@@ -895,6 +899,9 @@ export const FrameWall = () => {
     // "system", which a capture's emulated scheme answered and an embedded
     // review window, on a light desktop, did not.
     if (requestedTheme === 'light' || requestedTheme === 'dark') next.setTheme(requestedTheme)
+    // The same holds for `?surface=`: Appearance and any later `useTheme()`
+    // inside the page read this store's surface.
+    if (requestedSurface === 'cards' || requestedSurface === 'sheet') next.setSurface(requestedSurface)
     return next
   }, [destination, location.search])
   useEffect(() => {

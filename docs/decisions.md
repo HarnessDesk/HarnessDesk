@@ -7,6 +7,25 @@ the rule is the last line of its section.
 
 ---
 
+## Groups are cards by default, and a sheet is a foundation — 2026-11-01
+
+The app-frame canvas drew every left-menu mode twice: Cards, where each group
+of settings rows, each right-panel section and each object on a page is one
+card on the main ground, and Sheet, where the same groups lie flat on one page
+with a hairline between rows. The owner chose Cards as the default and Sheet as
+the choice beside it. Cards changes the least of what was already drawn — the
+same rows, one edge and one corner — and Sheet suits a person who wants fewer
+boxes. Sheet is a token overlay (`tokens.sheet.css`), not a second set of
+screens, so neither can drift from the other: a screen that names a surface is
+wrong. The same pass took the extra 12px off the Settings column, so its labels
+share the main column's edge, and moved fact ink one step further from prose
+(grey-600 light, grey-500 dark) so counts and times no longer read as a second
+tier of prose.
+
+**Rule:** a screen never branches on the surface; what differs between Cards
+and Sheet is a `--hd-card-*`, `--hd-panel-card-*` or sidebar token in
+`tokens.sheet.css`.
+
 ## A self-hosted runner takes work only while it is shown to be up — 2026-10-30
 
 The organisation's hosted runners run twenty jobs at once. A full run is over

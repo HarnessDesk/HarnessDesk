@@ -164,3 +164,15 @@ it('keeps several contextual controls in the same aligned row beside the pane ta
   expect(controls.classList.contains('shrink-0')).toBe(true)
   expect([...controls.querySelectorAll('button')].map(one => one.textContent)).toEqual(['Findings', 'New task'])
 })
+
+it('heads a titled pane with its h1 and controls, and puts the tabs below them', () => {
+  act(() => root.render(<PaneTabsRow title="Login flow" controls={<button>Stop run…</button>}>Tabs</PaneTabsRow>))
+  const row = container.querySelector('[data-pane-tabs-row]') as HTMLElement
+  expect(row.hasAttribute('data-pane-head')).toBe(true)
+  const [head, tabs] = [...row.children] as HTMLElement[]
+  // The name and what the page can do come first, on one line, in that order.
+  expect(head!.querySelector('h1')?.textContent).toBe('Login flow')
+  expect(head!.querySelector('h1')?.getAttribute('data-role')).toBe('page')
+  expect(head!.lastElementChild?.textContent).toBe('Stop run…')
+  expect(tabs!.textContent).toBe('Tabs')
+})

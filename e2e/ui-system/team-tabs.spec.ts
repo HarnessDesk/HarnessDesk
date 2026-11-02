@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs'
 
 for (const theme of ['light', 'dark'] as const) {
   for (const width of [1440, 360]) {
-    test(`Team tabs keep small gaps and View on their row at ${width} in ${theme}`, async ({ page }) => {
+    test(`Team tabs keep small gaps under the page head and its View at ${width} in ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 })
       await page.emulateMedia({ colorScheme: theme })
       await page.goto(`/preview.html?comparison-verdict=combined&theme=${theme}`)
@@ -21,13 +21,16 @@ for (const theme of ['light', 'dark'] as const) {
       const tileBox = (await tiles.first().boundingBox())!
       const step = await tabs.evaluate(node => parseFloat(getComputedStyle(node).getPropertyValue('--hd-space-2')))
       const body = (await frame.locator('[data-slot="room-body"]').boundingBox())!
-      const gaps = { above: tabBox.y - bar.y - bar.height, below: tileBox.y - tabBox.y - tabBox.height, viewTop: viewBox.y - tabBox.y }
+      // The Team's name and View head the body; the tabs follow one step below.
+      const head = (await frame.locator('[data-page-head]').boundingBox())!
+      const gaps = { above: head.y - bar.y - bar.height, tabs: tabBox.y - head.y - head.height, below: tileBox.y - tabBox.y - tabBox.height }
       expect.soft(gaps.above).toBe(step)
+      expect.soft(gaps.tabs).toBe(step)
       expect.soft(body.y - tabBox.y - tabBox.height).toBe(step)
       // Narrow Side by side adds its decision and Seat picker before the tile.
       if (width === 1440) expect.soft(gaps.below).toBe(step)
-      expect.soft(Math.abs(gaps.viewTop)).toBeLessThanOrEqual(1)
-      expect.soft(viewBox.x).toBeGreaterThanOrEqual(tabBox.x + tabBox.width)
+      expect.soft(viewBox.y).toBeGreaterThanOrEqual(head.y)
+      expect.soft(viewBox.y + viewBox.height).toBeLessThanOrEqual(head.y + head.height)
       const gutter = await tabs.evaluate(node => parseFloat(getComputedStyle(node).getPropertyValue('--hd-space-6')))
       const room = (await frame.locator('[data-slot="team-room"]').boundingBox())!
       expect.soft(tabBox.x - room.x).toBe(gutter)

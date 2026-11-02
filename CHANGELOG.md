@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Settings, the right panel and the dashboard draw each group as one card.** Groups sit on the main ground with a clear edge, Settings labels line up with the main column, and counts and times read a clear step quieter than prose. Settings › Appearance › Surface adds Sheet, which lays the same groups flat with a line between them.
+
+- **A Team page opens on its name and what it can do.** The Team's name and Stop run… sit above the tabs. Statuses such as Running, Default or Pro read as words instead of tinted pills, and the session and Team panels show their facts as icon rows.
+
 - **An agent's accounts take turns.** Settings › Runtimes lists an agent's accounts in the order they are used, each with its plan and what is left. Move up and Move down reorder them. *When an account runs out* chooses Use the next account, Ask me or Stop. Use the next account moves new sessions to the next account with room and says so once; open conversations stay where they are.
 
 - **Sign-in states read the same everywhere.** Sign in needed, Not working and Not checked yet replace the older mix of wording across the sign-in sheet, Settings, the usage strip and the tray. Opening sign-in from one runtime shows only that runtime.

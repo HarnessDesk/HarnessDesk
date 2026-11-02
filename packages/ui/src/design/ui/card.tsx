@@ -5,6 +5,11 @@ import { cn } from '@/lib/utils'
 /* Vendored from shadcn/ui (card), tightened one step for a desktop app's
  * density: py-4/px-4 where upstream says 6.
  *
+ * The default is the app's one card (2026-11-01): the main ground, the strong
+ * hairline, 10px corners — the same shape as a right-panel card. It is an
+ * object on a page (an account, a plan, a Seat), so it stays boxed under the
+ * Sheet surface too; only groups of rows go flat there.
+ *
  * `plate` is the app's own card rather than the registry's: it reads the
  * `--hd-card-*` family (tokens.css), so the Studio interface's brand wash and
  * borderless edge reach it the way they reach a group of settings rows, and
@@ -39,14 +44,14 @@ const Card = <T extends React.ElementType = 'div'>({
       data-radius={radius}
       data-spacing={spacing}
       className={cn(
-        '[--stack-surface:var(--hd-card)] bg-card text-card-foreground flex flex-col gap-4 rounded-lg border border-(--hd-border) py-(--hd-inset-card)',
+        '[--stack-surface:var(--hd-background)] bg-(--hd-background) text-card-foreground flex flex-col gap-4 rounded-(--hd-radius) border border-(--hd-border-strong) py-(--hd-inset-card)',
         variant === 'muted' && 'border-dashed bg-(--hd-muted) [--stack-surface:var(--hd-muted)]',
         variant === 'flush' && 'gap-0 overflow-hidden py-0',
         /* A card that stands on a canvas of its own, a step in a drawing of a
            Flow: the registry card with the one soft shadow under it. */
         variant === 'raised' && 'shadow-(--hd-shadow-sm)',
         variant === 'plate' &&
-          '[--stack-surface:var(--hd-card-fill,var(--hd-card))] overflow-hidden rounded-(--hd-card-radius,var(--hd-radius-lg)) border-0 bg-(--hd-card-fill,var(--hd-card)) shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]',
+          '[--stack-surface:var(--hd-card-fill,var(--hd-card))] overflow-hidden rounded-(--hd-card-radius,var(--hd-radius)) border-0 bg-(--hd-card-fill,var(--hd-card)) shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]',
         radius === 'sm' && 'rounded-(--hd-radius-sm)',
         radius === 'lg' && 'rounded-(--hd-radius-lg)',
         spacing === 'compact' && 'gap-2 p-(--hd-inset-row)',
