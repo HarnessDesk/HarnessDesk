@@ -768,6 +768,14 @@ export interface HarnessDeskAccountStatus {
   readonly error?: string
 }
 
+/** A Host incarnation, record generation, body revision and contiguous session notification cursor. */
+export interface TranscriptWatermark {
+  readonly epoch: string
+  readonly generation: string
+  readonly revision: number
+  readonly sequence: number
+}
+
 export interface HostMethods {
   'account/status': { params: Record<string, never>; result: HarnessDeskAccountStatus }
   'account/signIn': { params: Record<string, never>; result: HarnessDeskAccountStatus }
@@ -1485,6 +1493,16 @@ export interface HostMethods {
   'session/loadout': {
     params: { readonly session: string; readonly runtime?: RuntimeId }
     result: ConversationLoadouts
+  }
+  /** A verified storage fact, not permission for a renderer to unload without event fencing. */
+  'session/prepare-eviction': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly identity: string }
+    result: { readonly epoch: string; readonly generation: string; readonly revision: number; readonly sequence?: number; readonly identity: string } | null
+  }
+  /** Null means the Host cannot currently provide an authoritative fenced full body. */
+  'session/cache-snapshot': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+    result: { readonly session: Session; readonly watermark: TranscriptWatermark; readonly identity: string } | null
   }
   'session/read': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
@@ -2974,7 +2992,12 @@ export type WireNotification =
        * client keep two runtimes' conversations apart.
        */
       readonly method: 'event'
-      readonly params: { readonly runtime: RuntimeId; readonly event: AgentEvent }
+      readonly params: { readonly runtime: RuntimeId; readonly event: AgentEvent; readonly transcriptFence?: { readonly epoch: string; readonly generation: string; readonly revision: number; readonly sequence?: number } }
+    }
+  | {
+      /** A sequenced Host-side change without a corresponding body event. */
+      readonly method: 'session/cache-invalidated'
+      readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly watermark: TranscriptWatermark }
     }
   | {
       /** Extension-plane state, streamed the same way agent events are. */

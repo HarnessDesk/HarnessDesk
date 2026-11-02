@@ -65,6 +65,61 @@ test('changed source is enriched and the reconciled rows replace the old body', 
   assert.equal(r.reads(), 2, 'the refreshed fingerprint is reusable')
 })
 
+test('a conflicting source refresh does not return an older fallback as complete', async t => {
+  const r = await rig(t)
+  const original = await r.read()
+  await writeFile(r.path, 'synthetic source changed after the first read')
+  r.setReplay({ ...original, updatedAt: 30, turns: [...original.turns, turn('t2', 'new source answer')] })
+  let store: TranscriptStore | undefined
+  const refresh = TranscriptStore.prototype.refresh
+  t.mock.method(TranscriptStore.prototype, 'refresh', async function(this: TranscriptStore, session: Parameters<typeof refresh>[0], source: Parameters<typeof refresh>[1], base: Parameters<typeof refresh>[2]) {
+    store = this
+    const db = new TranscriptDatabase(join(r.dir, 'sessions.sqlite'))
+    try {
+      const prior = db.read(session.runtime, session.id); assert.ok(prior)
+      db.write({ ...prior, title: 'external change' })
+    } finally { db.close() }
+    return refresh.call(this, session, source, base)
+  })
+  try {
+    await assert.rejects(r.read(), /protected|changed/i)
+    const db = new TranscriptDatabase(join(r.dir, 'sessions.sqlite'))
+    try { assert.equal(db.read(original.runtime, original.id)?.title, 'external change') } finally { db.close() }
+    assert.ok(store); assert.equal(store.protectedPressure().bodies, 1)
+  } finally { if (store) await store.forget(original.runtime, original.id) }
+})
+
+test('a conflicting source refresh cannot fall back to an older live Host body', async t => {
+  const r = await rig(t)
+  await r.host.start()
+  const original = await r.read()
+  let store: TranscriptStore | undefined
+  const record = TranscriptStore.prototype.record
+  t.mock.method(TranscriptStore.prototype, 'record', function(this: TranscriptStore, session: Parameters<typeof record>[0], options: Parameters<typeof record>[1]) {
+    store = this; return record.call(this, session, options)
+  })
+  await r.host.call('session/resume', { runtime: original.runtime, sessionId: original.id })
+  assert.ok(r.host.registry.get(original.runtime, original.id)?.live, 'the fallback handle is actually live')
+  if (store) await store.flush()
+  await writeFile(r.path, 'synthetic source changed while its handle is live')
+  r.setReplay({ ...original, updatedAt: 30, turns: [...original.turns, turn('t2', 'new source answer')] })
+  const refresh = TranscriptStore.prototype.refresh
+  let injected = false
+  t.mock.method(TranscriptStore.prototype, 'refresh', async function(this: TranscriptStore, session: Parameters<typeof refresh>[0], source: Parameters<typeof refresh>[1], base: Parameters<typeof refresh>[2]) {
+    store = this
+    injected = true
+    const db = new TranscriptDatabase(join(r.dir, 'sessions.sqlite'))
+    try { const prior = db.read(session.runtime, session.id); assert.ok(prior); db.write({ ...prior, title: 'external change' }) } finally { db.close() }
+    return refresh.call(this, session, source, base)
+  })
+  try {
+    await assert.rejects(r.read(), /protected|changed/i)
+    assert.equal(injected, true, 'the source refresh actually reached the conflict')
+    const db = new TranscriptDatabase(join(r.dir, 'sessions.sqlite'))
+    try { assert.equal(db.read(original.runtime, original.id)?.title, 'external change') } finally { db.close() }
+  } finally { if (store) await store.forget(original.runtime, original.id) }
+})
+
 test('gone source serves the stored transcript with the copy flag', async t => {
   const r = await rig(t)
   const original = await r.read()
@@ -336,7 +391,8 @@ test('refresh rollback removes Insight and its queued copy along with omitted wo
   try {
     store.record(two, { insight: contexts }); await store.flush()
     const source = await store.source(two.runtime, two.id)
-    await store.refresh(original, source)
+    const observed = await store.enrichForRefresh(original)
+    await store.refresh(observed.session, source, observed.base)
     assert.deepEqual(await store.readInsight(two.runtime, two.id), [contexts[0]])
     store.record(original); await store.flush()
     assert.deepEqual(await store.readInsight(two.runtime, two.id), [contexts[0]], 'a later record cannot resurrect the dropped context')

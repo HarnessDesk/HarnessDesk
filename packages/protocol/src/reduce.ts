@@ -72,76 +72,86 @@ export const applyDelta = (item: AgentItem, delta: ItemDelta): AgentItem => {
 /** A runtime replay cannot erase the desk's record of the input it sent.
  * User item ids are stable where available; resegmented replay also matches
  * the text and folded context, never just the position of a message. */
-export const preserveDeskContext = (items: readonly AgentItem[], stored: readonly AgentItem[]): readonly AgentItem[] => {
-  const recorded = stored.filter((item): item is UserMessageItem => item.type === 'userMessage' &&
-    item.content.some(part => part.type === 'text' && part.deskContext !== undefined))
-  if (recorded.length === 0) return items
-  const storedIds = new Set(stored.map(item => item.id))
-  const replayIds = new Set(items.map(item => item.id))
-  const joinedText = (item: UserMessageItem): string =>
-    item.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
-  const indexed = recorded.map((item, index) => {
-    const text = joinedText(item)
-    const folded = splitContext(text)
-    return { item, index, text, folded, used: false }
-  })
-  type RecordEntry = typeof indexed[number]
-  type RecordQueue = { entries: RecordEntry[]; cursor: number }
-  const byId = new Map<ItemId, { raw: Map<string, RecordQueue>; folded: Map<string, RecordQueue> }>()
-  const byText = new Map<string, RecordQueue>()
-  const byFolded = new Map<string, RecordQueue>()
-  const foldedKey = (text: string, context: UserMessageItem['context']): string =>
-    JSON.stringify([text, context ?? []])
-  const add = (map: Map<string, RecordQueue>, key: string, entry: RecordEntry): void => {
+/** Normalized comparison facts shared by the full reducer and recovery descriptors. */
+export interface ContextMatchRecord {
+  readonly id: string
+  readonly rawKey?: string
+  readonly foldedKey?: string | null
+  readonly hasDeskContext: boolean
+}
+
+/** Indexes the exact one-use and stable-ID reservation policy without carrying content. */
+export const matchContextRecords = (
+  candidates: readonly ContextMatchRecord[], held: readonly ContextMatchRecord[],
+): readonly (number | null)[] => {
+  const storedIds = new Set(held.map(item => item.id))
+  const replayIds = new Set(candidates.map(item => item.id))
+  type Entry = { index: number; used: boolean }
+  type Queue = { entries: Entry[]; cursor: number }
+  const byId = new Map<string, { raw: Map<string, Queue>; folded: Map<string, Queue> }>()
+  const byText = new Map<string, Queue>(), byFolded = new Map<string, Queue>()
+  const add = (map: Map<string, Queue>, key: string, entry: Entry): void => {
     const queue = map.get(key)
     if (queue) queue.entries.push(entry)
     else map.set(key, { entries: [entry], cursor: 0 })
   }
-  for (const entry of indexed) {
-    let sameId = byId.get(entry.item.id)
-    if (!sameId) {
-      sameId = { raw: new Map(), folded: new Map() }
-      byId.set(entry.item.id, sameId)
-    }
-    add(sameId.raw, entry.text, entry)
-    if (entry.folded.injections.length > 0) {
-      add(sameId.folded, foldedKey(entry.folded.text, entry.folded.injections), entry)
-    }
-    // Reserve records for stable ids even if their replay comes later.
-    if (replayIds.has(entry.item.id)) continue
-    add(byText, entry.text, entry)
-    if (entry.folded.injections.length > 0) {
-      add(byFolded, foldedKey(entry.folded.text, entry.folded.injections), entry)
-    }
-  }
-  const peek = (queue: RecordQueue | undefined): RecordEntry | undefined => {
+  held.forEach((item, index) => {
+    if (!item.hasDeskContext || item.rawKey === undefined) return
+    const entry = { index, used: false }
+    let sameId = byId.get(item.id)
+    if (!sameId) { sameId = { raw: new Map(), folded: new Map() }; byId.set(item.id, sameId) }
+    add(sameId.raw, item.rawKey, entry)
+    if (item.foldedKey != null) add(sameId.folded, item.foldedKey, entry)
+    if (replayIds.has(item.id)) return
+    add(byText, item.rawKey, entry)
+    if (item.foldedKey != null) add(byFolded, item.foldedKey, entry)
+  })
+  const peek = (queue: Queue | undefined): Entry | undefined => {
     if (!queue) return undefined
-    while (queue.entries[queue.cursor]?.used) queue.cursor += 1
+    while (queue.entries[queue.cursor]?.used) queue.cursor++
     return queue.entries[queue.cursor]
   }
-  const firstMatch = (rawQueue: RecordQueue | undefined, foldedQueue: RecordQueue | undefined): RecordEntry | undefined => {
-    const raw = peek(rawQueue)
-    const folded = peek(foldedQueue)
+  const first = (a: Queue | undefined, b: Queue | undefined): Entry | undefined => {
+    const raw = peek(a), folded = peek(b)
     return !raw ? folded : !folded || raw.index < folded.index ? raw : folded
   }
-  let changed = false
-  const next = items.map(item => {
-    if (item.type !== 'userMessage') return item
-    const text = joinedText(item)
-    const key = foldedKey(text, item.context)
+  return candidates.map(item => {
+    if (item.rawKey === undefined) return null
     const sameId = byId.get(item.id)
-    let entry = firstMatch(sameId?.raw.get(text), sameId?.folded.get(key))
-    if (!entry && !storedIds.has(item.id)) {
-      // Raw and folded matches share one-use records and stored order.
-      entry = firstMatch(byText.get(text), byFolded.get(key))
-    }
-    if (!entry) return item
-    entry.used = true
-    const held = entry.item
-    if (item.content.some(part => part.type === 'text' && part.deskContext !== undefined)) return item
+    let match = first(sameId?.raw.get(item.rawKey), item.foldedKey == null ? undefined : sameId?.folded.get(item.foldedKey))
+    if (!match && !storedIds.has(item.id)) match = first(byText.get(item.rawKey), item.foldedKey == null ? undefined : byFolded.get(item.foldedKey))
+    if (!match) return null
+    match.used = true
+    return item.hasDeskContext ? null : match.index
+  })
+}
+
+/** Copies established desk provenance after the shared matcher selected a source. */
+export const withDeskContextFrom = (item: UserMessageItem, source: UserMessageItem): UserMessageItem => {
+  const { context: _context, ...rest } = item
+  return { ...rest, content: source.content, ...(source.context ? { context: source.context } : {}) }
+}
+
+export const preserveDeskContext = (items: readonly AgentItem[], stored: readonly AgentItem[]): readonly AgentItem[] => {
+  if (!stored.some(item => item.type === 'userMessage' && item.content.some(part => part.type === 'text' && part.deskContext !== undefined))) return items
+  const joinedText = (item: UserMessageItem): string =>
+    item.content.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n')
+  const describe = (item: AgentItem, candidate: boolean): ContextMatchRecord => {
+    if (item.type !== 'userMessage') return { id: item.id, hasDeskContext: false }
+    const text = joinedText(item), folded = candidate ? null : splitContext(text)
+    return { id: item.id, rawKey: text,
+      foldedKey: candidate ? JSON.stringify([text, item.context ?? []]) : folded!.injections.length ? JSON.stringify([folded!.text, folded!.injections]) : null,
+      hasDeskContext: item.content.some(part => part.type === 'text' && part.deskContext !== undefined) }
+  }
+  const matches = matchContextRecords(items.map(item => describe(item, true)), stored.map(item => describe(item, false)))
+  let changed = false
+  const next = items.map((item, index) => {
+    const matched = matches[index]
+    if (matched == null || item.type !== 'userMessage') return item
+    const source = stored[matched]
+    if (!source || source.type !== 'userMessage') return item
     changed = true
-    const { context: _context, ...rest } = item
-    return { ...rest, content: held.content, ...(held.context ? { context: held.context } : {}) }
+    return withDeskContextFrom(item, source)
   })
   return changed ? next : items
 }
@@ -171,25 +181,32 @@ const replaceItem = (items: readonly AgentItem[], next: AgentItem): AgentItem[] 
  * user-message shape, so an equal or fuller completion/read must not undo the
  * classification merely because its list wins on length.
  */
+export interface NoticeMatchRecord { readonly id: string; readonly type: string; readonly hasKind: boolean }
+
+/** The shared notice replacement and append plan, over values or private hints. */
+export const planNoticeRecords = (
+  items: readonly NoticeMatchRecord[], held: readonly NoticeMatchRecord[], keepRuntimeRows = false,
+): { readonly replacements: readonly (number | null)[]; readonly appended: readonly number[] } => {
+  const notices = new Map<string, number>()
+  held.forEach((item, index) => { if (item.type === 'notice') notices.set(item.id, index) })
+  const replacements = items.map(item => item.type === 'userMessage' ? notices.get(item.id) ?? null : null)
+  const ids = new Set(items.map(item => item.id))
+  const appended = keepRuntimeRows ? held.flatMap((item, index) => item.type === 'notice' && item.hasKind && !ids.has(item.id) ? [index] : []) : []
+  return { replacements, appended }
+}
+
 export const preserveNoticeItems = (
   items: readonly AgentItem[],
   held: readonly AgentItem[],
   keepRuntimeRows = false,
 ): readonly AgentItem[] => {
-  const notices = new Map(held.flatMap((item) => (item.type === 'notice' ? [[item.id, item] as const] : [])))
-  if (notices.size === 0) return items
-  let changed = false
-  const reconciled = items.map((item) => {
-    if (item.type !== 'userMessage') return item
-    const notice = notices.get(item.id)
-    if (!notice) return item
-    changed = true
-    return notice
-  })
-  // Runtime notice rows are host-owned; a fuller vendor read cannot erase them.
-  const ids = new Set(reconciled.map(item => item.id))
-  const missing = keepRuntimeRows ? held.filter(item => item.type === 'notice' && item.kind && !ids.has(item.id)) : []
-  return missing.length ? [...reconciled, ...missing] : changed ? reconciled : items
+  if (!held.some(item => item.type === 'notice')) return items
+  const describe = (item: AgentItem): NoticeMatchRecord => ({ id: item.id, type: item.type, hasKind: item.type === 'notice' && Boolean(item.kind) })
+  const plan = planNoticeRecords(items.map(describe), held.map(describe), keepRuntimeRows)
+  const changed = plan.replacements.some(index => index !== null)
+  if (!changed && plan.appended.length === 0) return items
+  const next = items.map((item, index) => plan.replacements[index] == null ? item : held[plan.replacements[index]!]!)
+  return plan.appended.length ? [...next, ...plan.appended.map(index => held[index]!)] : next
 }
 
 /** The footer owns a final turn error even if its event arrived first. */
