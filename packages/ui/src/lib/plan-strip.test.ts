@@ -101,6 +101,18 @@ describe('the anchor', () => {
     expect(view.anchor?.kind === 'meter' ? view.anchor.meter.backAt : null).toBe(NOON + 4 * HOUR)
   })
 
+  it('neither promotes nor counts a failed read as out, though its cached lane was spent', () => {
+    const failed = spent('b', HOUR, { error: { message: 'no answer' } })
+    const view = strip({ runtimes: six, usage: [at('a', 70), failed], sessionRuntime: runtimeId('a') })
+    expect(view.promoted).toHaveLength(0)
+    expect(view.rest?.out ?? 0).toBe(0)
+    const anchored = strip({ runtimes: six, usage: [failed], sessionRuntime: runtimeId('b') })
+    const meter = anchored.anchor?.kind === 'meter' ? anchored.anchor.meter : null
+    expect(meter?.figure).toBe('—')
+    expect(meter?.out).toBe(false)
+    expect(meter?.backAt).toBeNull()
+  })
+
   it('falls back to the selected agent when no conversation is open', () => {
     const view = strip({ runtimes: six, usage: [at('c', 44)], activeRuntime: runtimeId('c') })
     expect(view.anchor?.kind === 'meter' && view.anchor.meter.runtime).toBe('c')

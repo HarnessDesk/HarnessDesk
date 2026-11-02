@@ -873,6 +873,18 @@ describe('rightNow', () => {
     expect(line).toBeNull()
   })
 
+  it('recommends nothing while another account read failed, even with a cached figure', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'w', usedPercent: 40, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'w', usedPercent: 10, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })], error: { message: 'no answer' } }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBeNull()
+  })
+
   it('makes no back-first claim while an account is overdrawn, since a top-up can beat any reset', () => {
     const line = rightNow(
       [
