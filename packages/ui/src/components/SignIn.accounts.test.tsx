@@ -836,3 +836,15 @@ it('names connected accounts without their addresses while addresses are hidden'
   expect(container.textContent).toContain('ada')
   expect(container.textContent).not.toContain('@')
 })
+
+it('names a key account by name too, while addresses are hidden, when an address is its label', async () => {
+  await mount({
+    hideAccountAddresses: true,
+    accountsByRuntime: {
+      codex: status([{ kind: 'apiKey', label: 'ada@example.com' }], ['apiKey']),
+      'codex-7f3a91': status([{ kind: 'externalKey', label: 'grace@example.com' }], ['apiKey']),
+    },
+  } as never)
+  expect(container.textContent).toContain('grace')
+  expect(container.textContent).not.toContain('@')
+})

@@ -157,7 +157,7 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
       info,
       status: kind,
       state,
-      detail: key ? account.planType || account.label : (account.label && shownAccountLabel(info.id, account.label, snapshot)) || STATUS_LABEL[kind],
+      detail: (key && account.planType) || (account.label && shownAccountLabel(info.id, account.label, snapshot)) || STATUS_LABEL[kind],
       methods,
       pending,
     }
