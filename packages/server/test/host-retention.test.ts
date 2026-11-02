@@ -560,7 +560,7 @@ test('an idle handle-free record earns a cache receipt only after explicit close
   await host.call('session/close', { runtime: created.runtime, sessionId: created.id })
   assert.ok(await host.call('session/prepare-eviction', { runtime: created.runtime, sessionId: created.id, identity }))
   await host.call('session/read', { runtime: created.runtime, sessionId: created.id })
-  assert.equal(await host.call('session/prepare-eviction', { runtime: created.runtime, sessionId: created.id, identity }), null)
+  assert.ok(await host.call('session/prepare-eviction', { runtime: created.runtime, sessionId: created.id, identity }), 'read-only access keeps the explicit close')
 })
 
 test('cache snapshot returns the current full Host body and its atomic watermark', async t => {
@@ -1513,4 +1513,46 @@ test('descriptor ownership survives undo and is pruned after the record is forgo
   assert.notEqual(replacement.bodyGeneration, record.bodyGeneration)
   await host.call('session/close', { runtime: replacement.runtime, sessionId: replacement.session.id })
   assert.equal(removed, 1)
+})
+
+test('read-only session read preserves a closed body for another verified eviction receipt', async t => {
+  const root = tempDir('hd-readonly-close-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime(); host.register(runtime); await host.start()
+  const created = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } }) as Session
+  transcript(runtime, created.id)
+  const address = { runtime: created.runtime, sessionId: created.id }
+  await host.call('session/close', address)
+  const before = await host.call('session/cache-snapshot', address); assert.ok(before)
+  assert.ok(await host.call('session/prepare-eviction', { ...address, identity: before.identity }))
+  const read = await host.call('session/read', address) as Session
+  assert.deepEqual(read.turns, before.session.turns)
+  const after = await host.call('session/cache-snapshot', address); assert.ok(after, 'read-only operation must not make a closed saved body unavailable')
+  assert.deepEqual(after.session.turns, before.session.turns)
+  assert.ok(await host.call('session/prepare-eviction', { ...address, identity: after.identity }), 'a quiet closed body remains eligible')
+  await host.call('session/resume', address)
+  const resumed = await host.call('session/cache-snapshot', address); assert.ok(resumed)
+  assert.equal(await host.call('session/prepare-eviction', { ...address, identity: resumed.identity }), null, 'actual resume must revoke closed eligibility')
+})
+
+test('a failed read preserves the closed recovery body and can be verified afterward', async t => {
+  const root = tempDir('hd-readonly-failed-close-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), builtinAgents: root, catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime(); host.register(runtime); await host.start()
+  const created = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } }) as Session
+  transcript(runtime, created.id)
+  const address = { runtime: created.runtime, sessionId: created.id }
+  await host.call('session/close', address)
+  const before = await host.call('session/cache-snapshot', address); assert.ok(before)
+  assert.ok(await host.call('session/prepare-eviction', { ...address, identity: before.identity }))
+  const read = runtime.readSession.bind(runtime), recover = TranscriptStore.prototype.recover
+  runtime.readSession = async () => { throw new Error('synthetic read failure') }
+  const recovery = t.mock.method(TranscriptStore.prototype, 'recover', async function(this: TranscriptStore, ...args: Parameters<typeof recover>) { return null })
+  await assert.rejects(host.call('session/read', address), /synthetic read failure/)
+  recovery.mock.restore(); runtime.readSession = read
+  const after = await host.call('session/cache-snapshot', address); assert.ok(after, 'failed read must leave closed recovery available')
+  assert.deepEqual(after.session.turns, before.session.turns)
+  assert.ok(await host.call('session/prepare-eviction', { ...address, identity: after.identity }))
 })

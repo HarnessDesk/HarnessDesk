@@ -4500,7 +4500,7 @@ export class Host {
     // Track the entire addressed operation, not only its nested reads: another
     // window must not receive a receipt while close/resume/send is settling.
     const address = params as { readonly runtime?: unknown; readonly sessionId?: unknown }
-    if ((method === 'session/read' || method === 'session/resume') && typeof address?.runtime === 'string' && typeof address.sessionId === 'string') {
+    if (method === 'session/resume' && typeof address?.runtime === 'string' && typeof address.sessionId === 'string') {
       const record = this.registry.get(runtimeId(address.runtime), makeSessionId(address.sessionId))
       if (record) record.cacheClosed = false
     }
