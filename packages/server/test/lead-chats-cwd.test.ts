@@ -39,6 +39,12 @@ const rig = async (t: TestContext) => {
     reads: () => reads, sends: () => sends, setCwd: (cwd: string) => { actualCwd = cwd } }
 }
 
+// A warm runtime announces its full session before the Host attaches its handle.
+function restoreLive(r: Awaited<ReturnType<typeof rig>>, live = r.runtime.sessions.get(r.session.id)!) {
+  r.runtime.emit({ type: 'session/started', session: r.session })
+  return r.host.registry.upsert(r.session, live)
+}
+
 test('Lead refuses an unloaded transcript whose actual cwd differs from its indexed project', async t => {
   const r = await rig(t)
   await assert.rejects(r.host.call('lead/chat/read', { id: r.id }), /scope|project/i)
@@ -66,7 +72,7 @@ test('a Lead read accepts a matching raw cwd and ordinary phone reads keep their
 
 test('a failed raw read refuses Lead scope without removing the ordinary phone fallback', async t => {
   const r = await rig(t)
-  r.host.registry.upsert(r.session, r.runtime.sessions.get(r.session.id)!)
+  restoreLive(r)
   r.runtime.readSession = async () => { throw new Error('Synthetic raw location unavailable') }
   await assert.rejects(r.host.call('lead/chat/read', { id: r.id }), /Synthetic raw location unavailable/)
   assert.equal((await r.host.call('workspace/thread/read', { id: r.id })).id, r.id)
@@ -74,14 +80,14 @@ test('a failed raw read refuses Lead scope without removing the ordinary phone f
 
 test('a loaded idle session cannot hide a changed runtime cwd behind its held transcript', async t => {
   const r = await rig(t)
-  r.host.registry.upsert(r.session, r.runtime.sessions.get(r.session.id)!)
+  restoreLive(r)
   await assert.rejects(r.host.call('lead/chat/read', { id: r.id }), /scope|project/i)
   assert.equal(r.reads(), 1)
 })
 
 test('Lead refuses a warm reply when the actual live cwd differs from the index', async t => {
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
-  r.host.registry.upsert(r.session, live)
+  restoreLive(r, live)
   const settings = live.settings.bind(live)
   live.settings = () => ({ ...settings(), cwd: r.foreign })
   const result = await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Inspect this project' } })
@@ -108,7 +114,7 @@ test('Lead checks the reopened live cwd before a cold reply starts its effect', 
 test('an edited queued Lead reply retains its scope through delayed dispatch and can resume after correction', async t => {
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.setCwd(r.project.path)
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
   await r.host.call('turn/send', { ...target, input: [{ type: 'text', text: 'Person message' }] })
   assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
@@ -133,7 +139,7 @@ test('an edited queued Lead reply retains its scope through delayed dispatch and
 test('queued Lead replies recheck a tightened policy before the agent receives them', async t => {
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.setCwd(r.project.path)
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   await r.host.call('turn/send', { runtime: r.runtime.info.id, sessionId: r.session.id, input: [{ type: 'text', text: 'Person message' }] })
   assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
   await r.journal.setPolicy({ version: 1, revision: 2, mode: 'plan', rules: [] })
@@ -148,7 +154,7 @@ test('disabling Lead holds its accepted queued reply before runtime dispatch', a
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   await r.service.setEnabled(true)
   r.setCwd(r.project.path)
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   await r.host.call('turn/send', { runtime: r.runtime.info.id, sessionId: r.session.id, input: [{ type: 'text', text: 'Person message' }] })
   assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
   await r.service.setEnabled(false)
@@ -161,7 +167,7 @@ test('disabling Lead holds its accepted queued reply before runtime dispatch', a
 
 test('Lead refuses Stop when the actual running handle moved outside its project', async t => {
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
-  r.host.registry.upsert(r.session, live)
+  restoreLive(r, live)
   await r.host.call('turn/send', { runtime: r.runtime.info.id, sessionId: r.session.id, input: [{ type: 'text', text: 'Person message' }] })
   let interrupts = 0
   live.interrupt = async () => { interrupts++ }
@@ -189,7 +195,7 @@ test('a newly allocated foreign handle receives no first prompt and retains its 
 test('a queued Lead reply drains while a second healthy mutation is held in dispatch', async t => {
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.setCwd(r.project.path)
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   await r.host.call('turn/send', { runtime: r.runtime.info.id, sessionId: r.session.id, input: [{ type: 'text', text: 'Person message' }] })
   assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
   let release!: () => void, entered!: () => void
@@ -213,7 +219,7 @@ for (const action of ['cancel', 'clear', 'policy'] as const) test(`queued dispat
   const sent: string[] = [], observeSend = r.runtime.onSend
   r.runtime.onSend = (session, text, options) => { sent.push(text); observeSend?.(session, text, options) }
   r.setCwd(r.project.path)
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
   await r.host.call('turn/send', { ...target, input: [{ type: 'text', text: 'Person message' }] })
   assert.equal((await r.execute({ method: 'lead/chat/send', params: { id: r.id, text: 'Scoped follow-up' } })).outcome, 'succeeded')
@@ -263,7 +269,7 @@ for (const continuation of ['idle', 'new-turn'] as const) test(`cancelled Lead a
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.runtime.refusesWhileBusy = true
   r.setCwd(r.project.path)
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
   const sent: string[] = [], warnings: string[] = [], observeSend = r.runtime.onSend
   r.runtime.onSend = (session, text, options) => { sent.push(text); observeSend?.(session, text, options) }
@@ -332,7 +338,7 @@ test('cancelling a queued item after runtime send begins retains a later rejecti
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.runtime.refusesWhileBusy = true
   r.setCwd(r.project.path)
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
   const sent: string[] = [], warnings: string[] = [], observeSend = r.runtime.onSend
   r.runtime.onSend = (session, text, options) => { sent.push(text); observeSend?.(session, text, options) }
@@ -379,7 +385,7 @@ test('cancelling a held Lead admission drains its surviving tail after trailing 
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.runtime.refusesWhileBusy = true
   r.setCwd(r.project.path)
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
   const sent: string[] = [], warnings: string[] = [], observeSend = r.runtime.onSend
   r.runtime.onSend = (session, text, options) => { sent.push(text); observeSend?.(session, text, options) }
@@ -436,7 +442,7 @@ test('cancelling a held Lead admission leaves a new person follow-up behind its 
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.runtime.refusesWhileBusy = true
   r.setCwd(r.project.path)
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
   const sent: string[] = [], observeSend = r.runtime.onSend
   let delivered!: () => void
@@ -501,7 +507,7 @@ test('cancelling a held Lead admission leaves a new person follow-up behind its 
 test('idle notifications cannot drain a person follow-up while its first send awaits acceptance', { timeout: 10000 }, async t => {
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.runtime.refusesWhileBusy = true
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   const target = { runtime: r.runtime.info.id, sessionId: r.session.id }
   let entered!: () => void, release!: () => void, delivered!: () => void
   const accepting = new Promise<void>(resolve => { entered = resolve }), held = new Promise<void>(resolve => { release = resolve })
@@ -540,7 +546,7 @@ test('idle notifications cannot drain a person follow-up while its first send aw
 test('a fresh Lead request cannot revive an uncertain queued reply from the stopped request', async t => {
   const r = await rig(t), live = r.runtime.sessions.get(r.session.id)!
   r.setCwd(r.project.path)
-  const record = r.host.registry.upsert(r.session, live)
+  const record = restoreLive(r, live)
   await r.host.call('turn/send', { runtime: r.runtime.info.id, sessionId: r.session.id,
     input: [{ type: 'text', text: 'Person message' }] })
   const result = await r.journal.execute({ id: 'lost-queue-receipt', request: {

@@ -239,6 +239,7 @@ export const sessionMethods = {
       // the conversation runs, so the reopen runs on the one the caller asked for.
       if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId, ...(options.route ? { route: options.route } : {}) })
       await ctx.runtimes.ensureStarted(runtime)
+      await ctx.sessions.prepareReopenTranscript(runtime.info.id, sessionId)
       const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
       return resumeSeatSession(runtime, sessionId, { ...options, ...(environment ? { environment } : {}) },
         ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.checkout.cwd)

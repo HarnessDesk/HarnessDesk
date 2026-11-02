@@ -13,7 +13,7 @@ import type {
   AgentItem,
   TurnInsightContext,
 } from '@harnessdesk/protocol'
-import { canonicalTranscriptBody, isNoticeTurn, openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
+import { PendingTranscript, canonicalTranscriptBody, isNoticeTurn, openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
 
 import { decodeBody, durableStateIdentity, InvalidTranscriptBodyError, NewerTranscriptFormatError, readTranscriptFacts, TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
 import { DailySessionSnapshots } from './session-snapshots.js'
@@ -200,6 +200,7 @@ const sameStoredSessionFacts = (stored: Stored, session: Session): boolean =>
 
 export class TranscriptStore {
   readonly #pending = new Map<string, PendingWrite>()
+  readonly #generationConflicts = new Map<string, { owner: object; capture: PendingTranscript }>()
   readonly #writes = new Map<string, Promise<boolean>>()
   readonly #settling = new Map<string, Promise<void>>()
   /** A failed save must not reuse an older body's stamp or timestamp on retry. */
@@ -220,7 +221,7 @@ export class TranscriptStore {
     directory: string,
     private readonly log: (message: string, details?: Record<string, unknown>) => void = () => {},
     private readonly onWrite: () => void = () => {},
-    private readonly generationCurrent: (runtime: RuntimeId, id: SessionId, generation: string, session: Session, revision?: number, authorityEpoch?: number) => boolean = () => true,
+    private readonly generationCurrent: (runtime: RuntimeId, id: SessionId, generation: string, session: Session, revision?: number, authorityEpoch?: number, allowPartial?: boolean) => boolean = () => true,
     private readonly baseAdvanced: (runtime: RuntimeId, id: SessionId, generation: string, base: DurableTranscriptBase) => void = () => {},
     private readonly onProtected: (runtime: RuntimeId, id: SessionId) => void = () => {},
     private readonly onDurableChange: (runtime: RuntimeId, id: SessionId, kind?: 'import') => void = () => {},
@@ -286,13 +287,37 @@ export class TranscriptStore {
     return true
   }
 
+  /** Carry the same host-owned fields that item completion preserves before comparing replay. */
+  replayWithPendingMetadata(replay: Session, generation: string, epoch: number): Session {
+    const pending = this.pendingBodies(replay.runtime, replay.id, generation, epoch)
+    if (!replay.itemsLoaded || !pending.length) return replay
+    const turns = replay.turns.map(turn => {
+      const held = pending.flatMap(body => body.turns.filter(candidate => candidate.id === turn.id))
+      if (held.length !== 1) return turn
+      const items = turn.items.map(item => {
+        const matches = held[0]!.items.filter(candidate => candidate.id === item.id)
+        if (matches.length !== 1) return item
+        const previous = matches[0]!
+        const notice = previous.type === 'notice' && item.type === 'userMessage' && item.content.length === 1 &&
+          item.content[0]?.type === 'text' && item.content[0].text === previous.text
+          ? preserveNoticeItems([item], [previous], true)[0] ?? item : item
+        const classified = preserveDeskContext([notice], [previous])[0] ?? notice
+        return classified.startedAt === undefined && previous.startedAt !== undefined
+          ? { ...classified, startedAt: previous.startedAt } : classified
+      })
+      return { ...turn, items }
+    })
+    return { ...replay, turns }
+  }
+
   /** Detect, without choosing a winner, when a replay conflicts with unsaved items. */
-  pendingReplayConflict(replay: Session, generation: string, epoch: number): boolean {
+  pendingReplayConflict(replay: Session, generation: string, epoch: number, held?: Session): boolean {
     if (!replay.itemsLoaded) return false
-    const key = keyOf(replay.runtime, replay.id)
-    for (const pending of [this.#pending.get(key), this.#retryHeld.get(key)]) {
-      if (pending?.generation !== generation || pending.authorityEpoch !== epoch) continue
-      const byTurn = new Map(pending.session.turns.map(turn => [turn.id, turn]))
+    replay = this.replayWithPendingMetadata(replay, generation, epoch)
+    const bodies = [...this.pendingBodies(replay.runtime, replay.id, generation, epoch)]
+    if (bodies.length && held && held.runtime === replay.runtime && held.id === replay.id) bodies.push(held)
+    for (const body of bodies) {
+      const byTurn = new Map(body.turns.map(turn => [turn.id, turn]))
       for (const turn of replay.turns) {
         const saved = byTurn.get(turn.id)
         if (!saved) continue
@@ -301,7 +326,13 @@ export class TranscriptStore {
           const group = byItem.get(String(item.id)) ?? []
           group.push(item); byItem.set(String(item.id), group)
         }
-        if (turn.items.some(item => byItem.get(String(item.id))?.some(previous => !isDeepStrictEqual(previous, item)))) return true
+        if (turn.items.some(item => byItem.get(String(item.id))?.some(previous => {
+          if (isDeepStrictEqual(previous, item)) return false
+          if (previous.type !== 'assistantMessage' || item.type !== 'assistantMessage' || !item.text.startsWith(previous.text)) return true
+          const { text: _oldText, ...oldFields } = previous
+          const { text: _newText, ...newFields } = item
+          return !isDeepStrictEqual(oldFields, newFields)
+        }))) return true
       }
     }
     return false
@@ -317,9 +348,29 @@ export class TranscriptStore {
     return ids
   }
 
+  hasGenerationConflict(runtime: RuntimeId, id: SessionId): boolean {
+    return this.#generationConflicts.has(keyOf(runtime, id))
+  }
+
   hasProtectedChanges(runtime: RuntimeId, id: SessionId): boolean {
     const key = keyOf(runtime, id)
     return this.#protectedWrites.has(key) || this.#unboundWrites.has(key) || this.#retryHeld.has(key)
+  }
+
+  /** No previous writer or authority may be displaced by an unsolicited initial event. */
+  mayObserveInitialBase(session: Session): boolean {
+    const key = keyOf(session.runtime, session.id)
+    return !this.#authorities.has(key) && !this.#pending.has(key) && !this.#retryHeld.has(key) &&
+      !this.#writes.has(key) && !this.#settling.has(key) && !this.#protectedWrites.has(key) && !this.#unboundWrites.has(key)
+  }
+
+  /** Only this record's unbound snapshot can acquire a newly observed missing base. */
+  ownsUnboundWrite(session: Session, generation: string, epoch: number): boolean {
+    const key = keyOf(session.runtime, session.id), pending = this.#pending.get(key)
+    return this.#unboundWrites.has(key) && !this.#protectedWrites.has(key) && !this.#writes.has(key) &&
+      !this.#retryHeld.has(key) && !this.#settling.has(key) &&
+      (!this.#authorities.has(key) || (this.#authorities.get(key)?.generation !== generation && this.#authorities.get(key)?.base.kind === 'missing')) &&
+      pending?.generation === generation && pending.authorityEpoch === epoch && isDeepStrictEqual(pending.session, session)
   }
 
   evictCached(cap: number, live: (runtime: RuntimeId, id: SessionId) => boolean): { count: number; bytes: number } {
@@ -337,6 +388,21 @@ export class TranscriptStore {
     if (!session.itemsLoaded || this.#database.isRemoved(session.runtime, session.id)) return
     if (!session.turns.some((turn) => turn.items.length > 0) && !(options.insight?.length)) return
     const key = keyOf(session.runtime, session.id)
+    let conflict = this.#generationConflicts.get(key)
+    const earlier = [this.#pending.get(key), this.#retryHeld.get(key)].filter((entry): entry is PendingWrite => !!entry)
+    if (!conflict && earlier.some(entry => entry.generation !== options.generation || entry.authorityEpoch !== options.authorityEpoch)) {
+      const owner = {}, capture = new PendingTranscript({ runtime: String(session.runtime), sessionId: String(session.id), owner })
+      for (const entry of earlier) {
+        clearTimeout(entry.timer)
+        if (!capture.retainLocal(entry.session, owner)) throw new Error('Cannot protect an earlier conversation generation')
+      }
+      conflict = { owner, capture }; this.#generationConflicts.set(key, conflict)
+      this.#notifyProtected(session)
+    }
+    if (conflict) {
+      if (!conflict.capture.retainLocal(session, conflict.owner)) throw new Error('Cannot protect conversation activity')
+      return
+    }
     if (options.generation && this.#authorities.get(key)?.generation !== options.generation) this.#unboundWrites.add(key)
     if (options.insight?.length) {
       const previous = this.#insight.get(key) ?? []
@@ -371,7 +437,8 @@ export class TranscriptStore {
 
   unbindBase(session: Session, generation: string): void {
     const key = keyOf(session.runtime, session.id)
-    if (this.#authorities.get(key)?.generation === generation && !this.#pending.has(key) && !this.#writes.has(key) && !this.#retryHeld.has(key)) {
+    if (this.#authorities.get(key)?.generation === generation && !this.#pending.has(key) && !this.#writes.has(key) && !this.#retryHeld.has(key) &&
+        !this.#settling.has(key) && !this.#protectedWrites.has(key) && !this.#unboundWrites.has(key) && !this.#generationConflicts.has(key)) {
       this.#authorities.delete(key)
       this.#verifiedRows.delete(key)
     }
@@ -404,7 +471,18 @@ export class TranscriptStore {
     }
     if (pending.generation !== generation || pending.authorityEpoch !== authorityEpoch || !isDeepStrictEqual(pending.session, session)) return false
     clearTimeout(pending.timer); this.#pending.delete(key); this.#retryHeld.set(key, pending)
-    const saved = await this.#persistEvolvedBody(session, base, pending.insight, current, pending)
+    const saved = await this.#persistEvolvedBody(session, base, pending.insight, current, pending, false, identity => {
+      const next = this.#pending.get(key), authority = this.#authorities.get(key)
+      if (!next || next.generation !== generation || next.authorityEpoch !== authorityEpoch || authority?.generation !== generation ||
+          !isDeepStrictEqual(authority.base, base) || !this.generationCurrent(session.runtime, session.id, generation, next.session, next.revision, authorityEpoch) ||
+          !this.#bodyExtends(session, next.session)) return false
+      const verified: DurableTranscriptBase = { kind: 'body', identity }
+      authority.base = verified
+      this.baseAdvanced(session.runtime, session.id, generation, verified)
+      this.#retryHeld.delete(key); this.#protectedWrites.delete(key); this.#protectedNotified.delete(key)
+      this.record(next.session, { insight: next.insight, generation, revision: next.revision, authorityEpoch })
+      return true
+    })
     if (saved && current() && this.#advanceBase(session, generation)) { this.#retryHeld.delete(key); return true }
     if (saved) this.#notifyProtected(session)
     if (!this.#pending.has(key)) { this.#pending.set(key, pending); this.#retryHeld.delete(key) }
@@ -535,7 +613,18 @@ export class TranscriptStore {
     return this.#persistEvolvedBody(session, expectedBase, insight, current)
   }
 
-  async #persistEvolvedBody(session: Session, expectedBase: DurableTranscriptBase, insight: readonly TurnInsightContext[] = [], current?: () => boolean, ownedHeld?: PendingWrite, preserveSource = false): Promise<boolean> {
+  #bodyExtends(old: Session, next: Session): boolean {
+    if (old.runtime !== next.runtime || old.id !== next.id || old.cwd !== next.cwd || old.createdAt !== next.createdAt ||
+        old.title !== next.title || old.preview !== next.preview || !isDeepStrictEqual(old.usage, next.usage) || old.turns.length > next.turns.length) return false
+    return old.turns.every((turn, index) => {
+      const newer = next.turns[index]
+      if (!newer || turn.items.length > newer.items.length) return false
+      const { items: _oldItems, ...oldFields } = turn, { items: _newItems, ...newFields } = newer
+      return isDeepStrictEqual(oldFields, newFields) && turn.items.every((item, i) => isDeepStrictEqual(item, newer.items[i]))
+    })
+  }
+
+  async #persistEvolvedBody(session: Session, expectedBase: DurableTranscriptBase, insight: readonly TurnInsightContext[] = [], current?: () => boolean, ownedHeld?: PendingWrite, preserveSource = false, acceptOvertaken?: (identity: string) => boolean): Promise<boolean> {
     if (!session.itemsLoaded || !session.turns.some(turn => turn.items.length > 0)) return false
     const key = keyOf(session.runtime, session.id)
     if (this.#pending.has(key) || this.#writes.has(key) || (this.#retryHeld.has(key) && this.#retryHeld.get(key) !== ownedHeld)) return false
@@ -547,12 +636,13 @@ export class TranscriptStore {
     // Guard ordinary settles throughout the asynchronous CAS and readback.
     this.#protectedWrites.add(key)
     let prepared: string | undefined
-    if (!await this.#write(session, this.#insight.get(key) ?? [], { expectedBase, current, preserveSource, prepared: identity => { prepared = identity } }) ||
-        !prepared || !this.#matchesStoredRow(session, prepared) || this.#pending.has(key) || (current && !current())) {
-      this.#notifyProtected(session)
+    const wrote = await this.#write(session, this.#insight.get(key) ?? [], { expectedBase, current, preserveSource, prepared: identity => { prepared = identity } })
+    const verified = wrote && !!prepared && this.#matchesStoredRow(session, prepared)
+    if (!verified || this.#pending.has(key) || (current && !current())) {
+      if (!(verified && prepared && acceptOvertaken?.(prepared))) this.#notifyProtected(session)
       return false
     }
-    this.#verifiedRows.set(key, prepared)
+    this.#verifiedRows.set(key, prepared!)
     this.#protectedWrites.delete(key)
     this.#protectedNotified.delete(key)
     return true
@@ -644,16 +734,37 @@ export class TranscriptStore {
     await this.#writes.get(key)?.catch(() => {})
   }
 
+  /** A partial replay may only append to an exact existing durable body. */
+  #partialAppend(session: Session, base: DurableTranscriptBase, insight: readonly TurnInsightContext[]): Stored | undefined {
+    if (!session.partialHistory || base.kind !== 'body') return undefined
+    try {
+      const observed = this.#database.observe(session.runtime, session.id), stored = observed.stored
+      if (observed.removed || !stored || observed.identity !== base.identity || stored.turns.length > session.turns.length ||
+          !stored.turns.every((turn, index) => isDeepStrictEqual(turn, session.turns[index])) ||
+          !(['title', 'preview', 'cwd', 'usage'] as const).every(field => isDeepStrictEqual(stored[field] ?? null, session[field] ?? null))) return undefined
+      const contexts = new Map((stored.insight ?? []).map(value => [value.turn, value]))
+      for (const value of insight) {
+        const held = contexts.get(value.turn)
+        if (held && !isDeepStrictEqual(held, value)) return undefined
+        contexts.set(value.turn, value)
+      }
+      return { ...stored, turns: session.turns, updatedAt: Math.max(stored.updatedAt ?? 0, session.updatedAt),
+        ...(contexts.size ? { insight: [...contexts.values()] } : {}) }
+    } catch { return undefined }
+  }
+
   async #settleGeneration(key: string, pending: PendingWrite): Promise<void> {
     const generation = pending.generation!, session = structuredClone(pending.session), authority = this.#authorities.get(key)
     if (!authority) { clearTimeout(pending.timer); this.#unboundWrites.add(key); return }
-    if (authority.generation !== generation || !this.generationCurrent(session.runtime, session.id, generation, session, pending.revision, pending.authorityEpoch) || this.#retryHeld.has(key)) {
+    const partial = this.#partialAppend(session, authority.base, pending.insight)
+    const allowPartial = !!partial
+    if (authority.generation !== generation || !this.generationCurrent(session.runtime, session.id, generation, session, pending.revision, pending.authorityEpoch, allowPartial) || this.#retryHeld.has(key)) {
       this.#notifyProtected(session); return
     }
     clearTimeout(pending.timer); this.#pending.delete(key); this.#retryHeld.set(key, pending); this.#protectedWrites.add(key)
-    const current = () => this.#authorities.get(key) === authority && this.generationCurrent(session.runtime, session.id, generation, session, pending.revision, pending.authorityEpoch)
+    const current = () => this.#authorities.get(key) === authority && this.generationCurrent(session.runtime, session.id, generation, session, pending.revision, pending.authorityEpoch, allowPartial)
     let prepared: string | undefined
-    const saved = await this.#write(session, pending.insight, { expectedBase: authority.base, current, prepared: identity => { prepared = identity } })
+    const saved = await this.#write(session, pending.insight, { expectedBase: authority.base, current, ...(partial ? { preserveStored: partial } : {}), prepared: identity => { prepared = identity } })
     if (saved && current() && prepared && this.#matchesStoredRow(session, prepared)) {
       const base: DurableTranscriptBase = { kind: 'body', identity: prepared }
       authority.base = base
@@ -1059,6 +1170,8 @@ export class TranscriptStore {
   /** Cancel queued writes and atomically drop this body, and optionally its index row. */
   async forget(runtime: RuntimeId, id: SessionId, options: { deleteIndex?: boolean; removedBefore?: number } = {}): Promise<void> {
     const key = keyOf(runtime, id)
+    // A stale timed sweep is not authority to discard unresolved generations.
+    if (options.removedBefore !== undefined && this.#generationConflicts.has(key)) return
     const pending = this.#pending.get(key)
     if (pending) {
       clearTimeout(pending.timer)
@@ -1075,6 +1188,7 @@ export class TranscriptStore {
     this.#retryHeld.delete(key)
     this.#authorities.delete(key)
     this.#verifiedRows.delete(key)
+    this.#generationConflicts.delete(key)
     this.#database.forget(runtime, id, options)
     this.onDurableChange(runtime, id)
   }
