@@ -633,6 +633,18 @@ const AgentAccounts = ({
   // An order and a rule for running out mean something only once there is a
   // second account to run on.
   const ordered = rows.length + gateways.length > 1
+  // The queue as it is drawn: signed-in accounts and gateways, one list in
+  // pool order. A move acts on this list, so a step up is a step up on
+  // screen; runtimes not drawn here keep their places behind it.
+  const listed = queue.filter((entry) => entry.slot?.gateway || rows.some((row) => row.entry === entry))
+  const listedOrder = listed.map((entry) => entry.id)
+  const movesFor = (runtime: RuntimeId) => {
+    const at = listedOrder.indexOf(runtime)
+    const move = (delta: number) => () => store.setAccountPool(agent, {
+      order: [...movedInPool(listedOrder, runtime, delta), ...order.filter((id) => !listedOrder.includes(id))],
+    })
+    return { ...(at > 0 ? { up: move(-1) } : {}), ...(at < listedOrder.length - 1 ? { down: move(1) } : {}) }
+  }
   // An extra slot is only "waiting to be signed in" once it has answered
   // with no account. One that has not answered yet (#986) may be signed in
   // already, so it gets a neutral row of its own rather than that claim.
@@ -737,12 +749,39 @@ const AgentAccounts = ({
         }
       />
       <Rows>
-        {rows.map(({ entry, account }) => {
+        {listed.flatMap((entry): { entry: RuntimeInfo; account: Account | null }[] => (entry.slot?.gateway ? [{ entry, account: null }] : rows.filter((row) => row.entry === entry))).map(({ entry, account }) => {
+          // An account of this same agent, on the user's own endpoint. Same
+          // models, same everything — the bill is what moved, so the row says
+          // where it goes and nothing about signing in.
+          if (account === null) {
+            return (
+              <Row
+                key={entry.id}
+                kind="record"
+                face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
+                title={entry.slot?.gateway?.name}
+                titleChip={
+                  entry.id === snapshot.activeRuntime && ordered
+                    ? <InlineParts><Chip tone="neutral" size="sm">Gateway</Chip><Chip tone="neutral" size="sm">Default</Chip></InlineParts>
+                    : <Chip tone="neutral" size="sm">Gateway</Chip>
+                }
+                desc={entry.slot?.gateway?.endpoint}
+                truncateDesc
+                control={
+                  <SettingsRowMenu
+                    location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)}
+                    name={entry.slot?.gateway?.name ?? 'Gateway'}
+                    label="Remove"
+                    onRemove={() => void store.removeAccount(entry.id)}
+                    {...(ordered ? { moves: movesFor(entry.id) } : {})}
+                  />
+                }
+              />
+            )
+          }
           const { key, blocked, left } = accountStanding(entry, account, snapshot)
           const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name)
           const identity = shownIdentity(account, snapshot)
-          const at = order.indexOf(entry.id)
-          const move = (delta: number) => () => store.setAccountPool(agent, { order: movedInPool(order, entry.id, delta) })
           return (
             <RowButton
               key={key}
@@ -751,10 +790,7 @@ const AgentAccounts = ({
                 action: (
                   <SettingsRowMenu
                     name={name}
-                    moves={{
-                      ...(at > 0 ? { up: move(-1) } : {}),
-                      ...(at < order.length - 1 ? { down: move(1) } : {}),
-                    }}
+                    moves={movesFor(entry.id)}
                   />
                 ),
               } : {})}
@@ -790,27 +826,6 @@ const AgentAccounts = ({
           )
         })}
 
-        {/* An account of this same agent, on the user's own endpoint. Same
-            models, same everything — the bill is what moved, so the row says
-            where it goes and nothing about signing in. */}
-        {gateways.map((entry) => (
-          <Row
-            key={entry.id}
-            kind="record"
-            face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
-            title={entry.slot?.gateway?.name}
-            titleChip={
-              entry.id === snapshot.activeRuntime && ordered
-                ? <InlineParts><Chip tone="neutral" size="sm">Gateway</Chip><Chip tone="neutral" size="sm">Default</Chip></InlineParts>
-                : <Chip tone="neutral" size="sm">Gateway</Chip>
-            }
-            desc={entry.slot?.gateway?.endpoint}
-            truncateDesc
-            control={
-              <SettingsRowMenu location={shortPath(entry.slot?.home ?? entry.id, snapshot.home)} name={entry.slot?.gateway?.name ?? 'Gateway'} label="Remove" onRemove={() => void store.removeAccount(entry.id)} />
-            }
-          />
-        ))}
 
         {/* An extra account that has not answered yet. Its line is where its
             credential lives — the one thing that tells two of them apart.

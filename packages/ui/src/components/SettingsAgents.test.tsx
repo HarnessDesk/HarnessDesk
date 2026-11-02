@@ -1265,8 +1265,10 @@ it('removes a gateway immediately and labels the menu action Remove', async () =
   await act(async () => line('Alpha').click())
   const trigger = container.querySelector<HTMLButtonElement>('button[aria-label^="Acme gateway actions"]')!
   await act(async () => trigger.click())
-  const item = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
-  expect(item.textContent).toBe('Remove')
+  // It sits in the account order too, so its menu leads with the moves.
+  const items = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items.map((entry) => entry.textContent)).toEqual(['Move up', 'Move down', 'Remove'])
+  const item = items[2]!
   await act(async () => item.click())
   expect(removeAccount).toHaveBeenCalledWith('alpha#3')
   expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
@@ -1532,6 +1534,35 @@ it.each([false, true])('offers a gateway only when its slot declares gateways (%
   await act(async () => line('Agent').click())
   expect(Boolean(button('Add gateway account'))).toBe(gateways)
   expect(button('Add account')).toBeDefined()
+})
+
+it('a gateway keeps its place in the order and moves like any account', async () => {
+  const setAccountPool = vi.fn()
+  const gateway = runtime({
+    id: 'alpha#3',
+    name: 'Alpha',
+    presentation: { name: 'Alpha' },
+    slot: { agent: 'alpha', home: '/tmp/alpha-3', removable: true, canAdd: true, gateway: { name: 'Acme gateway', endpoint: 'https://gw.acme.dev' } },
+  })
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({
+    runtimes: [ROSTER.runtimes[0]!, gateway, ...ROSTER.runtimes.slice(2)],
+    accountsByRuntime: accounts,
+    accountPools: { alpha: { order: ['alpha#3', 'alpha'] } },
+    store: { setAccountPool, limitsFor: async () => null },
+  })
+  await act(async () => line('Alpha').click())
+  const titles = [...container.querySelectorAll('[data-kind="record"] [data-slot="row-title"]')].map((node) => node.textContent ?? '')
+  expect(titles.slice(0, 2).map((title) => title.replace(/Gateway|Default/g, ''))).toEqual(['Acme gateway', 'ada'])
+
+  // The account under the gateway moves up past it, as drawn.
+  const menu = container.querySelector<HTMLButtonElement>('[aria-label="ada actions"]')!
+  await act(async () => menu.click())
+  const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items.map((item) => item.textContent)).toEqual(['Move up', 'Move down'])
+  await act(async () => items[0]!.click())
+  expect(setAccountPool).toHaveBeenCalledWith('alpha', { order: ['alpha', 'alpha#3'] })
 })
 
 it('an agent with two accounts keeps them in an order, with a rule for running out', async () => {
