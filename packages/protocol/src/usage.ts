@@ -624,7 +624,7 @@ export type UsageStandingStatus = 'ready' | 'low' | 'short' | 'out' | 'overdrawn
 
 export interface UsageStanding {
   readonly status: UsageStandingStatus
-  /** The lane the standing is about — the binding one, never a pin, or null with none. */
+  /** The lane the standing is about — the binding one (never a pin), or for Low the one running low; null with none. */
   readonly lane: UsageLane | null
   /** What that lane has left, 0..100; null when unmeasured or there is no lane. */
   readonly left: number | null
@@ -705,12 +705,18 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
   // Every account-wide limit counts, not only the headline: a healthy session
   // hiding a low weekly is low. A scoped one counts only as the headline.
   const wide = report.lanes.filter((each) => each.placeholder !== true && (!each.scope || each === lane))
-  const low = wide.some((each) => {
+  const low = wide.filter((each) => {
     if (each.severity === 'warning' || each.severity === 'critical') return true
     const remaining = remainingOf(each)
     return remaining !== null && remaining < LOW_PERCENT
   })
-  return { ...base, status: low ? 'low' : 'ready', runsOutAt: null, backAt: null }
+  if (low.length === 0) return { ...base, status: 'ready', runsOutAt: null, backAt: null }
+  // Low says what is low: the binding lane when it is one, otherwise the tightest of the others — never "Low, 90%
+  // left" from a healthy Session while the Weekly behind it is the one running low.
+  const tightness = (each: UsageLane): number => remainingOf(each) ?? Number.POSITIVE_INFINITY
+  const lowLane = lane !== null && low.includes(lane) ? lane : low.reduce((a, b) => (tightness(b) < tightness(a) ? b : a))
+  const lowLeft = remainingOf(lowLane)
+  return { ...base, lane: lowLane, left: lowLeft === null ? null : Math.round(lowLeft), status: 'low', runsOutAt: null, backAt: null }
 }
 
 // -------------------------------------------------------------- plan prices

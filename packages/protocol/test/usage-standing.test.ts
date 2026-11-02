@@ -89,6 +89,9 @@ test('a low weekly behind a healthy session is low', () => {
     NOW,
   )
   assert.equal(standing.status, 'low')
+  // It says the window that is low, not the healthy Session in front of it.
+  assert.equal(standing.lane?.id, 'weekly')
+  assert.equal(standing.left, 15)
 })
 
 test('a balance below zero is overdrawn; at zero it is out; above it is ready', () => {
