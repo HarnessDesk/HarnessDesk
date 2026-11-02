@@ -1,4 +1,5 @@
 import { dirname, join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 import type {
   RuntimeId,
@@ -12,9 +13,9 @@ import type {
   AgentItem,
   TurnInsightContext,
 } from '@harnessdesk/protocol'
-import { isNoticeTurn, openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
+import { canonicalTranscriptBody, isNoticeTurn, openingOfContent, preserveDeskContext, preserveNoticeItems, typedUserText } from '@harnessdesk/protocol'
 
-import { decodeBody, InvalidTranscriptBodyError, NewerTranscriptFormatError, readTranscriptFacts, TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
+import { decodeBody, durableStateIdentity, InvalidTranscriptBodyError, NewerTranscriptFormatError, readTranscriptFacts, TranscriptDatabase, TOOL_INDEX_CAP } from './transcript-database.js'
 import { DailySessionSnapshots } from './session-snapshots.js'
 import { publicationsIn, withPublications } from './publications.js'
 
@@ -190,12 +191,27 @@ const restorableUsage = (
  * moment after the delete (#36).
  */
 const keyOf = (runtime: RuntimeId, id: SessionId): string => `${runtime}\0${id}`
+export type DurableTranscriptBase = { readonly kind: 'missing' } | { readonly kind: 'body'; readonly identity: string }
+type PendingWrite = { timer: ReturnType<typeof setTimeout>; session: Session; insight: readonly TurnInsightContext[]; generation?: string; revision?: number; authorityEpoch?: number }
+
+const sameStoredSessionFacts = (stored: Stored, session: Session): boolean =>
+  (['title', 'preview', 'cwd', 'createdAt', 'updatedAt', 'usage'] as const)
+    .every(field => isDeepStrictEqual(stored[field] ?? null, session[field] ?? null))
 
 export class TranscriptStore {
-  readonly #pending = new Map<string, { timer: ReturnType<typeof setTimeout>; session: Session; insight: readonly TurnInsightContext[] }>()
+  readonly #pending = new Map<string, PendingWrite>()
   readonly #writes = new Map<string, Promise<boolean>>()
+  readonly #settling = new Map<string, Promise<void>>()
   /** A failed save must not reuse an older body's stamp or timestamp on retry. */
   readonly #failedWrites = new Set<string>()
+  /** A failed CAS quarantines later ordinary writes until explicit reconciliation. */
+  readonly #protectedWrites = new Set<string>()
+  readonly #protectedNotified = new Set<string>()
+  readonly #unboundWrites = new Set<string>()
+  readonly #retryHeld = new Map<string, PendingWrite>()
+  readonly #authorities = new Map<string, { generation: string; base: DurableTranscriptBase }>()
+  readonly #verifiedRows = new Map<string, string>()
+  readonly #readBases = new WeakMap<Session, DurableTranscriptBase>()
   readonly #insight = new Map<string, readonly TurnInsightContext[]>()
   readonly #database: TranscriptDatabase
   readonly #snapshots: DailySessionSnapshots
@@ -204,6 +220,10 @@ export class TranscriptStore {
     directory: string,
     private readonly log: (message: string, details?: Record<string, unknown>) => void = () => {},
     private readonly onWrite: () => void = () => {},
+    private readonly generationCurrent: (runtime: RuntimeId, id: SessionId, generation: string, session: Session, revision?: number, authorityEpoch?: number) => boolean = () => true,
+    private readonly baseAdvanced: (runtime: RuntimeId, id: SessionId, generation: string, base: DurableTranscriptBase) => void = () => {},
+    private readonly onProtected: (runtime: RuntimeId, id: SessionId) => void = () => {},
+    private readonly onDurableChange: (runtime: RuntimeId, id: SessionId, kind?: 'import') => void = () => {},
   ) {
     this.#database = new TranscriptDatabase(join(dirname(directory), 'sessions.sqlite'))
     this.#snapshots = new DailySessionSnapshots(this.#database.file, {
@@ -212,9 +232,19 @@ export class TranscriptStore {
     this.#snapshots.schedule()
   }
 
+  #notifyProtected(session: Session): void {
+    const key = keyOf(session.runtime, session.id)
+    this.#protectedWrites.add(key)
+    if (!this.#protectedNotified.has(key)) {
+      this.#protectedNotified.add(key)
+      this.onProtected(session.runtime, session.id)
+    }
+  }
+
   forgetMemory(rows: readonly { runtime: RuntimeId; id: SessionId }[]): void {
     for (const row of rows) {
       const key = keyOf(row.runtime, row.id)
+      if (this.#protectedWrites.has(key) || this.#unboundWrites.has(key)) continue
       const pending = this.#pending.get(key)
       if (pending) clearTimeout(pending.timer)
       this.#pending.delete(key)
@@ -223,8 +253,78 @@ export class TranscriptStore {
     }
   }
 
+  /** Logical pending-body pressure; excludes heap overhead and never exports payloads. */
+  protectedPressure(): { bodies: number; bytes: number } {
+    let bodies = 0, bytes = 0
+    for (const key of new Set([...this.#protectedWrites, ...this.#unboundWrites])) {
+      for (const entry of [this.#pending.get(key), this.#retryHeld.get(key)]) if (entry) {
+        bodies++
+        const { turns, ...metadata } = entry.session
+        bytes += canonicalTranscriptBody(turns).bytes + Buffer.byteLength(JSON.stringify([metadata, entry.insight]), 'utf8')
+      }
+    }
+    return { bodies, bytes }
+  }
+
+  /** Copies of unsaved bodies owned by this exact record incarnation. */
+  pendingBodies(runtime: RuntimeId, id: SessionId, generation: string, epoch: number): readonly Session[] {
+    const key = keyOf(runtime, id), bodies: Session[] = []
+    for (const pending of [this.#pending.get(key), this.#retryHeld.get(key)]) {
+      if (pending?.generation === generation && pending.authorityEpoch === epoch) bodies.push(structuredClone(pending.session))
+    }
+    return bodies
+  }
+
+  /** Quarantine owned pending bodies before a conflicting replay can replace them. */
+  protectPending(runtime: RuntimeId, id: SessionId, generation: string, epoch: number): boolean {
+    const key = keyOf(runtime, id)
+    const owned = [this.#pending.get(key), this.#retryHeld.get(key)].filter((pending): pending is PendingWrite =>
+      !!pending && pending.generation === generation && pending.authorityEpoch === epoch)
+    if (!owned.length) return false
+    for (const pending of owned) clearTimeout(pending.timer)
+    this.#notifyProtected(owned[0]!.session)
+    return true
+  }
+
+  /** Detect, without choosing a winner, when a replay conflicts with unsaved items. */
+  pendingReplayConflict(replay: Session, generation: string, epoch: number): boolean {
+    if (!replay.itemsLoaded) return false
+    const key = keyOf(replay.runtime, replay.id)
+    for (const pending of [this.#pending.get(key), this.#retryHeld.get(key)]) {
+      if (pending?.generation !== generation || pending.authorityEpoch !== epoch) continue
+      const byTurn = new Map(pending.session.turns.map(turn => [turn.id, turn]))
+      for (const turn of replay.turns) {
+        const saved = byTurn.get(turn.id)
+        if (!saved) continue
+        const byItem = new Map<string, AgentItem[]>()
+        for (const item of saved.items) {
+          const group = byItem.get(String(item.id)) ?? []
+          group.push(item); byItem.set(String(item.id), group)
+        }
+        if (turn.items.some(item => byItem.get(String(item.id))?.some(previous => !isDeepStrictEqual(previous, item)))) return true
+      }
+    }
+    return false
+  }
+
+  /** Unsaved turns belong to this exact record incarnation, not a later one. */
+  pendingTurnIds(runtime: RuntimeId, id: SessionId, generation: string, epoch: number): ReadonlySet<string> {
+    const key = keyOf(runtime, id), ids = new Set<string>()
+    for (const pending of [this.#pending.get(key), this.#retryHeld.get(key)]) {
+      if (pending?.generation !== generation || pending.authorityEpoch !== epoch) continue
+      for (const turn of pending.session.turns) ids.add(String(turn.id))
+    }
+    return ids
+  }
+
+  hasProtectedChanges(runtime: RuntimeId, id: SessionId): boolean {
+    const key = keyOf(runtime, id)
+    return this.#protectedWrites.has(key) || this.#unboundWrites.has(key) || this.#retryHeld.has(key)
+  }
+
   evictCached(cap: number, live: (runtime: RuntimeId, id: SessionId) => boolean): { count: number; bytes: number } {
-    const result = this.#database.evictCached(cap, live)
+    const result = this.#database.evictCached(cap, (runtime, id) => this.#protectedWrites.has(keyOf(runtime, id)) || this.#unboundWrites.has(keyOf(runtime, id)) || live(runtime, id))
+    for (const row of result.removed) this.onDurableChange(row.runtime, row.id)
     this.forgetMemory(result.removed)
     return { count: result.count, bytes: result.bytes }
   }
@@ -233,10 +333,11 @@ export class TranscriptStore {
    * Notes the session's current transcript for writing. `now` skips the
    * settle delay — the end of a turn is worth a write of its own.
    */
-  record(session: Session, options: { readonly now?: boolean; readonly insight?: readonly TurnInsightContext[] } = {}): void {
+  record(session: Session, options: { readonly now?: boolean; readonly insight?: readonly TurnInsightContext[]; readonly generation?: string; readonly revision?: number; readonly authorityEpoch?: number } = {}): void {
     if (!session.itemsLoaded || this.#database.isRemoved(session.runtime, session.id)) return
     if (!session.turns.some((turn) => turn.items.length > 0) && !(options.insight?.length)) return
     const key = keyOf(session.runtime, session.id)
+    if (options.generation && this.#authorities.get(key)?.generation !== options.generation) this.#unboundWrites.add(key)
     if (options.insight?.length) {
       const previous = this.#insight.get(key) ?? []
       const byTurn = new Map(previous.map((context) => [context.turn, context]))
@@ -246,18 +347,93 @@ export class TranscriptStore {
     const pending = this.#pending.get(key)
     if (pending) clearTimeout(pending.timer)
     const timer = setTimeout(() => {
-      this.#pending.delete(key)
-      void this.#write(session, this.#insight.get(key) ?? [])
+      if (this.#protectedWrites.has(key)) return
+      void this.#settle(session.runtime, session.id).catch(() => {})
     }, options.now ? 0 : SETTLE_MS)
-    this.#pending.set(key, { timer, session, insight: this.#insight.get(key) ?? [] })
+    this.#pending.set(key, { timer, session, insight: this.#insight.get(key) ?? [], generation: options.generation, revision: options.revision, authorityEpoch: options.authorityEpoch })
   }
 
-  async #write(session: Session, insight: readonly TurnInsightContext[] = [], refresh?: { source?: SessionSource | null; preserveSource?: boolean }): Promise<boolean> {
+  bindBase(session: Session, generation: string, base: DurableTranscriptBase): void {
     const key = keyOf(session.runtime, session.id)
+    this.#authorities.set(key, { generation, base })
+    const pending = this.#pending.get(key)
+    if (!pending || pending.generation === generation) this.#unboundWrites.delete(key)
+    if (pending?.generation === generation && !this.#protectedWrites.has(key)) {
+      this.record(pending.session, { insight: pending.insight, generation, revision: pending.revision, authorityEpoch: pending.authorityEpoch })
+    }
+  }
+
+  rememberReadBase(session: Session, base: DurableTranscriptBase | undefined): void {
+    if (base) this.#readBases.set(session, base)
+  }
+
+  readBase(session: Session): DurableTranscriptBase | undefined { return this.#readBases.get(session) }
+
+  unbindBase(session: Session, generation: string): void {
+    const key = keyOf(session.runtime, session.id)
+    if (this.#authorities.get(key)?.generation === generation && !this.#pending.has(key) && !this.#writes.has(key) && !this.#retryHeld.has(key)) {
+      this.#authorities.delete(key)
+      this.#verifiedRows.delete(key)
+    }
+  }
+
+  /** Caller supplies fresh-creation authority before a missing row can be trusted. */
+  observeBase(session: Session, allowMissing: boolean): DurableTranscriptBase | undefined {
+    const key = keyOf(session.runtime, session.id)
+    if (this.#writes.has(key) || this.#protectedWrites.has(key) || !session.itemsLoaded) return undefined
+    try {
+      const observed = this.#database.observe(session.runtime, session.id)
+      if (observed.removed) return undefined
+      if (!observed.bodyPresent) return allowMissing ? { kind: 'missing' } : undefined
+      const stored = observed.stored
+      if (!stored || !observed.identity || !sameStoredSessionFacts(stored, session) || canonicalTranscriptBody(stored.turns).canonical !== canonicalTranscriptBody(session.turns).canonical) return undefined
+      return { kind: 'body', identity: observed.identity }
+    } catch { return undefined }
+  }
+
+  /** Adopt only the current generation's exact queued snapshot, then CAS its base. */
+  async releaseFromBase(session: Session, generation: string, base: DurableTranscriptBase, authorityEpoch?: number): Promise<boolean> {
+    const key = keyOf(session.runtime, session.id), pending = this.#pending.get(key)
+    const current = () => this.generationCurrent(session.runtime, session.id, generation, session, undefined, authorityEpoch)
+    if (!current() || this.#retryHeld.has(key) || this.#writes.has(key)) return false
+    if (!pending) {
+      const saved = await this.#persistEvolvedBody(session, base, [], current, undefined, true)
+      if (saved && current() && this.#advanceBase(session, generation)) return true
+      if (saved) this.#notifyProtected(session)
+      return false
+    }
+    if (pending.generation !== generation || pending.authorityEpoch !== authorityEpoch || !isDeepStrictEqual(pending.session, session)) return false
+    clearTimeout(pending.timer); this.#pending.delete(key); this.#retryHeld.set(key, pending)
+    const saved = await this.#persistEvolvedBody(session, base, pending.insight, current, pending)
+    if (saved && current() && this.#advanceBase(session, generation)) { this.#retryHeld.delete(key); return true }
+    if (saved) this.#notifyProtected(session)
+    if (!this.#pending.has(key)) { this.#pending.set(key, pending); this.#retryHeld.delete(key) }
+    return false
+  }
+
+  #advanceBase(session: Session, generation: string): boolean {
+    const identity = this.#verifiedRows.get(keyOf(session.runtime, session.id))
+    if (!identity || !this.#matchesStoredRow(session, identity)) return false
+    const base: DurableTranscriptBase = { kind: 'body', identity }
+    this.bindBase(session, generation, base)
+    this.baseAdvanced(session.runtime, session.id, generation, base)
+    return true
+  }
+
+  verifiedBase(session: Session): DurableTranscriptBase | undefined {
+    const identity = this.#verifiedRows.get(keyOf(session.runtime, session.id))
+    return identity && this.#matchesStoredRow(session, identity) ? { kind: 'body', identity } : undefined
+  }
+
+  async #write(session: Session, insight: readonly TurnInsightContext[] = [], refresh?: { source?: SessionSource | null; preserveSource?: boolean; preserveExactBody?: string; preserveStored?: Stored; expectedBase?: DurableTranscriptBase; current?: () => boolean; prepared?: (identity: string) => void }): Promise<boolean> {
+    const key = keyOf(session.runtime, session.id)
+    if (this.#protectedWrites.has(key) && !refresh?.expectedBase) return false
     const previous = this.#writes.get(key) ?? Promise.resolve()
     const next = previous.then(async () => {
+      if (this.#protectedWrites.has(key) && !refresh?.expectedBase) return false
+      if (refresh?.current && !refresh.current()) return false
       const preserveSource = refresh?.preserveSource && !this.#failedWrites.has(key)
-      let stored: Stored = {
+      let stored: Stored = refresh?.preserveStored ?? {
         version: FORMAT,
         runtime: session.runtime,
         id: session.id,
@@ -282,7 +458,7 @@ export class TranscriptStore {
           reconcile = true
           this.log('invalid retained transcript ignored', { session: session.id, error: String(error) })
         }
-        if (current) {
+        if (current && !refresh?.preserveStored) {
           const retained = new Set(stored.turns.map(turn => String(turn.id)))
           const contexts = new Map((current.insight ?? []).filter(context => retained.has(context.turn)).map(context => [context.turn, context]))
           for (const context of insight) contexts.set(context.turn, context)
@@ -296,7 +472,13 @@ export class TranscriptStore {
         // A release adds no source work. Read the current stamp inside this
         // queued write, after any older event write has invalidated it.
         const source = preserveSource ? this.#storedSource(session.runtime, session.id) : refresh?.source ?? null
-        this.#database.write(stored, session.runtime, session.id, { reconcile: reconcile || !!refresh, source })
+        const writtenIdentity = durableStateIdentity(stored, source)
+        refresh?.prepared?.(writtenIdentity)
+        this.#database.write(stored, session.runtime, session.id, { reconcile: reconcile || !!refresh, source, preserveExactBody: refresh?.preserveExactBody, expectedBase: refresh?.expectedBase })
+        // Exact verification of the same semantic row is not a cache change.
+        if (!refresh?.preserveStored || refresh.expectedBase?.kind !== 'body' || refresh.expectedBase.identity !== writtenIdentity) {
+          this.onDurableChange(session.runtime, session.id)
+        }
         this.#snapshots.schedule()
         this.onWrite()
         this.#failedWrites.delete(key)
@@ -313,9 +495,118 @@ export class TranscriptStore {
     finally { if (this.#writes.get(key) === next) this.#writes.delete(key) }
   }
 
+  /**
+   * Verify the exact ordered body against a fresh SQLite read after writing it.
+   * This is a storage primitive, not an eviction receipt: the caller must fence
+   * host identity, quiescence and all intervening mutations independently.
+   */
+  async persistExactBody(host: Session, candidate: Session, expectedBase?: DurableTranscriptBase): Promise<boolean> {
+    if (host.runtime !== candidate.runtime || host.id !== candidate.id || !host.itemsLoaded || !candidate.itemsLoaded ||
+        !host.turns.some(turn => turn.items.length > 0)) return false
+    const body = canonicalTranscriptBody(host.turns).canonical
+    if (body !== canonicalTranscriptBody(candidate.turns).canonical) return false
+    const key = keyOf(host.runtime, host.id)
+    if (this.#pending.has(key) || this.#writes.has(key) || this.#failedWrites.has(key)) return false
+    let base: DurableTranscriptBase, storedForVerification: Stored | undefined
+    try {
+      const observed = this.#database.observe(host.runtime, host.id)
+      const stored = observed.stored
+      if (observed.removed || (observed.bodyPresent && !stored)) return false
+      if (stored && observed.identity) {
+        if (!sameStoredSessionFacts(stored, host)) return false
+        const heldInsight = this.#insight.get(key)
+        if (heldInsight?.length && !isDeepStrictEqual(heldInsight, stored.insight ?? [])) return false
+        storedForVerification = stored
+        base = { kind: 'body', identity: observed.identity }
+      } else base = { kind: 'missing' }
+    } catch { return false }
+    if (expectedBase && (expectedBase.kind !== base.kind ||
+      (expectedBase.kind === 'body' && (base.kind !== 'body' || expectedBase.identity !== base.identity)))) return false
+    let prepared: string | undefined
+    if (!await this.#write(host, this.#insight.get(key) ?? [], { preserveSource: true, preserveExactBody: body, preserveStored: storedForVerification, expectedBase: expectedBase ?? base, prepared: identity => { prepared = identity } })) return false
+    if (this.#pending.has(key) || this.#writes.has(key)) return false
+    if (!prepared || !this.#matchesStoredRow(host, prepared)) return false
+    this.#verifiedRows.set(key, prepared)
+    return true
+  }
+
+  /** Storage CAS only: the caller owns and fences the observed base and record. */
+  async persistEvolvedBody(session: Session, expectedBase: { readonly kind: 'missing' } | { readonly kind: 'body'; readonly identity: string }, insight: readonly TurnInsightContext[] = [], current?: () => boolean): Promise<boolean> {
+    return this.#persistEvolvedBody(session, expectedBase, insight, current)
+  }
+
+  async #persistEvolvedBody(session: Session, expectedBase: DurableTranscriptBase, insight: readonly TurnInsightContext[] = [], current?: () => boolean, ownedHeld?: PendingWrite, preserveSource = false): Promise<boolean> {
+    if (!session.itemsLoaded || !session.turns.some(turn => turn.items.length > 0)) return false
+    const key = keyOf(session.runtime, session.id)
+    if (this.#pending.has(key) || this.#writes.has(key) || (this.#retryHeld.has(key) && this.#retryHeld.get(key) !== ownedHeld)) return false
+    if (insight.length) {
+      const byTurn = new Map((this.#insight.get(key) ?? []).map(context => [context.turn, context]))
+      for (const context of insight) byTurn.set(context.turn, context)
+      this.#insight.set(key, [...byTurn.values()].slice(-2000))
+    }
+    // Guard ordinary settles throughout the asynchronous CAS and readback.
+    this.#protectedWrites.add(key)
+    let prepared: string | undefined
+    if (!await this.#write(session, this.#insight.get(key) ?? [], { expectedBase, current, preserveSource, prepared: identity => { prepared = identity } }) ||
+        !prepared || !this.#matchesStoredRow(session, prepared) || this.#pending.has(key) || (current && !current())) {
+      this.#notifyProtected(session)
+      return false
+    }
+    this.#verifiedRows.set(key, prepared)
+    this.#protectedWrites.delete(key)
+    this.#protectedNotified.delete(key)
+    return true
+  }
+
+  /** Storage retry only; the caller must fence the current Host record and generation. */
+  async retryProtectedBody(session: Session, expectedBase: DurableTranscriptBase, current?: () => boolean): Promise<boolean> {
+    const key = keyOf(session.runtime, session.id), pending = this.#pending.get(key)
+    if ((current && !current()) || !this.#protectedWrites.has(key) || this.#retryHeld.has(key) || this.#writes.has(key)) return false
+    // A failed recovered-body CAS may have no queued snapshot: the current
+    // generation's fully materialized Host record owns that data instead.
+    if (!pending) return this.#persistEvolvedBody(session, expectedBase, [], current)
+    if (!isDeepStrictEqual(pending.session, session)) return false
+    clearTimeout(pending.timer)
+    this.#pending.delete(key)
+    this.#retryHeld.set(key, pending)
+    const saved = await this.#persistEvolvedBody(session, expectedBase, [], current, pending)
+    if (saved) { this.#retryHeld.delete(key); return true }
+    if (!this.#pending.has(key)) { this.#pending.set(key, pending); this.#retryHeld.delete(key) }
+    return false
+  }
+
+  /** A fresh connection checks that the exact body remains in SQLite. */
+  matchesExactBody(session: Session): boolean {
+    const key = keyOf(session.runtime, session.id)
+    if (this.#protectedWrites.has(key) || this.#unboundWrites.has(key) || this.#pending.has(key) || this.#writes.has(key) || this.#retryHeld.has(key) || this.#settling.has(key)) return false
+    return this.#matchesStoredBody(session)
+  }
+
+  #matchesStoredBody(session: Session): boolean {
+    const verifier = new TranscriptDatabase(this.#database.file)
+    try {
+      if (verifier.isRemoved(session.runtime, session.id)) return false
+      const stored = verifier.read(session.runtime, session.id)
+      return !!stored && canonicalTranscriptBody(stored.turns).canonical === canonicalTranscriptBody(session.turns).canonical
+    } catch { return false }
+    finally { verifier.close() }
+  }
+
+  #matchesStoredRow(session: Session, identity: string): boolean {
+    const verifier = new TranscriptDatabase(this.#database.file)
+    try {
+      const observed = verifier.observe(session.runtime, session.id)
+      const stored = observed.stored
+      return !observed.removed && !!stored && observed.identity === identity &&
+        canonicalTranscriptBody(stored.turns).canonical === canonicalTranscriptBody(session.turns).canonical
+    } catch { return false }
+    finally { verifier.close() }
+  }
+
   /** Persist before a closed handle lets go of its body; a failed save keeps it in memory. */
   async release(session: Session): Promise<boolean> {
     const key = keyOf(session.runtime, session.id)
+    if (this.#protectedWrites.has(key)) return false
     const pending = this.#pending.get(key)
     if (pending) clearTimeout(pending.timer)
     this.#pending.delete(key)
@@ -332,8 +623,19 @@ export class TranscriptStore {
    */
   async #settle(runtime: RuntimeId, id: SessionId): Promise<void> {
     const key = keyOf(runtime, id)
+    const inProgress = this.#settling.get(key)
+    if (inProgress) { await inProgress; return this.#settle(runtime, id) }
+    if (this.#protectedWrites.has(key)) throw new Error('Transcript has protected changes that could not be saved')
     const pending = this.#pending.get(key)
     if (pending) {
+      if (pending.generation) {
+        const work = this.#settleGeneration(key, pending)
+        this.#settling.set(key, work)
+        try { await work } finally { if (this.#settling.get(key) === work) this.#settling.delete(key) }
+        if (this.#protectedWrites.has(key)) throw new Error('Transcript has protected changes that could not be saved')
+        if (this.#pending.get(key) === pending) throw new Error('Transcript write authority is not established')
+        return this.#settle(runtime, id)
+      }
       clearTimeout(pending.timer)
       this.#pending.delete(key)
       await this.#write(pending.session, pending.insight)
@@ -342,10 +644,56 @@ export class TranscriptStore {
     await this.#writes.get(key)?.catch(() => {})
   }
 
+  async #settleGeneration(key: string, pending: PendingWrite): Promise<void> {
+    const generation = pending.generation!, session = structuredClone(pending.session), authority = this.#authorities.get(key)
+    if (!authority) { clearTimeout(pending.timer); this.#unboundWrites.add(key); return }
+    if (authority.generation !== generation || !this.generationCurrent(session.runtime, session.id, generation, session, pending.revision, pending.authorityEpoch) || this.#retryHeld.has(key)) {
+      this.#notifyProtected(session); return
+    }
+    clearTimeout(pending.timer); this.#pending.delete(key); this.#retryHeld.set(key, pending); this.#protectedWrites.add(key)
+    const current = () => this.#authorities.get(key) === authority && this.generationCurrent(session.runtime, session.id, generation, session, pending.revision, pending.authorityEpoch)
+    let prepared: string | undefined
+    const saved = await this.#write(session, pending.insight, { expectedBase: authority.base, current, prepared: identity => { prepared = identity } })
+    if (saved && current() && prepared && this.#matchesStoredRow(session, prepared)) {
+      const base: DurableTranscriptBase = { kind: 'body', identity: prepared }
+      authority.base = base
+      this.baseAdvanced(session.runtime, session.id, generation, base)
+      this.#retryHeld.delete(key); this.#protectedWrites.delete(key)
+      this.#protectedNotified.delete(key)
+      const next = this.#pending.get(key)
+      if (next) this.record(next.session, { insight: next.insight, generation: next.generation, revision: next.revision, authorityEpoch: next.authorityEpoch })
+      return
+    }
+    this.#notifyProtected(session)
+    if (!this.#pending.has(key)) { this.#pending.set(key, pending); this.#retryHeld.delete(key) }
+  }
+
   async #read(runtime: RuntimeId, id: SessionId): Promise<Stored | null> {
     await this.#settle(runtime, id)
+    if (this.#protectedWrites.has(keyOf(runtime, id))) return null
     try { return this.#database.read(runtime, id) }
     catch { return null }
+  }
+
+  /** Read a released body synchronously before folding an arriving event. */
+  readRetainedTurns(runtime: RuntimeId, id: SessionId): readonly Turn[] | null {
+    const key = keyOf(runtime, id)
+    if (this.#protectedWrites.has(key) || this.#pending.has(key) || this.#writes.has(key)) return null
+    try {
+      if (this.#database.isRemoved(runtime, id)) return null
+      return this.#database.read(runtime, id)?.turns ?? null
+    } catch { return null }
+  }
+
+  readRetainedTurnsAtBase(runtime: RuntimeId, id: SessionId, identity: string): readonly Turn[] | null {
+    const key = keyOf(runtime, id)
+    if (this.#protectedWrites.has(key) || this.#unboundWrites.has(key) || this.#pending.has(key) || this.#writes.has(key)) return null
+    const verifier = new TranscriptDatabase(this.#database.file)
+    try {
+      const observed = verifier.observe(runtime, id)
+      return !observed.removed && observed.stored && observed.identity === identity ? observed.stored.turns : null
+    } catch { return null }
+    finally { verifier.close() }
   }
 
   /** Metadata of a verified stored body, including conversations with no turns. */
@@ -363,24 +711,51 @@ export class TranscriptStore {
   /** Fingerprint and body are committed together; a failed refresh never blesses a stale body. */
   async source(runtime: RuntimeId, id: SessionId): Promise<SessionSource | null> {
     await this.#settle(runtime, id)
+    if (this.#protectedWrites.has(keyOf(runtime, id))) return null
     return this.#storedSource(runtime, id)
   }
 
   #storedSource(runtime: RuntimeId, id: SessionId): SessionSource | null {
-    const row = this.#database.db.prepare('SELECT source_path,source_mtime,source_size FROM sessions WHERE runtime=? AND id=?').get(runtime, id)
-    return row && typeof row.source_path === 'string' && typeof row.source_mtime === 'number' && typeof row.source_size === 'number'
-      ? { path: row.source_path, mtimeMs: row.source_mtime, size: row.source_size } : null
+    return this.#database.source(runtime, id)
   }
 
   /** Persist only after enrich; omitted work turns, items, search and context leave together. */
-  async refresh(session: Session, source: SessionSource | null): Promise<void> {
+  async refresh(session: Session, source: SessionSource | null, observedBase?: DurableTranscriptBase): Promise<{ saved: true; base: DurableTranscriptBase } | { saved: false; base: DurableTranscriptBase }> {
     await this.#settle(session.runtime, session.id)
     const key = keyOf(session.runtime, session.id)
+    if (this.#protectedWrites.has(key)) throw new Error('Transcript has protected changes that could not be saved')
     const retained = new Set(session.turns.map(turn => String(turn.id)))
     const contexts = (this.#insight.get(key) ?? []).filter(context => retained.has(context.turn))
+    const base = observedBase ?? (session.partialHistory ? undefined : this.observeBase(session, true))
+    let prepared: string | undefined
+    if (!base || !await this.#write(session, [], { source, expectedBase: base, prepared: identity => { prepared = identity } }) || !prepared || !this.#matchesStoredRow(session, prepared)) {
+      this.#notifyProtected(session)
+      const timer = setTimeout(() => {}, 0); timer.unref()
+      const held = { timer, session, insight: this.#insight.get(key) ?? [] }
+      if (!this.#pending.has(key)) this.#pending.set(key, held)
+      else if (!this.#retryHeld.has(key)) this.#retryHeld.set(key, held)
+      if (base && this.#baseStillMatches(session, base)) return { saved: false, base }
+      throw new Error('Transcript refresh could not be verified; changes are protected')
+    }
     if (contexts.length) this.#insight.set(key, contexts)
     else this.#insight.delete(key)
-    await this.#write(session, [], { source })
+    return { saved: true, base: { kind: 'body', identity: prepared } }
+  }
+
+  /** Compare the current durable base without settling or changing a live body. */
+  matchesBase(session: Session, base: DurableTranscriptBase): boolean {
+    return this.#baseStillMatches(session, base)
+  }
+
+  #baseStillMatches(session: Session, base: DurableTranscriptBase): boolean {
+    const verifier = new TranscriptDatabase(this.#database.file)
+    try {
+      const observed = verifier.observe(session.runtime, session.id)
+      if (observed.removed) return false
+      if (base.kind === 'missing') return !observed.bodyPresent
+      return !!observed.stored && observed.identity === base.identity
+    } catch { return false }
+    finally { verifier.close() }
   }
 
   /**
@@ -414,7 +789,23 @@ export class TranscriptStore {
    * none; nothing else about the session changes.
    */
   async enrich(session: Session): Promise<Session> {
-    const stored = await this.#read(session.runtime, session.id)
+    return this.#enrichFromStored(session, await this.#read(session.runtime, session.id))
+  }
+
+  /** The base belongs to this individual read, never to a shared session-key slot. */
+  async enrichForRefresh(session: Session): Promise<{ session: Session; base: DurableTranscriptBase | undefined }> {
+    await this.#settle(session.runtime, session.id)
+    let stored: Stored | null = null, base: DurableTranscriptBase | undefined
+    if (!this.#protectedWrites.has(keyOf(session.runtime, session.id))) try {
+      const observed = this.#database.observe(session.runtime, session.id)
+      stored = observed.stored
+      if (observed.identity) base = { kind: 'body', identity: observed.identity }
+      else if (!observed.removed && !session.partialHistory && !observed.bodyPresent) base = { kind: 'missing' }
+    } catch { /* An unavailable or undecodable base is not known missing. */ }
+    return { session: this.#enrichFromStored(session, stored), base }
+  }
+
+  #enrichFromStored(session: Session, stored: Stored | null): Session {
     if (!stored) return session
     // A backend that answers with no turns at all — an ACP agent restarted
     // out of its idle sessions serves the session but not its past — is not
@@ -628,16 +1019,29 @@ export class TranscriptStore {
     ) {
       return 'refused'
     }
-    const existing = await this.#read(runtime as RuntimeId, id as SessionId)
-    if (existing && existing.savedAt >= incoming.savedAt) return 'skipped'
+    await this.#settle(runtime as RuntimeId, id as SessionId)
+    if (this.#protectedWrites.has(keyOf(runtime as RuntimeId, id as SessionId))) return 'refused'
+    let existing: Stored | null, base: DurableTranscriptBase
     try {
-      const { origin, lastOpenedAt, ...stored } = incoming
-      this.#database.write(stored as Stored, runtime as RuntimeId, id as SessionId, { source: null, origin, lastOpenedAt })
+      const observed = this.#database.observe(runtime, id)
+      existing = observed.stored
+      if (observed.removed || (observed.bodyPresent && !existing)) return 'refused'
+      if (existing && existing.savedAt >= incoming.savedAt) return 'skipped'
+      base = observed.identity ? { kind: 'body', identity: observed.identity } : { kind: 'missing' }
+    } catch { return 'refused' }
+    const { origin, lastOpenedAt, ...stored } = incoming
+    try {
+      this.#database.write(stored as Stored, runtime as RuntimeId, id as SessionId, { source: null, origin, lastOpenedAt, expectedBase: base, expectedSavedAt: existing?.savedAt ?? null })
+      this.onDurableChange(runtime as RuntimeId, id as SessionId, 'import')
       this.#snapshots.schedule()
     }
     catch { return 'refused' }
-    const written = await this.#read(runtime as RuntimeId, id as SessionId)
-    if (!written || written.savedAt !== incoming.savedAt || written.turns.length !== incoming.turns.length) return 'refused'
+    const verifier = new TranscriptDatabase(this.#database.file)
+    try {
+      const observed = verifier.observe(runtime, id), written = observed.stored
+      if (!written || observed.removed || written.savedAt !== incoming.savedAt || observed.identity !== durableStateIdentity(stored as Stored, null)) return 'refused'
+    } catch { return 'refused' }
+    finally { verifier.close() }
     // Notify after verification: cache eviction may remove this body at once.
     this.onWrite()
     return 'restored'
@@ -665,7 +1069,14 @@ export class TranscriptStore {
     await this.#writes.get(key)?.catch(() => {})
     this.#writes.delete(key)
     this.#failedWrites.delete(key)
+    this.#protectedWrites.delete(key)
+    this.#protectedNotified.delete(key)
+    this.#unboundWrites.delete(key)
+    this.#retryHeld.delete(key)
+    this.#authorities.delete(key)
+    this.#verifiedRows.delete(key)
     this.#database.forget(runtime, id, options)
+    this.onDurableChange(runtime, id)
   }
 
   /**
@@ -681,6 +1092,7 @@ export class TranscriptStore {
   async dropTurns(runtime: RuntimeId, id: SessionId, count: number): Promise<void> {
     if (!(count > 0)) return
     const key = keyOf(runtime, id)
+    if (this.#protectedWrites.has(key)) return
     const pending = this.#pending.get(key)
     if (pending) {
       clearTimeout(pending.timer)
@@ -706,17 +1118,19 @@ export class TranscriptStore {
 
   /** Writes whatever is still waiting. Call on shutdown. */
   async flush(): Promise<void> {
-    const waiting = [...this.#pending.values()]
-    for (const entry of waiting) clearTimeout(entry.timer)
-    this.#pending.clear()
-    await Promise.all(waiting.map((entry) => this.#write(entry.session, entry.insight)))
+    const waiting = [...this.#pending.values()].filter(entry => !this.#protectedWrites.has(keyOf(entry.session.runtime, entry.session.id)))
+    await Promise.all(waiting.map(entry => this.#settle(entry.session.runtime, entry.session.id)))
+    await Promise.all([...this.#settling.values()])
     await Promise.all([...this.#writes.values()])
+    if (this.#protectedWrites.size) throw new Error('Transcript has protected changes that could not be saved')
   }
   async close(): Promise<void> {
-    await this.flush()
-    await this.#snapshots.close()
-    this.#database.close()
-    this.#failedWrites.clear()
+    try { await this.flush() }
+    finally {
+      await this.#snapshots.close()
+      this.#database.close()
+      this.#failedWrites.clear()
+    }
   }
 
 }

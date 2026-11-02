@@ -80,3 +80,7 @@ export * from './digest.js'
 export * from './lead-stage.js'
 
 export type * from './ios.js'
+
+export * from './canonical-transcript.js'
+
+export * from './pending-transcript.js'
