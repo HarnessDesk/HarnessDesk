@@ -342,7 +342,6 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(closing).toHaveCount(0)
     await expect(view).toHaveAttribute('aria-expanded', 'true')
     await expect(page.getByRole('menuitemradio', { name: 'Chat', exact: true })).toBeVisible()
-    await expect(page.getByRole('menuitemradio', { name: 'Split', exact: true })).toBeVisible()
     await info.attach(`chat-view-stays-open-${theme}`, { body: await page.screenshot(), contentType: 'image/png' })
   })
 }

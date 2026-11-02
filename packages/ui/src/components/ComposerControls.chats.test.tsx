@@ -39,3 +39,17 @@ it('recovers the worktree menu when the open repository had no live facts in rec
   await act(async () => { await new Promise<void>(done => requestAnimationFrame(() => done())) })
   expect([...host.querySelectorAll('button')].map(button => button.title)).toContain('Starts in a new worktree on its own branch, made when you send')
 })
+
+it('does not offer repository controls for a managed chat workspace', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), {
+    chatsFolder: '/data/chats', chatsFolderRoots: ['/data/chats/one'],
+    workspace: { path: '/data/chats/one', name: 'one', git: { branch: 'main', headSha: 'abcd', files: [] } },
+  })
+  vi.spyOn(store.transport, 'request').mockResolvedValue([] as never)
+  await act(async () => root.render(<StoreProvider store={store}><PlaceControl onChooseProject={() => {}} /></StoreProvider>))
+  expect(host.querySelectorAll('button')).toHaveLength(1)
+  await act(async () => host.querySelector<HTMLButtonElement>('button')!.click())
+  expect(document.body.textContent).not.toContain('New worktree')
+  expect(document.body.textContent).not.toContain('Work in')
+})
