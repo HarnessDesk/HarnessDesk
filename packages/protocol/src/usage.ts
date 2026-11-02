@@ -706,8 +706,11 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
     const models = lane?.scope && left !== null && left <= 0 ? report.lanes.filter((each) => each.scope && isSpent(each)) : []
     const resets = (blockers.length > 0 ? blockers : models).map((each) => each.resetsAt)
     const known = resets.filter((at): at is number => at !== null)
-    const backAt =
-      blockers.length > 0
+    // A `reached` this report cannot resolve to a lane is a blocker with no known reset, whatever else is spent.
+    const unresolved = report.reached !== null && reached === null
+    const backAt = unresolved
+      ? null
+      : blockers.length > 0
         ? known.length === resets.length ? Math.max(...known) : null
         : known.length > 0 ? Math.min(...known) : null
     // "One model is out, the others still work" is not true of an account that is out.

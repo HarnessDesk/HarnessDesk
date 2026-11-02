@@ -848,6 +848,18 @@ describe('rightNow', () => {
     expect(line).toBeNull()
   })
 
+  it('recommends nothing when two of one name have no account to tell them apart', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'session', usedPercent: 15, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'session', usedPercent: 60, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })] }),
+      ],
+      () => 'Agent',
+      NOON,
+    )
+    expect(line).toBeNull()
+  })
+
   it('names the account when two runtimes share one name', () => {
     const line = rightNow(
       [

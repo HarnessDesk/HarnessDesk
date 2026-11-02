@@ -72,6 +72,12 @@ test('a spent window that gives no reset leaves the account without a Back time'
   assert.equal(standing.backAt, null)
 })
 
+test('a reached limit no lane explains withholds the Back time, even beside a spent window', () => {
+  const standing = usageStandingOf(report({ lanes: [lane({ usedPercent: 100 })], reached: 'spend_limit_reached' }), NOW)
+  assert.equal(standing.status, 'out')
+  assert.equal(standing.backAt, null)
+})
+
 test('with every model spent, it is back when the first of them resets', () => {
   const standing = usageStandingOf(
     report({

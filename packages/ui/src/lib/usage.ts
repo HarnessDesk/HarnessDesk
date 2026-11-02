@@ -796,6 +796,9 @@ export const rightNow = (
   const sameName = (report: UsageReport): number => reports.filter((other) => nameFor(other) === nameFor(report)).length
   const label = (report: UsageReport): string =>
     sameName(report) > 1 && report.account ? `${nameFor(report)} (${report.account})` : nameFor(report)
+  // Two of one name with no account to tell them apart: "Start on Agent" would not say which, so say nothing.
+  const ambiguous = (report: UsageReport | undefined): boolean =>
+    report !== undefined && sameName(report) > 1 && !report.account
 
   const ORDER: Partial<Record<UsageStandingStatus, number>> = { ready: 0, low: 1, short: 2 }
   const usable = read
@@ -811,15 +814,16 @@ export const rightNow = (
     // Out with no return time may come back sooner. Without that certainty, the page's own summary says it.
     const settled = read.every(({ standing }) => standing.status === 'overdrawn' || out.some((each) => each.standing === standing))
     const first = settled ? out[0] : undefined
-    return first
+    return first && !ambiguous(first.report)
       ? `Nothing has room right now — ${label(first.report)} is back first, at ${formatWhen(first.standing.backAt ?? now, now)}.`
       : null
   }
+  if (ambiguous(best.report)) return null
   const sentence = standingSentence(best.standing, now)
   const tail = sentence ? `, and it ${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}` : ''
   const lead = `Start on ${label(best.report)} — ${best.standing.left}% left${tail}.`
   const firstOut = out[0]
-  if (!firstOut) return lead
+  if (!firstOut || ambiguous(firstOut.report)) return lead
   const more = out.length > 1 ? ` (and ${out.length - 1} more)` : ''
   return `${lead} ${label(firstOut.report)}${more} is out until ${formatWhen(firstOut.standing.backAt ?? now, now)}.`
 }
