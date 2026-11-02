@@ -48,7 +48,7 @@ describe('noteOf, for an account that cannot run', () => {
     ...over,
   })
   const note = (subject: UsageReport) =>
-    noteOf(subject, describeReport(subject, { now: NOON }), balanceOf(subject.credits), false)
+    noteOf(subject, describeReport(subject, { now: NOON }), balanceOf(subject.credits), false, NOON)
 
   it('says a spent balance waits for a top-up, not for a reset', () => {
     // Cline at −$0.016 read "new turns will fail until it resets"; a prepaid
@@ -66,5 +66,13 @@ describe('noteOf, for an account that cannot run', () => {
       reached: 'weekly',
     })
     expect(note(spent)?.text).toBe('Reached — new turns will fail until it resets')
+  })
+
+  it('says a spent model even when it is past the last row the card draws', () => {
+    const lane = (id: string, usedPercent: number, scope?: string) => ({ id, label: id, usedPercent, windowMinutes: 300, resetsAt: NOON + 60 * 60_000, ...(scope ? { scope } : {}) })
+    const many = report({ lanes: [lane('session', 20), lane('weekly', 30), lane('sonnet', 10, 'Sonnet'), lane('haiku', 5, 'Haiku'), lane('opus', 100, 'Opus')] })
+    expect(describeReport(many, { now: NOON }).lanes.some((each) => each.scope === 'Opus')).toBe(false)
+    expect(note(many)?.text).toMatch(/^Opus is out until .* — other models still work$/)
+    expect(note(many)?.tone).toBe('warn')
   })
 })

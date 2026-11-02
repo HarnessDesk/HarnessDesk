@@ -27,6 +27,7 @@ import {
   balanceOf,
   byUrgency,
   coverageLabel,
+  describeLane,
   describeReport,
   drawnReport,
   formatAge,
@@ -285,7 +286,7 @@ export const Card = ({
           text: `Everything is spent on the ${drawn.account ?? 'other sign-in'} — ${agent} may be signed in as another account`,
           tone: 'warn' as const,
         }
-      : noteOf(drawn, view, balance, Boolean(spend))
+      : noteOf(drawn, view, balance, Boolean(spend), now)
 
   return (
     <SurfaceCard
@@ -607,6 +608,7 @@ export const noteOf = (
   view: ReportView,
   balance: Balance | null,
   hasSpend: boolean,
+  now: number,
 ): { text: string; tone?: Tone } | null => {
   if (report.error) return { text: report.error.message, tone: 'bad' }
   if (!view.hero && balance && balance.remaining < 0) {
@@ -626,8 +628,10 @@ export const noteOf = (
     }
   }
   // One model is out, not the account. Saying "new turns will fail" here would
-  // send someone to another agent they do not need.
-  const scopedOut = view.reachedLane?.scope ? view.reachedLane : view.lanes.find((lane) => lane.scope && lane.spent) ?? null
+  // send someone to another agent they do not need. The standing reads every
+  // lane, so a spent model past the card's last drawn row is still said.
+  const scopedLane = view.reachedLane?.scope ? null : usageStandingOf(report, now).scopedOut
+  const scopedOut = view.reachedLane?.scope ? view.reachedLane : scopedLane ? describeLane(scopedLane, now, report.lanes) : null
   if (scopedOut?.scope) {
     const back = scopedOut.resetClock ? ` until ${scopedOut.resetClock}` : ''
     return { text: `${scopedOut.scope} is out${back} — other models still work`, tone: 'warn' }
