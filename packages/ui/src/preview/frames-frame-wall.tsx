@@ -899,6 +899,9 @@ export const FrameWall = () => {
     // "system", which a capture's emulated scheme answered and an embedded
     // review window, on a light desktop, did not.
     if (requestedTheme === 'light' || requestedTheme === 'dark') next.setTheme(requestedTheme)
+    // The same holds for `?surface=`: Appearance and any later `useTheme()`
+    // inside the page read this store's surface.
+    if (requestedSurface === 'cards' || requestedSurface === 'sheet') next.setSurface(requestedSurface)
     return next
   }, [destination, location.search])
   useEffect(() => {
