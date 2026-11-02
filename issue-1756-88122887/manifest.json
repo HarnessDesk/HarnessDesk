@@ -1,0 +1,22 @@
+{
+  "issue": 1756,
+  "pr": 1976,
+  "head": "88122887540320345b0b6047393bb923f1139fbb",
+  "tree": "1b3aa064b1df3d3f4c83c65289da907295cde4e0",
+  "scope": "Isolated fake-agent Electron: focused Local pointer selection returns focus; managed chat workspace retains folder picker. No keyboard Enter or physical picker proof.",
+  "privacy": "Both originals personally inspected; all seven unmodified whole-document and account audits passed with zero reasons. Both privacy canaries verified and restored.",
+  "frames": [
+    {
+      "name": "project-light.png",
+      "sha256": "7a7e41ef9f4ee91311a31fd95417307db2f29d7aa9a602cc5ba3cb30abfd0ac7",
+      "width": 2560,
+      "height": 1680
+    },
+    {
+      "name": "managed-dark.png",
+      "sha256": "2a774f61c01bf8fd94b1f3f67f0acc295285bd2dffb039d2b574599017533a4f",
+      "width": 2560,
+      "height": 1680
+    }
+  ]
+}
