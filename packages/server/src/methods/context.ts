@@ -482,6 +482,7 @@ export interface HostContext {
     /** Sends the next queued message, if the conversation is idle and the queue is not held. */
     drain(record: SessionRecord): Promise<void>
     nextId(): string
+    retiredPersonSeat(record: SessionRecord): string | null
     /** Replaces one queued message in place, refusing stale or currently delivering ids. */
     update(record: SessionRecord, id: string, input: readonly UserContent[]): void
     /**
@@ -498,7 +499,7 @@ export interface HostContext {
      * Wrap fence is not asked a second time.
      */
     sendNow(record: SessionRecord, input: readonly UserContent[], held?: AgentSession, effectStarted?: () => void,
-      admitLive?: DispatchAdmission<AgentSession>): Promise<TurnId>
+      admitLive?: DispatchAdmission<AgentSession>, personSeat?: string | null): Promise<TurnId>
   }
 
   readonly accounts: {

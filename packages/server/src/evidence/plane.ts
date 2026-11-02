@@ -10,7 +10,7 @@ import { boardEvidence, freshnessReader, RunningChecks } from './board.js'
 import { assertCheckCleanup, recoverCheckProcesses } from './check-processes.js'
 import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
-import { readPullRequest, type GhInCheckout } from './forge.js'
+import { readPullRequest, type GhInCheckout, type PullRequestRead } from './forge.js'
 import { boundPullRequest, repositoryOf } from '../findings/publication.js'
 import { Observer, type Look } from './observe.js'
 import { idOfLine, LINE_LIMIT, lineOf, LINE_VERSION, mintId, type StoreFile, type StoredLine } from './records.js'
@@ -355,21 +355,26 @@ export class EvidencePlane {
     if (read.kind === 'unreachable') return { why: `Pull request #${pr} could not be read, so no review candidate is available: ${read.why}` }
     const repo = repositoryOf(read.pr.url, pr)
     if (!repo || (expectedRepo && expectedRepo.toLowerCase() !== repo.toLowerCase())) return { why: `Pull request #${pr} could not be bound to the named repository, so no review candidate is available.` }
-    if (card.id !== undefined) {
+    await this.observeReviewPullRequest(project, goal, card.id, read.pr, checkout)
+    if (read.pr.state !== 'open') return { why: `Pull request #${pr} is ${read.pr.state}, so no open review candidate is available.` }
+    return { at: read.pr.head, number: pr }
+  }
+
+  /** Record an observed PR for a review card, regardless of which trusted read supplied it. */
+  async observeReviewPullRequest(project: string, goal: string, card: number | undefined, pr: Extract<PullRequestRead, { kind: 'found' }>['pr'], checkout?: { readonly cwd: string; readonly branch: string | null }): Promise<void> {
+    if (card !== undefined) {
       const record: EvidenceRecord = {
-        id: mintId(), fact: { kind: 'pr', ...read.pr }, card: { board: goal, id: card.id },
+        id: mintId(), fact: { kind: 'pr', ...pr }, card: { board: goal, id: card },
         checkout: checkout ?? null, seat: null, round: null, observedAt: this.#now(), posted: null,
       }
       await this.store.merge(project, 'evidence', [{ type: 'evidence', record }], (line, here, added) => {
         if (line.type !== 'evidence') return 'refused'
         const previous = [...here, ...added].filter((one) => one.type === 'evidence' && !one.record.restored &&
-          one.record.card?.board === goal && one.record.card.id === card.id && one.record.fact.kind === 'pr').at(-1)
+          one.record.card?.board === goal && one.record.card.id === card && one.record.fact.kind === 'pr').at(-1)
         return previous?.type === 'evidence' && JSON.stringify([previous.record.fact, previous.record.checkout]) === JSON.stringify([record.fact, record.checkout])
           ? 'duplicate' : 'add'
       })
     }
-    if (read.pr.state !== 'open') return { why: `Pull request #${pr} is ${read.pr.state}, so no open review candidate is available.` }
-    return { at: read.pr.head, number: pr }
   }
 
   /**
@@ -387,12 +392,15 @@ export class EvidencePlane {
       candidate.fact.at === fact.at &&
       candidate.card?.id === record.card?.id &&
       candidate.round === record.round
+    const sameTarget = (a: typeof fact.reviewTarget, b: typeof fact.reviewTarget): boolean =>
+      a === undefined && b === undefined || !!a && !!b && a.repository === b.repository && a.number === b.number &&
+        a.head === b.head && a.baseRef === b.baseRef && a.baseTip === b.baseTip
     let outcome: ReviewAppendOutcome = { outcome: 'added', record }
     await this.store.merge(project, 'evidence', [{ type: 'evidence', record }], (line, here, added) => {
       assertClaim?.()
       if (line.type !== 'evidence') return 'refused'
       const existing = [...here, ...added].flatMap((one) => (one.type === 'evidence' && sameQuestion(one.record) ? [one.record] : []))
-      const matching = existing.find((one) => one.fact.verdict === fact.verdict)
+      const matching = existing.find((one) => one.fact.verdict === fact.verdict && sameTarget(one.fact.reviewTarget, fact.reviewTarget))
       if (matching) {
         outcome = { outcome: 'duplicate', record: matching }
         return 'duplicate'

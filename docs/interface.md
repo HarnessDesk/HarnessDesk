@@ -995,6 +995,10 @@ until its first conversation; one run through a package runner (`npx`, `uvx`)
 names the missing runner and what provides it instead of offering the agent's
 own install command.
 
+An ACP browser sign-in that has not answered after five minutes stops waiting
+and returns to its sign-in choices. The desk says the agent may still finish;
+that wait ending does not sign the agent out or cancel its own browser request.
+
 A runtime that can hold more than one account offers **Add another account**
 once signed in. Antigravity asks for a name first; an empty one gives
 “Antigravity 2”, “Antigravity 3” and so on. Each account is its own row over a
@@ -1862,6 +1866,17 @@ while the chosen Flow loads, keeping the footer in place.
 A completed comparison's Split receipt keeps each recorded attempt, identifying
 the merged change and the attempt not kept. Routing rounds remain separate in
 Work's record. An unrecorded pick is not claimed; a person's pick says **You picked**.
+
+A PR review candidate shows its repository, pull request, full head and
+destination commit and ref. An automatic merge asks for a fresh review if
+that target changed or its earlier review lacks the binding. A separately
+approved manual merge says when it does not check fresh review proof. The
+destination check is a preflight; the remote branch can still move afterward.
+When the project has no pinned repository, the PR preview says the review is
+informational and cannot authorize an automatic merge.
+The Git record marks an uncertain merge as **Needs inspection**. If the PR is
+later observed merged, the record says so without attributing the merge to the
+earlier request.
 
 Starting a comparison opens **Work**, with the frozen Flow and recent recorded
 activity together. Its attempt tiles remain directly available through

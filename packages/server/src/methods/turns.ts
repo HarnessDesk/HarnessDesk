@@ -6,16 +6,26 @@ import type { HostContext, MethodsUnder } from './context.js'
 
 /** Host callers may scope the actual handle after dispatch reopens it. */
 export async function sendTurn(ctx: HostContext, params: HostParams<'turn/send'>,
-  admitLive?: DispatchAdmission<AgentSession>): Promise<HostResult<'turn/send'>> {
-  const turnId = await ctx.sessions.dispatch(params, live => ctx.queue.sendNow(ctx.sessions.record(params), recordDeskInput(params.input), live, undefined, admitLive))
+  admitLive?: DispatchAdmission<AgentSession>, person = false): Promise<HostResult<'turn/send'>> {
+  // An unopened conversation is resolved by dispatch; it cannot have earned a
+  // person-turn marker at admission. Do not force it open just to take a snapshot.
+  const existing = person ? ctx.registry.get(params.runtime, params.sessionId) : undefined
+  const held = existing?.live ? existing : undefined
+  const personSeat = held ? ctx.queue.retiredPersonSeat(held) : null
+  const turnId = await ctx.sessions.dispatch(params, live => {
+    const record = ctx.sessions.record(params)
+    if (held && record !== held) throw new Error('The conversation changed before its message could be sent.')
+    return ctx.queue.sendNow(record, recordDeskInput(params.input), live, undefined, admitLive, personSeat)
+  })
   return { turnId: String(turnId) }
 }
 
 /** Shared ordinary queue dispatch. Only host callers can supply the effect receipt. */
 export async function queueTurn(ctx: HostContext, params: HostParams<'turn/queue'>, effectStarted?: () => void,
-  admitLive?: DispatchAdmission<AgentSession>): Promise<HostResult<'turn/queue'>> {
+  admitLive?: DispatchAdmission<AgentSession>, person = false): Promise<HostResult<'turn/queue'>> {
   ctx.sessions.assertDispatchable(params)
   const record = ctx.sessions.record(params)
+  const personSeat = person ? ctx.queue.retiredPersonSeat(record) : null
   if (admitLive && record.live) {
     await admitLive(record.live)
     ctx.sessions.assertDispatchable(params)
@@ -27,11 +37,11 @@ export async function queueTurn(ctx: HostContext, params: HostParams<'turn/queue
   // typed in the same breath cannot both go straight out — the second
   // waits behind the first, which is what the person meant by typing it.
   if (!ctx.queue.busy(record) && record.queue.messages.length === 0) {
-    await ctx.queue.sendNow(record, recordDeskInput(params.input), undefined, effectStarted, admitLive)
+    await ctx.queue.sendNow(record, recordDeskInput(params.input), undefined, effectStarted, admitLive, personSeat)
     return { queuedId: null, sent: true }
   }
   admitLive?.assertDispatch?.()
-  const message = ctx.registry.enqueue(record, ctx.queue.nextId(), recordDeskInput(params.input), effectStarted, admitLive)
+  const message = ctx.registry.enqueue(record, ctx.queue.nextId(), recordDeskInput(params.input), effectStarted, admitLive, personSeat ?? undefined)
   ctx.queue.push(record)
   return { queuedId: message.id, sent: false }
 }
@@ -41,7 +51,7 @@ export async function queueTurn(ctx: HostContext, params: HostParams<'turn/queue
  * one to end, the agent's background tasks, and the answer to an approval.
  */
 export const turnMethods = {
-  'turn/send': (ctx, params) => sendTurn(ctx, params),
+  'turn/send': (ctx, params) => sendTurn(ctx, params, undefined, true),
 
   'turn/steer': async (ctx, params) => {
     await ctx.sessions.dispatch(params, live => live.steer(recordDeskInput(params.input)))
@@ -53,7 +63,7 @@ export const turnMethods = {
     return null
   },
 
-  'turn/queue': (ctx, params) => queueTurn(ctx, params),
+  'turn/queue': (ctx, params) => queueTurn(ctx, params, undefined, undefined, true),
 
   'turn/queue/cancel': (ctx, params) => {
     const record = ctx.sessions.record(params)

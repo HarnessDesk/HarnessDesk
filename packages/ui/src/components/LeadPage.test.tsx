@@ -724,6 +724,14 @@ it('labels confirmed and uncertain rows separately without claiming an uncertain
   expect(dialog.textContent).toContain('Newest first · 1 of 1 answer retained · 1 needs review')
 })
 
+it('counts more than one uncertain change as needing review in the plural', async () => {
+  const rule = { id: 'saved', target: '/workspace/demo/panel.tsx', count: 2, uncertain: true,
+    entries: [{ id: 'audit-7', number: 3, diff: '+second unconfirmed', uncertain: true }, { id: 'audit-6', number: 2, diff: '+first unconfirmed', uncertain: true }, { id: 'audit-5', number: 1, diff: '+confirmed' }] }
+  await mount({ ...leadProjection(), savedApprovals: [rule] } as any)
+  await act(async () => button('View changes').click())
+  expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Newest first · 1 of 2 answers retained · 2 need review')
+})
+
 it('opens an orphaned uncertain approval observation with a neutral title and Needs review chip', async () => {
   const base = leadProjection()
   const notice: any = { version: 1, id: 'worker-rule-orphan-5', revision: 5, role: 'notice', text: 'Needs review: a removed saved approval may have run.',

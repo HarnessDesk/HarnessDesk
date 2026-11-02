@@ -270,6 +270,8 @@ export interface AcpAgentConfig {
    * this sentence, rather than as a press that can only be refused (#1760).
    */
   readonly authMethodNotes?: Readonly<Record<string, string>>
+  /** Fallback descriptions for driveable methods; the agent’s own description wins. */
+  readonly authMethodDescriptions?: Readonly<Record<string, string>>
   /** Reads a stored secret at spawn time. Supplied by the host, not the registry. */
   readonly resolveSecret?: (env: string) => string | undefined
   readonly tagline?: string
@@ -934,6 +936,7 @@ export class AcpRuntime implements AgentRuntime {
   readonly #account: CliAccount | null
   /** Sign-ins started over ACP that nobody has cancelled; see `#authenticateOverAcp`. */
   readonly #acpLogins = new Set<string>()
+  readonly #acpLoginTimers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #cliLoginGenerations = new Map<string, AuthWorld>()
   readonly extensions: AcpExtensions | undefined
   /**
@@ -1088,6 +1091,8 @@ export class AcpRuntime implements AgentRuntime {
 
   async #stopConnections(): Promise<void> {
     for (const id of this.#readRest.keys()) this.#cancelReadRest(id)
+    for (const timer of this.#acpLoginTimers.values()) clearTimeout(timer)
+    this.#acpLoginTimers.clear()
     this.#stoppingConnections ??= (async () => {
       this.#controlProcessGeneration++
       await Promise.all([this.#connection, ...this.#workers].map(connection => connection.stop()))
@@ -2184,7 +2189,8 @@ export class AcpRuntime implements AgentRuntime {
               id: `${ACP_METHOD}${method.id}`,
               label: method.name,
               flow: 'browser' as const,
-              ...(method.description ? { description: method.description } : {}),
+              ...((method.description || this.#config.authMethodDescriptions?.[method.id])
+                ? { description: method.description || this.#config.authMethodDescriptions?.[method.id] } : {}),
             }
       })
   }
@@ -2224,9 +2230,15 @@ export class AcpRuntime implements AgentRuntime {
     const loginId = randomUUID()
     this.#acpLogins.add(loginId)
     const runtime = runtimeId(this.#config.id)
+    const timer = setTimeout(() => {
+      if (!this.#takeAcpLogin(loginId)) return
+      this.emit({ type: 'account/loginCompleted', runtime, loginId, success: false, reason: 'wait-expired' })
+    }, 5 * 60_000)
+    timer.unref()
+    this.#acpLoginTimers.set(loginId, timer)
     void this.#connection.request(ACP_AUTHENTICATE, { methodId }).then(
       () => {
-        const mine = this.#acpLogins.delete(loginId)
+        const mine = this.#takeAcpLogin(loginId)
         if (receipt.process !== this.#controlProcessGeneration) return
         this.#observeAuthMode(authGeneration, receipt)
         // Before the events, so whoever reads the identity on `account/changed`
@@ -2236,7 +2248,7 @@ export class AcpRuntime implements AgentRuntime {
         this.emit({ type: 'account/changed', runtime })
       },
       (error: unknown) => {
-        if (!this.#acpLogins.delete(loginId)) return
+        if (!this.#takeAcpLogin(loginId)) return
         this.emit({
           type: 'account/loginCompleted',
           runtime,
@@ -2249,8 +2261,15 @@ export class AcpRuntime implements AgentRuntime {
     return { type: 'browser', loginId }
   }
 
+  #takeAcpLogin(loginId: string): boolean {
+    const timer = this.#acpLoginTimers.get(loginId)
+    if (timer) clearTimeout(timer)
+    this.#acpLoginTimers.delete(loginId)
+    return this.#acpLogins.delete(loginId)
+  }
+
   async cancelLogin(loginId: string): Promise<void> {
-    if (this.#acpLogins.delete(loginId)) {
+    if (this.#takeAcpLogin(loginId)) {
       this.emit({
         type: 'account/loginCompleted',
         runtime: runtimeId(this.#config.id),

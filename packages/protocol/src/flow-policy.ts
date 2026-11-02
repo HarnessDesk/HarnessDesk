@@ -1,7 +1,7 @@
 import type { AgentDefinition, AgentEntry, SeatPlan } from './agent.js'
 import type { AttachmentDeclaration } from './attachments.js'
 import type { StartContext } from './authoring.js'
-import type { CeilingLevel } from './evidence.js'
+import type { CeilingLevel, ReviewTargetBinding } from './evidence.js'
 import type { FindingRunState } from './findings.js'
 import type { Flow, FlowCheck, FlowInput, FlowProblem, FlowRun, FlowSeat, FlowThen } from './flow.js'
 
@@ -348,6 +348,12 @@ export interface FlowStartTarget {
   readonly kind: 'branch' | 'pull-request' | 'diff' | 'working-diff'
   readonly label: string
   readonly base: string | null
+  /** PR destination branch name, observed by the host; absent on older runs. */
+  readonly baseRef?: string
+  /** Canonical repository observed by the host, absent on older runs. */
+  readonly repository?: string
+  /** The repository was only an origin proposal; this run can never earn merge authority. */
+  readonly reviewBound?: false
   readonly head: string | null
   readonly pr: number | null
   readonly dirty: boolean
@@ -365,6 +371,7 @@ export interface ReviewCandidate {
   readonly at: string
   readonly branch: string | null
   readonly evidence: readonly string[]
+  readonly reviewTarget?: ReviewTargetBinding
   /** The Agent name that held this attempt, when the flow opened one. */
   readonly holder?: string
 }

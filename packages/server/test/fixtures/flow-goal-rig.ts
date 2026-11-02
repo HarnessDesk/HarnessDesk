@@ -203,7 +203,7 @@ export interface GoalRig {
 
 export const goalRig = async (
   t: { after(fn: () => Promise<void>): void },
-  options: { readonly executionOptions?: object; readonly mutate?: TeamPort['mutate']; readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly reviewTarget?: FlowExecutionPort['reviewTarget']; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly checkoutAt?: FlowExecutionPort['checkoutAt']; readonly dropBase?: (root: string, run: string) => Promise<void>; readonly settleApprovals?: FlowExecutionPort['settleApprovals'] } = {},
+  options: { readonly executionOptions?: object; readonly mutate?: TeamPort['mutate']; readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly reviewTarget?: FlowExecutionPort['reviewTarget']; readonly hasReviewCommit?: FlowExecutionPort['hasReviewCommit']; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly checkoutAt?: FlowExecutionPort['checkoutAt']; readonly dropBase?: (root: string, run: string) => Promise<void>; readonly settleApprovals?: FlowExecutionPort['settleApprovals'] } = {},
 ): Promise<GoalRig> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-goal-'))
   const peers: TeamPeer[] = []
@@ -346,7 +346,7 @@ export const goalRig = async (
     if (record) rig.seats.set(id, { ...record, closed: { at: Date.now(), why: 'released' } })
   }
   const port: FlowExecutionPort = {
-    ...(options.reviewTarget ? { reviewTarget: options.reviewTarget } : {}),
+    ...(options.reviewTarget ? { reviewTarget: options.reviewTarget, hasReviewCommit: options.hasReviewCommit ?? (async () => true) } : {}),
     ...(options.fetchBase ? { fetchBase: options.fetchBase } : {}),
     ...(options.dropBase ? { dropBase: options.dropBase } : {}),
     providerOf: async (runtime) => rig.providers.get(runtime) ?? null,
@@ -464,6 +464,11 @@ export const goalRig = async (
     return null
   }
   const reviewPort: ReviewSubjectPort = {
+    currentTarget: async (_goal, target) => {
+      if (!options.reviewTarget) return false
+      const current = await options.reviewTarget(_goal, { title: '' } as never, target.number)
+      return 'reviewTarget' in current && JSON.stringify(current.reviewTarget) === JSON.stringify(target)
+    },
     bindingFor: async (intent, scope) => {
       if (!scope.runtime || !scope.sessionId) return null
       const goal = goalOfIntent(intent)

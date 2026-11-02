@@ -444,6 +444,10 @@ export class Flows implements TeamFlows {
     return this.#executions?.personReviewBinding(run, card) ?? Promise.resolve(null)
   }
 
+  personReviewAdmitted(goal: string, card: number, round: number): boolean {
+    return this.#executions?.personReviewAdmitted(goal, card, round) ?? false
+  }
+
   personReviewCandidates(run: string, card: number): Promise<readonly ReviewCandidate[]> {
     return this.#review?.personCandidates(run, card) ?? Promise.resolve([])
   }
@@ -577,6 +581,14 @@ export class Flows implements TeamFlows {
 
   isMergeStep(room: string, card: number, target: { readonly number: number; readonly head: string }): boolean {
     return this.#executions?.isMergeStep(room, card, target) ?? false
+  }
+
+  isGuardedMergeStep(room: string, card: number): boolean {
+    return this.#executions?.isGuardedMergeStep(room, card) ?? false
+  }
+
+  mergeAuthority(room: string, card: number, target: { readonly repository: string; readonly number: number; readonly head: string }) {
+    return this.#executions?.mergeAuthority(room, card, target) ?? Promise.resolve(null)
   }
 
   bindingOf(room: string, intent: number): { readonly session: { readonly runtime: string; readonly sessionId: string } | null } | null {
