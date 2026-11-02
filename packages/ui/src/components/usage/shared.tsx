@@ -614,12 +614,15 @@ export const noteOf = (
   now: number,
 ): { text: string; tone?: Tone } | null => {
   if (report.error) return { text: report.error.message, tone: 'bad' }
-  if (!view.hero && balance && balance.remaining < 0) {
+  const standing = usageStandingOf(report, now)
+  // The balance decides when there is no plan lane, or when the source says the credits are what it hit.
+  const onBalance = !view.hero || (report.reached === 'credits' && !view.reachedLane)
+  if (standing.status === 'overdrawn' || (onBalance && balance && balance.remaining < 0)) {
     return { text: 'New turns will fail until it is topped up', tone: 'bad' }
   }
   if (view.blocked) {
     // A prepaid balance does not come back on its own; a window does.
-    return !view.hero && balance && balance.remaining <= 0
+    return onBalance && balance && balance.remaining <= 0
       ? { text: 'The balance is spent — new turns will fail until it is topped up', tone: 'bad' }
       : { text: 'Reached — new turns will fail until it resets', tone: 'bad' }
   }
@@ -633,7 +636,7 @@ export const noteOf = (
   // One model is out, not the account. Saying "new turns will fail" here would
   // send someone to another agent they do not need. The standing reads every
   // lane, so a spent model past the card's last drawn row is still said.
-  const scopedLane = view.reachedLane?.scope ? null : usageStandingOf(report, now).scopedOut
+  const scopedLane = view.reachedLane?.scope ? null : standing.scopedOut
   const scopedOut = view.reachedLane?.scope ? view.reachedLane : scopedLane ? describeLane(scopedLane, now, report.lanes) : null
   if (scopedOut?.scope) {
     const back = scopedOut.resetClock ? ` until ${scopedOut.resetClock}` : ''

@@ -60,6 +60,12 @@ describe('noteOf, for an account that cannot run', () => {
     })
   })
 
+  it('says top up, not reset, for a reached debt beside a healthy key limit', () => {
+    const key = { id: 'key', label: 'Key limit', usedPercent: 20, windowMinutes: 43_200, resetsAt: NOON + 60 * 60_000 }
+    expect(note(report({ lanes: [key], credits: { remaining: -0.4, unit: 'USD' }, reached: 'credits' }))?.text).toBe('New turns will fail until it is topped up')
+    expect(note(report({ lanes: [key], credits: { remaining: 0, unit: 'USD' }, reached: 'credits' }))?.text).toBe('The balance is spent — new turns will fail until it is topped up')
+  })
+
   it('keeps the reset sentence for a spent window', () => {
     const spent = report({
       lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10_080, resetsAt: NOON + 60_000 }],
