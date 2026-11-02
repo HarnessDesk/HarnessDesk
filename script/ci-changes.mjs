@@ -142,6 +142,9 @@ const oneLine = text => String(text).replace(/[\u0000-\u001f\u007f]+/g, ' ')
 // mandatory even if they alone exceed the time budget; they still use four runners.
 export const PR_MAX_SHARDS = 4
 export const PR_SHARD_SECONDS = 1000
+const catalogueMetrics = 'e2e/ui-system/metrics.spec.ts'
+const cataloguePatternInput = path => /^packages\/ui\/src\/design\/patterns\/[^\n]+\.(?:ts|tsx|css)$/.test(path)
+  && !/(?:\.test|\.spec)\.[^.]+$|(?:^|\/)__tests__\//.test(path)
 export const ciTier = ({ event, headBranch = '', refName = '', labels = [] }) => {
   if (event === 'push' && refName === 'development') return 'bounded'
   return event !== 'pull_request' || headBranch === 'development' || headBranch.startsWith('batch/') || labels.includes('full-ci') ? 'full' : 'bounded'
@@ -149,9 +152,12 @@ export const ciTier = ({ event, headBranch = '', refName = '', labels = [] }) =>
 
 function boundedSpecs(root, candidates, inputs, impact, graph, rotationKey = null) {
   const all = new Set(specFiles(root).map(spec => `e2e/ui-system/${spec}`))
+  // The metrics spec walks the catalogue at runtime, so the import graph does
+  // not expose its dependency on the patterns rendered by that catalogue.
   const mandatory = [...new Set([
     ...inputs.filter(path => SPEC.test(path) && all.has(path)),
     ...inputs.flatMap(path => specsReaching(graph, [join(root, path)]).map(file => relative(root, file)).filter(spec => all.has(spec))),
+    ...(inputs.some(cataloguePatternInput) && all.has(catalogueMetrics) ? [catalogueMetrics] : []),
   ])]
   const seconds = recordedSeconds(root, 'pr')
   const specNames = specs => specs.map(spec => spec.slice('e2e/ui-system/'.length))
@@ -227,7 +233,8 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, refNam
     if (globals.length > 0) basis = `global input ${globals.map(oneLine).join(', ')}${basis ? `; ${basis}` : ''}`
     if (executionConfig) basis = `suite execution configuration ${inputs.filter(path => EXECUTION_CONFIG.test(path)).map(oneLine).join(', ')}; running every browser spec`
   }
-  if (browser === 'all' && selected && selected.length === 0) browser = 'none'
+  if (browser === 'all' && selected && selected.length === 0
+    && !(inputs.some(cataloguePatternInput) && all.includes(catalogueMetrics))) browser = 'none'
   // Both themes for every spec, recording what each spec ran, only where that
   // record is kept: a full run of main or development (the nightly run, main
   // pushes). The rest of the full tier — batch heads, full-ci, the release
