@@ -760,7 +760,7 @@ const identityOf = (snapshot: AppSnapshot, info: RuntimeInfo | null, fallback: s
   if (!info) return name
   const account = accountOf(snapshot, info.id)
   if (account) {
-    const who = accountName(account, snapshot.accountPrefs[accountKey(info.id, account)])
+    const who = accountName(account, snapshot.accountPrefs[accountKey(info.id, account)], undefined, snapshot.hideAccountAddresses)
     return `${name} · ${who}`
   }
   /* `?.` although the type says it is always there: this reads a runtime the

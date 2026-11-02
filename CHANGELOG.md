@@ -9,6 +9,14 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **Settings, the right panel and the dashboard draw each group as one card.** Groups sit on the main ground with a clear edge, Settings labels line up with the main column, and counts and times read a clear step quieter than prose. Settings › Appearance › Surface adds Sheet, which lays the same groups flat with a line between them.
 
+- **An agent's accounts take turns.** Settings › Runtimes lists an agent's accounts in the order they are used, each with its plan and what is left. Move up and Move down reorder them. *When an account runs out* chooses Use the next account, Ask me or Stop. Use the next account moves new sessions to the next account with room and says so once; open conversations stay where they are.
+
+- **Sign-in states read the same everywhere.** Sign in needed, Not working and Not checked yet replace the older mix of wording across the sign-in sheet, Settings, the usage strip and the tray. Opening sign-in from one runtime shows only that runtime.
+
+- **Hide account addresses.** A switch in Settings › General shows accounts by name only, in the seat menu and on account pages, for sharing your screen.
+
+- **Signing out of an agent account is on its page in Settings.** The seat menu now only switches accounts; signing out of HarnessDesk stays there.
+
 - **Automatic PR merges check the review target again.** A changed destination or an older unbound review requires a fresh PR review. Queued and uncertain submissions stay unresolved until a merge is observed; a person may need to inspect or complete them outside the app.
 
 - **Saved extra accounts survive without a credential file.** Their status is checked when the agent runs; removing an account whose identity cannot be verified leaves its agent or system credentials in place.

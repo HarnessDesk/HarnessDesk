@@ -190,6 +190,18 @@ export const DialogFooter = ({
  * The body keeps its 24px inset in every layout. A `flush` body is a list and
  * is not a form, so it keeps the page's parts inside that inset.
  */
+/**
+ * The surface `Dialog` wears — its width, its ceiling, a head and a body
+ * that scrolls — for a sheet that composes `DialogContent` itself because it
+ * needs what `Dialog` does not take (an embedded, non-modal specimen), so it
+ * is drawn the same and moves with it.
+ */
+export const modalSurfaceClass = (size: keyof typeof DIALOG_WIDTH = 'sm', tall = false): string => cn(
+  DIALOG_WIDTH[size],
+  'flex max-h-[min(80vh,720px)] flex-col gap-0 overflow-hidden rounded-(--hd-surface-radius) bg-(--hd-surface-fill) p-0 text-(--hd-popover-foreground) shadow-(--hd-surface-shadow)',
+  tall && 'h-[min(62vh,560px)] max-h-[min(62vh,560px)]',
+)
+
 export const Dialog = ({
   title,
   titleAside,
@@ -245,11 +257,7 @@ export const Dialog = ({
            rather than scrolling its last answer out of sight (it was 72%,
            which cut Save as an Agent by 28px). `tall` states its own bound,
            and `cn` lets it replace the ceiling rather than tie with it. */
-        className={cn(
-          DIALOG_WIDTH[size],
-          'flex max-h-[min(80vh,720px)] flex-col gap-0 overflow-hidden rounded-(--hd-surface-radius) bg-(--hd-surface-fill) p-0 text-(--hd-popover-foreground) shadow-(--hd-surface-shadow)',
-          tall && 'h-[min(62vh,560px)] max-h-[min(62vh,560px)]',
-        )}
+        className={modalSurfaceClass(size, tall)}
       >
         <DialogHead title={title} aside={titleAside} tone={tone} scrollDescription={scrollDescription}>{description}</DialogHead>
         {(children || bodyPrelude) && (

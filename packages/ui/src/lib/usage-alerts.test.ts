@@ -112,6 +112,14 @@ describe('crossings', () => {
   })
 })
 
+describe('how a toast names an account while addresses are hidden', () => {
+  it('names one the desk does not hold without its address', () => {
+    const name = toastName('Claude Code', id('claude'), 'olivia@acme.dev', [], {}, true)
+    expect(name).not.toContain('@')
+    expect(name).toBe('Claude Code (olivia)')
+  })
+})
+
 describe('how a toast names an anonymous account (round 2 of #216)', () => {
   it('names the agent once, not twice', () => {
     const anonymous = [{ label: 'Signed in', anonymous: true } as unknown as Account]
@@ -190,6 +198,75 @@ describe('conditionFor', () => {
       nameFor,
       NOON,
     )
+    expect(condition?.handoff).toBeNull()
+  })
+
+  it('offers the agent\'s own next account, in its pool\'s order, before a roomier stranger', () => {
+    const reports = [
+      report('codex', [lane({ usedPercent: 100 })], { reached: 'weekly' }),
+      report('codex-2', [lane({ usedPercent: 60 })]),
+      report('claude', [lane({ usedPercent: 5 })]),
+    ]
+    const condition = conditionFor(id('codex'), reports, nameFor, NOON, { prefer: [id('codex'), id('codex-2')] })
+    expect(condition?.handoff?.runtime).toBe(id('codex-2'))
+    // A sibling that is spent too is passed over for the roomiest elsewhere.
+    const spent = [reports[0]!, report('codex-2', [lane({ usedPercent: 100 })], { reached: 'weekly' }), reports[2]!]
+    expect(conditionFor(id('codex'), spent, nameFor, NOON, { prefer: [id('codex'), id('codex-2')] })?.handoff?.runtime).toBe(id('claude'))
+  })
+
+  it('offers a signed-in sibling that has no report yet', () => {
+    const reports = [
+      report('codex', [lane({ usedPercent: 100 })], { reached: 'weekly' }),
+      report('claude', [lane({ usedPercent: 5 })]),
+    ]
+    const condition = conditionFor(id('codex'), reports, nameFor, NOON, { prefer: [id('codex'), id('codex-2')] })
+    expect(condition?.handoff?.runtime).toBe(id('codex-2'))
+  })
+
+  it('offers the next sibling that is not out, however little room it has, as the pool would move', () => {
+    const reports = [
+      report('codex', [lane({ usedPercent: 100 })], { reached: 'weekly' }),
+      report('codex-2', [lane({ usedPercent: 90 })]),
+      report('claude', [lane({ usedPercent: 5 })]),
+    ]
+    const condition = conditionFor(id('codex'), reports, nameFor, NOON, { prefer: [id('codex'), id('codex-2')] })
+    expect(condition?.handoff?.runtime).toBe(id('codex-2'))
+  })
+
+  it('never falls back to an account that could not take a turn, however roomy its cached report', () => {
+    const reports = [
+      report('codex', [lane({ usedPercent: 100 })], { reached: 'weekly' }),
+      report('codex-2', [lane({ usedPercent: 10 })]),
+      report('claude', [lane({ usedPercent: 5 })]),
+    ]
+    // codex-2 has signed out: its report is still cached, but it is not in
+    // `prefer` and cannot take a turn, so neither the pool nor the fallback offers it.
+    const canTake = (runtime: RuntimeId) => runtime !== id('codex-2')
+    expect(conditionFor(id('codex'), reports, nameFor, NOON, { prefer: [], canTake })?.handoff?.runtime).toBe(id('claude'))
+    expect(conditionFor(id('codex'), reports, nameFor, NOON, { prefer: [], canTake: () => false })?.handoff).toBeNull()
+  })
+
+  it('offers the account after the spent one, wrapping, as the pool moves', () => {
+    const reports = [
+      report('codex', [lane({ usedPercent: 30 })]),
+      report('codex-2', [lane({ usedPercent: 100 })], { reached: 'weekly' }),
+      report('codex-3', [lane({ usedPercent: 50 })]),
+    ]
+    const prefer = [id('codex'), id('codex-2'), id('codex-3')]
+    expect(conditionFor(id('codex-2'), reports, nameFor, NOON, { prefer })?.handoff?.runtime).toBe(id('codex-3'))
+    const lastSpent = [reports[0]!, report('codex-2', [lane({ usedPercent: 40 })]), report('codex-3', [lane({ usedPercent: 100 })], { reached: 'weekly' })]
+    expect(conditionFor(id('codex-3'), lastSpent, nameFor, NOON, { prefer })?.handoff?.runtime).toBe(id('codex'))
+  })
+
+  it('offers nothing when the pool says to stop', () => {
+    const condition = conditionFor(
+      id('codex'),
+      [report('codex', [lane({ usedPercent: 100 })], { reached: 'weekly' }), report('codex-2', [lane({ usedPercent: 10 })])],
+      nameFor,
+      NOON,
+      { prefer: [id('codex'), id('codex-2')], offer: false },
+    )
+    expect(condition?.title).toBe('OpenAI Codex is out of quota')
     expect(condition?.handoff).toBeNull()
   })
 

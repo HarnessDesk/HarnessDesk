@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -53,8 +53,10 @@ test('template journeys assert the persistent New Team and its explicit dry run 
 
 test('the template rig restores only a legacy project record and keeps all transport local', { timeout: 60000 }, async t => {
   const directory = mkdtempSync(join(tmpdir(), 'hd-template-test-'))
-  const rig = await createTemplateRig({ home: join(directory, 'home'), work: join(directory, 'work'), template: 'fix-and-review' })
-  t.after(async () => { await rig.dispose(); rmSync(directory, { recursive: true, force: true }) })
+  const phases = []
+  const rig = await createTemplateRig({ home: join(directory, 'home'), work: join(directory, 'work'), template: 'fix-and-review', phase: name => phases.push(name) })
+  t.after(async () => { await rig.dispose(); rmSync(directory, { recursive: true, force: true }); assert.ok(phases.includes('host-dispose:begin') && phases.includes('host-dispose:end')) })
+  assert.ok(phases.includes('seed:begin') && phases.includes('seed:end') && phases.includes('host-start:begin') && phases.includes('host-start:end'))
   const project = JSON.parse(readFileSync(rig.stateFile, 'utf8')).workspaces[0]
   assert.deepEqual(Object.keys(project).sort(), ['id', 'lastOpenedAt', 'name', 'path'])
   assert.equal(project.path, rig.repo)
@@ -75,27 +77,51 @@ test('the template rig restores only a legacy project record and keeps all trans
 })
 
 test('Side by side scripted attempts can declare the same file in their isolated checkouts (#1562)', { timeout: 60000 }, async t => {
+  const started = performance.now()
+  let current = 'setup'
+  const phase = name => {
+    current = name
+    writeSync(2, `template-claims ${Math.round(performance.now() - started)}ms ${name}\n`)
+  }
+  const onAbort = () => phase(`abort:${current}`)
+  t.signal.addEventListener('abort', onAbort, { once: true })
+  t.after(() => t.signal.removeEventListener('abort', onAbort))
   const directory = mkdtempSync(join(tmpdir(), 'hd-template-claims-'))
-  const rig = await createTemplateRig({ home: join(directory, 'home'), work: join(directory, 'work') })
-  t.after(async () => { await rig.dispose(); rmSync(directory, { recursive: true, force: true }) })
+  phase('rig:begin')
+  const rig = await createTemplateRig({ home: join(directory, 'home'), work: join(directory, 'work'), phase })
+  phase('rig:end')
+  t.after(async () => { phase('cleanup:begin'); await rig.dispose(); rmSync(directory, { recursive: true, force: true }); phase('cleanup:end') })
+  phase('source:begin')
   const source = await rig.host.call('flow/source', { root: rig.repo, id: 'comparison' })
+  phase('source:end')
   const vars = { task: TEMPLATE_TASK }
+  phase('preview:begin')
   const preview = await rig.host.call('flow/preview', { root: rig.repo, source, vars })
+  phase('preview:end')
   assert.ok(preview.token, JSON.stringify(preview.problems))
+  phase('start-goal:begin')
   const run = await rig.host.call('flow/start-goal', { root: rig.repo, source, vars, token: preview.token, sentence: TEMPLATE_TASK })
+  phase('start-goal:end')
   const until = Date.now() + 30000
+  phase('claims:begin')
   let attempts
   do {
     assert.deepEqual(rig.errors, [], 'both scripted claim_work calls succeeded')
+    current = 'claims:execution'
     const execution = await rig.host.call('flow/execution', { run: run.id })
     assert.notEqual(execution.state, 'stalled', execution.reason)
+    current = 'claims:goal-read'
     attempts = (await rig.host.call('goal/read', { goal: run.goal })).board.intents.filter(one => one.role === 'competitor')
     if (attempts.length === 2 && attempts.every(one => one.files.includes('rig-attempt.txt'))) break
+    current = 'claims:wait'
     await new Promise(done => setTimeout(done, 50))
   } while (Date.now() < until)
+  phase('claims:end')
   assert.equal(attempts.length, 2)
   assert.ok(attempts.every(one => one.state === 'claimed' && one.files.includes('rig-attempt.txt')))
+  phase('checkout-read:begin')
   assert.equal(new Set((await rig.host.call('goal/read', { goal: run.goal })).members.filter(one => one.role === 'competitor').map(one => one.checkout.cwd)).size, 2)
+  phase('checkout-read:end')
 })
 
 test('the disposable forge keeps its PR head and refuses every unscripted operation', async t => {

@@ -36,6 +36,8 @@ export const entriesFromReports = (
   reports: readonly UsageReport[],
   byId: ReadonlyMap<RuntimeId, RuntimeInfo>,
   onRefreshAccount: (runtime: RuntimeId) => void,
+  /** How a row writes an account (`useAccountLabel`); as written by default. */
+  label: (runtime: RuntimeId, account: string) => string = (_runtime, account) => account,
 ): readonly NotReportingEntry[] =>
   reports.flatMap((report) => {
     const info = byId.get(report.runtime)
@@ -44,7 +46,7 @@ export const entriesFromReports = (
       {
         key: `${report.runtime}:${report.account ?? ''}`,
         info,
-        title: report.account ?? info.presentation.name,
+        title: report.account ? label(report.runtime, report.account) : info.presentation.name,
         reason: 'This runtime reports no plan usage here.',
         fix: { label: 'Refresh', onClick: () => onRefreshAccount(report.runtime) },
       },

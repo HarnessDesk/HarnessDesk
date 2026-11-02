@@ -65,3 +65,68 @@ it('with no sign-in in progress there is nothing to send a code to', async () =>
   expect(await store.submitLoginCode(CLAUDE, CODE)).toBe(false)
   expect(sent.map((one) => one.method)).not.toContain('runtime/login/code')
 })
+
+it('an expired wait clears only its matching login and explains that the agent may still finish', async () => {
+  await store.startLogin(CLAUDE, 'cli-browser')
+  handlers().onEvent(CLAUDE, { type: 'account/loginCompleted', runtime: CLAUDE, loginId: 'older', success: false, reason: 'wait-expired' })
+  expect(store.getSnapshot().logins[CLAUDE]?.outcome.type).toBe('pending')
+  handlers().onEvent(CLAUDE, { type: 'account/loginCompleted', runtime: CLAUDE, loginId: 'login-1', success: false, reason: 'wait-expired' })
+  expect(store.getSnapshot().logins[CLAUDE]).toBeUndefined()
+  expect(store.getSnapshot().notices.at(-1)?.message).toMatch(/stopped waiting.*may still finish/i)
+})
+
+it('does not resurrect a login whose expiry arrived before its start response', async () => {
+  let resolve!: (value: unknown) => void
+  vi.mocked(store.transport.request).mockImplementationOnce(() => new Promise(r => { resolve = r }) as never)
+  const starting = store.startLogin(CLAUDE, 'cli-browser')
+  handlers().onEvent(CLAUDE, { type: 'account/loginCompleted', runtime: CLAUDE, loginId: 'login-fast', success: false, reason: 'wait-expired' })
+  resolve({ type: 'browser', loginId: 'login-fast' })
+  await starting
+  expect(store.getSnapshot().logins[CLAUDE]).toBeUndefined()
+  expect(store.getSnapshot().notices.at(-1)?.message).toMatch(/stopped waiting.*may still finish/i)
+})
+
+it('retains a successful completion that arrives before its start response', async () => {
+  let resolve!: (value: unknown) => void
+  vi.mocked(store.transport.request).mockImplementationOnce(() => new Promise(r => { resolve = r }) as never)
+  const starting = store.startLogin(CLAUDE, 'cli-browser')
+  handlers().onEvent(CLAUDE, { type: 'account/loginCompleted', runtime: CLAUDE, loginId: 'login-fast', success: true })
+  resolve({ type: 'browser', loginId: 'login-fast' })
+  await starting
+  expect(store.getSnapshot().logins[CLAUDE]?.outcome.type).toBe('succeeded')
+})
+
+it('does not let an older start response replace a newer login', async () => {
+  let old!: (value: unknown) => void
+  let newer!: (value: unknown) => void
+  vi.mocked(store.transport.request)
+    .mockImplementationOnce(() => new Promise(r => { old = r }) as never)
+    .mockImplementationOnce(() => new Promise(r => { newer = r }) as never)
+  const first = store.startLogin(CLAUDE, 'old')
+  const second = store.startLogin(CLAUDE, 'new')
+  newer({ type: 'browser', loginId: 'new' })
+  await second
+  old({ type: 'browser', loginId: 'old' })
+  await first
+  expect(store.getSnapshot().logins[CLAUDE]?.start.loginId).toBe('new')
+  expect(sent).toContainEqual({ method: 'runtime/login/cancel', params: { runtime: CLAUDE, loginId: 'old' } })
+})
+
+
+it('an expiry for another runtime with the same login id leaves this login alone', async () => {
+  await store.startLogin(CLAUDE, 'cli-browser')
+  const other = runtimeId('other')
+  handlers().onEvent(other, { type: 'account/loginCompleted', runtime: other, loginId: 'login-1', success: false, reason: 'wait-expired' })
+  expect(store.getSnapshot().logins[CLAUDE]?.outcome.type).toBe('pending')
+})
+
+it('cancelling while a start is in flight drops the eventual claim', async () => {
+  let resolve!: (value: unknown) => void
+  vi.mocked(store.transport.request).mockImplementationOnce(() => new Promise(r => { resolve = r }) as never)
+  const starting = store.startLogin(CLAUDE, 'cli-browser')
+  await store.cancelLogin(CLAUDE)
+  resolve({ type: 'browser', loginId: 'late' })
+  await starting
+  expect(store.getSnapshot().logins[CLAUDE]).toBeUndefined()
+  expect(sent).toContainEqual({ method: 'runtime/login/cancel', params: { runtime: CLAUDE, loginId: 'late' } })
+})

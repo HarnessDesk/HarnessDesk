@@ -51,11 +51,6 @@ export const openWallDestination = async (page: Page, destination: WallActions):
   }
   if (destination.account) {
     await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'account' })
-    if (destination.signOut) {
-      await page.getByRole('menuitem', { name: /^Sign out of/ }).click()
-      await expect(page.getByRole('alertdialog')).toBeVisible()
-      await expect(page.locator('[data-popup-kind="menu"],[data-popup-kind="wide-menu"]')).toHaveCount(0)
-    }
   }
   if (destination.plan) {
     await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'account' })
@@ -97,7 +92,7 @@ export interface WallActions { readonly hover?: string; readonly focus?: string 
 export interface WallActions { readonly contextInfo?: boolean; readonly memberInfo?: boolean }
 
 export interface WallActions { readonly infoTarget?: string; readonly infoFocus?: 'context' }
-export interface WallActions { readonly account?: boolean; readonly signOut?: boolean }
+export interface WallActions { readonly account?: boolean }
 
 export interface WallActions { readonly git?: boolean; readonly branch?: boolean; readonly gitRef?: boolean; readonly createBranch?: boolean }
 export interface WallActions { readonly select?: boolean }

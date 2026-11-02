@@ -1017,7 +1017,7 @@ export interface CatalogRefresh {
 }
 
 /** What telling a runtime its secret changed actually achieved. */
-export type SecretReload = 'restarted' | 'busy' | 'unsupported'
+export type SecretReload = 'restarted' | 'busy' | 'deferred' | 'unsupported'
 
 /** Host-owned display observations; absent fields mean not known yet. No credentials. */
 export interface RuntimeObservations {

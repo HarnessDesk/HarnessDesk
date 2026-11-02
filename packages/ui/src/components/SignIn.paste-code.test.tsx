@@ -93,7 +93,16 @@ const mount = async (awaitingCode: boolean) => {
       </StoreProvider>,
     )
   })
-  return { submitLoginCode, cancelLogin, refuse }
+  const expire = async (): Promise<void> => {
+    snapshot = { ...snapshot, logins: {}, accountsByRuntime: {
+      claude: { accounts: [], signInMethods: [
+        { id: 'personal', label: 'Personal', flow: 'browser' },
+        { id: 'business', label: 'Organization', flow: 'browser', description: 'Uses an organization’s Google Cloud project and Gemini Enterprise setup.' },
+      ] },
+    } } as unknown as AppSnapshot
+    await act(async () => { for (const listener of listeners) listener() })
+  }
+  return { submitLoginCode, cancelLogin, refuse, expire, startLogin: store.startLogin }
 }
 
 const field = (): HTMLInputElement | null =>
@@ -161,4 +170,16 @@ it('draws no field for a sign-in that has not asked for a code', async () => {
   await mount(false)
   expect(field()).toBeNull()
   expect(container.textContent).toContain('Waiting for you in the browser')
+})
+
+
+it('returns to clickable sign-in choices and shows the organization prerequisite after waiting ends', async () => {
+  const { expire, startLogin } = await mount(false)
+  await expire()
+  expect(container.textContent).not.toContain('Waiting for you in the browser')
+  expect(container.textContent).toContain('Uses an organization’s Google Cloud project and Gemini Enterprise setup.')
+  const organization = [...container.querySelectorAll('button')].find(one => one.textContent?.includes('Organization'))!
+  expect(organization).toBeTruthy()
+  await act(async () => organization.click())
+  expect(startLogin).toHaveBeenCalledWith('claude', 'business')
 })

@@ -2,7 +2,7 @@
 // Unknown/new readiness facts stay visible unless they are one of these
 // existing, explicitly quiet states; attention must not disappear by default.
 // The renderer uses READINESS_LABEL in packages/ui/src/lib/readiness.ts.
-const quietDetails = new Set(['Ready', 'Not added', 'Not answered yet'])
+const quietDetails = new Set(['Ready', 'Not added', 'Not checked yet'])
 const hasReading = agent => typeof agent.left === 'number' && Number.isFinite(agent.left)
 const quiet = agent => !agent.needsSignIn && !hasReading(agent) && quietDetails.has(agent.detail)
 const withIcon = (item, image) => image ? { ...item, icon: image } : item
