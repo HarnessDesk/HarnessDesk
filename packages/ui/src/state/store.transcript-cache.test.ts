@@ -1359,3 +1359,71 @@ it('serializes re-enable behind an older held disable drain', async () => {
   await vi.waitFor(() => expect(store.transcriptCacheStats().releasedBodies).toBe(1))
   expect(maximum).toBe(1)
 })
+
+it.each(['reconnect', 'invalidation'] as const)('restores an unmodified released body from a newer same-Host snapshot after %s', async (cause) => {
+  const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', title: 'Synthetic old', status: { type: 'idle' }, createdAt: 0, updatedAt: 1, itemsLoaded: true,
+    turns: [{ id: turnId('old'), status: 'completed', items: [{ id: itemId('old-item'), type: 'assistantMessage', text: 'Synthetic old text' }] }] }
+  const newer: Session = { ...body, title: 'Synthetic new', updatedAt: 2, turns: [...body.turns, { id: turnId('new'), status: 'completed', items: [{ id: itemId('new-item'), type: 'assistantMessage', text: 'Synthetic remote text' }] }] }
+  const oldWatermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, newWatermark = { ...oldWatermark, revision: 2, sequence: 2 }
+  const digest = (session: Session) => fixtureHash(canonicalTranscriptBody(session.turns).canonical)
+  let reads = 0
+  const store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? ++reads === 1 ? { session: body, watermark: oldWatermark, identity: digest(body) } : { session: newer, watermark: newWatermark, identity: digest(newer) } : method === 'session/prepare-eviction' ? { ...oldWatermark, identity: digest(body) } : null) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: body })
+  expect(await store.unloadTranscript(runtime, id)).toBe(true)
+  if (cause === 'reconnect') { handlers.onStatus('reconnecting'); handlers.onStatus('open') }
+  else handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: id, watermark: newWatermark } })
+  expect(await store.restoreTranscript(runtime, id)).toBe(true)
+  expect(store.getSnapshot().sessions.get(key)).toMatchObject({ title: 'Synthetic new', turns: newer.turns })
+})
+
+it.each(['cross-generation', 'stale-invalidation', 'missing-sequence', 'local-metadata', 'pending-event'] as const)(
+  'does not adopt an advanced released snapshot after %s', async (cause) => {
+    const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
+    const body: Session = { id, runtime, cwd: '/example', title: 'Synthetic original', status: { type: 'idle' }, createdAt: 0, updatedAt: 1, itemsLoaded: true,
+      turns: [{ id: turnId('old'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
+    const newer: Session = { ...body, title: 'Synthetic remote', updatedAt: 2, turns: [...body.turns, { id: turnId('new'), status: 'completed', items: [] }] }
+    const oldWatermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, next = { ...oldWatermark, revision: 2, sequence: 2 }
+    const digest = (session: Session) => fixtureHash(canonicalTranscriptBody(session.turns).canonical)
+    let reads = 0, finish!: (value: unknown) => void
+    const held = new Promise(resolve => { finish = resolve })
+    const store = new AppStore('ws://localhost:0/')
+    await store.disableTranscriptCache()
+    vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? ++reads === 1 ? { session: body, watermark: oldWatermark, identity: digest(body) } : held : method === 'session/prepare-eviction' ? { ...oldWatermark, identity: digest(body) } : null) as never)
+    const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+    handlers.onEvent(runtime, { type: 'session/started', session: body })
+    expect(await store.unloadTranscript(runtime, id)).toBe(true)
+    if (cause === 'cross-generation') { handlers.onStatus('reconnecting'); handlers.onStatus('open') }
+    if (cause === 'stale-invalidation') handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: id, watermark: oldWatermark } })
+    if (cause === 'missing-sequence') handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: id, watermark: { epoch: 'epoch', generation: 'generation', revision: 2 } } } as never)
+    if (cause === 'pending-event') handlers.onEvent(runtime, { type: 'item/delta', sessionId: id, turnId: turnId('old'), itemId: itemId('item'), delta: { kind: 'assistantText', text: 'Synthetic unacknowledged' } }, undefined)
+    const restoring = store.restoreTranscript(runtime, id)
+    if (cause === 'local-metadata') (store.getSnapshot().sessions.get(key)! as { title?: string | null }).title = 'Synthetic local edit'
+    finish({ session: newer, watermark: cause === 'cross-generation' ? { ...next, generation: 'other' } : next, identity: digest(newer) })
+    expect(await restoring).toBe(false)
+    expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(false)
+    if (cause === 'local-metadata') expect(store.getSnapshot().sessions.get(key)?.title).toBe('Synthetic local edit')
+  },
+)
+
+it.each(['snapshot-before-invalidation', 'event-at-invalidation'] as const)('keeps a released body protected when %s violates the invalidation floor', async (cause) => {
+  const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
+  const newer: Session = { ...body, updatedAt: 1, turns: [{ id: turnId('new'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic remote' }] }] }
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, next = { ...watermark, revision: 2, sequence: 2 }
+  const digest = (session: Session) => fixtureHash(canonicalTranscriptBody(session.turns).canonical)
+  let reads = 0
+  const store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? ++reads === 1 ? { session: body, watermark, identity: digest(body) } : { session: newer, watermark: cause === 'snapshot-before-invalidation' ? watermark : next, identity: digest(newer) } : method === 'session/prepare-eviction' ? { ...watermark, identity: digest(body) } : null) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: body })
+  expect(await store.unloadTranscript(runtime, id)).toBe(true)
+  handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: id, watermark: next } })
+  if (cause === 'event-at-invalidation') handlers.onEvent(runtime, { type: 'item/delta', sessionId: id, turnId: turnId('new'), itemId: itemId('item'), delta: { kind: 'assistantText', text: 'Synthetic remote' } }, next)
+  expect(await store.restoreTranscript(runtime, id)).toBe(false)
+  expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(false)
+})
