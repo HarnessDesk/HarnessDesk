@@ -1,8 +1,9 @@
 import { hash } from 'fast-sha256'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { approvalId, canonicalTranscriptBody, itemId, runtimeId, sessionId, sessionKey, turnId, type Session } from '@harnessdesk/protocol'
+import { approvalId, canonicalTranscriptBody, itemId, runtimeId, sessionId, sessionKey, splitSessionKey, turnId, type Session } from '@harnessdesk/protocol'
 import type { TransportEvents } from '../lib/transport'
 import { AppStore } from './store'
+import { focusedPane, sessionOf } from './layout'
 import { transcriptFingerprint } from './transcript-fingerprint'
 
 // Browser-safe fixture hash; fixed SHA-256 vectors below independently pin its output.
@@ -93,6 +94,111 @@ it('prepares storage receipts serially before planning pressure', async () => {
   expect(await preparing).toEqual([sessionKey(runtime, first)])
   expect(await concurrent).toEqual([sessionKey(runtime, first)])
   expect(store.getSnapshot().sessions.get(sessionKey(runtime, first))?.itemsLoaded).toBe(true)
+})
+
+it('bounds planning requests while every unload gets fresh Host proof', async () => {
+  const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
+  const store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
+    if (method === 'session/cache-snapshot') return { session: body(params.sessionId), watermark, identity }
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    return null
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  for (let i = 0; i < 132; i++) handlers.onEvent(runtime, { type: 'session/started', session: body(sessionId(`bounded-${i}`)) })
+  for (let i = 0; i < 4; i++) {
+    const planned = await store.prepareTranscriptPressure()
+    expect(planned.length).toBe(4 - i)
+    const { id } = splitSessionKey(planned[0]!)
+    const callsBefore = request.mock.calls.length
+    expect(await store.unloadTranscript(runtime, id)).toBe(true)
+    expect(request.mock.calls.slice(callsBefore).map(([method]) => method)).toEqual(['session/cache-snapshot', 'session/prepare-eviction'])
+  }
+  expect(store.transcriptCacheStats().releasedBodies).toBe(4)
+  expect(request.mock.calls.filter(([method]) => method === 'session/cache-snapshot').length).toBeLessThanOrEqual(136)
+  expect(request.mock.calls.filter(([method]) => method === 'session/prepare-eviction').length).toBeLessThanOrEqual(136)
+})
+
+it.each(['owner', 'draft', 'event', 'invalidation', 'layout', 'workbench', 'in-place'] as const)(
+  '%s changes invalidate cached pressure planning proof', async kind => {
+    const runtime = runtimeId('example'), ids = [sessionId('first'), sessionId('second')]
+    const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+    const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+    const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
+    const store = new AppStore('ws://localhost:0/')
+    await store.disableTranscriptCache()
+    const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
+      if (method === 'session/cache-snapshot') return { session: body(params.sessionId), watermark, identity }
+      if (method === 'session/prepare-eviction') return { ...watermark, identity }
+      if (method === 'session/read' || method === 'session/resume') return body(params.sessionId)
+      return null
+    }) as never)
+    const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+    for (const id of ids) handlers.onEvent(runtime, { type: 'session/started', session: body(id) })
+    const limits = { count: 1, bytes: Number.MAX_SAFE_INTEGER }
+    expect(await store.prepareTranscriptPressure(limits)).toHaveLength(1)
+    const before = request.mock.calls.filter(([method]) => method === 'session/cache-snapshot').length
+    const key = sessionKey(runtime, ids[0]!)
+    if (kind === 'owner') { const release = store.retainTranscript(runtime, ids[0]!); release() }
+    else if (kind === 'draft') { store.drafts.setLive(key, { text: 'Synthetic', attachments: [] }); store.drafts.setLive(key, { text: '', attachments: [] }) }
+    else if (kind === 'event') handlers.onEvent(runtime, { type: 'session/title', sessionId: ids[0]!, title: 'Synthetic changed' }, { ...watermark, revision: 2, sequence: 2 })
+    else if (kind === 'invalidation') handlers.onNotification({ method: 'session/cache-invalidated', params: { runtime, sessionId: ids[0]!, watermark: { ...watermark, revision: 2, sequence: 2 } } })
+    else if (kind === 'layout') { expect(await store.openSession(ids[0]!, { runtime })).toBe(true); store.closePane(store.getSnapshot().layout.focused) }
+    else if (kind === 'workbench') store.toggleWorkRail()
+    else (store.getSnapshot().sessions.get(key)! as { title?: string }).title = 'Synthetic local mutation'
+    const planned = await store.prepareTranscriptPressure(limits)
+    if (kind === 'invalidation') expect(planned).toEqual([])
+    else expect(request.mock.calls.filter(([method]) => method === 'session/cache-snapshot').length).toBeGreaterThan(before)
+  },
+)
+
+it('never unloads from a cached planning receipt when fresh Host proof is refused', async () => {
+  const runtime = runtimeId('example'), ids = [sessionId('first'), sessionId('second')]
+  const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, identity = fixtureHash(canonicalTranscriptBody([]).canonical)
+  const store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  let refuse = false
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
+    if (method === 'session/cache-snapshot') return { session: body(params.sessionId), watermark, identity }
+    if (method === 'session/prepare-eviction') return refuse ? null : { ...watermark, identity }
+    return null
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  for (const id of ids) handlers.onEvent(runtime, { type: 'session/started', session: body(id) })
+  const [key] = await store.prepareTranscriptPressure({ count: 1, bytes: Number.MAX_SAFE_INTEGER })
+  expect(key).toBeDefined()
+  refuse = true
+  const before = request.mock.calls.length
+  expect(await store.unloadTranscript(runtime, splitSessionKey(key!).id)).toBe(false)
+  expect(request.mock.calls.slice(before).map(([method]) => method)).toEqual(['session/cache-snapshot', 'session/prepare-eviction'])
+  expect(store.getSnapshot().sessions.get(key!)?.itemsLoaded).toBe(true)
+})
+
+it('still prunes a genuinely removed session after a membership-preserving unload', async () => {
+  const runtime = runtimeId('example'), first = sessionId('first'), second = sessionId('second')
+  const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }, identity = fixtureHash(canonicalTranscriptBody([]).canonical)
+  const store = new AppStore('ws://localhost:0/')
+  await store.disableTranscriptCache()
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
+    if (method === 'session/cache-snapshot') return { session: body(params.sessionId), watermark, identity }
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    if (method === 'session/read' || method === 'session/resume') return body(params.sessionId)
+    return null
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onEvent(runtime, { type: 'session/started', session: body(first) })
+  handlers.onEvent(runtime, { type: 'session/started', session: body(second) })
+  expect(await store.unloadTranscript(runtime, first)).toBe(true)
+  expect(await store.openSession(second, { runtime })).toBe(true)
+  expect(sessionOf(focusedPane(store.getSnapshot().layout))).toBe(sessionKey(runtime, second))
+  handlers.onNotification({ method: 'session/removed', params: { runtime, sessionId: second, deleted: true } })
+  expect(store.getSnapshot().sessions.has(sessionKey(runtime, second))).toBe(false)
+  expect(sessionOf(focusedPane(store.getSnapshot().layout))).toBe(null)
 })
 
 it('a refused receipt never counts as released pressure', async () => {

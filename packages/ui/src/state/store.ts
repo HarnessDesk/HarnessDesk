@@ -762,16 +762,10 @@ export class AppStore {
   planTranscriptEvictions(limits: { count: number; bytes: number } = { count: 128, bytes: 8 * 1024 * 1024 }): readonly SessionKey[] {
     if (!Number.isSafeInteger(limits.count) || limits.count < 0 || !Number.isSafeInteger(limits.bytes) || limits.bytes < 0) return []
     const candidates: { key: SessionKey; bytes: number; touched: number }[] = []
-    for (const [key, authority] of this.#transcriptAuthority) {
+    for (const [key] of this.#transcriptAuthority) {
       const session = this.#snapshot.sessions.get(key)
-      const receipt = this.#transcriptReceipts.get(key)
-      if (!receipt || receipt.authority !== authority || receipt.change !== this.#transcriptChange || receipt.draftRevision !== this.drafts.revision) {
-        this.#transcriptReceipts.delete(key)
-        continue
-      }
-      if (!session?.itemsLoaded || this.#transcriptProtected(key, session)) continue
+      if (!session || !this.#currentTranscriptPlanningReceipt(key, session)) continue
       try {
-        if (transcriptSessionFingerprint(session) !== authority.sessionFingerprint) { this.#transcriptAuthority.delete(key); this.#transcriptReceipts.delete(key); continue }
         candidates.push({ key, bytes: canonicalTranscriptBody(session.turns).bytes, touched: this.#transcriptTouches.get(key) ?? 0 })
       } catch { this.#transcriptAuthority.delete(key); this.#transcriptReceipts.delete(key) }
     }
@@ -786,6 +780,22 @@ export class AppStore {
     return planned
   }
 
+  // Planning may reuse an unchanged proof; an actual unload always obtains a new one.
+  #currentTranscriptPlanningReceipt(key: SessionKey, session: Session): boolean {
+    const authority = this.#transcriptAuthority.get(key), receipt = this.#transcriptReceipts.get(key)
+    if (!authority || !receipt || receipt.authority !== authority || receipt.change !== this.#transcriptChange || receipt.draftRevision !== this.drafts.revision) {
+      this.#transcriptReceipts.delete(key)
+      return false
+    }
+    if (!session.itemsLoaded || this.#transcriptRecoveryBlocked.has(key) || this.#transcriptPending.has(key) || this.#transcriptProtected(key, session)) return false
+    try {
+      if (transcriptSessionFingerprint(session) === authority.sessionFingerprint) return true
+    } catch { /* Unsupported bodies remain loaded. */ }
+    this.#transcriptAuthority.delete(key)
+    this.#transcriptReceipts.delete(key)
+    return false
+  }
+
   /** Prepare only; this does not unload any candidate. */
   prepareTranscriptPressure(limits: { count: number; bytes: number } = { count: 128, bytes: 8 * 1024 * 1024 }): Promise<readonly SessionKey[]> {
     const run = this.#transcriptPressureTail.then(async () => {
@@ -798,6 +808,8 @@ export class AppStore {
       if (candidates.length <= limits.count && candidates.reduce((sum, item) => sum + item.bytes, 0) <= limits.bytes) return []
       candidates.sort((a, b) => a.touched - b.touched || String(a.key).localeCompare(String(b.key)))
       for (const candidate of candidates) {
+        const session = this.#snapshot.sessions.get(candidate.key)
+        if (session && this.#currentTranscriptPlanningReceipt(candidate.key, session)) continue
         const { runtime, id } = splitSessionKey(candidate.key)
         await this.prepareTranscriptEviction(runtime, id)
       }
@@ -929,7 +941,7 @@ export class AppStore {
     sessions.set(key, { ...session, turns: [], itemsLoaded: false })
     this.#transcriptReceipts.delete(key)
     this.#transcriptAuthority.delete(key)
-    this.#patch({ sessions })
+    this.#patch({ sessions }, { preserveSessionMembership: true })
     return true
   }
 
@@ -9559,7 +9571,7 @@ export class AppStore {
    * subscribers are woken once per frame, which is what keeps three streaming
    * conversations from re-rendering the window hundreds of times a second.
    */
-  #patch(patch: Partial<AppSnapshot>): void {
+  #patch(patch: Partial<AppSnapshot>, options?: { preserveSessionMembership?: boolean }): void {
     const next = { ...this.#snapshot, ...patch }
     const navigation = availableDestinationHistory(next.workbench.navigation, () => {
       const view = focusedPane(next.workbench.main).view
@@ -9638,7 +9650,9 @@ export class AppStore {
       activeSessionKey && splitSessionKey(activeSessionKey).runtime === next.activeRuntime
         ? splitSessionKey(activeSessionKey).id
         : null
-    if (patch.sessions && this.#snapshot.layout === next.layout) {
+    const membershipUnchanged = options?.preserveSessionMembership && patch.sessions &&
+      patch.sessions.size === this.#snapshot.sessions.size && [...patch.sessions.keys()].every(key => this.#snapshot.sessions.has(key))
+    if (patch.sessions && !membershipUnchanged && this.#snapshot.layout === next.layout) {
       // A conversation that vanished from the host leaves its pane empty
       // rather than pointing at nothing.
       next.layout = prune(next.layout, (key) => next.sessions.has(key) || this.#snapshot.loadingSessions.has(key))
