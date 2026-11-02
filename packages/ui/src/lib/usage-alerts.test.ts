@@ -233,6 +233,19 @@ describe('conditionFor', () => {
     expect(condition?.handoff?.runtime).toBe(id('codex-2'))
   })
 
+  it('never falls back to an account that could not take a turn, however roomy its cached report', () => {
+    const reports = [
+      report('codex', [lane({ usedPercent: 100 })], { reached: 'weekly' }),
+      report('codex-2', [lane({ usedPercent: 10 })]),
+      report('claude', [lane({ usedPercent: 5 })]),
+    ]
+    // codex-2 has signed out: its report is still cached, but it is not in
+    // `prefer` and cannot take a turn, so neither the pool nor the fallback offers it.
+    const canTake = (runtime: RuntimeId) => runtime !== id('codex-2')
+    expect(conditionFor(id('codex'), reports, nameFor, NOON, { prefer: [], canTake })?.handoff?.runtime).toBe(id('claude'))
+    expect(conditionFor(id('codex'), reports, nameFor, NOON, { prefer: [], canTake: () => false })?.handoff).toBeNull()
+  })
+
   it('offers the account after the spent one, wrapping, as the pool moves', () => {
     const reports = [
       report('codex', [lane({ usedPercent: 30 })]),

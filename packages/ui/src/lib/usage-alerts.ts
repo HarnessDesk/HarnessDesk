@@ -221,9 +221,11 @@ export const conditionFor = (
    * account of the same agent is the cheaper move — same models, same tools,
    * the conversation's own history format — so one with room is offered
    * before the roomiest agent of any kind. A pool whose rule is "Stop" offers
-   * nothing: the person said they would rather wait.
+   * nothing: the person said they would rather wait. `canTake` says whether
+   * an account could take a turn at all (`canTakeTurn`); a report is cached
+   * past a sign-out, so a roomy reading alone is not somewhere to go.
    */
-  pool: { readonly prefer?: readonly RuntimeId[]; readonly offer?: boolean } = {},
+  pool: { readonly prefer?: readonly RuntimeId[]; readonly offer?: boolean; readonly canTake?: (runtime: RuntimeId) => boolean } = {},
 ): UsageCondition | null => {
   if (runtime === null) return null
   const report = reports.find((entry) => entry.runtime === runtime)
@@ -235,7 +237,7 @@ export const conditionFor = (
   // Somewhere else to go: the roomiest other agent, and only if it has real
   // room. Offering a hand-off to an agent at 3% would be a worse dead end.
   const alternatives = reports
-    .filter((entry) => entry.runtime !== runtime)
+    .filter((entry) => entry.runtime !== runtime && (pool.canTake?.(entry.runtime) ?? true))
     .map((entry) => ({ entry, left: leftOn(entry) }))
     .filter((option): option is { entry: UsageReport; left: number } => option.left !== null && option.left >= 20)
     .sort((a, b) => b.left - a.left)
