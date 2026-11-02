@@ -836,6 +836,18 @@ describe('rightNow', () => {
     expect(line).toBe('Nothing has room right now — Agent B is back first, at 1:00 PM.')
   })
 
+  it('makes no nothing-has-room claim while one reading is unknown', () => {
+    const line = rightNow(
+      [
+        report({ runtime: runtimeId('a'), lanes: [lane({ id: 'w', usedPercent: 100, windowMinutes: 300, resetsAt: NOON + HOUR })] }),
+        report({ runtime: runtimeId('b'), lanes: [lane({ id: 'w', usedPercent: 20, windowMinutes: 300, resetsAt: NOON + 4 * HOUR })], error: { message: 'no answer' } }),
+      ],
+      name,
+      NOON,
+    )
+    expect(line).toBeNull()
+  })
+
   it('names the account when two runtimes share one name', () => {
     const line = rightNow(
       [

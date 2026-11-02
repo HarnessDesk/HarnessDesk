@@ -807,7 +807,10 @@ export const rightNow = (
 
   const best = usable[0]
   if (!best) {
-    const first = out[0]
+    // "Nothing has room" and "back first" are claims about every account: an unknown reading may have room, and an
+    // Out with no return time may come back sooner. Without that certainty, the page's own summary says it.
+    const settled = read.every(({ standing }) => standing.status === 'overdrawn' || out.some((each) => each.standing === standing))
+    const first = settled ? out[0] : undefined
     return first
       ? `Nothing has room right now — ${label(first.report)} is back first, at ${formatWhen(first.standing.backAt ?? now, now)}.`
       : null
