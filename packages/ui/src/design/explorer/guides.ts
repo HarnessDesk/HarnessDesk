@@ -1049,7 +1049,7 @@ export const mountGuides = (roots: () => Element[], mode: GuidesMode): (() => vo
   let mutationTimer = 0
   let retheme = false
   // Match every appearance dial written by state/theme.ts, on either root.
-  const appearanceAttributes = ['class', 'style', 'data-hd-dark-theme', 'data-hd-palette', 'data-hd-accent', 'data-hd-corners', 'data-hd-faces', 'data-hd-interface']
+  const appearanceAttributes = ['class', 'style', 'data-hd-dark-theme', 'data-hd-palette', 'data-hd-accent', 'data-hd-corners', 'data-hd-faces', 'data-hd-interface', 'data-hd-surface']
   const observe = () => {
     mutations.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: [...appearanceAttributes, 'data-state', 'open'] })
     mutations.observe(document.documentElement, { attributes: true, attributeFilter: appearanceAttributes })

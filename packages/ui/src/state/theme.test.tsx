@@ -48,6 +48,7 @@ afterEach(() => {
   document.body.removeAttribute('data-hd-dark-theme')
   document.body.removeAttribute('data-hd-palette')
   document.body.removeAttribute('data-hd-faces')
+  document.body.removeAttribute('data-hd-surface')
 })
 
 const shell = (): void => {
@@ -72,6 +73,7 @@ const mount = (
   theme: AppSnapshot['theme'],
   palette?: AppSnapshot['palette'],
   faces?: AppSnapshot['faces'],
+  surface?: AppSnapshot['surface'],
 ): void => {
   act(() => {
     root.render(
@@ -81,6 +83,7 @@ const mount = (
           theme,
           ...(palette ? { palette } : {}),
           ...(faces ? { faces } : {}),
+          ...(surface ? { surface } : {}),
         })}
       >
         <Probe />
@@ -144,5 +147,15 @@ describe('useTheme', () => {
 
     mount('light', undefined, 'round')
     expect(document.body.hasAttribute('data-hd-faces')).toBe(false)
+  })
+
+  // The surface is the last dial. Cards is the default and leaves no
+  // attribute; Sheet marks the body, which is all `tokens.sheet.css` reads.
+  it('marks the body for the sheet surface, and unmarks it for the default cards', () => {
+    mount('light', undefined, undefined, 'sheet')
+    expect(document.body.getAttribute('data-hd-surface')).toBe('sheet')
+
+    mount('light', undefined, undefined, 'cards')
+    expect(document.body.hasAttribute('data-hd-surface')).toBe(false)
   })
 })

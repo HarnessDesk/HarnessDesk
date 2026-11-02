@@ -77,6 +77,8 @@
 
 .headSearch { flex: 1; min-width: 0; }
 .headSearch > [data-slot="search"] { width: 100%; }
+/* The column's search: a bordered field on Cards, a filled one on Sheet (tokens.sheet.css). */
+.headSearch input { background-color: var(--hd-left-search-fill); border-color: var(--hd-left-search-edge); }
 
 /* Back and search are separate blocks in Settings, with the normal short step between them. */
 [data-left-settings] > [data-left-head] { margin-block-start: var(--hd-space-1); }

@@ -493,7 +493,7 @@ above the seat names that host and shows the matching short code,
 **Open the page again** and **Cancel**. The notice
 uses the seat’s inset and stacks its header above full-width copy and actions. A signed-in
 account instead opens a **HarnessDesk account** submenu with **Linked phones**
-and its count, **Account settings**, and **Sign out of HarnessDesk…**. The
+and its count, **Account settings**, and **Sign out…** (the group already names the account). The
 confirmation explains that agent accounts stay signed in. If the cloud cannot
 be reached, it also offers **Sign out on this desk only**, which removes the
 local sign-in and explains that the desk stays linked to the account until it

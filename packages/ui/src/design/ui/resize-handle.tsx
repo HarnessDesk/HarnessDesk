@@ -111,8 +111,10 @@ const ResizeHandle = ({
       onKeyDown={onKeyDown}
       className={cn(
         'group/resize relative flex shrink-0 items-center justify-center',
+        /* A line seam is invisible at rest unless its frame gives it ink
+           (`--seam-ink`): the Sheet surface draws the left column's edge here. */
         appearance === 'line' &&
-          'bg-transparent hover:bg-(--hd-accent) data-[dragging]:bg-(--hd-accent) after:absolute after:content-[\'\']',
+          'bg-(--seam-ink,transparent) hover:bg-(--hd-accent) data-[dragging]:bg-(--hd-accent) after:absolute after:content-[\'\']',
         orientation === 'vertical'
           ? appearance === 'line'
             ? 'w-(--hd-border-width) cursor-col-resize after:inset-y-0 after:-inset-x-1'

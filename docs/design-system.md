@@ -96,7 +96,7 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hd-chart-heat-2` | `color-mix(in srgb, rgb(52, 88, 240) 46%, rgb(245, 245, 245))` |
 | `--hd-chart-heat-3` | `color-mix(in srgb, rgb(52, 88, 240) 70%, rgb(245, 245, 245))` |
 | `--hd-chart-heat-4` | `rgb(52, 88, 240)` |
-| `--hd-chart-heat-not-scanned` | `repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(71, 71, 71) 45%, rgb(255, 255, 255)) 2px 3px )` |
+| `--hd-chart-heat-not-scanned` | `repeating-linear-gradient( 135deg, rgb(255, 255, 255) 0 2px, color-mix(in srgb, rgb(107, 107, 107) 45%, rgb(255, 255, 255)) 2px 3px )` |
 | `--hd-danger` | `rgb(228, 68, 62)` |
 | `--hd-danger-dim` | `rgba(228, 68, 62, 0.12)` |
 | `--hd-success` | `rgb(65, 189, 111)` |
@@ -451,8 +451,11 @@ A navigation column is its own small design system, and shadcn treats it as one:
 | `--hd-sidebar` | `rgb(249, 249, 249)` |
 | `--hd-sidebar-foreground` | `rgb(27, 27, 27)` |
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
-| `--hd-sidebar-muted-foreground` | `rgb(71, 71, 71)` |
+| `--hd-sidebar-muted-foreground` | `rgb(107, 107, 107)` |
 | `--hd-sidebar-border` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-sidebar-edge` | `transparent` |
+| `--hd-left-search-fill` | `transparent` |
+| `--hd-left-search-edge` | `rgba(9, 12, 17, 0.12)` |
 | `--hd-sidebar-hover` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-sidebar-width` | `256px` |
 | `--hd-sidebar-width-icon` | `48px` |
@@ -489,6 +492,10 @@ A block of related settings on a page. The reference's account-settings cards ar
 
 | token | value |
 | --- | --- |
+| `--hd-card-fill` | `rgb(255, 255, 255)` |
+| `--hd-card-border` | `rgba(9, 12, 17, 0.12)` |
+| `--hd-card-divider` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-card-radius` | `10px` |
 | `--hd-inset-dense` | `8px` |
 | `--hd-inset-row` | `12px` |
 | `--hd-inset-card` | `16px` |
@@ -522,7 +529,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-scrim` | `rgba(7, 9, 14, 0.28)` |
 | `--hd-external-canvas` | `rgb(255, 255, 255)` |
 | `--hd-secondary-foreground` | `rgb(49, 49, 49)` |
-| `--hd-tertiary-foreground` | `rgb(71, 71, 71)` |
+| `--hd-tertiary-foreground` | `rgb(107, 107, 107)` |
 | `--hd-disabled-foreground` | `color-mix(in srgb, rgb(177, 177, 177) 80%, rgb(27, 27, 27))` |
 | `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
 | `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
@@ -550,10 +557,10 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-inset` | `8px` |
 | `--hd-label-space` | `` |
-| `--hd-card-fill` | `` |
-| `--hd-card-border` | `` |
-| `--hd-card-divider` | `` |
-| `--hd-card-radius` | `` |
+| `--hd-card-fill` | `rgb(255, 255, 255)` |
+| `--hd-card-border` | `rgba(9, 12, 17, 0.12)` |
+| `--hd-card-divider` | `rgba(9, 12, 17, 0.05)` |
+| `--hd-card-radius` | `10px` |
 | `--hd-composer-ring` | `` |
 | `--hd-control-h-lg` | `<cycle>` |
 | `--hd-seg-trim` | `calc(2px * 2)` |
@@ -564,11 +571,10 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-ring-width` | `2px` |
 | `--hd-ring-offset` | `2px` |
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
-| `--hd-card-fill` | `` |
+| `--hd-card-fill` | `rgb(255, 255, 255)` |
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-left-row-h` | `calc(32px + 2px)` |
 | `--hd-left-row-gap` | `0px` |
-| `--hd-left-menu-gap` | `8px` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-field-h` | `32px` |
 | `--hd-btn-h` | `32px` |
@@ -609,6 +615,9 @@ The right panel is a stack of cards on the left column's ground: a piece of work
 | `--hd-panel-card-pad-y` | `10px` |
 | `--hd-panel-card-pad-x` | `12px` |
 | `--hd-panel-card-radius` | `10px` |
+| `--hd-panel-card-fill` | `rgb(255, 255, 255)` |
+| `--hd-panel-card-border` | `rgba(9, 12, 17, 0.12)` |
+| `--hd-panel-card-rule` | `transparent` |
 | `--hd-panel-head-h` | `20px` |
 | `--hd-panel-row-h` | `28px` |
 

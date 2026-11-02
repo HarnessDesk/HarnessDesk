@@ -177,6 +177,7 @@ for (const theme of WALL_THEMES) test(`original edges for navigation, work, foot
   const settingsX = await measure(general)
   console.log(JSON.stringify({ theme, settings: settingsX }))
   expect(Math.abs(settingsX.icon - measurements.navigation!.icon)).toBeLessThanOrEqual(1)
-  expect(Math.abs(settingsX.label - measurements.navigation!.label - 4)).toBeLessThanOrEqual(1)
+  // Settings labels share the main column's label edge; the 12px Settings gap is gone.
+  expect(Math.abs(settingsX.label - measurements.navigation!.label)).toBeLessThanOrEqual(1)
 
 })

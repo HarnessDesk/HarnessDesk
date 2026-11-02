@@ -367,7 +367,7 @@ body[data-hd-dark-theme] {
   --hdp-alias-label-primary-inverted: var(--hdp-static-grey-800);
   --hdp-alias-label-primary: var(--hdp-static-grey-150);
   --hdp-alias-label-secondary: var(--hdp-static-grey-300);
-  --hdp-alias-label-tertiary: var(--hdp-static-grey-400);
+  --hdp-alias-label-tertiary: var(--hdp-static-grey-500); /* desk: dark fact ink grey-400 → grey-500, one clear step under prose (grey-300) */
   --hdp-alias-markdown-citation: var(--hdp-static-grey-800);
   --hdp-alias-markdown-code-block-banner: var(--hdp-static-grey-850);
   --hdp-alias-markdown-code-block: var(--hdp-static-grey-900);

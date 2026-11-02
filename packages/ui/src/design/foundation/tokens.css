@@ -791,7 +791,7 @@ body {
   --hd-muted: var(--hdp-alias-bg-module-platform);
   /* Counts, times and keyboard hints use the platform palette's quiet ink,
      exposed here so product CSS never reaches into the private tier. */
-  --hd-tertiary-foreground: var(--hdp-static-grey-750); /* Counts and times sit one ink tier under secondary. */
+  --hd-tertiary-foreground: var(--hdp-static-grey-600); /* desk: fact ink grey-750 → grey-600, one clear tier under secondary (grey-750 read as a second prose tier) */
   --hd-muted-foreground: var(--hd-tertiary-foreground);
 
   /* A nested sheet, a loading placeholder, and the quietest legible label.
@@ -1191,6 +1191,13 @@ body {
   --hd-sidebar-selected: var(--hd-selected);
   --hd-sidebar-muted-foreground: var(--hd-tertiary-foreground);
   --hd-sidebar-border: var(--hd-border);
+  /* The left column's edge against the page. Cards separates the column by its
+     plate and draws no line; the Sheet surface puts the column on the page's
+     ground and needs the hairline back. */
+  --hd-sidebar-edge: transparent;
+  /* The column's search field: bordered on the column's plate. */
+  --hd-left-search-fill: transparent;
+  --hd-left-search-edge: var(--hd-border-strong);
   --hd-sidebar-hover: var(--hdp-alias-interactive-bg-hover);
   /* The left column's default width (spec: 256, dragged 200–360). Named
      here rather than measured in a layout file, so the column and everything
@@ -1257,18 +1264,20 @@ body {
      stack of boxes. */
   /*
    * `--hd-card-fill`, `--hd-card-border`, `--hd-card-divider` and
-   * `--hd-card-radius` are defined in the Studio block and nowhere else, for
-   * the same reason `--hd-label-*` are: the app draws this shape in six
-   * places and no two of them agreed. The settings card is `bg-layer-1` on a
-   * 4%-black hairline at 14px; the files card under an answer is the same
-   * fill on a 10%-black one; a file in the review panel is 10px; the grid
-   * card in Settings is 10px again. Every one of those is what somebody
-   * looked at and accepted.
-   *
-   * Each site spells its own value as the `var()` fallback, so Desk is
-   * unchanged everywhere, and Studio's four declarations are what make six
-   * cards one card.
+   * `--hd-card-radius` are the one card: a group of settings rows, a
+   * summary card, a plate, and — through the `--hd-panel-card-*` pair at the
+   * foot of this file — every card of the right panel. The app used to draw
+   * this shape in six places and no two agreed (a filled `bg-layer-1` card at
+   * 14px in Settings, the main ground at 10px in the panel). The owner chose
+   * the panel's answer for all of them (2026-11-01, board B of the app-frame
+   * canvas): the main ground, the strong hairline, 10px corners. Studio
+   * still varies the fill; the Sheet foundation (`tokens.sheet.css`) takes
+   * the box away entirely.
    */
+  --hd-card-fill: var(--hd-background);
+  --hd-card-border: var(--hd-border-strong);
+  --hd-card-divider: var(--hd-border);
+  --hd-card-radius: var(--hd-radius);
   /* The inset tiers: one padding per density, used whole on every slot of a
      surface — header, body, footer, divider gutter all read the same tier,
      the way shadcn's Card keeps one `px-6` for every slot rather than a
@@ -1547,12 +1556,12 @@ body[data-hd-interface='studio'][data-hd-dark-theme] {
   --hd-ring-muted: color-mix(in srgb, var(--hd-ring) 55%, transparent);
 }
 
-/* The Settings menu keeps the working sidebar's 32px rows, 1px apart, 12px
-   from icon to label, and the control radius. */
+/* The Settings menu keeps the working sidebar's 32px rows, 1px apart, and the
+   control radius. Icon to label is the sidebar's own 8px, so a label starts
+   at 40 in every mode of the left column. */
 [data-left-settings] {
   --hd-left-row-h: 32px;
   --hd-left-row-gap: 1px;
-  --hd-left-menu-gap: var(--hd-space-3);
   --hd-nav-radius: var(--hd-radius-md);
 }
 
@@ -1661,6 +1670,12 @@ body {
   --hd-panel-card-pad-y: var(--hd-space-2-5);
   --hd-panel-card-pad-x: var(--hd-space-3);
   --hd-panel-card-radius: var(--hd-radius);
+  /* The card's ground and edge, named so the Sheet foundation can lay the
+     panel flat without restyling the component. */
+  --hd-panel-card-fill: var(--hd-background);
+  --hd-panel-card-border: var(--hd-border-strong);
+  /* The gap between cards; the Sheet foundation draws a hairline there instead. */
+  --hd-panel-card-rule: transparent;
   --hd-panel-head-h: 20px;
   --hd-panel-row-h: 28px;
 }

@@ -1724,6 +1724,7 @@ class PreviewStore {
   setPalette = (palette: AppSnapshot['palette']): void => this.patch({ palette })
   setAccent = (accent: AppSnapshot['accent']): void => this.patch({ accent })
   setCorners = (corners: AppSnapshot['corners']): void => this.patch({ corners })
+  setSurface = (surface: AppSnapshot['surface']): void => this.patch({ surface })
   setFaces = (faces: AppSnapshot['faces']): void => this.patch({ faces })
   setLook = (next: AppSnapshot['look']): void => this.patch({ look: next })
   setProfile = (patch: ProfilePatch): void =>

@@ -215,6 +215,10 @@ export const FrameWall = () => {
   useEffect(() => {
     if (requestedTheme === 'light' || requestedTheme === 'dark') themeStore.setTheme(requestedTheme)
   }, [requestedTheme, themeStore])
+  const requestedSurface = query.get('surface')
+  useEffect(() => {
+    if (requestedSurface === 'cards' || requestedSurface === 'sheet') themeStore.setSurface(requestedSurface)
+  }, [requestedSurface, themeStore])
   const store = useMemo(() => {
     const complete = previewStore()
     const ids = framePageIds(complete.getSnapshot())

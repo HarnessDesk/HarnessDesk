@@ -69,7 +69,7 @@
 .shell[data-panel-floats='true'] .top,
 .shell[data-panel-floats='true'] .rail { visibility: hidden; pointer-events: none; }
 /* Region seams use the same retained drag projection. */
-.left > [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: 0; bottom: 0; right: calc(-1 * var(--hd-border-width)); }
+.left > [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: 0; bottom: 0; right: calc(-1 * var(--hd-border-width)); --seam-ink: var(--hd-sidebar-edge); z-index: calc(var(--hd-z-sticky) + 1); } /* desk: the left edge sits over the main column's first pixel, so it stands one layer above the composer's sticky fade that starts there */
 .right [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: 0; bottom: 0; left: calc(-1 * var(--hd-border-width)); }
 .shell[data-pane-expanded='true'] .right [data-slot='panel-seam'] { left: auto; right: calc(-1 * var(--hd-border-width)); }
 

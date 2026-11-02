@@ -7548,6 +7548,9 @@ export class AppStore {
         ...(preferences['look'] === 'desk' || preferences['look'] === 'studio'
           ? { look: preferences['look'] }
           : {}),
+        ...(preferences['surface'] === 'cards' || preferences['surface'] === 'sheet'
+          ? { surface: preferences['surface'] }
+          : {}),
       })
       // Usage may have arrived first; the saved rule applies to it now.
       this.#followPool(this.#snapshot.usage)
@@ -8164,6 +8167,11 @@ export class AppStore {
   setLook(next: AppSnapshot['look']): void {
     this.#patch({ look: next })
     void this.#writePreference({ look: next }, 'The interface')
+  }
+
+  setSurface(surface: AppSnapshot['surface']): void {
+    this.#patch({ surface })
+    void this.#writePreference({ surface }, 'The surface')
   }
 
   /**
