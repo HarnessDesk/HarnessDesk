@@ -95,8 +95,10 @@ export const accountName = (
   /** The agent's own name, which stands in for a person the runtime cannot name. */
   agent?: string,
 ): string => {
+  // A name, never an address: a nickname typed as an address is cut at the @
+  // like the address itself, so no surface that names an account shows one.
   const nickname = prefs?.nickname?.trim()
-  if (nickname) return nickname
+  if (nickname) return nickname.includes('@') ? nickname.slice(0, nickname.indexOf('@')) || nickname : nickname
   if (account.anonymous && agent) return agent
   const label = account.label ?? ''
   const email = account.email ?? (label.includes('@') ? label : null)

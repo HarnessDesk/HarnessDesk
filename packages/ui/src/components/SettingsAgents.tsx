@@ -638,14 +638,15 @@ const AgentAccounts = ({
   // would otherwise fall into `empties` and be offered a sign-in it does not
   // want. It is complete the moment it exists; it gets a row of its own.
   const gateways = queue.filter((entry) => entry.slot?.gateway)
-  // An order and a rule for running out mean something only once there is a
-  // second account to run on.
-  const ordered = rows.length + gateways.length > 1
   // The queue as it is drawn: signed-in accounts and gateways, one list in
   // pool order. A move acts on this list, so a step up is a step up on
   // screen; runtimes not drawn here keep their places behind it.
   const listed = queue.filter((entry) => entry.slot?.gateway || rows.some((row) => row.entry === entry))
   const listedOrder = listed.map((entry) => entry.id)
+  // An order and a rule for running out mean something only once there is a
+  // second runtime to run on. Two identities one runtime reports (an agent
+  // identity and its key) are one place in the queue, not two.
+  const ordered = listed.length > 1
   const movesFor = (runtime: RuntimeId) => {
     const at = listedOrder.indexOf(runtime)
     const move = (delta: number) => () => store.setAccountPool(agent, {

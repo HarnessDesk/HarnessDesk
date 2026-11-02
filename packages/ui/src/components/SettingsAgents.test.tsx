@@ -1603,6 +1603,18 @@ it('an agent with one account has no order and no rule to set', async () => {
   expect(container.querySelector('[aria-label="API key actions"]')).toBeNull()
 })
 
+it('two identities one runtime reports are one place in the queue, with no order or rule to set', async () => {
+  await mountList({
+    accountsByRuntime: {
+      ...ROSTER.accountsByRuntime,
+      beta: signedIn([{ kind: 'agent', label: 'Jane Doe' }, { kind: 'externalKey', label: 'API key' }], ['apiKey']),
+    },
+  })
+  await act(async () => line('Beta').click())
+  expect(container.querySelector('select[aria-label="When an account runs out"]')).toBeNull()
+  expect(document.body.textContent).not.toContain('Move up')
+})
+
 it('a runtime page reads in the order it is used: accounts first, the build after', async () => {
   await mountList({ runtimes: ROSTER.runtimes.map((entry) => entry.id === 'alpha' ? { ...entry, update: { version: '1.3.0', command: 'npm i -g alpha' } } : entry) })
   await act(async () => line('Alpha').click())
