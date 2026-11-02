@@ -15,8 +15,11 @@ import type { HarnessDeskAccountStatus } from '@harnessdesk/protocol'
 import type { CredentialCipher } from './credentials.js'
 import type { StateStore } from './state.js'
 
-/** `relayUrl` is absent from sessions saved before the relay was used; such a session is renewed when the relay needs it. */
-interface Session { token: string; expiresAt: number; relayUrl?: string }
+/**
+ * `relayUrl` and `relayToken` are absent from sessions saved before the relay was used; such a session is renewed when
+ * the relay needs it. `relayToken` is the only credential the relay sees: `token` works on the account API.
+ */
+interface Session { token: string; expiresAt: number; relayUrl?: string; relayToken?: string }
 
 /** What the phone link needs to open the desk's relay socket. The desk key itself never leaves this class. */
 export interface RelayAccess {
@@ -174,7 +177,8 @@ export class HarnessDeskAccount {
         this.#identity = await signingIdentityFromPkcs8(fromB64u(data.key))
         this.#secrets = { version: 1, origin: data.origin, key: data.key,
           ...(data.session && typeof data.session.token === 'string' && Number.isSafeInteger(data.session.expiresAt)
-            ? { session: { token: data.session.token, expiresAt: data.session.expiresAt, ...(relayOrigin(data.session.relayUrl) ? { relayUrl: relayOrigin(data.session.relayUrl)! } : {}) } }
+            ? { session: { token: data.session.token, expiresAt: data.session.expiresAt, ...(relayOrigin(data.session.relayUrl) ? { relayUrl: relayOrigin(data.session.relayUrl)! } : {}),
+                ...(typeof data.session.relayToken === 'string' ? { relayToken: data.session.relayToken } : {}) } }
             : {}) }
         const pending = StartDeskLinkResponse.safeParse(data.pending)
         if (pending.success) this.#secrets.pending = pending.data
@@ -332,7 +336,8 @@ export class HarnessDeskAccount {
     if (!this.#current(generation)) return
     if (response.expiresAt <= this.#now()) throw new Error('The account session expired. Try again.')
     const relayUrl = relayOrigin(response.relayUrl)
-    const session: Session = { token: response.deskToken, expiresAt: response.expiresAt, ...(relayUrl ? { relayUrl } : {}) }
+    const session: Session = { token: response.deskToken, expiresAt: response.expiresAt, ...(relayUrl ? { relayUrl } : {}),
+      ...(response.relayToken ? { relayToken: response.relayToken } : {}) }
     return session
   }
   async #refresh(generation: number) {
@@ -499,7 +504,7 @@ export class HarnessDeskAccount {
     const key = await this.#key()
     const deskId = await idFromPub(key.pub)
     return {
-      url: session.relayUrl, deskId, token: session.token,
+      url: session.relayUrl, deskId, token: session.relayToken,
       prove: async challenge => {
         if (!this.#current(generation)) throw new Error('This desk signed out.')
         if (!RELAY_CHALLENGE.test(challenge)) throw new Error('The relay challenge was not understood.')
@@ -518,20 +523,23 @@ export class HarnessDeskAccount {
     return { invite: invite.token, api: this.#base.origin, relay: session.relayUrl, expiresAt: invite.expiresAt * 1000 }
   }, false) }
 
-  /** A session that names a relay, saved so the account's own refresh reuses it. */
-  async #relaySession(generation: number, fresh: boolean): Promise<Session & { relayUrl: string }> {
+  /** A session that names a relay and carries its credential, saved so the account's own refresh reuses it. */
+  async #relaySession(generation: number, fresh: boolean): Promise<Session & { relayUrl: string; relayToken: string }> {
     if (!this.#secrets?.session || this.#snapshot.status !== 'signedIn') throw new Error('Sign in to HarnessDesk first.')
-    const session = await this.#session(generation, fresh || !this.#secrets.session.relayUrl)
+    const saved = this.#secrets.session
+    const session = await this.#session(generation, fresh || !saved.relayUrl || !saved.relayToken)
     if (!session || !this.#current(generation)) throw new Error('This desk signed out.')
-    if (!session.relayUrl) throw new Error('The account did not name a relay this desk can use.')
+    if (!session.relayUrl || !session.relayToken) throw new Error('The account did not name a relay this desk can use.')
     if (session !== this.#secrets.session && this.#secrets) { this.#secrets = { ...this.#secrets, session }; await this.#persist() }
-    return session as Session & { relayUrl: string }
+    return session as Session & { relayUrl: string; relayToken: string }
   }
 
   unlinkPhone(deviceId: string) { return this.#serialize(async () => {
     DeviceId.parse(deviceId)
     const { token, deskId } = await this.#authorized()
-    this.#parse(Ok, await this.#request('/links/revoke', { deskId, deviceId }, token))
+    // A link that is already gone is the outcome asked for, so a repeated or late unlink is not an error.
+    try { this.#parse(Ok, await this.#request('/links/revoke', { deskId, deviceId }, token)) }
+    catch (error) { if (!(error instanceof CloudError && error.status === 404)) throw error }
     await this.#refresh(this.#generation); return this.#snapshot
   }) }
   async #clearLocal() {

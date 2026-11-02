@@ -27,8 +27,12 @@ describe('contract', () => {
   })
 
   it('validates control messages strictly', () => {
-    assert.equal(RelayToDesk.safeParse({ t: 'open', conn: 1, dev: 'd' }).success, true)
-    assert.equal(RelayToDesk.safeParse({ t: 'open', conn: -1, dev: 'd' }).success, false)
+    const dev = 'A'.repeat(22)
+    assert.equal(RelayToDesk.safeParse({ t: 'open', conn: 1, dev }).success, true)
+    assert.equal(RelayToDesk.safeParse({ t: 'open', conn: -1, dev }).success, false)
+    // The relay names the phone; anything but a device id is not a phone.
+    assert.equal(RelayToDesk.safeParse({ t: 'open', conn: 1, dev: 'd' }).success, false)
+    assert.equal(RelayToDesk.safeParse({ t: 'open', conn: 1, dev: 'x'.repeat(5000) }).success, false)
     assert.equal(DeskToRelay.safeParse({ t: 'close', conn: 1, code: 4401 }).success, true)
     assert.equal(DeskToRelay.safeParse({ t: 'close', conn: 1, code: 1000 }).success, false)
     assert.equal(DeskToRelay.safeParse({ t: 'nope' }).success, false)

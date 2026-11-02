@@ -7,6 +7,7 @@ import { CloseCode } from '@harnessdesk/contract'
 import { PhoneLinkService, RelayLink, type PhonePolicy, type RelayCredentials, type RelayState } from '../src/index.js'
 import { CHALLENGE, RelaySim } from '../src/relay-sim.js'
 import { PhoneSim } from '../src/sim.js'
+import WebSocket from 'ws'
 
 const policy: PhonePolicy = {
   methods: { 'lead/thread/read': 'read', 'lead/thread/send': 'run' },
@@ -77,6 +78,13 @@ const pairThroughRelay = async () => {
   await allowNext()
   await phone.next(m => m.t === 'enroll.ok')
   return phone
+}
+
+/** A bare socket on the phone side, for tests about the room rather than the session; resolves with its close code. */
+const rawPhone = async (): Promise<number> => {
+  const ticket = await relay.ticketFor(await PhoneSim.create())
+  const ws = new WebSocket(`${relay.url}/v1/phone/${DESK}`, { headers: { authorization: `Bearer ${ticket}` } })
+  return new Promise(resolve => ws.once('close', code => resolve(code)))
 }
 
 describe('the relay link', () => {
@@ -195,6 +203,81 @@ describe('the relay link', () => {
     await assert.rejects(extra.connect(`${relay.url}/v1/phone/${DESK}`, service.deskPub, { authorization: `Bearer ${await relay.ticketFor(extra)}` }))
     assert.equal(extra.closed?.code, CloseCode.RATE_LIMITED)
     phone.close()
+  })
+
+  test('a late close of an old socket leaves the new one, its phones and its heartbeat alone', async () => {
+    startLink({ closeGraceMs: 150 })
+    await until(() => link!.state === 'connected', 'connected')
+    relay.holdDesk()
+    link!.stop()
+    link!.start()
+    await until(() => link!.state === 'connected' && relay.desks.length === 2, 'the second socket')
+    const phone = await pairThroughRelay()
+    // The held socket gives up after its grace and closes late, after the new one is in use.
+    await new Promise(r => setTimeout(r, 300))
+    assert.equal(link!.state, 'connected')
+    assert.equal(link!.phones, 1)
+    assert.deepEqual((await phone.request('lead/thread/read')).result, { echoed: 'lead/thread/read' })
+    relay.answerPings = false
+    await until(() => relay.desks.length === 3, 'the heartbeat to notice a silent relay', 2000)
+    relay.answerPings = true
+  })
+
+  test('a phone the desk refuses while it attaches is closed on the relay, not left hanging', async () => {
+    startLink({ attach: (_conn, _dev, transport) => { transport.close(CloseCode.RATE_LIMITED, 'too many attempts'); return { receive: () => {}, gone: () => {} } } })
+    await until(() => link!.state === 'connected', 'connected')
+    const code = await rawPhone()
+    assert.equal(code, CloseCode.RATE_LIMITED)
+    assert.equal(link!.phones, 0)
+  })
+
+  test('a message larger than the relay allows ends only that phone, and the desk stays up', async () => {
+    relay.maxFrame = 2048
+    startLink({ attach: (_conn, _dev, transport) => { setTimeout(() => transport.send(new Uint8Array(4096)), 10); return { receive: () => {}, gone: () => {} } } })
+    await until(() => link!.state === 'connected', 'connected')
+    assert.equal(await rawPhone(), CloseCode.FRAME_TOO_LARGE)
+    assert.equal(link!.state, 'connected')
+    assert.equal(relay.desks.length, 1)
+  })
+
+  test('frames past the relay’s rate wait their turn instead of costing the socket', async () => {
+    let sent = 0
+    startLink({ framesPerSecond: 200, attach: (_conn, _dev, transport) => {
+      setTimeout(() => { for (let i = 0; i < 150; i++) { transport.send(new Uint8Array([i])); sent++ } }, 10)
+      return { receive: () => {}, gone: () => {} }
+    } })
+    await until(() => link!.state === 'connected', 'connected')
+    const ticket = await relay.ticketFor(await PhoneSim.create())
+    const ws = new WebSocket(`${relay.url}/v1/phone/${DESK}`, { headers: { authorization: `Bearer ${ticket}` } })
+    let got = 0
+    ws.on('message', () => { got++ })
+    const started = Date.now()
+    await until(() => got === 150, 'every frame', 3000)
+    assert.equal(sent, 150)
+    assert.ok(Date.now() - started >= 200, 'the frames past the burst were paced')
+    ws.close()
+  })
+
+  test('a relay that drops the desk right after ready still backs off, and says it cannot be reached', async () => {
+    relay.dropAfterReady = true
+    startLink({ maxBackoffMs: 20 })
+    await until(() => link!.state === 'unreachable', 'unreachable')
+    assert.ok(states.includes('connected'))
+    relay.dropAfterReady = false
+    await until(() => link!.state === 'connected' && relay.desk !== null, 'connected once it holds')
+  })
+
+  test('a phone the relay names with something other than a device id is never attached', async () => {
+    let attached = 0
+    const logged: string[] = []
+    startLink({ attach: () => { attached++; return { receive: () => {}, gone: () => {} } }, log: message => logged.push(message) })
+    await until(() => link!.state === 'connected', 'connected')
+    relay.tickets.set('bad', 'x'.repeat(5000))
+    const ws = new WebSocket(`${relay.url}/v1/phone/${DESK}`, { headers: { authorization: 'Bearer bad' } })
+    await new Promise(resolve => ws.once('open', resolve))
+    await until(() => logged.includes('relay sent a message this desk does not know'), 'the refusal')
+    assert.equal(attached, 0)
+    ws.terminate()
   })
 
   test('a pairing code from a desk with an account carries the invite, and ends when the invite does', async () => {

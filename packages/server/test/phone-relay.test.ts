@@ -138,7 +138,7 @@ test('a desk another copy replaced stays stopped through later account refreshes
   await relayIs('connected')
 })
 
-test('removing a phone on the Mac refuses it at once, and unlinks it from the account once the account can be reached', async () => {
+test('removing a phone on the Mac refuses it at once, and unlinks it from the account once the account can be reached, even when its list is stale', async () => {
   const phone = await start()
   account.reachable(true)
   await relayIs('connected')
@@ -149,7 +149,8 @@ test('removing a phone on the Mac refuses it at once, and unlinks it from the ac
   await until(() => phone.state().pending.length > 0, 'the phone to ask')
   phone.allow(phone.state().pending[0]!.id)
   await sim.next(m => m.t === 'enroll.ok')
-  account.snapshot = { ...account.snapshot, phones: [{ deviceId: sim.id, name: 'Phone', lastSeenAt: null }] }
+  // The account's last list predates this link, so the outbox cannot go by it.
+  assert.deepEqual(account.snapshot.phones, [])
   account.offline = true
   await phone.revoke(sim.id)
   assert.equal((await sim.closedWith()).code, CloseCode.REVOKED)

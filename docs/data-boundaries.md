@@ -300,7 +300,7 @@ never become the desktop's desk token.
 | `POST /v1/desks/revoke` | Desk bearer token and this desk's id | On ordinary sign-out, or best-effort cleanup of an approved but unfinished sign-in; local-only sign-out makes no account request |
 | `POST /v1/account/delete` | Desk bearer token and an empty JSON object | After confirming Delete account; session renewal may first obtain a challenge and session |
 | `POST /v1/invites` | Desk bearer token and an empty JSON object | When Show code or New code is chosen in Settings › Phone while signed in, Reachable from your phone is on and the phone link runs; the one-time invite goes into the pairing code only |
-| `POST /v1/links/revoke` (queued) | As above | After a phone the account linked is removed in Settings › Phone; while the account cannot be reached, the device id waits in `phone-link/relay-unlinks.json` and is sent once it can |
+| `POST /v1/links/revoke` (queued) | As above | After a phone the account linked is removed in Settings › Phone; while the account cannot be reached, the device id waits in `relay-unlinks.json`, in the phone link's folder under the HarnessDesk home, and is sent once it can |
 
 While signed in with Reachable from your phone on, and the phone link running,
 the host also keeps one connection to the relay the desk session names
@@ -309,14 +309,15 @@ the host also keeps one connection to the relay the desk session names
 | Request | What it carries | When |
 | --- | --- | --- |
 | Relay `GET /v1/challenge` | Nothing | Before each relay connection |
-| Relay `WSS /v1/desk/{deskId}` | Desk bearer token, the challenge, and a signature of it with the desk key | Held open while the conditions above hold; a small `ping` every 20 seconds; after a drop it reconnects with growing, randomised waits up to five minutes; a refused token is renewed once, and a second refusal stops it |
+| Relay `WSS /v1/desk/{deskId}` | The relay's own token from the desk session (the account API refuses it), the challenge, and a signature of it with the desk key | Held open while the conditions above hold; a small `ping` every 20 seconds; after a drop it reconnects with growing, randomised waits up to five minutes; a refused token is renewed once, and a second refusal stops it |
 
 Over that connection the relay passes each phone's frames to the desk and back.
 They are the same end-to-end encrypted session as a phone on the same network:
 the relay sees which linked device connected, when, and how many bytes cross,
-never the content. A phone that connects through the relay must prove the
-device key the account linked, then the desk key it pinned from the pairing
-code, and a new phone still waits for **Allow this phone?** on the desk.
+never the content. The desk paces its frames under the relay's limit. A phone
+that connects through the relay must prove the device key the relay names as
+linked, and the session is pinned to the desk key from the pairing code; a new
+phone still waits for **Allow this phone?** on the desk.
 
 After initial load, reading ordinary account status returns host state. The
 initial load refreshes an existing sign-in or cleans up an unfinished one.

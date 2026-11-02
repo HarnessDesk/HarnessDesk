@@ -5129,9 +5129,16 @@ runs a relay room per desk. The desk holds one outbound socket to it while it
 is signed in and Reachable from your phone is on, which is off until the person
 turns it on. The relay is not trusted with content: each phone it announces
 runs the same end-to-end session as a LAN phone, pinned to the desk key from
-the pairing code, and must prove the device key the account linked, so a relay
-that announced the wrong phone gets a refusal before the pairing code is spent.
-A new phone still waits for Allow this phone?.
+the pairing code. What holds against the relay itself is that pin, the secret
+inside the pairing code, and Allow this phone?, which a new phone still waits
+for. The device check is narrower: a phone must prove the key the relay says
+the account linked, which stops a ticket being used by another phone, and
+refuses it before the pairing code is spent.
+
+The relay is handed a credential of its own. The desk session carries two
+tokens, and the one the relay sees is typed for the relay alone and refused by
+the account API, so a relay, or anything that logs its traffic, never holds one
+the rest of the account would accept.
 
 The link's behaviour follows what each failure means. A close for a replaced
 desk or a revoked one stops it, and only the person turning Reachable off and
@@ -5139,7 +5146,12 @@ on starts it again, so two copies of a desk never fight over the room. A
 refused token is renewed once; refused again, it stops. Any other drop
 reconnects with full jitter, and the window says "Can't reach HarnessDesk" only
 after three failures in a row, so waking from sleep does not flash a warning.
-Silence is probed three times before a socket that looks open is dropped.
+Silence is probed three times before a socket that looks open is dropped. The
+backoff starts over only after a socket has stayed up a while, so a relay that
+admits the desk and drops it again does not make it reconnect in a loop. The
+relay meters each socket and closes it over a frame it does not allow, which
+would drop every phone at once; the desk paces its frames under that meter and
+lets go of only the phone whose message is too large.
 
 Removing a phone on the desk refuses it at once from the local registry; its
 account link is removed when the account can be reached, from a small outbox

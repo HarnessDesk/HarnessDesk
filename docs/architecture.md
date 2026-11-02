@@ -314,8 +314,9 @@ sample.
   Polling and metadata refresh stop with the host. Cancel fences queued and
   in-flight approval work. The `harnessdesk://` protocol only focuses the app;
   it never authenticates a desk. The account also hands the phone link what
-  the relay needs — a desk session that names the relay, a signature of the
-  relay's challenge, and one-time invites — without the desk key leaving it.
+  the relay needs — a desk session that names the relay and carries its own
+  token, a signature of the relay's challenge, and one-time invites — without
+  the desk key leaving it.
 - **Account reads** — host calls through a registered runtime share one
   in-flight read per account generation, including its lifecycle waits. Callers
   receive an error after ten seconds. A deadline cannot cancel the adapter, so retries
@@ -942,8 +943,10 @@ With the account signed in and Reachable from your phone on, `RelayLink`
 (`packages/phone-link/src/relay.ts`) holds one outbound socket to the relay
 room the desk session names. Each phone the relay announces becomes the same
 `PhoneEndpoint` a LAN socket would, with the relay's linked device id as the
-key it must prove; the relay only carries the encrypted frames. The link
-heartbeats, reconnects with full jitter, renews a refused token once, and
+key it must prove; the relay only carries the encrypted frames, and only the
+relay's own token (`relayToken`) goes to it. Each socket owns its phones,
+heartbeat and send pacing, so a late close of an old one touches nothing in
+use. The link heartbeats, reconnects with full jitter, renews a refused token once, and
 stops for a replaced desk or a second refusal until the person turns Reachable
 off and on. `phone/state` reports the link's state and each phone's route
 (nearby or through the account), and `phone/pairing` adds an account invite

@@ -16,8 +16,13 @@ export class RelaySim {
   readonly tokens = new Set(['desk-token'])
   readonly tickets = new Map<string, string>()
   readonly desks: { token: string; proof: string }[] = []
+  /** What the desk told the room to do with a phone. */
+  readonly closes: { conn: number; code: number }[] = []
   answerPings = true
   maxPhones = 8
+  maxFrame = 1_048_576
+  /** Ends each desk socket right after `ready`, as a relay that keeps failing just past admission would. */
+  dropAfterReady = false
   down = false
   #desk: WebSocket | null = null
   #phones = new Map<number, WebSocket>()
@@ -59,6 +64,9 @@ export class RelaySim {
 
   get desk(): WebSocket | null { return this.#desk }
 
+  /** Stops reading the current desk socket, so its close is never answered: a network that went quiet mid-close. */
+  holdDesk(): void { (this.#desk as unknown as { _socket: { pause(): void } } | null)?._socket.pause() }
+
   #deskJoined(ws: WebSocket): void {
     const previous = this.#desk
     this.#desk = ws
@@ -67,14 +75,18 @@ export class RelaySim {
       for (const phone of this.#phones.values()) phone.close(CloseCode.PEER_DROPPED, 'desk replaced')
       this.#phones.clear()
     }
-    ws.send(JSON.stringify({ t: 'ready', maxPhones: this.maxPhones, maxFrame: 1_048_576 }))
+    ws.send(JSON.stringify({ t: 'ready', maxPhones: this.maxPhones, maxFrame: this.maxFrame }))
+    if (this.dropAfterReady) setTimeout(() => ws.close(CloseCode.UNAVAILABLE, 'unavailable'), 5)
     ws.on('message', (data, isBinary) => {
       const bytes = data as Buffer
       if (!isBinary) {
         const text = bytes.toString('utf8')
         if (text === HEARTBEAT_PING) return void (this.answerPings && ws.send(HEARTBEAT_PONG))
         const message = JSON.parse(text) as { t: string; conn: number; code: number; reason?: string }
-        if (message.t === 'close') this.#phones.get(message.conn)?.close(message.code, message.reason)
+        if (message.t === 'close') {
+          this.closes.push({ conn: message.conn, code: message.code })
+          this.#phones.get(message.conn)?.close(message.code, message.reason)
+        }
         return
       }
       const frame = decodeDeskFrame(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength) as Uint8Array<ArrayBuffer>)

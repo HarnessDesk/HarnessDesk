@@ -25,7 +25,7 @@ async function until(condition: () => Promise<boolean> | boolean) {
 }
 const account = { name: 'Jane Doe', email: 'jane@example.com', pictureUrl: null }
 const deviceId = 'A'.repeat(22)
-async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: boolean; pictureUrl?: string; readPicture?: (url: string) => Promise<string | undefined> } = {}) {
+async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: boolean; pictureUrl?: string; readPicture?: (url: string) => Promise<string | undefined>; relayToken?: string | null } = {}) {
   await mkdir('scratch/desktop-sign-in', { recursive: true })
   const dir = await mkdtemp('scratch/desktop-sign-in/account-test-')
   directories.push(dir)
@@ -61,14 +61,19 @@ async function rig(options: { approved?: boolean; verifyUrl?: string; plain?: bo
     if (url.pathname === '/v1/desk/session') {
       if (!approved || cloudRevoked) return Response.json({ error: { code: 'unauthorized' } }, { status: 401 })
       assert.equal(await verifyEd25519(fromB64u(body.deskPub!), fromB64u(body.sig!), webDeskProofMessage(deskId, body.challenge!)), true)
-      return Response.json({ deskToken: 'fake-desk-session', expiresAt: Math.max(99999, Math.floor(now / 1000) + 3600), relayUrl: 'wss://relay.example.com' })
+      return Response.json({ deskToken: 'fake-desk-session', expiresAt: Math.max(99999, Math.floor(now / 1000) + 3600), relayUrl: 'wss://relay.example.com',
+        ...(options.relayToken === null ? {} : { relayToken: options.relayToken ?? 'fake-relay-session' }) })
     }
     assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer fake-desk-session')
     if (refuse) return Response.json({ error: { code: 'unauthorized' } }, { status: 401 })
     if (url.pathname === '/v1/desk/account') return Response.json({ account: { ...account, pictureUrl: options.pictureUrl ?? null }, desk: { deskId, name }, phones: revoked ? [] : [{ deviceId, name: 'Phone', lastSeenAt: null }] })
     if (url.pathname === '/v1/invites') return Response.json({ inviteId: 'invite-id', token: 'i'.repeat(43), expiresAt: 99999 })
     if (url.pathname === '/v1/desk/rename') { name = body.name!; return Response.json({ deskId, name }) }
-    if (url.pathname === '/v1/links/revoke') { assert.equal(body.deskId, deskId); revoked = true; return Response.json({ ok: true }) }
+    if (url.pathname === '/v1/links/revoke') {
+      assert.equal(body.deskId, deskId)
+      if (revoked) return Response.json({ error: { code: 'not_found' } }, { status: 404 })
+      revoked = true; return Response.json({ ok: true })
+    }
     if (url.pathname === '/v1/account/delete') {
       if (cloudRevoked) return Response.json({ error: { code: 'unauthorized' } }, { status: 401 })
       cloudRevoked = true
@@ -136,6 +141,7 @@ test('rename, reachable preference, unlink, and sign out use this desk scope', a
   assert.equal((await r.service.renameDesk('Office Mac')).desk.name, 'Office Mac')
   assert.equal((await r.service.setReachable(false)).desk.reachable, false)
   assert.deepEqual((await r.service.unlinkPhone(deviceId)).phones, [])
+  assert.deepEqual((await r.service.unlinkPhone(deviceId)).phones, [], 'a link already gone counts as unlinked')
   assert.equal((await r.service.signOut()).status, 'signedOut')
   assert.ok(r.calls.some(c => c.path === '/v1/desks/revoke')); r.service.close()
 })
@@ -462,7 +468,7 @@ for (const failure of ['offline', 500] as const) test(`delete ${failure} carries
   await assert.rejects(client.call('account/delete', {}), { code: 'accountCloudUnreachable', message: "Can't reach HarnessDesk. Try again when you're online." })
 })
 
-test('the relay gets a desk token and a proof only while signed in and reachable, and the proof signs only its challenge', async () => {
+test('the relay gets its own token and a proof only while signed in and reachable, and the proof signs only its challenge', async () => {
   const r = await rig()
   await assert.rejects(r.service.relayAccess(), /Reachable/)
   await r.service.setReachable(true)
@@ -470,7 +476,7 @@ test('the relay gets a desk token and a proof only while signed in and reachable
   await r.service.signIn(); r.approve(); await r.timers.shift()!()
   const access = await r.service.relayAccess()
   assert.equal(access.url, 'wss://relay.example.com')
-  assert.equal(access.token, 'fake-desk-session')
+  assert.equal(access.token, 'fake-relay-session', 'the account API token never goes to the relay')
   const challenge = 'C'.repeat(43)
   const proof = await access.prove(challenge)
   const deskPub = fromB64u(r.calls.find(c => c.path === '/v1/desk/session')!.body.deskPub!)
@@ -484,6 +490,12 @@ test('the relay gets a desk token and a proof only while signed in and reachable
   await assert.rejects(r.service.relayAccess(), /Reachable/)
   await r.service.signOut()
   await assert.rejects(access.prove(challenge), /signed out/)
+  r.service.close()
+})
+test('a cloud that names no relay token leaves the relay off rather than sending it the account token', async () => {
+  const r = await rig({ relayToken: null }); await r.service.setReachable(true)
+  await r.service.signIn(); r.approve(); await r.timers.shift()!()
+  await assert.rejects(r.service.relayAccess(), /did not name a relay/)
   r.service.close()
 })
 test('a phone invite names the account service and the relay, and ends when the cloud says', async () => {

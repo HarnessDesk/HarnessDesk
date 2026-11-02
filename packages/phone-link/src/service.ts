@@ -60,6 +60,8 @@ export type PhoneLinkChange = 'devices' | 'pending'
 
 const PATH = '/phone'
 const FAILURES_PER_MINUTE = 10
+/** Remotes whose refusals are counted at once; the oldest goes first past it. */
+const MAX_FAILURE_REMOTES = 1024
 
 /**
  * The LAN half of the phone link. It listens for phones, runs each through the encrypted session, and keeps
@@ -272,8 +274,14 @@ export class PhoneLinkService {
   #noteFailure(remote: string): void {
     const now = this.#now()
     const current = this.#failures.get(remote)
-    if (!current || current.resetAt <= now) this.#failures.set(remote, { count: 1, resetAt: now + 60_000 })
-    else current.count++
+    if (!current || current.resetAt <= now) {
+      // Remotes are whatever the network or the relay names, so the count is pruned rather than left to grow.
+      if (this.#failures.size >= MAX_FAILURE_REMOTES) {
+        for (const [key, entry] of this.#failures) if (entry.resetAt <= now) this.#failures.delete(key)
+        if (this.#failures.size >= MAX_FAILURE_REMOTES) this.#failures.delete(this.#failures.keys().next().value!)
+      }
+      this.#failures.set(remote, { count: 1, resetAt: now + 60_000 })
+    } else current.count++
   }
 
   #ask(enrollment: Enrollment): Promise<readonly PhoneTier[] | null> {

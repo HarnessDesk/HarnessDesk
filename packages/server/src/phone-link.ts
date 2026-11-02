@@ -224,10 +224,11 @@ class UnlinkOutbox {
     return new UnlinkOutbox(file, account, log, ids)
   }
 
+  /** Saved before anything goes out, so Remove phone never waits on the account's network. */
   async add(id: string): Promise<void> {
     this.#ids.add(id)
     await this.#save()
-    await this.flush()
+    void this.flush()
   }
 
   flush(): Promise<void> {
@@ -242,9 +243,10 @@ class UnlinkOutbox {
     if (status.status === 'pending') return
     let changed = false
     for (const id of [...this.#ids]) {
-      // A desk that signed out took its links with it, and a phone the account never linked has nothing to remove.
-      if (status.status === 'signedIn' && status.phones.some(phone => phone.deviceId === id)) {
-        try { status = await this.account.unlinkPhone(id) } catch (error) {
+      // A desk that signed out took its links with it. Signed in, the account is asked every time rather than trusting
+      // the last list it sent: a phone linked a moment ago may not be on it yet, and a link already gone counts as done.
+      if (status.status === 'signedIn') {
+        try { await this.account.unlinkPhone(id) } catch (error) {
           this.log.info('phone unlink waits for the account', { error: error instanceof Error ? error.name : 'error' })
           continue
         }

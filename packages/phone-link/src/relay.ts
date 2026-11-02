@@ -1,4 +1,4 @@
-import { CloseCode, HEARTBEAT_PING, HEARTBEAT_PONG, RelayHeaders, RelayToDesk, decodeDeskFrame, encodeDeskFrame } from '@harnessdesk/contract'
+import { CloseCode, HEARTBEAT_PING, HEARTBEAT_PONG, RelayHeaders, RelayLimits, RelayToDesk, decodeDeskFrame, encodeDeskFrame } from '@harnessdesk/contract'
 import WebSocket from 'ws'
 import type { EndpointTransport } from './endpoint.js'
 
@@ -38,6 +38,9 @@ export interface RelayLinkOptions {
   readonly random?: () => number
   readonly heartbeatMs?: number
   readonly maxBackoffMs?: number
+  readonly stableMs?: number
+  readonly closeGraceMs?: number
+  readonly framesPerSecond?: number
 }
 
 /** Failures in a row before the window says it cannot reach HarnessDesk. */
@@ -45,6 +48,13 @@ const QUIET_FAILURES = 3
 /** Unanswered heartbeats in a row before a socket that looks open is taken for dead. */
 const MISSED_HEARTBEATS = 3
 const BASE_BACKOFF_MS = 1000
+/** How long a socket has to stay up before its drop counts as a fresh start rather than one more failure. */
+const STABLE_MS = 30_000
+/** Frames waiting for the relay's rate before the phone whose frame does not fit is let go. */
+const MAX_QUEUED_FRAMES = 4096
+/** Under the relay's meter, with room for its pings and control messages on the same socket. */
+const PACED_FRAMES_PER_SECOND = Math.floor(RelayLimits.framesPerSecond * 0.9)
+const PACED_BURST = RelayLimits.frameBurst / 2
 
 /** Close codes that end the relay on purpose: the window says why, and nothing retries until the person acts. */
 const STOPS: ReadonlyMap<number, RelayState> = new Map([[CloseCode.REPLACED, 'replaced'], [CloseCode.REVOKED, 'refused']])
@@ -56,23 +66,20 @@ const STOPS: ReadonlyMap<number, RelayState> = new Map([[CloseCode.REPLACED, 're
  */
 export class RelayLink {
   readonly #options: RelayLinkOptions
-  readonly #phones = new Map<number, RelayAttachment>()
   #state: RelayState = 'off'
   #running = false
-  #socket: WebSocket | null = null
+  /** The open socket and everything that belongs to it; a late event from an older socket finds it gone. */
+  #live: Live | null = null
   #timer: ReturnType<typeof setTimeout> | null = null
-  #heartbeat: ReturnType<typeof setInterval> | null = null
   #failures = 0
   #refusals = 0
-  #missed = 0
-  #maxPhones: number = 8
   #generation = 0
 
   constructor(options: RelayLinkOptions) { this.#options = options }
 
   get state(): RelayState { return this.#state }
   /** Connections the relay has open for phones right now. */
-  get phones(): number { return this.#phones.size }
+  get phones(): number { return this.#live?.phones.size ?? 0 }
 
   start(): void {
     if (this.#running) return
@@ -116,17 +123,16 @@ export class RelayLink {
     if (!this.#current(generation)) return
     const socket = new WebSocket(`${credentials.url}/v1/desk/${credentials.deskId}`, {
       headers: { authorization: `Bearer ${credentials.token}`, [RelayHeaders.challenge]: challenge, [RelayHeaders.proof]: proof },
-      maxPayload: 1_048_576 + 4, handshakeTimeout: 10_000, followRedirects: false,
+      maxPayload: RelayLimits.maxFrameBytes + 4, handshakeTimeout: 10_000, followRedirects: false,
     })
     socket.binaryType = 'nodebuffer'
-    this.#socket = socket
-    let ended = false
+    const live = new Live(socket, this.#options.framesPerSecond ?? PACED_FRAMES_PER_SECOND)
+    this.#live = live
     const end = (code: number) => {
-      if (ended) return
-      ended = true
-      if (this.#socket === socket) this.#socket = null
-      this.#stopHeartbeat()
-      this.#dropPhones()
+      // Teardown already let this socket's phones go; only the socket still in use decides what happens next.
+      if (this.#live !== live) return
+      this.#live = null
+      live.end()
       if (!this.#current(generation)) return
       const stop = STOPS.get(code)
       if (stop) {
@@ -135,6 +141,8 @@ export class RelayLink {
         return this.#set(stop)
       }
       if (code === CloseCode.UNAUTHORIZED) return this.#refused(generation)
+      // A socket that stayed up a while starts the backoff over; one that drops right after `ready` keeps climbing it.
+      if (live.readyAt !== null && Date.now() - live.readyAt >= (this.#options.stableMs ?? STABLE_MS)) this.#failures = 0
       this.#retry(generation)
     }
     // The relay answers a refused upgrade over HTTP, before there is a socket to carry a close code.
@@ -145,15 +153,15 @@ export class RelayLink {
       socket.terminate()
     })
     socket.on('open', () => {
-      if (!this.#current(generation)) return void socket.close(1000, 'desk stopped')
-      this.#startHeartbeat(socket)
+      if (!this.#current(generation) || this.#live !== live) return void socket.close(1000, 'desk stopped')
+      this.#startHeartbeat(live)
     })
     socket.on('message', (data, isBinary) => {
-      this.#missed = 0
-      if (!this.#current(generation)) return
+      if (this.#live !== live || !this.#current(generation)) return
+      live.missed = 0
       const bytes = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer)
-      if (isBinary) return this.#frame(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength))
-      this.#control(socket, bytes.toString('utf8'))
+      if (isBinary) return this.#frame(live, new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+      this.#control(live, bytes.toString('utf8'))
     })
     socket.on('close', code => end(code))
     socket.on('error', () => end(CloseCode.PEER_DROPPED))
@@ -190,7 +198,7 @@ export class RelayLink {
     this.#timer.unref()
   }
 
-  #control(socket: WebSocket, text: string): void {
+  #control(live: Live, text: string): void {
     if (text === HEARTBEAT_PONG) return
     let message: RelayToDesk
     try {
@@ -199,85 +207,154 @@ export class RelayLink {
       message = parsed.data
     } catch { return void this.#options.log?.('relay sent text that is not JSON') }
     if (message.t === 'ready') {
-      this.#failures = 0
       this.#refusals = 0
-      this.#maxPhones = Math.max(1, Math.min(message.maxPhones, 8))
+      live.readyAt = Date.now()
+      live.maxPhones = Math.max(1, Math.min(message.maxPhones, RelayLimits.maxPhonesPerDesk))
+      live.maxFrame = Math.max(1024, Math.min(message.maxFrame, RelayLimits.maxFrameBytes))
       return this.#set('connected')
     }
     if (message.t === 'gone') {
-      const phone = this.#phones.get(message.conn)
-      this.#phones.delete(message.conn)
+      const phone = live.phones.get(message.conn)
+      live.phones.delete(message.conn)
+      live.forget(message.conn)
       return phone?.gone()
     }
-    if (this.#phones.has(message.conn)) return
-    if (this.#phones.size >= this.#maxPhones) return this.#closePhone(socket, message.conn, CloseCode.RATE_LIMITED, 'too many phones')
     const conn = message.conn
-    const transport: EndpointTransport = {
-      send: bytes => { if (this.#socket === socket && socket.readyState === WebSocket.OPEN && this.#phones.has(conn)) socket.send(encodeDeskFrame(conn, bytes)) },
-      close: (code, reason) => {
-        const phone = this.#phones.get(conn)
-        if (!phone) return
-        this.#phones.delete(conn)
-        this.#closePhone(socket, conn, code, reason)
-        phone.gone()
-      },
+    if (live.phones.has(conn)) return
+    if (live.phones.size >= live.maxPhones) return live.closePhone(conn, CloseCode.RATE_LIMITED, 'too many phones')
+    // The phone link may refuse while it attaches, before there is an attachment to hold; the relay is told either way.
+    let closed = false
+    const close = (code: number, reason: string) => {
+      if (closed) return
+      closed = true
+      const phone = live.phones.get(conn)
+      live.phones.delete(conn)
+      live.forget(conn)
+      live.closePhone(conn, code, reason)
+      phone?.gone()
     }
-    this.#phones.set(conn, this.#options.attach(conn, message.dev, transport))
+    const transport: EndpointTransport = {
+      send: bytes => {
+        if (closed || this.#live !== live) return
+        // The relay closes the whole desk socket over a frame larger than it allows, so only this phone is let go.
+        if (bytes.length + 4 > live.maxFrame) return close(CloseCode.FRAME_TOO_LARGE, 'message too large')
+        if (!live.send(conn, encodeDeskFrame(conn, bytes))) close(CloseCode.RATE_LIMITED, 'too much to send')
+      },
+      close,
+    }
+    const attachment = this.#options.attach(conn, message.dev, transport)
+    if (!closed) live.phones.set(conn, attachment)
   }
 
-  #frame(bytes: Uint8Array): void {
+  #frame(live: Live, bytes: Uint8Array): void {
     const frame = decodeDeskFrame(bytes as Uint8Array<ArrayBuffer>)
     // A frame for a phone that has gone was in flight when it went; the relay has already been told.
-    if (frame) this.#phones.get(frame.conn)?.receive(frame.payload)
-  }
-
-  #closePhone(socket: WebSocket, conn: number, code: number, reason: string): void {
-    if (socket.readyState !== WebSocket.OPEN) return
-    const bounded = code >= 4000 && code <= 4999 ? code : CloseCode.PEER_DROPPED
-    socket.send(JSON.stringify({ t: 'close', conn, code: bounded, reason: reason.slice(0, 120) }))
+    if (frame) live.phones.get(frame.conn)?.receive(frame.payload)
   }
 
   /**
    * The relay answers `ping` itself. A socket that stops answering is probed again rather than torn down at the first
    * silence, so one lost frame on a flaky network does not drop every phone.
    */
-  #startHeartbeat(socket: WebSocket): void {
-    this.#stopHeartbeat()
-    this.#missed = 0
-    this.#heartbeat = setInterval(() => {
-      if (socket.readyState !== WebSocket.OPEN) return
-      if (this.#missed >= MISSED_HEARTBEATS) {
+  #startHeartbeat(live: Live): void {
+    live.missed = 0
+    live.heartbeat = setInterval(() => {
+      if (live.socket.readyState !== WebSocket.OPEN) return
+      if (live.missed >= MISSED_HEARTBEATS) {
         this.#options.log?.('relay stopped answering')
-        socket.terminate()
+        live.socket.terminate()
         return
       }
-      this.#missed++
-      socket.send(HEARTBEAT_PING)
+      live.missed++
+      live.socket.send(HEARTBEAT_PING)
     }, this.#options.heartbeatMs ?? 20_000)
-    this.#heartbeat.unref()
-  }
-
-  #stopHeartbeat(): void {
-    if (this.#heartbeat) clearInterval(this.#heartbeat)
-    this.#heartbeat = null
-  }
-
-  #dropPhones(): void {
-    const phones = [...this.#phones.values()]
-    this.#phones.clear()
-    for (const phone of phones) phone.gone()
+    live.heartbeat.unref()
   }
 
   #teardown(code: number, reason: string): void {
-    this.#stopHeartbeat()
-    const socket = this.#socket
-    this.#socket = null
-    this.#dropPhones()
-    if (socket) { try { socket.close(code, reason) } catch { socket.terminate() } }
+    const live = this.#live
+    this.#live = null
+    if (!live) return
+    live.end()
+    try { live.socket.close(code, reason) } catch { live.socket.terminate() }
+    // A socket whose peer has gone can wait a long time for its close frame; this one is finished either way.
+    setTimeout(() => live.socket.terminate(), this.#options.closeGraceMs ?? 5000).unref()
   }
 
   #clearTimer(): void {
     if (this.#timer) clearTimeout(this.#timer)
     this.#timer = null
+  }
+}
+
+/** One relay socket: its phones, its heartbeat, its limits and its send pacing, all ended together. */
+class Live {
+  readonly phones = new Map<number, RelayAttachment>()
+  heartbeat: ReturnType<typeof setInterval> | null = null
+  missed = 0
+  readyAt: number | null = null
+  maxPhones: number = RelayLimits.maxPhonesPerDesk
+  maxFrame: number = RelayLimits.maxFrameBytes
+  readonly #queue: { conn: number; frame: Uint8Array }[] = []
+  #tokens: number
+  #filled = Date.now()
+  #drain: ReturnType<typeof setTimeout> | null = null
+
+  constructor(readonly socket: WebSocket, private readonly perSecond: number) { this.#tokens = PACED_BURST }
+
+  /**
+   * The relay meters each socket, and a desk over its rate loses the socket and every phone on it. Frames past the
+   * rate wait here, in order, so a resume or a long reply arrives late rather than ending the connection.
+   */
+  send(conn: number, frame: Uint8Array): boolean {
+    if (this.#queue.length === 0 && this.#take()) { this.#write(frame); return true }
+    if (this.#queue.length >= MAX_QUEUED_FRAMES) return false
+    this.#queue.push({ conn, frame })
+    this.#schedule()
+    return true
+  }
+
+  /** A phone that has gone sends nothing more. */
+  forget(conn: number): void {
+    for (let i = this.#queue.length - 1; i >= 0; i--) if (this.#queue[i]!.conn === conn) this.#queue.splice(i, 1)
+  }
+
+  /** Control messages are not metered by frame count; they go straight out. */
+  closePhone(conn: number, code: number, reason: string): void {
+    if (this.socket.readyState !== WebSocket.OPEN) return
+    const bounded = code >= 4000 && code <= 4999 ? code : CloseCode.PEER_DROPPED
+    this.socket.send(JSON.stringify({ t: 'close', conn, code: bounded, reason: reason.slice(0, 120) }))
+  }
+
+  end(): void {
+    if (this.heartbeat) clearInterval(this.heartbeat)
+    this.heartbeat = null
+    if (this.#drain) clearTimeout(this.#drain)
+    this.#drain = null
+    this.#queue.length = 0
+    const phones = [...this.phones.values()]
+    this.phones.clear()
+    for (const phone of phones) phone.gone()
+  }
+
+  #take(): boolean {
+    const now = Date.now()
+    this.#tokens = Math.min(PACED_BURST, this.#tokens + (now - this.#filled) * this.perSecond / 1000)
+    this.#filled = now
+    if (this.#tokens < 1) return false
+    this.#tokens--
+    return true
+  }
+
+  #write(frame: Uint8Array): void { if (this.socket.readyState === WebSocket.OPEN) this.socket.send(frame) }
+
+  #schedule(): void {
+    if (this.#drain) return
+    this.#drain = setTimeout(() => {
+      this.#drain = null
+      while (this.#queue.length > 0 && this.#take()) this.#write(this.#queue.shift()!.frame)
+      if (this.#queue.length > 0) this.#schedule()
+    }, Math.ceil(1000 / this.perSecond))
+    this.#drain.unref()
   }
 }
