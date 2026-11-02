@@ -1,0 +1,13 @@
+{
+  "issue": 1770,
+  "scope": "Truthful deferred key application receipt; other issue claims remain open",
+  "head": "e285e742fbf89eeafec9caf8dc10e4896ee2a45b",
+  "tree": "f7a9c8d734da7018f926a506d7ad6c80a6955648",
+  "frame": {
+    "name": "deferred-dark.png",
+    "sha256": "7310e5374688d0ef26f98e54e1111d40db81e2dd6dc1c412229cef87dc3e9f2c",
+    "width": 2560,
+    "height": 1680
+  },
+  "proof": "Isolated fake-agent real Electron/Host with mock broker; no real-provider authentication"
+}
