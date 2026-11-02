@@ -1204,3 +1204,63 @@ it('does not treat a failed close as evidence of an eligible body or spin on ref
   expect(store.transcriptCacheStats().releasedBodies).toBe(0)
   expect(store.transcriptCacheStats().loadedFullBodies).toBe(129)
 })
+
+it.each([[undefined, false], [false, undefined]] as const)('accepts archive defaults on local %s and Host %s through unload and restore', async (localArchive, hostArchive) => {
+  const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
+  const base: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
+    turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
+  const local = localArchive === undefined ? base : { ...base, archived: localArchive }
+  const remote = hostArchive === undefined ? base : { ...base, archived: hostArchive }
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const identity = createHash('sha256').update(canonicalTranscriptBody(base.turns).canonical).digest('hex')
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: remote, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
+  ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: local })
+  expect(await store.unloadTranscript(runtime, id)).toBe(true)
+  expect(await store.restoreTranscript(runtime, id)).toBe(true)
+  expect(store.getSnapshot().sessions.get(key)?.turns).toEqual(base.turns)
+})
+
+it('does not treat a truly archived Host body as the local unarchived default', async () => {
+  const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: { ...body, archived: true }, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
+  ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
+  expect(await store.unloadTranscript(runtime, id)).toBe(false)
+  expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(true)
+})
+
+it('rejects an in-place local archive change while a Host snapshot is pending', async () => {
+  const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  let finish!: (value: unknown) => void
+  const pending = new Promise(resolve => { finish = resolve })
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? pending : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
+  ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
+  const task = store.unloadTranscript(runtime, id)
+  const held = store.getSnapshot().sessions.get(key)!
+  ;(held as { archived?: boolean }).archived = false
+  finish({ session: body, watermark, identity })
+  expect(await task).toBe(false)
+  expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(true)
+})
+
+it('keeps the descriptor when an unchanged-body restore changes archive from false to true', async () => {
+  const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
+  const body: Session = { id, runtime, cwd: '/example', archived: false, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
+  const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  let reads = 0
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: ++reads === 1 ? body : { ...body, archived: true }, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
+  ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
+  expect(await store.unloadTranscript(runtime, id)).toBe(true)
+  expect(await store.restoreTranscript(runtime, id)).toBe(false)
+  expect(store.getSnapshot().sessions.get(key)).toMatchObject({ archived: false, itemsLoaded: false })
+})
