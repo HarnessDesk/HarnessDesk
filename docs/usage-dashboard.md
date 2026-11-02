@@ -960,7 +960,10 @@ hard way somewhere and is cheaper to design out than to fix:
   Short is whichever runs dry first, Low whichever is lowest, and when that
   window is not the headline the line under the bar names it — `Weekly runs
   out ~2:47 PM, before its Thu 8:11 AM reset`. A spent model is said as one
-  model out only while the account still works. `Back …` is said only while that time is still ahead, and so is
+  model out only while the account still works. An out account is back at
+  the last reset of the windows that stopped it (no time if one of them
+  gives none), or the first, when only models are spent. `Back …` is said
+  only while that time is still ahead, and so is
   a spent model's `until …`. The line above the cards, when there is no
   account to recommend, counts by the same word: Out and Overdrawn as out,
   Short and Low as running low.

@@ -697,10 +697,21 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
   if (isBlocked(report)) {
     // Only a lane known to be spent says when it is back. A `reached` naming no lane (a spend limit, say) gives no
     // reset, and a healthy binding lane's reset is not when that limit clears.
-    const laneSpent = lane !== null && left !== null && left <= 0
-    const spent = reached && !reached.scope ? reached : laneSpent ? lane : null
+    const isSpent = (each: UsageLane): boolean => each.placeholder !== true && (remainingOf(each) ?? 1) <= 0
+    // Account-wide limits all have to clear, so it is back at the last of their resets — and with no time at
+    // all if one of them gives none.
+    const blockers = report.lanes.filter((each) => !each.scope && isSpent(each))
+    if (reached && !reached.scope && !blockers.includes(reached)) blockers.push(reached)
+    // With only models left, any one coming back is enough: the first of their resets.
+    const models = lane?.scope && left !== null && left <= 0 ? report.lanes.filter((each) => each.scope && isSpent(each)) : []
+    const resets = (blockers.length > 0 ? blockers : models).map((each) => each.resetsAt)
+    const known = resets.filter((at): at is number => at !== null)
+    const backAt =
+      blockers.length > 0
+        ? known.length === resets.length ? Math.max(...known) : null
+        : known.length > 0 ? Math.min(...known) : null
     // "One model is out, the others still work" is not true of an account that is out.
-    return { ...base, scopedOut: null, status: 'out', runsOutAt: null, backAt: spent?.resetsAt ?? null }
+    return { ...base, scopedOut: null, status: 'out', runsOutAt: null, backAt }
   }
 
   // Every account-wide limit counts, not only the headline: a healthy session

@@ -48,6 +48,44 @@ test('a spent account-wide lane is out, and says when it is back', () => {
   assert.equal(standing.backAt, NOW + 4 * HOUR)
 })
 
+test('with two account-wide windows spent, it is back when the last of them resets', () => {
+  const standing = usageStandingOf(
+    report({
+      lanes: [
+        lane({ usedPercent: 100, resetsAt: NOW + 4 * HOUR }),
+        lane({ id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10_080, resetsAt: NOW + HOUR }),
+      ],
+      reached: 'weekly',
+    }),
+    NOW,
+  )
+  assert.equal(standing.status, 'out')
+  assert.equal(standing.backAt, NOW + 4 * HOUR)
+})
+
+test('a spent window that gives no reset leaves the account without a Back time', () => {
+  const standing = usageStandingOf(
+    report({ lanes: [lane({ usedPercent: 100 }), lane({ id: 'weekly', label: 'Weekly', usedPercent: 100, resetsAt: null })] }),
+    NOW,
+  )
+  assert.equal(standing.status, 'out')
+  assert.equal(standing.backAt, null)
+})
+
+test('with every model spent, it is back when the first of them resets', () => {
+  const standing = usageStandingOf(
+    report({
+      lanes: [
+        lane({ id: 'opus', label: 'Opus', scope: 'Opus', usedPercent: 100, resetsAt: NOW + 3 * HOUR }),
+        lane({ id: 'sonnet', label: 'Sonnet', scope: 'Sonnet', usedPercent: 100, resetsAt: NOW + HOUR }),
+      ],
+    }),
+    NOW,
+  )
+  assert.equal(standing.status, 'out')
+  assert.equal(standing.backAt, NOW + HOUR)
+})
+
 test('a reached limit that names no lane is out, but borrows no reset from a healthy lane', () => {
   const standing = usageStandingOf(report({ reached: 'spend_limit_reached' }), NOW)
   assert.equal(standing.status, 'out')
