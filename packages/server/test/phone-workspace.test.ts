@@ -353,6 +353,17 @@ test('a spent model says when it is back only while that time is ahead', async (
   } finally { await f.done() }
 })
 
+test('a balance that is not a finite number is left off the phone row', async () => {
+  const f = await fixture()
+  try {
+    f.ledger = () => ledgerOf([], 0)
+    const odd = (remaining: number) => report('dev@example.com', { lanes: [], credits: { remaining, unit: 'USD' } })
+    f.reports = [odd(Number.NaN), odd(Number.POSITIVE_INFINITY), odd(4.5)]
+    const rows = (await f.workspace.workUsage())!.runtimes as PhoneWorkAllowance[]
+    assert.deepEqual(rows.map(row => row.balance), [undefined, undefined, { amount: 4.5, unit: 'USD' }])
+  } finally { await f.done() }
+})
+
 // -------------------------------------------------------------- the phone door
 
 /** A paired phone, and the real link, over a desk that answers only the three reads. */

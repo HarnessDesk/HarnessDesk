@@ -387,7 +387,9 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
     ...(lane.resetsAt === null || lane.resetsAt <= now ? {} : { resetsAt: lane.resetsAt }),
   }))
   const scoped = standing.scopedOut
-  const remaining = report.credits?.remaining
+  // A non-finite amount turns into null on the wire and breaks the phone's numeric field.
+  const raw = report.credits?.remaining
+  const remaining = typeof raw === 'number' && Number.isFinite(raw) ? raw : null
   const plan = report.planLabel ?? report.plan
   return {
     id: seat.id, name: seat.label, models: [], running: [], last7: [],
@@ -402,7 +404,7 @@ const allowanceRowOf = (seat: SeatRow, now: number): PhoneWorkAllowance => {
     ...(standing.runsOutAt === null ? {} : { runsOutAt: Math.round(standing.runsOutAt) }),
     ...(scoped?.scope ? { scopedOut: { scope: scrub(scoped.scope, 40), ...(scoped.resetsAt === null || scoped.resetsAt <= now ? {} : { backAt: scoped.resetsAt }) } } : {}),
     ...(lanes.length === 0 ? {} : { lanes }),
-    ...(remaining === null || remaining === undefined || report.credits?.unlimited ? {} : { balance: { amount: remaining, unit: scrub(report.credits!.unit, 12) } }),
+    ...(remaining === null || report.credits?.unlimited ? {} : { balance: { amount: remaining, unit: scrub(report.credits!.unit, 12) } }),
     ...(plan ? { plan: scrub(plan, 40) } : {}),
     readAt: report.fetchedAt,
     ...(now - report.fetchedAt > report.staleAfterMs ? { stale: true } : {}),
