@@ -1315,6 +1315,7 @@ export const GeneralSectionRows = () => (
   <>
     <SettingsNewConversations />
     <SettingsChatsFolder />
+    <PrivacyRows />
     <SectionHead level="label" name="Backup" />
     <BackupRows />
 
@@ -1328,6 +1329,34 @@ export const GeneralSectionRows = () => (
     </Rows>
   </>
 )
+
+/**
+ * For a desk on a shared screen or in a recording: the agents' accounts go
+ * by the names you gave them (or the part of the address before the @), and
+ * the full address is not drawn or put in a hover anywhere.
+ */
+export const PrivacyRows = () => {
+  const store = useStore()
+  const hide = useSnapshot().hideAccountAddresses
+  return (
+    <>
+      <SectionHead level="label" name="Privacy" />
+      <Rows>
+        <Row
+          title="Hide account addresses"
+          desc="Accounts show by name. Useful when sharing your screen."
+          control={
+            <Switch
+              aria-label="Hide account addresses"
+              checked={hide}
+              onCheckedChange={(next) => store.setHideAccountAddresses(next)}
+            />
+          }
+        />
+      </Rows>
+    </>
+  )
+}
 
 /**
  * Export and restore, side by side, with the two promises that make them
@@ -1531,8 +1560,13 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     : route.kind === 'account' && runtimeExists(route.runtime) && snapshot.accountsByRuntime[route.runtime]?.accounts.some(account => accountKey(route.runtime, account) === route.key)
       ? { kind: 'account', runtime: route.runtime, key: route.key }
     : route.kind === 'add-runtime' ? { kind: 'add' } : { kind: 'list' }
+  // A runtime's page, and an account's under it, is titled by the runtime:
+  // "Runtimes" over one runtime's page named the list the person had left.
+  const viewed = runtimeView.kind === 'agent' || runtimeView.kind === 'account'
+    ? snapshot.runtimes.find(info => info.id === runtimeView.runtime) : undefined
   const settingsTitle = route.kind === 'project' ? SETTINGS_LABELS.workspaces
-    : route.kind === 'skill' || section === 'skills' ? runtime.presentation.skillsLabel ?? SETTINGS_LABELS.skills : SETTINGS_LABELS[section]
+    : route.kind === 'skill' || section === 'skills' ? runtime.presentation.skillsLabel ?? SETTINGS_LABELS.skills
+    : viewed ? viewed.presentation.name : SETTINGS_LABELS[section]
   const setRuntimeView = (view: RuntimeSettingsView): void => {
     if (view.kind === 'list') sectionRoute('runtimes')
     else if (view.kind === 'add') onRoute({ kind: 'add-runtime' })

@@ -1324,8 +1324,9 @@ export interface HostMethods {
    * The value goes to the credential broker and is never returned.
    *
    * `applied` is what the agent knows now: `restarted` means it is running
-   * with the new value, `busy` that a turn was in flight and it will pick the
-   * value up on its next start. The shell says which, because "saved" alone
+   * with the new value, `busy` that work prevented a restart, and `deferred`
+   * that no restart was made while it was not ready. In the latter two cases
+   * a later start can pick up the value. The shell says which, because "saved" alone
    * let a user store a key and watch the next turn fail for the lack of it.
    */
   'runtime/apiKey/store': {

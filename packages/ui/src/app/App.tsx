@@ -286,6 +286,7 @@ export const App = () => {
           health: snapshot.health,
           activeRuntime: snapshot.activeRuntime,
           now: Date.now(),
+          hideAddresses: snapshot.hideAccountAddresses,
         }),
       )
     send()
@@ -300,6 +301,7 @@ export const App = () => {
     snapshot.accountPrefs,
     snapshot.health,
     snapshot.activeRuntime,
+    snapshot.hideAccountAddresses,
   ])
 
   useEffect(() => {

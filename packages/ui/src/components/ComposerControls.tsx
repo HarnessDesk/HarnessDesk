@@ -4,6 +4,7 @@ import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachment
 import { Button, Chip, ComposerTrack, Dialog, IssueMark, Row, RowChoice, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
+import { isChatFolder } from '../lib/chats'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
 import { worktreeBranch } from '../lib/worktree-branch'
 import { canIsolateDraft, keepsWorkspacePlace } from '../lib/draft-isolation'
@@ -1049,7 +1050,7 @@ export const AgentControl = () => {
   // Two accounts of one agent are two entries here, and the agent's name
   // names neither on its own — so the account rides along when there is one.
   const label = (entry: RuntimeInfo): string =>
-    runtimeLabel(entry, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)
+    runtimeLabel(entry, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs, snapshot.hideAccountAddresses)
 
   return (
     <ComposerTrack name="agent" folded={folded} tight={tight}>
@@ -1398,8 +1399,8 @@ export const PlaceControl = ({ onChooseProject: chooseProject }: { onChooseProje
     <ComposerTrack name="work-in" contentSized shrinkable>
       <InToolbar refer={ref}>
         {onChooseProject && folderPicker}
-        {/* Missing repository facts are unread; only an explicit null with no Git facts hides this control. */}
-        {(workspace.repo !== null || workspace.git) && <Popover
+        {/* Outside managed chats, missing repository facts are unread; explicit null with no Git facts hides this control. */}
+        {!isChatFolder(workspace.path, snapshot.chatsFolderRoots) && (workspace.repo !== null || workspace.git) && <Popover
           fullWidth={!onChooseProject}
           triggerVariant={onChooseProject && !carried && !checking && !automatic && !armed && !chosen ? { variant: 'ghost', size: 'xs' } : undefined}
           title={title}

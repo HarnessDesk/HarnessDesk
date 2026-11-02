@@ -32,13 +32,14 @@ import {
 } from '../../design'
 import { formatTokens } from '../../lib/context-usage'
 import { accountActivitySummary, type AccountActivitySummary } from '../../lib/usage'
-import { accountForUsage, runtimeAccountBadge, runtimeTint } from '../../lib/accounts'
+import { accountForUsage, runtimeAccountBadge, runtimeTint, shownAccountLabel } from '../../lib/accounts'
 import type { AppSnapshot } from '../../state/store'
 import { CaretIcon } from '../Icons'
 import { RuntimeMark } from '../BrandIcons'
 import { Card } from './shared'
 import { AllowanceBody, BalanceBody, FreeBody, KeyBody } from './ShapeBodies'
 import { MoneyRowView } from './PlanFrame'
+import { useAccountLabel } from '../../state/context'
 import { entriesFromReports, NotReportingList } from './NotReporting'
 
 /**
@@ -144,6 +145,7 @@ export const PlansTable = ({
             const isOpen = expanded === row.key
             const bodyId = `plans-row-body-${row.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`
             const name = info?.presentation.name ?? String(row.report.runtime)
+            const shown = row.report.account ? shownAccountLabel(row.report.runtime, row.report.account, snapshot) : null
             const toggle = (): void => setExpanded(isOpen ? null : row.key)
             return (
               <TableRowGroup
@@ -151,6 +153,7 @@ export const PlansTable = ({
                 row={row}
                 info={info}
                 name={name}
+                account={shown}
                 badge={badge}
                 onSignIn={onSignIn && signInRuntimes?.has(row.report.runtime) ? () => onSignIn(row.report.runtime) : undefined}
                 bodyId={bodyId}
@@ -192,6 +195,7 @@ const TableRowGroup = ({
   row,
   info,
   name,
+  account,
   badge,
   onSignIn,
   bodyId,
@@ -208,6 +212,8 @@ const TableRowGroup = ({
   row: PlanRow
   info: RuntimeInfo | null
   name: string
+  /** The account as rows write it (`shownAccountLabel`), or null for a reading with none. */
+  account: string | null
   badge?: string
   onSignIn?: () => void
   bodyId: string
@@ -224,19 +230,19 @@ const TableRowGroup = ({
   <>
     <TableRow data-state={isOpen ? 'selected' : undefined}>
       <TableCell lead={info && <IconTile shape="face" badge={badge} tint={runtimeTint(info)}><RuntimeMark runtime={info} /></IconTile>}>
-        <DashboardPlanName name={row.report.account ?? name} meta={[row.report.account && name, shapeWords(row)].filter(Boolean).join(' · ')} />
+        <DashboardPlanName name={account ?? name} meta={[account && name, shapeWords(row)].filter(Boolean).join(' · ')} />
       </TableCell>
       <TableCell>
         <Chip tone={statusPresentation(row.status).tone} label={statusPresentation(row.status).label} />
       </TableCell>
       <TableCell numeric>
-        <LeftCell row={row} name={row.report.account ?? name} />
+        <LeftCell row={row} name={account ?? name} />
       </TableCell>
       <TableCell collapseBelow="sm" numeric>
         <Text role="muted" numeric>{row.resets}</Text>
       </TableCell>
       <TableCell align="end">
-        <Button ref={buttonRef} variant="ghost" size="icon-sm" aria-label={`Details for ${row.report.account ?? name}`} aria-expanded={isOpen} aria-controls={bodyId} onClick={onToggle} onKeyDown={(event) => {
+        <Button ref={buttonRef} variant="ghost" size="icon-sm" aria-label={`Details for ${account ?? name}`} aria-expanded={isOpen} aria-controls={bodyId} onClick={onToggle} onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onToggle() }
           else if (event.key === 'Escape' && isOpen) { event.preventDefault(); onCollapse() }
         }}><CaretIcon className={isOpen ? 'rotate-180' : undefined} size={14} /></Button>
@@ -291,6 +297,7 @@ const ExpandedBody = ({
   onStopTracking: () => void
   onOpenPlanSettings: () => void
 }) => {
+  const label = useAccountLabel()
   const body = (() => {
     switch (row.shape) {
       case 'windows':
@@ -318,7 +325,7 @@ const ExpandedBody = ({
         return <FreeBody row={row} info={info} now={now} />
       case 'none':
         return info ? (
-          <NotReportingList entries={entriesFromReports([row.report], new Map([[row.report.runtime, info]]), onRefresh).map(entry => onSignIn ? { ...entry, reason: 'Sign in to read plan usage. Recorded spend is kept.', fix: { label: `Sign in to ${info.presentation.name}`, onClick: onSignIn } } : entry)} />
+          <NotReportingList entries={entriesFromReports([row.report], new Map([[row.report.runtime, info]]), onRefresh, label).map(entry => onSignIn ? { ...entry, reason: 'Sign in to read plan usage. Recorded spend is kept.', fix: { label: `Sign in to ${info.presentation.name}`, onClick: onSignIn } } : entry)} />
         ) : null
     }
   })()

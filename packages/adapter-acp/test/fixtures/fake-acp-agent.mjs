@@ -1024,6 +1024,19 @@ const handleTaskPrompt = (state, text) => {
 
 const handlers = {
   initialize: async (id, params) => {
+    // Hold a real spawned process after its environment was captured, without
+    // recording the synthetic key itself. The test releases the gate on disk.
+    const startGate = process.env.FAKE_ACP_START_GATE
+    if (startGate) {
+      const keyName = process.env.FAKE_ACP_START_KEY_NAME
+      if (process.env.FAKE_ACP_START_ENTERED) {
+        appendFileSync(process.env.FAKE_ACP_START_ENTERED, `${JSON.stringify({ pid: process.pid, keyPresent: Boolean(keyName && process.env[keyName]), matchesExpected: Boolean(keyName && process.env[keyName] === process.env.FAKE_ACP_EXPECT_KEY) })}\n`)
+      }
+      if (!existsSync(startGate)) await new Promise(resolve => {
+        const watcher = watch(dirname(startGate), () => { if (existsSync(startGate)) { watcher.close(); resolve() } })
+        if (existsSync(startGate)) { watcher.close(); resolve() }
+      })
+    }
     const startDelay = Number(process.env.FAKE_ACP_START_DELAY_MS ?? 0)
     if (startDelay > 0) await new Promise(resolve => setTimeout(resolve, startDelay))
     // The refusals from the agent's side: a client that offers fs or terminal is a

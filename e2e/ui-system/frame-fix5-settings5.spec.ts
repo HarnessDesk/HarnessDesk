@@ -45,13 +45,13 @@ for (const theme of themes) for (const width of widths) {
 
   test(`R11.16 runtimes put attention and ready groups before process cost at ${width} in ${theme}`, async ({ page }) => {
     await openSettings(page, 'runtimes', theme, width)
-    await expect(page.getByRole('heading', { name: 'Needs attention · 1' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Needs you · 1' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Ready · 11' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Process resources' })).toBeVisible()
     await expect(page.getByText('Signed out', { exact: true })).toBeVisible()
 
     const headings = await page.locator('[data-slot="section-name"]').allTextContents()
-    expect(headings.indexOf('Needs attention · 1')).toBeLessThan(headings.indexOf('Ready · 11'))
+    expect(headings.indexOf('Needs you · 1')).toBeLessThan(headings.indexOf('Ready · 11'))
     expect(headings.indexOf('Ready · 11')).toBeLessThan(headings.indexOf('Process resources'))
   })
 

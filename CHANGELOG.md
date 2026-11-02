@@ -7,6 +7,14 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **An agent's accounts take turns.** Settings › Runtimes lists an agent's accounts in the order they are used, each with its plan and what is left. Move up and Move down reorder them. *When an account runs out* chooses Use the next account, Ask me or Stop. Use the next account moves new sessions to the next account with room and says so once; open conversations stay where they are.
+
+- **Sign-in states read the same everywhere.** Sign in needed, Not working and Not checked yet replace the older mix of wording across the sign-in sheet, Settings, the usage strip and the tray. Opening sign-in from one runtime shows only that runtime.
+
+- **Hide account addresses.** A switch in Settings › General shows accounts by name only, in the seat menu and on account pages, for sharing your screen.
+
+- **Signing out of an agent account is on its page in Settings.** The seat menu now only switches accounts; signing out of HarnessDesk stays there.
+
 - **Automatic PR merges check the review target again.** A changed destination or an older unbound review requires a fresh PR review. Queued and uncertain submissions stay unresolved until a merge is observed; a person may need to inspect or complete them outside the app.
 
 - **Usage says one standing per account, everywhere.** The Dashboard card, Plans and the phone read the same Ready, Low, Short, Out, Overdrawn or Unknown, so an account is no longer Out on one page and Ready on another. Pace is a time ("Runs out ~3:10 PM, before its 4:50 PM reset"), a spent account says when it is back, an overdrawn balance says so, and a spent model says the others still work. Overview's What is left names the account to start on.

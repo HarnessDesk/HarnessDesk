@@ -1478,6 +1478,25 @@ export const MetaList = ({ children, className, ink = 'secondary' }: { children:
   <span data-slot="meta-list" className={cx(styles.metaList, ink === 'muted' && styles.metaListMuted, className)}>{children}</span>
 )
 
+/**
+ * A row's second line when the row owns a short list — an agent's accounts —
+ * as one line per item instead of "the first and 2 more". Each line is a name
+ * that gives way at its end and the facts after it, which keep their width;
+ * a list long enough to need a fold is a page's, not a row's.
+ */
+export const DescLines = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span data-slot="desc-lines" className={cx(styles.descLines, className)}>{children}</span>
+)
+
+/** One line of `DescLines`: a mark, the name, then what is true of it. */
+export const DescLine = ({ mark, name, children, title }: { mark?: ReactNode; name: ReactNode; children?: ReactNode; title?: string }) => (
+  <span data-slot="desc-line" className={styles.descLine} title={title}>
+    {mark}
+    <span data-slot="desc-line-name" className={styles.descLineName}>{name}</span>
+    {children}
+  </span>
+)
+
 /** Inline parts of one value, wrapped together with the shared chip gap. */
 export const InlineParts = ({ children, className, ...props }: HTMLAttributes<HTMLSpanElement> & { children: ReactNode }) => (
   <span {...props} className={cx(styles.inlineParts, className)} data-slot="inline-parts">{children}</span>
