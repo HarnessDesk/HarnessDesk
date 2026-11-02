@@ -1059,7 +1059,10 @@ export const swapWorkPane = (workbench: Workbench): Workbench => {
 }
 
 export const workRailFloats = (workbench: Workbench, windowWidth: number, standingSidebar: number): boolean =>
-  workRailOpen(workbench) && windowWidth - standingSidebar - (rightPanelDrawn(workbench) && !rightPanelOverlays(workbench, windowWidth) ? effectiveRightWidth(workbench, windowWidth, standingSidebar) : 0) < FRAME.main.min + FRAME.infoCard.width
+  workRailOpen(workbench) && railFloatsBeside(windowWidth - standingSidebar - (rightPanelDrawn(workbench) && !rightPanelOverlays(workbench, windowWidth) ? effectiveRightWidth(workbench, windowWidth, standingSidebar) : 0))
+
+/** Whether an open rail floats: the column it would share cannot hold the reading minimum beside it. A page's rail and a work pane's use the same line. */
+export const railFloatsBeside = (column: number): boolean => column < FRAME.main.min + FRAME.infoCard.width
 
 /**
  * Whether the sidebar has to give up its column: a window under

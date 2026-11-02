@@ -2287,7 +2287,9 @@ goal, then the known total against it with Lead, Workers and Rounds facts;
 unconfirmed worker spend reads Not confirmed and draws no meter. Its pencil opens
 the limits popover: tightening applies at once, raising asks on a card in the
 conversation. The plan's decision stays in the conversation; the rail only reads
-it back.
+it back, and before approval it reads the latest plan card, the one the
+conversation is asking about. Where it floats it is open by default too, like
+the session rail; its toggle puts it away.
 
 Decision details are assistant Markdown in journal order, without card borders,
 inset rows, revision labels or internal identifiers. Plans show LeadPlanFlow, an ordered flow diagram of steps and responsible roles

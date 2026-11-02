@@ -44,6 +44,7 @@ import {
   sidebarPlacement,
   workRailOpen,
   workRailFloats,
+  railFloatsBeside,
   pageRailOpen,
   workPaneExpanded,
   type DockId,
@@ -230,7 +231,7 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   // A page draws the rail only when it registered one, under the owner MainPages scopes it to.
   const pageOwner = `destination:${pageKind}`, pageRail = useRegisteredDetails(pageOwner)
   const railOpen = !suspended && (pageActive ? pageRail && pageRailOpen(workbench, pageKind) : workRailOpen(workbench))
-  const railFloating = pageActive ? railOpen && snapshot.windowWidth - standingSidebar < FRAME.main.min + FRAME.infoCard.width
+  const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - standingSidebar)
     : workRailFloats(workbench, snapshot.windowWidth, standingSidebar)
   const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))
   const frameStyle = {

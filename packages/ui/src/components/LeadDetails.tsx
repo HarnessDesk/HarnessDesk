@@ -49,7 +49,7 @@ const LeadLimits = ({ disabled }: { readonly disabled: boolean }) => {
  */
 export const LeadDetails = () => {
   const store = useStore(), state = useSyncExternalStore(store.lead.subscribe, () => store.lead.state)
-  const thread = state.thread, contract = thread?.contract ?? thread?.cards.find(card => card.type === 'plan')?.contract, phase = thread?.state
+  const thread = state.thread, contract = thread?.contract ?? (thread && [...thread.cards].reverse().find(card => card.type === 'plan'))?.contract, phase = thread?.state
   const progress = phase === 'running' ? state.progress : undefined, budget = thread?.budget
   const caps = budget?.caps ?? state.settings?.caps
   const current = progress ? progress.step - 1 : 0

@@ -30,6 +30,7 @@ import {
   toggleDock,
   swapWorkPane,
   togglePageRail,
+  railFloatsBeside,
   undock,
   zoomArea,
   type Workbench as Model,
@@ -1324,4 +1325,16 @@ it('a page that registers a rail gets the rail column, open until its toggle clo
   act(() => container.querySelector<HTMLButtonElement>('[data-work-rail-toggle]')!.click())
   draw()
   expect(shell().getAttribute('data-rail-open')).toBe('false')
+})
+
+it('a page rail floats over the page where the column cannot hold it, by the session rail\'s line', () => {
+  for (const [windowWidth, floats] of [[1440, false], [900, true]] as const) {
+    const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth })
+    const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return null }
+    act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+    const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+    expect(shell.dataset.railFloats, String(windowWidth)).toBe(String(floats))
+  }
+  expect(railFloatsBeside(FRAME.main.min + FRAME.infoCard.width - 1)).toBe(true)
+  expect(railFloatsBeside(FRAME.main.min + FRAME.infoCard.width)).toBe(false)
 })
