@@ -444,6 +444,9 @@ export const SignIn = ({
  * are taken elsewhere is signed out all the same.
  */
 const isConnected = (row: Row): boolean =>
+  // A restart keeps the account it had, so health says it is starting
+  // before the status does.
+  row.state !== 'starting' &&
   row.status !== 'out' && row.status !== 'asking' && row.status !== 'manual' && row.status !== 'unchecked'
 
 /**
@@ -452,7 +455,7 @@ const isConnected = (row: Row): boolean =>
  * missing, so it waits under "Not ready", where its line says which.
  */
 const needsSignIn = (row: Row): boolean =>
-  row.state !== 'broken' && (row.status === 'out' || row.status === 'manual')
+  row.state !== 'broken' && row.state !== 'starting' && (row.status === 'out' || row.status === 'manual')
 
 /**
  * A rail row's second line: only what its group does not already say. Under
@@ -464,6 +467,7 @@ const railLine = (row: Row): ReactNode => {
   if (row.pending) return <Text role="meta" tone="brand">Waiting…</Text>
   if (!isConnected(row)) {
     if (row.state === 'broken') return <Text role="meta" tone="danger">Did not start</Text>
+    if (row.state === 'starting') return <Text role="meta">{STATUS_LABEL.asking}</Text>
     return row.status === 'asking' || row.status === 'manual' || row.status === 'unchecked'
       ? <Text role="meta">{row.detail}</Text>
       : undefined

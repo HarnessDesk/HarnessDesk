@@ -795,6 +795,21 @@ it.each([
   expect(rail?.querySelector('[aria-label="Not ready"]')?.textContent).toContain('Did not start')
 })
 
+it.each([
+  { accounts: [{ kind: 'agent', label: 'dev@example.com' }], signInMethods: [] },
+  { accounts: [], signInMethods: [{ id: 'login', label: 'Sign in', flow: 'browser' }] },
+])('a restarting agent waits under Not ready, whatever account it last had: %j', async (answer) => {
+  await mount({
+    runtimes: [AGENT],
+    accountsByRuntime: { agent: answer },
+    healthByRuntime: { agent: { state: 'starting' } },
+  } as never, 'agent')
+  const rail = container.querySelector('nav')
+  expect(rail?.querySelector('[aria-label="Signed in"]')).toBeNull()
+  expect(rail?.querySelector('[aria-label="Sign in needed"]')).toBeNull()
+  expect(rail?.querySelector('[aria-label="Not ready"]')?.textContent).toContain('Starting…')
+})
+
 it('opened for one runtime, is about that runtime alone', async () => {
   const snapshot = {
     ...emptySnapshot(),
