@@ -647,7 +647,7 @@ export class AppStore {
   // another numerically newer snapshot. No unload is enabled in this state.
   readonly #transcriptRecoveryBlocked = new Set<SessionKey>()
   readonly #transcriptOrphans = new Set<PendingTranscript>()
-  readonly #releasedTranscripts = new Map<SessionKey, { identity: string; watermark: TranscriptWatermark; connection: number; removal: number; metadata: string; hostMetadata: string; owner: object; pending: PendingTranscript; changed: boolean; eligible: boolean; dirty: boolean; inFlight?: Promise<boolean>; flightConnection?: number }>()
+  readonly #releasedTranscripts = new Map<SessionKey, { identity: string; watermark: TranscriptWatermark; connection: number; removal: number; metadata: string; hostMetadata: string; owner: object; pending: PendingTranscript; changed: boolean; eligible: boolean; dirty: boolean; invalidation?: TranscriptWatermark; inFlight?: Promise<boolean>; flightConnection?: number }>()
   readonly #releasedOrphans: { identity: string; watermark: TranscriptWatermark; pending: PendingTranscript }[] = []
   readonly #transcriptPending = new Map<SessionKey, { owner: object; capture: PendingTranscript; base: TranscriptWatermark; connection: number; removal: number; inFlight: boolean; dirty: boolean; eligible: boolean }>()
   readonly #transcriptReceipts = new Map<SessionKey, { authority: { watermark: TranscriptWatermark; lastFingerprint: string | null; sessionFingerprint: string }; change: number; draftRevision: number }>()
@@ -948,6 +948,8 @@ export class AppStore {
         const held = this.#snapshot.sessions.get(key)
         const captured = descriptor.changed ? descriptor.pending.inspect() : null
         const cursor = captured?.watermark
+        const sameIncarnation = snapshot && snapshot.watermark.epoch === descriptor.watermark.epoch && snapshot.watermark.generation === descriptor.watermark.generation
+        const advancedWithoutLocalData = !descriptor.changed && sameIncarnation && snapshot.watermark.sequence > descriptor.watermark.sequence && snapshot.watermark.revision >= descriptor.watermark.revision
         if (!snapshot || !held || this.#releasedTranscripts.get(key) !== descriptor || !descriptor.eligible || captured?.unresolved ||
             operationConnection !== this.#chatConnectionGeneration || descriptor.removal !== (this.#sessionRemovalRevisions.get(key) ?? 0) ||
             this.#transcriptChange !== change || this.drafts.revision !== draftRevision || held.itemsLoaded ||
@@ -956,8 +958,9 @@ export class AppStore {
             (!rebind && (snapshot.watermark.epoch !== descriptor.watermark.epoch || snapshot.watermark.generation !== descriptor.watermark.generation ||
               snapshot.watermark.sequence < descriptor.watermark.sequence || snapshot.watermark.revision < descriptor.watermark.revision)) ||
             !/^[a-f0-9]{64}$/.test(snapshot.identity) || transcriptFingerprint(canonicalTranscriptBody(snapshot.session.turns).canonical) !== snapshot.identity ||
-            (!descriptor.changed && transcriptSessionFingerprint({ ...snapshot.session, archived: snapshot.session.archived === undefined ? false : snapshot.session.archived, turns: [], itemsLoaded: false }) !== descriptor.hostMetadata)) return false
-        if (!descriptor.changed && snapshot.identity !== descriptor.identity) return false
+            (descriptor.invalidation && (!sameIncarnation || snapshot.watermark.sequence < descriptor.invalidation.sequence || snapshot.watermark.revision < descriptor.invalidation.revision)) ||
+            (!descriptor.changed && !advancedWithoutLocalData && transcriptSessionFingerprint({ ...snapshot.session, archived: snapshot.session.archived === undefined ? false : snapshot.session.archived, turns: [], itemsLoaded: false }) !== descriptor.hostMetadata)) return false
+        if (!descriptor.changed && !advancedWithoutLocalData && snapshot.identity !== descriptor.identity) return false
         if (captured) {
           if (!cursor || cursor.epoch !== descriptor.watermark.epoch || cursor.generation !== descriptor.watermark.generation ||
               cursor.sequence <= descriptor.watermark.sequence || snapshot.watermark.sequence < cursor.sequence || snapshot.watermark.revision < cursor.revision) return false
@@ -1056,8 +1059,9 @@ export class AppStore {
       if (result === 'duplicate') return
       released.changed = true
       released.dirty = true
-      if (result !== 'accepted' || !this.#validTranscriptFence(fence) || fence.epoch !== released.watermark.epoch ||
-          fence.generation !== released.watermark.generation || fence.sequence <= released.watermark.sequence || fence.revision < released.watermark.revision ||
+      const floor = released.invalidation ?? released.watermark
+      if (result !== 'accepted' || !this.#validTranscriptFence(fence) || fence.epoch !== floor.epoch ||
+          fence.generation !== floor.generation || fence.sequence <= floor.sequence || fence.revision < floor.revision ||
           event.type !== 'item/delta' || event.delta.kind !== 'assistantText') released.eligible = false
       this.#transcriptRecoveryBlocked.add(key)
       this.#transcriptCursors.delete(key)
@@ -1167,6 +1171,15 @@ export class AppStore {
         if (notification.method === 'session/cache-invalidated') {
           this.#transcriptChange++
           const key = sessionKey(notification.params.runtime, notification.params.sessionId)
+          const released = this.#releasedTranscripts.get(key)
+          if (released) {
+            const watermark = notification.params.watermark
+            const floor = released.invalidation ?? released.watermark
+            if (released.changed || !this.#validTranscriptFence(watermark) || watermark.epoch !== floor.epoch || watermark.generation !== floor.generation ||
+                watermark.sequence <= floor.sequence || watermark.revision < floor.revision) released.eligible = false
+            else { released.invalidation = watermark; released.dirty = true }
+            this.#transcriptRecoveryBlocked.add(key)
+          }
           if (this.#transcriptCursors.has(key)) this.#transcriptRecoveryBlocked.add(key)
           this.#transcriptAuthority.delete(key)
           this.#transcriptCursors.delete(key)
