@@ -72,6 +72,23 @@ test('a rate that empties the window before its reset is short, with the time', 
   assert.ok(standing.runsOutAt !== null && standing.runsOutAt - NOW === 40 * 60_000)
 })
 
+test('a weekly that runs out before its reset is short behind a healthy session, and is the lane named', () => {
+  // A day before the weekly reset with 90% gone: it empties in about 2.3 hours.
+  const weekly = lane({ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10_080, resetsAt: NOW + 24 * HOUR })
+  const standing = usageStandingOf(report({ lanes: [lane(), weekly] }), NOW)
+  assert.equal(standing.status, 'short')
+  assert.equal(standing.lane?.id, 'weekly')
+  assert.equal(standing.left, 10)
+  assert.equal(standing.runsOutAt, laneRunsOutAt(weekly, NOW))
+})
+
+test('when every model is spent the account is out, not one model out', () => {
+  const scoped = (id: string) => lane({ id, label: id, scope: id, usedPercent: 100 })
+  const standing = usageStandingOf(report({ lanes: [scoped('opus'), scoped('sonnet')] }), NOW)
+  assert.equal(standing.status, 'out')
+  assert.equal(standing.scopedOut, null)
+})
+
 test('a window too new to extrapolate is not short', () => {
   const fresh = lane({ usedPercent: 4, resetsAt: NOW + 5 * HOUR - 60_000 })
   assert.equal(laneRunsOutAt(fresh, NOW), null)

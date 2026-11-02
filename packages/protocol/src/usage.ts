@@ -624,7 +624,10 @@ export type UsageStandingStatus = 'ready' | 'low' | 'short' | 'out' | 'overdrawn
 
 export interface UsageStanding {
   readonly status: UsageStandingStatus
-  /** The lane the standing is about — the binding one (never a pin), or for Low the one running low; null with none. */
+  /**
+   * The lane the standing is about — the binding one (never a pin), or for Short and Low the account-wide one
+   * that runs out first or is running low; null with none.
+   */
   readonly lane: UsageLane | null
   /** What that lane has left, 0..100; null when unmeasured or there is no lane. */
   readonly left: number | null
@@ -632,7 +635,7 @@ export interface UsageStanding {
   readonly runsOutAt: number | null
   /** Epoch ms when a spent account works again, when the source said. */
   readonly backAt: number | null
-  /** A model-scoped lane that is spent while the account is not. */
+  /** A model-scoped lane that is spent while the account is not; null once the account itself is out. */
   readonly scopedOut: UsageLane | null
 }
 
@@ -687,8 +690,8 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
     credits && typeof credits.remaining === 'number' && Number.isFinite(credits.remaining) ? credits.remaining : null
   const measured = lane !== null && left !== null
   if (!measured && balance !== null && !credits?.unlimited) {
-    if (balance < 0) return { ...base, status: 'overdrawn', runsOutAt: null, backAt: null }
-    if (balance === 0) return { ...base, status: 'out', runsOutAt: null, backAt: null }
+    if (balance < 0) return { ...base, scopedOut: null, status: 'overdrawn', runsOutAt: null, backAt: null }
+    if (balance === 0) return { ...base, scopedOut: null, status: 'out', runsOutAt: null, backAt: null }
   }
 
   if (isBlocked(report)) {
@@ -696,15 +699,26 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
     // reset, and a healthy binding lane's reset is not when that limit clears.
     const laneSpent = lane !== null && left !== null && left <= 0
     const spent = reached && !reached.scope ? reached : laneSpent ? lane : null
-    return { ...base, status: 'out', runsOutAt: null, backAt: spent?.resetsAt ?? null }
+    // "One model is out, the others still work" is not true of an account that is out.
+    return { ...base, scopedOut: null, status: 'out', runsOutAt: null, backAt: spent?.resetsAt ?? null }
   }
 
-  const runsOutAt = lane ? laneRunsOutAt(lane, now) : null
-  if (runsOutAt !== null) return { ...base, status: 'short', runsOutAt, backAt: null }
-
   // Every account-wide limit counts, not only the headline: a healthy session
-  // hiding a low weekly is low. A scoped one counts only as the headline.
+  // hiding a weekly that is low, or that runs out before its reset, is not
+  // Ready. A scoped one counts only as the headline.
   const wide = report.lanes.filter((each) => each.placeholder !== true && (!each.scope || each === lane))
+
+  // Short is the lane that runs dry first — whichever window would stop the account soonest.
+  let short: { lane: UsageLane; at: number } | null = null
+  for (const each of wide) {
+    const at = laneRunsOutAt(each, now)
+    if (at !== null && (short === null || at < short.at)) short = { lane: each, at }
+  }
+  if (short !== null) {
+    const shortLeft = remainingOf(short.lane)
+    return { ...base, lane: short.lane, left: shortLeft === null ? null : Math.round(shortLeft), status: 'short', runsOutAt: short.at, backAt: null }
+  }
+
   const low = wide.filter((each) => {
     if (each.severity === 'warning' || each.severity === 'critical') return true
     const remaining = remainingOf(each)

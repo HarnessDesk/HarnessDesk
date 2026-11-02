@@ -956,9 +956,11 @@ hard way somewhere and is cheaper to design out than to fix:
   A failed read is Unknown before anything else, even with a cached balance
   or a spent lane behind it. A pinned lane does not change it: the pin picks
   the card's headline, and the host, which decides the word for the phone,
-  never sees it. When the binding window is not the pinned headline, the
-  line under the bar names it — `Session runs out ~2:47 PM, before its 4:43
-  PM reset`. `Back …` is said only while that time is still ahead, and so is
+  never sees it. Every account-wide window counts, not only the headline:
+  Short is whichever runs dry first, Low whichever is lowest, and when that
+  window is not the headline the line under the bar names it — `Weekly runs
+  out ~2:47 PM, before its Thu 8:11 AM reset`. A spent model is said as one
+  model out only while the account still works. `Back …` is said only while that time is still ahead, and so is
   a spent model's `until …`. The line above the cards, when there is no
   account to recommend, counts by the same word: Out and Overdrawn as out,
   Short and Low as running low.

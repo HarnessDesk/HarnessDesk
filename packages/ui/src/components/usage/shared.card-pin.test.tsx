@@ -8,8 +8,8 @@ import { Card } from './shared'
 /**
  * A pin picks which window a card leads with; it never changes the account's
  * standing, which the host decides for the phone without ever seeing the pin.
- * The binding window decides, and when that is not the pinned headline, the
- * card names it rather than pinning its "runs out" on the headline.
+ * The window that decides — the first to run dry, or the lowest — is named
+ * when it is not the headline, rather than pinning its "runs out" on it.
  */
 
 const NOW = new Date('2026-08-22T12:00:00').getTime()
@@ -58,15 +58,18 @@ describe('Card with a pinned lane', () => {
     expect(text).not.toMatch(/Weekly · Runs out/)
   })
 
-  it('does not call the account Short because a pinned window burns fast, as the phone would not', () => {
-    const text = textOf(
-      report([
-        lane({ id: 'session', label: 'Session', usedPercent: 10 }),
-        lane({ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10_080, resetsAt: NOW + 24 * HOUR }),
-      ]),
-      'weekly',
-    )
-    expect(text).toContain('Low')
-    expect(text).not.toContain('Short')
+  it('says Short for a fast-burning Weekly behind a healthy Session, whichever is pinned', () => {
+    const lanes = [
+      lane({ id: 'session', label: 'Session', usedPercent: 10 }),
+      lane({ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10_080, resetsAt: NOW + 24 * HOUR }),
+    ]
+    // Pinned, the Weekly is the headline and its own sentence says the time.
+    const pinned = textOf(report(lanes), 'weekly')
+    expect(pinned).toContain('Short')
+    expect(pinned).toMatch(/Runs out ~/)
+    // Not pinned, the Session leads and the sentence names the Weekly.
+    const unpinned = textOf(report(lanes), 'session')
+    expect(unpinned).toContain('Short')
+    expect(unpinned).toMatch(/Weekly runs out ~/)
   })
 })
