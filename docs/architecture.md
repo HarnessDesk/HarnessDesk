@@ -369,14 +369,27 @@ sample.
   agent interactions, such as command executions"; Cursor keeps nothing
   readable; ACP replay is lossy. The host's copy is what a reopened
   conversation shows, enriched with tokens remembered across restarts.
-  Closed, quiet conversations retain only metadata and reopen state in the
-  registry. Their bodies, watched-turn ids, write queues, fingerprints and
-  insight contexts leave memory after a successful SQLite save. A failed save
-  keeps the body; a read or reopen overtaking the save keeps its newer state.
+  Closed, quiet conversations can retain only metadata and reopen state in the
+  registry. Releasing a body requires an exact SQLite write, independent
+  readback and unchanged record authority; a successful write alone is not
+  permission to discard it. Failed, partial or conflicting writes keep their
+  observed material protected. New generations cannot replace an older
+  generation's unacknowledged body. Host recovery descriptors have a separate
+  8 MiB logical serialized budget; a failed reservation keeps the body loaded.
   Reading a closed conversation returns its full durable transcript without
   retaining the body in the next sync. Working conversations keep their live
   bodies, approvals and queued input. Removed workspace folders are excluded
   from capture and roster watches when the project set next reconciles.
+  The renderer targets at most 128 eligible bodies or 8 MiB of their canonical
+  UTF-8 turns. Only hidden, closed, quiet, unowned bodies with matching Host
+  snapshot and durability receipts are eligible. Mounted views, drafts,
+  requests, approvals, queues and uncertain material stay protected and may
+  exceed these soft targets. Receipts bind Host epoch, record generation,
+  revision, notification sequence and body identity. Gaps and stale replies
+  cannot authorize unloading. Restoration uses an authoritative Host snapshot
+  without starting an agent. These budgets do not cap process RSS, all
+  metadata or protected pending activity, and a receipt cannot guarantee
+  storage remains available after it was issued.
 - **Approvals and the permission engine** — one policy, applied before any
   backend's own question reaches the user, and one append-only audit log
   (`audit.ndjson`).

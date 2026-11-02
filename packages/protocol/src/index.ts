@@ -75,3 +75,7 @@ export * from './git-steer.js'
 
 export * from './goal-worker-approval.js'
 export * from './digest.js'
+
+export * from './canonical-transcript.js'
+
+export * from './pending-transcript.js'

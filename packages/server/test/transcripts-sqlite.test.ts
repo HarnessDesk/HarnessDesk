@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
+import { isDeepStrictEqual as isDeepSession } from 'node:util'
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test, type TestContext } from 'node:test'
-import { runtimeId, sessionId, turnId, itemId, type AgentItem, type Session, type Turn } from '@harnessdesk/protocol'
+import { PendingTranscript, canonicalTranscriptBody, runtimeId, sessionId, turnId, itemId, type AgentItem, type Session, type Turn } from '@harnessdesk/protocol'
 import { SessionIndex } from '../src/session-index.js'
 import { TranscriptStore } from '../src/transcripts.js'
 import { TranscriptDatabase } from '../src/transcript-database.js'
@@ -18,6 +20,11 @@ const session = (turns: readonly Turn[], id = 's1'): Session => ({
   runtime: runtimeId('demo'), id: sessionId(id), cwd: '/demo/project', createdAt: 1, updatedAt: 2,
   title: 'A stored conversation', preview: 'Opening words', status: { type: 'idle' }, itemsLoaded: true, turns,
 })
+const bodyIdentity = (value: Session): string => createHash('sha256').update(canonicalTranscriptBody(value.turns).canonical).digest('hex')
+const storedIdentity = (home: string, value: Session): string => {
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try { const stored = db.read(value.runtime, value.id); assert.ok(stored); return db.stateIdentity(stored, value.runtime, value.id) } finally { db.close() }
+}
 const fixture = async (t: TestContext, log?: ConstructorParameters<typeof TranscriptStore>[1]) => {
   const home = await mkdtemp(join(tmpdir(), 'hd-sqlite-transcripts-'))
   const store = new TranscriptStore(join(home, 'transcripts'), log)
@@ -611,4 +618,540 @@ test('imported preview text stays out of desk full-text search until promotion',
   assert.equal((await store.search('search needle')).length, 0)
   index.promote(original.runtime, original.id)
   assert.equal((await store.search('search needle')).length, 1)
+})
+
+test('exact body persistence verifies the SQLite readback before reporting success', async t => {
+  const { home, store } = await fixture(t)
+  const candidate = session([turn('verified', [message('answer', 'body to keep')])])
+  const api = store as unknown as { persistExactBody?: (host: Session, candidate: Session) => Promise<boolean> }
+  assert.equal(typeof api.persistExactBody, 'function', 'exact persistence verification is available')
+  assert.equal(await api.persistExactBody!(candidate, candidate), true)
+  const independentlyOpened = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try { assert.deepEqual(independentlyOpened.read(candidate.runtime, candidate.id)?.turns, candidate.turns) }
+  finally { independentlyOpened.close() }
+})
+
+test('exact body persistence refuses a richer renderer and a lost SQLite write', async t => {
+  const { home, store } = await fixture(t)
+  const host = session([turn('verified', [message('answer', 'host body')])])
+  const renderer = session([turn('verified', [message('answer', 'host body'), message('newer', 'renderer only')])])
+  const api = store as unknown as { persistExactBody?: (host: Session, candidate: Session) => Promise<boolean> }
+  assert.equal(typeof api.persistExactBody, 'function', 'exact persistence verification is available')
+  assert.equal(await api.persistExactBody!(host, renderer), false)
+  await store.readSummary(host.runtime, host.id) // Initialize the real database before installing the fault.
+  const database = new DatabaseSync(join(home, 'sessions.sqlite'))
+  try {
+    database.exec("CREATE TRIGGER lose_exact_body AFTER INSERT ON bodies BEGIN DELETE FROM bodies WHERE runtime=new.runtime AND id=new.id; END")
+    assert.equal(await api.persistExactBody!(host, host), false, 'a successful SQL write without readback cannot verify a body')
+  } finally { database.close() }
+})
+
+test('exact body persistence never overwrites a richer stored body', async t => {
+  const { home, store } = await fixture(t)
+  const richer = session([turn('verified', [message('one', 'stored'), message('two', 'also stored')])])
+  const smaller = session([turn('verified', [message('one', 'stored')])])
+  store.record(richer)
+  await store.flush()
+  const api = store as unknown as { persistExactBody: (host: Session, candidate: Session) => Promise<boolean> }
+  assert.equal(await api.persistExactBody(smaller, smaller), false)
+  const database = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try { assert.deepEqual(database.read(richer.runtime, richer.id)?.turns, richer.turns) }
+  finally { database.close() }
+})
+
+test('exact body persistence refuses while a transcript write is pending', async t => {
+  const { store } = await fixture(t)
+  const body = session([turn('pending', [message('one', 'pending event')])])
+  store.record(body)
+  const api = store as unknown as { persistExactBody: (host: Session, candidate: Session) => Promise<boolean> }
+  assert.equal(await api.persistExactBody(body, body), false, 'pending writes must not be turned into a receipt')
+})
+
+test('SQLite body CAS permits known evolution and refuses external changes or unexpected presence', async t => {
+  const { home, store } = await fixture(t)
+  const first = session([turn('one', [message('answer', 'initial')])])
+  const next = session([turn('one', [message('answer', 'initial and more')])])
+  const external = session([turn('one', [message('answer', 'external richer body')])])
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  t.after(() => db.close())
+  const stored = (value: Session) => ({ version: 1 as const, runtime: value.runtime, id: value.id, savedAt: 1, turns: value.turns })
+  const write = (value: Session, expectedBase: { kind: 'missing' } | { kind: 'body'; identity: string }) =>
+    db.write(stored(value), value.runtime, value.id, { expectedBase })
+  write(first, { kind: 'missing' })
+  assert.throws(() => write(next, { kind: 'missing' }), /base/i)
+  write(next, { kind: 'body', identity: db.stateIdentity(db.read(first.runtime, first.id)!, first.runtime, first.id) })
+  assert.deepEqual(db.read(next.runtime, next.id)?.turns, next.turns)
+  db.write(stored(external), external.runtime, external.id)
+  assert.throws(() => write(first, { kind: 'body', identity: bodyIdentity(next) }), /base/i)
+  assert.deepEqual(db.read(external.runtime, external.id)?.turns, external.turns)
+  const index = new SessionIndex(join(home, 'sessions.sqlite'))
+  try {
+    index.remove(external.runtime, external.id)
+    assert.throws(() => write(first, { kind: 'body', identity: db.stateIdentity(db.read(external.runtime, external.id)!, external.runtime, external.id) }), /removed/i)
+  } finally { index.close() }
+  void store
+})
+
+test('evolved body persistence verifies the new readback and preserves a mismatched base', async t => {
+  const { home, store } = await fixture(t)
+  const first = session([turn('one', [message('answer', 'initial')])])
+  const next = session([turn('one', [message('answer', 'initial and more')])])
+  const api = store as unknown as { persistEvolvedBody?: (body: Session, base: { kind: 'missing' } | { kind: 'body'; identity: string }) => Promise<boolean> }
+  assert.equal(typeof api.persistEvolvedBody, 'function')
+  assert.equal(await api.persistEvolvedBody!(first, { kind: 'missing' }), true)
+  assert.equal(await api.persistEvolvedBody!(next, { kind: 'missing' }), false)
+  assert.equal(await api.persistEvolvedBody!(next, { kind: 'body', identity: storedIdentity(home, first) }), true)
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try { assert.deepEqual(db.read(next.runtime, next.id)?.turns, next.turns) } finally { db.close() }
+  const broken = session([turn('lost', [message('answer', 'not durable')])], 'lost')
+  const fault = new DatabaseSync(join(home, 'sessions.sqlite'))
+  try {
+    fault.exec("CREATE TRIGGER lose_evolved_body AFTER INSERT ON bodies WHEN new.id='lost' BEGIN DELETE FROM bodies WHERE runtime=new.runtime AND id=new.id; END")
+    assert.equal(await api.persistEvolvedBody!(broken, { kind: 'missing' }), false)
+  } finally { fault.close() }
+  const cleanup = new DatabaseSync(join(home, 'sessions.sqlite'))
+  try { cleanup.exec('DROP TRIGGER lose_evolved_body') } finally { cleanup.close() }
+  assert.equal(await api.persistEvolvedBody!(broken, { kind: 'missing' }), true)
+})
+
+test('evolved persistence does not issue a receipt when a newer event write arrives', async t => {
+  const { home, store } = await fixture(t)
+  const first = session([turn('one', [message('answer', 'initial')])])
+  const next = session([turn('one', [message('answer', 'initial and more')])])
+  const writing = store.persistEvolvedBody(first, { kind: 'missing' })
+  store.record(next)
+  assert.equal(await writing, false)
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try { assert.deepEqual(db.read(first.runtime, first.id)?.turns, first.turns) } finally { db.close() }
+  assert.equal(await store.retryProtectedBody(next, { kind: 'body', identity: storedIdentity(home, first) }), true)
+})
+
+test('a failed base comparison cannot be bypassed by a later settle or shutdown flush', async t => {
+  const { home, store } = await fixture(t)
+  const saved = session([turn('one', [message('answer', 'durable prior body')])])
+  const newer = session([turn('one', [message('answer', 'new protected data')])])
+  assert.equal(await store.persistEvolvedBody(saved, { kind: 'missing' }), true)
+  assert.equal(await store.persistEvolvedBody(newer, { kind: 'missing' }), false)
+  store.record(newer)
+  await assert.rejects(store.flush(), /protected/i)
+  await assert.rejects(store.readSummary(saved.runtime, saved.id), /protected/i)
+  assert.equal(await store.persistEvolvedBody(newer, { kind: 'body', identity: storedIdentity(home, saved) }), false, 'flush retains the protected pending write')
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try { assert.deepEqual(db.read(saved.runtime, saved.id)?.turns, saved.turns) } finally { db.close() }
+  const api = store as unknown as { retryProtectedBody?: (body: Session, base: { kind: 'body'; identity: string }) => Promise<boolean> }
+  assert.equal(typeof api.retryProtectedBody, 'function')
+  assert.equal(await api.retryProtectedBody!({ ...newer, title: 'different metadata' }, { kind: 'body', identity: storedIdentity(home, saved) }), false, 'matching turns cannot discard pending session metadata')
+  assert.equal(await api.retryProtectedBody!(newer, { kind: 'body', identity: bodyIdentity(newer) }), false)
+  assert.equal(store.protectedPressure().bodies, 1, 'a refused retry keeps its pending body')
+  assert.equal(await api.retryProtectedBody!(newer, { kind: 'body', identity: storedIdentity(home, saved) }), true)
+  assert.equal(store.protectedPressure().bodies, 0)
+  const verified = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try { assert.deepEqual(verified.read(newer.runtime, newer.id)?.turns, newer.turns) } finally { verified.close() }
+})
+
+test('conflict protection retains owned pending bodies and refuses flush', async t => {
+  const { store } = await fixture(t)
+  const body = session([turn('one', [message('answer', 'unsaved')])])
+  store.record(body, { generation: 'generation-one', authorityEpoch: 4 })
+  assert.equal(store.protectPending(body.runtime, body.id, 'generation-one', 5), false)
+  assert.equal(store.protectPending(body.runtime, body.id, 'generation-one', 4), true)
+  assert.deepEqual(store.pendingBodies(body.runtime, body.id, 'generation-one', 4), [body])
+  assert.equal(store.pendingBodies(body.runtime, body.id, 'generation-two', 4).length, 0)
+  await assert.rejects(store.flush(), /protected/i)
+  await store.forget(body.runtime, body.id)
+})
+
+test('replay conflict detection compares unsaved items only for the owning record', async t => {
+  const { store } = await fixture(t)
+  const body = session([turn('one', [message('answer', 'unsaved')])])
+  const stale = session([turn('one', [message('answer', 'stale')])])
+  store.record(body, { generation: 'generation-one', authorityEpoch: 4 })
+  assert.equal(store.pendingReplayConflict(body, 'generation-one', 4), false)
+  assert.equal(store.pendingReplayConflict(stale, 'generation-one', 4), true)
+  assert.equal(store.pendingReplayConflict(stale, 'generation-two', 4), false)
+  assert.equal(store.pendingReplayConflict(stale, 'generation-one', 5), false)
+  assert.equal(store.pendingReplayConflict({ ...stale, itemsLoaded: false }, 'generation-one', 4), false)
+  store.record(session([turn('one', [message('answer', 'first'), message('answer', 'stale')])]),
+    { generation: 'generation-one', authorityEpoch: 4 })
+  assert.equal(store.pendingReplayConflict(stale, 'generation-one', 4), true, 'duplicate IDs cannot hide a differing earlier item')
+  await store.forget(body.runtime, body.id)
+})
+
+test('a replay missing host-added user provenance and start time does not conflict', async t => {
+  const { store } = await fixture(t)
+  const replay = session([turn('one', [{ id: itemId('user'), type: 'userMessage', content: [{ type: 'text', text: 'Hello' }] }])])
+  const held = session([turn('one', [{ id: itemId('user'), type: 'userMessage', startedAt: 123,
+    content: [{ type: 'text', text: 'Hello', deskContext: { prefixLength: 0 } }] }])])
+  store.record(held, { generation: 'g', authorityEpoch: 1 })
+  assert.equal(store.pendingReplayConflict(replay, 'g', 1), false)
+  const changed = session([turn('one', [{ id: itemId('user'), type: 'userMessage', content: [{ type: 'text', text: 'Different' }] }])])
+  assert.equal(store.pendingReplayConflict(changed, 'g', 1), true)
+  await store.forget(held.runtime, held.id)
+})
+
+test('matching host notice classification survives replay without accepting changed text', async t => {
+  const { store } = await fixture(t)
+  const held = session([turn('one', [{ id: itemId('user'), type: 'notice', text: 'Brief', kind: 'agentBrief', startedAt: 123 }])])
+  const replay = (text: string): Session => session([turn('one', [{ id: itemId('user'), type: 'userMessage', content: [{ type: 'text', text }] }])])
+  store.record(held, { generation: 'g', authorityEpoch: 1 })
+  assert.equal(store.pendingReplayConflict(replay('Brief'), 'g', 1), false)
+  assert.equal(store.pendingReplayConflict(replay('Changed'), 'g', 1), true)
+  await store.forget(held.runtime, held.id)
+})
+
+test('a fuller assistant replay covers pending text but stale or different text remains protected', async t => {
+  const { store } = await fixture(t)
+  const held = session([turn('one', [message('answer', 'part')])])
+  store.record(held, { generation: 'g', authorityEpoch: 1 })
+  assert.equal(store.pendingReplayConflict(session([turn('one', [message('answer', 'partial')])]), 'g', 1), false)
+  assert.equal(store.pendingReplayConflict(session([turn('one', [message('answer', 'par')])]), 'g', 1), true)
+  assert.equal(store.pendingReplayConflict(session([turn('one', [message('answer', 'other')])]), 'g', 1), true)
+  const newerHeld = session([turn('one', [message('answer', 'part plus newer')])])
+  assert.equal(store.pendingReplayConflict(session([turn('one', [message('answer', 'partial')])]), 'g', 1, newerHeld), true, 'an older queued snapshot cannot mask newer held text')
+  await store.forget(held.runtime, held.id)
+})
+
+test('a new generation cannot replace an older generation pending body', async t => {
+  const { store } = await fixture(t)
+  const older = session([turn('one', [message('a', 'older unsaved')])])
+  const newer = session([turn('two', [message('b', 'newer unsaved')])])
+  const captured: Session[] = []
+  const retain = PendingTranscript.prototype.retainLocal
+  t.mock.method(PendingTranscript.prototype, 'retainLocal', function(this: PendingTranscript, body: Session, owner: object) {
+    captured.push(structuredClone(body)); return retain.call(this, body, owner)
+  })
+  store.record(older, { generation: 'old', authorityEpoch: 1 })
+  assert.equal(store.hasOutstandingWrite(older.runtime, older.id), true, 'a prior generation is still outstanding')
+  store.record(newer, { generation: 'new', authorityEpoch: 1 })
+  assert.deepEqual(store.pendingBodies(older.runtime, older.id, 'old', 1), [older])
+  assert.ok(captured.some(body => isDeepSession(body, older)))
+  assert.ok(captured.some(body => isDeepSession(body, newer)))
+  const later = session([turn('two', [message('b', 'newer activity')])])
+  store.record(later, { generation: 'new', authorityEpoch: 1 })
+  assert.ok(captured.some(body => isDeepSession(body, later)), 'later local activity remains captured')
+  await store.forget(older.runtime, older.id, { removedBefore: Date.now() })
+  assert.equal(store.hasGenerationConflict(older.runtime, older.id), true, 'a timed sweep cannot discard unresolved generations')
+  await assert.rejects(store.flush(), /protected/i)
+  await store.forget(older.runtime, older.id)
+})
+
+test('unbound initial writes are owned by the exact record epoch and body', async t => {
+  const { store } = await fixture(t)
+  const body = session([turn('one', [message('answer', 'pending')])])
+  store.record(body, { generation: 'g', authorityEpoch: 4 })
+  assert.equal(store.ownsUnboundWrite(body, 'g', 4), true)
+  assert.equal(store.ownsUnboundWrite(body, 'other', 4), false)
+  assert.equal(store.ownsUnboundWrite(body, 'g', 5), false)
+  assert.equal(store.ownsUnboundWrite(session([turn('one', [message('answer', 'changed')])]), 'g', 4), false)
+  store.protectPending(body.runtime, body.id, 'g', 4)
+  assert.equal(store.ownsUnboundWrite(body, 'g', 4), false)
+  await store.forget(body.runtime, body.id)
+})
+
+for (const mode of ['append', 'replace', 'external'] as const) {
+  test(`an overtaken verified write ${mode === 'append' ? 'hands off its base to the owning appended body' : `refuses ${mode}`}`, async t => {
+    const home = await mkdtemp(join(tmpdir(), 'hd-overtaken-base-'))
+    const old = session([turn('one', [message('a', 'saved')])])
+    const next = session([turn('one', mode === 'replace' ? [message('a', 'replacement')] : [message('a', 'saved'), message('b', 'later')])])
+    let current = old, trigger = false
+    const store = new TranscriptStore(join(home, 'transcripts'), undefined, () => {
+      if (!trigger) return
+      trigger = false; current = next
+      store.record(next, { generation: 'g', authorityEpoch: 1 })
+      if (mode === 'external') {
+        const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+        try { const row = db.read(old.runtime, old.id); assert.ok(row); db.write({ ...row, title: 'external' }) } finally { db.close() }
+      }
+    }, (_runtime, _id, generation, value, _revision, epoch) => generation === 'g' && epoch === 1 && isDeepSession(value, current))
+    t.after(async () => { await store.close().catch(() => {}); await rm(home, { recursive: true, force: true }) })
+    store.record(old); await store.flush()
+    const base = store.observeBase(old, false); assert.ok(base)
+    store.bindBase(old, 'g', base)
+    store.record(old, { generation: 'g', authorityEpoch: 1 })
+    trigger = true
+    assert.equal(await store.releaseFromBase(old, 'g', base, 1), false)
+    if (mode === 'append') {
+      await store.flush()
+      const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+      try { assert.deepEqual(db.read(old.runtime, old.id)?.turns, next.turns) } finally { db.close() }
+    } else {
+      await assert.rejects(store.flush(), /protected/i)
+      const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+      try { const row = db.read(old.runtime, old.id); assert.ok(row); assert.deepEqual(row.turns, old.turns); assert.equal(row.title, mode === 'external' ? 'external' : old.title) } finally { db.close() }
+      await store.forget(old.runtime, old.id)
+    }
+  })
+}
+
+for (const changed of ['old turn', 'durable base'] as const) {
+  test(`partial append refuses a changed ${changed} without replacing the durable body`, async t => {
+    const home = await mkdtemp(join(tmpdir(), 'hd-partial-append-'))
+    const store = new TranscriptStore(join(home, 'transcripts'), undefined, undefined,
+      (_runtime, _id, _generation, current, _revision, _epoch, allowPartial) => !current.partialHistory || !!allowPartial)
+    t.after(async () => { await store.close().catch(() => {}); await rm(home, { recursive: true, force: true }) })
+    const old = session([turn('old', [message('a', 'saved')])])
+    store.record(old); await store.flush()
+    const base = store.observeBase(old, false); assert.ok(base)
+    store.bindBase(old, 'g', base)
+    if (changed === 'durable base') {
+      const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+      try { const stored = db.read(old.runtime, old.id); assert.ok(stored); db.write({ ...stored, title: 'external' }) } finally { db.close() }
+    }
+    const next = { ...old, partialHistory: true, turns: [changed === 'old turn' ? turn('old', [message('a', 'different')]) : old.turns[0]!, turn('new', [message('b', 'new')])] }
+    store.record(next, { generation: 'g', authorityEpoch: 1 })
+    await assert.rejects(store.flush(), /protected/i)
+    const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+    try {
+      const saved = db.read(old.runtime, old.id); assert.ok(saved)
+      assert.deepEqual(saved.turns, old.turns)
+      assert.equal(saved.title, changed === 'durable base' ? 'external' : old.title)
+    } finally { db.close() }
+    await store.forget(old.runtime, old.id)
+  })
+}
+
+test('pending turn protection is fenced to its record generation and authority epoch', async t => {
+  const { store } = await fixture(t)
+  const body = session([turn('one', [message('answer', 'unsaved')])])
+  store.record(body, { generation: 'generation-one', authorityEpoch: 4 })
+  assert.deepEqual([...store.pendingTurnIds(body.runtime, body.id, 'generation-one', 4)], ['one'])
+  assert.equal(store.pendingTurnIds(body.runtime, body.id, 'generation-two', 4).size, 0)
+  assert.equal(store.pendingTurnIds(body.runtime, body.id, 'generation-one', 5).size, 0)
+  await store.forget(body.runtime, body.id)
+  assert.equal(store.pendingTurnIds(body.runtime, body.id, 'generation-one', 4).size, 0)
+})
+
+test('a new event during a protected retry keeps both pending snapshots protected', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-sqlite-protected-retry-'))
+  let inject = false
+  const first = session([turn('one', [message('answer', 'first')])])
+  const pending = session([turn('one', [message('answer', 'first update')])])
+  const later = session([turn('one', [message('answer', 'first update and later')])])
+  const store = new TranscriptStore(join(home, 'transcripts'), () => {}, () => { if (inject) { inject = false; store.record(later) } })
+  t.after(async () => { await store.close(); await rm(home, { recursive: true, force: true }) })
+  assert.equal(await store.persistEvolvedBody(first, { kind: 'missing' }), true)
+  assert.equal(await store.persistEvolvedBody(pending, { kind: 'missing' }), false)
+  store.record(pending)
+  inject = true
+  assert.equal(await store.retryProtectedBody(pending, { kind: 'body', identity: storedIdentity(home, first) }), false)
+  const api = store as unknown as { protectedPressure?: () => { bodies: number; bytes: number } }
+  assert.equal(typeof api.protectedPressure, 'function')
+  const pressure = api.protectedPressure!()
+  assert.equal(pressure.bodies, 2)
+  assert.ok(pressure.bytes >= canonicalTranscriptBody(pending.turns).bytes + canonicalTranscriptBody(later.turns).bytes)
+  await assert.rejects(store.flush(), /protected/i)
+  await store.forget(first.runtime, first.id)
+})
+
+test('a generation-owned queued write compares its observed durable base before replacing it', async t => {
+  const { home, store } = await fixture(t)
+  const first = session([turn('one', [message('answer', 'first')])])
+  const later = session([turn('one', [message('answer', 'later')])])
+  const external = session([turn('one', [message('answer', 'external')])])
+  const api = store as unknown as { bindBase?: (session: Session, generation: string, base: { kind: 'missing' }) => void }
+  assert.equal(typeof api.bindBase, 'function')
+  api.bindBase!(first, 'generation-one', { kind: 'missing' })
+  store.record(first, { generation: 'generation-one' })
+  await store.flush()
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try {
+    db.write({ version: 1, runtime: external.runtime, id: external.id, savedAt: 1, turns: external.turns })
+    store.record(later, { generation: 'generation-one' })
+    await assert.rejects(store.flush(), /protected/i)
+    assert.deepEqual(db.read(external.runtime, external.id)?.turns, external.turns)
+    assert.equal(store.protectedPressure().bodies, 1)
+  } finally { db.close(); await store.forget(first.runtime, first.id) }
+})
+
+test('a generation-owned event arriving during a write is saved after the verified base advances', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-sqlite-queued-interleave-'))
+  const first = session([turn('one', [message('answer', 'first')])])
+  const later = session([turn('one', [message('answer', 'first and later')])])
+  let inject = true
+  const store = new TranscriptStore(join(home, 'transcripts'), () => {}, () => { if (inject) { inject = false; store.record(later, { generation: 'g' }) } })
+  t.after(async () => { await store.close(); await rm(home, { recursive: true, force: true }) })
+  store.bindBase(first, 'g', { kind: 'missing' })
+  store.record(first, { generation: 'g' })
+  await store.flush()
+  await store.flush()
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try { assert.deepEqual(db.read(first.runtime, first.id)?.turns, later.turns) } finally { db.close() }
+})
+
+test('a record replaced during a queued write cannot advance the old generation authority', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'hd-sqlite-stale-generation-'))
+  const first = session([turn('one', [message('answer', 'first')])])
+  let current = true, advanced = 0
+  const store = new TranscriptStore(join(home, 'transcripts'), () => {}, () => { current = false }, () => current, () => { advanced++ })
+  t.after(async () => { await store.close(); await rm(home, { recursive: true, force: true }) })
+  store.bindBase(first, 'old', { kind: 'missing' })
+  store.record(first, { generation: 'old' })
+  await assert.rejects(store.flush(), /protected/i)
+  assert.equal(advanced, 0)
+  assert.equal(store.protectedPressure().bodies, 1)
+  await store.forget(first.runtime, first.id)
+})
+
+test('overlapping flush and read wait for the same healthy generation-owned write', async t => {
+  const { store } = await fixture(t)
+  const body = session([turn('one', [message('answer', 'body')])])
+  store.bindBase(body, 'g', { kind: 'missing' })
+  store.record(body, { generation: 'g' })
+  const [, summary] = await Promise.all([store.flush(), store.readSummary(body.runtime, body.id)])
+  assert.ok(summary)
+  assert.equal(store.protectedPressure().bodies, 0)
+})
+
+test('base authority is released only for its matching generation after pending work settles', async t => {
+  const { store } = await fixture(t)
+  const body = session([turn('one', [message('answer', 'body')])])
+  store.bindBase(body, 'old', { kind: 'missing' })
+  store.record(body, { generation: 'old' })
+  store.unbindBase(body, 'old') // Pending data still needs this base.
+  store.unbindBase(body, 'different')
+  await store.flush()
+  store.unbindBase(body, 'old')
+  store.record(body, { generation: 'old' })
+  await assert.rejects(store.flush(), /authority/i)
+  assert.equal(store.protectedPressure().bodies, 1)
+  await store.forget(body.runtime, body.id)
+})
+
+test('a source refresh cannot overwrite a durable body changed after enrichment', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('one', [message('answer', 'original')])])
+  const source = session([turn('one', [message('answer', 'source update')])])
+  const external = session([turn('one', [message('external', 'different stored body')])])
+  assert.equal(await store.persistEvolvedBody(original, { kind: 'missing' }), true)
+  const enriched = await store.enrichForRefresh(source)
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try {
+    db.write({ version: 1, runtime: external.runtime, id: external.id, savedAt: 1, turns: external.turns })
+    await assert.rejects(store.refresh(enriched.session, null, enriched.base), /protected|changed/i)
+    assert.deepEqual(db.read(external.runtime, external.id)?.turns, external.turns)
+    assert.equal(store.protectedPressure().bodies, 1)
+  } finally { db.close(); await store.forget(original.runtime, original.id) }
+})
+
+test('overlapping enriched reads cannot borrow a newer read observation', async t => {
+  const { home, store } = await fixture(t)
+  const first = session([turn('one', [message('answer', 'first')])])
+  const newer = session([turn('one', [message('newer', 'newer')])])
+  assert.equal(await store.persistEvolvedBody(first, { kind: 'missing' }), true)
+  const oldRead = await store.enrichForRefresh(first)
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try {
+    db.write({ version: 1, runtime: newer.runtime, id: newer.id, savedAt: 1, turns: newer.turns })
+    const newRead = await store.enrichForRefresh(newer)
+    await store.refresh(newRead.session, null, newRead.base)
+    await assert.rejects(store.refresh(oldRead.session, null, oldRead.base), /protected|changed/i)
+    assert.deepEqual(db.read(newer.runtime, newer.id)?.turns, newRead.session.turns)
+  } finally { db.close(); await store.forget(first.runtime, first.id) }
+})
+
+test('equal turns with changed durable metadata cannot be overwritten by an older refresh', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('one', [message('answer', 'same body')])])
+  assert.equal(await store.persistEvolvedBody(original, { kind: 'missing' }), true)
+  const oldRead = await store.enrichForRefresh(original)
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try {
+    db.write({ version: 1, runtime: original.runtime, id: original.id, savedAt: 1, turns: original.turns, title: 'newer stored title' })
+    await assert.rejects(store.refresh(oldRead.session, null, oldRead.base), /protected|changed/i)
+    assert.equal(db.read(original.runtime, original.id)?.title, 'newer stored title')
+    assert.equal(store.protectedPressure().bodies, 1)
+  } finally { db.close(); await store.forget(original.runtime, original.id) }
+})
+
+test('equal turns with new durable Insight cannot be overwritten by an older refresh', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('one', [message('answer', 'same body')])])
+  assert.equal(await store.persistEvolvedBody(original, { kind: 'missing' }), true)
+  const oldRead = await store.enrichForRefresh(original)
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try {
+    const stored = db.read(original.runtime, original.id); assert.ok(stored)
+    const insight = [{ turn: 'one', startedAt: 1, endedAt: 2, seat: 'synthetic', cause: { kind: 'person' as const },
+      parent: null, before: null, after: null, generation: '', observedAt: 2, loaded: null }]
+    db.write({ ...stored, insight })
+    await assert.rejects(store.refresh(oldRead.session, null, oldRead.base), /protected|changed/i)
+    assert.deepEqual(db.read(original.runtime, original.id)?.insight, insight)
+  } finally { db.close(); await store.forget(original.runtime, original.id) }
+})
+
+test('a refresh cannot overwrite a source fingerprint changed after its read', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('one', [message('answer', 'body')])])
+  await store.refresh(original, { path: '/synthetic/source', mtimeMs: 1, size: 1 })
+  const oldRead = await store.enrichForRefresh(original)
+  const db = new DatabaseSync(join(home, 'sessions.sqlite'))
+  try {
+    db.prepare('UPDATE sessions SET source_mtime=? WHERE runtime=? AND id=?').run(2, original.runtime, original.id)
+    await assert.rejects(store.refresh(oldRead.session, { path: '/synthetic/source', mtimeMs: 3, size: 1 }, oldRead.base), /protected|changed/i)
+    assert.equal(db.prepare('SELECT source_mtime FROM sessions WHERE runtime=? AND id=?').get(original.runtime, original.id)?.source_mtime, 2)
+  } finally { db.close(); await store.forget(original.runtime, original.id) }
+})
+
+test('exact verification does not change the semantic identity of sparse legacy facts', async t => {
+  const { home, store } = await fixture(t)
+  const original = { ...session([turn('one', [message('answer', 'body')])]), title: null, preview: null }
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try { db.write({ version: 1, runtime: original.runtime, id: original.id, savedAt: 1, cwd: original.cwd,
+    createdAt: original.createdAt, updatedAt: original.updatedAt, turns: original.turns }) } finally { db.close() }
+  const base = storedIdentity(home, original)
+  assert.equal(await store.persistExactBody(original, original), true)
+  assert.equal(storedIdentity(home, original), base)
+})
+
+test('exact verification preserves a source fingerprint when it adds no source work', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('one', [message('answer', 'body')])])
+  const source = { path: '/synthetic/source', mtimeMs: 1, size: 1 }
+  await store.refresh(original, source)
+  const base = storedIdentity(home, original)
+  assert.equal(await store.persistExactBody(original, original), true)
+  assert.deepEqual(await store.source(original.runtime, original.id), source)
+  assert.equal(storedIdentity(home, original), base)
+})
+
+test('a refresh observation keeps body and source in one SQLite snapshot', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('one', [message('answer', 'body')])])
+  await store.refresh(original, { path: '/synthetic/source', mtimeMs: 1, size: 1 })
+  const originalRead = TranscriptDatabase.prototype.read
+  let inject = true
+  t.mock.method(TranscriptDatabase.prototype, 'read', function(this: TranscriptDatabase, ...args: Parameters<typeof originalRead>) {
+    const result = originalRead.apply(this, args)
+    if (inject && result) {
+      inject = false
+      const other = new DatabaseSync(join(home, 'sessions.sqlite'))
+      try { other.prepare('UPDATE sessions SET source_mtime=? WHERE runtime=? AND id=?').run(2, original.runtime, original.id) }
+      finally { other.close() }
+    }
+    return result
+  })
+  const observed = await store.enrichForRefresh(original)
+  await assert.rejects(store.refresh(observed.session, { path: '/synthetic/source', mtimeMs: 3, size: 1 }, observed.base), /protected|changed/i)
+  await store.forget(original.runtime, original.id)
+})
+
+test('an import cannot overwrite a durable row changed after its version check', async t => {
+  const { home, store } = await fixture(t)
+  const original = session([turn('one', [message('answer', 'original')])])
+  assert.equal(await store.persistEvolvedBody(original, { kind: 'missing' }), true)
+  const originalWrite = TranscriptDatabase.prototype.write
+  let inject = true
+  t.mock.method(TranscriptDatabase.prototype, 'write', function(this: TranscriptDatabase, ...args: Parameters<typeof originalWrite>) {
+    if (inject) {
+      inject = false
+      const other = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+      try { const prior = other.read(original.runtime, original.id); assert.ok(prior); originalWrite.call(other, { ...prior, title: 'external newer' }) } finally { other.close() }
+    }
+    return originalWrite.apply(this, args)
+  })
+  const result = await store.importOne(original.runtime, original.id, { version: 1, runtime: original.runtime, id: original.id,
+    savedAt: Date.now() + 100_000, turns: [turn('one', [message('answer', 'imported')])] })
+  assert.equal(result, 'refused')
+  const db = new TranscriptDatabase(join(home, 'sessions.sqlite'))
+  try { assert.equal(db.read(original.runtime, original.id)?.title, 'external newer') } finally { db.close() }
 })

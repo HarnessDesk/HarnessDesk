@@ -23,9 +23,10 @@ import {
 export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed'
 
 export interface TransportEvents {
-  onEvent(runtime: RuntimeId, event: AgentEvent): void
+  onEvent(runtime: RuntimeId, event: AgentEvent, fence?: Extract<WireNotification, { method: 'event' }>['params']['transcriptFence']): void
   onNotification(notification: WireNotification): void
   onStatus(status: ConnectionStatus): void
+  onRequest?(method: HostMethodName, params: unknown): (() => void) | void
 }
 
 interface Pending {
@@ -33,6 +34,7 @@ interface Pending {
   reject(error: Error): void
   signal?: AbortSignal
   abort?: () => void
+  release?: () => void
 }
 
 interface QueuedRequest {
@@ -88,9 +90,12 @@ export class Transport {
     options: { signal?: AbortSignal } = {},
   ): Promise<HostResult<M>> {
     const id = ++this.#nextId
-    const frame = JSON.stringify({ id, method, params })
+    const release = this.handlers.onRequest?.(method, params) || undefined
+    let frame: string
+    try { frame = JSON.stringify({ id, method, params }) }
+    catch (error) { release?.(); throw error }
     return new Promise<HostResult<M>>((resolve, reject) => {
-      const pending: Pending = { resolve: resolve as (value: unknown) => void, reject, signal: options.signal }
+      const pending: Pending = { resolve: resolve as (value: unknown) => void, reject, signal: options.signal, release }
       const abort = () => {
         if (this.#pending.get(id) !== pending) return
         this.#pending.delete(id)
@@ -100,13 +105,15 @@ export class Transport {
       }
       pending.abort = abort
       if (options.signal?.aborted) {
+        this.#removeAbortListener(pending)
         reject(Object.assign(new Error('The request was aborted.'), { name: 'AbortError' }))
         return
       }
       this.#pending.set(id, pending)
       options.signal?.addEventListener('abort', abort, { once: true })
       if (this.#socket?.readyState === WebSocket.OPEN) {
-        this.#socket.send(frame)
+        try { this.#socket.send(frame) }
+        catch (error) { this.#pending.delete(id); this.#removeAbortListener(pending); reject(error) }
         return
       }
       if (this.#queue.length >= QUEUE_LIMIT) {
@@ -130,7 +137,13 @@ export class Transport {
       this.#setStatus('open')
       const queued = this.#queue
       this.#queue = []
-      for (const entry of queued) socket.send(entry.frame)
+      for (const entry of queued) {
+        try { socket.send(entry.frame) }
+        catch (error) {
+          const pending = this.#pending.get(entry.id)
+          if (pending) { this.#pending.delete(entry.id); this.#removeAbortListener(pending); pending.reject(error instanceof Error ? error : new Error(String(error))) }
+        }
+      }
     })
 
     socket.addEventListener('message', (event) => {
@@ -149,7 +162,7 @@ export class Transport {
             return
           }
         }
-        if (message.method === 'event') this.handlers.onEvent(message.params.runtime, message.params.event)
+        if (message.method === 'event') this.handlers.onEvent(message.params.runtime, message.params.event, message.params.transcriptFence)
         this.handlers.onNotification(message)
         return
       }
@@ -200,6 +213,9 @@ export class Transport {
 
   #removeAbortListener(pending: Pending): void {
     if (pending.signal && pending.abort) pending.signal.removeEventListener('abort', pending.abort)
+    const release = pending.release
+    pending.release = undefined
+    release?.()
   }
 
   #setStatus(status: ConnectionStatus): void {
