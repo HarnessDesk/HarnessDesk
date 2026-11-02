@@ -2290,7 +2290,7 @@ uses the page role on the content edge, with the primary choice and verb
 on the right. Search and secondary choices follow at the page stack gap;
 long titles and menu choices wrap within the page.
 
-### `PageHead`
+### `PageTitle`
 
 `packages/ui/src/design/patterns/PageOptions.tsx`
 

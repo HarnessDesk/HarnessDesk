@@ -1,4 +1,4 @@
-import { PageHead } from './PageOptions'
+import { PageTitle } from './PageOptions'
 import { forwardRef, useEffect, useState, type ComponentProps, type RefCallback, type RefObject, type ReactNode } from 'react'
 
 /**
@@ -119,7 +119,7 @@ export const PaneTabsRow = ({ children, controls, title }: { readonly children: 
   const actions = controls != null && <div className="ms-auto flex shrink-0 items-center gap-2">{controls}</div>
   return title != null
     ? <PaneColumn inset="reading" className="flex shrink-0 flex-col gap-2" data-pane-tabs-row="" data-pane-head="">
-      <PageHead title={title}>{actions}</PageHead>
+      <PageTitle title={title}>{actions}</PageTitle>
       <div className="min-w-0">{children}</div>
     </PaneColumn>
     : <PaneColumn inset="reading" className="flex shrink-0 items-start gap-2" data-pane-tabs-row="">
