@@ -27,3 +27,18 @@ it('names the row, carries a destructive trash item, and returns focus on Escape
     expect(document.activeElement).toBe(trigger)
   } finally { act(() => root.unmount()); container.remove() }
 })
+
+it('offers a place in an order, refusing the move that cannot happen', async () => {
+  const container = document.body.appendChild(document.createElement('div'))
+  const root = createRoot(container)
+  const down = vi.fn()
+  try {
+    await act(async () => root.render(<SettingsRowMenu name="Jane Doe" moves={{ down }} />))
+    await act(async () => container.querySelector('button')!.click())
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    expect(items.map((item) => item.textContent)).toEqual(['Move up', 'Move down'])
+    expect(items[0]!.getAttribute('aria-disabled')).toBe('true')
+    await act(async () => items[1]!.click())
+    expect(down).toHaveBeenCalledOnce()
+  } finally { act(() => root.unmount()); container.remove() }
+})

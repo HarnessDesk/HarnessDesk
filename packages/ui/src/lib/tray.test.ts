@@ -89,7 +89,7 @@ describe('describeTray', () => {
       accountsByRuntime: { claude: signedIn, codex: signedOut } as never,
       usage: [report('claude', [lane({ id: 'weekly', usedPercent: 10 })])],
     })
-    expect(summary.agents[1]).toMatchObject({ id: 'codex', detail: 'Needs sign-in', needsSignIn: true })
+    expect(summary.agents[1]).toMatchObject({ id: 'codex', detail: 'Sign in needed', needsSignIn: true })
   })
 
   it('does not call an agent needing sign-in before it has answered who is signed in', () => {
@@ -101,7 +101,7 @@ describe('describeTray', () => {
       accountsByRuntime: { claude: signedIn } as never,
       usage: [report('claude', [lane({ id: 'weekly', usedPercent: 10 })])],
     })
-    expect(summary.agents[1]).toMatchObject({ id: 'codex', needsSignIn: false, detail: 'Not answered yet' })
+    expect(summary.agents[1]).toMatchObject({ id: 'codex', needsSignIn: false, detail: 'Not checked yet' })
   })
 
   it('names the account when two agents share a display name, as the strip does', () => {
@@ -147,6 +147,19 @@ describe('describeTray', () => {
       ],
     })
     expect(summary.agents[0]?.name).toBe('OpenAI Codex · olivia@acme.dev')
+  })
+
+  it('names the account without its address while addresses are hidden', () => {
+    const summary = tray({
+      runtimes: [runtime('codex', 'OpenAI Codex')],
+      accountsByRuntime: { codex: signedIn } as never,
+      usage: [
+        report('codex', [lane({ id: 'weekly', usedPercent: 42 })], { account: 'olivia@acme.dev' }),
+        report('codex', [lane({ id: 'weekly', usedPercent: 88 })], { account: 'sam@acme.dev' }),
+      ],
+      hideAddresses: true,
+    })
+    expect(summary.agents[0]?.name).toBe('OpenAI Codex · olivia')
   })
 
   it('has nothing to add to a shared name when the reading carries no account', () => {

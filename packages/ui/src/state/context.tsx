@@ -13,12 +13,14 @@ import {
   splitSessionKey,
   type AccountStatus,
   type RuntimeHealth,
+  type RuntimeId,
   type RuntimeInfo,
   type Session,
   type SessionKey,
   type SessionQueue,
 } from '@harnessdesk/protocol'
 
+import { shownAccountLabel } from '../lib/accounts'
 import type { PaneId, PaneView } from './layout'
 import { focusedMount } from './workbench'
 import type { AppSnapshot, AppStore } from './store'
@@ -53,6 +55,19 @@ export const useStore = (): AppStore => {
 export const useSnapshot = (): AppSnapshot => {
   const store = useStore()
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+}
+
+const noStoreSubscription = () => () => {}
+/**
+ * How to write an account a row names (`shownAccountLabel`): as written, or
+ * by name only while Hide account addresses is on. Outside a store — a design
+ * board — nothing is hidden.
+ */
+export const useAccountLabel = (): ((runtime: RuntimeId, label: string) => string) => {
+  const store = useOptionalStore()
+  const read = useCallback(() => store?.getSnapshot() ?? null, [store])
+  const snapshot = useSyncExternalStore(store?.subscribe ?? noStoreSubscription, read, read)
+  return useCallback((runtime, label) => (snapshot ? shownAccountLabel(runtime, label, snapshot) : label), [snapshot])
 }
 
 const noLibraryViewSubscription = () => () => {}

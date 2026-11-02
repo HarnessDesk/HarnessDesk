@@ -5,7 +5,7 @@ import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { describeStrip, type StripMeter, type StripRest } from '../lib/plan-strip'
 import { describeLane, formatAge, formatMoney } from '../lib/usage'
-import { useActiveSession, useSnapshot } from '../state/context'
+import { useAccountLabel, useActiveSession, useSnapshot } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { RosterIcon, SignInIcon } from './Icons'
 import { WideMenu, Popover } from '../design'
@@ -58,6 +58,7 @@ export const PlanMeters = ({
         activeRuntime: snapshot.activeRuntime,
         sessionRuntime: session?.runtime ?? null,
         now,
+        hideAddresses: snapshot.hideAccountAddresses,
       }),
     [
       snapshot.runtimes,
@@ -68,6 +69,7 @@ export const PlanMeters = ({
       snapshot.activeRuntime,
       session?.runtime,
       now,
+      snapshot.hideAccountAddresses,
     ],
   )
 
@@ -126,7 +128,9 @@ const Meter = ({
   /** An out-of-quota agent this conversation is not using: no bar, just when. */
   promoted?: boolean
   onOpen: () => void
-}) => (
+}) => {
+  const label = useAccountLabel()
+  return (
     <Popover
       panelWidth="wide" icons="all"
       title={meterTitle(view)}
@@ -164,7 +168,7 @@ const Meter = ({
       }
     >
       {close => <WideMenu close={close} title={view.name}
-        items={[{ id: 'open', label: view.name, icon: <RuntimeMark runtime={view.info} size={16} />, badge: view.report.plan || undefined, hint: view.report.account || undefined, trailing: 'Open', onSelect: onOpen }]}
+        items={[{ id: 'open', label: view.name, icon: <RuntimeMark runtime={view.info} size={16} />, badge: view.report.plan || undefined, hint: view.report.account ? label(view.runtime, view.report.account) : undefined, trailing: 'Open', onSelect: onOpen }]}
         facts={view.report.lanes.map(raw => {
           const lane = describeLane(raw, now, view.report.lanes)
           return { id: lane.id, name: lane.title, percent: lane.remainingPercent, countdown: lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`, countdownTitle: lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined, tone: toneOf(lane.tone) }
@@ -172,7 +176,8 @@ const Meter = ({
         footer={[view.report.spend?.todayCost != null ? `${formatMoney(view.report.spend.todayCost, view.report.spend.currency)} today` : null, view.report.source.label, formatAge(view.report.fetchedAt, now)].filter(Boolean).join(' · ')}
       />}
     </Popover>
-)
+  )
+}
 
 /**
  * Every other agent, in the space of a word.

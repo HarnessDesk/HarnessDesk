@@ -54,7 +54,7 @@ export const RuntimeResources = ({ runtime }: { readonly runtime?: RuntimeId }) 
     if (!info) return 'Runtime'
     const siblings = snapshot.runtimes.filter(one => agentKey(one) === agentKey(info))
     const account = snapshot.accountsByRuntime[id]?.accounts[0]
-    return siblings.length > 1 && account ? `${info.presentation.name} · ${accountName(account, snapshot.accountPrefs[accountKey(id, account)], info.presentation.name)}` : info.presentation.name
+    return siblings.length > 1 && account ? `${info.presentation.name} · ${accountName(account, snapshot.accountPrefs[accountKey(id, account)], info.presentation.name, snapshot.hideAccountAddresses)}` : info.presentation.name
   }
   const shown = costs.filter((cost) => runtime === undefined ? cost.processes !== 0 : cost.runtime === runtime)
   const rows = shown.filter(cost => cost.processes !== 0)

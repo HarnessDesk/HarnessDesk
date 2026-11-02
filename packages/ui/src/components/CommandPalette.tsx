@@ -479,7 +479,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
     const runtimeEntries: Entry[] = snapshot.runtimes.map((runtime) => ({
       id: `agent-${runtime.id}`,
       group: 'Runtimes',
-      label: `Start with ${runtimeLabel(runtime, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)}`,
+      label: `Start with ${runtimeLabel(runtime, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs, snapshot.hideAccountAddresses)}`,
       hint: runtime.id === snapshot.activeRuntime ? 'current' : runtime.presentation.tagline,
       icon: <RuntimeMark runtime={runtime} />,
       keywords: `switch runtime ${brandOf(runtime.presentation.name)}`,

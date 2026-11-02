@@ -49,6 +49,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefsMap } from '../lib/accounts'
+import type { AccountPoolMap } from '../lib/account-pool'
 
 import type { Profile } from '../lib/profile'
 
@@ -331,6 +332,18 @@ export interface AppSnapshot {
    * a name and a colour, both derived — this only records the overrides.
    */
   readonly accountPrefs: AccountPrefsMap
+  /**
+   * The order each agent's accounts are used in, and what happens when the
+   * one new sessions run as is out. Keyed by `agentKey`; see
+   * `lib/account-pool.ts`.
+   */
+  readonly accountPools: AccountPoolMap
+  /**
+   * Account names only, wherever an account is drawn: the address waits for
+   * a hover. For recording a screen or sharing one without anybody's email
+   * in it — Settings › General.
+   */
+  readonly hideAccountAddresses: boolean
   /**
    * Who you are on this desk — the name and face the seat, its menu, the top
    * of the settings rail and your messages in a room all draw. Only what
@@ -883,6 +896,8 @@ const EMPTY: AppSnapshot = {
   chatsFolderProblem: null,
   accountsByRuntime: {},
   accountPrefs: {},
+  accountPools: {},
+  hideAccountAddresses: false,
   harnessDeskAccount: null,
   profile: {},
   logins: {},

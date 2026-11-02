@@ -1,8 +1,8 @@
 import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import type { Tone } from './limits'
-import { prefsForUsage, type AccountPrefsMap } from './accounts'
-import { readinessOf } from './readiness'
+import { prefsForUsage, shownAccountLabel, type AccountPrefsMap } from './accounts'
+import { READINESS_LABEL, readinessOf } from './readiness'
 import { describeReport, toneForRemaining, workingAccount, type LaneView, type UsagePreference } from './usage'
 
 /**
@@ -66,7 +66,7 @@ export type StripAnchor =
 export interface StripAside {
   readonly runtime: RuntimeId
   readonly info: RuntimeInfo
-  /** "Needs sign-in", "Unavailable", "No usage reported". */
+  /** "Sign in needed", "Not working", "No usage reported". */
   readonly detail: string
 }
 
@@ -110,6 +110,8 @@ export interface StripInput {
    */
   readonly sessionRuntime: RuntimeId | null
   readonly now: number
+  /** Settings › General › Hide account addresses: accounts by name only. */
+  readonly hideAddresses?: boolean
 }
 
 /** Under this, a figure is worth the pixels at any width. */
@@ -162,8 +164,10 @@ const meterFor = (
  * sits under is not unique in the roster — never on the strength of the
  * report alone.
  */
-const named = (meter: StripMeter, names: ReadonlyMap<string, number>): StripMeter => {
-  const account = (names.get(meter.name) ?? 0) > 1 ? meter.report.account : null
+const named = (meter: StripMeter, names: ReadonlyMap<string, number>, input: StripInput): StripMeter => {
+  const account = (names.get(meter.name) ?? 0) > 1 && meter.report.account
+    ? shownAccountLabel(meter.runtime, meter.report.account, { ...input, hideAccountAddresses: input.hideAddresses })
+    : null
   if (account === null) return meter
   return {
     ...meter,
@@ -209,7 +213,7 @@ const entryFor = (info: RuntimeInfo, input: StripInput): Entry => {
     // told us what it has left is not an agent to ask for a password.
     needsSignIn: state === 'signin' && meters.length === 0,
     detail:
-      state === 'signin' ? 'Needs sign-in' : state === 'broken' ? 'Unavailable' : 'No usage reported',
+      state === 'signin' || state === 'broken' ? READINESS_LABEL[state] : 'No usage reported',
   }
 }
 
@@ -241,7 +245,7 @@ export const describeStrip = (input: StripInput): StripView => {
     for (const meter of entry.meters) names.set(meter.name, (names.get(meter.name) ?? 0) + 1)
   }
   const entries = raw.map((entry) => {
-    const meters = entry.meters.map((meter) => named(meter, names))
+    const meters = entry.meters.map((meter) => named(meter, names, input))
     return {
       ...entry,
       meters,

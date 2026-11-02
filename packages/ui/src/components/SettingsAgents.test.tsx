@@ -16,6 +16,7 @@ import type {
 } from '@harnessdesk/protocol'
 import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
+import { accountKey } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, AppStore, type AppSnapshot } from '../state/store'
 import { AddAgentsTestPage as AddAgents } from '../test-support/settings-page'
@@ -472,8 +473,12 @@ const line = (name: string): HTMLButtonElement =>
 it("each agent's line says who it is signed in as, and at its end only what is not fine", async () => {
   await mountList()
 
-  // The account is the line, across the agent's runtimes — not a count.
-  expect(line('Alpha').textContent).toContain('ada@example.com and 1 more')
+  // Every account is named, across the agent's runtimes — not a count, and
+  // not "the first and 1 more", which hid the very account a person came for.
+  const accountLines = [...line('Alpha').querySelectorAll('[data-slot="desc-line"]')]
+  expect(accountLines.map((node) => node.querySelector('[data-slot="desc-line-name"]')?.textContent)).toEqual(['ada', 'grace'])
+  expect(accountLines.map((node) => node.getAttribute('title'))).toEqual(['ada@example.com', 'grace@example.com'])
+  expect(line('Alpha').textContent).not.toContain('and 1 more')
   expect(line('Beta').textContent).toContain('API key')
   expect(document.body.textContent).not.toMatch(/\b1 account\b/)
   // How the credential arrives is the agent's definition, not a state: it is
@@ -485,7 +490,7 @@ it("each agent's line says who it is signed in as, and at its end only what is n
   expect(chips).toContain('Default')
   expect(chips).not.toContain('Ready')
   // A signed-out agent carries its Sign in, not a chip saying it needs one.
-  expect(chips).not.toContain('Needs sign-in')
+  expect(chips).not.toContain('Sign in needed')
 })
 
 it('lists what needs you first, with its Sign in on its own line', async () => {
@@ -494,7 +499,7 @@ it('lists what needs you first, with its Sign in on its own line', async () => {
 
   // Alpha's second account is signed in too, so an unfinished sibling is not
   // allowed to report the whole agent as needing one.
-  expect(grouped()).toEqual({ 'Needs attention': ['Gamma'], Ready: ['Alpha', 'Beta'] })
+  expect(grouped()).toEqual({ 'Needs you': ['Gamma'], Ready: ['Alpha', 'Beta'] })
 
   // A real button beside the line, not inside it: the line opens the page.
   const signIn = line('Gamma').closest('[data-slot="row-folding"]')?.querySelector('[data-slot="row-action"] button')
@@ -507,7 +512,7 @@ it('lists what needs you first, with its Sign in on its own line', async () => {
 it('a failed spawn is under Needs attention with its reason on the runtime line', async () => {
   const message = 'Beta could not start its program.'
   await mountList({ healthByRuntime: { beta: { state: 'unavailable', reason: 'spawnFailed', message } } })
-  expect(grouped()['Needs attention']).toContain('Beta')
+  expect(grouped()['Needs you']).toContain('Beta')
   expect(line('Beta').textContent).toContain(message)
 })
 
@@ -521,11 +526,11 @@ it('gives an agent that has not answered yet its own heading, neither Needs atte
   delete (accounts as Record<string, unknown>).gamma
   await mountList({ accountsByRuntime: accounts })
 
-  expect(grouped()).toEqual({ 'Not answered yet': ['Gamma'], Ready: ['Alpha', 'Beta'] })
+  expect(grouped()).toEqual({ 'Not checked yet': ['Gamma'], Ready: ['Alpha', 'Beta'] })
   // The heading says it once; no row repeats it, and none claims a sign-in.
   const chips = [...line('Gamma').querySelectorAll('[class*=chip]')].map((node) => node.textContent)
-  expect(chips).not.toContain('Not answered yet')
-  expect(chips).not.toContain('Needs sign-in')
+  expect(chips).not.toContain('Not checked yet')
+  expect(chips).not.toContain('Sign in needed')
   // No Sign in either: readiness has not said one is needed.
   expect(line('Gamma').closest('[data-slot="row-folding"]')?.querySelector('[data-slot="row-action"] button')).toBeFalsy()
 })
@@ -539,7 +544,7 @@ it('orders its groups by what they ask of you: needs attention, then not answere
     healthByRuntime: { alpha: { state: 'ready' }, beta: { state: 'unavailable', reason: 'crashed', message: 'exited' }, gamma: { state: 'ready' } },
   })
   const order = [...document.body.querySelectorAll('[data-group]')].map((group) => group.getAttribute('data-group'))
-  expect(order).toEqual(['Needs attention', 'Not answered yet', 'Ready'])
+  expect(order).toEqual(['Needs you', 'Not checked yet', 'Ready'])
 })
 
 it('an unanswered default wears its Default chip alone', async () => {
@@ -588,7 +593,7 @@ it("an agent's page says it has not answered yet, rather than that nobody is sig
   delete (accounts as Record<string, unknown>).gamma
   await mountList({ accountsByRuntime: accounts })
   await act(async () => line('Gamma').click())
-  expect(document.body.textContent).toContain('Not answered yet')
+  expect(document.body.textContent).toContain('Not checked yet')
   expect(document.body.textContent).toContain('Its accounts show once it answers.')
   expect(document.body.textContent).not.toContain('Signed out')
   expect(document.body.textContent).not.toContain('has no credential here yet')
@@ -607,7 +612,7 @@ it("an extra account that has not answered is not \"waiting to be signed in\"", 
   await mountList({ accountsByRuntime: accounts })
   await act(async () => line('Alpha').click())
   expect(document.body.textContent).toContain('ada@example.com')
-  expect(document.body.textContent).toContain('Not answered yet')
+  expect(document.body.textContent).toContain('Not checked yet')
   // Its line is where its credential lives, the one fact that varies.
   expect(document.body.textContent).toContain('/tmp/alpha-2')
   expect(document.body.textContent).not.toContain('Waiting to be signed in')
@@ -625,7 +630,7 @@ it('an extra account that could not start says so on its page, as the list does 
   // Control: still starting, it has only not answered yet.
   await mountList({ accountsByRuntime: accounts })
   await act(async () => line('Alpha').click())
-  expect(titleOf('/tmp/alpha-2')).toBe('Not answered yet')
+  expect(titleOf('/tmp/alpha-2')).toBe('Not checked yet')
   act(() => root.unmount())
   root = createRoot(container)
 
@@ -633,9 +638,9 @@ it('an extra account that could not start says so on its page, as the list does 
     accountsByRuntime: accounts,
     healthByRuntime: { 'alpha#2': { state: 'unavailable', reason: 'crashed', message: 'It exited before it was ready.' } },
   })
-  expect(grouped()['Needs attention']).toContain('Alpha')
+  expect(grouped()['Needs you']).toContain('Alpha')
   await act(async () => line('Alpha').click())
-  expect(titleOf('/tmp/alpha-2')).toBe('Unavailable')
+  expect(titleOf('/tmp/alpha-2')).toBe('Not working')
 })
 
 it("an extra account that could not start is not one the page is waiting on (#1038)", async () => {
@@ -807,8 +812,8 @@ it('an agent that will not start shows its own words on its page, its lines kept
   })
 
   // On the list it is named, not explained: the explanation is its page's.
-  expect(grouped()['Needs attention']).toContain('Delta')
-  expect([...line('Delta').querySelectorAll('[class*=chip]')].map((node) => node.textContent)).toContain('Unavailable')
+  expect(grouped()['Needs you']).toContain('Delta')
+  expect([...line('Delta').querySelectorAll('[class*=chip]')].map((node) => node.textContent)).toContain('Not working')
   await act(async () => line('Delta').click())
 
   // The agent's own output keeps its line breaks; a validator writes one
@@ -1115,10 +1120,11 @@ it("an agent's own page shows every copy on the machine, and offers the two verb
   expect(updateAgent).toHaveBeenCalledWith('opencode')
 })
 
-it('a search hit on a second account leads its agent\u2019s line', async () => {
+it('a search hit on a second account is marked on its own line', async () => {
   await mountList()
   type('input[aria-label="Search runtimes or accounts"]', 'grace@')
-  expect(line('Alpha').textContent).toContain('grace@example.com and 1 more')
+  // Each account has its own line now, so the hit is marked where it stands.
+  expect(line('Alpha').querySelector('[data-slot="desc-line-name"] [data-ink="primary"]')?.textContent).toBe('grace')
 })
 
 it('a key-only agent hands its Sign in to the page that has a field, and a pending one waits', async () => {
@@ -1250,7 +1256,7 @@ it('accounts, gateways and unanswered slots share one unwrapped face slot', asyn
   }
   expect(records[0]?.querySelector('[data-slot="row-face"] [data-shape="round"]')).not.toBeNull()
   expect(records.find(row => row.textContent?.includes('Acme gateway'))?.querySelector('[data-slot="row-face"] [data-shape="face"]')).not.toBeNull()
-  expect(records.find(row => row.textContent?.includes('Not answered yet'))?.querySelector('[data-slot="row-face"] [data-shape="face"]')).not.toBeNull()
+  expect(records.find(row => row.textContent?.includes('Not checked yet'))?.querySelector('[data-slot="row-face"] [data-shape="face"]')).not.toBeNull()
 })
 
 it('removes a gateway immediately and labels the menu action Remove', async () => {
@@ -1260,8 +1266,10 @@ it('removes a gateway immediately and labels the menu action Remove', async () =
   await act(async () => line('Alpha').click())
   const trigger = container.querySelector<HTMLButtonElement>('button[aria-label^="Acme gateway actions"]')!
   await act(async () => trigger.click())
-  const item = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
-  expect(item.textContent).toBe('Remove')
+  // It sits in the account order too, so its menu leads with the moves.
+  const items = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items.map((entry) => entry.textContent)).toEqual(['Move up', 'Move down', 'Remove'])
+  const item = items[2]!
   await act(async () => item.click())
   expect(removeAccount).toHaveBeenCalledWith('alpha#3')
   expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
@@ -1370,8 +1378,12 @@ it('a runtime page keeps its presentation mark in the first body row', async () 
   await mountList()
   await act(async () => line('Alpha').click())
   expect(container.querySelector('[data-topbar-title]')).toBeNull()
-  expect(container.querySelector('[data-slot="rows"] [data-slot="row-title"]')?.textContent).toBe('Alpha')
-  expect(container.querySelector('[data-slot="toolbar"] svg[width="16"]')).not.toBeNull()
+  // The mark is the first row's face now, beside the name and its build,
+  // rather than a second mark in the toolbar beside Back.
+  const head = container.querySelector('[data-slot="rows"] [data-slot="row-title"]')
+  expect(head?.querySelector('[data-slot="runtime-name"]')?.textContent).toBe('Alpha')
+  expect(head?.closest('[data-slot="rows"]')?.querySelector('[data-slot="row-face"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="toolbar"] svg[width="16"]')).toBeNull()
   expect(container.querySelector('[data-topbar-mark]')).toBeNull()
 })
 
@@ -1523,4 +1535,168 @@ it.each([false, true])('offers a gateway only when its slot declares gateways (%
   await act(async () => line('Agent').click())
   expect(Boolean(button('Add gateway account'))).toBe(gateways)
   expect(button('Add account')).toBeDefined()
+})
+
+it('a gateway keeps its place in the order and moves like any account', async () => {
+  const setAccountPool = vi.fn()
+  const gateway = runtime({
+    id: 'alpha#3',
+    name: 'Alpha',
+    presentation: { name: 'Alpha' },
+    slot: { agent: 'alpha', home: '/tmp/alpha-3', removable: true, canAdd: true, gateway: { name: 'Acme gateway', endpoint: 'https://gw.acme.dev' } },
+  })
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({
+    runtimes: [ROSTER.runtimes[0]!, gateway, ...ROSTER.runtimes.slice(2)],
+    accountsByRuntime: accounts,
+    accountPools: { alpha: { order: ['alpha#3', 'alpha'] } },
+    store: { setAccountPool, limitsFor: async () => null },
+  })
+  // The agent's summary on the list keeps the same order.
+  const summary = [...line('Alpha').querySelectorAll('[data-slot="desc-line-name"]')].map((node) => node.textContent)
+  expect(summary.slice(0, 2)).toEqual(['Acme gateway', 'ada'])
+  await act(async () => line('Alpha').click())
+  const titles = [...container.querySelectorAll('[data-kind="record"] [data-slot="row-title"]')].map((node) => node.textContent ?? '')
+  expect(titles.slice(0, 2).map((title) => title.replace(/Gateway|Default/g, ''))).toEqual(['Acme gateway', 'ada'])
+
+  // The account under the gateway moves up past it, as drawn.
+  const menu = container.querySelector<HTMLButtonElement>('[aria-label="ada actions"]')!
+  await act(async () => menu.click())
+  const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items.map((item) => item.textContent)).toEqual(['Move up', 'Move down'])
+  await act(async () => items[0]!.click())
+  expect(setAccountPool).toHaveBeenCalledWith('alpha', { order: ['alpha', 'alpha#3'] })
+})
+
+it('an agent with two accounts keeps them in an order, with a rule for running out', async () => {
+  const setAccountPool = vi.fn()
+  await mountList({ accountPools: { alpha: { order: ['alpha#2', 'alpha'] } }, store: { setAccountPool } })
+  // The list names them in the order new sessions use them.
+  expect([...line('Alpha').querySelectorAll('[data-slot="desc-line-name"]')].map((node) => node.textContent)).toEqual(['grace', 'ada'])
+  await act(async () => line('Alpha').click())
+
+  const titles = [...container.querySelectorAll('[data-kind="record"] [data-slot="row-title"]')].map((node) => node.textContent ?? '')
+  expect(titles.slice(0, 2).map((title) => title.replace('Default', ''))).toEqual(['grace', 'ada'])
+
+  // The first account cannot move up; moving it down puts it second.
+  const menu = container.querySelector<HTMLButtonElement>('[aria-label="grace actions"]')!
+  await act(async () => menu.click())
+  const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+  expect(items.map((item) => item.textContent)).toEqual(['Move up', 'Move down'])
+  expect(items[0]!.getAttribute('aria-disabled')).toBe('true')
+  await act(async () => items[1]!.click())
+  expect(setAccountPool).toHaveBeenCalledWith('alpha', { order: ['alpha', 'alpha#2'] })
+
+  const rule = container.querySelector<HTMLSelectElement>('select[aria-label="When an account runs out"]')!
+  expect(rule.value).toBe('ask')
+  await act(async () => {
+    rule.value = 'next'
+    rule.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(setAccountPool).toHaveBeenLastCalledWith('alpha', { whenOut: 'next' })
+})
+
+it('an agent with one account has no order and no rule to set', async () => {
+  await mountList()
+  await act(async () => line('Beta').click())
+  expect(container.querySelector('select[aria-label="When an account runs out"]')).toBeNull()
+  expect(container.querySelector('[aria-label="API key actions"]')).toBeNull()
+})
+
+it('two identities one runtime reports are one place in the queue, with no order or rule to set', async () => {
+  await mountList({
+    accountsByRuntime: {
+      ...ROSTER.accountsByRuntime,
+      beta: signedIn([{ kind: 'agent', label: 'Jane Doe' }, { kind: 'externalKey', label: 'API key' }], ['apiKey']),
+    },
+  })
+  await act(async () => line('Beta').click())
+  expect(container.querySelector('select[aria-label="When an account runs out"]')).toBeNull()
+  expect(document.body.textContent).not.toContain('Move up')
+})
+
+it('an identity with no report of its own does not borrow another identity\'s standing', async () => {
+  await mountList({
+    accountsByRuntime: {
+      ...ROSTER.accountsByRuntime,
+      beta: signedIn([{ kind: 'agent', label: 'Jane Doe' }, { kind: 'externalKey', label: 'API key' }], ['apiKey']),
+    },
+    usage: [{ runtime: 'beta', account: 'Jane Doe', plan: null, lanes: [{ label: 'weekly', usedPercent: 100 }], reached: 'weekly' }] as never,
+  })
+  const lines = [...line('Beta').querySelectorAll('[data-slot="desc-line"]')].map((node) => node.textContent ?? '')
+  expect(lines.find((text) => text.includes('Jane Doe'))).toMatch(/Limit/)
+  expect(lines.find((text) => text.includes('API key'))).not.toMatch(/Limit|left/)
+})
+
+it('a runtime page reads in the order it is used: accounts first, the build after', async () => {
+  await mountList({ runtimes: ROSTER.runtimes.map((entry) => entry.id === 'alpha' ? { ...entry, update: { version: '1.3.0', command: 'npm i -g alpha' } } : entry) })
+  await act(async () => line('Alpha').click())
+  expect(container.querySelector('[data-slot="rows"] [data-slot="row-title"]')?.textContent).toContain('1.3.0 available')
+  const heads = [...container.querySelectorAll('[data-slot="section-name"]')].map((node) => node.textContent ?? '')
+  const at = (name: string) => heads.findIndex((head) => head.startsWith(name))
+  // New sessions draws nothing for an agent with no defaults to offer, as here.
+  expect(heads).toEqual(['Accounts', 'Update', 'Process resources'])
+  expect(at('Accounts')).toBe(0)
+})
+
+it('names only, when account addresses are hidden', async () => {
+  await mountList({ hideAccountAddresses: true, store: { limitsFor: async () => null } })
+  expect(line('Alpha').textContent).not.toContain('@')
+  expect([...line('Alpha').querySelectorAll('[data-slot="desc-line"]')].map((node) => node.getAttribute('title'))).toEqual([null, null])
+  await act(async () => line('Alpha').click())
+  const accounts = [...container.querySelectorAll('[data-kind="record"]')].filter((row) => row.textContent?.includes('ada') || row.textContent?.includes('grace'))
+  expect(accounts.map((row) => row.textContent).join(' ')).not.toContain('@')
+  // Nor on the account's own page, where a hover is as public as the text.
+  await act(async () => (accounts.find((row) => row.textContent?.includes('ada')) as HTMLElement).click())
+  expect(container.textContent).toContain('Signed in as')
+  expect(container.textContent).not.toContain('@')
+  expect([...container.querySelectorAll('[title]')].map((node) => node.getAttribute('title')).join(' ')).not.toContain('@')
+})
+
+it('a nickname typed as an address is shown by name while addresses are hidden, and is not rewritten', async () => {
+  const setAccountPrefs = vi.fn()
+  const ada = ROSTER.accountsByRuntime.alpha.accounts[0]!
+  await mountList({
+    hideAccountAddresses: true,
+    accountPrefs: { [accountKey('alpha' as never, ada)]: { nickname: 'work@acme.dev' } },
+    store: { limitsFor: async () => null, setAccountPrefs },
+  })
+  expect(line('Alpha').textContent).not.toContain('@')
+  await act(async () => line('Alpha').click())
+  const row = [...container.querySelectorAll<HTMLElement>('[data-kind="record"]')].find((node) => node.textContent?.includes('work'))!
+  await act(async () => row.click())
+  const field = container.querySelector<HTMLInputElement>('input[aria-label="Account name"]')!
+  expect(field.value).toBe('work')
+  // Looking is not editing: leaving the field untouched saves nothing.
+  await act(async () => { field.focus(); field.blur() })
+  expect(setAccountPrefs).not.toHaveBeenCalled()
+})
+
+it('a gateway that new sessions run on says Default beside Gateway', async () => {
+  const gateway = runtime({
+    id: 'alpha#3',
+    name: 'Alpha',
+    presentation: { name: 'Alpha' },
+    slot: { agent: 'alpha', home: '/tmp/alpha-3', removable: true, canAdd: true, gateway: { name: 'Acme gateway', endpoint: 'https://gw.acme.dev' } },
+  })
+  const accounts = { ...ROSTER.accountsByRuntime }
+  delete (accounts as Record<string, unknown>)['alpha#2']
+  await mountList({ activeRuntime: 'alpha#3' as never, runtimes: [ROSTER.runtimes[0]!, gateway, ...ROSTER.runtimes.slice(2)], accountsByRuntime: accounts })
+  await act(async () => line('Alpha').click())
+  const chipsOf = (text: string) =>
+    [...container.querySelectorAll('[data-kind="record"]')]
+      .find((row) => row.textContent?.includes(text))
+      ?.querySelector('[data-slot="row-title-chip"]')?.textContent
+  expect(chipsOf('Acme gateway')).toBe('GatewayDefault')
+  expect(chipsOf('ada')).toBeFalsy()
+})
+
+it('an agent page is the default while new sessions run as any of its accounts', async () => {
+  await mountList({ activeRuntime: 'alpha#2' as never })
+  await act(async () => line('Alpha').click())
+  // Not an offer to switch to the account that is out: which account is
+  // the Accounts section's to say.
+  expect(container.textContent).not.toContain('Use for new sessions')
+  expect(container.textContent).toContain('Default')
 })

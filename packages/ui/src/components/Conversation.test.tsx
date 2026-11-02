@@ -957,18 +957,18 @@ it.each(['starting', 'failed', 'ready'] as const)('a %s draft explains runtime r
   const send = container.querySelector<HTMLButtonElement>('[aria-label="Send"]')!
   const tools = container.querySelector('[data-slot="composer-tools"]')!
   if (state === 'ready') {
-    expect(tools.textContent).not.toContain('Unavailable')
-    expect(tools.textContent).not.toContain('Not answered yet')
+    expect(tools.textContent).not.toContain('Not working')
+    expect(tools.textContent).not.toContain('Not checked yet')
     expect(send.title).toBe('')
   } else {
     expect(send.disabled).toBe(true)
     expect(tools.querySelector(`[data-slot="chip"][data-state="${state === 'failed' ? 'broken' : 'starting'}"]`)?.textContent)
-      .toBe(state === 'failed' ? 'Unavailable' : 'Starting')
+      .toBe(state === 'failed' ? 'Not working' : 'Starting')
     expect(send.title).toBe(state === 'failed'
       ? 'The agent failed its version check. Choose a working installation in Settings.'
       : 'Waiting for the runtime to start')
     if (state === 'failed') {
-      const link = [...tools.querySelectorAll('button')].find(button => button.textContent === 'Unavailable')!
+      const link = [...tools.querySelectorAll('button')].find(button => button.textContent === 'Not working')!
       expect(link.getAttribute('aria-label')).toBe('Open runtime Settings')
       act(() => link.click())
       expect(settings).toHaveBeenCalledWith('runtimes', 'codex')

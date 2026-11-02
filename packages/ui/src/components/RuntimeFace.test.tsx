@@ -35,3 +35,11 @@ it('keeps smaller runtime faces tinted and named, with no initial badge', () => 
     expect(markup).toContain('amy@example.com')
   }
 })
+
+it('leaves the address out of its hover while addresses are hidden', () => {
+  const hidden = { ...snapshot, hideAccountAddresses: true }
+  const hiddenStore = { getSnapshot: () => hidden, subscribe: () => () => {} } as unknown as AppStore
+  const markup = renderToStaticMarkup(<StoreProvider store={hiddenStore}><RuntimeFace runtime={two} size="sm" /></StoreProvider>)
+  expect(markup).toContain('title="Alpha · amy"')
+  expect(markup).not.toContain('@')
+})

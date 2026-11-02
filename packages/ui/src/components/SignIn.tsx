@@ -9,7 +9,7 @@ import type {
   RuntimeInfo,
 } from '@harnessdesk/protocol'
 
-import { credentialHome } from '../lib/accounts'
+import { credentialHome, shownAccountLabel } from '../lib/accounts'
 import {
   registryAddLabel,
   registryMatches,
@@ -46,6 +46,7 @@ import {
   DialogBody,
   DialogContent,
   DialogHead,
+  modalSurfaceClass,
   DialogRoot,
   Dot,
   Field,
@@ -121,8 +122,8 @@ interface Row {
 const STATUS_LABEL: Record<Status, string> = {
   in: 'Signed in',
   key: 'Key stored',
-  out: 'Not connected',
-  manual: 'Not connected',
+  out: 'Sign in needed',
+  manual: 'Sign in needed',
   none: 'No account',
   asking: 'Starting…',
   unchecked: 'Not checked yet',
@@ -156,7 +157,7 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
       info,
       status: kind,
       state,
-      detail: key ? account.planType || account.label : account.label || STATUS_LABEL[kind],
+      detail: (key && account.planType) || (account.label && shownAccountLabel(info.id, account.label, snapshot)) || STATUS_LABEL[kind],
       methods,
       pending,
     }
@@ -189,7 +190,20 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
   return { info, status: 'none', state: 'ready', detail: 'Runs without one', methods, pending }
 }
 
-export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () => void }) => {
+export const SignIn = ({
+  runtime,
+  roster = runtime === undefined,
+  onClose,
+}: {
+  runtime?: RuntimeId
+  /**
+   * Whether the roster of every runtime stands beside the card. By default
+   * only when no runtime was named: opened from a runtime's row, page or
+   * notice, the sheet is about that one.
+   */
+  roster?: boolean
+  onClose: () => void
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const embedded = useContext(SignInMode) === 'embedded'
@@ -235,6 +249,13 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
   const row = fromRegistry
     ? null
     : rows.find((entry) => entry.info.id === selected) ?? rows[0] ?? null
+  /* Opened for one runtime that is here, it is about that runtime: the
+     roster beside it was a second copy of the Runtimes list, with its own
+     words for the same states, around the one row the person came for.
+     Opened without one — "Add an account…", the first run — it keeps the
+     roster, because choosing is the job. An account added from here is one
+     of its siblings, so moving to it stays in the same sheet. */
+  const one = !roster && runtime !== undefined && rows.some((entry) => entry.info.id === runtime)
   const nextUp = rows.find((entry) => entry.status === 'out' && entry.info.id !== row?.info.id)
 
   useEffect(() => {
@@ -246,9 +267,145 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
   }
 
   const groups = [
-    { name: 'Not connected', rows: rows.filter((entry) => !isConnected(entry)) },
-    { name: 'Connected', rows: rows.filter(isConnected) },
+    { name: 'Sign in needed', rows: rows.filter(needsSignIn) },
+    { name: 'Not ready', rows: rows.filter((entry) => !isConnected(entry) && !needsSignIn(entry)) },
+    { name: 'Signed in', rows: rows.filter(isConnected) },
   ].filter((group) => group.rows.length > 0)
+
+  const rail = (
+    <SignInRail aria-label="Runtimes" className={own.rail}>
+      <PaneColumn inset="rail" data-slot="sign-in-list" className={own.railList}>
+        {groups.map((group) => (
+          <div key={group.name} role="group" aria-label={group.name} className={own.group}>
+            <SectionHead level="label"
+              name={group.name}
+              action={<Text role="meta" numeric>{group.rows.length}</Text>}
+            />
+            <ListRows size="sm">
+            {group.rows.map((entry) => (
+              <ListRow
+                key={entry.info.id}
+                as="button"
+                size="sm"
+                interactive
+                selected={entry.info.id === row?.info.id}
+                onClick={() => setSelected(entry.info.id)}
+                lead={<RuntimeMark runtime={entry.info} size={16} />}
+                title={<Text role="row">{entry.info.presentation.name}</Text>}
+                subtitle={railLine(entry)}
+                trail={entry.pending ? (
+                  <Spinner size="sm" tone="brand" aria-hidden="true" />
+                ) : entry.state === 'limit' || entry.state === 'broken' ? (
+                  <Dot state={entry.state} />
+                ) : undefined}
+              />
+            ))}
+            </ListRows>
+          </div>
+        ))}
+
+        {registryRows.length > 0 && (
+          <div role="group" aria-label="From the ACP registry" className={own.group}>
+            <SectionHead level="label" name="From the ACP registry" />
+            {/* Two agents need no finding aid; forty do. */}
+            {registryRows.length > 8 && (
+              <Search
+                className={own.railFilter}
+                value={registryQuery}
+                placeholder="Search the registry"
+                label="Search the ACP registry"
+                onChange={setRegistryQuery}
+              />
+            )}
+            <ListRows size="sm">
+            {listedRegistry.map((agent) => (
+              <ListRow
+                key={agent.id}
+                as="button"
+                size="sm"
+                interactive
+                selected={agent.id === fromRegistry?.id}
+                onClick={() => setSelected(agent.id)}
+                lead={<RuntimeMark
+                    runtime={{ id: agent.id, presentation: { name: agent.name } }}
+                    size={16}
+                  />}
+                title={<Text role="row" ink={agent.available ? 'primary' : 'muted'}>{agent.name}</Text>}
+                subtitle={agent.run === 'binary' && agent.integrity === 'none' && !agent.installed
+                  ? <Text role="meta">Unverified</Text>
+                  : undefined}
+              />
+            ))}
+            </ListRows>
+            {listedRegistry.length === 0 && (
+              <Text as="div" role="meta" className={own.railNote}>Nothing in the registry matches.</Text>
+            )}
+          </div>
+        )}
+        {registryRows.length === 0 && registry?.unavailable && (
+          <div role="group" aria-label="From the ACP registry" className={own.group}>
+            <SectionHead level="label" name="From the ACP registry" />
+            <Text as="div" role="meta" className={own.railNote}>{registry.unavailable}</Text>
+          </div>
+        )}
+      </PaneColumn>
+
+      <SectionFooter>
+        <Text as="div" role="muted">
+          Credentials stay on this machine — in each runtime's own store, or here
+          under {snapshot.credentialProtection} for the keys you paste.
+        </Text>
+      </SectionFooter>
+    </SignInRail>
+  )
+  // The work beside the roster is the dialog's body: a reading body, inset
+  // the dialog's step, that scrolls on its own. The card inside it is one
+  // column, centred, the width of a form. Opened for one runtime, it is the
+  // whole sheet, on the surface every other dialog wears.
+  const card = (
+    <DialogBody layout="reading" className={own.detail}>
+      <div className={own.card} data-slot="sign-in-card">
+        {fromRegistry ? (
+          <RegistryAgent
+            key={fromRegistry.id}
+            agent={fromRegistry}
+            onAdded={(added) => setSelected(added)}
+          />
+        ) : row ? (
+          <Agent key={row.info.id} row={row} onSelect={setSelected} />
+        ) : (
+          <Note>No runtimes are registered yet.</Note>
+        )}
+
+        {row && isConnected(row) && !one ? (
+          <Alert tone="neutral" variant="soft" className={own.next}>
+            {/* The mark belongs to the alert's headline, and wears its ink. */}
+            <Text role="subject" className={own.nextMark}>
+              <RuntimeMark runtime={(nextUp ?? row).info} size={20} />
+            </Text>
+            <AlertContent className={own.nextText}>
+              <AlertTitle>
+                {nextUp
+                  ? `${nextUp.info.presentation.name} is still waiting`
+                  : 'Everything else is already connected'}
+              </AlertTitle>
+              <AlertDescription>
+                {nextUp
+                  ? 'One more sign-in and every runtime here can take a turn.'
+                  : 'Nothing left to sign in — close this and start a conversation.'}
+              </AlertDescription>
+            </AlertContent>
+            <Button
+              variant="default"
+              onClick={() => (nextUp ? setSelected(nextUp.info.id) : close())}
+            >
+              {nextUp ? 'Sign in' : 'Done'}
+            </Button>
+          </Alert>
+        ) : null}
+      </div>
+    </DialogBody>
+  )
 
   return (
     /* Embedded — a catalogue specimen — it is not modal and takes no focus,
@@ -257,149 +414,23 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
     <DialogRoot open modal={!embedded} onOpenChange={(open) => { if (!open) close() }}>
       <DialogContent
         bleed
-        className={own.dialog}
+        className={one ? modalSurfaceClass('xl') : own.dialog}
         portalled={false}
-        aria-label="Sign in"
+        aria-label={one && row ? `Sign in to ${row.info.presentation.name}` : 'Sign in'}
         showCloseButton={false}
         {...(embedded ? { initialFocus: false, finalFocus: false } : {})}
       >
         {/* The head every dialog wears: its name, one inset, the rule under
             it and the way out. Closing through it is the root's own close. */}
-        <DialogHead title="Sign in" />
+        <DialogHead title={one && row ? `Sign in to ${row.info.presentation.name}` : 'Sign in'} />
 
-        <div className={own.split}>
-          {/* The sign-in roster stays below the dialog's own head. */}
-          <SignInRail aria-label="Runtimes" className={own.rail}>
-            <PaneColumn inset="rail" data-slot="sign-in-list" className={own.railList}>
-              {groups.map((group) => (
-                <div key={group.name} role="group" aria-label={group.name} className={own.group}>
-                  <SectionHead level="label"
-                    name={group.name}
-                    action={<Text role="meta" numeric>{group.rows.length}</Text>}
-                  />
-                  <ListRows size="sm">
-                  {group.rows.map((entry) => (
-                    <ListRow
-                      key={entry.info.id}
-                      as="button"
-                      size="sm"
-                      interactive
-                      selected={entry.info.id === row?.info.id}
-                      onClick={() => setSelected(entry.info.id)}
-                      lead={<RuntimeMark runtime={entry.info} size={16} />}
-                      title={<Text role="row">{entry.info.presentation.name}</Text>}
-                      subtitle={railLine(entry)}
-                      trail={entry.pending ? (
-                        <Spinner size="sm" tone="brand" aria-hidden="true" />
-                      ) : entry.state === 'limit' || entry.state === 'broken' ? (
-                        <Dot state={entry.state} />
-                      ) : undefined}
-                    />
-                  ))}
-                  </ListRows>
-                </div>
-              ))}
-
-              {registryRows.length > 0 && (
-                <div role="group" aria-label="From the ACP registry" className={own.group}>
-                  <SectionHead level="label" name="From the ACP registry" />
-                  {/* Two agents need no finding aid; forty do. */}
-                  {registryRows.length > 8 && (
-                    <Search
-                      className={own.railFilter}
-                      value={registryQuery}
-                      placeholder="Search the registry"
-                      label="Search the ACP registry"
-                      onChange={setRegistryQuery}
-                    />
-                  )}
-                  <ListRows size="sm">
-                  {listedRegistry.map((agent) => (
-                    <ListRow
-                      key={agent.id}
-                      as="button"
-                      size="sm"
-                      interactive
-                      selected={agent.id === fromRegistry?.id}
-                      onClick={() => setSelected(agent.id)}
-                      lead={<RuntimeMark
-                          runtime={{ id: agent.id, presentation: { name: agent.name } }}
-                          size={16}
-                        />}
-                      title={<Text role="row" ink={agent.available ? 'primary' : 'muted'}>{agent.name}</Text>}
-                      subtitle={agent.run === 'binary' && agent.integrity === 'none' && !agent.installed
-                        ? <Text role="meta">Unverified</Text>
-                        : undefined}
-                    />
-                  ))}
-                  </ListRows>
-                  {listedRegistry.length === 0 && (
-                    <Text as="div" role="meta" className={own.railNote}>Nothing in the registry matches.</Text>
-                  )}
-                </div>
-              )}
-              {registryRows.length === 0 && registry?.unavailable && (
-                <div role="group" aria-label="From the ACP registry" className={own.group}>
-                  <SectionHead level="label" name="From the ACP registry" />
-                  <Text as="div" role="meta" className={own.railNote}>{registry.unavailable}</Text>
-                </div>
-              )}
-            </PaneColumn>
-
-            <SectionFooter>
-              <Text as="div" role="muted">
-                Credentials stay on this machine — in each runtime's own store, or here
-                under {snapshot.credentialProtection} for the keys you paste.
-              </Text>
-            </SectionFooter>
-          </SignInRail>
-
-          {/* The work beside the roster is the dialog's body: a reading
-              body, inset the dialog's step, that scrolls on its own. The
-              card inside it is one column, centred, the width of a form. */}
-          <DialogBody layout="reading" className={own.detail}>
-            <div className={own.card} data-slot="sign-in-card">
-              {fromRegistry ? (
-                <RegistryAgent
-                  key={fromRegistry.id}
-                  agent={fromRegistry}
-                  onAdded={(added) => setSelected(added)}
-                />
-              ) : row ? (
-                <Agent key={row.info.id} row={row} onSelect={setSelected} />
-              ) : (
-                <Note>No runtimes are registered yet.</Note>
-              )}
-
-              {row && isConnected(row) ? (
-                <Alert tone="neutral" variant="soft" className={own.next}>
-                  {/* The mark belongs to the alert's headline, and wears its ink. */}
-                  <Text role="subject" className={own.nextMark}>
-                    <RuntimeMark runtime={(nextUp ?? row).info} size={20} />
-                  </Text>
-                  <AlertContent className={own.nextText}>
-                    <AlertTitle>
-                      {nextUp
-                        ? `${nextUp.info.presentation.name} is still waiting`
-                        : 'Everything else is already connected'}
-                    </AlertTitle>
-                    <AlertDescription>
-                      {nextUp
-                        ? 'One more sign-in and every runtime here can take a turn.'
-                        : 'Nothing left to sign in — close this and start a conversation.'}
-                    </AlertDescription>
-                  </AlertContent>
-                  <Button
-                    variant="default"
-                    onClick={() => (nextUp ? setSelected(nextUp.info.id) : close())}
-                  >
-                    {nextUp ? 'Sign in' : 'Done'}
-                  </Button>
-                </Alert>
-              ) : null}
-            </div>
-          </DialogBody>
-        </div>
+        {one ? card : (
+          <div className={own.split}>
+            {/* The sign-in roster stays below the dialog's own head. */}
+            {rail}
+            {card}
+          </div>
+        )}
       </DialogContent>
     </DialogRoot>
   )
@@ -413,11 +444,22 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
  * are taken elsewhere is signed out all the same.
  */
 const isConnected = (row: Row): boolean =>
+  // A restart keeps the account it had, so health says it is starting
+  // before the status does.
+  row.state !== 'starting' &&
   row.status !== 'out' && row.status !== 'asking' && row.status !== 'manual' && row.status !== 'unchecked'
 
 /**
+ * Signed out, as far as anyone knows. One still starting, not checked yet, or
+ * that did not start is not connected either, but nothing says its sign-in is
+ * missing, so it waits under "Not ready", where its line says which.
+ */
+const needsSignIn = (row: Row): boolean =>
+  row.state !== 'broken' && row.state !== 'starting' && (row.status === 'out' || row.status === 'manual')
+
+/**
  * A rail row's second line: only what its group does not already say. Under
- * "Not connected", a plain "Not connected" on every row is the group's own
+ * "Sign in needed", a plain "Sign in needed" on every row is the group's own
  * sentence repeated, so the line is kept for what differs — a sign-in under
  * way, an agent starting, one that did not start, a way in taken elsewhere.
  */
@@ -425,11 +467,12 @@ const railLine = (row: Row): ReactNode => {
   if (row.pending) return <Text role="meta" tone="brand">Waiting…</Text>
   if (!isConnected(row)) {
     if (row.state === 'broken') return <Text role="meta" tone="danger">Did not start</Text>
+    if (row.state === 'starting') return <Text role="meta">{STATUS_LABEL.asking}</Text>
     return row.status === 'asking' || row.status === 'manual' || row.status === 'unchecked'
       ? <Text role="meta">{row.detail}</Text>
       : undefined
   }
-  // Nor under "Connected": an account with no name of its own says only that
+  // Nor under "Signed in": an account with no name of its own says only that
   // it is signed in, which is the group's word again.
   if (row.detail === STATUS_LABEL.in) return undefined
   return (
@@ -483,8 +526,8 @@ const METHOD_ICON: Record<AuthMethod['flow'], typeof KeyIcon> = {
  * — so the email is only worth repeating here when the label is something
  * else, and the plan is what a person actually wants beside it.
  */
-const connectedHint = (account: Account): string | undefined => {
-  const extra = account.email && account.email !== account.label ? account.email : null
+const connectedHint = (account: Account, hide: boolean): string | undefined => {
+  const extra = !hide && account.email && account.email !== account.label ? account.email : null
   return [account.planType, extra].filter(Boolean).join(' · ') || undefined
 }
 
@@ -532,7 +575,7 @@ const peerAccount = (info: RuntimeInfo, snapshot: AppSnapshot): string | null =>
     if (other.slot?.agent !== agent && other.id !== agent) continue
     const account = snapshot.accountsByRuntime[other.id]?.accounts[0]
     const name = account?.email ?? account?.label
-    if (name) return name
+    if (name) return shownAccountLabel(other.id, name, snapshot)
   }
   return null
 }
@@ -733,8 +776,8 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
             <SettingsRow
               data-slot="sign-in-account"
               mark={<StateMark tone="success"><CheckIcon size={14} /></StateMark>}
-              title={account.label || 'Already connected'}
-              {...(connectedHint(account) ? { desc: connectedHint(account) } : {})}
+              title={(account.label && shownAccountLabel(info.id, account.label, snapshot)) || 'Already connected'}
+              {...(connectedHint(account, snapshot.hideAccountAddresses) ? { desc: connectedHint(account, snapshot.hideAccountAddresses) } : {})}
             />
           </Rows>
           <SignOut

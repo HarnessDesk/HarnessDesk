@@ -1049,7 +1049,7 @@ export const AgentControl = () => {
   // Two accounts of one agent are two entries here, and the agent's name
   // names neither on its own — so the account rides along when there is one.
   const label = (entry: RuntimeInfo): string =>
-    runtimeLabel(entry, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)
+    runtimeLabel(entry, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs, snapshot.hideAccountAddresses)
 
   return (
     <ComposerTrack name="agent" folded={folded} tight={tight}>

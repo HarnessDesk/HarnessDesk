@@ -2,7 +2,7 @@ import type { AccountStatus, RuntimeHealth, RuntimeId, RuntimeInfo, UsageReport 
 
 import { brandForRuntime } from './brands'
 import type { TrayAgent, TraySummary } from './desktop'
-import { prefsForUsage } from './accounts'
+import { prefsForUsage, shownAccountLabel } from './accounts'
 import { READINESS_LABEL, readinessOf } from './readiness'
 import { describeReport, workingAccount, type UsagePreference } from './usage'
 
@@ -24,7 +24,10 @@ export interface TrayInput {
   readonly health: RuntimeHealth | null
   readonly activeRuntime: RuntimeId | null
   readonly now: number
+  /** Settings › General › Hide account addresses: accounts by name only. */
+  readonly hideAddresses?: boolean
 }
+
 
 /**
  * A name says which agent only while it is the agent's alone.
@@ -72,7 +75,9 @@ const agentOf = (info: RuntimeInfo, input: TrayInput, names: ReadonlyMap<string,
   // The account goes in front of the em dash, where the row says who it is —
   // the same side of the sentence the strip puts it on, and the side a menu
   // is read from. Nothing to say when the reading carries no account.
-  const account = (names.get(name) ?? 0) > 1 ? (report?.account ?? null) : null
+  const account = (names.get(name) ?? 0) > 1 && report?.account
+    ? shownAccountLabel(report.runtime, report.account, { ...input, hideAccountAddresses: input.hideAddresses })
+    : null
   return {
     id: info.id,
     name: account === null ? name : `${name} · ${account}`,

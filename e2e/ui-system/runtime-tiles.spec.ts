@@ -106,7 +106,7 @@ for (const theme of ['light', 'dark'] as const) {
     else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme')
     const row = (name: string) => page.locator('[data-slot="agent-row"]').filter({ has: page.locator('[data-slot="runtime-name"]', { hasText: name }) })
     await row('Codex').click()
-    await expect(page.getByText('Not answered yet', { exact: true })).toBeVisible()
+    await expect(page.getByText('Not checked yet', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Add gateway account…' })).toBeVisible()
     await page.getByRole('button', { name: 'Add gateway account…' }).click()
     await expect(page.getByRole('dialog', { name: 'Add a gateway account' })).toBeVisible()
