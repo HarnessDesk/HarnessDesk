@@ -67,9 +67,10 @@ const reportWith = (
   },
 })
 
-const storeWith = (report: UsageReport): AppStore => {
+const storeWith = (report: UsageReport, extra: Partial<AppSnapshot> = {}): AppStore => {
   const snapshot = {
     ...emptySnapshot(),
+    ...extra,
     status: 'open',
     activeRuntime: antigravity.id,
     runtimes: [antigravity],
@@ -103,10 +104,10 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-const render = async (report: UsageReport, scope: RuntimeInfo['id'] | null = null): Promise<void> => {
+const render = async (report: UsageReport, scope: RuntimeInfo['id'] | null = null, extra: Partial<AppSnapshot> = {}): Promise<void> => {
   await act(async () =>
     root.render(
-      <StoreProvider store={storeWith(report)}>
+      <StoreProvider store={storeWith(report, extra)}>
         {/* Plans draws every account's card unconditionally, the way this
             whole page used to; Overview limits its cards to what needs
             attention first, which is a different (and separately tested)
@@ -127,8 +128,8 @@ const expandRow = async (name: string): Promise<void> => {
   await act(async () => row?.click())
 }
 
-const card = async (report: UsageReport): Promise<string> => {
-  await render(report)
+const card = async (report: UsageReport, extra: Partial<AppSnapshot> = {}): Promise<string> => {
+  await render(report, null, extra)
   await expandRow('Antigravity')
   const article = [...document.querySelectorAll('article[data-slot="card"]')].find((node) =>
     node.textContent?.includes('Antigravity'),
@@ -209,6 +210,17 @@ describe("another sign-in's figures", () => {
         usage: [spent],
       }),
     ).toBe('ready')
+  })
+
+  it('name that sign-in without its address while addresses are hidden', async () => {
+    const spent = reportWith(
+      [group('gemini-weekly', 'Gemini Models', 100), group('3p-weekly', 'Claude and GPT models', 100)],
+      'gemini-weekly',
+    )
+    const named = { ...spent, unverified: { ...spent.unverified!, whose: 'olivia@acme.dev' } } as UsageReport
+    const text = await card(named, { hideAccountAddresses: true })
+    expect(text).not.toContain('@')
+    expect(text).toContain('Everything is spent on the olivia —')
   })
 
   it('stay off the header’s account menu, which names the agent only (#769, review round 2)', async () => {

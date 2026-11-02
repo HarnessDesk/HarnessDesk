@@ -113,6 +113,17 @@ describe('the account pool', () => {
     await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-2'))
   })
 
+  it('waits for a sibling that is still starting to be ready', async () => {
+    preferences = { activeRuntime: 'codex', accountPools: { codex: { whenOut: 'next' } } }
+    await store.loadPreferences()
+    const health = (state: string) => ({ method: 'runtime/healthChanged', params: { runtime: runtimeId('codex-2'), health: { state } } }) as unknown as WireNotification
+    push(health('starting'))
+    push({ method: 'usage/updated', params: { report: report(100, 'codex') } })
+    expect(store.getSnapshot().activeRuntime).toBe('codex')
+    push(health('ready'))
+    await vi.waitFor(() => expect(store.getSnapshot().activeRuntime).toBe('codex-2'))
+  })
+
   it('remembers a new order', async () => {
     store.setAccountPool(runtimeId('codex'), { order: [runtimeId('codex-2'), runtimeId('codex')] })
     expect(store.getSnapshot().accountPools['codex']).toEqual({ order: ['codex-2', 'codex'] })
