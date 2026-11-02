@@ -499,9 +499,22 @@ const AgentRow = ({
       ? snapshot.accountPrefs[accountKey(first.entry.id, first.account)]?.nickname?.trim() ||
         (first.account.anonymous ? 'Signed in' : shownIdentity(first.account, snapshot) ?? accountName(first.account, undefined, info.presentation.name))
       : gateways[0]!.slot!.gateway!.name
+  // One queue in the pool's order, gateways in their places, as the account
+  // page draws it.
+  const queue = ordered.flatMap((entry): { entry: RuntimeInfo; account: Account | null }[] =>
+    entry.slot?.gateway ? [{ entry, account: null }] : accounts.filter((row) => row.entry === entry),
+  )
   const lines = accounts.length + gateways.length > 1 ? (
     <DescLines>
-      {accounts.map(({ entry, account }) => {
+      {queue.map(({ entry, account }) => {
+        if (account === null) {
+          return (
+            <DescLine key={entry.id} name={entry.slot?.gateway?.name ?? entry.name}>
+              {snapshot.activeRuntime === entry.id && <Text role="meta" ink="muted">Default</Text>}
+              <Text role="meta" ink="muted">Gateway</Text>
+            </DescLine>
+          )
+        }
         const { key, blocked, left } = accountStanding(entry, account, snapshot)
         const name = accountName(account, snapshot.accountPrefs[key], entry.presentation.name)
         const identity = shownIdentity(account, snapshot)
@@ -523,11 +536,6 @@ const AgentRow = ({
           </DescLine>
         )
       })}
-      {gateways.map((entry) => (
-        <DescLine key={entry.id} name={entry.slot?.gateway?.name ?? entry.name}>
-          <Text role="meta" ink="muted">Gateway</Text>
-        </DescLine>
-      ))}
     </DescLines>
   ) : null
   const canSignIn = info.capabilities.account && (status?.signInMethods ?? []).some((method) => method.flow !== 'external')

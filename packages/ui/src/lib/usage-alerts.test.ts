@@ -215,6 +215,16 @@ describe('conditionFor', () => {
     expect(condition?.handoff?.runtime).toBe(id('codex-2'))
   })
 
+  it('offers the next sibling that is not out, however little room it has, as the pool would move', () => {
+    const reports = [
+      report('codex', [lane({ usedPercent: 100 })], { reached: 'weekly' }),
+      report('codex-2', [lane({ usedPercent: 90 })]),
+      report('claude', [lane({ usedPercent: 5 })]),
+    ]
+    const condition = conditionFor(id('codex'), reports, nameFor, NOON, { prefer: [id('codex'), id('codex-2')] })
+    expect(condition?.handoff?.runtime).toBe(id('codex-2'))
+  })
+
   it('offers the account after the spent one, wrapping, as the pool moves', () => {
     const reports = [
       report('codex', [lane({ usedPercent: 30 })]),

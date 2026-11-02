@@ -234,10 +234,11 @@ export const conditionFor = (
     .map((entry) => ({ entry, left: leftOn(entry) }))
     .filter((option): option is { entry: UsageReport; left: number } => option.left !== null && option.left >= 20)
     .sort((a, b) => b.left - a.left)
-  // A sibling with room, first in the pool's order. `prefer` names only
-  // accounts that could take a turn (`canTakeTurn`), so one with no report,
-  // or no figure yet, is still not out, which is enough for the same agent;
-  // a stranger agent has to show its room.
+  // The next sibling that is not out, in the pool's order — the account
+  // "Use the next account" would move to, so "Ask me" offers the same one.
+  // `prefer` names only accounts that could take a turn (`canTakeTurn`); one
+  // with no report, or little room, is still not out, which is enough for the
+  // same agent; a stranger agent has to show its room.
   // Searched from the account after this one, wrapping, as `nextInPool`
   // moves: with [A, B, C] and B spent, C is next and A comes after it.
   const order = pool.prefer ?? []
@@ -246,12 +247,7 @@ export const conditionFor = (
     .filter((id) => id !== runtime)
     .find((id) => {
       const own = reports.filter((entry) => entry.runtime === id)
-      if (own.length === 0) return true
-      if (own.every(isBlocked)) return false
-      return own.some((entry) => {
-        const left = leftOn(entry)
-        return left === null || left >= 20
-      })
+      return own.length === 0 || !own.every(isBlocked)
     })
   const best = sibling ?? alternatives[0]?.entry.runtime
   const handoff = pool.offer === false || !best ? null : { runtime: best, name: nameFor(best) }

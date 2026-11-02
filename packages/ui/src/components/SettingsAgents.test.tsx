@@ -1552,6 +1552,9 @@ it('a gateway keeps its place in the order and moves like any account', async ()
     accountPools: { alpha: { order: ['alpha#3', 'alpha'] } },
     store: { setAccountPool, limitsFor: async () => null },
   })
+  // The agent's summary on the list keeps the same order.
+  const summary = [...line('Alpha').querySelectorAll('[data-slot="desc-line-name"]')].map((node) => node.textContent)
+  expect(summary.slice(0, 2)).toEqual(['Acme gateway', 'ada'])
   await act(async () => line('Alpha').click())
   const titles = [...container.querySelectorAll('[data-kind="record"] [data-slot="row-title"]')].map((node) => node.textContent ?? '')
   expect(titles.slice(0, 2).map((title) => title.replace(/Gateway|Default/g, ''))).toEqual(['Acme gateway', 'ada'])
