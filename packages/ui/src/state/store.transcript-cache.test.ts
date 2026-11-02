@@ -1026,7 +1026,7 @@ it.each(['missing-fence', 'conflict', 'reconnect'] as const)('keeps an unloaded 
   expect(store.transcriptCacheVerified(runtime, id)).toBe(false)
 })
 
-it('runs opt-in pressure after a real pane close and unloads the oldest confirmed closed body', async () => {
+it('runs default pressure after a real pane close and unloads the oldest confirmed closed body', async () => {
   const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
   const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
   const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
@@ -1043,9 +1043,7 @@ it('runs opt-in pressure after a real pane close and unloads the oldest confirme
   for (let i = 0; i < 129; i++) handlers.onEvent(runtime, { type: 'session/started', session: body(sessionId(`pressure-${i}`)) })
   const opened = sessionId('pressure-128')
   expect(await store.openSession(opened, { runtime })).toBe(true)
-  expect(request.mock.calls.filter(([method]) => method === 'session/cache-snapshot')).toHaveLength(0)
-  const cache = store as unknown as { enableTranscriptCache(): void }
-  cache.enableTranscriptCache()
+  expect(store.transcriptCacheStats().enabled).toBe(true)
   store.closePane(store.getSnapshot().layout.focused)
   await vi.waitFor(() => { const unloaded = [...store.getSnapshot().sessions.values()].filter(session => !session.itemsLoaded).length; const snapshots = request.mock.calls.filter(([method]) => method === 'session/cache-snapshot').length; const receipts = request.mock.calls.filter(([method]) => method === 'session/prepare-eviction').length; expect({ unloaded, snapshots, receipts }).toMatchObject({ unloaded: 1 }) }, { timeout: 3000 })
   expect(request.mock.calls.some(([method]) => method === 'session/close')).toBe(true)
@@ -1106,6 +1104,7 @@ it('exposes only scalar body counts while leaving eligibility and bytes unknown'
   const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
+  await store.disableTranscriptCache()
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
   expect(store.transcriptCacheStats()).toEqual({ loadedFullBodies: 1, releasedBodies: 0, trackedRecoveryRecords: 0, enabled: false, pressureRunning: false, pressureDirty: false, eligibleBodies: null, eligibleBytes: null })
   expect(await store.unloadTranscript(runtime, id)).toBe(true)
@@ -1263,4 +1262,85 @@ it('keeps the descriptor when an unchanged-body restore changes archive from fal
   expect(await store.unloadTranscript(runtime, id)).toBe(true)
   expect(await store.restoreTranscript(runtime, id)).toBe(false)
   expect(store.getSnapshot().sessions.get(key)).toMatchObject({ archived: false, itemsLoaded: false })
+})
+
+it('starts the transcript pressure scheduler enabled by default', () => {
+  const store = new AppStore('ws://localhost:0/')
+  expect(store.transcriptCacheStats().enabled).toBe(true)
+})
+
+it('an explicitly disabled scheduler leaves 129 closed bodies loaded', async () => {
+  const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
+    if (method === 'session/read' || method === 'session/resume') return body(params.sessionId)
+    if (method === 'session/cache-snapshot') return { session: body(params.sessionId), watermark, identity }
+    if (method === 'session/prepare-eviction') return { ...watermark, identity }
+    return null
+  }) as never)
+  await store.disableTranscriptCache()
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  for (let i = 0; i < 129; i++) handlers.onEvent(runtime, { type: 'session/started', session: body(sessionId(`disabled-${i}`)) })
+  expect(await store.openSession(sessionId('disabled-128'), { runtime })).toBe(true)
+  store.closePane(store.getSnapshot().layout.focused)
+  await Promise.resolve(); await Promise.resolve(); await store.disableTranscriptCache()
+  expect(store.transcriptCacheStats()).toMatchObject({ enabled: false, pressureRunning: false, releasedBodies: 0, loadedFullBodies: 129 })
+  expect(request.mock.calls.some(([method]) => method === 'session/prepare-eviction')).toBe(false)
+})
+
+it('disable waits for a held receipt, starts no unload, and re-enable performs a serial pass', async () => {
+  const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  let release!: (value: unknown) => void, heldOnce = false, resolved = false, firstReceipts = 0
+  const held = new Promise(resolve => { release = resolve })
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
+    if (method === 'session/cache-snapshot') return { session: body(params.sessionId), watermark, identity }
+    if (method === 'session/prepare-eviction') { if (params.sessionId === sessionId('held-0') && ++firstReceipts === 2) { heldOnce = true; return held }; return { ...watermark, identity } }
+    return null
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  for (let i = 0; i < 129; i++) handlers.onEvent(runtime, { type: 'session/started', session: body(sessionId(`held-${i}`)) })
+  store.enableTranscriptCache()
+  await vi.waitFor(() => expect(heldOnce).toBe(true))
+  const disabling = store.disableTranscriptCache().then(() => { resolved = true })
+  await Promise.resolve()
+  expect(resolved).toBe(false)
+  release({ ...watermark, identity })
+  await disabling
+  expect(store.transcriptCacheStats()).toMatchObject({ enabled: false, pressureRunning: false, releasedBodies: 0 })
+  store.enableTranscriptCache()
+  await vi.waitFor(() => expect(store.transcriptCacheStats().releasedBodies).toBe(1))
+})
+
+it('serializes re-enable behind an older held disable drain', async () => {
+  const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
+  const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
+  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  let release!: (value: unknown) => void, firstReceipt = false, pending = 0, maximum = 0
+  const held = new Promise(resolve => { release = resolve })
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
+    if (method === 'session/cache-snapshot') return { session: body(params.sessionId), watermark, identity }
+    if (method === 'session/prepare-eviction') {
+      pending++; maximum = Math.max(maximum, pending)
+      try { if (!firstReceipt) { firstReceipt = true; return await held }; return { ...watermark, identity } }
+      finally { pending-- }
+    }
+    return null
+  }) as never)
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  for (let i = 0; i < 129; i++) handlers.onEvent(runtime, { type: 'session/started', session: body(sessionId(`reenable-${i}`)) })
+  await vi.waitFor(() => expect(firstReceipt).toBe(true))
+  const disabling = store.disableTranscriptCache()
+  store.enableTranscriptCache()
+  await Promise.resolve()
+  expect(pending).toBe(1)
+  release({ ...watermark, identity })
+  await disabling
+  await vi.waitFor(() => expect(store.transcriptCacheStats().releasedBodies).toBe(1))
+  expect(maximum).toBe(1)
 })
