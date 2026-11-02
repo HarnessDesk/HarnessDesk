@@ -1,18 +1,33 @@
-import { createHash } from 'node:crypto'
+import { hash } from 'fast-sha256'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { approvalId, canonicalTranscriptBody, itemId, runtimeId, sessionId, sessionKey, turnId, type Session } from '@harnessdesk/protocol'
 import type { TransportEvents } from '../lib/transport'
 import { AppStore } from './store'
 import { transcriptFingerprint } from './transcript-fingerprint'
 
+// Browser-safe fixture hash; fixed SHA-256 vectors below independently pin its output.
+const fixtureHash = (text: string): string => Array.from(hash(new TextEncoder().encode(text)), byte => byte.toString(16).padStart(2, '0')).join('')
+
 beforeEach(() => vi.stubGlobal('sessionStorage', undefined))
 afterEach(() => vi.unstubAllGlobals())
 
 it('fingerprints UTF-8 with SHA-256 compatible with the Host', () => {
-  for (const input of ['', 'abc', 'Synthetic 你好']) {
-    expect(transcriptFingerprint(input)).toBe(createHash('sha256').update(input, 'utf8').digest('hex'))
+  for (const [input, expected] of [
+    ['', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'],
+    ['abc', 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'],
+    ['Synthetic 你好', '6ab4c44aff5957cf5b0f4faa8142f922c3be275b0fe14a06658f101814764285'],
+  ]) {
+    expect(fixtureHash(input!)).toBe(expected)
+    expect(transcriptFingerprint(input!)).toBe(expected)
   }
-  expect(transcriptFingerprint('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+})
+
+it('matches browser Web Crypto for a canonical transcript fixture', async () => {
+  const canonical = canonicalTranscriptBody([{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic 你好' }] }]).canonical
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical))
+  const reference = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
+  expect(fixtureHash(canonical)).toBe(reference)
+  expect(transcriptFingerprint(canonical)).toBe(reference)
 })
 
 it('plans oldest eligible full bodies using canonical UTF-8 bytes without unloading them', async () => {
@@ -24,7 +39,7 @@ it('plans oldest eligible full bodies using canonical UTF-8 bytes without unload
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof first }) => {
     const body = params.sessionId === first ? firstBody : secondBody
-    const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+    const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
     if (method === 'session/cache-snapshot') return { session: body, watermark, identity }
     if (method === 'session/prepare-eviction') return { ...watermark, identity }
     return null
@@ -56,7 +71,7 @@ it('prepares storage receipts serially before planning pressure', async () => {
   const session = (id: typeof first): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
   const firstBody = session(first), secondBody = session(second)
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
   let finish!: (value: unknown) => void
   const receipt = new Promise(resolve => { finish = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -84,7 +99,7 @@ it('a refused receipt never counts as released pressure', async () => {
   const runtime = runtimeId('example'), ids = [sessionId('one'), sessionId('two')]
   const body = (id: typeof ids[number]): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: typeof ids[number] }) => {
     if (method === 'session/cache-snapshot') return { session: body(params.sessionId), watermark, identity }
@@ -100,7 +115,7 @@ it('a refused receipt never counts as released pressure', async () => {
 it('the default body-count target plans the oldest of 129 verified quiet bodies', async () => {
   const runtime = runtimeId('example')
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
   const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
@@ -119,7 +134,7 @@ it('the default byte target uses canonical UTF-8 rather than character count', a
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: '界'.repeat(Math.ceil((8 * 1024 * 1024) / 3)) }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
@@ -132,7 +147,7 @@ it('a fenced snapshot makes a repeated sequenced delta apply only once', async (
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'start' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : null) as never)
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
@@ -150,7 +165,7 @@ it.each([false, true])('a receipt %s a complete sequence is the only positive st
   const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, sequence: hasSequence ? 1 : undefined, identity } : null) as never)
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
@@ -164,7 +179,7 @@ it.each(['epoch', 'generation', 'revision', 'sequence', 'identity'] as const)(
     const runtime = runtimeId('example'), id = sessionId('one')
     const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
     const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-    const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+    const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
     const receipt = { ...watermark, identity, [field]: field === 'revision' || field === 'sequence' ? 2 : field === 'identity' ? '0'.repeat(64) : 'different' }
     const store = new AppStore('ws://localhost:0/')
     vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/prepare-eviction' ? receipt : null) as never)
@@ -178,7 +193,7 @@ it.each(['owner', 'event', 'draft', 'pin-aba', 'remove', 'in-place'] as const)(
     const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
     const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
     const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-    const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+    const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
     let finish!: (value: unknown) => void
     const held = new Promise(resolve => { finish = resolve })
     const store = new AppStore('ws://localhost:0/')
@@ -206,7 +221,7 @@ it.each(['null', 'missing-sequence', 'wrong-key', 'wrong-identity', 'different-b
     const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
     const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [], ...(kind === 'richer-local-metadata' ? { title: 'Synthetic local title' } : {}) }
     const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-    const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+    const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
     const other = { ...body, turns: [{ id: turnId('other'), status: 'completed' as const, items: [] }] }
     const response = kind === 'null' ? null : { session: kind === 'wrong-key' ? { ...body, id: sessionId('other') } : kind === 'different-body' ? other : kind === 'partial-host' ? { ...body, partialHistory: true } : kind === 'active-host' ? { ...body, status: { type: 'active' } } : kind === 'richer-local-metadata' ? { ...body, title: undefined } : body,
       watermark: kind === 'missing-sequence' ? { epoch: 'epoch', generation: 'generation', revision: 1 } : watermark,
@@ -224,7 +239,7 @@ it('a different event at the same cursor invalidates authority and preserves the
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'start' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : null) as never)
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
@@ -244,7 +259,7 @@ it('a snapshot returned after a newer event cannot establish authority over it',
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'start' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let answer!: (value: unknown) => void
   const pending = new Promise(resolve => { answer = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -263,7 +278,7 @@ it('a snapshot cannot authorize an in-place mutation during its request', async 
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let finish!: (value: unknown) => void
   const held = new Promise(resolve => { finish = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -279,7 +294,7 @@ it('an older concurrent snapshot cannot replace the newer cursor', async () => {
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let older!: (value: unknown) => void
   const held = new Promise(resolve => { older = resolve })
   let calls = 0
@@ -297,7 +312,7 @@ it('a later response with an older cursor cannot replace current authority', asy
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 2, sequence: 2 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let calls = 0
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async () => ({ session: body, watermark: ++calls === 1 ? watermark : { ...watermark, revision: 1, sequence: 1 }, identity })) as never)
@@ -310,7 +325,7 @@ it.each(['epoch', 'generation'] as const)('a snapshot with a changed %s cannot s
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let calls = 0
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async () => ({ session: body, watermark: ++calls === 1 ? watermark : { ...watermark, [field]: 'changed' }, identity })) as never)
@@ -324,7 +339,7 @@ it('independent owners acquired during a snapshot invalidate its result', async 
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let answer!: (value: unknown) => void
   const pending = new Promise(resolve => { answer = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -346,7 +361,7 @@ it('an in-flight real openSession read protects its transcript', async () => {
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let finish!: (value: Session) => void
   const read = new Promise<Session>(resolve => { finish = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -364,7 +379,7 @@ it('two overlapping opens retain independent read and resume owners', async () =
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [], archived: false }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const finishes: ((value: Session) => void)[] = []
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
@@ -387,7 +402,7 @@ it('an in-flight handoff read protects its source transcript', async () => {
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let finish!: (value: Session) => void
   const read = new Promise<Session>(resolve => { finish = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -404,7 +419,7 @@ it('a pending composer queue request protects its session before a queue event a
   const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let finish!: () => void
   const held = new Promise<void>(resolve => { finish = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -436,7 +451,7 @@ it('real Transport owns addressed operations but does not self-own cache proof r
     const runtime = runtimeId('example'), id = sessionId('one')
     const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
     const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-    const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+    const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
     const store = new AppStore('ws://example.test/')
     store.transport.connect(); const socket = MockWebSocket.instance; socket.open()
     socket.message({ method: 'event', params: { runtime, event: { type: 'session/started', session: body } } })
@@ -465,7 +480,7 @@ it.each(['settings', 'title'] as const)('an in-flight session %s mutation protec
   const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let finish!: () => void
   const held = new Promise<void>(resolve => { finish = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -481,7 +496,7 @@ it('a real visible conversation remains protected after its read and resume fini
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : body) as never)
   expect(await store.openSession(id, { runtime })).toBe(true)
@@ -492,7 +507,7 @@ it('a pending close keeps the just-hidden transcript protected', async () => {
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let finish!: () => void
   const close = new Promise<void>(resolve => { finish = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -508,7 +523,7 @@ it('an optimistically hidden approval stays protected while its response is pend
   const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const approval = { id: approvalId('approval'), sessionId: id, requestedAt: 1, type: 'command' as const, command: 'echo synthetic', cwd: '/example', actions: [], options: [{ id: 'yes', label: 'Allow', intent: 'approve' as const }] }
   let finish!: () => void
   const held = new Promise<void>(resolve => { finish = resolve })
@@ -527,7 +542,7 @@ it('an unsent draft protects a hidden conversation', async () => {
   const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : null) as never)
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
@@ -540,7 +555,7 @@ it.each(['queue', 'task', 'pinned', 'recoverable'] as const)(
     const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
     const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
     const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-    const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+    const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
     const store = new AppStore('ws://localhost:0/')
     vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : null) as never)
     const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
@@ -558,7 +573,7 @@ it('a draft created and cleared while a snapshot is pending invalidates the snap
   const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let finish!: (value: unknown) => void
   const held = new Promise(resolve => { finish = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -575,7 +590,7 @@ it('a mounted Team protects each member even without opening its transcript pane
   const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : null) as never)
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
@@ -590,7 +605,7 @@ it('a direct remove response retires the old transcript cursor', async () => {
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/remove' ? { undoUntil: null } : null) as never)
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
@@ -604,7 +619,7 @@ it('a refused remove during a held snapshot invalidates its earlier admission', 
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let finish!: (value: unknown) => void
   const held = new Promise(resolve => { finish = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -624,7 +639,7 @@ it('a held snapshot cannot authorize a removed and recreated session with the sa
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'old', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let answer!: (value: unknown) => void
   const pending = new Promise(resolve => { answer = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -644,7 +659,7 @@ it('a gap followed by a delta for an unseen turn recovers the complete Host snap
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const next: Session = { ...body, turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic new text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const digest = (session: Session) => createHash('sha256').update(canonicalTranscriptBody(session.turns).canonical).digest('hex')
+  const digest = (session: Session) => fixtureHash(canonicalTranscriptBody(session.turns).canonical)
   let calls = 0
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? ++calls === 1 ? { session: body, watermark, identity: digest(body) } : { session: next, watermark: { ...watermark, sequence: 3, revision: 3 }, identity: digest(next) } : null) as never)
@@ -661,7 +676,7 @@ it.each(['gap', 'missing', 'epoch', 'generation', 'regression', 'reconnect', 'in
     const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
       turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'start' }] }] }
     const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-    const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+    const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
     const store = new AppStore('ws://localhost:0/')
     vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : null) as never)
     const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
@@ -683,7 +698,7 @@ it('a later snapshot alone cannot erase an unresolved event gap', async () => {
   const runtime = runtimeId('example'), id = sessionId('one')
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let latest = body, stamp = watermark
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async () => ({ session: latest, watermark: stamp, identity })) as never)
@@ -700,7 +715,7 @@ it.each(['null', 'error'] as const)('keeps an unseen delta protected through a %
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const recovered: Session = { ...body, turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic new text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const digest = (session: Session) => createHash('sha256').update(canonicalTranscriptBody(session.turns).canonical).digest('hex')
+  const digest = (session: Session) => fixtureHash(canonicalTranscriptBody(session.turns).canonical)
   let calls = 0
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
@@ -728,7 +743,7 @@ it('does not adopt a gap snapshot overtaken by another event while its response 
   const complete: Session = { ...body, turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic first and second' }] }] }
   const old: Session = { ...body, turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic first' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const response = (session: Session, sequence: number) => ({ session, watermark: { ...watermark, sequence, revision: sequence }, identity: createHash('sha256').update(canonicalTranscriptBody(session.turns).canonical).digest('hex') })
+  const response = (session: Session, sequence: number) => ({ session, watermark: { ...watermark, sequence, revision: sequence }, identity: fixtureHash(canonicalTranscriptBody(session.turns).canonical) })
   let release!: (value: unknown) => void
   const held = new Promise(resolve => { release = resolve })
   let calls = 0
@@ -756,7 +771,7 @@ it('keeps the managed cursor when a contiguous event makes the session active be
   const active: Session = { ...body, status: { type: 'active' } }
   const recovered: Session = { ...active, turns: [{ id: turnId('turn'), status: 'inProgress', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic active text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const digest = (session: Session) => createHash('sha256').update(canonicalTranscriptBody(session.turns).canonical).digest('hex')
+  const digest = (session: Session) => fixtureHash(canonicalTranscriptBody(session.turns).canonical)
   let calls = 0
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
@@ -777,7 +792,7 @@ it.each(['old', 'wrong-key', 'wrong-identity'] as const)('keeps unseen data prot
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const recovered: Session = { ...body, turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic pending text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const digest = (session: Session) => createHash('sha256').update(canonicalTranscriptBody(session.turns).canonical).digest('hex')
+  const digest = (session: Session) => fixtureHash(canonicalTranscriptBody(session.turns).canonical)
   let calls = 0
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
@@ -802,7 +817,7 @@ it('does not fold a duplicate or conflicting pending cursor twice after a gap', 
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'base' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async () => ({ session: body, watermark, identity })) as never)
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
@@ -822,7 +837,7 @@ it('keeps the held transcript visible when sync replaces a session with unresolv
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic held text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async () => ({ session: body, watermark, identity })) as never)
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
@@ -840,7 +855,7 @@ it('does not apply an old recovery response to a removed and recreated session',
   const old: Session = { ...body, turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic old owner' }] }] }
   const replacement: Session = { ...body }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const response = (session: Session, sequence: number) => ({ session, watermark: { ...watermark, sequence, revision: sequence }, identity: createHash('sha256').update(canonicalTranscriptBody(session.turns).canonical).digest('hex') })
+  const response = (session: Session, sequence: number) => ({ session, watermark: { ...watermark, sequence, revision: sequence }, identity: fixtureHash(canonicalTranscriptBody(session.turns).canonical) })
   let release!: (value: unknown) => void
   const held = new Promise(resolve => { release = resolve })
   let calls = 0
@@ -864,7 +879,7 @@ it('does not adopt a recovery snapshot after a transcript owner enters and leave
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const recovered: Session = { ...body, turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic pending' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const response = (session: Session, sequence: number) => ({ session, watermark: { ...watermark, sequence, revision: sequence }, identity: createHash('sha256').update(canonicalTranscriptBody(session.turns).canonical).digest('hex') })
+  const response = (session: Session, sequence: number) => ({ session, watermark: { ...watermark, sequence, revision: sequence }, identity: fixtureHash(canonicalTranscriptBody(session.turns).canonical) })
   let release!: (value: unknown) => void
   const held = new Promise(resolve => { release = resolve })
   let calls = 0
@@ -887,7 +902,7 @@ it('explicitly unloads only after a closed receipt and restores the exact body b
   const body: Session = { id, runtime, cwd: '/example', title: 'Synthetic title', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
   const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
@@ -905,7 +920,7 @@ it('never unloads when the Host receipt has no sequence even if the session is i
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/prepare-eviction' ? { epoch: watermark.epoch, generation: watermark.generation, revision: watermark.revision, identity } : null) as never)
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
@@ -919,7 +934,7 @@ it('does not read or resume an unloaded session when its cache snapshot is unava
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let snapshots = 0
   const store = new AppStore('ws://localhost:0/')
   const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? ++snapshots === 1 ? { session: body, watermark, identity } : null : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
@@ -936,7 +951,7 @@ it('does not fold a late event into an unloaded body or adopt an overtaken resto
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let snapshots = 0, release!: (value: unknown) => void
   const held = new Promise(resolve => { release = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -958,7 +973,7 @@ it('restores a released body from a newer covering snapshot after a sequenced as
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved text' }] }] }
   const newer: Session = { ...body, updatedAt: 2, status: { type: 'active' }, turns: [{ ...body.turns[0]!, items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved text and late text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const digest = (session: Session) => createHash('sha256').update(canonicalTranscriptBody(session.turns).canonical).digest('hex')
+  const digest = (session: Session) => fixtureHash(canonicalTranscriptBody(session.turns).canonical)
   let snapshots = 0
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? ++snapshots === 1 ? { session: body, watermark, identity: digest(body) } : { session: newer, watermark: { ...watermark, revision: 2, sequence: 2 }, identity: digest(newer) } : method === 'session/prepare-eviction' ? { ...watermark, identity: digest(body) } : null) as never)
@@ -978,7 +993,7 @@ it.each(['null', 'old', 'wrong-identity', 'missing-delta', 'other-generation'] a
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved text' }] }] }
   const newer: Session = { ...body, turns: [{ ...body.turns[0]!, items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved text and late text' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const digest = (session: Session) => createHash('sha256').update(canonicalTranscriptBody(session.turns).canonical).digest('hex')
+  const digest = (session: Session) => fixtureHash(canonicalTranscriptBody(session.turns).canonical)
   let snapshots = 0
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
@@ -1006,7 +1021,7 @@ it.each(['missing-fence', 'conflict', 'reconnect'] as const)('keeps an unloaded 
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
   const newer: Session = { ...body, turns: [{ ...body.turns[0]!, items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved late' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const digest = (session: Session) => createHash('sha256').update(canonicalTranscriptBody(session.turns).canonical).digest('hex')
+  const digest = (session: Session) => fixtureHash(canonicalTranscriptBody(session.turns).canonical)
   let snapshots = 0, release!: (value: unknown) => void
   const held = new Promise(resolve => { release = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -1029,7 +1044,7 @@ it.each(['missing-fence', 'conflict', 'reconnect'] as const)('keeps an unloaded 
 it('runs default pressure after a real pane close and unloads the oldest confirmed closed body', async () => {
   const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
   const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
-  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
   const store = new AppStore('ws://localhost:0/')
   let closed = false
   const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
@@ -1055,7 +1070,7 @@ it('restores an unloaded session before a queued person operation', async () => 
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
@@ -1070,7 +1085,7 @@ it('restores a released conversation exposed through the workbench without a dir
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
@@ -1086,7 +1101,7 @@ it('opens a released conversation without competing visibility and read restorat
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : method === 'session/read' || method === 'session/resume' ? body : null) as never)
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
@@ -1101,7 +1116,7 @@ it('exposes only scalar body counts while leaving eligibility and bytes unknown'
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
   await store.disableTranscriptCache()
@@ -1116,7 +1131,7 @@ it('restores an unchanged released body with a fresh exact snapshot after reconn
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   let snapshotWatermark = watermark
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: body, watermark: snapshotWatermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
@@ -1135,7 +1150,7 @@ it('rejects a pre-reconnect restore response before allowing a fresh retry', asy
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true,
     turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('item'), type: 'assistantMessage', text: 'Synthetic saved' }] }] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let release!: (value: unknown) => void, calls = 0
   const held = new Promise(resolve => { release = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -1159,7 +1174,7 @@ it('rejects a pre-reconnect restore response before allowing a fresh retry', asy
 it('serially re-proves each candidate when pressure requires multiple unloads', async () => {
   const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
   const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
-  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
   const store = new AppStore('ws://localhost:0/')
   let inFlight = 0, maxInFlight = 0
   const receipts = new Map<string, number>()
@@ -1185,7 +1200,7 @@ it('serially re-proves each candidate when pressure requires multiple unloads', 
 it('does not treat a failed close as evidence of an eligible body or spin on refusal', async () => {
   const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
   const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
-  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
   const store = new AppStore('ws://localhost:0/')
   const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
     if (method === 'session/read' || method === 'session/resume') return body(params.sessionId)
@@ -1211,7 +1226,7 @@ it.each([[undefined, false], [false, undefined]] as const)('accepts archive defa
   const local = localArchive === undefined ? base : { ...base, archived: localArchive }
   const remote = hostArchive === undefined ? base : { ...base, archived: hostArchive }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(base.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(base.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: remote, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: local })
@@ -1224,7 +1239,7 @@ it('does not treat a truly archived Host body as the local unarchived default', 
   const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: { ...body, archived: true }, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
   ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onEvent(runtime, { type: 'session/started', session: body })
@@ -1236,7 +1251,7 @@ it('rejects an in-place local archive change while a Host snapshot is pending', 
   const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
   const body: Session = { id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let finish!: (value: unknown) => void
   const pending = new Promise(resolve => { finish = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -1254,7 +1269,7 @@ it('keeps the descriptor when an unchanged-body restore changes archive from fal
   const runtime = runtimeId('example'), id = sessionId('one'), key = sessionKey(runtime, id)
   const body: Session = { id, runtime, cwd: '/example', archived: false, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] }
   const watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
-  const identity = createHash('sha256').update(canonicalTranscriptBody(body.turns).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody(body.turns).canonical)
   let reads = 0
   const store = new AppStore('ws://localhost:0/')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => method === 'session/cache-snapshot' ? { session: ++reads === 1 ? body : { ...body, archived: true }, watermark, identity } : method === 'session/prepare-eviction' ? { ...watermark, identity } : null) as never)
@@ -1272,7 +1287,7 @@ it('starts the transcript pressure scheduler enabled by default', () => {
 it('an explicitly disabled scheduler leaves 129 closed bodies loaded', async () => {
   const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
   const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
-  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
   const store = new AppStore('ws://localhost:0/')
   const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: { sessionId: ReturnType<typeof sessionId> }) => {
     if (method === 'session/read' || method === 'session/resume') return body(params.sessionId)
@@ -1293,7 +1308,7 @@ it('an explicitly disabled scheduler leaves 129 closed bodies loaded', async () 
 it('disable waits for a held receipt, starts no unload, and re-enable performs a serial pass', async () => {
   const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
   const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
-  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
   let release!: (value: unknown) => void, heldOnce = false, resolved = false, firstReceipts = 0
   const held = new Promise(resolve => { release = resolve })
   const store = new AppStore('ws://localhost:0/')
@@ -1319,7 +1334,7 @@ it('disable waits for a held receipt, starts no unload, and re-enable performs a
 it('serializes re-enable behind an older held disable drain', async () => {
   const runtime = runtimeId('example'), watermark = { epoch: 'epoch', generation: 'generation', revision: 1, sequence: 1 }
   const body = (id: ReturnType<typeof sessionId>): Session => ({ id, runtime, cwd: '/example', status: { type: 'idle' }, createdAt: 0, updatedAt: 0, itemsLoaded: true, turns: [] })
-  const identity = createHash('sha256').update(canonicalTranscriptBody([]).canonical).digest('hex')
+  const identity = fixtureHash(canonicalTranscriptBody([]).canonical)
   let release!: (value: unknown) => void, firstReceipt = false, pending = 0, maximum = 0
   const held = new Promise(resolve => { release = resolve })
   const store = new AppStore('ws://localhost:0/')

@@ -1159,8 +1159,9 @@ export class AppStore {
       onRequest: (method, params) => {
         if (method === 'session/cache-snapshot' || method === 'session/prepare-eviction' || !params || typeof params !== 'object') return
         const target = params as { runtime?: unknown; sessionId?: unknown }
-        if (typeof target.runtime !== 'string' || !target.runtime || typeof target.sessionId !== 'string' || !target.sessionId) return
-        return this.retainTranscript(target.runtime as RuntimeId, target.sessionId as SessionId)
+        const { runtime: runtimeValue, sessionId: targetSession } = target
+        if (typeof runtimeValue !== 'string' || !runtimeValue || typeof targetSession !== 'string' || !targetSession) return
+        return this.retainTranscript(runtimeValue as RuntimeId, targetSession as SessionId)
       },
       onNotification: (notification) => {
         if (notification.method === 'session/cache-invalidated') {
