@@ -87,4 +87,14 @@ describe('Card with a pinned lane', () => {
     expect(text).toContain('Low')
     expect(text).toContain('Weekly 15% left')
   })
+
+  it('leads with the balance, not a healthy key window, when the source says the credits are what it hit', () => {
+    const key = lane({ id: 'key', label: 'Key limit', usedPercent: 20 })
+    const debt: UsageReport = { ...report([key]), credits: { remaining: -0.4, unit: 'USD' }, reached: 'credits' }
+    const text = textOf(debt, '')
+    expect(text).toContain('Overdrawn')
+    expect(text).toContain('overdrawn')
+    // The window is still a row, but its 80% is not the headline beside Overdrawn.
+    expect(text).not.toMatch(/80%\s*left/)
+  })
 })

@@ -237,8 +237,11 @@ export const Card = ({
   // The agent's own standing, read from its own report: a borrowed sign-in's
   // figures are drawn, never judged as this agent's.
   const standing = usageStandingOf(report, now)
-  const hero = view.hero
   const own = borrowed ? usageStandingOf(drawn, now) : standing
+  // When the balance decided (the source hit its credits), a healthy window's figure, meter and reset would
+  // contradict the chip: the balance is the headline then, and the window stays a row below.
+  const balanceDecides = balance !== null && own.lane === null && (own.status === 'out' || own.status === 'overdrawn')
+  const hero = balanceDecides ? null : view.hero
   // A pin picks the headline; the standing is the account's own. When the standing is about another window, the
   // sentence names that window rather than borrowing the headline's reset, and says only what is urgent about it.
   const elsewhere = Boolean(hero) && own.lane !== null && own.lane.id !== hero?.id

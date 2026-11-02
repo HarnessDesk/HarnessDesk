@@ -792,6 +792,8 @@ export const rightNow = (
     .filter((report) => bindingLane(report.lanes) !== null)
     .map((report) => ({ report, standing: usageStandingOf(report, now) }))
   if (read.length < 2) return null
+  // A window with no reading may have more room than any measured one, so there is no comparison to make.
+  if (read.some(({ standing }) => standing.left === null && (standing.status === 'ready' || standing.status === 'low' || standing.status === 'short'))) return null
   // By the name said, not the runtime: two runtimes registered under one name are as ambiguous as one runtime's two accounts.
   const sameName = (report: UsageReport): number => reports.filter((other) => nameFor(other) === nameFor(report)).length
   const label = (report: UsageReport): string =>
