@@ -709,6 +709,13 @@ Opening a conversation from the sidebar, command palette or a conversation
 link opens its folder as the workspace, including a worktree whose repository
 is closed. Workspace-scoped Agents, Plugins and New Team follow that folder.
 
+Hidden, closed conversations may release their cached transcript after the
+host verifies its saved copy. Opening one restores that copy; active work,
+mounted views, drafts and unconfirmed activity remain protected. If the copy
+cannot be restored, the existing error notice reports the failure and the
+conversation's row and any retained activity are kept. An unavailable body is
+never treated as an empty, complete history.
+
 **The header earns each button**: title · status group · browser button ·
 terminal toggle · ⋮. The status group puts the ceiling, status, background work,
 branch and plan readings on one chip ground. Hover or keyboard focus names every

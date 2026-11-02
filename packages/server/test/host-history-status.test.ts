@@ -22,6 +22,7 @@ test('host-only history reports a live conversation idle after completion and ac
   host.register(runtime)
   t.after(() => host.dispose())
   const live = new FakeSession(runtime, sessionId('finished-conversation'), { cwd: base, model: 'fake-1' }, {})
+  runtime.emit({ type: 'session/started', session: live.snapshot() })
   const record = host.registry.upsert(live.snapshot(), live)
   const list = () => host.call('session/list', { runtime: runtime.info.id, cwd: base })
   const status = async () => {

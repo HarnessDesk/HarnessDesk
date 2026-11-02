@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Hidden, closed conversations can release cached transcripts.** The desk verifies its saved copy before releasing a body and restores it when needed. Active work, drafts and unconfirmed activity stay protected; unavailable history is reported rather than presented as empty.
+
 - **Automatic PR merges check the review target again.** A changed destination or an older unbound review requires a fresh PR review. Queued and uncertain submissions stay unresolved until a merge is observed; a person may need to inspect or complete them outside the app.
 
 - **Saved extra accounts survive without a credential file.** Their status is checked when the agent runs; removing an account whose identity cannot be verified leaves its agent or system credentials in place.

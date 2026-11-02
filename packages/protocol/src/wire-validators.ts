@@ -1215,6 +1215,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'backup/export': isObject,
   'backup/import': shape({ backup: isObject }),
   'session/loadout': shape({ session: isString, runtime: optional(isString) }),
+  'session/prepare-eviction': shape({ runtime: isString, sessionId: isString, identity: atMost(64, isString) }),
+  'session/cache-snapshot': shape({ runtime: isString, sessionId: isString }),
   'session/read': shape({ runtime: isString, sessionId: isString }),
   'session/create': shape({ runtime: isString, options: withoutHostOnly(shape({ cwd: optional(isString) })) }),
   'session/resume': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),

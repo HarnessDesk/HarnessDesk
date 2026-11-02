@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
-import { typedUserText, type AgentItem, type RuntimeId, type SessionSource, type SessionId, type Turn, type TurnInsightContext } from '@harnessdesk/protocol'
+import { canonicalTranscriptBody, typedUserText, type AgentItem, type RuntimeId, type SessionSource, type SessionId, type Turn, type TurnInsightContext } from '@harnessdesk/protocol'
 import { dropSessionBody, openSessionDatabase, transaction } from './session-database.js'
 import type { Stored } from './transcripts.js'
 
@@ -19,6 +19,21 @@ const textOf = (item: AgentItem): string => item.type === 'assistantMessage' ? i
 interface TurnRow { turn_id: string; seq: number; payload: string; insight: string | null; fingerprint: string }
 interface ItemRow { seq: number; item_id: string; position: number; kind: string; payload: string }
 type Facts = Omit<Stored, 'turns' | 'insight'> & { insightOrder?: readonly string[]; orphanInsight?: readonly TurnInsightContext[] }
+
+/** Private semantic identity of the durable body and facts; savedAt is bookkeeping. */
+export function durableRowIdentity(stored: Stored): string {
+  const { savedAt: _savedAt, ...facts } = stored
+  const canonical = JSON.stringify(facts, (_key, value: unknown) => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
+    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
+  })
+  return createHash('sha256').update(canonical).digest('hex')
+}
+
+/** The source fingerprint is provenance, not an access timestamp. */
+export function durableStateIdentity(stored: Stored, source: SessionSource | null): string {
+  return createHash('sha256').update(JSON.stringify([durableRowIdentity(stored), source && [source.path, source.mtimeMs, source.size]])).digest('hex')
+}
 
 /** A single body's JSON is unusable; this does not indicate a database failure. */
 export class InvalidTranscriptBodyError extends Error {}
@@ -85,6 +100,30 @@ export class TranscriptDatabase {
     })
   }
 
+  /** Read all authoritative fields from one SQLite snapshot, including absence. */
+  observe(runtime: string, id: string): { stored: Stored | null; identity: string | null; removed: boolean; bodyPresent: boolean } {
+    this.db.exec('BEGIN')
+    try {
+      const removed = this.isRemoved(runtime, id)
+      const bodyPresent = !!this.db.prepare('SELECT 1 FROM bodies WHERE runtime=? AND id=?').get(runtime, id)
+      const stored = removed ? null : this.read(runtime, id)
+
+      const identity = stored ? this.stateIdentity(stored, runtime, id) : null
+      this.db.exec('COMMIT')
+      return { stored, identity, removed, bodyPresent }
+    } catch (error) { this.db.exec('ROLLBACK'); throw error }
+  }
+
+  source(runtime: string, id: string): SessionSource | null {
+    const row = this.db.prepare('SELECT source_path,source_mtime,source_size FROM sessions WHERE runtime=? AND id=?').get(runtime, id)
+    return row && typeof row.source_path === 'string' && typeof row.source_mtime === 'number' && typeof row.source_size === 'number'
+      ? { path: row.source_path, mtimeMs: row.source_mtime, size: row.source_size } : null
+  }
+
+  stateIdentity(stored: Stored, runtime: string, id: string): string {
+    return durableStateIdentity(stored, this.source(runtime, id))
+  }
+
   isRemoved(runtime: string, id: string): boolean {
     return this.db.prepare('SELECT removed_at FROM sessions WHERE runtime=? AND id=?').get(runtime, id)?.removed_at != null ||
       !!this.db.prepare('SELECT 1 FROM meta WHERE key=?').get(`deleted:${JSON.stringify([runtime, id])}`)
@@ -95,10 +134,15 @@ export class TranscriptDatabase {
   }
 
   write(stored: Stored, runtime = stored.runtime, id = stored.id, options: {
-    readonly reconcile?: boolean; readonly source?: SessionSource | null
+    readonly reconcile?: boolean; readonly source?: SessionSource | null; readonly preserveExactBody?: string
+    readonly expectedBase?: { readonly kind: 'missing' } | { readonly kind: 'body'; readonly identity: string }
+    readonly expectedSavedAt?: number | null
     readonly origin?: 'desk' | 'imported'; readonly lastOpenedAt?: number
   } = {}): void {
-    if (this.isRemoved(runtime, id)) return
+    if (this.isRemoved(runtime, id)) {
+      if (options.expectedBase) throw new Error('Stored transcript base was removed')
+      return
+    }
     const version = Number(this.db.prepare('PRAGMA data_version').get()?.data_version)
     if (version !== this.#dataVersion) { this.#fingerprints.clear(); this.#dataVersion = version }
     const key = JSON.stringify([runtime, id])
@@ -107,6 +151,31 @@ export class TranscriptDatabase {
     const next = new Map<string, string>()
     const contexts = new Map((stored.insight ?? []).map(context => [context.turn, context]))
     transaction(this.db, () => {
+      if (options.expectedBase) {
+        if (this.isRemoved(runtime, id)) throw new Error('Stored transcript base was removed')
+        const row = this.db.prepare('SELECT 1 FROM bodies WHERE runtime=? AND id=?').get(runtime, id)
+        if (options.expectedBase.kind === 'missing') {
+          if (row) throw new Error('Stored transcript base is no longer missing')
+        } else {
+          const existing = row ? this.read(runtime, id) : null
+          const identity = existing && this.stateIdentity(existing, runtime, id)
+          if (!existing || identity !== options.expectedBase.identity) {
+            throw new Error('Stored transcript base changed')
+          }
+        }
+      }
+      if (options.expectedSavedAt !== undefined) {
+        const existing = this.read(runtime, id)
+        if ((existing?.savedAt ?? null) !== options.expectedSavedAt) throw new Error('Stored transcript version changed')
+      }
+      // A verification write must never replace any different stored body.
+      // Read under the write lock so another connection cannot race the check.
+      if (options.preserveExactBody !== undefined) {
+        const existing = this.read(runtime, id)
+        if (existing && canonicalTranscriptBody(existing.turns).canonical !== options.preserveExactBody) {
+          throw new Error('Stored transcript differs from the proposed verified body')
+        }
+      }
       // Recheck under the write lock; a provenance read or backup restore may
       // have observed this body before another connection upgraded it.
       const current = this.db.prepare('SELECT payload FROM bodies WHERE runtime=? AND id=?').get(runtime, id)

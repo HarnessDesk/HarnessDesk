@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { DispatchAdmission } from './dispatch-admission.js'
 import {
   emptyQueue,
@@ -45,6 +46,17 @@ export interface SessionRecord {
   /** Host-assigned shell checkout, separate from every runtime read and replay. */
   shellCheckout: { readonly project: string; readonly cwd: string; readonly source: 'own' | 'fallback' } | null
   session: Session
+  /** Identity and monotonic revision of this record within one host incarnation. */
+  readonly bodyGeneration: string
+  readonly bodyRevision: number
+  /** Advances at removal/undo boundaries independently of ordinary operations. */
+  readonly bodyAuthorityEpoch: number
+  /** The saved base is unavailable and new body events are held separately. */
+  transcriptIncomplete: boolean
+  /** This Host observed an explicit session/close for the current record. */
+  cacheClosed: boolean
+  invalidateBodyRevision(): void
+  invalidateBodyAuthority(): void
   readonly runtime: RuntimeId
   /** Present only while the session is attached to a live runtime handle. */
   live: AgentSession | null
@@ -256,6 +268,15 @@ const charsOf = (input: readonly UserContent[]): number =>
  * conversation here or anywhere above.
  */
 export class SessionRegistry {
+  #bodyChanged: ((record: SessionRecord) => void) | undefined
+  #deleted: ((record: SessionRecord) => void) | undefined
+  #reconciled: ((record: SessionRecord, previous: Session) => void) | undefined
+  #detached: ((record: SessionRecord, previous: Session) => void) | undefined
+
+  onBodyChanged(listener: (record: SessionRecord) => void): void { this.#bodyChanged = listener }
+  onDeleted(listener: (record: SessionRecord) => void): void { this.#deleted = listener }
+  onReconciled(listener: (record: SessionRecord, previous: Session) => void): void { this.#reconciled = listener }
+  onDetached(listener: (record: SessionRecord, previous: Session) => void): void { this.#detached = listener }
   readonly #records = new Map<SessionKey, SessionRecord>()
   readonly #removed = new Map<SessionKey, { record: SessionRecord; undoUntil: number }>()
   readonly #pendingNotices = new PendingConversationNotices()
@@ -287,6 +308,7 @@ export class SessionRegistry {
     session = this.#pendingNotices.apply(session)
     const existing = this.#records.get(sessionKey(session.runtime, session.id))
     if (existing) {
+      const previous = existing.session
       existing.session = seatedSession(
         mergeRead(existing.session, this.#settle(existing, session), (turn) => existing.watched.has(turn.id)),
         existing.seatedAs,
@@ -296,22 +318,45 @@ export class SessionRegistry {
         existing.detached = false
         existing.reopenRefusals = 0
       }
+      this.#reconciled?.(existing, previous)
       return existing
     }
     const inherited = session.forkedFrom
       ? noticesFromFork(session, this.get(session.runtime, session.forkedFrom)?.session)
       : session
+    let heldSession = inherited
+    let bodyRevision = 0
+    let bodyAuthorityEpoch = 0
+    let heldLive = live
+    let heldDetached = false
+    let heldCacheClosed = false
+    let heldQueue = emptyQueue()
+    let heldTasks: readonly BackgroundTask[] = []
+    const registry = this
     const record: SessionRecord = {
-      session: inherited,
+      get session() { return heldSession },
+      set session(next: Session) { heldSession = next; bodyRevision++; registry.#bodyChanged?.(record) },
+      get bodyRevision() { return bodyRevision },
+      get bodyAuthorityEpoch() { return bodyAuthorityEpoch },
+      invalidateBodyRevision() { bodyRevision++ },
+      invalidateBodyAuthority() { bodyAuthorityEpoch++; bodyRevision++ },
+      bodyGeneration: randomUUID(),
+      transcriptIncomplete: false,
+      get cacheClosed() { return heldCacheClosed },
+      set cacheClosed(next: boolean) { if (heldCacheClosed !== next) { heldCacheClosed = next; bodyRevision++; registry.#bodyChanged?.(record) } },
       runtime: session.runtime,
-      live,
-      detached: false,
+      get live() { return heldLive },
+      set live(next: AgentSession | null) { if (heldLive !== next || (next && heldCacheClosed)) { heldLive = next; if (next) heldCacheClosed = false; bodyRevision++; registry.#bodyChanged?.(record) } },
+      get detached() { return heldDetached },
+      set detached(next: boolean) { if (heldDetached !== next) { heldDetached = next; bodyRevision++; registry.#bodyChanged?.(record) } },
       reopenRefusals: 0,
       approvals: new Map(),
       watched: new Set(),
       running: new Set(),
-      queue: emptyQueue(),
-      tasks: [],
+      get queue() { return heldQueue },
+      set queue(next: SessionQueue) { if (heldQueue !== next) { heldQueue = next; bodyRevision++; registry.#bodyChanged?.(record) } },
+      get tasks() { return heldTasks },
+      set tasks(next: readonly BackgroundTask[]) { if (heldTasks !== next) { heldTasks = next; bodyRevision++; registry.#bodyChanged?.(record) } },
       seatedAs: this.#restore?.(session.runtime, session.id) ?? null,
       attachmentSeat: null,
       shellCheckout: null,
@@ -375,6 +420,8 @@ export class SessionRegistry {
 
   delete(runtime: RuntimeId, id: SessionId): void {
     this.#pendingNotices.delete(runtime, id)
+    const record = this.#records.get(sessionKey(runtime, id))
+    if (record) this.#deleted?.(record)
     this.#records.delete(sessionKey(runtime, id))
     this.#removed.delete(sessionKey(runtime, id))
   }
@@ -384,6 +431,7 @@ export class SessionRegistry {
     const key = sessionKey(runtime, id)
     const record = this.#records.get(key)
     if (!record) return
+    record.invalidateBodyAuthority()
     this.#removed.set(key, { record, undoUntil })
     this.#records.delete(key)
   }
@@ -663,7 +711,9 @@ export class SessionRegistry {
       // The runtime restarted: whatever was in flight died with it, and the
       // next read must not be believed when it says otherwise.
       record.running.clear()
+      const previous = record.session
       record.session = this.#settle(record, record.session)
+      this.#detached?.(record, previous)
       // A detached session has no turn to wait for, so nothing would ever
       // drain the queue. Hold it rather than dropping it: the agent came back
       // once already, and the user's words are the thing worth keeping.

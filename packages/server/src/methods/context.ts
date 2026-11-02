@@ -363,6 +363,13 @@ export interface HostContext {
     live(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly route?: ResolvedModelRoute }): Promise<AgentSession>
     /** The host's record of a conversation, or a refusal. */
     record(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): SessionRecord
+    prepareReopenTranscript(runtime: RuntimeId, id: SessionId): Promise<void>
+    prepareEviction(params: HostParams<'session/prepare-eviction'>): Promise<HostResult<'session/prepare-eviction'>>
+    cacheSnapshot(params: HostParams<'session/cache-snapshot'>): HostResult<'session/cache-snapshot'>
+    conflictOwners(runtime: RuntimeId, id: SessionId): readonly string[]
+    discardConflictOwners(owners: readonly string[]): void
+    /** Establish a base only when the current full record exactly matches the saved row. */
+    noteReconciled(record: SessionRecord, read: Session): void
     /** A full read, enriched from the host's own transcript where the backend's is thin. */
     read(runtime: AgentRuntime, id: SessionId): Promise<Session>
     /** Joins a live handle to the registry and announces it. */

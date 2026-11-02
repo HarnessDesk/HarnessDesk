@@ -7,9 +7,11 @@ import { test, type TestContext } from 'node:test'
 import { promisify } from 'node:util'
 
 import WebSocket from 'ws'
+import type { Session } from '@harnessdesk/protocol'
 
 import { Host, StateStore, serve, type RunningServer } from '../src/index.js'
 import { silent } from './fixtures/harness.js'
+import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { tempDir } from './scratch.js'
 
 const start = async (t: TestContext, allowedOrigins?: readonly string[]) => {
@@ -59,6 +61,30 @@ const connect = (server: RunningServer, headers: Record<string, string | string[
     socket.once('open', () => socket.close())
     socket.once('close', () => resolve())
   })
+
+test('an authenticated desktop socket receives sequenced cache invalidation without widening the token gate', async t => {
+  const dir = tempDir('hd-server-cache-sequence-')
+  const host = new Host({ logger: silent, state: new StateStore(join(dir, 'state.json')), builtinAgents: dir, catalogRefreshMs: 0 })
+  const runtime = new FakeRuntime(); host.register(runtime); await host.start()
+  const server = await serve({ host, logger: silent, uiRoot: dir, port: 0 })
+  t.after(async () => { await server.close(); await host.dispose() })
+  const created = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: dir } }) as Session
+  await assert.rejects(connect(server, {}, 'wrong-token'), /401/)
+  const socket = new WebSocket(`${server.url.replace('http:', 'ws:')}/ws?token=${server.token}`)
+  t.after(() => socket.terminate())
+  await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject) })
+  const received = new Promise<any>((resolve, reject) => {
+    socket.on('message', raw => { const entry = JSON.parse(String(raw)); if (entry.method === 'session/cache-invalidated') resolve(entry) })
+    socket.once('error', reject)
+  })
+  const record = host.registry.get(created.runtime, created.id)!
+  record.session = { ...record.session, title: 'synthetic change' }
+  const notification = await received
+  assert.equal(notification.params.runtime, created.runtime)
+  assert.equal(notification.params.sessionId, created.id)
+  assert.equal(notification.params.watermark.generation, record.bodyGeneration)
+  assert.ok(Number.isSafeInteger(notification.params.watermark.sequence))
+})
 
 for (const upgrade of [false, true]) {
   test(`an invalid ${upgrade ? 'upgrade' : 'HTTP'} URL closes the connection and leaves the server available`, async () => {

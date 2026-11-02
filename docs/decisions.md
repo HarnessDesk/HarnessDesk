@@ -7,6 +7,26 @@ the rule is the last line of its section.
 
 ---
 
+## Transcript cache limits yield to recovery evidence — 2026-11-01
+
+The renderer starts with soft targets of 128 eligible bodies and 8 MiB of
+canonical UTF-8 turns. The Host separately reserves at most 8 MiB of logical
+recovery descriptors. Count and bytes answer different workloads; neither is
+a limit on process memory or an empirically optimal working set. Active,
+mounted, drafted, partial, in-flight or uncertain content can exceed them.
+
+A closed body leaves memory only after exact storage verification and
+independent readback, with current owner, generation, revision and sequence
+checks on both sides. A turns hash does not cover richer Session metadata.
+The cache compares that metadata separately and preserves local mutation
+fences. Missing events, conflicting replay or an older pending generation
+retain their observed data until reconciliation is proved; item counts and
+newer numeric cursors are not that proof. A receipt is a point-in-time fact,
+not a promise against later storage failure or forced exit.
+
+**Rule:** refuse unloading when recovery or ownership is uncertain; never
+discard protected content merely to meet a cache target.
+
 ## A self-hosted runner takes work only while it is shown to be up — 2026-10-30
 
 The organisation's hosted runners run twenty jobs at once. A full run is over

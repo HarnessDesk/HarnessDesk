@@ -41,6 +41,9 @@ connected desktop clients as a versioned snapshot; the push carries no other
 preferences. A failed write can leave that ownership in memory until restart;
 backup import can replace it. Local phone access adds a
 LAN listener only when explicitly enabled, as described below.
+The desktop cache snapshot request may return a conversation already held by
+the host, with its local revision, sequence and transcript identity. It is not
+available on the limited client surface.
 To see a card's pull request and its CI, the desk asks your forge with your
 own forge login in the card's checkout. Publication uses the separately pinned
 host gateway described below. A flow's check command may read
