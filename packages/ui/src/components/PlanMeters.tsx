@@ -149,8 +149,9 @@ const Meter = ({
         >
           <RuntimeMark runtime={view.info} size={14} />
           {/* A promoted chip's whole content is the countdown, so a full red
-              track beside it would only say the same thing twice. */}
-          {!promoted && (
+              track beside it would only say the same thing twice. A balance
+              that decided has no window to draw: the figure is the debt. */}
+          {!promoted && !view.onCredits && (
             <Progress
               className={styles.stripProgress}
               value={view.lane.remainingPercent}

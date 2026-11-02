@@ -194,7 +194,8 @@ const named = (meter: StripMeter, names: ReadonlyMap<string, number>): StripMete
   return {
     ...meter,
     account,
-    title: `${meter.name} · ${account} — ${meter.lane.title}, ${meter.lane.remainingPercent}% left`,
+    // The account goes beside the name; what the title says after it — a figure, Unknown, a debt — stays.
+    title: `${meter.name} · ${account}${meter.title.slice(meter.name.length)}`,
   }
 }
 
@@ -223,9 +224,12 @@ const entryFor = (info: RuntimeInfo, input: StripInput): Entry => {
   const meters = reports
     .map((report) => meterFor(info, report, input.now, preferenceFor(report)))
     .filter((meter): meter is StripMeter => meter !== null)
-  // The account that decides, not the first one that happened to arrive.
-  const decided = workingAccount(reports, preferenceFor)
-  const meter = meters.find((entry) => entry.report === decided) ?? meters[0] ?? null
+  // The account that decides, not the first one that happened to arrive — and one whose read failed only when no
+  // account has a current reading: a cached 90% is not a reason to stand in front of a live 40%.
+  const live = reports.filter((report) => usageStandingOf(report, input.now).status !== 'unknown')
+  const decided = workingAccount(live.length > 0 ? live : reports, preferenceFor)
+  const meter =
+    meters.find((entry) => entry.report === decided) ?? meters.find((entry) => !entry.unread) ?? meters[0] ?? null
   return {
     info,
     meter,
@@ -297,8 +301,9 @@ export const describeStrip = (input: StripInput): StripView => {
     .filter((meter): meter is StripMeter => meter !== null)
   const promoted = decided.filter((meter) => meter.out).slice(0, MAX_PROMOTED)
 
+  // A failed read's cached percentage is no figure: the least left is said only from current readings.
   const figures = decided
-    .filter((meter) => !meter.out)
+    .filter((meter) => !meter.out && !meter.unread)
     .map((meter) => meter.lane.remainingPercent)
     .filter((left): left is number => left !== null)
   const out = decided.filter((meter) => meter.out).length

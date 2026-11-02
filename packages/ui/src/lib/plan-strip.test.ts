@@ -133,6 +133,13 @@ describe('the anchor', () => {
     expect(meter?.backAt).toBeNull()
   })
 
+  it('keeps a failed read out of the collapsed least-left figure', () => {
+    const failed = at('b', 5, { error: { message: 'no answer' } })
+    const view = strip({ runtimes: six, usage: [at('a', 70), failed, at('c', 60)], sessionRuntime: runtimeId('a') })
+    expect(view.rest?.leastLeft).toBe(60)
+    expect(view.rest?.figure).toBe('60%')
+  })
+
   it('falls back to the selected agent when no conversation is open', () => {
     const view = strip({ runtimes: six, usage: [at('c', 44)], activeRuntime: runtimeId('c') })
     expect(view.anchor?.kind === 'meter' && view.anchor.meter.runtime).toBe('c')
@@ -385,6 +392,36 @@ describe('two accounts, one agent', () => {
       ['OpenAI Codex', 'me@example.com'],
     ])
     expect(view.rest?.meters[0]?.title).toBe('OpenAI Codex · work@example.com — Weekly, 42% left')
+  })
+
+  it('anchors on the account with a current reading, not a failed one with a better cached figure', () => {
+    const view = strip({
+      runtimes: [runtime('a', 'Agent A')],
+      usage: [at('a', 90, { account: 'work', error: { message: 'no answer' } }), at('a', 40, { account: 'personal' })],
+      sessionRuntime: runtimeId('a'),
+    })
+    const meter = view.anchor?.kind === 'meter' ? view.anchor.meter : null
+    expect(meter?.account).toBe('personal')
+    expect(meter?.figure).toBe('40%')
+  })
+
+  it('keeps the Unknown and debt titles when it names the account', () => {
+    const view = strip({
+      runtimes: [runtime('codex', 'OpenAI Codex'), runtime('codex-2', 'OpenAI Codex'), runtime('c', 'Agent C')],
+      usage: [
+        at('codex', 42, { account: 'work@example.com', error: { message: 'no answer' } }),
+        report('codex-2', [lane({ id: 'key', label: 'Key limit', usedPercent: 20 })], {
+          account: 'me@example.com',
+          credits: { remaining: -0.4, unit: 'USD' },
+          reached: 'credits',
+        }),
+      ],
+      sessionRuntime: runtimeId('c'),
+    })
+    expect(view.rest?.meters.map((meter) => meter.title)).toEqual([
+      'OpenAI Codex · work@example.com — Weekly, no current reading',
+      'OpenAI Codex · me@example.com — overdrawn, until it is topped up',
+    ])
   })
 
   it('lists both accounts in the token panel, so the count is not the whole story', () => {

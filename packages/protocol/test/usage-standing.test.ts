@@ -107,6 +107,18 @@ test('a spent model is not a spent account', () => {
   assert.equal(standing.scopedOut?.id, 'opus')
 })
 
+test('a failed reading names no spent model from its cached lanes', () => {
+  const standing = usageStandingOf(
+    report({
+      lanes: [lane(), lane({ id: 'opus', label: 'Weekly', scope: 'Opus', usedPercent: 100, windowMinutes: 10_080 })],
+      error: { message: 'no answer' },
+    }),
+    NOW,
+  )
+  assert.equal(standing.status, 'unknown')
+  assert.equal(standing.scopedOut, null)
+})
+
 test('a rate that empties the window before its reset is short, with the time', () => {
   // One hour into a five-hour window with 60% gone: empty in 40 minutes.
   const burning = lane({ usedPercent: 60, resetsAt: NOW + 4 * HOUR })

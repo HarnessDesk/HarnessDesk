@@ -681,7 +681,8 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
     report.lanes.find((each) => each.scope && each.placeholder !== true && remainingOf(each) === 0)
   const base = { lane, left: left === null ? null : Math.round(left), scopedOut: scopedOut ?? null }
 
-  if (report.error) return { ...base, status: 'unknown', runsOutAt: null, backAt: null }
+  // A failed read says nothing current, so no model is called out from it either.
+  if (report.error) return { ...base, scopedOut: null, status: 'unknown', runsOutAt: null, backAt: null }
 
   // A prepaid balance with no measured plan lane beside it is the account's
   // whole allowance: below zero is a debt, at zero there is nothing to run on.

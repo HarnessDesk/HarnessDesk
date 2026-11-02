@@ -155,6 +155,22 @@ it('answers with the countdown once there is nothing left', () => {
   expect(bar?.getAttribute('data-tone')).toBe('danger')
 })
 
+it('draws no window bar beside a debt the balance decided', () => {
+  mount({
+    runtimes: [runtime('a', 'Agent A')],
+    usage: [
+      report('a', [{ id: 'key', label: 'Key limit', usedPercent: 20, windowMinutes: 10_080, resetsAt: null }], {
+        credits: { remaining: -0.4, unit: 'USD' },
+        reached: 'credits',
+      } as Partial<UsageReport>),
+    ],
+    ...conversationWith('a'),
+  })
+  const bar = bars()[0]
+  expect(bar?.textContent).toBe('overdrawn')
+  expect(bar?.querySelector('[role="progressbar"]')).toBeNull()
+})
+
 it('colours what is left, not what pace predicts', () => {
   // Nearly the whole weekly window still to run and 71% left: the card calls
   // this amber because the pace will not last, and the strip must not — a bar
