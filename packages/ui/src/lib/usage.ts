@@ -792,6 +792,11 @@ export const rightNow = (
     .filter((report) => bindingLane(report.lanes) !== null)
     .map((report) => ({ report, standing: usageStandingOf(report, now) }))
   if (read.length < 2) return null
+  // A funded balance with no window is room this comparison cannot weigh, so it is no comparison either.
+  const funded = (report: UsageReport): boolean =>
+    bindingLane(report.lanes) === null && !report.error && report.credits !== null &&
+    (report.credits.unlimited === true || (typeof report.credits.remaining === 'number' && report.credits.remaining > 0))
+  if (reports.some(funded)) return null
   // A window with no reading, or an account whose read failed, may have more room than any measured one, so there is
   // no comparison to make.
   if (read.some(({ standing }) => standing.status === 'unknown' || (standing.left === null && (standing.status === 'ready' || standing.status === 'low' || standing.status === 'short')))) return null

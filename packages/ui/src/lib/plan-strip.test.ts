@@ -101,6 +101,15 @@ describe('the anchor', () => {
     expect(view.anchor?.kind === 'meter' ? view.anchor.meter.backAt : null).toBe(NOON + 4 * HOUR)
   })
 
+  it('marks an account low when a window behind its healthy headline is the low one', () => {
+    const behind = report('b', [
+      lane({ id: 'session', label: 'Session', usedPercent: 10, windowMinutes: 300, resetsAt: NOON + 4 * HOUR }),
+      lane({ id: 'weekly', label: 'Weekly', usedPercent: 85, windowMinutes: 10_080, resetsAt: NOON + 160 * HOUR }),
+    ])
+    const view = strip({ runtimes: six, usage: [at('a', 70), behind], sessionRuntime: runtimeId('a') })
+    expect(view.rest?.low).toBe(1)
+  })
+
   it('neither promotes nor counts a failed read as out, though its cached lane was spent', () => {
     const failed = spent('b', HOUR, { error: { message: 'no answer' } })
     const view = strip({ runtimes: six, usage: [at('a', 70), failed], sessionRuntime: runtimeId('a') })

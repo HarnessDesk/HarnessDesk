@@ -157,7 +157,8 @@ const meterFor = (
     // number. When it comes back is — as a time, which stays true without a
     // refresh, where "3h" was already wrong by the time it was read.
     figure: unread ? '—' : spent ? (backAt !== null && backAt > now ? `back ${formatWhen(backAt, now)}` : 'out') : `${lane.remainingPercent}%`,
-    low: !unread && (spent || lane.remainingPercent < LOW),
+    // Low as the standing says it, too: a healthy headline can sit in front of a Weekly that is the low one.
+    low: !unread && (spent || lane.remainingPercent < LOW || standing.status === 'low'),
     out: !unread && view.blocked,
     unread,
     backAt: spent ? backAt : null,
