@@ -65,6 +65,7 @@ const laneContext = (supported: boolean) => {
       attach: async () => transcript,
       read: async () => transcript,
       noteReconciled: () => {},
+      prepareReopenTranscript: async () => {},
       cannotReopen: (_runtime: unknown, error: Error) => error.message,
     },
   } as unknown as HostContext

@@ -65,6 +65,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
       attach: async () => session,
       read: async (_runtime: unknown, id: string) => ({ ...session, id, cwd: id === 's2' ? join(root, 'resumed') : root }),
       noteReconciled: () => {},
+      prepareReopenTranscript: async () => {},
     },
     registry: {
       forReopen: () => null,
