@@ -72,4 +72,19 @@ describe('Card with a pinned lane', () => {
     expect(unpinned).toContain('Short')
     expect(unpinned).toMatch(/Weekly runs out ~/)
   })
+
+  it('names a low window that is not the headline, even past the rows the card draws', () => {
+    const text = textOf(
+      report([
+        lane({ id: 'session', label: 'Session', usedPercent: 10, resetsAt: NOW + 4.5 * HOUR }),
+        lane({ id: 'a', label: 'A', usedPercent: 10, resetsAt: NOW + 4.5 * HOUR }),
+        lane({ id: 'b', label: 'B', usedPercent: 10, resetsAt: NOW + 4.5 * HOUR }),
+        lane({ id: 'c', label: 'C', usedPercent: 10, resetsAt: NOW + 4.5 * HOUR }),
+        lane({ id: 'weekly', label: 'Weekly', usedPercent: 85, windowMinutes: 10_080, resetsAt: NOW + 160 * HOUR }),
+      ]),
+      'session',
+    )
+    expect(text).toContain('Low')
+    expect(text).toContain('Weekly 15% left')
+  })
 })

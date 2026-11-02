@@ -247,7 +247,10 @@ export const Card = ({
     ? said
     : said && (own.status === 'short' || own.status === 'out')
       ? `${own.lane?.label} ${said.charAt(0).toLowerCase()}${said.slice(1)}`
-      : null
+      : own.status === 'low'
+        // A Low chip beside "90% left" has to say which window is low, even one past the drawn rows.
+        ? own.left !== null ? `${own.lane?.label} ${own.left}% left` : `${own.lane?.label} is low`
+        : null
   const headlineReset = hero
     ? (elsewhere
         ? [view.all.length > 1 && hero.title, resetOf(hero, false), sentence]
