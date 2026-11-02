@@ -126,6 +126,8 @@ export interface KnownAgent {
     readonly secrets?: readonly AcpSecretSpec[]
     /** ACP methods the agent declares that need a step no button here can take; see `AcpAgentConfig.authMethodNotes`. */
     readonly acpMethodNotes?: Readonly<Record<string, string>>
+    /** Descriptions for driveable ACP methods when the agent gives none. */
+    readonly acpMethodDescriptions?: Readonly<Record<string, string>>
     readonly note: string
   }
   /** A service that must already be running for the agent to answer. */
@@ -640,6 +642,9 @@ export const KNOWN_AGENTS: readonly KnownAgent[] = [
           description: 'Optional: a Gemini Developer API key instead of the Google sign-in.',
         },
       ],
+      acpMethodDescriptions: {
+        'oauth-business': 'Uses an organization’s Google Cloud project and Gemini Enterprise setup.',
+      },
       acpMethodNotes: {
         'agent-platform':
           'Set GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION (or GOOGLE_API_KEY) in the agent’s environment, or gcp.project and gcp.location in its settings.json, then start it again.',

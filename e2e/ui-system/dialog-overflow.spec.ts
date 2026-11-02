@@ -313,7 +313,7 @@ for (const [where, width, height] of [
     await page.getByLabel('dialog').selectOption('sign in')
     const dialog = page.getByRole('dialog').first()
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole('group', { name: 'Connected', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('group', { name: 'Signed in', exact: true })).toBeVisible()
     await expect(dialog.locator('[data-slot="alert-content"]')).toBeVisible()
 
     const held = await dialog.evaluate(node => {

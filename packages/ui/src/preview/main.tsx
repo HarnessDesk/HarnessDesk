@@ -75,7 +75,7 @@ import { type Section } from '../components/Settings'
 import { type DashboardView } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
 
-import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
+import { SIGN_IN_SCENES, SIGN_IN_SELECTED, accountPoolSeed, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { BoardListFrames } from './frames-board-list'
@@ -517,7 +517,7 @@ const SignInPreview = ({ scene, onClose }: { scene: SignInScene; onClose: () => 
   const own = useMemo(() => previewStore(signInSeed(scene)), [scene])
   return (
     <StoreProvider store={own}>
-      <SignIn runtime={SIGN_IN_SELECTED[scene]} onClose={onClose} />
+      <SignIn runtime={SIGN_IN_SELECTED[scene]} roster onClose={onClose} />
     </StoreProvider>
   )
 }
@@ -527,7 +527,9 @@ const SignInPreview = ({ scene, onClose }: { scene: SignInScene; onClose: () => 
 const RuntimesPreview = () => {
   const own = useMemo(() => {
     // `?key-scene=` puts DeepSeek's key where one of the sign-in scenes does.
-    const scene = new URLSearchParams(window.location.search).get('key-scene')
+    const query = new URLSearchParams(window.location.search)
+    if (query.get('accounts') === 'pool') return previewStore(accountPoolSeed())
+    const scene = query.get('key-scene')
     return previewStore(runtimesSeed(SIGN_IN_SCENES.find((one) => one === scene)))
   }, [])
   return (

@@ -73,6 +73,20 @@ for (const path of [
 ]) {
   test(`${path} runs both suites (shared build or loaded input)`, () => check([path], ['all', true]))
 }
+
+test('catalogue mapping excludes unrelated and pattern test inputs', () => {
+  const map = impactMap('/src/design/ui/button.tsx')
+  for (const path of ['packages/ui/src/design/ui/button.tsx', 'packages/ui/src/design/patterns/AgentCard.test.tsx']) {
+    const run = planWith([path], current(map), { event: 'push', refName: 'development' })
+    assert.ok(!JSON.parse(run.specs).includes('e2e/ui-system/metrics.spec.ts'), path)
+  }
+})
+
+test('ordinary pull request CI remains core only for a pattern change', () => {
+  const run = cliPlan(['packages/ui/src/design/patterns/AgentCard.tsx'])
+  assert.deepEqual([run.tier, run.browser, run.native], ['bounded', 'none', 'false'])
+  assert.match(run.summary, /Core CI only/)
+})
 for (const path of ['docs/architecture.md', 'CONTRIBUTING.md', 'script/land-safe.mjs']) {
   test(`${path} skips both suites`, () => check([path], ['none', false]))
 }
@@ -360,6 +374,40 @@ test('broad impact selections and a missing map are both capped', () => {
   assert.equal(unmapped.matrix, 'pr')
 })
 
+for (const path of [
+  'packages/ui/src/design/patterns/AgentCard.tsx',
+  'packages/ui/src/design/patterns/AgentCatalogue.tsx',
+  'packages/ui/src/design/patterns/AgentCatalogue.module.css',
+]) {
+  test(`catalogue metrics survive the bounded development budget for ${path}`, () => {
+    const records = specFiles(real).map(spec => ({ [`e2e/ui-system/${spec}`]: {
+      tests: 1, unclean: 0, loaded: [`/src/${path.slice('packages/ui/src/'.length)}`],
+      ran: [`/src/${path.slice('packages/ui/src/'.length)}`],
+    } }))
+    const map = mergeRecords(real, records, { commit: 'abcdef1234567' })
+    for (const impact of [current(map), { ...current(map), baseEnvironment: () => ({}) }, null]) {
+      const run = planWith([path], impact, { event: 'push', refName: 'development' })
+      const selected = run.specs === 'all' ? specFiles(real).map(spec => `e2e/ui-system/${spec}`) : JSON.parse(run.specs)
+      assert.ok(selected.includes('e2e/ui-system/metrics.spec.ts'), `${path}: metrics must survive the budget`)
+      if (impact) {
+        assert.ok(run.count <= 4)
+        assert.ok(run.deferred.length > 0, 'the constrained map must exercise deferral')
+      } else {
+        assert.equal(run.specs, 'all', 'missing map retains the uncapped conservative fallback')
+      }
+    }
+  })
+}
+
+test('catalogue metrics run even when the recorded pattern reach is empty', () => {
+  const path = 'packages/ui/src/design/patterns/AgentCard.tsx'
+  const map = impactMap('/src/design/patterns/AgentCard.tsx')
+  map.files[path] = { ...map.files[path], ran: [], loaded: [] }
+  const run = planWith([path], current(map), { event: 'push', refName: 'development' })
+  assert.equal(run.browser, 'all')
+  assert.ok(JSON.parse(run.specs).includes('e2e/ui-system/metrics.spec.ts'))
+})
+
 test('a file that has moved on since the map was recorded runs every spec, and the summary says why', () => {
   const map = impactMap()
   const base = current(map).baseFiles()
@@ -508,6 +556,15 @@ test('edited and newly added specs always survive the cap, even when they exceed
   assert.ok(run.count <= 4)
   assert.deepEqual(run.deferred, [])
   assert.match(run.summary, /edited or reader specs exceed/)
+})
+
+test('catalogue metrics remain mandatory when edited specs exceed the bounded budget', () => {
+  const all = specFiles(real).map(spec => `e2e/ui-system/${spec}`)
+  const edited = all.filter(spec => spec !== 'e2e/ui-system/metrics.spec.ts')
+  const run = planWith(['packages/ui/src/design/patterns/AgentCard.tsx', ...edited], current(impactMap()), { event: 'push', refName: 'development' })
+  assert.deepEqual(JSON.parse(run.specs), all.sort())
+  assert.ok(run.count <= 4)
+  assert.match(run.summary, /mandatory edited or reader specs exceed/i)
 })
 
 test('a narrow source selection wins over a widely rendered input when both change', () => {

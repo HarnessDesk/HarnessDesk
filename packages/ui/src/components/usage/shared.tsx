@@ -6,6 +6,7 @@ import { burnWord } from '../../lib/burn'
 import { dashboardReadLabel } from '../../lib/dashboard-read'
 import { prefsForUsage, runtimeTint, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
+import { useAccountLabel } from '../../state/context'
 import { agentCoverage, ledgerRuntimeIds } from '../../lib/overview-strip'
 import {
   alignGhost,
@@ -233,6 +234,8 @@ export const Card = ({
   const hero = view.hero
   const headlineReset = hero ? resetOf(hero, view.all.length > 1) : null
   const agent = info?.presentation.name ?? 'Runtime'
+  const label = useAccountLabel()
+  const account = drawn.account ? label(drawn.runtime, drawn.account) : null
 
   // The headline. It is not a second number: it is whichever row of the table
   // below has least left, promoted — which is why the word beside it is only
@@ -258,7 +261,7 @@ export const Card = ({
   const note =
     borrowed && !drawn.error && view.blocked
       ? {
-          text: `Everything is spent on the ${drawn.account ?? 'other sign-in'} — ${agent} may be signed in as another account`,
+          text: `Everything is spent on the ${account ?? 'other sign-in'} — ${agent} may be signed in as another account`,
           tone: 'warn' as const,
         }
       : noteOf(drawn, view, balance, Boolean(spend))
@@ -270,7 +273,7 @@ export const Card = ({
     >
       {/* The canonical card inset holds the recorded heading and its state. */}
       <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
-        name={drawn.account ?? agent} agent={drawn.account ? agent : undefined}
+        name={account ?? agent} agent={account ? agent : undefined}
         states={<>{shapeChip}<Chip state={state} {...(plan ? { label: plan, title: report.plan ?? undefined } : {})} /></>} />
 
       {moneyRow}
@@ -412,6 +415,7 @@ export const Runway = ({
   accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
   accountPrefs: AccountPrefsMap
 }) => {
+  const label = useAccountLabel()
   const many = reports.length > 1
   const cards = reports.flatMap((report) => {
     const view = describeReport(report, {
@@ -422,7 +426,7 @@ export const Runway = ({
     return view.all
       .filter((lane) => lane.burn !== null)
       .slice(0, many ? 2 : 3)
-      .map((lane) => ({ lane, account: many ? report.account : null, report }))
+      .map((lane) => ({ lane, account: many && report.account ? label(report.runtime, report.account) : null, report }))
   })
   if (cards.length === 0) return null
   return (

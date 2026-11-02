@@ -498,15 +498,19 @@ confirmation explains that agent accounts stay signed in. If the cloud cannot
 be reached, it also offers **Sign out on this desk only**, which removes the
 local sign-in and explains that the desk stays linked to the account until it
 is unlinked from another device.
-The current agent account, Usage, Settings and agent sign-out retain their
-own actions. The agent account opens a separate picker;
+The current agent account, Usage and Settings retain their own actions. The
+menu does not sign out of an agent: that is on the account's page in
+Settings › Runtimes, so a menu opened to switch carries no destructive row.
+The agent account opens a separate picker;
 **Run new sessions as** lists each available account on one line, grouped by
 runtime where there are several. Current marks identify the selected runtime,
 so its sibling accounts share the mark: credential selection belongs to that
 agent, while the root names the account whose report decides its usage. Long names
 truncate; full identity remains on hover. A second word distinguishes names
 that collide: the runtime across runtimes, or the domain within one runtime.
-Unavailable and Needs sign-in remain visible on the current account. **Add an
+With **Hide account addresses** on (Settings › General), names stand in for
+addresses everywhere, hover included.
+Not working and Sign in needed remain visible on the current account. **Add an
 account** and **Manage runtimes** live at the bottom of the picker.
 
 **Usage** opens a separate level with the current report's account identity,
@@ -995,6 +999,13 @@ until its first conversation; one run through a package runner (`npx`, `uvx`)
 names the missing runner and what provides it instead of offering the agent's
 own install command.
 
+Storing a key while an ACP agent is not ready says it can pick up the key on
+its next start; it does not claim the agent restarted with it.
+
+An ACP browser sign-in that has not answered after five minutes stops waiting
+and returns to its sign-in choices. The desk says the agent may still finish;
+that wait ending does not sign the agent out or cancel its own browser request.
+
 A runtime that can hold more than one account offers **Add another account**
 once signed in. Antigravity asks for a name first; an empty one gives
 “Antigravity 2”, “Antigravity 3” and so on. Each account is its own row over a
@@ -1370,7 +1381,19 @@ cannot be established; its conversations stay with the runtime. A retained
 account with no known sign-in methods offers **Check account**, which starts
 that agent on request and reads its account without changing the default.
 
+An agent with several accounts lists them under its row in the order they are
+used, each with its plan, **Default** on the one new sessions run as, and what
+is left or **Limit reached**. On the agent's page each account's menu offers
+**Move up** and **Move down**, and **When an account runs out** chooses **Use
+the next account**, **Ask me** (the default: the usage notice offers the next
+one) or **Stop** (it offers nothing). Use the next account moves new sessions to
+the next account in that order with room, once, and says so in a notice that
+can be muted as *Account switches*. A conversation already open stays on its
+account, because its thread lives in that account's history.
+
 It has a page per runtime (health, update, the runtime's own options) or per account;
+an agent's page leads with who it signs in as — its accounts, then the defaults
+for new sessions, then its options, update and processes;
 *Add a runtime* lists the runtimes this machine can register. **Browse more…**
 reveals ACP registry entries with one group note: “Third-party entries from the
 ACP registry. HarnessDesk has not reviewed them.” Adding or downloading an entry
@@ -1388,7 +1411,7 @@ runtime with no status command and no stored key — is described by what its ow
 answers showed: "Signed in" once a conversation has opened, its declared
 sign-in methods in its own words when it refused one for want of
 authentication, and nothing at all before either has happened. It is never
-"Needs sign-in" on the strength of an empty list. ⌘, opens Settings at General.
+"Sign in needed" on the strength of an empty list. ⌘, opens Settings at General.
 
 Extensions › Reload and plugin installation hold changes while any conversation
 on the account has selected tool servers. Each notice says how many conversations

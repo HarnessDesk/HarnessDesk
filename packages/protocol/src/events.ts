@@ -168,6 +168,8 @@ export type AgentEvent =
       readonly runtime: RuntimeId
       readonly loginId: string | null
       readonly success: boolean
+      /** The desk stopped waiting; the agent may still finish the request. */
+      readonly reason?: 'wait-expired'
       readonly error?: string | null
     }
   | {

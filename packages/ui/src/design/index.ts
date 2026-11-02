@@ -79,6 +79,8 @@ export {
   CodeText,
   Monogram,
   MetaList,
+  DescLines,
+  DescLine,
   InlineParts,
   DetailMark,
   RowInput,
@@ -103,7 +105,7 @@ export { Input } from './ui/input'
 export { Textarea } from './ui/textarea'
 export { Switch } from './ui/switch'
 export { NativeSelect } from './ui/native-select'
-export { Dialog, DialogBody, DialogFooter as ModalDialogFooter, DialogHead } from './patterns/ModalDialog'
+export { Dialog, DialogBody, DialogFooter as ModalDialogFooter, DialogHead, modalSurfaceClass } from './patterns/ModalDialog'
 export { ChoiceList, Fieldset } from './patterns/DialogForm'
 export {
   Dialog as DialogRoot,
