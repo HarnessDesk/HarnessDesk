@@ -647,7 +647,7 @@ export class AppStore {
   // another numerically newer snapshot. No unload is enabled in this state.
   readonly #transcriptRecoveryBlocked = new Set<SessionKey>()
   readonly #transcriptOrphans = new Set<PendingTranscript>()
-  readonly #releasedTranscripts = new Map<SessionKey, { identity: string; watermark: TranscriptWatermark; connection: number; removal: number; metadata: string; owner: object; pending: PendingTranscript; changed: boolean; eligible: boolean; dirty: boolean; inFlight?: Promise<boolean>; flightConnection?: number }>()
+  readonly #releasedTranscripts = new Map<SessionKey, { identity: string; watermark: TranscriptWatermark; connection: number; removal: number; metadata: string; hostMetadata: string; owner: object; pending: PendingTranscript; changed: boolean; eligible: boolean; dirty: boolean; inFlight?: Promise<boolean>; flightConnection?: number }>()
   readonly #releasedOrphans: { identity: string; watermark: TranscriptWatermark; pending: PendingTranscript }[] = []
   readonly #transcriptPending = new Map<SessionKey, { owner: object; capture: PendingTranscript; base: TranscriptWatermark; connection: number; removal: number; inFlight: boolean; dirty: boolean; eligible: boolean }>()
   readonly #transcriptReceipts = new Map<SessionKey, { authority: { watermark: TranscriptWatermark; lastFingerprint: string | null; sessionFingerprint: string }; change: number; draftRevision: number }>()
@@ -841,11 +841,12 @@ export class AppStore {
     this.#transcriptSnapshotRequests.set(key, request)
     try {
       const sessionFingerprint = transcriptSessionFingerprint(before)
+      const hostComparable = transcriptSessionFingerprint({ ...before, archived: before.archived === undefined ? false : before.archived })
       const local = canonicalTranscriptBody(before.turns).canonical
       const snapshot = await this.transport.request('session/cache-snapshot', { runtime, sessionId: id })
       if (!snapshot || snapshot.session.runtime !== runtime || snapshot.session.id !== id || !snapshot.session.itemsLoaded ||
           this.#transcriptProtected(key, snapshot.session) || !this.#validTranscriptFence(snapshot.watermark) || !/^[a-f0-9]{64}$/.test(snapshot.identity)) return false
-      if (sessionFingerprint !== transcriptSessionFingerprint(snapshot.session)) return false
+      if (hostComparable !== transcriptSessionFingerprint({ ...snapshot.session, archived: snapshot.session.archived === undefined ? false : snapshot.session.archived })) return false
       if (local !== canonicalTranscriptBody(snapshot.session.turns).canonical) return false
       const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(local))
       const identity = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')
@@ -898,8 +899,9 @@ export class AppStore {
         this.#transcriptPending.has(key) || !session.itemsLoaded || transcriptSessionFingerprint(session) !== authority.sessionFingerprint) return false
     const identity = transcriptFingerprint(canonicalTranscriptBody(session.turns).canonical)
     const owner = {}, metadata = transcriptSessionFingerprint({ ...session, turns: [], itemsLoaded: false })
+    const hostMetadata = transcriptSessionFingerprint({ ...session, archived: session.archived === undefined ? false : session.archived, turns: [], itemsLoaded: false })
     this.#releasedTranscripts.set(key, { identity, watermark: authority.watermark, connection: this.#chatConnectionGeneration,
-      removal: this.#sessionRemovalRevisions.get(key) ?? 0, metadata, owner, pending: new PendingTranscript({ runtime, sessionId: id, owner }), changed: false, eligible: true, dirty: false })
+      removal: this.#sessionRemovalRevisions.get(key) ?? 0, metadata, hostMetadata, owner, pending: new PendingTranscript({ runtime, sessionId: id, owner }), changed: false, eligible: true, dirty: false })
     const sessions = new Map(this.#snapshot.sessions)
     sessions.set(key, { ...session, turns: [], itemsLoaded: false })
     this.#transcriptReceipts.delete(key)
@@ -933,7 +935,7 @@ export class AppStore {
             (!rebind && (snapshot.watermark.epoch !== descriptor.watermark.epoch || snapshot.watermark.generation !== descriptor.watermark.generation ||
               snapshot.watermark.sequence < descriptor.watermark.sequence || snapshot.watermark.revision < descriptor.watermark.revision)) ||
             !/^[a-f0-9]{64}$/.test(snapshot.identity) || transcriptFingerprint(canonicalTranscriptBody(snapshot.session.turns).canonical) !== snapshot.identity ||
-            (!descriptor.changed && transcriptSessionFingerprint({ ...snapshot.session, turns: [], itemsLoaded: false }) !== descriptor.metadata)) return false
+            (!descriptor.changed && transcriptSessionFingerprint({ ...snapshot.session, archived: snapshot.session.archived === undefined ? false : snapshot.session.archived, turns: [], itemsLoaded: false }) !== descriptor.hostMetadata)) return false
         if (!descriptor.changed && snapshot.identity !== descriptor.identity) return false
         if (captured) {
           if (!cursor || cursor.epoch !== descriptor.watermark.epoch || cursor.generation !== descriptor.watermark.generation ||
@@ -992,7 +994,7 @@ export class AppStore {
       // This first recovery slice accepts only an empty held transcript and
       // an actual snapshot containing every captured unseen assistant delta.
       // Nonempty or richer local material remains protected for reconciliation.
-      if (held.turns.length !== 0 || transcriptSessionFingerprint({ ...held, turns: [] }) !== transcriptSessionFingerprint({ ...snapshot.session, turns: [] })) return
+      if (held.turns.length !== 0 || transcriptSessionFingerprint({ ...held, archived: held.archived === undefined ? false : held.archived, turns: [] }) !== transcriptSessionFingerprint({ ...snapshot.session, archived: snapshot.session.archived === undefined ? false : snapshot.session.archived, turns: [] })) return
       for (const turn of captured.turns) for (const item of turn.items) {
         const text = item.delta.assistantText
         const found = snapshot.session.turns.find(value => value.id === turn.id)?.items.find(value => value.id === item.id)
