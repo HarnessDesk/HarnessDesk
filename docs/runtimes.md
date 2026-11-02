@@ -593,6 +593,8 @@ running reaches the next process, not the running one. Storing now signals the
 runtime to restart immediately to pick it up, and reports what happened: *"Key
 stored. DeepSeek Harness restarted with it."* A turn in flight is never killed;
 in that case the interface reports that the key will apply on the next start.
+When an ACP runtime is not ready, storing a key does not restart it; the interface
+says it can pick the key up on its next start.
 
 Unlike a catalogue refresh this restarts even when sessions are open and the
 runtime cannot resume them. A runtime missing its key fails every turn, so a
