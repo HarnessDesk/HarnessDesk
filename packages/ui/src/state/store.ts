@@ -655,6 +655,8 @@ export class AppStore {
   #transcriptClock = 0
   #transcriptPressureTail: Promise<void> = Promise.resolve()
   #transcriptCacheEnabled = false
+  #transcriptPolicyGeneration = 0
+  #transcriptDrain: Promise<void> | null = null
   #transcriptPressureRunning = false
   #transcriptPressureDirty = false
   #transcriptChange = 0
@@ -698,11 +700,21 @@ export class AppStore {
       eligibleBodies: null, eligibleBytes: null }
   }
 
-  /** Opt in explicitly; startup does not enable automatic pressure. */
+  /** Restore the default cache policy after an explicit measurement disable. */
   enableTranscriptCache(): void {
     if (this.#transcriptCacheEnabled) return
     this.#transcriptCacheEnabled = true
+    this.#transcriptPolicyGeneration++
     this.#scheduleTranscriptPressure()
+  }
+
+  /** Stop new policy unloads and wait for the owned drain to finish. */
+  async disableTranscriptCache(): Promise<void> {
+    this.#transcriptCacheEnabled = false
+    this.#transcriptPolicyGeneration++
+    this.#transcriptPressureDirty = false
+    const drain = this.#transcriptDrain
+    if (drain) await drain
   }
 
   #scheduleTranscriptPressure(): void {
@@ -710,20 +722,25 @@ export class AppStore {
     this.#transcriptPressureDirty = true
     if (this.#transcriptPressureRunning) return
     this.#transcriptPressureRunning = true
-    queueMicrotask(() => void this.#drainTranscriptPressure())
+    const generation = this.#transcriptPolicyGeneration
+    const drain = Promise.resolve().then(() => this.#drainTranscriptPressure(generation))
+    this.#transcriptDrain = drain
+    void drain.then(() => { if (this.#transcriptDrain === drain) this.#transcriptDrain = null })
   }
 
-  async #drainTranscriptPressure(): Promise<void> {
+  async #drainTranscriptPressure(generation: number): Promise<void> {
+    const active = () => this.#transcriptCacheEnabled && this.#transcriptPolicyGeneration === generation
     try {
-      while (this.#transcriptPressureDirty) {
+      while (active() && this.#transcriptPressureDirty) {
         this.#transcriptPressureDirty = false
         for (;;) {
           const planned = await this.prepareTranscriptPressure()
-          if (planned.length === 0) break
+          if (!active() || planned.length === 0) break
           let unloaded = false
           for (const key of planned) {
+            if (!active()) break
             const { runtime, id } = splitSessionKey(key)
-            if (await this.unloadTranscript(runtime, id)) { unloaded = true; break }
+            if (await this.#unloadTranscript(runtime, id, active)) { unloaded = true; break }
           }
           if (!unloaded) break
           // Each mutation starts a fresh proof round; a prior plan is not a
@@ -739,7 +756,7 @@ export class AppStore {
     }
   }
 
-  /** Plan only; actual body removal remains disabled until the recovery gates pass. */
+  /** Plan only; each unload still requires a fresh receipt and guard. */
   planTranscriptEvictions(limits: { count: number; bytes: number } = { count: 128, bytes: 8 * 1024 * 1024 }): readonly SessionKey[] {
     if (!Number.isSafeInteger(limits.count) || limits.count < 0 || !Number.isSafeInteger(limits.bytes) || limits.bytes < 0) return []
     const candidates: { key: SessionKey; bytes: number; touched: number }[] = []
@@ -889,10 +906,14 @@ export class AppStore {
     } catch { return false }
   }
 
-  /** Explicit proof path only. Automatic pressure-driven unload is not enabled. */
+  /** Explicit request; scheduler-driven unloads use the same receipt checks. */
   async unloadTranscript(runtime: RuntimeId, id: SessionId): Promise<boolean> {
+    return this.#unloadTranscript(runtime, id, () => true)
+  }
+
+  async #unloadTranscript(runtime: RuntimeId, id: SessionId, permitted: () => boolean): Promise<boolean> {
     const key = sessionKey(runtime, id)
-    if (this.#releasedTranscripts.has(key) || !await this.prepareTranscriptEviction(runtime, id)) return false
+    if (!permitted() || this.#releasedTranscripts.has(key) || !await this.prepareTranscriptEviction(runtime, id) || !permitted()) return false
     const session = this.#snapshot.sessions.get(key), receipt = this.#transcriptReceipts.get(key), authority = this.#transcriptAuthority.get(key)
     if (!session || !receipt || !authority || receipt.authority !== authority || receipt.change !== this.#transcriptChange ||
         receipt.draftRevision !== this.drafts.revision || this.#transcriptProtected(key, session) || this.#transcriptRecoveryBlocked.has(key) ||
@@ -1234,6 +1255,7 @@ export class AppStore {
           if (this.#historyLoaded || this.#historyPageChanges) void this.loadHistory({ reset: true, reconcile: true })
           void this.refreshRuntime()
           void this.#resumeVisible()
+          this.#scheduleTranscriptPressure()
         }
         if (notification.method === 'extension') {
           this.#onExtensionEvent(notification.params.event)
@@ -1538,6 +1560,7 @@ export class AppStore {
     this.phone = createPhoneState(this.transport)
     this.phone.subscribe(() => { const phoneLink = this.phone.state.enabled; if (phoneLink !== this.#snapshot.phoneLink) this.#patch({ phoneLink }) })
     this.#watchWindowWidth()
+    this.enableTranscriptCache()
   }
 
   subscribe = (listener: () => void): (() => void) => {
