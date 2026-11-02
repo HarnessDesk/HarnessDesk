@@ -684,12 +684,14 @@ export const usageStandingOf = (report: UsageReport, now: number): UsageStanding
 
   // A prepaid balance with no measured plan lane beside it is the account's
   // whole allowance: below zero is a debt, at zero there is nothing to run on.
-  // Ahead of `isBlocked`, which also trusts a source's "credits" reached.
+  // Ahead of `isBlocked`, which also trusts a source's "credits" reached. Beside a measured lane a balance is a
+  // side figure, unless the source says the credits are what it hit.
   const credits = report.credits
   const balance =
     credits && typeof credits.remaining === 'number' && Number.isFinite(credits.remaining) ? credits.remaining : null
   const measured = lane !== null && left !== null
-  if (!measured && balance !== null && !credits?.unlimited) {
+  const creditsReached = report.reached === 'credits' && reached === null
+  if ((!measured || creditsReached) && balance !== null && !credits?.unlimited) {
     if (balance < 0) return { ...base, scopedOut: null, status: 'overdrawn', runsOutAt: null, backAt: null }
     if (balance === 0) return { ...base, scopedOut: null, status: 'out', runsOutAt: null, backAt: null }
   }

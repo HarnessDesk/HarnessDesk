@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 
 import { describeStrip, type StripMeter, type StripRest } from '../lib/plan-strip'
-import { describeLane, formatAge, formatMoney } from '../lib/usage'
+import { describeLane, formatAge, formatMoney, formatWhen } from '../lib/usage'
 import { useActiveSession, useSnapshot } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { RosterIcon, SignInIcon } from './Icons'
@@ -113,7 +113,11 @@ export const PlanMeters = ({
   )
 }
 
-const meterTitle = (view: StripMeter): string => `${view.title}${view.lane.remainingPercent === 0 ? ' · out of quota' : ''}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`
+// A spent meter says when it is back, as its figure does; the headline's own reset can come before another window's.
+const meterTitle = (view: StripMeter, now: number): string => {
+  if (view.lane.remainingPercent === 0) return `${view.title} · out of quota${view.backAt !== null && view.backAt > now ? ` · back ${formatWhen(view.backAt, now)}` : ''}`
+  return `${view.title}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`
+}
 
 const Meter = ({
   view,
@@ -129,8 +133,8 @@ const Meter = ({
 }) => (
     <Popover
       panelWidth="wide" icons="all"
-      title={meterTitle(view)}
-      aria-label={meterTitle(view)}
+      title={meterTitle(view, now)}
+      aria-label={meterTitle(view, now)}
       drop="down"
       align="right"
       label={

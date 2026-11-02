@@ -53,6 +53,8 @@ export interface StripMeter {
   /** Spent, or under `LOW`: the figure is worth the pixels at any width. */
   readonly low: boolean
   readonly out: boolean
+  /** When a spent account is back: the last of the windows that stopped it, not the headline's own reset. */
+  readonly backAt: number | null
   /** "Codex — Weekly, 12% left" */
   readonly title: string
 }
@@ -152,6 +154,7 @@ const meterFor = (
     figure: spent ? (backAt !== null && backAt > now ? `back ${formatWhen(backAt, now)}` : 'out') : `${lane.remainingPercent}%`,
     low: spent || lane.remainingPercent < LOW,
     out: view.blocked,
+    backAt: spent ? backAt : null,
     title: `${name} — ${lane.title}, ${lane.remainingPercent}% left`,
   }
 }

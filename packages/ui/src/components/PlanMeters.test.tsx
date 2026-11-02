@@ -333,7 +333,7 @@ it('includes a promoted chip countdown and agent in its direct accessible name',
   act(() => root.render(<StoreProvider store={storeOf(snapshot)}><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></StoreProvider>))
   const promoted = container.querySelector('[data-promoted]')!
   const name = promoted.closest('button')!.getAttribute('aria-label')!
-  expect(name).toContain('resets in ')
+  expect(name).toContain(' · back ')
   expect(promoted.textContent).toMatch(/^back /)
   expect(name).toContain('Agent B')
   expect(name).toContain('out of quota')

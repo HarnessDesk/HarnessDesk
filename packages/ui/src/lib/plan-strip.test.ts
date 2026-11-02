@@ -97,6 +97,8 @@ describe('the anchor', () => {
     const view = strip({ runtimes: six, usage: [both], sessionRuntime: runtimeId('a') })
     const figure = view.anchor?.kind === 'meter' ? view.anchor.meter.figure : null
     expect(figure).toBe(`back ${formatWhen(NOON + 4 * HOUR, NOON)}`)
+    // The popover title and accessible name carry the same time, not the Weekly's hour.
+    expect(view.anchor?.kind === 'meter' ? view.anchor.meter.backAt : null).toBe(NOON + 4 * HOUR)
   })
 
   it('falls back to the selected agent when no conversation is open', () => {

@@ -168,3 +168,10 @@ test('a balance beside a measured plan lane does not decide the standing', () =>
   const standing = usageStandingOf(report({ credits: { remaining: -1, unit: 'USD' } }), NOW)
   assert.equal(standing.status, 'ready')
 })
+
+test('a debt beside a healthy key limit is overdrawn when the source says the credits are what it hit', () => {
+  const standing = usageStandingOf(report({ credits: { remaining: -0.4, unit: 'USD' }, reached: 'credits' }), NOW)
+  // Plans reads the same report as Overdrawn; the card and the phone must not say Out.
+  assert.equal(standing.status, 'overdrawn')
+  assert.equal(standing.backAt, null)
+})
