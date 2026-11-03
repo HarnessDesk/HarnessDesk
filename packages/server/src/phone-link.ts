@@ -217,6 +217,8 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
 class UnlinkOutbox {
   #ids: Set<string>
   #flushing: Promise<void> = Promise.resolve()
+  /** Every replacement of the file, in order; each writes the list as it is when its turn comes. */
+  #writing: Promise<void> = Promise.resolve()
 
   private constructor(private readonly file: string, private readonly account: PhoneRelayAccount, private readonly log: Logger, ids: readonly string[]) {
     this.#ids = new Set(ids)
@@ -272,7 +274,12 @@ class UnlinkOutbox {
     if (changed) await this.#write().catch(error => this.log.info('phone unlink list not saved', { error: error instanceof Error ? error.name : 'error' }))
   }
 
-  async #write(): Promise<void> {
+  #write(): Promise<void> {
+    this.#writing = this.#writing.then(() => this.#replace(), () => this.#replace())
+    return this.#writing
+  }
+
+  async #replace(): Promise<void> {
     const temporary = `${this.file}.${process.pid}.${randomUUID()}.tmp`
     try {
       await writeFile(temporary, JSON.stringify([...this.#ids]), { mode: 0o600 })

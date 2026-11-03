@@ -145,8 +145,11 @@ export class PhoneLinkService {
    * still has to show the code's secret, and the person still answers "Allow this phone?".
    */
   createPairingCode(ttlSeconds = 600, account?: AccountOffer): PairingCode {
-    const issued = this.registry.issueOffer(ttlSeconds * 1000, this.#now())
-    const expiresAt = account ? Math.min(issued.expiresAt, account.expiresAt) : issued.expiresAt
+    // The desk holds the secret no longer than the code says, so a code past the invite's end is refused here too.
+    const now = this.#now()
+    const deadline = account ? Math.min(now + ttlSeconds * 1000, account.expiresAt) : now + ttlSeconds * 1000
+    const issued = this.registry.issueOffer(Math.max(0, Math.floor(deadline / 1000) * 1000 - now), now)
+    const expiresAt = issued.expiresAt
     const offer: PairingOffer = {
       v: 1, deskPub: this.identity.pub, name: this.name.slice(0, 80) || 'Desk', enroll: b64u(issued.secret),
       ...(account ? { invite: account.invite, api: account.api, relay: account.relay } : {}),

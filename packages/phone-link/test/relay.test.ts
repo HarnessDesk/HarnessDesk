@@ -324,7 +324,11 @@ describe('the relay link', () => {
     assert.equal(offer.invite, 'i'.repeat(32))
     assert.equal(offer.relay, 'wss://relay.example.com')
     assert.equal(offer.api, 'https://api.example.com')
-    assert.equal(ends, expiresAt)
+    assert.equal(ends, Math.floor(expiresAt / 1000) * 1000)
     assert.equal(offer.exp, Math.floor(expiresAt / 1000))
+    // The desk refuses the secret once the code says it ended, even from a phone that ignores what the code says.
+    assert.equal(service.registry.takeOffer(offer.enroll, ends), false)
+    const next = service.createPairingCode(600, { invite: 'i'.repeat(32), api: 'https://api.example.com', relay: 'wss://relay.example.com', expiresAt })
+    assert.equal(service.registry.takeOffer(next.offer.enroll, next.expiresAt - 1), true)
   })
 })
