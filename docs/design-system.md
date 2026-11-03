@@ -2326,6 +2326,8 @@ step. Tabs yield and scroll; their current view and action stay beside them.
 With a `title` the pane has a head: its name as the page's h1, with the
 controls at its end on one bar-tall line, and the tabs on their own line
 below. A page says what it is and what it can do before the views it has.
+The head declares the page inset: its h1 stands on the pane's gutter while
+the cards under it keep their own inner column.
 
 ### `useComposerHeightVar`
 
