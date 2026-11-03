@@ -417,7 +417,8 @@ for (const theme of ['light', 'dark'] as const) {
     for (const faces of ['square', 'round'] as const) {
       await page.getByRole('combobox', { name: 'faces', exact: true }).selectOption(faces)
       await expect(page.locator('[data-frame-id="settings-sheet"] [data-topbar-mark]')).toHaveCount(0)
-      const provider = page.locator('[data-frame-id="settings-sheet"] [data-page-destination="settings"]:visible [data-slot="row-face"] svg').first()
+      // The account row's face, not the agent's own tile that heads the page.
+      const provider = page.locator('[data-frame-id="settings-sheet"] [data-page-destination="settings"]:visible [data-kind="record"] [data-slot="row-face"] svg').first()
       await expect(provider).toHaveCount(1)
       await expect(provider).toHaveCSS('border-radius', '0px')
       const glyph = (await provider.boundingBox())!

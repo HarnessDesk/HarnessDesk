@@ -19,7 +19,7 @@ for (const theme of ['light', 'dark'] as const) test(`unavailable account keeps 
   await sidebar.locator('button[class*="accountRow"]').click()
   const popup = page.locator('[data-popup-kind="wide-menu"][role="dialog"]')
   const current = popup.locator('[role="menuitem"][data-current]')
-  await expect(current.locator('[data-menu-trailing]')).toHaveText('Unavailable')
+  await expect(current.locator('[data-menu-trailing]')).toHaveText('Not working')
   await expect(popup.getByText('Usage', { exact: true })).toBeVisible()
   await expect(popup.locator('[data-menu-trailing]').filter({ hasText: /\d+%/ }).first()).toBeVisible()
 })
@@ -41,7 +41,8 @@ test('seat menu keeps its content width across sidebar widths and clamps both le
     await trigger.click()
     const popup = page.locator('[data-slot="popover-popup"]')
     await expect(popup).toBeVisible()
-    await expect(popup.getByRole('menuitem')).toHaveCount(5)
+    // Signing out of an agent lives on its account page, not in the seat menu.
+    await expect(popup.getByRole('menuitem')).toHaveCount(4)
     const rootBounds = await popup.boundingBox()
     const picker = popup.locator('[data-slot="dropdown-menu-sub-trigger"][data-current]')
     await picker.focus()
