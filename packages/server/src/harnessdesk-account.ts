@@ -11,6 +11,7 @@ import {
   b64u, fromB64u, generateSigningIdentity, idFromPub, relayDeskProofMessage, signingIdentityFromPkcs8,
   webDeskLinkProofMessage, webDeskProofMessage, type SigningIdentity,
 } from '@harnessdesk/crypto'
+import { RelayUnavailableError } from '@harnessdesk/phone-link'
 import type { HarnessDeskAccountStatus } from '@harnessdesk/protocol'
 import type { CredentialCipher } from './credentials.js'
 import type { StateStore } from './state.js'
@@ -529,7 +530,7 @@ export class HarnessDeskAccount {
     const saved = this.#secrets.session
     const session = await this.#session(generation, fresh || !saved.relayUrl || !saved.relayToken)
     if (!session || !this.#current(generation)) throw new Error('This desk signed out.')
-    if (!session.relayUrl || !session.relayToken) throw new Error('The account did not name a relay this desk can use.')
+    if (!session.relayUrl || !session.relayToken) throw new RelayUnavailableError('The account did not name a relay this desk can use.')
     if (session !== this.#secrets.session && this.#secrets) { this.#secrets = { ...this.#secrets, session }; await this.#persist() }
     return session as Session & { relayUrl: string; relayToken: string }
   }

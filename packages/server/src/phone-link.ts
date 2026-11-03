@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -173,8 +173,9 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     state,
     pairing: async () => {
       let invite: AccountOffer | undefined
-      // An invite that cannot be made leaves a code for this network, which still pairs.
-      if (account && reachable) invite = await account.createPhoneInvite().catch(error => {
+      // An invite that cannot be made leaves a code for this network, which still pairs. Neither does a relay that has
+      // stopped on purpose: a phone away could not reach this desk with it, or would reach the copy that replaced it.
+      if (account && reachable && RELAY_RUNNING.has(relayState)) invite = await account.createPhoneInvite().catch(error => {
         log.info('phone invite failed', { error: error instanceof Error ? error.name : 'error' })
         return undefined
       })
@@ -184,9 +185,14 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     allow: (id, tiers) => { service.allow(id, tiers); return state() },
     deny: id => { service.deny(id); return state() },
     revoke: async device => {
-      await service.revoke(device)
-      // Removed here first; the account link follows, now or once the account can be reached.
-      await unlinks?.add(device)
+      // The unlink is on disk before the phone goes, so a removal that cannot be recorded fails as a whole rather than
+      // leaving an account link nothing will remove. The account link follows, now or once the account can be reached.
+      await unlinks?.record(device)
+      try { await service.revoke(device) } catch (error) {
+        await unlinks?.discard(device).catch(() => {})
+        throw error
+      }
+      void unlinks?.flush()
       return state()
     },
     onChange: listener => {
@@ -224,11 +230,19 @@ class UnlinkOutbox {
     return new UnlinkOutbox(file, account, log, ids)
   }
 
-  /** Saved before anything goes out, so Remove phone never waits on the account's network. */
-  async add(id: string): Promise<void> {
+  /** Saved before anything goes out, so Remove phone never waits on the account's network. Throws when it cannot be saved. */
+  async record(id: string): Promise<void> {
+    const had = this.#ids.has(id)
     this.#ids.add(id)
-    await this.#save()
-    void this.flush()
+    try { await this.#write() } catch (error) {
+      if (!had) this.#ids.delete(id)
+      throw error
+    }
+  }
+
+  /** Takes back a record whose removal did not happen. */
+  async discard(id: string): Promise<void> {
+    if (this.#ids.delete(id)) await this.#write()
   }
 
   flush(): Promise<void> {
@@ -254,17 +268,24 @@ class UnlinkOutbox {
       this.#ids.delete(id)
       changed = true
     }
-    if (changed) await this.#save()
+    // A done unlink that cannot be saved is asked for again after a restart, and a link already gone counts as done.
+    if (changed) await this.#write().catch(error => this.log.info('phone unlink list not saved', { error: error instanceof Error ? error.name : 'error' }))
   }
 
-  async #save(): Promise<void> {
+  async #write(): Promise<void> {
     const temporary = `${this.file}.${process.pid}.${randomUUID()}.tmp`
     try {
       await writeFile(temporary, JSON.stringify([...this.#ids]), { mode: 0o600 })
       await rename(temporary, this.file)
-    } catch (error) { this.log.info('phone unlink list not saved', { error: error instanceof Error ? error.name : 'error' }) }
+    } catch (error) {
+      await unlink(temporary).catch(() => {})
+      throw error
+    }
   }
 }
+
+/** Relay states from which a phone away can still reach this desk, now or after a retry. */
+const RELAY_RUNNING: ReadonlySet<PhoneRelayState> = new Set(['connecting', 'connected', 'unreachable'])
 
 /** What the window sees when the phone link is not running. */
 export const phoneLinkOff: PhoneLinkState = { enabled: false, deskName: '', deskId: '', port: null, relay: 'off', devices: [], pending: [] }

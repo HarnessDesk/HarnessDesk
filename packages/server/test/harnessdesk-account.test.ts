@@ -6,6 +6,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { b64u, fromB64u, idFromPub, relayDeskProofMessage, verifyEd25519, webDeskLinkProofMessage, webDeskProofMessage } from '@harnessdesk/crypto'
 import { Client, start, stop } from './fixtures/harness.js'
 import { StateStore } from '../src/state.js'
+import { RelayUnavailableError } from '@harnessdesk/phone-link'
 import { HarnessDeskAccount, relayOrigin } from '../src/harnessdesk-account.js'
 
 const directories: string[] = []
@@ -495,7 +496,8 @@ test('the relay gets its own token and a proof only while signed in and reachabl
 test('a cloud that names no relay token leaves the relay off rather than sending it the account token', async () => {
   const r = await rig({ relayToken: null }); await r.service.setReachable(true)
   await r.service.signIn(); r.approve(); await r.timers.shift()!()
-  await assert.rejects(r.service.relayAccess(), /did not name a relay/)
+  // The relay link takes this answer as final, so it goes back to off instead of renewing the session again and again.
+  await assert.rejects(r.service.relayAccess(), (error: unknown) => error instanceof RelayUnavailableError && /did not name a relay/.test(error.message))
   r.service.close()
 })
 test('a phone invite names the account service and the relay, and ends when the cloud says', async () => {

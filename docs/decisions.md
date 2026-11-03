@@ -5155,9 +5155,13 @@ lets go of only the phone whose message is too large.
 
 Removing a phone on the desk refuses it at once from the local registry; its
 account link is removed when the account can be reached, from a small outbox
-that survives a restart. The pairing code carries a one-time invite when one
+that survives a restart. The outbox is written before the phone is removed, so
+a removal that cannot be recorded fails as a whole instead of leaving a link
+nothing will remove. The pairing code carries a one-time invite when one
 can be made, and falls back to a same-network code when it cannot, so the
-account is never in the way of pairing.
+account is never in the way of pairing. A desk whose relay has stopped (replaced,
+refused, or an account that names no relay) gives a same-network code only: a
+phone away could not reach it, or would reach the copy that took its room.
 
 The account key and the phone-link key stay separate: the first names the desk
 to the account and signs the relay's challenge; the second is the one the

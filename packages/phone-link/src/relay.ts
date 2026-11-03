@@ -13,6 +13,14 @@ export interface RelayCredentials {
   prove(challenge: string): Promise<string>
 }
 
+/**
+ * Thrown by `credentials` when the account names no relay this desk can use. That is the account's answer rather than
+ * a failure, so the link goes back to off instead of retrying against an account that will keep giving it.
+ */
+export class RelayUnavailableError extends Error {
+  override readonly name = 'RelayUnavailableError'
+}
+
 /** One phone on the relay, as the phone link sees it. */
 export interface RelayAttachment {
   receive(frame: Uint8Array): void
@@ -22,7 +30,8 @@ export interface RelayAttachment {
 /**
  * What the window shows beside Reachable from your phone. `connecting` covers the first few failures too, so a Mac
  * waking up or changing networks does not flash a warning; `unreachable` is the warning. The last three mean the
- * desk stopped trying on purpose and will not come back by itself.
+ * desk stopped trying on purpose and will not come back by itself, and so does `off` while Reachable is on: the account
+ * named no relay this desk can use.
  */
 export type RelayState = 'off' | 'connecting' | 'connected' | 'unreachable' | 'replaced' | 'refused'
 
@@ -40,6 +49,7 @@ export interface RelayLinkOptions {
   readonly maxBackoffMs?: number
   readonly stableMs?: number
   readonly closeGraceMs?: number
+  readonly readyMs?: number
   readonly framesPerSecond?: number
 }
 
@@ -50,6 +60,8 @@ const MISSED_HEARTBEATS = 3
 const BASE_BACKOFF_MS = 1000
 /** How long a socket has to stay up before its drop counts as a fresh start rather than one more failure. */
 const STABLE_MS = 30_000
+/** How long an open socket has to say `ready` before it is taken for a room that will never let this desk in. */
+const READY_MS = 15_000
 /** Frames waiting for the relay's rate before the phone whose frame does not fit is let go. */
 const MAX_QUEUED_FRAMES = 4096
 /** Under the relay's meter, with room for its pings and control messages on the same socket. */
@@ -116,6 +128,10 @@ export class RelayLink {
       if (!this.#current(generation)) return
     } catch (error) {
       this.#options.log?.('relay credentials failed', { error: error instanceof Error ? error.name : 'error' })
+      if (error instanceof RelayUnavailableError && this.#current(generation)) {
+        this.#running = false
+        return this.#set('off')
+      }
       return this.#retry(generation)
     }
     let proof: string
@@ -155,6 +171,13 @@ export class RelayLink {
     socket.on('open', () => {
       if (!this.#current(generation) || this.#live !== live) return void socket.close(1000, 'desk stopped')
       this.#startHeartbeat(live)
+      // A socket that answers pings but never says `ready` would hold the link at connecting for good.
+      live.readyTimer = setTimeout(() => {
+        if (live.readyAt !== null || this.#live !== live) return
+        this.#options.log?.('relay never said ready')
+        live.socket.terminate()
+      }, this.#options.readyMs ?? READY_MS)
+      live.readyTimer.unref()
     })
     socket.on('message', (data, isBinary) => {
       if (this.#live !== live || !this.#current(generation)) return
@@ -293,6 +316,7 @@ export class RelayLink {
 class Live {
   readonly phones = new Map<number, RelayAttachment>()
   heartbeat: ReturnType<typeof setInterval> | null = null
+  readyTimer: ReturnType<typeof setTimeout> | null = null
   missed = 0
   readyAt: number | null = null
   maxPhones: number = RelayLimits.maxPhonesPerDesk
@@ -337,6 +361,8 @@ class Live {
   end(): void {
     if (this.heartbeat) clearInterval(this.heartbeat)
     this.heartbeat = null
+    if (this.readyTimer) clearTimeout(this.readyTimer)
+    this.readyTimer = null
     if (this.#drain) clearTimeout(this.#drain)
     this.#drain = null
     this.#queue.length = 0

@@ -948,11 +948,13 @@ relay's own token (`relayToken`) goes to it. Each socket owns its phones,
 heartbeat and send pacing, so a late close of an old one touches nothing in
 use. The link heartbeats, reconnects with full jitter, renews a refused token once, and
 stops for a replaced desk or a second refusal until the person turns Reachable
-off and on. `phone/state` reports the link's state and each phone's route
+off and on. A socket that never says `ready` is dropped and tried again, and an
+account that names no relay token leaves the link off (`RelayUnavailableError`).
+`phone/state` reports the link's state and each phone's route
 (nearby or through the account), and `phone/pairing` adds an account invite
-when it can make one. A phone removed on the desk is refused at once; its
-account link is removed when the account can be reached
-(`relay-unlinks.json`).
+when it can make one and the link is still trying. A phone removed on the desk is
+refused at once; its account link is removed when the account can be reached
+(`relay-unlinks.json`, saved before the phone is removed).
 
 The phone's `workspace/read` snapshot carries capabilities, Teams and recent
 sessions, and its usage. Each signed-in account is one allowance row with the

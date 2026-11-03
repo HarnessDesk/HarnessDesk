@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 import { CloseCode } from '@harnessdesk/contract'
-import { PhoneLinkService, RelayLink, type PhonePolicy, type RelayCredentials, type RelayState } from '../src/index.js'
+import { PhoneLinkService, RelayLink, RelayUnavailableError, type PhonePolicy, type RelayCredentials, type RelayState } from '../src/index.js'
 import { CHALLENGE, RelaySim } from '../src/relay-sim.js'
 import { PhoneSim } from '../src/sim.js'
 import WebSocket from 'ws'
@@ -284,6 +284,25 @@ describe('the relay link', () => {
     assert.ok(states.includes('connected'))
     relay.dropAfterReady = false
     await until(() => link!.state === 'connected' && relay.desk !== null, 'connected once it holds')
+  })
+
+  test('a room that admits the desk but never says ready is left and tried again', async () => {
+    relay.withholdReady = true
+    startLink({ readyMs: 30, maxBackoffMs: 20 })
+    await until(() => relay.desks.length >= 2, 'a second connection')
+    assert.ok(!states.includes('connected'))
+    relay.withholdReady = false
+    await until(() => link!.state === 'connected', 'connected once the room is ready')
+  })
+
+  test('an account that names no relay leaves the link off instead of asking again and again', async () => {
+    let calls = 0
+    startLink({ credentials: async () => { calls++; throw new RelayUnavailableError('no relay') }, maxBackoffMs: 20 })
+    await until(() => link!.state === 'off', 'off')
+    await new Promise(r => setTimeout(r, 100))
+    assert.equal(calls, 1)
+    assert.deepEqual(states, ['connecting', 'off'])
+    assert.equal(relay.desks.length, 0)
   })
 
   test('a phone the relay names with something other than a device id is never attached', async () => {

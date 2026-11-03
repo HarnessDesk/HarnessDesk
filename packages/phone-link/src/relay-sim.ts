@@ -23,6 +23,8 @@ export class RelaySim {
   maxFrame = 1_048_576
   /** Ends each desk socket right after `ready`, as a relay that keeps failing just past admission would. */
   dropAfterReady = false
+  /** Admits each desk socket and answers its pings but never says `ready`, as a room stuck half way would. */
+  withholdReady = false
   down = false
   #desk: WebSocket | null = null
   #phones = new Map<number, WebSocket>()
@@ -75,7 +77,7 @@ export class RelaySim {
       for (const phone of this.#phones.values()) phone.close(CloseCode.PEER_DROPPED, 'desk replaced')
       this.#phones.clear()
     }
-    ws.send(JSON.stringify({ t: 'ready', maxPhones: this.maxPhones, maxFrame: this.maxFrame }))
+    if (!this.withholdReady) ws.send(JSON.stringify({ t: 'ready', maxPhones: this.maxPhones, maxFrame: this.maxFrame }))
     if (this.dropAfterReady) setTimeout(() => ws.close(CloseCode.UNAVAILABLE, 'unavailable'), 5)
     ws.on('message', (data, isBinary) => {
       const bytes = data as Buffer

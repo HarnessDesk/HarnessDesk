@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, test } from 'node:test'
@@ -128,6 +128,8 @@ test('a desk another copy replaced stays stopped through later account refreshes
   other.start()
   try {
     await relayIs('replaced')
+    // A phone away would reach the copy that took the room, so the code is for this network only.
+    assert.equal((await phone.pairing()).away, false)
     account.reachable(true)
     account.reachable(true)
     await new Promise(r => setTimeout(r, 100))
@@ -166,4 +168,28 @@ test('removing a phone on the Mac refuses it at once, and unlinks it from the ac
   assert.deepEqual(account.unlinked, [sim.id])
   await new Promise(r => setTimeout(r, 50))
   assert.deepEqual(JSON.parse(await readFile(join(home, 'phone-link', 'relay-unlinks.json'), 'utf8')), [])
+})
+
+test('a removal whose account unlink cannot be saved fails as a whole, and the phone stays', async () => {
+  const phone = await start()
+  account.reachable(true)
+  await relayIs('connected')
+  const code = await phone.pairing()
+  const sim = await PhoneSim.fromCode(code.url)
+  await sim.connect(`${relay.url}/v1/phone/${DESK}`, sim.offer!.deskPub, { authorization: `Bearer ${await relay.ticketFor(sim)}` })
+  await sim.enroll(sim.offer!.enroll)
+  await until(() => phone.state().pending.length > 0, 'the phone to ask')
+  phone.allow(phone.state().pending[0]!.id)
+  await sim.next(m => m.t === 'enroll.ok')
+  // A directory where the outbox goes makes every save of it fail.
+  const outbox = join(home, 'phone-link', 'relay-unlinks.json')
+  await mkdir(outbox)
+  await writeFile(join(outbox, 'keep'), '')
+  await assert.rejects(phone.revoke(sim.id))
+  assert.deepEqual(phone.state().devices.map(device => device.id), [sim.id])
+  assert.deepEqual(account.unlinked, [])
+  await rm(outbox, { recursive: true })
+  await phone.revoke(sim.id)
+  assert.equal((await sim.closedWith()).code, CloseCode.REVOKED)
+  await until(() => account.unlinked.length === 1, 'the unlink')
 })
