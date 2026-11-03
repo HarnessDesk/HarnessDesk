@@ -114,11 +114,13 @@ PaneColumn.displayName = 'PaneColumn'
  *
  * With a `title` the pane has a head: its name as the page's h1, with the
  * controls at its end on one bar-tall line, and the tabs on their own line
- * below. A page says what it is and what it can do before the views it has. */
+ * below. A page says what it is and what it can do before the views it has.
+ * The head declares the page inset: its h1 stands on the pane's gutter while
+ * the cards under it keep their own inner column. */
 export const PaneTabsRow = ({ children, controls, title }: { readonly children: ReactNode; readonly controls?: ReactNode; readonly title?: ReactNode }) => {
   const actions = controls != null && <div className="ms-auto flex shrink-0 items-center gap-2">{controls}</div>
   return title != null
-    ? <PaneColumn inset="reading" className="flex shrink-0 flex-col gap-2" data-pane-tabs-row="" data-pane-head="">
+    ? <PaneColumn inset="reading" className="flex shrink-0 flex-col gap-2" data-pane-tabs-row="" data-pane-head="" data-content-inset="page">
       <PageTitle title={title}>{actions}</PageTitle>
       <div className="min-w-0">{children}</div>
     </PaneColumn>

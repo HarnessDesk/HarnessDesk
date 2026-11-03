@@ -1982,6 +1982,12 @@ A note that belongs to the person's line above it, at that line's trailing edge.
 
 Names a block for tests and tools without adding a box of its own to the layout it sits in.
 
+### `leadRoleWord`
+
+`packages/ui/src/design/patterns/LeadPlanFlow.tsx`
+
+A plan role in the words the Lead uses everywhere: what the worker does, never which runtime does it.
+
 ### `LeadPlanFlow`
 
 `packages/ui/src/design/patterns/LeadPlanFlow.tsx`
@@ -2326,6 +2332,8 @@ step. Tabs yield and scroll; their current view and action stay beside them.
 With a `title` the pane has a head: its name as the page's h1, with the
 controls at its end on one bar-tall line, and the tabs on their own line
 below. A page says what it is and what it can do before the views it has.
+The head declares the page inset: its h1 stands on the pane's gutter while
+the cards under it keep their own inner column.
 
 ### `useComposerHeightVar`
 

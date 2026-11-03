@@ -68,6 +68,16 @@ export const useRegisteredOwner = (owner: string): boolean => {
   return useSyncExternalStore(source.subscribe,
     () => source.getSnapshot().get(owner)?.value.base !== undefined, () => false)
 }
+/** Whether `owner` has a rail to draw: a page earns the rail column only by registering one. */
+export const useRegisteredDetails = (owner: string): boolean => {
+  const source = useContext(Context) ?? emptyRegistry
+  return useSyncExternalStore(source.subscribe,
+    () => source.getSnapshot().get(owner)?.value.details != null, () => false)
+}
+const RailHost = createContext(false)
+/** Set by the shell that draws page rails; a page mounted without one has no rail to toggle. */
+export const PageRailHost = RailHost.Provider
+export const usePageRailHost = (): boolean => useContext(RailHost)
 export const WorkDetailsOutlet = ({ owner }: { owner: string }) => {
   const source = useContext(Context)
   if (!source) throw new Error('WorkDetailsOutlet requires TopBarProvider')

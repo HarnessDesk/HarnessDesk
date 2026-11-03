@@ -6,8 +6,10 @@ import { openExternal } from '../../lib/desktop'
 import { leadOriginText } from '../../lib/lead-time'
 
 const roles = new Map([['implement', 'write'], ['review', 'review']])
+/** A plan role in the words the Lead uses everywhere: what the worker does, never which runtime does it. */
+export const leadRoleWord = (role: string) => roles.get(role) ?? role.replace(/[-_]+/g, ' ')
 const work = (step: LeadAcceptanceContract['steps'][number]) => step.assignments
-  .map(assignment => roles.get(assignment.role) ?? assignment.role.replace(/[-_]+/g, ' '))
+  .map(assignment => leadRoleWord(assignment.role))
   .filter((word, index, words) => word !== words[index - 1]).join(', then ')
 
 /** An approved plan's linear flow in reading order. The Timeline owns the

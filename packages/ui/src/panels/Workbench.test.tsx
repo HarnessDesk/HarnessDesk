@@ -29,6 +29,8 @@ import {
   splitDock,
   toggleDock,
   swapWorkPane,
+  togglePageRail,
+  railFloatsBeside,
   undock,
   zoomArea,
   type Workbench as Model,
@@ -36,7 +38,8 @@ import {
 import { toolOf } from '../state/frame-tools'
 import { Workbench as WorkbenchBody } from './Workbench'
 import * as terminalLabels from '../lib/terminal-labels'
-import { TopBarProvider } from './top-bar'
+import { TopBarProvider, useWorkDetails } from './top-bar'
+import { PageRailToggle } from './WorkTools'
 import { ShellHostsProvider, ShellOutlets } from './shell-hosts'
 import type { ComponentProps } from 'react'
 const Workbench = (props: ComponentProps<typeof WorkbenchBody>) => <TopBarProvider><ShellHostsProvider><WorkbenchBody {...props} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
@@ -179,6 +182,7 @@ const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<A
       settle({ ...next, right: { ...next.right, collapsed: current.open }, bottom: current.tool === 'terminal' ? { ...next.bottom, collapsed: current.open } : next.bottom, frameTools: { ...next.frameTools, [subject]: { ...current, open: !current.open, expanded: false } } })
     },
     swapWorkPane: () => settle(swapWorkPane(snapshot.workbench)),
+    togglePageRail: (page: string) => settle(togglePageRail(snapshot.workbench, page)),
     /* The main area's two halves of one press, in one write: the zoom hides
        the other *areas*, the expansion hides the other *panes*. A rig that
        implemented only the first would have passed through the bug where
@@ -1308,4 +1312,42 @@ it('a page with its chosen folder keeps the terminal pane beside its body', () =
   expect(container.querySelector('[data-testid="view-terminal"]')?.closest('[inert]')).toBeNull()
   expect(container.querySelector('[data-slot="destination-pages"]')?.textContent).toBe('Review')
   expect(container.querySelector('[data-slot="fixed-shell"]')?.getAttribute('data-rail-open')).toBe('false')
+})
+
+it('a page that registers a rail gets the rail column, open until its toggle closes it', () => {
+  const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }))
+  const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return <PageRailToggle page="lead" /> }
+  const draw = () => act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+  draw()
+  const shell = () => container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  expect(shell().getAttribute('data-rail-open')).toBe('true')
+  expect(container.querySelector('[data-frame-region="rail"]')?.textContent).toBe('Lead cards')
+  act(() => container.querySelector<HTMLButtonElement>('[data-work-rail-toggle]')!.click())
+  draw()
+  expect(shell().getAttribute('data-rail-open')).toBe('false')
+})
+
+it('a page rail floats over the page where the column cannot hold it, by the session rail\'s line', () => {
+  for (const [windowWidth, floats] of [[1440, false], [900, true]] as const) {
+    const harness = rig(start => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } }), { windowWidth })
+    const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return null }
+    act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+    const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+    expect(shell.dataset.railFloats, String(windowWidth)).toBe(String(floats))
+  }
+  expect(railFloatsBeside(FRAME.main.min + FRAME.infoCard.width - 1)).toBe(true)
+  expect(railFloatsBeside(FRAME.main.min + FRAME.infoCard.width)).toBe(false)
+})
+
+it('a page rail floats when the terminal pane the page keeps leaves the column too narrow', () => {
+  // 1100px holds the rail alone; beside a 400px terminal the column is 700px, under the line.
+  for (const [terminal, floats] of [[false, false], [true, true]] as const) {
+    const lead = (start: Model): Model => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } })
+    const harness = rig(start => terminal ? lead(dock(start, 'bottom', { kind: 'terminal', terminalId: 'lead-pty', runtime: 'fixture' as never, cwd: '/synthetic/project' })) : lead(start), { windowWidth: 1100 })
+    const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return null }
+    act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+    const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+    expect(shell.dataset.rightOpen, String(terminal)).toBe(String(terminal))
+    expect(shell.dataset.railFloats, String(terminal)).toBe(String(floats))
+  }
 })
