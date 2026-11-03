@@ -123,7 +123,7 @@ export const HarnessDeskAccountSection = () => {
       <Note>Sign in on your phone with the same account to add another.</Note>
     </>}
     <SectionHead level="label" name="Without an account" />
-    <Rows><Row mark={<MobileIcon size={16} />} title="Pair a phone with a code" desc={phoneLink ? 'Pair on the same network from Phone settings.' : 'Not available in this build'}
+    <Rows><Row mark={<MobileIcon size={16} />} title="Pair a phone with a code" desc={phoneLink ? 'Pair from Phone settings.' : 'Not available in this build'}
       control={<Button variant="outline" disabled={!phoneLink} onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'phone', focus: null } })}>{phoneLink ? 'Phone settings' : 'Show code'}</Button>} /></Rows>
     {signedIn && <><SectionHead level="label" name="HarnessDesk account" />
       <Rows><Row title="Delete account" control={<Button variant="destructive" disabled={busy} onClick={() => setDeleting(true)}>Delete account…</Button>} /></Rows></>}

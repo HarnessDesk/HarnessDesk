@@ -295,6 +295,12 @@ describe('the relay link', () => {
     await until(() => link!.state === 'connected', 'connected once the room is ready')
   })
 
+  test('a token the socket cannot carry is one more failure, and the link keeps trying', async () => {
+    startLink({ credentials: credentials(() => 'bad\ntoken'), maxBackoffMs: 20 })
+    await until(() => link!.state === 'unreachable', 'unreachable')
+    assert.ok(asked.length > 3, `tried ${asked.length} times`)
+  })
+
   test('an account that names no relay leaves the link off instead of asking again and again', async () => {
     let calls = 0
     startLink({ credentials: async () => { calls++; throw new RelayUnavailableError('no relay') }, maxBackoffMs: 20 })

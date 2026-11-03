@@ -135,7 +135,12 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     else if (WORKSPACE_METHODS.has(notification.method) || (notification.method === 'event' && WORKSPACE_EVENTS.has(notification.params.event.type))) feed.poke()
   })
   const listeners = new Set<() => void>()
-  const changed = () => { for (const listener of listeners) listener() }
+  const changed = () => {
+    for (const listener of listeners) {
+      try { listener() } catch (error) { log.info('phone link listener failed', { error: error instanceof Error ? error.name : 'error' }) }
+    }
+  }
+  let closed = false
   const account = options.account
   let relayState: PhoneRelayState = 'off'
   const unlinks = account ? await UnlinkOutbox.open(join(options.home, 'phone-link', 'relay-unlinks.json'), account, log) : null
@@ -154,6 +159,7 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
   // not on every status: a desk another copy replaced, or the account refused, stays stopped until the person acts.
   let reachable = false
   const follow = (status: HarnessDeskAccountStatus) => {
+    if (closed) return
     const next = status.status === 'signedIn' && status.desk.reachable
     if (status.status === 'signedIn') void unlinks?.flush()
     if (next === reachable) return
@@ -187,9 +193,10 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
     revoke: async device => {
       // The unlink is on disk before the phone goes, so a removal that cannot be recorded fails as a whole rather than
       // leaving an account link nothing will remove. The account link follows, now or once the account can be reached.
-      await unlinks?.record(device)
+      // Only a phone this desk has paired can have an account link to remove.
+      const recorded = service.devices().some(known => known.id === device) ? await unlinks?.record(device) : false
       try { await service.revoke(device) } catch (error) {
-        await unlinks?.discard(device).catch(() => {})
+        if (recorded) await unlinks?.discard(device).catch(() => {})
         throw error
       }
       void unlinks?.flush()
@@ -205,7 +212,7 @@ export async function startPhoneLink(host: Pick<Host, 'call' | 'addBroadcaster' 
   log.info('phone link listening', { port: service.port, deskId: service.deskId })
   return {
     service, control,
-    close: async () => { detach(); unfollow?.(); relay?.stop(); feed.dispose(); await service.close() },
+    close: async () => { closed = true; detach(); unfollow?.(); relay?.stop(); feed.dispose(); await service.close() },
   }
 }
 
@@ -227,19 +234,24 @@ class UnlinkOutbox {
   static async open(file: string, account: PhoneRelayAccount, log: Logger): Promise<UnlinkOutbox> {
     const ids = await readFile(file, 'utf8').then(text => {
       const value: unknown = JSON.parse(text)
-      return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string').slice(0, 64) : []
+      return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string').slice(0, MAX_UNLINKS) : []
     }).catch(() => [])
     return new UnlinkOutbox(file, account, log, ids)
   }
 
-  /** Saved before anything goes out, so Remove phone never waits on the account's network. Throws when it cannot be saved. */
-  async record(id: string): Promise<void> {
-    const had = this.#ids.has(id)
+  /**
+   * Saved before anything goes out, so Remove phone never waits on the account's network. Throws when it cannot be
+   * saved; true when this call added the id, so only that call takes it back.
+   */
+  async record(id: string): Promise<boolean> {
+    if (this.#ids.has(id)) return false
+    if (this.#ids.size >= MAX_UNLINKS) throw new Error('Too many phone removals are waiting for the account.')
     this.#ids.add(id)
     try { await this.#write() } catch (error) {
-      if (!had) this.#ids.delete(id)
+      this.#ids.delete(id)
       throw error
     }
+    return true
   }
 
   /** Takes back a record whose removal did not happen. */
@@ -256,7 +268,9 @@ class UnlinkOutbox {
     if (this.#ids.size === 0) return
     let status: HarnessDeskAccountStatus
     try { status = await this.account.status() } catch { return }
-    if (status.status === 'pending') return
+    // Signed out with an error is an account this desk cannot use right now (storage it cannot read, a session the
+    // account ended), not a sign-out that took the links with it, so the removals wait for the next sign-in.
+    if (status.status === 'pending' || (status.status === 'signedOut' && status.error)) return
     let changed = false
     for (const id of [...this.#ids]) {
       // A desk that signed out took its links with it. Signed in, the account is asked every time rather than trusting
@@ -290,6 +304,9 @@ class UnlinkOutbox {
     }
   }
 }
+
+/** Removals one desk can hold for the account; the phones it pairs are far fewer. */
+const MAX_UNLINKS = 256
 
 /** Relay states from which a phone away can still reach this desk, now or after a retry. */
 const RELAY_RUNNING: ReadonlySet<PhoneRelayState> = new Set(['connecting', 'connected', 'unreachable'])

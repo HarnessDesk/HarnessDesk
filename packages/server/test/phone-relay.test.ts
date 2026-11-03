@@ -193,3 +193,33 @@ test('a removal whose account unlink cannot be saved fails as a whole, and the p
   assert.equal((await sim.closedWith()).code, CloseCode.REVOKED)
   await until(() => account.unlinked.length === 1, 'the unlink')
 })
+
+test('a removal waits through an account the desk cannot use, and is sent once it signs in again', async () => {
+  const phone = await start()
+  account.reachable(true)
+  await relayIs('connected')
+  const code = await phone.pairing()
+  const sim = await PhoneSim.fromCode(code.url)
+  await sim.connect(`${relay.url}/v1/phone/${DESK}`, sim.offer!.deskPub, { authorization: `Bearer ${await relay.ticketFor(sim)}` })
+  await sim.enroll(sim.offer!.enroll)
+  await until(() => phone.state().pending.length > 0, 'the phone to ask')
+  phone.allow(phone.state().pending[0]!.id)
+  await sim.next(m => m.t === 'enroll.ok')
+  // Storage the desk cannot read, or a session the account ended: signed out, with an error.
+  account.emit({ status: 'signedOut', error: 'HarnessDesk could not read its saved sign-in.' })
+  await phone.revoke(sim.id)
+  await new Promise(r => setTimeout(r, 50))
+  assert.deepEqual(JSON.parse(await readFile(join(home, 'phone-link', 'relay-unlinks.json'), 'utf8')), [sim.id])
+  account.snapshot = { status: 'signedIn', desk: { name: 'Studio Mac', reachable: true }, phones: [] }
+  account.emit({})
+  await until(() => account.unlinked.length === 1, 'the unlink')
+  assert.deepEqual(account.unlinked, [sim.id])
+})
+
+test('removing a phone this desk never paired leaves nothing waiting for the account', async () => {
+  const phone = await start()
+  await phone.revoke('not-a-paired-device')
+  await new Promise(r => setTimeout(r, 20))
+  const saved = await readFile(join(home, 'phone-link', 'relay-unlinks.json'), 'utf8').catch(() => '[]')
+  assert.deepEqual(JSON.parse(saved), [])
+})

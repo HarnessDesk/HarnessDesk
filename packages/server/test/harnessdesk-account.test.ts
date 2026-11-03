@@ -500,6 +500,14 @@ test('a cloud that names no relay token leaves the relay off rather than sending
   await assert.rejects(r.service.relayAccess(), (error: unknown) => error instanceof RelayUnavailableError && /did not name a relay/.test(error.message))
   r.service.close()
 })
+test('a relay token that is the account token, or not header text, is no relay token at all', async () => {
+  for (const relayToken of ['fake-desk-session', 'line\nbreak']) {
+    const r = await rig({ relayToken }); await r.service.setReachable(true)
+    await r.service.signIn(); r.approve(); await r.timers.shift()!()
+    await assert.rejects(r.service.relayAccess(), RelayUnavailableError)
+    r.service.close()
+  }
+})
 test('a phone invite names the account service and the relay, and ends when the cloud says', async () => {
   const r = await rig(); await r.service.setReachable(true)
   await r.service.signIn(); r.approve(); await r.timers.shift()!()

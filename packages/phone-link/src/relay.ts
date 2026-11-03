@@ -99,7 +99,7 @@ export class RelayLink {
     this.#failures = 0
     this.#refusals = 0
     this.#set('connecting')
-    void this.#connect(++this.#generation)
+    this.#attempt(++this.#generation)
   }
 
   stop(): void {
@@ -117,6 +117,14 @@ export class RelayLink {
   }
 
   #current(generation: number): boolean { return this.#running && generation === this.#generation }
+
+  /** One try at the socket. Anything it throws is one more failure, never a link left at connecting. */
+  #attempt(generation: number): void {
+    void this.#connect(generation).catch(error => {
+      this.#options.log?.('relay connect failed', { error: error instanceof Error ? error.name : 'error' })
+      this.#retry(generation)
+    })
+  }
 
   async #connect(generation: number): Promise<void> {
     let credentials: RelayCredentials
@@ -137,6 +145,7 @@ export class RelayLink {
     let proof: string
     try { proof = await credentials.prove(challenge) } catch { return this.#retry(generation) }
     if (!this.#current(generation)) return
+    // The constructor throws on a header it cannot send; that is a failed try like any other.
     const socket = new WebSocket(`${credentials.url}/v1/desk/${credentials.deskId}`, {
       headers: { authorization: `Bearer ${credentials.token}`, [RelayHeaders.challenge]: challenge, [RelayHeaders.proof]: proof },
       maxPayload: RelayLimits.maxFrameBytes + 4, handshakeTimeout: 10_000, followRedirects: false,
@@ -217,7 +226,7 @@ export class RelayLink {
     const ceiling = Math.min(this.#options.maxBackoffMs ?? 300_000, BASE_BACKOFF_MS * 2 ** Math.min(this.#failures - 1, 20))
     const delay = Math.floor((this.#options.random ?? Math.random)() * ceiling)
     this.#clearTimer()
-    this.#timer = setTimeout(() => { this.#timer = null; void this.#connect(generation) }, delay)
+    this.#timer = setTimeout(() => { this.#timer = null; this.#attempt(generation) }, delay)
     this.#timer.unref()
   }
 
@@ -373,7 +382,8 @@ class Live {
 
   #take(): boolean {
     const now = Date.now()
-    this.#tokens = Math.min(PACED_BURST, this.#tokens + (now - this.#filled) * this.perSecond / 1000)
+    // A clock stepped back refills nothing rather than owing frames for the time it went back.
+    this.#tokens = Math.min(PACED_BURST, this.#tokens + Math.max(0, now - this.#filled) * this.perSecond / 1000)
     this.#filled = now
     if (this.#tokens < 1) return false
     this.#tokens--

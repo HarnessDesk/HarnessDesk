@@ -66,6 +66,9 @@ interface Options {
   setTimer?: (fn: () => Promise<void>, ms: number) => unknown
   clearTimer?: (timer: unknown) => void
 }
+/** What a relay token may be: visible ASCII, so it fits an Authorization header as it is. */
+const RELAY_TOKEN = /^[\x21-\x7e]{1,4096}$/
+
 class CloudUnreachableError extends Error {
   readonly wireCode = 'accountCloudUnreachable'
   constructor(message = 'HarnessDesk could not reach your account. Try again.') { super(message) }
@@ -530,7 +533,10 @@ export class HarnessDeskAccount {
     const saved = this.#secrets.session
     const session = await this.#session(generation, fresh || !saved.relayUrl || !saved.relayToken)
     if (!session || !this.#current(generation)) throw new Error('This desk signed out.')
-    if (!session.relayUrl || !session.relayToken) throw new RelayUnavailableError('The account did not name a relay this desk can use.')
+    // A token that is not plain header text could never be sent, and one equal to the account token must never be.
+    if (!session.relayUrl || !session.relayToken || !RELAY_TOKEN.test(session.relayToken) || session.relayToken === session.token) {
+      throw new RelayUnavailableError('The account did not name a relay this desk can use.')
+    }
     if (session !== this.#secrets.session && this.#secrets) { this.#secrets = { ...this.#secrets, session }; await this.#persist() }
     return session as Session & { relayUrl: string; relayToken: string }
   }
