@@ -169,6 +169,8 @@ it('heads a titled pane with its h1 and controls, and puts the tabs below them',
   act(() => root.render(<PaneTabsRow title="Login flow" controls={<button>Stop run…</button>}>Tabs</PaneTabsRow>))
   const row = container.querySelector('[data-pane-tabs-row]') as HTMLElement
   expect(row.hasAttribute('data-pane-head')).toBe(true)
+  // The h1 stands on the pane's gutter, not on its cards' inner text column.
+  expect(row.getAttribute('data-content-inset')).toBe('page')
   const [head, tabs] = [...row.children] as HTMLElement[]
   // The name and what the page can do come first, on one line, in that order.
   expect(head!.querySelector('h1')?.textContent).toBe('Login flow')
