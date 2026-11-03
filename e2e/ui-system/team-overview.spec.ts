@@ -313,7 +313,8 @@ for (const theme of ['light', 'dark'] as const) {
     const frame = page.locator('#team-overview-live-stopped-unknown')
     await teamSeats(frame)
     const facts = frame.locator('[aria-label="Team Run facts"] [data-slot="summary-item"]').filter({ has: page.locator('dt', { hasText: /^Elapsed$/ }) })
-    await expect(facts).toContainText('Not recorded')
+    // Elapsed is drawn as its icon, so the value names what is missing.
+    await expect(facts).toContainText('Time not recorded')
     await closeTeamDetails(frame)
     await frame.getByRole('button', { name: 'Full record', exact: true }).click()
     const record = frame.getByRole('list', { name: 'Run timeline', exact: true })
