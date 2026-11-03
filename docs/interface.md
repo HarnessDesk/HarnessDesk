@@ -2271,13 +2271,30 @@ remain usable.
 When the host enables Lead, its chosen name, Dex or Lex, opens the conversation
 pane from the sidebar (hover title: Lead). Lead uses the same window shell,
 top bar, thread, Items message renderer, empty-state layout and measured floating
-composer as a session. Its name occupies the session title slot; the settings
-glyph, titled Lead settings, is the only top-bar tool and opens Settings › Lead. There is no
-body heading. A single LeadAvatar slot shows the chosen name's artwork and expression.
+composer as a session. Its name occupies the session title slot; the top bar
+carries the rail toggle and the settings glyph, titled Lead settings, which opens
+Settings › Lead. There is no body heading. A single LeadAvatar slot shows the chosen name's artwork and expression.
 Until settings arrive, the name reads Lead and the greeting says "Hi, tell me what
-you want done." The composer says Message Dex… or Message Lex… and shows initial dollar and round
-allowance chips. Enter sends, Shift+Enter adds a line, and Send waits for the
-host's in-flight request. The Lead remains a host-owned thread, never a Session.
+you want done." The composer says Message Dex… or Message Lex…; Enter sends, Shift+Enter adds a
+line, and Send waits for the host's in-flight request. The Lead remains a
+host-owned thread, never a Session.
+
+The Lead page has the session's right rail, open until closed from its top-bar
+toggle and floating over the conversation where the window is too narrow. Its
+cards read the current goal back: **Goal**, **Plan** (each step as a checklist
+item, the running step active, with a Waiting for you or Needs you word while
+the plan or a question waits on the person), **Workers** (the roles the running
+step seats, in the plan card's words — Write, Review — never a runtime; before
+the run starts, every role the plan seats; while the goal waits or after it
+stops, no card, since the projection does not say which step it is on) and
+**Spend**. Spend says Up to the dollar cap before a
+goal, then the known total against it with Lead, Workers and Rounds facts;
+unconfirmed worker spend reads Not confirmed and draws no meter. Its pencil opens
+the limits popover: tightening applies at once, raising asks on a card in the
+conversation. The plan's decision stays in the conversation; the rail only reads
+it back, and before approval it reads the latest plan card, the one the
+conversation is asking about. Where it floats it is open by default too, like
+the session rail; its toggle puts it away.
 
 Decision details are assistant Markdown in journal order, without card borders,
 inset rows, revision labels or internal identifiers. Plans show LeadPlanFlow, an ordered flow diagram of steps and responsible roles

@@ -1,6 +1,6 @@
 import { effectiveWindowMode } from '../editor'
 import { tileBrowserWorkbench } from '../lib/browser-tiles'
-import { WorkDetailsOutlet, useRegisteredOwner } from './top-bar'
+import { PageRailHost, WorkDetailsOutlet, useRegisteredDetails, useRegisteredOwner } from './top-bar'
 import { useShellHosts } from './shell-hosts'
 import { RunDockProvider, RunDetailsView } from './run-dock'
 import {
@@ -44,6 +44,8 @@ import {
   sidebarPlacement,
   workRailOpen,
   workRailFloats,
+  railFloatsBeside,
+  pageRailOpen,
   workPaneExpanded,
   type DockId,
   type Mounted,
@@ -226,8 +228,12 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   const standingSidebar = column ? workbench.sidebar.size : 0
   const rightWidth = paneActive ? effectiveRightWidth(workbench, snapshot.windowWidth, standingSidebar) : 0
   const bottomHeight = 0
-  const railOpen = !suspended && !pageActive && workRailOpen(workbench)
-  const railFloating = workRailFloats(workbench, snapshot.windowWidth, standingSidebar)
+  // A page draws the rail only when it registered one, under the owner MainPages scopes it to.
+  const pageOwner = `destination:${pageKind}`, pageRail = useRegisteredDetails(pageOwner)
+  const railOpen = !suspended && (pageActive ? pageRail && pageRailOpen(workbench, pageKind) : workRailOpen(workbench))
+  // A page that keeps its terminal pane gives the rail only the column beside that pane, as a session does.
+  const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - standingSidebar - (paneActive && rightPanelDrawn(workbench) && !rightPanelOverlay ? rightWidth : 0))
+    : workRailFloats(workbench, snapshot.windowWidth, standingSidebar)
   const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))
   const frameStyle = {
     '--frame-left-size': `${standingSidebar}px`, '--frame-left': 'var(--frame-left-drag, var(--frame-left-size))',
@@ -258,8 +264,8 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
         }}><FixedPanelBody heading={expanded ? mainTitle : undefined} actions={expanded ? <>
           <Button variant="ghost" size="icon-sm" aria-label="Swap back" title="Swap back" onClick={() => store.swapWorkPane()}><SwapIcon size={16} /></Button>
           <Button variant="ghost" size="icon-sm" aria-label="Close pane" title="Close pane" onClick={() => store.toggleWorkPanel()}><CrossIcon size={16} /></Button>
-        </> : undefined}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><MainDestination page={pageActive} work={<KeyboardHereContext.Provider value={pageActive ? false : null}><Panes /></KeyboardHereContext.Provider>} pages={pages} /></FixedPanelBody></div>}
-      rail={<WorkRail drawn={railOpen} />}
+        </> : undefined}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><MainDestination page={pageActive} work={<KeyboardHereContext.Provider value={pageActive ? false : null}><Panes /></KeyboardHereContext.Provider>} pages={<PageRailHost value>{pages}</PageRailHost>} /></FixedPanelBody></div>}
+      rail={pageActive ? <PageRail owner={pageOwner} drawn={railOpen} /> : <WorkRail drawn={railOpen} />}
       right={<RightWorkActive.Provider value={paneActive}><RightPanel /></RightWorkActive.Provider>} bottom={null}>
       {narrow && <WorkbenchScrim className={styles.scrim} {...(floating ? { 'data-open': '' } : {})} aria-hidden
         onMouseDown={event => event.preventDefault()} onClick={() => store.closeFloatingSidebar()} />}
@@ -279,6 +285,12 @@ const WorkRail = ({ drawn }: { drawn: boolean }) => {
     </PaneProvider>
   </KeyboardHereContext.Provider>
 }
+
+/** A page's own cards, under the same rail; a page has no pane to scope them to. */
+const PageRail = ({ owner, drawn }: { owner: string; drawn: boolean }) =>
+  <KeyboardHereContext.Provider value={drawn ? null : false}>
+    <ToolFooterProvider><ToolBody><ToolBodySections><WorkDetailsOutlet owner={owner} /></ToolBodySections></ToolBody></ToolFooterProvider>
+  </KeyboardHereContext.Provider>
 
 /** A retained cache captures provenance at admission, never from the newly focused work. */
 const RetainedTool = ({ entry, shown, section = false }: { entry: ReturnType<typeof dockViews>[number]; shown: boolean; section?: boolean }) => {

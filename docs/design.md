@@ -1018,6 +1018,15 @@ read without its name says what it is missing ("Time not recorded", not "Not
 recorded"), and a fact that needs its name at all ("Requested ceiling", "No
 progress") stays in a keyed list — the Run's record details keep their keys.
 
+**A page earns the rail by registering one.** A destination page has no work
+subject, so the shell draws a rail column for it only when the page registers
+details under its own owner (`useWorkDetails('destination:<kind>', …)`) and puts
+`PageRailToggle` in its bar — only under `PageRailHost`, which the Workbench
+provides, so a page mounted outside the shell shows no toggle with nothing to
+toggle; the open state is kept per page and, like the
+session rail, stands open until closed. The Lead page is the first: Goal, Plan,
+Workers and Spend, in the same `ToolSection` cards the session rail uses.
+
 **A status is a word, not a pill.** A state, a plan or a kind on a row's label
 line, at a panel row's or a list row's end, as a fact's value, as a section's
 value or in an account head reads as a word: those slots provide `ChipLook`
@@ -2486,7 +2495,8 @@ assistant decision prose uses the same TranscriptAssistantMessage frame as Items
 The empty state is ConversationEmptyState with a single LeadAvatar slot and one
 short greeting. Until settings load, the greeting is "Hi, tell me what you want
 done." The chosen name occupies the title slot and composer placeholder.
-The tools slot holds only the settings glyph opening Settings › Lead.
+The tools slot holds the rail toggle (`PageRailToggle`) and the settings glyph opening Settings › Lead;
+the rail is LeadDetails, and the allowance lives on its Spend card, not under the composer.
 Active goals outside terminal predecessor waits use ComposerTrack name="send":
 Stop occupies the session's composer corner, with Send inboard when a message is typed.
 

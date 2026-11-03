@@ -1982,6 +1982,12 @@ A note that belongs to the person's line above it, at that line's trailing edge.
 
 Names a block for tests and tools without adding a box of its own to the layout it sits in.
 
+### `leadRoleWord`
+
+`packages/ui/src/design/patterns/LeadPlanFlow.tsx`
+
+A plan role in the words the Lead uses everywhere: what the worker does, never which runtime does it.
+
 ### `LeadPlanFlow`
 
 `packages/ui/src/design/patterns/LeadPlanFlow.tsx`
