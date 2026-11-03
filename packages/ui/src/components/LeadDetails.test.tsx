@@ -69,6 +69,13 @@ it('reads the latest plan card when the Lead revises its plan before approval', 
   expect([...section(box, 'Plan')!.querySelectorAll('[data-state]')]).toHaveLength(2)
 })
 
+it('reads the pending plan over the approved one while a revision awaits approval', async () => {
+  const revised = { ...leadPlan, id: 'plan-2', contract: { ...twoSteps, goal: 'Make the empty state keyboard accessible, then check it' } }
+  const box = await mount(leadProjection({ thread: { ...leadProjection().thread!, state: 'awaiting-plan', contract: leadContract, cards: [leadPlan, revised] } }))
+  expect(section(box, 'Goal')!.textContent).toContain('then check it')
+  expect([...section(box, 'Plan')!.querySelectorAll('[data-state]')]).toHaveLength(2)
+})
+
 it('does not claim a total while worker spend is unconfirmed', async () => {
   const box = await mount(leadProjection({ thread: { ...leadProjection().thread!, state: 'running', contract: leadContract, budget: { ...leadBudget, spend: 'stale' } } }))
   expect(section(box, 'Spend')!.textContent).toContain('Not confirmed')

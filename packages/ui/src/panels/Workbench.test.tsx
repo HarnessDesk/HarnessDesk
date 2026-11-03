@@ -1338,3 +1338,16 @@ it('a page rail floats over the page where the column cannot hold it, by the ses
   expect(railFloatsBeside(FRAME.main.min + FRAME.infoCard.width - 1)).toBe(true)
   expect(railFloatsBeside(FRAME.main.min + FRAME.infoCard.width)).toBe(false)
 })
+
+it('a page rail floats when the terminal pane the page keeps leaves the column too narrow', () => {
+  // 1100px holds the rail alone; beside a 400px terminal the column is 700px, under the line.
+  for (const [terminal, floats] of [[false, false], [true, true]] as const) {
+    const lead = (start: Model): Model => ({ ...start, navigation: { ...start.navigation, current: { kind: 'lead' } } })
+    const harness = rig(start => terminal ? lead(dock(start, 'bottom', { kind: 'terminal', terminalId: 'lead-pty', runtime: 'fixture' as never, cwd: '/synthetic/project' })) : lead(start), { windowWidth: 1100 })
+    const Page = () => { useWorkDetails('destination:lead', <div>Lead cards</div>); return null }
+    act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<Page />} /></StoreProvider>))
+    const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+    expect(shell.dataset.rightOpen, String(terminal)).toBe(String(terminal))
+    expect(shell.dataset.railFloats, String(terminal)).toBe(String(floats))
+  }
+})

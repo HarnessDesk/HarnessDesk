@@ -231,7 +231,8 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   // A page draws the rail only when it registered one, under the owner MainPages scopes it to.
   const pageOwner = `destination:${pageKind}`, pageRail = useRegisteredDetails(pageOwner)
   const railOpen = !suspended && (pageActive ? pageRail && pageRailOpen(workbench, pageKind) : workRailOpen(workbench))
-  const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - standingSidebar)
+  // A page that keeps its terminal pane gives the rail only the column beside that pane, as a session does.
+  const railFloating = pageActive ? railOpen && railFloatsBeside(snapshot.windowWidth - standingSidebar - (paneActive && rightPanelDrawn(workbench) && !rightPanelOverlay ? rightWidth : 0))
     : workRailFloats(workbench, snapshot.windowWidth, standingSidebar)
   const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))
   const frameStyle = {
