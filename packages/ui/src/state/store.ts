@@ -626,6 +626,9 @@ export class AppStore {
   readonly #libraryViewListeners = new Set<() => void>()
   #libraryViews: Record<LibraryViewSection, LibraryViewState> = { skill: emptyLibraryView(), mcp: emptyLibraryView() }
   readonly #sessionRemovalRevisions = new Map<SessionKey, number>()
+  #adjacentGeneration = 0
+  #adjacentEventRevision = 0
+  #adjacentRelease: (() => void) | null = null
   #listeners = new Set<() => void>()
   readonly #storageListeners = new Set<(usage: import('@harnessdesk/protocol').StorageUsage) => void>()
   subscribeStorageUsage(listener: (usage: import('@harnessdesk/protocol').StorageUsage) => void): () => void {
@@ -1218,6 +1221,7 @@ export class AppStore {
       return
     }
     const key = sessionKey(runtime, id), released = this.#releasedTranscripts.get(key)
+    if (this.#snapshot.adjacentSession?.key === key) this.#adjacentEventRevision++
     if (released) {
       const expected = event.type === 'item/started' || event.type === 'item/completed'
         ? released.awaitedItems.get(event.turnId)?.get(event.item.id) : undefined
@@ -1801,6 +1805,7 @@ export class AppStore {
           this.#transcriptCursors.clear()
           this.#transcriptReceipts.clear()
           this.#chatConnectionGeneration += 1
+          if (this.#snapshot.adjacentSession) this.#patch({ adjacentSession: { ...this.#snapshot.adjacentSession, loading: false, error: 'Connection lost. Reconnecting…' } })
           this.#chatRootsVersion = null
           this.#leadCapabilityEpoch += 1
           this.#captureEpoch += 1
@@ -1811,6 +1816,8 @@ export class AppStore {
         } else {
           this.#patch({ status })
           if (previous === 'reconnecting') {
+            const adjacent = this.#snapshot.adjacentSession
+            if (adjacent) { const { runtime, id } = splitSessionKey(adjacent.key); void this.openAdjacentSession(id, runtime) }
             void this.#refreshLeadAvailability()
             const generation = this.#chatConnectionGeneration
             void this.transport.request('app/state/get', {}).then(preferences => this.#applyChatsPreferences(preferences, generation)).catch(() => {})
@@ -3523,6 +3530,63 @@ export class AppStore {
 
   // ----------------------------------------------------------------- sessions
 
+  /** A secondary reader owns a visibility lease, never a shared session handle. */
+  closeAdjacentSession(): void {
+    this.#adjacentGeneration++
+    this.#adjacentRelease?.()
+    this.#adjacentRelease = null
+    if (this.#snapshot.adjacentSession) this.#patch({ adjacentSession: null })
+  }
+
+  async openAdjacentSession(id: SessionId, runtime: RuntimeId): Promise<void> {
+    const subject = this.workSubject()
+    if (!subject) return
+    const key = sessionKey(runtime, id), generation = ++this.#adjacentGeneration
+    const removal = this.#sessionRemovalRevisions.get(key) ?? 0
+    const connection = this.#chatConnectionGeneration
+    const visibility = this.retainTranscript(runtime, id)
+    const operation = this.retainTranscript(runtime, id)
+    this.#adjacentRelease?.()
+    this.#adjacentRelease = visibility
+    this.#patch({ adjacentSession: { key, subject, loading: true, error: null } })
+    this.closeFloatingSidebar()
+    const current = () => generation === this.#adjacentGeneration && this.#snapshot.adjacentSession?.key === key &&
+      this.workSubject() === subject && (this.#sessionRemovalRevisions.get(key) ?? 0) === removal && this.#chatConnectionGeneration === connection
+    let read = false
+    const eventRevision = this.#adjacentEventRevision
+    try {
+      if (this.#releasedTranscripts.has(key) && !await this.restoreTranscript(runtime, id)) throw new Error('The saved conversation could not be restored.')
+      const session = await this.transport.request('session/read', { runtime, sessionId: id })
+      if (!current()) return
+      if (session.runtime !== runtime || session.id !== id) throw new Error('The conversation returned a different identity.')
+      this.#setAdjacentRead(session, eventRevision)
+      read = true
+      const live = await this.transport.request('session/resume', { runtime, sessionId: id })
+      if (!current()) return
+      if (live.runtime !== runtime || live.id !== id) throw new Error('The conversation returned a different identity.')
+      this.#setAdjacentRead(live, eventRevision)
+      this.#patch({ adjacentSession: { key, subject, loading: false, error: null } })
+    } catch (error) {
+      if (current()) this.#patch({ adjacentSession: { key, subject, loading: false, error: `${read ? 'Could not resume: ' : 'Could not read: '}${describe(error)}` } })
+    } finally { operation() }
+  }
+
+  /** A read has no sequence fence: keep events observed after it began. */
+  #setAdjacentRead(read: Session, eventRevision: number): void {
+    const key = sessionKey(read.runtime, read.id), held = this.#snapshot.sessions.get(key)
+    if (!held || (this.#adjacentEventRevision) === eventRevision) { this.#setSession(read); return }
+    const merged = mergeRead(held, read)
+    const turns = new Map(held.turns.map(turn => [turn.id, turn]))
+    const combined = merged.turns.map(turn => {
+      const newer = turns.get(turn.id)
+      if (!newer) return turn
+      const items = new Map(turn.items.map(item => [item.id, item]))
+      for (const item of newer.items) items.set(item.id, item)
+      return { ...turn, ...newer, items: [...items.values()] }
+    })
+    this.#setSession({ ...merged, turns: combined })
+  }
+
   /**
    * Opens a conversation: in the pane already showing it, else in the
    * conversation pane (`split` is honoured only when no pane converses, by
@@ -4451,6 +4515,7 @@ export class AppStore {
    * again for a conversation it never showed.
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
+    if (this.#snapshot.adjacentSession?.key === key) this.closeAdjacentSession()
     const released = this.#releasedTranscripts.get(key)
     const removal = this.#sessionRemovalRevisions.get(key) ?? 0
     // A deletion only owns material from this connection and incarnation.
@@ -5516,6 +5581,7 @@ export class AppStore {
     return null
   }
   chooseWorkTool(tool: WorkTool, mode: string = tool, toggle = false): void {
+    if (this.#snapshot.adjacentSession) this.closeAdjacentSession()
     const subject = this.workSubject()
     if (!subject) return
     const before = this.#snapshot.workbench
@@ -5561,6 +5627,7 @@ export class AppStore {
       frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
   }
   toggleWorkPanel(): void {
+    if (this.#snapshot.adjacentSession) { this.closeAdjacentSession(); return }
     const subject = this.workSubject()
     if (!subject) return
     const before = this.#snapshot.workbench
@@ -5580,6 +5647,7 @@ export class AppStore {
 
   /** Mounts a view in an area, bringing it forward if it is already somewhere. */
   showViewIn(area: AreaId, view: PaneView): void {
+    if (area === 'right' && this.#snapshot.adjacentSession) this.closeAdjacentSession()
     if (view.kind === 'board') { this.openTeamBoard(view.room); return }
     if (view.kind === 'run-steps') {
       const room = this.#roomToShow()
@@ -9817,6 +9885,13 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>, options?: { preserveSessionMembership?: boolean }): void {
     const next = { ...this.#snapshot, ...patch }
+    if (next.adjacentSession && (fixedSubject(next.workbench.main) !== next.adjacentSession.subject ||
+      !sameDestination(this.#snapshot.workbench.navigation.current, next.workbench.navigation.current))) {
+      this.#adjacentGeneration++
+      this.#adjacentRelease?.()
+      this.#adjacentRelease = null
+      next.adjacentSession = null
+    }
     const navigation = availableDestinationHistory(next.workbench.navigation, () => {
       const view = focusedPane(next.workbench.main).view
       return destinationOf(view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null })

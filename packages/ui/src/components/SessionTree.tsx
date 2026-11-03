@@ -252,7 +252,7 @@ const SessionRow = memo(({
           label="Open on the right"
           title="Read this beside the conversation you are in."
           onSelect={() => {
-            void store.openSession(summary.id, { runtime: summary.runtime, area: 'right' })
+            void store.openAdjacentSession(summary.id, summary.runtime)
           }}
         />
         <MenuItem

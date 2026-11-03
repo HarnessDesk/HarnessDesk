@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { CapabilityContribution } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type Session, type CapabilityContribution } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { useSessionKey } from '../state/context'
@@ -227,6 +227,23 @@ const render = (store: AppStore): void => {
     )
   })
 }
+
+it('draws a named secondary transcript without replacing the main work', () => {
+  const runtime = runtimeId('secondary'), id = sessionId('b'), key = sessionKey(runtime, id)
+  const session = { runtime, id, title: 'Second conversation', cwd: '/project', createdAt: 1, updatedAt: 2, status: { type: 'idle' }, itemsLoaded: true, turns: [{ id: 'turn', status: 'completed', items: [{ id: 'answer', type: 'assistantMessage', text: 'Unique adjacent answer' }] }] } as unknown as Session
+  const subject = fixedSubject(emptySnapshot().workbench.main)!
+  const { store } = rig(undefined, { adjacentSession: { key, subject, loading: false, error: null }, sessions: new Map([[key, session]]), runtimes: [{ id: runtime, presentation: { name: 'Other agent' }, capabilities: {} } as never] })
+  Object.assign(store, { closeAdjacentSession: vi.fn() })
+  render(store)
+  expect(container.textContent).toContain('Unique adjacent answer')
+  expect(container.textContent).toContain('Second conversation')
+  expect(container.textContent).toContain('Other agent')
+  expect(container.querySelector('[data-testid="panes"]')).not.toBeNull()
+  expect(container.querySelector('button[aria-label="Close adjacent conversation"]')).not.toBeNull()
+  const region = container.querySelector<HTMLElement>('[role="region"][aria-label^="Adjacent conversation:"]')!
+  act(() => region.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(store.closeAdjacentSession).toHaveBeenCalledOnce()
+})
 
 const panels = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[data-slot="dock-panel"]')]
 

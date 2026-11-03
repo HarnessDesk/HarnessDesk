@@ -5454,3 +5454,12 @@ runs where no confining runtime passed the probe, has the user account's own
 access. The host says so in the plugin host's status rather than implying
 otherwise, and an operating-system sandbox per plugin process is the layer
 planned after it.
+
+## An adjacent conversation is a reader, not a second subject
+
+The sidebar's Open on the right action has one window-local, read-only target.
+The current work remains the sole command and workspace subject, including in
+Editor mode. Opening explicitly reads then resumes the other conversation for
+live updates; the operation may reopen a runtime or restore a worktree. Closing
+its reader does not close a shared Host handle. This deliberately avoids a
+second composer, persisted layout or general-purpose conversation dock.
