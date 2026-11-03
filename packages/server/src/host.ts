@@ -10162,6 +10162,9 @@ export class Host {
     })
   }
 
+  /** The account, as the phone link uses it: relay credentials, pairing invites and unlinking. */
+  phoneRelayAccount(): import('./phone-link.js').PhoneRelayAccount { return this.#harnessDeskAccount }
+
   attachPhoneLink(control: import('./phone-link.js').PhoneLinkControl): void {
     this.#phoneLink = control
     this.onDispose(control.onChange(() => this.#push({ method: 'phone/changed', params: control.state() })))

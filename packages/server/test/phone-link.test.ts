@@ -67,7 +67,7 @@ const rig = async () => {
   const d = await desk()
   const running = await startPhoneLink(d.host as never, new Logger('test', { console: false }), { home, host: '127.0.0.1', includeLoopback: true, name: 'Test desk' })
   const pair = async (tiers?: readonly import('@harnessdesk/protocol').PhoneTier[]) => {
-    const code = running.control.pairing()
+    const code = await running.control.pairing()
     const phone = await PhoneSim.fromCode(code.url)
     await phone.open(running.service.port, phone.offer!.deskPub)
     await phone.enroll(phone.offer!.enroll, 'Jane’s phone')

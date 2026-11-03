@@ -27,8 +27,13 @@ export class PhoneSim {
 
   get pub(): string { return b64u(this.key.pub) }
 
-  async open(port: number, deskPub: string, host = '127.0.0.1'): Promise<void> {
-    const socket = new WebSocket(`ws://${host}:${port}/phone`)
+  open(port: number, deskPub: string, host = '127.0.0.1'): Promise<void> {
+    return this.connect(`ws://${host}:${port}/phone`, deskPub)
+  }
+
+  /** The same session at any address: a relay's phone room takes the account's ticket as a bearer. */
+  async connect(url: string, deskPub: string, headers?: Record<string, string>): Promise<void> {
+    const socket = new WebSocket(url, headers ? { headers } : {})
     this.#socket = socket
     socket.binaryType = 'nodebuffer'
     socket.on('message', data => {

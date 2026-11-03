@@ -19,7 +19,8 @@ export const ListDesksResponse = z.object({ desks: z.array(z.object({ deskId: De
 
 export const DeskChallengeResponse = z.object({ challenge: Challenge, expiresAt: UnixSeconds })
 export const DeskSessionRequest = z.object({ deskPub: PublicKey, challenge: Challenge, sig: Signature })
-export const DeskSessionResponse = z.object({ deskToken: z.string(), expiresAt: UnixSeconds, relayUrl: z.string() })
+/** `relayToken` is the relay's own credential (RelayDeskTokenClaims); a desk never sends `deskToken` to the relay. */
+export const DeskSessionResponse = z.object({ deskToken: z.string(), expiresAt: UnixSeconds, relayUrl: z.string(), relayToken: z.string().optional() })
 
 // ---- invites and links -----------------------------------------------------------------------
 export const CreateInviteResponse = z.object({ inviteId: z.string(), token: z.string().min(16).max(128), expiresAt: UnixSeconds })

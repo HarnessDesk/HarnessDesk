@@ -299,10 +299,29 @@ never become the desktop's desk token.
 | `POST /v1/links/revoke` | Desk bearer token, desk id and phone device id | When Unlink is confirmed in Account; followed by an account refresh |
 | `POST /v1/desks/revoke` | Desk bearer token and this desk's id | On ordinary sign-out, or best-effort cleanup of an approved but unfinished sign-in; local-only sign-out makes no account request |
 | `POST /v1/account/delete` | Desk bearer token and an empty JSON object | After confirming Delete account; session renewal may first obtain a challenge and session |
+| `POST /v1/invites` | Desk bearer token and an empty JSON object | When Show code or New code is chosen in Settings › Phone while signed in, Reachable from your phone is on and the phone link runs; the one-time invite goes into the pairing code only |
+| `POST /v1/links/revoke` (queued) | As above | After a phone the account linked is removed in Settings › Phone; while the account cannot be reached, the device id waits in `relay-unlinks.json`, in the phone link's folder under the HarnessDesk home, and is sent once it can |
+
+While signed in with Reachable from your phone on, and the phone link running,
+the host also keeps one connection to the relay the desk session names
+(`wss://relay.harnessdesk.app` by default):
+
+| Request | What it carries | When |
+| --- | --- | --- |
+| Relay `GET /v1/challenge` | Nothing | Before each relay connection |
+| Relay `WSS /v1/desk/{deskId}` | The relay's own token from the desk session (the account API refuses it), the challenge, and a signature of it with the desk key | Held open while the conditions above hold; a small `ping` every 20 seconds; after a drop it reconnects with growing, randomised waits up to five minutes; a refused token is renewed once, and a second refusal stops it |
+
+Over that connection the relay passes each phone's frames to the desk and back.
+They are the same end-to-end encrypted session as a phone on the same network:
+the relay sees which linked device connected, when, and how many bytes cross,
+never the content. The desk paces its frames under the relay's limit. A phone
+that connects through the relay must prove the device key the relay names as
+linked, and the session is pinned to the desk key from the pairing code; a new
+phone still waits for **Allow this phone?** on the desk.
 
 After initial load, reading ordinary account status returns host state. The
 initial load refreshes an existing sign-in or cleans up an unfinished one.
-Reachable from your phone only saves a local preference; it sends no request. A fresh signed-out desk
+Reachable from your phone opens the relay connection above when the desk is signed in and the phone link runs; it is off until turned on. A fresh signed-out desk
 does not begin the account lane until Sign in is chosen. A restored sign-in
 refreshes its metadata, and cleanup may contact the service for a previously
 unfinished request. Source: `packages/server/src/harnessdesk-account.ts` and
@@ -333,14 +352,14 @@ retried when connected. The service retains anonymous desk and link generation c
 and a hash of the deleted account id to reject old credentials; neither
 contains the deleted profile or device registrations. Agents and local work
 on this Mac are unaffected.
-Agent accounts and all local work stay available. The phone-access switch
-only saves a preference in this build; no desktop relay connection is opened.
+Agent accounts and all local work stay available. Turning Reachable from your
+phone off closes the relay connection.
 
 ## Account transport boundary
 
-Signing in does not enable hosted execution, work synchronization or a relay
-connection. Local phone pairing and agent/provider connections have their own
-boundaries above.
+Signing in does not enable hosted execution or work synchronization, and opens
+no relay connection until Reachable from your phone is turned on. Local phone
+pairing and agent/provider connections have their own boundaries above.
 
 ## Local provenance
 

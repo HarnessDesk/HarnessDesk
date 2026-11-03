@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { ActionError, Banner, BannerAction, Button, CodeText, ConfirmDialog, Dialog, Face, Input, Note, NoticeHost, Row, Rows, RowValue, SectionHead, Spinner, Switch } from '../design'
+import { useState, useSyncExternalStore } from 'react'
+import type { PhoneRelayState } from '@harnessdesk/protocol'
+import { ActionError, Banner, BannerAction, Button, Chip, CodeText, ConfirmDialog, Dialog, Face, Input, Note, NoticeHost, Row, Rows, RowValue, SectionHead, Spinner, Switch } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { shownDeskName } from '../lib/accounts'
 import { formatAge } from '../lib/usage'
@@ -71,6 +72,20 @@ const HarnessDeskDeleteAccount = ({ onClose }: { onClose: () => void }) => {
   </ConfirmDialog>
 }
 
+/** The desk's relay socket, beside Reachable from your phone. Off draws nothing: the switch already says so. */
+const RELAY_CHIPS: Readonly<Record<Exclude<PhoneRelayState, 'off'>, { readonly word: string; readonly warn: boolean; readonly title?: string }>> = {
+  connected: { word: 'Connected', warn: false },
+  connecting: { word: 'Connecting…', warn: false },
+  unreachable: { word: 'Can’t reach HarnessDesk', warn: true, title: 'HarnessDesk keeps trying. Phones on this network still connect.' },
+  replaced: { word: 'In use elsewhere', warn: true, title: 'Another copy of this desk took over. Turn this off and on to take it back.' },
+  refused: { word: 'Refused', warn: true, title: 'Your account did not let this desk in. Sign out and sign in again.' },
+}
+const RelayChip = ({ state }: { state: PhoneRelayState }) => {
+  if (state === 'off') return null
+  const chip = RELAY_CHIPS[state]
+  return <Chip tone={chip.warn ? 'warning' : 'neutral'} {...(chip.title ? { title: chip.title } : {})}>{chip.word}</Chip>
+}
+
 /** The Account page owns the HarnessDesk identity, desk and account-linked phones. */
 export const HarnessDeskAccountSection = () => {
   const store = useStore()
@@ -83,6 +98,7 @@ export const HarnessDeskAccountSection = () => {
   const [unlink, setUnlink] = useState<{ deviceId: string; name: string } | null>(null)
   const signedIn = status?.status === 'signedIn'
   const account = status?.account
+  const relay = useSyncExternalStore(store.phone.subscribe, () => store.phone.state.relay)
   return <>
     <Rows><Row kind="record" face={<Face pictureDataUrl={account?.pictureDataUrl} />} title={signedIn ? shownDeskName(account, hide) || 'HarnessDesk account' : 'Sign in to HarnessDesk'}
       desc={signedIn ? (hide ? undefined : account?.email) : 'Open this desk from your phone.'} control={signedIn
@@ -94,7 +110,9 @@ export const HarnessDeskAccountSection = () => {
       <SectionHead level="label" name="This desk" />
       <Rows>
         <Row title="Name" desc="How your phone lists this desk" control={<><RowValue>{status.desk.name}</RowValue><Button variant="outline" disabled={busy} onClick={() => { setName(status.desk.name); setRenaming(true) }}>Rename</Button></>} />
-        <Row title="Reachable from your phone" desc="Save your preference for account-based phone access. Connections through your account are not available in this build."
+        <Row title="Reachable from your phone" titleChip={status.desk.reachable ? <RelayChip state={relay} /> : undefined}
+          desc={phoneLink ? 'Your phones reach this desk through your account when they are away from its network. Messages stay encrypted end to end.'
+            : 'Your phones reach this desk through your account when they are away from its network. Not available in this build.'}
           control={<Switch aria-label="Reachable from your phone" checked={status.desk.reachable} disabled={busy} onCheckedChange={reachable => void run(() => store.setHarnessDeskReachable(reachable))} />} />
       </Rows>
       <SectionHead level="label" name="Linked phones" />
@@ -105,7 +123,7 @@ export const HarnessDeskAccountSection = () => {
       <Note>Sign in on your phone with the same account to add another.</Note>
     </>}
     <SectionHead level="label" name="Without an account" />
-    <Rows><Row mark={<MobileIcon size={16} />} title="Pair a phone with a code" desc={phoneLink ? 'Pair on the same network from Phone settings.' : 'Not available in this build'}
+    <Rows><Row mark={<MobileIcon size={16} />} title="Pair a phone with a code" desc={phoneLink ? 'Pair from Phone settings.' : 'Not available in this build'}
       control={<Button variant="outline" disabled={!phoneLink} onClick={() => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'phone', focus: null } })}>{phoneLink ? 'Phone settings' : 'Show code'}</Button>} /></Rows>
     {signedIn && <><SectionHead level="label" name="HarnessDesk account" />
       <Rows><Row title="Delete account" control={<Button variant="destructive" disabled={busy} onClick={() => setDeleting(true)}>Delete account…</Button>} /></Rows></>}

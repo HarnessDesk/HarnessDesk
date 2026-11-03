@@ -554,8 +554,12 @@ also removes that warning from the tooltip for the same occurrence or kind.
 
 **Settings › Account** shows the HarnessDesk identity and a separate sign-out
 action; **This desk** contains its name, Rename and **Reachable from your
-phone**. Reachability currently saves a preference and says connections through
-your account are unavailable in this build. **Linked phones** lists each phone
+phone**, off until turned on. With it on, paired phones reach the desk through
+the account relay when they are away from its network; a chip beside the label
+says **Connected** or **Connecting…**, and a warning chip says **Can’t reach
+HarnessDesk** after three failed tries, **In use elsewhere** when another copy
+of this desk took the relay, or **Refused** when the account no longer lets the
+desk in. Its tooltip says what to do. **Linked phones** lists each phone
 and its last seen time; Unlink confirms before removing access. Sign in on a phone with the
 same account to add another. **Without an account** offers **Pair a phone with
 a code** through **Phone settings** when the host advertises LAN pairing. It
@@ -576,9 +580,11 @@ and offers no local-only deletion.
 **Settings › Phone** appears when the host advertises local phone access
 (`HARNESSDESK_PHONE_LINK=1`). Show code displays a QR code that works once for
 ten minutes; New code creates another. Scan it from a phone on the same network,
-then choose Allow or Not now on the desk. The global **Allow this phone?**
+or, while Reachable from your phone is on, from anywhere: the row says which.
+Then choose Allow or Not now on the desk. The global **Allow this phone?**
 confirmation also appears when another page is open. Phones lists the name,
-Read/Run/Answer grants and last-seen time. Remove asks for confirmation,
+Read/Run/Answer grants, and **Connected on this network**, **Connected through
+your account** or the last-seen time. Remove asks for confirmation,
 disconnects the device and requires a new pairing to return. This local pairing
 requires no account link. The Account page's linked phones belong to its
 separate service lane.

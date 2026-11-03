@@ -14,8 +14,9 @@ For LAN access, launch with `HARNESSDESK_PHONE_LINK=1`, then open Settings › P
 Choose Show code, scan it on the same network and allow the waiting phone on
 the desktop. A code works once for ten minutes. Remove phone disconnects it
 and requires pairing again. No HarnessDesk account link is needed. The
-account's Reachable from your phone switch only stores a preference in this
-build; it does not establish a relay connection.
+account's Reachable from your phone switch, when signed in, lets paired phones
+reach the desk through the account relay when they are away from its network;
+it is off until turned on.
 
 Lead is separately enabled at startup with `HARNESSDESK_LEAD=1`. Its child
 process needs a runtime whose permission model blocks the network: the desktop

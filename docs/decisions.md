@@ -4352,9 +4352,9 @@ account. Ordinary local work and agent sign-in remain independent of it.
 The seat and Settings › Account show the HarnessDesk identity separately
 from agent accounts. Signing out revokes only this desk and its phone links;
 linked-phone removal uses the desk's scoped authority. The Reachable from
-your phone switch stores a local preference; the screen states that connections
-through the account are not available in this build. Relay transport is a later
-step. LAN pairing remains separately capability-gated in Phone settings.
+your phone switch was first only a preference; the relay transport that makes it
+work is recorded under "Phones away from home reach the desk through the account
+relay" (2026-11-01). LAN pairing remains separately capability-gated in Phone settings.
 
 ## Lead window controls have bounded consent, requests and retries — 2026-10-18
 
@@ -4639,8 +4639,8 @@ success or revoked-credential paths. Offline deletion keeps it for retry.
 LAN pairing uses `phone-link/`, a code that works once for ten minutes and
 approval on the desk. Settings › Phone is present only when that service is
 enabled. Pairing needs no account link; account sign-out and deletion leave
-that registry intact. Reachable from your phone only saves an account
-preference; it opens no relay connection. These separate lifetimes keep each
+that registry intact. Reachable from your phone opens the relay connection
+only while signed in (2026-11-01). These separate lifetimes keep each
 operation within the connection the person chose.
 
 ## Phone sessions page the desk index and reuse its controls — 2026-10-27
@@ -5121,3 +5121,49 @@ persists and publishes the hold before attempting its cancellation notice;
 notice failures are logged. A Lead instruction still in admission when the
 person takes over is cancelled on refusal, freeing the person's queued replies
 and preventing replay after Hand back.
+
+## Phones away from home reach the desk through the account relay — 2026-11-01
+
+A phone off the desk's network needs a path, and the account service already
+runs a relay room per desk. The desk holds one outbound socket to it while it
+is signed in and Reachable from your phone is on, which is off until the person
+turns it on. The relay is not trusted with content: each phone it announces
+runs the same end-to-end session as a LAN phone, pinned to the desk key from
+the pairing code. What holds against the relay itself is that pin, the secret
+inside the pairing code, and Allow this phone?, which a new phone still waits
+for. The device check is narrower: a phone must prove the key the relay says
+the account linked, which stops a ticket being used by another phone, and
+refuses it before the pairing code is spent.
+
+The relay is handed a credential of its own. The desk session carries two
+tokens, and the one the relay sees is typed for the relay alone and refused by
+the account API, so a relay, or anything that logs its traffic, never holds one
+the rest of the account would accept.
+
+The link's behaviour follows what each failure means. A close for a replaced
+desk or a revoked one stops it, and only the person turning Reachable off and
+on starts it again, so two copies of a desk never fight over the room. A
+refused token is renewed once; refused again, it stops. Any other drop
+reconnects with full jitter, and the window says "Can't reach HarnessDesk" only
+after three failures in a row, so waking from sleep does not flash a warning.
+Silence is probed three times before a socket that looks open is dropped. The
+backoff starts over only after a socket has stayed up a while, so a relay that
+admits the desk and drops it again does not make it reconnect in a loop. The
+relay meters each socket and closes it over a frame it does not allow, which
+would drop every phone at once; the desk paces its frames under that meter and
+lets go of only the phone whose message is too large.
+
+Removing a phone on the desk refuses it at once from the local registry; its
+account link is removed when the account can be reached, from a small outbox
+that survives a restart. The outbox is written before the phone is removed, so
+a removal that cannot be recorded fails as a whole instead of leaving a link
+nothing will remove. The pairing code carries a one-time invite when one
+can be made, and falls back to a same-network code when it cannot, so the
+account is never in the way of pairing. A desk whose relay has stopped (replaced,
+refused, or an account that names no relay) gives a same-network code only: a
+phone away could not reach it, or would reach the copy that took its room.
+
+The account key and the phone-link key stay separate: the first names the desk
+to the account and signs the relay's challenge; the second is the one the
+phone pins for the encrypted session.
+

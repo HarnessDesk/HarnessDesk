@@ -696,7 +696,7 @@ const start = async () => {
   // the pairing page exist only when the desk is started with it.
   if (process.env['HARNESSDESK_PHONE_LINK'] === '1') {
     phoneLink = await startPhoneLink(host, logger, { home: stateDir, port: Number(process.env['HARNESSDESK_PHONE_PORT'] ?? 0),
-      includeLoopback: process.env['HARNESSDESK_PHONE_LOOPBACK'] === '1' })
+      includeLoopback: process.env['HARNESSDESK_PHONE_LOOPBACK'] === '1', account: host.phoneRelayAccount() })
   }
   logger.info('desktop shell ready', { url: running.url })
 

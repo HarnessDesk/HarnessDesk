@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Your phone reaches this Mac away from its Wi-Fi.** With your HarnessDesk account signed in, turn on Settings › Account › Reachable from your phone. Paired phones then connect through your account when they are not on the same network, still end-to-end encrypted, and the pairing code works away from home. Reachable says Connected, Connecting… or Can’t reach HarnessDesk, and Settings › Phone says how each phone is connected.
+
 - **The Lead page has a right rail.** It shows the goal, its plan step by step, the workers the current step seats and what the goal has spent against its limit. The dollar and round limits move from under the composer to the rail's Spend card; its toggle sits in the top bar, and the rail stays open until you close it.
 
 - **Settings, the right panel and the dashboard draw each group as one card.** Groups sit on the main ground with a clear edge, Settings labels line up with the main column, and counts and times read a clear step quieter than prose. Settings › Appearance › Surface adds Sheet, which lays the same groups flat with a line between them.

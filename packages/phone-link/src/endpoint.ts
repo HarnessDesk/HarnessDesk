@@ -34,6 +34,11 @@ export interface EndpointDeps {
   readonly handshakeMs?: number
   readonly authMs?: number
   readonly maxInFlight?: number
+  /**
+   * Set for a phone on the relay: the device the account linked to this desk. A phone that proves a different key is
+   * refused, so an account link is never a way in for a key the account did not name.
+   */
+  readonly expectDevice?: string
   onFailure?(reason: string): void
   onAuthenticated?(device: Device): void
 }
@@ -130,6 +135,7 @@ export class PhoneEndpoint {
     const th = this.#session!.th
     if (parsed.data.t === 'auth') {
       const id = parsed.data.dev
+      if (!this.#expected(id)) return this.#refuse(CloseCode.UNAUTHORIZED, 'not the phone this account linked')
       if (registry.isRevoked(id)) return this.#refuse(CloseCode.REVOKED, 'this phone was removed')
       const device = registry.get(id)
       if (!device) return this.#refuse(CloseCode.UNAUTHORIZED, 'unknown phone')
@@ -146,9 +152,12 @@ export class PhoneEndpoint {
     const proven = await verifyEd25519(devicePub, fromB64u(parsed.data.sig), handshakeEnrollMessage(th))
     if (this.closed) return
     if (!proven) return this.#refuse(CloseCode.UNAUTHORIZED, 'bad enrollment signature')
+    const deviceId = await idFromPub(devicePub)
+    if (this.closed) return
+    // Checked before the code is spent, so a wrong key on the relay leaves the code for the right phone.
+    if (!this.#expected(deviceId)) return this.#refuse(CloseCode.UNAUTHORIZED, 'not the phone this account linked')
     if (!registry.takeOffer(parsed.data.secret, this.deps.now())) return this.#refuse(CloseCode.UNAUTHORIZED, 'pairing code not accepted')
     if (registry.full) return this.#refuse(CloseCode.UNAUTHORIZED, 'this desk has the most phones it allows')
-    const deviceId = await idFromPub(devicePub)
     // Waiting here is the point: the phone has shown a valid code, and a person decides whether it is theirs.
     this.#disarm()
     this.#confirming = true
@@ -168,6 +177,8 @@ export class PhoneEndpoint {
     this.#signedIn()
     await this.#send({ t: 'enroll.ok', deviceId, pushKey: device.pushKey, kid: device.kid, epoch: ring.epoch, seq: ring.seq })
   }
+
+  #expected(deviceId: string): boolean { return this.deps.expectDevice === undefined || this.deps.expectDevice === deviceId }
 
   #signedIn(): void {
     this.#disarm()

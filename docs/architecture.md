@@ -313,7 +313,10 @@ sample.
   `https://app.harnessdesk.app`; HTTP loopback is allowed for local rigs).
   Polling and metadata refresh stop with the host. Cancel fences queued and
   in-flight approval work. The `harnessdesk://` protocol only focuses the app;
-  it never authenticates a desk. Phone relay transport is not implemented here.
+  it never authenticates a desk. The account also hands the phone link what
+  the relay needs — a desk session that names the relay and carries its own
+  token, a signature of the relay's challenge, and one-time invites — without
+  the desk key leaving it.
 - **Account reads** — host calls through a registered runtime share one
   in-flight read per account generation, including its lifecycle waits. Callers
   receive an error after ten seconds. A deadline cannot cancel the adapter, so retries
@@ -934,7 +937,24 @@ enrollment offers do not. A code works once for ten minutes. The person
 approves the phone before its Read, Run and Answer grants take effect.
 `PHONE_POLICY` allowlists the phone's methods and event topics; renderer file
 and general settings methods are outside that surface. The LAN listener is
-closed with the host. Account relay transport remains inactive.
+closed with the host.
+
+With the account signed in and Reachable from your phone on, `RelayLink`
+(`packages/phone-link/src/relay.ts`) holds one outbound socket to the relay
+room the desk session names. Each phone the relay announces becomes the same
+`PhoneEndpoint` a LAN socket would, with the relay's linked device id as the
+key it must prove; the relay only carries the encrypted frames, and only the
+relay's own token (`relayToken`) goes to it. Each socket owns its phones,
+heartbeat and send pacing, so a late close of an old one touches nothing in
+use. The link heartbeats, reconnects with full jitter, renews a refused token once, and
+stops for a replaced desk or a second refusal until the person turns Reachable
+off and on. A socket that never says `ready` is dropped and tried again, and an
+account that names no relay token leaves the link off (`RelayUnavailableError`).
+`phone/state` reports the link's state and each phone's route
+(nearby or through the account), and `phone/pairing` adds an account invite
+when it can make one and the link is still trying. A phone removed on the desk is
+refused at once; its account link is removed when the account can be reached
+(`relay-unlinks.json`, saved before the phone is removed).
 
 The phone's `workspace/read` snapshot carries capabilities, Teams and recent
 sessions, and its usage. Each signed-in account is one allowance row with the

@@ -9,7 +9,7 @@ import { createLeadRig } from './fixtures/lead-rig.js'
 const personSurface = async (rig: Awaited<ReturnType<typeof createLeadRig>>, surface: string, t: TestContext) => {
   if (surface === 'window') return (params: any) => rig.host.call('lead/action/perform', params)
   const link = await startPhoneLink(rig.host, rig.logger, { home: rig.home, host: '127.0.0.1', includeLoopback: true, name: 'Test desk' })
-  const phone = await PhoneSim.fromCode(link.control.pairing().url)
+  const phone = await PhoneSim.fromCode((await link.control.pairing()).url)
   t.after(async () => { phone.close(); await link.close() })
   await phone.open(link.service.port, phone.offer!.deskPub)
   await phone.enroll(phone.offer!.enroll, 'Jane’s phone')
