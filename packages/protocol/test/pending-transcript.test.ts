@@ -480,3 +480,50 @@ test('an unfenced session replay also resets local turn-start assumptions',()=>{
   pending.observeLocal(start('after'),owner)
   assert.ok(pending.inspect().local.turns[0].items[0].candidates.some((x: any)=>x.text==='after'))
 })
+
+test('explicit shape quarantine preserves both prior capture and the real mismatched item without inventing a cursor',()=>{
+  const {owner,pending}=make()
+  const streamed={type:'item/delta',sessionId:'s',turnId:'t',itemId:'i',delta:{kind:'reasoningSummary',index:0,text:'retained'}}
+  const mismatch={type:'item/completed',sessionId:'s',turnId:'t',item:{id:'i',type:'command',command:'synthetic',cwd:'/example',origin:'agent',status:'completed',actions:[]}}
+  assert.equal(pending.observe(streamed,fence(2),owner),'accepted')
+  assert.equal(pending.quarantine(mismatch,{}),false)
+  assert.equal(pending.quarantine(mismatch,owner),true)
+  mismatch.item.command='mutated'
+  const held=pending.inspect()
+  assert.equal(held.turns[0].items[0].delta.reasoningSummary['0'],'retained')
+  assert.equal(held.quarantine.turns[0].items[0].candidates[0].command,'synthetic')
+  assert.equal(held.watermark.sequence,2)
+  assert.equal(held.unresolved,true)
+  assert.equal(pending.retire(snapshot(4),owner,true),false)
+})
+
+test('tool progress is retained as typed material until completion and quarantined on a real shape conflict',()=>{
+  const {owner,pending}=make()
+  const progress={type:'item/delta',sessionId:'s',turnId:'t',itemId:'i',delta:{kind:'toolProgress',message:'synthetic progress'}}
+  assert.equal(pending.observe(progress,fence(2),owner),'accepted')
+  assert.equal(pending.inspect().turns[0].items[0].deltaCandidates[0].message,'synthetic progress')
+  const finish={type:'item/completed',sessionId:'s',turnId:'t',item:{id:'i',type:'toolCall',tool:'synthetic',source:{kind:'builtin'},status:'completed',args:{}}}
+  assert.equal(pending.observe(finish,fence(3),owner),'accepted')
+  assert.equal(pending.inspect().turns[0].items[0].deltaCandidates.length,0)
+  const other=make(), conflict={type:'item/delta',sessionId:'s',turnId:'t',itemId:'i',delta:{kind:'toolProgress',message:'conflicting progress'}}
+  assert.equal(other.pending.quarantine(conflict,other.owner),true)
+  conflict.delta.message='mutated'
+  assert.equal(other.pending.inspect().quarantine.turns[0].items[0].deltaCandidates[0].message,'conflicting progress')
+  assert.equal(other.pending.inspect().watermark,null)
+  assert.equal(other.pending.retire(snapshot(3),other.owner,true),false)
+})
+
+test('quarantining a real turn replay retains prior and conflicting item families without cursor advancement',()=>{
+  const {owner,pending}=make()
+  const user={id:'i',type:'userMessage',content:[{type:'text',text:'synthetic'}]}
+  const turn={type:'turn/started',sessionId:'s',turn:{id:'t',status:'inProgress',items:[user]}}
+  assert.equal(pending.observe(turn,fence(2),owner),'accepted')
+  const replay={type:'turn/completed',sessionId:'s',turn:{id:'t',status:'completed',items:[{id:'i',type:'command',command:'synthetic',cwd:'/example',origin:'agent',status:'completed',actions:[]}]}}
+  assert.equal(pending.quarantine(replay,owner),true)
+  replay.turn.items[0]!.command='mutated'
+  const held=pending.inspect()
+  assert.equal(held.turns[0].items[0].replacement.type,'userMessage')
+  assert.equal(held.quarantine.turns[0].items[0].candidates[0].command,'synthetic')
+  assert.equal(held.watermark.sequence,2);assert.equal(held.unresolved,true)
+  assert.equal(pending.retire(snapshot(4),owner,true),false)
+})

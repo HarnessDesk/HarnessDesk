@@ -99,6 +99,7 @@ class Material {
     item.replacement = replacement
     if (complete && !quarantine) {
       item.delta = {}
+      item.deltaCandidates.clear()
       // An unknown-base turn completion may have supplied the matching desk
       // context that replaceItem preserves. Keep possible carriers until the
       // covering snapshot; do not clear them just because an item completed.
@@ -115,7 +116,7 @@ class Material {
       case 'item/delta': {
         const item = this.#item(event.turnId, event.itemId), d = event.delta
         if (quarantine && !ordered) {
-          if (d.kind !== 'toolProgress') item.deltaCandidates.set(canonical(d), d)
+          item.deltaCandidates.set(canonical(d), d)
           return
         }
         const out = item.delta
@@ -127,7 +128,7 @@ class Material {
           case 'reasoningSummaryPart': { const parts = out.reasoningSummaryParts ??= []; if (!parts.includes(d.index)) parts.push(d.index); break }
           case 'reasoningText': { const map = out.reasoningText ??= {}; map[d.index] = (map[d.index] ?? '') + d.text; break }
           case 'fileChangePatch': { const paths = new Map((out.fileChanges ?? []).map(change => [change.path, change])); for (const change of d.changes) paths.set(change.path, change); out.fileChanges = [...paths.values()]; break }
-          case 'toolProgress': break
+          case 'toolProgress': item.deltaCandidates.set(canonical(d), d); break
         }
         return
       }
@@ -265,6 +266,14 @@ export class PendingTranscript {
     if (this.#unresolved) { this.#quarantine.capture(copy, true, true); return 'unresolved' }
     this.#material.capture(copy, false)
     return 'accepted'
+  }
+  /** Preserve a real transcript event whose item family conflicts with captured data. */
+  quarantine(event: Extract<AgentEvent, { type: 'session/started' | 'turn/started' | 'turn/completed' | 'item/started' | 'item/completed' | 'item/delta' }>, owner: object): boolean {
+    const id = event.type === 'session/started' ? event.session.id : event.sessionId
+    if (owner !== this.#owner || id !== this.#sessionId || (event.type === 'session/started' && event.session.runtime !== this.#runtime)) return false
+    this.#quarantine.capture(structuredClone(event), true)
+    this.#unresolved = true
+    return true
   }
   /** Capture the Host's ordered local callback, before any wire cursor exists. */
   observeLocal(event: AgentEvent, owner: object): 'accepted' | 'ignored' | 'refused' {

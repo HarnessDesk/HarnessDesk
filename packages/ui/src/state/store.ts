@@ -651,7 +651,7 @@ export class AppStore {
   // Only an unbroken, verified-cursor invalidation chain may be re-proved.
   readonly #transcriptReproof = new Map<SessionKey, { watermark: TranscriptWatermark; change: number; connection: number; removal: number; draftRevision: number; body: WeakRef<Session>; fingerprint: string; owners: Set<symbol> }>()
   readonly #transcriptOrphans = new Set<PendingTranscript>()
-  readonly #releasedTranscripts = new Map<SessionKey, { identity: string; watermark: TranscriptWatermark; connection: number; removal: number; metadata: string; hostMetadata: string; owner: object; pending: PendingTranscript; changed: boolean; eligible: boolean; dirty: boolean; invalidation?: TranscriptWatermark; inFlight?: Promise<boolean>; flightConnection?: number }>()
+  readonly #releasedTranscripts = new Map<SessionKey, { identity: string; turnCount: number; watermark: TranscriptWatermark; connection: number; removal: number; metadata: string; hostMetadata: string; owner: object; pending: PendingTranscript; itemTypes: Map<string, Map<string, AgentItem['type']>>; awaitedItems: Map<string, Map<string, Set<AgentItem['type']>>>; changed: boolean; eligible: boolean; dirty: boolean; invalidation?: TranscriptWatermark; observed?: TranscriptWatermark; quarantinedLast?: { fence: TranscriptWatermark; fingerprint: string }; inFlight?: Promise<boolean>; flightConnection?: number }>()
   readonly #releasedOrphans: { identity: string; watermark: TranscriptWatermark; pending: PendingTranscript }[] = []
   readonly #transcriptPending = new Map<SessionKey, { owner: object; capture: PendingTranscript; base: TranscriptWatermark; connection: number; removal: number; inFlight: boolean; dirty: boolean; eligible: boolean }>()
   readonly #transcriptReceipts = new Map<SessionKey, { authority: { watermark: TranscriptWatermark; lastFingerprint: string | null; sessionFingerprint: string }; change: number; draftRevision: number }>()
@@ -971,8 +971,8 @@ export class AppStore {
     const identity = transcriptFingerprint(canonicalTranscriptBody(session.turns).canonical)
     const owner = {}, metadata = transcriptSessionFingerprint({ ...session, turns: [], itemsLoaded: false })
     const hostMetadata = transcriptSessionFingerprint({ ...session, archived: session.archived === undefined ? false : session.archived, turns: [], itemsLoaded: false })
-    this.#releasedTranscripts.set(key, { identity, watermark: authority.watermark, connection: this.#chatConnectionGeneration,
-      removal: this.#sessionRemovalRevisions.get(key) ?? 0, metadata, hostMetadata, owner, pending: new PendingTranscript({ runtime, sessionId: id, owner }), changed: false, eligible: true, dirty: false })
+    this.#releasedTranscripts.set(key, { identity, turnCount: session.turns.length, watermark: authority.watermark, connection: this.#chatConnectionGeneration,
+      removal: this.#sessionRemovalRevisions.get(key) ?? 0, metadata, hostMetadata, owner, pending: new PendingTranscript({ runtime, sessionId: id, owner }), itemTypes: new Map(), awaitedItems: new Map(), changed: false, eligible: true, dirty: false })
     const sessions = new Map(this.#snapshot.sessions)
     sessions.set(key, { ...session, turns: [], itemsLoaded: false })
     this.#transcriptReceipts.delete(key)
@@ -1013,12 +1013,112 @@ export class AppStore {
             (!descriptor.changed && !advancedWithoutLocalData && transcriptSessionFingerprint({ ...snapshot.session, archived: snapshot.session.archived === undefined ? false : snapshot.session.archived, turns: [], itemsLoaded: false }) !== descriptor.hostMetadata)) return false
         if (!descriptor.changed && !advancedWithoutLocalData && snapshot.identity !== descriptor.identity) return false
         if (captured) {
+          // Rich deltas are not independently materialized here. Only their
+          // actual same-family item completion may supersede them.
+          if ([...descriptor.awaitedItems.values()].some(items => [...items.values()].some(types => [...types].some(type => type !== 'assistantMessage' && type !== 'command')))) return false
+          // Wire JSON has no undefined, non-finite numbers, cycles or exotic
+          // values. Compare complete objects canonically; array order matters.
+          const wireValue = (value: unknown, seen = new Set<object>()): unknown => {
+            if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
+            if (typeof value === 'number' && Number.isFinite(value)) return value
+            if (typeof value !== 'object' || seen.has(value)) throw new Error('Invalid wire value')
+            seen.add(value)
+            try {
+              if (Array.isArray(value)) {
+                if (Object.keys(value).length !== value.length) throw new Error('Invalid wire array')
+                for (let index = 0; index < value.length; index++) if (!Object.hasOwn(value, index)) throw new Error('Invalid wire array')
+                return value.map(entry => wireValue(entry, seen))
+              }
+              if ((Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) || Reflect.ownKeys(value).length !== Object.keys(value).length || Reflect.ownKeys(value).some(key => typeof key !== 'string')) throw new Error('Invalid wire object')
+              return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, entry]) => [key, wireValue(entry, seen)]))
+            } finally { seen.delete(value) }
+          }
+          const wireEqual = (left: unknown, right: unknown): boolean => {
+            try { return JSON.stringify(wireValue(left)) === JSON.stringify(wireValue(right)) } catch { return false }
+          }
           if (!cursor || cursor.epoch !== descriptor.watermark.epoch || cursor.generation !== descriptor.watermark.generation ||
               cursor.sequence <= descriptor.watermark.sequence || snapshot.watermark.sequence < cursor.sequence || snapshot.watermark.revision < cursor.revision) return false
+          if (captured.session) for (const [field, value] of Object.entries(captured.session)) {
+            // Later observed typed field replacements supersede this replay.
+            if (Object.hasOwn(captured.sessionFields, field)) continue
+            const actual = snapshot.session[field as keyof Session]
+            if (field === 'updatedAt' && typeof value === 'number' && typeof actual === 'number') {
+              if (actual < value) return false
+            } else if (!wireEqual(actual, value)) return false
+          }
+          for (const [field, value] of Object.entries(captured.sessionFields)) {
+            if (!wireEqual(snapshot.session[field as keyof Session], value)) return false
+          }
+          if (new Set(snapshot.session.turns.map(turn => turn.id)).size !== snapshot.session.turns.length) return false
+          let previousTurn = -1
+          for (const turn of captured.turns) {
+            const turnIndex = snapshot.session.turns.findIndex((value, index) => index > previousTurn && value.id === turn.id)
+            if (turnIndex < 0) return false
+            previousTurn = turnIndex
+            const found = snapshot.session.turns[turnIndex]!
+            if (new Set(found.items.map(item => item.id)).size !== found.items.length) return false
+            if (turn.metadata && Object.entries(turn.metadata).some(([field, value]) => {
+              if ((field === 'diff' && turn.diff !== undefined) || (field === 'plan' && turn.plan !== undefined)) return false
+              return !wireEqual(found[field as keyof typeof found], value)
+            })) return false
+            if ((turn.diff !== undefined && !wireEqual(found.diff, turn.diff)) || (turn.plan !== undefined && !wireEqual(found.plan, turn.plan))) return false
+            let previousItem = -1
+            for (const item of turn.items) {
+              const itemIndex = found.items.findIndex((value, index) => index > previousItem && value.id === item.id)
+              if (itemIndex < 0) return false
+              previousItem = itemIndex
+            }
+          }
+          // Prove the exact evicted baseline by reversing only captured
+          // append deltas on old turns. New turns must have been observed.
+          if (snapshot.session.turns.length < descriptor.turnCount) return false
+          const observedTurns = new Set(captured.turns.map(turn => turn.id))
+          if (snapshot.session.turns.slice(descriptor.turnCount).some(turn => !observedTurns.has(turn.id))) return false
+          const byTurn = new Map(captured.turns.map(turn => [turn.id, new Map(turn.items.map(item => [item.id, item.delta]))]))
+          let validSuffix = true
+          const previousTurns = snapshot.session.turns.slice(0, descriptor.turnCount).map(turn => ({ ...turn, items: turn.items.map(item => {
+            const delta = byTurn.get(turn.id)?.get(item.id)
+            if (!delta || (delta.assistantText === undefined && delta.commandOutput === undefined)) return item
+            if (item.type === 'assistantMessage' && delta.assistantText !== undefined && delta.commandOutput === undefined && item.text.endsWith(delta.assistantText)) return { ...item, text: item.text.slice(0, item.text.length - delta.assistantText.length) }
+            if (item.type === 'command' && delta.commandOutput !== undefined && delta.assistantText === undefined && typeof item.output === 'string' && item.output.endsWith(delta.commandOutput)) return { ...item, output: item.output.slice(0, item.output.length - delta.commandOutput.length) }
+            validSuffix = false
+            return item
+          }) }))
+          if (!validSuffix || transcriptFingerprint(canonicalTranscriptBody(previousTurns).canonical) !== descriptor.identity) return false
           for (const turn of captured.turns) for (const item of turn.items) {
-            const text = item.delta.assistantText
+            const foundIndex = snapshot.session.turns.findIndex(value => value.id === turn.id)
+            if (foundIndex >= descriptor.turnCount && !item.replacement && !item.candidates.length && (item.delta.assistantText !== undefined || item.delta.commandOutput !== undefined)) return false
+          }
+          // Only material with a concrete counterpart in this same full
+          // snapshot can leave the protected capture. In-progress text/output
+          // may extend, and an in-progress command may finish; other observed
+          // fields must still agree.
+          const representedItem = (observed: AgentItem, found: AgentItem): boolean => {
+            if (observed.type !== found.type || observed.id !== found.id) return false
+            if (observed.type !== 'userMessage' && observed.type !== 'assistantMessage' && observed.type !== 'command') return wireEqual(observed, found)
+            return Object.entries(observed).every(([field, value]) => {
+              const actual = found[field as keyof AgentItem]
+              if ((field === 'text' || field === 'output') && typeof value === 'string') return typeof actual === 'string' && actual.startsWith(value)
+              if (field === 'status' && value === 'inProgress' && observed.type === 'command' && found.type === 'command') return ['inProgress', 'completed', 'failed', 'declined'].includes(found.status)
+              return wireEqual(actual, value)
+            })
+          }
+          for (const turn of captured.turns) for (const item of turn.items) {
             const found = snapshot.session.turns.find(value => value.id === turn.id)?.items.find(value => value.id === item.id)
-            if (typeof text !== 'string' || !found || found.type !== 'assistantMessage' || !found.text.includes(text)) return false
+            if (!found || item.deltaCandidates.length || (item.replacement && !representedItem(item.replacement, found)) || item.candidates.some(value => !representedItem(value, found))) return false
+            const { assistantText, commandOutput, ...unsupported } = item.delta
+            if (Object.keys(unsupported).length) return false
+            if (assistantText !== undefined) {
+              if (found.type !== 'assistantMessage') return false
+              const prefixes = [item.replacement, ...item.candidates].filter((value): value is Extract<AgentItem, { type: 'assistantMessage' }> => value?.type === 'assistantMessage').map(value => value.text)
+              if (prefixes.length ? prefixes.some(prefix => !found.text.startsWith(prefix + assistantText)) : !found.text.endsWith(assistantText)) return false
+            }
+            if (commandOutput !== undefined) {
+              if (found.type !== 'command' || typeof found.output !== 'string') return false
+              const prefixes = [item.replacement, ...item.candidates].filter((value): value is Extract<AgentItem, { type: 'command' }> => value?.type === 'command').map(value => value.output ?? '')
+              if (prefixes.length ? prefixes.some(prefix => !found.output!.startsWith(prefix + commandOutput)) : !found.output.endsWith(commandOutput)) return false
+            }
+            if (!item.replacement && !item.candidates.length && assistantText === undefined && commandOutput === undefined) return false
           }
           if (!descriptor.pending.retire({ ...snapshot.watermark, full: true, identityValid: true }, descriptor.owner, true)) return false
         }
@@ -1090,7 +1190,7 @@ export class AppStore {
   }
 
   #acceptTranscriptEvent(runtime: RuntimeId, event: AgentEvent, fence: unknown): void {
-    const id = event.type === 'session/started' ? event.session.id : 'sessionId' in event ? event.sessionId : undefined
+    const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
     if (!id) {
       // An addressed cursor that cannot be associated with a session is not
       // proof that any held session saw the complete stream.
@@ -1105,19 +1205,79 @@ export class AppStore {
     }
     const key = sessionKey(runtime, id), released = this.#releasedTranscripts.get(key)
     if (released) {
-      this.#transcriptChange++
-      const result = released.pending.observe(event, fence, released.owner)
+      const expected = event.type === 'item/started' || event.type === 'item/completed'
+        ? released.awaitedItems.get(event.turnId)?.get(event.item.id) : undefined
+      const deltaType: AgentItem['type'] | undefined = event.type !== 'item/delta' ? undefined : event.delta.kind === 'assistantText' ? 'assistantMessage' : event.delta.kind === 'commandOutput' ? 'command' :
+        event.delta.kind === 'fileChangePatch' ? 'fileChange' : event.delta.kind === 'planText' ? 'plan' : event.delta.kind === 'toolProgress' ? 'toolCall' : 'reasoning'
+      const knownType = event.type === 'item/delta' ? released.itemTypes.get(event.turnId)?.get(event.itemId) : undefined
+      const incoming = event.type === 'session/started' ? event.session.turns.flatMap(turn => turn.items.map(item => ({ turnId: turn.id, item }))) :
+        event.type === 'turn/started' || event.type === 'turn/completed' ? event.turn.items.map(item => ({ turnId: event.turn.id, item })) :
+        event.type === 'item/started' || event.type === 'item/completed' ? [{ turnId: event.turnId, item: event.item }] : []
+      // Before ordered capture can replace prior material, compare every real
+      // item (including those nested in a full replay) with its known family.
+      const mismatch = (!!knownType && !!deltaType && knownType !== deltaType) || incoming.some(({ turnId, item }) => {
+        const known = released.itemTypes.get(turnId)?.get(item.id), awaited = released.awaitedItems.get(turnId)?.get(item.id)
+        return (!!known && known !== item.type) || (!!awaited && [...awaited].some(type => type !== item.type))
+      })
+      let conflictFingerprint: string | null = null
+      if (mismatch && this.#validTranscriptFence(fence)) {
+        try { conflictFingerprint = transcriptFingerprint(JSON.stringify(event)) } catch { /* Keep the event protected. */ }
+        const previous = released.quarantinedLast
+        if (conflictFingerprint && previous && previous.fingerprint === conflictFingerprint && previous.fence.epoch === fence.epoch &&
+            previous.fence.generation === fence.generation && previous.fence.sequence === fence.sequence && previous.fence.revision === fence.revision) return
+      }
+      const result = mismatch && (event.type === 'session/started' || event.type === 'turn/started' || event.type === 'turn/completed' || event.type === 'item/started' || event.type === 'item/completed' || event.type === 'item/delta')
+        ? (released.pending.quarantine(event, released.owner) ? 'unresolved' : 'ignored')
+        : released.pending.observe(event, fence, released.owner)
       if (result === 'duplicate') return
+      if (mismatch && result === 'unresolved' && conflictFingerprint && this.#validTranscriptFence(fence)) released.quarantinedLast = { fence: { ...fence }, fingerprint: conflictFingerprint }
+      this.#notifyPublication(event)
+      this.#transcriptChange++
       released.changed = true
       released.dirty = true
-      const floor = released.invalidation ?? released.watermark
+      const invalidation = released.invalidation ?? released.watermark
+      const floor = released.observed && released.observed.sequence > invalidation.sequence ? released.observed : invalidation
+      // These families have no additional event owner and their captured
+      // material can be checked in the body. Others stay protected.
+      const supportedItem = (item: AgentItem) => item.type === 'userMessage' || item.type === 'assistantMessage' || item.type === 'command' || item.type === 'reasoning' || item.type === 'fileChange' || item.type === 'plan' || item.type === 'toolCall' || item.type === 'publication'
+      const represented = (event.type === 'session/started' && event.session.itemsLoaded && !event.session.partialHistory &&
+          event.session.turns.every(turn => turn.items.every(supportedItem) && new Set(turn.items.map(item => item.id)).size === turn.items.length) &&
+          new Set(event.session.turns.map(turn => turn.id)).size === event.session.turns.length) ||
+        event.type === 'turn/diff' || event.type === 'turn/plan' || event.type === 'session/title' || event.type === 'session/status' || event.type === 'session/settings' || event.type === 'session/options' || event.type === 'session/memory' || event.type === 'session/goal' || event.type === 'usage/updated' || event.type === 'session/closed' ||
+        ((event.type === 'turn/started' || event.type === 'turn/completed') && event.turn.items.every(supportedItem) && new Set(event.turn.items.map(item => item.id)).size === event.turn.items.length) ||
+        ((event.type === 'item/started' || event.type === 'item/completed') && supportedItem(event.item)) ||
+        (event.type === 'item/delta' && ['assistantText', 'commandOutput', 'reasoningSummary', 'reasoningSummaryPart', 'reasoningText', 'fileChangePatch', 'planText', 'toolProgress'].includes(event.delta.kind)) ||
+        event.type === 'session/queue' || event.type === 'session/tasks' || event.type === 'approval/requested' || event.type === 'approval/resolved'
       if (result !== 'accepted' || !this.#validTranscriptFence(fence) || fence.epoch !== floor.epoch ||
-          fence.generation !== floor.generation || fence.sequence <= floor.sequence || fence.revision < floor.revision ||
-          event.type !== 'item/delta' || event.delta.kind !== 'assistantText') released.eligible = false
+          fence.generation !== floor.generation || fence.sequence !== floor.sequence + 1 || fence.revision < floor.revision || !represented) released.eligible = false
+      else {
+        released.observed = fence
+        const remember = (turnId: string, item: AgentItem) => {
+          let items = released.itemTypes.get(turnId)
+          if (!items) { items = new Map(); released.itemTypes.set(turnId, items) }
+          items.set(item.id, item.type)
+        }
+        if (event.type === 'session/started') for (const turn of event.session.turns) for (const item of turn.items) remember(turn.id, item)
+        if (event.type === 'turn/started' || event.type === 'turn/completed') for (const item of event.turn.items) remember(event.turn.id, item)
+        if (event.type === 'item/started' || event.type === 'item/completed') remember(event.turnId, event.item)
+        if (event.type === 'item/delta') {
+          const type = deltaType!
+          let items = released.awaitedItems.get(event.turnId)
+          if (!items) { items = new Map(); released.awaitedItems.set(event.turnId, items) }
+          let types = items.get(event.itemId)
+          if (!types) { types = new Set(); items.set(event.itemId, types) }
+          types.add(type)
+        }
+        if (event.type === 'item/completed' && expected) {
+          const items = released.awaitedItems.get(event.turnId)!
+          items.delete(event.item.id)
+          if (items.size === 0) released.awaitedItems.delete(event.turnId)
+        }
+      }
       this.#transcriptRecoveryBlocked.add(key)
       this.#transcriptCursors.delete(key)
       // Existing non-transcript owners must still receive their events once.
-      if (event.type === 'session/queue' || event.type === 'session/tasks' || event.type === 'approval/resolved') this.#onEvent(runtime, event)
+      if (event.type === 'session/queue' || event.type === 'session/tasks' || event.type === 'approval/requested' || event.type === 'approval/resolved') this.#onEvent(runtime, event)
       if (released.eligible) void this.restoreTranscript(runtime, id)
       return
     }
@@ -1242,10 +1402,12 @@ export class AppStore {
           } else this.#transcriptReproof.delete(key)
           if (released) {
             const watermark = notification.params.watermark
-            const floor = released.invalidation ?? released.watermark
-            if (released.changed || !this.#validTranscriptFence(watermark) || watermark.epoch !== floor.epoch || watermark.generation !== floor.generation ||
-                watermark.sequence <= floor.sequence || watermark.revision < floor.revision) released.eligible = false
+            const invalidation = released.invalidation ?? released.watermark
+            const floor = released.observed && released.observed.sequence > invalidation.sequence ? released.observed : invalidation
+            if (!this.#validTranscriptFence(watermark) || watermark.epoch !== floor.epoch || watermark.generation !== floor.generation ||
+                watermark.sequence !== floor.sequence + 1 || watermark.revision < floor.revision) released.eligible = false
             else { released.invalidation = watermark; released.dirty = true }
+            if (released.changed && released.eligible) void this.restoreTranscript(notification.params.runtime, notification.params.sessionId)
             this.#transcriptRecoveryBlocked.add(key)
           }
           if (this.#transcriptCursors.has(key)) this.#transcriptRecoveryBlocked.add(key)
@@ -9445,9 +9607,12 @@ export class AppStore {
 
   readonly #gitRecordListeners = new Set<() => void>()
   onGitRecordChange(listener: () => void): () => void { this.#gitRecordListeners.add(listener); return () => this.#gitRecordListeners.delete(listener) }
-  #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+  #notifyPublication(event: AgentEvent): void {
     const published = event.type === 'item/completed' ? [event.item] : event.type === 'turn/completed' ? event.turn.items : []
     if (published.some(item => item.type === 'publication' && (item.reference.kind === 'branch' || item.reference.kind === 'pullRequest'))) for (const listener of this.#gitRecordListeners) listener()
+  }
+  #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    this.#notifyPublication(event)
     if (event.type === 'approval/requested') {
       const key = sessionKey(runtime, event.approval.sessionId)
       if (this.#snapshot.approvals.some((entry) => entry.key === key && entry.approval.id === event.approval.id)) return
