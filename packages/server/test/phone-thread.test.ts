@@ -213,6 +213,6 @@ test('phone approvals display the full unwrapped script without changing risk cl
 
 test('a run of reasoning with nothing to read shows as one Thinking step, as the desk folds it', () => {
   const think = (name: string, summary: string[] = []): AgentItem => ({ id: itemId(name), type: 'reasoning', summary, content: [] })
-  const result = thread([think('a'), think('b'), run('ok'), think('c'), think('d', ['  ']), think('e', ['Checking the lockfile']), think('f')])
+  const result = thread([think('a'), think('b', ['', 'a later line']), run('ok'), think('c'), think('d', ['  ']), think('e', ['Checking the lockfile']), think('f')])
   assert.deepEqual(work(result).steps.map(step => step.title), ['Thinking', 'pnpm test', 'Thinking', 'Checking the lockfile', 'Thinking'])
 })

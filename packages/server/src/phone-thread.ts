@@ -398,7 +398,8 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: Reado
     }
     if (item.type === 'error') { close(); turns.push({ type: 'agent', id: String(item.id), markdown: `Something went wrong: ${scrub(item.message, 300)}` }); continue }
     const one = stepOf(item, cwd, noteTruncated)
-    const silent = item.type === 'reasoning' && item.summary.every(entry => scrub(entry, TEXT_STEP_TITLE) === '')
+    // The same rule that names the step Thinking.
+    const silent = item.type === 'reasoning' && scrub(item.summary[0] ?? '', TEXT_STEP_TITLE) === ''
     if (one) into({ id: String(item.id), startedAt: item.startedAt, completedAt: item.completedAt, durationMs: item.durationMs }, one, silent)
   }
   close()
