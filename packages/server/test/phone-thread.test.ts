@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { deskContextContent, wrapContext, leadMessageEnvelope, leadMessageKey, itemId, runtimeId, sessionId, turnId, type AgentItem, type LeadChatControl, type Session } from '@harnessdesk/protocol'
-import { buildThread, threadProjection } from '../src/phone-thread.js'
+import { deskContextContent, wrapContext, leadMessageEnvelope, leadMessageKey, itemId, runtimeId, sessionId, turnId, approvalId, type AgentItem, type LeadChatControl, type Session } from '@harnessdesk/protocol'
+import { assessApproval, buildThread, threadProjection } from '../src/phone-thread.js'
 
 const cwd = '/Users/jane/project'
 const id = 'agent:chat'
@@ -180,4 +180,21 @@ test('Git deletion patch metadata is not counted or shown as removed content', (
   const file = changes(result).files[0]!
   assert.deepEqual([file.added, file.removed], [0, 1])
   assert.deepEqual(file.hunks[0]!.lines, [{ kind: 'remove', number: 1, text: 'old' }])
+})
+
+
+test('shell-wrapped command steps expose the script title used by the phone output header', () => {
+  const result = thread([{ ...run('installed'), type: 'command', command: '/bin/zsh -lc "npm install left-pad"' } as AgentItem])
+  const step = work(result).steps[0]!
+  assert.equal(step.title, 'npm install left-pad')
+  assert.equal(step.detail, undefined)
+  assert.deepEqual(step.output, ['installed'])
+})
+
+test('phone approvals display the full unwrapped script without changing risk classification', () => {
+  const assessment = assessApproval({ id: approvalId('shell'), sessionId: sessionId('chat'), requestedAt: 1, type: 'command',
+    command: "bash -lc 'pnpm test && pnpm build'", cwd, actions: [], options: [{ id: 'allow', label: 'Allow', intent: 'approve' }] }, cwd, { home: '/Users/jane', seat: 'Agent' })!
+  assert.equal(assessment.turn.command, 'pnpm test && pnpm build')
+  assert.equal(assessment.readable, true)
+  assert.equal(assessment.turn.highRisk, true)
 })

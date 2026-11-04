@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { scrub, scrubProjectText, scrubText } from '../src/phone-redact.js'
+import { commandForApproval, commandTitle, scrub, scrubProjectText, scrubText } from '../src/phone-redact.js'
 
 const cwd = '/Users/jane/proj'
 
@@ -68,4 +68,47 @@ test('camelCase secret key names are redacted without changing ordinary assignme
 test('ordinary assignments cannot hide nested secret assignments or URL query tokens', () => {
   assert.equal(scrubProjectText('https://example.com/docs?foo=1&token=shortplaceholder', cwd), 'https://example.com/docs?foo=1&token=…')
   assert.equal(scrubProjectText('message="PASSWORD=shortplaceholder"', cwd), 'message="PASSWORD=…"')
+})
+
+
+test('command titles unwrap quoted shell scripts before applying the existing stopping rule', () => {
+  assert.equal(commandTitle('/bin/zsh -lc "npm install left-pad"'), 'npm install left-pad')
+  assert.equal(commandTitle("bash -lc 'pnpm test && pnpm build'"), 'pnpm test')
+  for (const shell of ['sh', 'bash', 'zsh', 'dash', 'fish']) {
+    for (const flags of ['-c', '-lc', '-ic', '-l -c']) assert.equal(commandTitle(`${shell} ${flags} 'pnpm test'`), 'pnpm test')
+  }
+  assert.equal(commandTitle('zsh -lc "API_KEY=x curl …"'), 'a command')
+  assert.equal(commandTitle('bash -c "git status --short"'), 'git status')
+})
+
+test('command titles use the basename of the first program path only', () => {
+  assert.equal(commandTitle('/usr/bin/git status'), 'git status')
+  assert.equal(commandTitle('./script/x'), 'x')
+  assert.equal(commandTitle('../script/check src/file.ts'), 'check')
+  assert.equal(commandTitle('bin/check --token placeholder'), 'check')
+  assert.equal(commandTitle('API_KEY=placeholder /usr/bin/git status'), 'a command')
+})
+
+test('empty and unparseable shell wrappers have no invented command title', () => {
+  for (const command of ['', 'zsh -lc ""', "bash -c '   '", 'zsh -lc', 'bash -c unquoted', 'zsh -lc "unterminated', "bash -lc 'pnpm test' extra", "bash -lc 'pnpm test' && another-command"]) {
+    assert.equal(commandTitle(command), 'a command', command)
+  }
+})
+
+test('phone approval text shows the unwrapped script with chains, quotes and project paths intact', () => {
+  assert.deepEqual(commandForApproval(`/bin/zsh -lc 'pnpm test && cat "${cwd}/src/a.ts"'`, cwd, '/Users/jane', () => false), {
+    text: 'pnpm test && cat "./src/a.ts"', whole: true,
+  })
+  assert.deepEqual(commandForApproval(String.raw`bash -lc "printf \"hello\""`, cwd, '/Users/jane', () => false), {
+    text: 'printf "hello"', whole: true,
+  })
+  assert.deepEqual(commandForApproval("bash -lc 'printf \\d'", cwd, '/Users/jane', () => false), {
+    text: 'printf \\d', whole: true,
+  })
+})
+
+test('phone approval text refuses secret-bearing or unparseable wrappers', () => {
+  for (const command of ['zsh -lc "API_KEY=x curl …"', 'bash -c "unterminated', "bash -c 'pnpm test' extra"]) {
+    assert.deepEqual(commandForApproval(command, cwd, '/Users/jane', () => false), { text: '', whole: false })
+  }
 })

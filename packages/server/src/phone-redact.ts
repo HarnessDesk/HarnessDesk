@@ -129,14 +129,62 @@ export const projectPath = (path: string, cwd: string | null | undefined): strin
   return scrub(basename(path), 120) || 'file'
 }
 
+const SHELL_PROGRAMS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish'])
+
+/** Decode one quoted shell argument, without evaluating its contents or accepting trailing commands/arguments. */
+const quotedScript = (argument: string): string | null => {
+  if (argument[0] !== "'" && argument[0] !== '"') return null
+  let quote = '', script = ''
+  for (let index = 0; index < argument.length; index++) {
+    const char = argument[index]!
+    if (char === '\\' && quote !== "'") {
+      const next = argument[index + 1]
+      if (next === undefined) return null
+      if (quote === '' || ['$', '`', '"', '\\', '\n'].includes(next)) {
+        if (next !== '\n') script += next
+        index++
+      } else script += char
+    } else if (quote) {
+      if (char === quote) quote = ''
+      else script += char
+    } else if (char === "'" || char === '"') quote = char
+    else if (/\s/.test(char)) return argument.slice(index).trim() === '' && script.trim() !== '' ? script : null
+    else if (/[$`;&|<>()]/.test(char)) return null
+    else script += char
+  }
+  return quote === '' && script.trim() !== '' ? script : null
+}
+
+/** A display projection only: no shell runs, and a wrapper we cannot read whole is refused. */
+const unwrapPhoneCommand = (command: string): string | null => {
+  let text = command.trim()
+  for (let depth = 0; depth < 8; depth++) {
+    const program = /^(\S+)(?:\s+|$)/.exec(text)
+    if (!program || !SHELL_PROGRAMS.has(basename(program[1]!))) return text
+    let rest = text.slice(program[0].length), execute = false
+    for (;;) {
+      const flag = /^(-[a-zA-Z]+|--login|--noprofile|--norc|--posix)(?:\s+|$)/.exec(rest)
+      if (!flag) break
+      rest = rest.slice(flag[0].length)
+      if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(flag[1]!)) { execute = true; break }
+    }
+    if (!execute) return /(?:^|\s)-[a-zA-Z]*c[a-zA-Z]*(?:\s|$)/.test(rest) ? null : text
+    const script = quotedScript(rest)
+    if (script === null) return null
+    text = script.trim()
+  }
+  return null
+}
+
 /**
  * A command for a line of "what it did": the program and the words that name its job, and nothing after the first
  * flag, path, quote or assignment, where arguments (and whatever secret one carries) begin.
  */
 export const commandTitle = (command: string): string => {
-  const first = command.split(/&&|\|\||[;|\n]/)[0] ?? ''
+  const first = (unwrapPhoneCommand(command) ?? '').split(/&&|\|\||[;|\n]/)[0] ?? ''
   const words: string[] = []
-  for (const word of first.trim().split(/\s+/)) {
+  for (const [index, raw] of first.trim().split(/\s+/).entries()) {
+    const word = index === 0 && raw.includes('/') && !/^[-$'"`=]/.test(raw) && !/[='"`$]/.test(raw) ? basename(raw) : raw
     if (word === '' || words.length === 3) break
     if (/^[-/~.$'"`=]/.test(word) || /[=/\\'"`$]/.test(word)) break
     words.push(word)
@@ -159,8 +207,9 @@ const COMMAND_LIMIT = 600
  * become `.` and `~`, and an address or a key-shaped string becomes an ellipsis.
  */
 export const commandForApproval = (command: string, cwd: string | null | undefined, home: string | null | undefined, hasSecret: (text: string) => boolean): CommandView => {
-  if (hasSecret(command)) return { text: '', whole: false }
-  let text = command
+  const script = unwrapPhoneCommand(command)
+  if (script === null || hasSecret(command) || hasSecret(script) || withoutSecretValues(script) !== script || script.replace(CREDENTIALLED_URL, '$1…@') !== script) return { text: '', whole: false }
+  let text = script
   const swap = (folder: string | null | undefined, to: string): void => {
     if (!folder || folder === '/' || folder.length < 2) return
     const trimmed = folder.replace(/[\\/]+$/, '')
