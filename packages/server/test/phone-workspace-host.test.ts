@@ -159,8 +159,9 @@ test('the host answers the phone’s snapshot of the work in the phone’s own u
   assert.equal(snapshot.items[0]!.title, 'Fix the sign-in for … in …')
   assert.equal(snapshot.items[0]!.project, undefined, 'a folder that is no repository names no project, in the list or in the conversation')
   assert.equal(snapshot.deskName, 'Desk')
-  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true })
-  assert.deepEqual([snapshot.models, snapshot.flows, snapshot.commands, snapshot.threads], [[], [], [], []])
+  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: true, choosePermissions: false, attach: false, undo: false, decide: true })
+  assert.deepEqual(snapshot.models.map(model => model.id), runtime.models.map(model => model.id))
+  assert.deepEqual([snapshot.flows, snapshot.commands, snapshot.threads], [[], [], []])
   // The usage scan may or may not have finished; when it has, it is seven days and no account.
   if (snapshot.usage) assert.equal(snapshot.usage.days.length, 7)
   const text = JSON.stringify(snapshot)
@@ -188,7 +189,7 @@ test('the host reads one conversation for the phone as what was said and done, a
   const text = JSON.stringify(thread)
   assert.ok(!text.includes(root), 'no path of the desk’s own leaves in a response')
   assert.ok(!text.includes('@'))
-  assert.ok(!text.includes('auth.ts failed'), 'a command’s output stays on the desk')
+  assert.ok(text.includes('auth.ts failed'), 'the scrubbed output tail reaches the phone')
 
   for (const id of [`${runtime.info.id}:seat`, `${runtime.info.id}:nope`, 'nope']) {
     await assert.rejects(host.call('workspace/thread/read', { id }), /not a session this desk can show/, id)
@@ -329,4 +330,28 @@ test('phone replies refuse a paused queue after interruption or failure without 
     await assert.rejects(host.call('workspace/session/send', { id: created.id, text: 'Keep this new draft' }), /paused.*desk/i)
     assert.equal(record.queue.messages.length, count)
   }
+})
+
+for (const operation of ['snapshot', 'start'] as const) test(`phone ${operation} starts a cold runtime before reading its model catalogue`, async t => {
+  const { host, root, state } = await desk(t)
+  class ColdModelsRuntime extends FakeRuntime {
+    override async listModels() {
+      if (this.health().state !== 'ready') throw new Error('Models are not known yet; start the runtime first.')
+      return super.listModels()
+    }
+  }
+  const runtime = new ColdModelsRuntime({ id: runtimeId(`cold-${operation}`) })
+  host.register(runtime)
+  await state.setPreferences({ activeRuntime: runtime.info.id, chatsFolder: join(root, 'chats') })
+  runtime.onSend = live => live.finish()
+  if (operation === 'snapshot') {
+    const snapshot = await host.call('workspace/read', {})
+    assert.equal(snapshot.capabilities.chooseModel, true)
+    assert.equal(snapshot.models[0]!.id, 'fake-1')
+  } else {
+    const result = await host.call('workspace/session/start', { text: 'Hello', model: 'fake-1' })
+    assert.equal(result.problem, undefined)
+    assert.ok(result.id.startsWith(`${runtime.info.id}:`))
+  }
+  assert.equal(runtime.health().state, 'ready')
 })

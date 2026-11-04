@@ -180,8 +180,14 @@ const TEXT_STEP_TITLE = 100
 const seconds = (item: { durationMs?: number }): number | undefined =>
   item.durationMs === undefined ? undefined : Math.max(0, Math.round(item.durationMs / 1000))
 
+const isUnifiedDeletion = (diff: string): boolean => /^(?:(?:diff --git |deleted file mode |index |--- |\+\+\+ )[^\n]*\n)*@@ -\d+(?:,\d+)? \+0(?:,0)? @@(?: |\r?(?:\n|$))/.test(diff)
+const contentLines = (text: string): string[] => text.match(/[^\n]*\n|[^\n]+$/g)?.map(line => line.replace(/\r?\n$/, '').replace(/\r$/, '')) ?? []
+
 const countLines = (diff: string, kind: FileChange['kind']): { added: number; removed: number } => {
-  if (kind.type === 'add') return { added: diff.match(/[^\n]*\n|[^\n]+$/g)?.length ?? 0, removed: 0 }
+  if (kind.type === 'add' || kind.type === 'delete' && !isUnifiedDeletion(diff)) {
+    const lines = contentLines(diff).length
+    return kind.type === 'add' ? { added: lines, removed: 0 } : { added: 0, removed: lines }
+  }
   let added = 0, removed = 0, inHunk = false
   for (const line of diff.split('\n')) {
     if (line.startsWith('@@')) { inHunk = true; continue }
@@ -286,11 +292,14 @@ const changesWithHunks = (changes: readonly FileChange[], cwd: string, noteTrunc
     let hunk: { header: string; lines: PhoneDiffLine[] } | undefined
     let old = 0, next = 0, oldLeft = 0, nextLeft = 0
     if (change.diff.includes('\0') || /^(?:Binary files |GIT binary patch)/.test(change.diff)) continue
-    // Added files carry full content in the protocol; synthesize their unified hunk.
-    const content = change.kind.type === 'add' && change.diff !== ''
-      ? change.diff.match(/[^\n]*\n|[^\n]+$/g)?.map(line => line.replace(/\n$/, '')) : undefined
-    const diff = content ? `@@ -0,0 +1,${content.length} @@\n${content.map(line => `+${line}`).join('\n')}` : change.diff
-    for (const line of diff.split('\n')) {
+    // Whole-file additions and deletions carry raw content; unified payloads keep their own numbering.
+    const content = change.diff !== '' && (change.kind.type === 'add' || change.kind.type === 'delete' && !isUnifiedDeletion(change.diff)) ? contentLines(change.diff) : undefined
+    const removing = change.kind.type === 'delete'
+    const diff = content ? `${removing ? `@@ -1,${content.length} +0,0 @@` : `@@ -0,0 +1,${content.length} @@`}\n${content.map(line => `${removing ? '-' : '+'}${line}`).join('\n')}` : change.diff
+    const lines = diff.split('\n')
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index]!.replace(/\r$/, '')
+      if (line === '' && index === lines.length - 1) break
       const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line)
       if (header) {
         old = Number(header[1]); next = Number(header[3])
@@ -299,7 +308,7 @@ const changesWithHunks = (changes: readonly FileChange[], cwd: string, noteTrunc
         continue
       }
       if (!hunk || (oldLeft === 0 && nextLeft === 0)) continue
-      const kind = line[0] === '+' ? 'add' : line[0] === '-' ? 'remove' : line[0] === ' ' ? 'context' : null
+      const kind = line[0] === '+' ? 'add' : line[0] === '-' ? 'remove' : line[0] === ' ' || line === '' ? 'context' : null
       if (!kind) continue
       if ((kind !== 'add' && oldLeft <= 0) || (kind !== 'remove' && nextLeft <= 0)) { hunk = undefined; continue }
       const number = kind === 'remove' ? old : next

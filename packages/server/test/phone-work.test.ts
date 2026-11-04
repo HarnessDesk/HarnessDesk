@@ -184,7 +184,7 @@ test('a conversation is read as what was asked, answered and done, with bounded 
   assert.equal(work.steps[2].failed, true)
   assert.deepEqual(work.steps[3].files, ['src/auth.ts', 'outside.conf'])
   assert.deepEqual(work.steps[5].todos, [{ text: 'Find the bug', done: true, active: false }, { text: 'Fix it', done: false, active: true }])
-  assert.deepEqual(work.steps[1].output, ['src/auth.ts:1: SECRET=abc'])
+  assert.deepEqual(work.steps[1].output, ['src/auth.ts:1: SECRET=…'])
   assert.deepEqual(work.steps[2].output, ['1 failing'])
   assert.deepEqual(changes.files, [{ path: 'src/auth.ts', added: 2, removed: 1, hunks: [] }, { path: 'outside.conf', added: 2, removed: 0, hunks: [{ header: '@@ -0,0 +1,2 @@', lines: [{ kind: 'add', number: 1, text: 'one' }, { kind: 'add', number: 2, text: 'two' }] }] }])
 
@@ -595,4 +595,30 @@ test('explicit phone model overrides a saved profile and resolves its effort aga
     ]
   }, { model: 'one', effort: 'extra' })
   assert.deepEqual(values, { model: 'one', effort: 'xhigh' })
+})
+
+test('phone model lookup failures return a start problem before allocating', async () => {
+  let created = false
+  const { work } = rig({ models: async () => { throw new Error('Models unavailable at /Users/jane/proj for dev@example.com') }, create: async () => { created = true; return session([]) } })
+  const result = await work.sessionStart({ text: 'Hello', model: 'one' })
+  assert.equal(result.id, '')
+  assert.match(result.problem ?? '', /Models unavailable/)
+  assert.ok(!/\/Users|dev@example/.test(result.problem ?? ''))
+  assert.equal(created, false)
+})
+
+test('phone snapshots stay available when model lookup fails', async () => {
+  const { work } = rig({ models: async () => { throw new Error('Synthetic model lookup failure') } })
+  const snapshot = await work.snapshot()
+  assert.deepEqual(snapshot.models, [])
+  assert.equal(snapshot.capabilities.chooseModel, false)
+})
+
+test('phone model presentation is scrubbed and bounded while ids stay exact', async () => {
+  const model = { id: 'exact-model-id', displayName: `Model dev@example.com /Users/jane/proj ${'label '.repeat(20)}`, description: `PASSWORD=placeholder /Users/jane/proj ${'hint '.repeat(100)}`, reasoningLevels: [], supportsImages: false }
+  const { work } = rig({ models: async () => [model] })
+  const choice = (await work.snapshot()).models[0]!
+  assert.equal(choice.id, model.id)
+  assert.ok(choice.name.length <= 60 && choice.hint.length <= 200)
+  assert.ok(!/dev@example|\/Users|placeholder/.test(choice.name + choice.hint))
 })

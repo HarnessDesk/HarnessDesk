@@ -73,7 +73,7 @@ const effortId = (levels: readonly { readonly id: string }[], effort: NonNullabl
 }
 
 const modelChoices = (models: readonly ModelInfo[]): PhoneModelChoice[] => models.filter(model => !model.hidden).map(model => ({
-  id: model.id, name: model.displayName, hint: model.description ?? '',
+  id: model.id, name: scrub(model.displayName, 60), hint: scrub(model.description ?? '', 200),
   efforts: (['low', 'medium', 'high', 'extra'] as const).filter(effort => effortId(model.reasoningLevels, effort) !== undefined),
   fast: model.supportsFast === true,
 }))
@@ -237,11 +237,13 @@ export class PhoneWork {
     if (runtime === null) return refuse('No agent is available to start a session.')
     return guarded(async () => {
       const choices: PhoneStartChoices = { ...(params.model !== undefined ? { model: params.model } : {}), ...(params.effort !== undefined ? { effort: params.effort } : {}) }
-      if (choices.model !== undefined && !modelChoices(await this.#ports.models(runtime)).some(model => model.id === choices.model)) {
-        return { id: '', problem: 'That model is not available on this desk. Refresh the model list and try again.' }
-      }
       let values: Readonly<Record<string, OptionValue>>
-      try { values = await this.#ports.newSessionValues(runtime, cwd, choices) }
+      try {
+        if (choices.model !== undefined && !modelChoices(await this.#ports.models(runtime)).some(model => model.id === choices.model)) {
+          return { id: '', problem: 'That model is not available on this desk. Refresh the model list and try again.' }
+        }
+        values = await this.#ports.newSessionValues(runtime, cwd, choices)
+      }
       catch (error) {
         if (choices.model !== undefined || choices.effort !== undefined) return { id: '', problem: scrub(error instanceof Error ? error.message : '', 200) || 'Those model choices are no longer available.' }
         throw error

@@ -112,3 +112,72 @@ test('the command tail byte bound includes JSON escaping', () => {
   assert.ok(output.length > 0)
   assert.equal(threadProjection(result)?.truncated, true)
 })
+
+test('output and diff lines redact secret assignments and credentialed URLs', () => {
+  const text = 'DATABASE_URL=postgres://u:pw@db:5432/x PASSWORD=hunter2 AWS_SECRET_ACCESS_KEY=placeholder123 Authorization: Bearer abc123'
+  const result = thread([run(text), change('config.txt', `@@ -0,0 +1 @@\n+${text}`)])
+  for (const shown of [work(result).steps[0]!.output[0]!, changes(result).files[0]!.hunks[0]!.lines[0]!.text]) {
+    assert.ok(!/u:pw|hunter2|placeholder123|abc123/.test(shown), shown)
+    assert.ok(shown.includes('PASSWORD=…'), shown)
+  }
+})
+
+test('output and diff lines preserve comments, regex literals and URLs while rewriting project paths', () => {
+  const lines = ['// TODO fix', 's.replace(/\\d+/g, 1)', 'https://example.com/docs/page', `${cwd}/src/a.ts`]
+  const expected = [...lines.slice(0, 3), 'src/a.ts']
+  const result = thread([run(lines.join('\n')), change('code.ts', `@@ -0,0 +1,4 @@\n${lines.map(line => `+${line}`).join('\n')}`)])
+  assert.deepEqual(work(result).steps[0]!.output, expected)
+  assert.deepEqual(changes(result).files[0]!.hunks[0]!.lines.map(line => line.text), expected)
+})
+
+test('stripped blank context lines advance both numbers but final newlines terminate', () => {
+  const result = thread([change('a.txt', '@@ -10,3 +20,3 @@\n first\n\n-old\n+new\n')])
+  assert.deepEqual(changes(result).files[0]!.hunks[0]!.lines, [
+    { kind: 'context', number: 20, text: 'first' }, { kind: 'context', number: 21, text: '' },
+    { kind: 'remove', number: 12, text: 'old' }, { kind: 'add', number: 22, text: 'new' },
+  ])
+  const incomplete = thread([change('b.txt', '@@ -1,2 +1,2 @@\n first\n')])
+  assert.equal(changes(incomplete).files[0]!.hunks[0]!.lines.length, 1)
+})
+
+test('CRLF diff headers and body lines are normalized to LF', () => {
+  const result = thread([change('a.txt', '@@ -1 +1 @@\r\n-old\r\n+new\r\n')])
+  const hunk = changes(result).files[0]!.hunks[0]!
+  assert.equal(hunk.header, '@@ -1 +1 @@')
+  assert.deepEqual(hunk.lines.map(line => line.text), ['old', 'new'])
+})
+
+test('raw deleted content becomes bounded numbered removals with complete totals', () => {
+  const content = ['first', '', ...Array.from({ length: 400 }, (_, i) => `line ${i}`)].join('\r\n') + '\r\n'
+  const result = thread([{ id: itemId('delete'), type: 'fileChange', status: 'completed', changes: [{ path: 'old.txt', kind: { type: 'delete' }, diff: content }] }])
+  const file = changes(result).files[0]!
+  assert.deepEqual([file.added, file.removed], [0, 402])
+  assert.equal(file.hunks[0]!.header, '@@ -1,402 +0,0 @@')
+  assert.equal(file.hunks[0]!.lines.length, 400)
+  assert.deepEqual(file.hunks[0]!.lines.slice(0, 2), [{ kind: 'remove', number: 1, text: 'first' }, { kind: 'remove', number: 2, text: '' }])
+  assert.equal(file.hunks[0]!.lines.at(-1)!.number, 400)
+  assert.equal(threadProjection(result)?.truncated, true)
+})
+
+test('unified deletion diffs retain their own old-file line numbers', () => {
+  const result = thread([{ id: itemId('delete'), type: 'fileChange', status: 'completed', changes: [{ path: 'old.txt', kind: { type: 'delete' }, diff: '@@ -8,2 +0,0 @@\n-old\n-gone\n' }] }])
+  const file = changes(result).files[0]!
+  assert.deepEqual([file.added, file.removed], [0, 2])
+  assert.deepEqual(file.hunks[0]!.lines.map(line => line.number), [8, 9])
+})
+
+for (const kind of ['add', 'delete'] as const) test(`raw ${kind} content containing a diff example stays whole-file content`, () => {
+  const content = 'Example:\n@@ -1 +1 @@\n-old\n+new\n'
+  const result = thread([{ id: itemId(kind), type: 'fileChange', status: 'completed', changes: [{ path: 'guide.md', kind: { type: kind }, diff: content }] }])
+  const file = changes(result).files[0]!
+  assert.deepEqual([file.added, file.removed], kind === 'add' ? [4, 0] : [0, 4])
+  assert.deepEqual(file.hunks[0]!.lines.map(line => line.text), ['Example:', '@@ -1 +1 @@', '-old', '+new'])
+})
+
+test('Git deletion patch metadata is not counted or shown as removed content', () => {
+  const diff = 'diff --git a/old.txt b/old.txt\ndeleted file mode 100644\nindex abc123..000000\n--- a/old.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n'
+  const result = thread([{ id: itemId('delete'), type: 'fileChange', status: 'completed', changes: [{ path: 'old.txt', kind: { type: 'delete' }, diff }] }])
+  const file = changes(result).files[0]!
+  assert.deepEqual([file.added, file.removed], [0, 1])
+  assert.deepEqual(file.hunks[0]!.lines, [{ kind: 'remove', number: 1, text: 'old' }])
+})
