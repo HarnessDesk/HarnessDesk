@@ -1,4 +1,6 @@
 import { join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 /**
  * The Node the app carries for the Lead's child, and nothing else.
@@ -6,7 +8,7 @@ import { join } from 'node:path'
  * The child needs a permission model that blocks its network (`--no-allow-net`).
  * Electron 42's own Node 24 rejects that flag, so the packaged app bundles a
  * Node 26 LTS beside itself. `script/fetch-lead-node.mjs` downloads exactly this
- * version at pack time and refuses any archive whose SHA-256 differs from these.
+ * version at pack time and source startup and refuses any archive whose SHA-256 differs from these.
  *
  * The bundled copy is only a fallback: when this app's own runtime passes the
  * Lead's capability probe it is used instead. Delete this file, the fetch hook
@@ -23,10 +25,13 @@ export const LEAD_NODE = Object.freeze({
 /** Where the bundled binary sits under the app's resources folder. */
 export const LEAD_NODE_RESOURCE = 'lead-node/bin/node'
 
-/** The Lead child's candidate runtimes, in order: this app's own, then the bundled Node in a packaged app. */
-export const leadRuntimes = ({ execPath, versions, resourcesPath, packaged }) => [
-  { binary: execPath, version: versions.node, electron: Boolean(versions.electron), label: "this app's runtime" },
-  ...(packaged
-    ? [{ binary: join(resourcesPath, LEAD_NODE_RESOURCE), version: LEAD_NODE.version, electron: false, label: 'the bundled runtime' }]
-    : []),
-]
+/** The app's runtime first; the packaged or fetched fallback still has to pass the host's probe. */
+export const leadRuntimes = ({ execPath, versions, resourcesPath, packaged, arch = process.arch, desktopPath = fileURLToPath(new URL('../', import.meta.url)) }) => {
+  const fetched = join(desktopPath, '.lead-node', arch, 'bin/node')
+  return [
+    { binary: execPath, version: versions.node, electron: Boolean(versions.electron), label: "this app's runtime" },
+    ...(packaged
+      ? [{ binary: join(resourcesPath, LEAD_NODE_RESOURCE), version: LEAD_NODE.version, electron: false, label: 'the bundled runtime' }]
+      : existsSync(fetched) ? [{ binary: fetched, version: LEAD_NODE.version, electron: false, label: 'the fetched runtime' }] : []),
+  ]
+}

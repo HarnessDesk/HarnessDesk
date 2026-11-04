@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Pack-time fetch of the Node the app bundles for the Lead's child.
+ * Pack-time and source-startup fetch of the Node the app bundles for the Lead's child.
  *
  * electron-builder calls `beforePack` once per architecture, before it copies
  * `extraResources`; this downloads the pinned darwin build from nodejs.org,
