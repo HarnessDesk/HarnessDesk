@@ -5167,3 +5167,24 @@ The account key and the phone-link key stay separate: the first names the desk
 to the account and signs the relay's challenge; the second is the one the
 phone pins for the encrypted session.
 
+
+## An empty Lead page shows Dex and the folder step — 2026-11-03
+
+With Lead on and no folder open, the host refuses `lead/thread/read` and
+`lead/settings/read` with `lead-project-missing`: it builds the Lead journal only
+once it has a project. The page used to wait for a name that never came — a
+grey disc holding "…" in the sidebar, the bar, the popover and the middle, a
+greeting floating above a warning banner, and an open rail with nothing in it.
+
+The store now records that refusal as `projectMissing`, cleared by the first
+projection. A journal always starts as Dex, so before one exists the page shows
+Dex's face and name; the stored `name` stays null, so nothing that writes or
+gates on the setting changes, and Switch to Lex says to open a folder first.
+The middle is one LeadGreeting pattern (face, a 16 title, a 14 sentence, and
+Open folder… only when it must come first), so the dock no longer repeats the
+step as a warning. The rail gets one Goal line saying what it will hold and
+what comes first. A word on every row at rest is noise, so the presence word
+leaves the sidebar row and the bar while the Lead is Ready or has no folder,
+and stays in the status popover. An empty disc replaces "…" for the moment
+before settings arrive. A chosen name with an empty thread now greets rather
+than leaving a blank page.

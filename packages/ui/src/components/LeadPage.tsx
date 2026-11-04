@@ -1,7 +1,7 @@
 import { PullRequestRecord } from './GitRecord'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { leadWaitNeedsChange, type LeadStopReason, type LeadWindowProjection } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, ConfirmDialog, InlineParts, LeadSlot, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
+import { Banner, Button, Chip, ConfirmDialog, InlineParts, LeadSlot, ConversationComposerFrame, ComposerNoticeStack, ComposerText, ComposerTools, ComposerGap, ComposerSend, ComposerTrack, ConversationShell, ConversationThread, ConversationDock, ConversationEmptyState, LeadAvatar, LeadGreeting, Menu, MenuItem, Page, Popover, Spinner, Text, TurnWorkLive, useComposerHeightVar } from '../design'
 import { openExternal } from '../lib/desktop'
 import { leadWakeLine } from '../lib/lead-presence'
 import { LeadNameIntro } from './LeadNameIntro'
@@ -21,7 +21,8 @@ import { useConversationTopBar } from './use-conversation-top-bar'
 import { usePageRailHost, useWorkDetails } from '../panels/top-bar'
 import { PageRailToggle } from '../panels/WorkTools'
 import { LeadDetails } from './LeadDetails'
-import { AtIcon, FolderIcon, PlusIcon, RouteIcon, SendIcon, SettingsIcon, StopIcon } from './Icons'
+import { useShell } from '../panels/views'
+import { AtIcon, FolderIcon, FolderOpenIcon, PlusIcon, RouteIcon, SendIcon, SettingsIcon, StopIcon } from './Icons'
 import { LeadStatusPanel, useLeadControls } from './LeadControls'
 import { sidebarPlacement } from '../state/workbench'
 import { formatLeadConsentTime } from './lead-consent-time'
@@ -100,8 +101,10 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     const element = [...(shell.current?.querySelectorAll<HTMLElement>('[data-lead-decision]') ?? [])].find(node => node.dataset.leadDecision === id)?.querySelector<HTMLElement>('[data-slot="approval-card"]')
     if (element) { element.focus({ preventScroll: true }); requestedDecisionFocus.current = null }
   }
-  const refusal = (error: unknown) => setError(leadRefusalText(error))
-  const { owner } = useDestinationPage(), controls = useLeadControls(), { name, label, presence } = controls
+  // A missing folder is the store's state and the greeting's step, never a warning banner as well.
+  const refusal = (error: unknown) => { if (!store.lead.state.projectMissing || leadRefusalText(error) !== REFUSALS['lead-project-missing']) setError(leadRefusalText(error)) }
+  const { owner } = useDestinationPage(), controls = useLeadControls(), { name, face, label, presence } = controls
+  const shellActions = useShell()
   const shell = useRef<HTMLDivElement>(null), dock = useComposerHeightVar(shell)
   const terminalWait = state.waitReason === 'lead-predecessor-unavailable' || state.waitReason === 'lead-predecessor-unverifiable'
   const auditWait = state.waitReason === 'lead-worker-audit-failed' && !state.savedApprovals?.some(rule => rule.uncertain)
@@ -119,13 +122,16 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
     finally { stoppingRef.current = false; decisionLock.current = false; setStopping(false); input.current?.focus() }
   }
   const railHosted = usePageRailHost()
-  useConversationTopBar(owner, { mark: <LeadAvatar name={name} size="header" />, place: label, placeTitle: `${label} · ${presence.word}`, placeMenu: close => <LeadStatusPanel close={close} controls={controls} />,
-    state: <Text role="muted" data-slot="lead-presence">{presence.word}</Text>, tools: <>{railHosted && <PageRailToggle page="lead" />}<Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={controls.openSettings}><SettingsIcon /></Button></>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
+  useConversationTopBar(owner, { mark: <LeadAvatar name={face} size="header" />, place: label, placeTitle: `${label} · ${presence.word}`, placeMenu: close => <LeadStatusPanel close={close} controls={controls} />,
+    ...presence.quiet ? {} : { state: <Text role="muted" data-slot="lead-presence">{presence.word}</Text> }, tools: <>{railHosted && <PageRailToggle page="lead" />}<Button variant="ghost" size="icon" title="Lead settings" aria-label="Lead settings" onClick={controls.openSettings}><SettingsIcon /></Button></>, terminal: false, more: () => null, corner: sidebarPlacement(snapshot) !== 'column' }, active)
   useWorkDetails(owner, <LeadDetails />, active)
   // The run strip's clock: a minute is its smallest step, so it ticks twice a minute while a goal runs.
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => { if (!goalActive) return; const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [goalActive])
   useEffect(() => { if (active) void store.lead.readThread().catch(refusal) }, [active, store])
+  // The host starts the Lead in the first folder opened, so a folder arriving is the cue to read again.
+  const folders = snapshot.workspaces.length
+  useEffect(() => { if (active && state.projectMissing && folders) void store.lead.readThread().catch(refusal) }, [active, store, state.projectMissing, folders])
   useEffect(() => { if (active) void store.lead.readWakes().catch(() => {}) }, [active, state.revision, store])
   // Expiry is host-owned; a read at its boundary obtains the renewed plan card.
   useEffect(() => {
@@ -225,7 +231,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
   }
   return <ConversationShell ref={shell}>
     <ConversationThread ref={thread} role="region" aria-label={`${label} thread`} onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 24 }}>
-      {entries.length || live || pr || openingJobs.length || name || state.wakes?.length ? <Page width="reading" gutter="none">
+      {entries.length || live || pr || openingJobs.length || name && state.settings?.nameChosen !== true || state.wakes?.length || origin || state.thread?.olderMessages || state.savedApprovals?.length || state.revokedApprovals?.length || state.waitReason === 'lead-handback-limit' || state.waitReason === 'lead-repair-recovery-failed' ? <Page width="reading" gutter="none">
         <LeadWakeLedger wakes={state.wakes ?? []} />
         {name && <LeadNameIntro name={name} chosen={state.settings?.nameChosen === true} pending={choosingName || !!state.error || state.revision < 0} onChoose={async name => {
           if (choosingName) return
@@ -253,7 +259,10 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
         {(state.waitReason === 'lead-handback-limit' || state.waitReason === 'lead-repair-recovery-failed') && <LeadCards {...cardProps} cards={[]} waitReason={state.waitReason} placement="thread" />}
         {pr && state.thread?.project && <PullRequestRecord root={state.thread.project.path} reference={{ repo: pr.repository, number: pr.number }} branch={pr.branch} />}
         {live}
-      </Page> : <ConversationEmptyState><LeadAvatar name={name} size="picker" mood={presence.mood} /><Text as="p" role="prose" align="center">{name ? `Hi, I'm ${label}. What can I help you with?` : 'Hi, what can I help you with?'}</Text></ConversationEmptyState>}
+      </Page> : <ConversationEmptyState><LeadGreeting avatar={<LeadAvatar name={face} size="picker" mood={presence.mood} />} title={face ? `Hi, I'm ${label}` : 'Hi there'}
+        action={state.projectMissing ? <Button variant="outline" onClick={() => shellActions.chooseProject()}><FolderOpenIcon size={16} />Open folder…</Button> : undefined}>
+        {state.projectMissing ? 'I work inside one project folder. Open one, then tell me what you want done.' : unavailable ? "I can't start on this desk yet. The note below says why." : "Tell me what you want done. I'll plan it, put agents on it and bring back the result."}
+      </LeadGreeting></ConversationEmptyState>}
     </ConversationThread>
     {active && <ConversationDock ref={dock}>
       <ConversationComposerFrame before={<ComposerNoticeStack>
@@ -288,7 +297,7 @@ export const LeadPage = ({ initialGoal = '', focus = null }: { readonly initialG
                 <ComposerGap /><ComposerTrack name="send">
                   {state.requestInFlight && !goalActive
                     ? <ComposerSend type="button" disabled={stopping} aria-label="Stop reply" title="Stop this reply" onClick={() => void stop()}><StopIcon size={12} /></ComposerSend>
-                    : <ComposerSend type="submit" disabled={unavailable || requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : goalActive ? 'Send to the running goal' : 'Send'} title={requestPending ? 'Sending…' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>}
+                    : <ComposerSend type="submit" disabled={unavailable || requestPending || !goal.trim() || !!state.error || state.revision < 0} aria-label={requestPending ? 'Sending…' : goalActive ? 'Send to the running goal' : 'Send'} title={requestPending ? 'Sending…' : state.projectMissing ? 'Open a folder first' : 'Send'} aria-busy={requestPending}>{requestPending ? <Spinner aria-hidden /> : <SendIcon />}</ComposerSend>}
                 </ComposerTrack>
               </ComposerTools>
       </ConversationComposerFrame>

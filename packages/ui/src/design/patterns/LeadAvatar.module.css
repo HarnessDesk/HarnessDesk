@@ -19,3 +19,9 @@
 .identityName { display: flex; flex-direction: column; min-width: 0; }
 .lineNote { display: flex; justify-content: flex-end; margin-top: var(--hd-space-1); }
 .slot { display: contents; }
+
+/* The empty conversation: face, then title and sentence as one block, then the one action. */
+.greeting { display: flex; flex-direction: column; align-items: center; gap: var(--hd-space-4); max-width: calc(var(--hd-space-12) * 8); }
+.greetingWords { display: flex; flex-direction: column; align-items: center; gap: var(--hd-space-1); }
+.greetingWords > * { margin: 0; }
+.greetingAction { display: flex; justify-content: center; margin-top: var(--hd-space-1); }

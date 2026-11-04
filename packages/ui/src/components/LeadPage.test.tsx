@@ -77,7 +77,7 @@ it('has no empty reading measure and form stack above an idle composer', async (
 })
 it('greets without a name until settings have loaded', async () => {
   const { box } = await mount(leadProjection(), true)
-  expect(box.textContent).toContain('Hi, what can I help you with?')
+  expect(box.textContent).toContain('Hi there')
   expect(box.textContent).not.toContain("I'm Lead")
   expect(box.querySelector('textarea')?.placeholder).toBe('Message Lead…')
 })

@@ -64,6 +64,10 @@ export const LeadDetails = () => {
   const workers = [...new Set(seated.map(worker => roleTitle(worker.role)))]
   const known = budget?.spend === 'known', spent = budget ? budget.leadUsdMicros + (known ? budget.workerUsdMicros : 0) : 0
   return <ToolBody>
+    {/* One short line while there is no goal: what this rail will hold, and what comes first. */}
+    {!(contract && phase) && <ToolSection label="Goal">
+      <ToolProse variant="note">{state.projectMissing ? 'Open a folder, then send a goal. Its plan, workers and spend show here.' : 'Send a goal. Its plan, workers and spend show here.'}</ToolProse>
+    </ToolSection>}
     {contract && phase && <>
       <ToolSection label="Goal" fold><ToolProse>{sanitizeText(contract.goal)}</ToolProse></ToolSection>
       <ToolSection label="Plan" fold value={planWord(phase, state.progress)}>

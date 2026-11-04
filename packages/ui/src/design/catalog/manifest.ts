@@ -732,7 +732,7 @@ const PATTERN_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   CustomizeTabs: ['CustomizeTabs'],
   'lead-contract': ['LeadContract'],
   LeadPlanFlow: ['LeadPlanFlow'],
-  'LeadAvatar': ['LeadAvatar', 'LeadNameChoice', 'LeadIdentity', 'LeadLineNote', 'LeadSlot', 'LeadTurn'],
+  'LeadAvatar': ['LeadAvatar', 'LeadNameChoice', 'LeadIdentity', 'LeadLineNote', 'LeadSlot', 'LeadTurn', 'LeadGreeting'],
   'ConversationShell': ['ConversationShell', 'ConversationThread', 'ConversationDock', 'ConversationComposerFrame', 'TranscriptAssistantMessage'],
   'ActionError': ['ActionError'],
   'AgentCard': ['AgentCard', 'CardBand', 'CardCrest', 'CardCrestBody', 'CardShell', 'MemberName'],

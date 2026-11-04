@@ -1951,6 +1951,8 @@ Works outside a group too; only grouped readings contribute to its card.
 The Lead's face on its character's disc. Below 28px an expression does not
 read, so the small places draw the neutral face and the presence word beside
 it says the state; the popover and the picker draw the mood. Never animated.
+Before the name is known the disc is drawn empty — a glyph there reads as a
+broken image, and the name arrives with the first read.
 
 ### `LeadNameChoice`
 
@@ -1963,6 +1965,15 @@ Who runs the desk: two picture cards. A name is an immediate preference; this co
 `packages/ui/src/design/patterns/LeadAvatar.tsx`
 
 A Lead line: a face column every line keeps, so the text aligns, and the face itself only on a turn's first line.
+
+### `LeadGreeting`
+
+`packages/ui/src/design/patterns/LeadAvatar.tsx`
+
+The empty Lead conversation as one composition: the face, who it is in the
+scale's 16, what it does in a sentence, and — only when something must come
+first — the one action that does it. A screen supplies the words and the
+action, never the layout.
 
 ### `LeadIdentity`
 

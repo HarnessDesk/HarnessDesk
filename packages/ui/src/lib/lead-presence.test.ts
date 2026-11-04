@@ -8,7 +8,23 @@ describe('the Lead between turns', () => {
     const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
     state.changed({ method: 'lead/changed', params: leadProjection({ thread: { ...leadProjection().thread, state: 'planning',
       messages: [{ version: 1, id: 'm', revision: 1, role: 'user', text: 'Hello' }] } }) })
-    expect(leadPresence(state.state)).toMatchObject({ word: 'Ready', goalActive: false })
+    expect(leadPresence(state.state)).toMatchObject({ word: 'Ready', goalActive: false, quiet: true })
+  })
+  it('is quiet with no folder open, and the first projection clears it', async () => {
+    const refused = Object.assign(new Error('lead-project-missing'), { code: 'lead-project-missing' })
+    let open = false
+    const state = createLeadState({ request: async () => { if (!open) throw refused; return leadProjection() } } as never, () => true)
+    await expect(state.readThread()).rejects.toBe(refused)
+    expect(state.state.projectMissing).toBe(true)
+    expect(leadPresence(state.state)).toMatchObject({ word: 'No folder open', quiet: true, goalActive: false })
+    open = true
+    await state.readThread()
+    expect(state.state.projectMissing).toBeUndefined()
+  })
+  it('speaks up when the person is needed', () => {
+    const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
+    state.changed({ method: 'lead/changed', params: leadProjection({ waitReason: 'lead-chat-effect-uncertain', wayOut: null, thread: { ...leadProjection().thread, state: 'stopped' } }) })
+    expect(leadPresence(state.state).quiet).toBe(false)
   })
   it('keeps unacknowledged chat uncertainty actionable after an automatic stop', () => {
     const state = createLeadState({ request: async () => leadProjection() } as never, () => true)

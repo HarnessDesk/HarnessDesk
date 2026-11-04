@@ -29,6 +29,11 @@ export interface LeadState {
   /** The person's steers to the running worker in this goal. */
   readonly steers: readonly LeadSteer[] | null
   readonly error: 'lead-projection-failed' | null
+  /**
+   * The host refused a read because no folder is open yet, so it has no Lead
+   * journal to read. Cleared by the first projection that arrives.
+   */
+  readonly projectMissing?: boolean
 }
 /** State and actions only. The owner supplies a feature capability, never a runtime id. */
 export const createLeadState = (transport: LeadTransport, available: () => boolean) => {
@@ -37,6 +42,15 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
   const listeners = new Set<() => void>()
   const check = () => { if (!available()) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
   const checkRead = () => { check(); if (state.revision < 0 || state.error) throw Object.assign(new Error('Lead is unavailable'), { code: 'lead-unavailable' }) }
+  // A read refused for a missing folder is the empty desk's normal state, not a failure; the page says what to do.
+  const refusedRead = (error: unknown): never => {
+    const code = (error as { wireCode?: string; code?: string } | null)?.wireCode ?? (error as { code?: string } | null)?.code
+    if (code === 'lead-project-missing' && available() && state.revision < 0 && !state.projectMissing) {
+      state = { ...state, projectMissing: true }
+      for (const listener of listeners) listener()
+    }
+    throw error
+  }
   const apply = (projection: LeadChanged, requestedFrom?: LeadState) => {
     if (!available()) return
     // A response started before a live update cannot put its older approval
@@ -114,8 +128,8 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       }
       return result
     },
-    async readThread() { check(); const before = state; const result = await transport.request('lead/thread/read', {}); apply(result, before); return result.thread },
-    async readSettings() { check(); const before = state; const result = await transport.request('lead/settings/read', {}); apply(result, before); return result.settings },
+    async readThread() { check(); const before = state; const result = await transport.request('lead/thread/read', {}).catch(refusedRead); apply(result, before); return result.thread },
+    async readSettings() { check(); const before = state; const result = await transport.request('lead/settings/read', {}).catch(refusedRead); apply(result, before); return result.settings },
     async send(text: string, idempotencyKey: string) {
       check(); const receipt = await transport.request('lead/thread/send', { text, idempotencyKey })
       check()

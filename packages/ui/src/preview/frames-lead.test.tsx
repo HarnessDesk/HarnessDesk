@@ -67,7 +67,7 @@ it.each(['light', 'dark'])('previews loading without a name and pending-plan dec
   const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
   try {
     await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="loading" /></StoreProvider>))
-    expect(box.textContent).toContain('Hi, what can I help you with?')
+    expect(box.textContent).toContain('Hi there')
     await act(async () => root.render(<StoreProvider store={previewStore()}><LeadFrame scene="pending-plan" /></StoreProvider>))
     const notices = box.querySelector('[data-slot="composer-notices"]')!
     expect(notices.textContent).not.toContain('Review plan')
@@ -144,4 +144,24 @@ it.each(['light', 'dark'])('previews the one quiet line while the Lead plans, wh
     expect(line()?.textContent).toBe('This goal was stopped.')
     expect(line()?.hasAttribute('data-settled')).toBe(true)
   } finally { act(() => root.unmount()); box.remove(); window.history.replaceState(null, '', url); document.body.removeAttribute('data-hd-dark-theme') }
+})
+
+it('greets as Dex with one folder step, a quiet row and a rail line when no folder is open', async () => {
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  try {
+    await act(async () => root.render(<LeadFrame scene="no-folder" />))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    const greeting = box.querySelector('[data-slot="lead-greeting"]')!
+    expect(greeting.querySelector('h2')?.textContent).toBe("Hi, I'm Dex")
+    expect(greeting.querySelector('[data-slot="lead-avatar"]')?.getAttribute('data-lead')).toBe('dex')
+    expect([...greeting.querySelectorAll('button')].map(node => node.textContent)).toEqual(['Open folder…'])
+    // The greeting carries the step, so the dock does not repeat it as a warning.
+    expect(box.querySelector('[data-slot="composer-notices"] [role="alert"]')).toBeNull()
+    expect(box.textContent).not.toContain('Open a folder first, then send your goal.')
+    // At rest the row and the bar say nothing beside the name.
+    expect(box.querySelector('[data-slot="lead-presence"]')).toBeNull()
+    expect(box.querySelector('button[title="Lead"] [data-left-mark]')).toBeNull()
+    expect(box.querySelector('button[title="Lead"] [data-slot="lead-avatar"]')?.getAttribute('data-lead')).toBe('dex')
+    expect(box.textContent).toContain('Open a folder, then send a goal. Its plan, workers and spend show here.')
+  } finally { act(() => root.unmount()); box.remove() }
 })

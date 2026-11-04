@@ -9,16 +9,26 @@ export interface LeadPresence {
   /** Things only the person can do now: approvals, a plan, or recovery. */
   readonly needs: number
   readonly goalActive: boolean
+  /**
+   * Nothing has changed that the person needs to see. The sidebar row and the
+   * bar draw no word then — a word on every row at rest is noise — and the
+   * status popover still says it.
+   */
+  readonly quiet: boolean
 }
 
 const ENDED = new Set(['stopped', 'accepted', 'declined'])
 
 /** Read from the projection alone; it grants nothing. */
-export const leadPresence = (state: LeadState): LeadPresence => {
+export const leadPresence = (state: LeadState): LeadPresence => ({ quiet: false, ...reading(state) })
+const AT_REST = { mood: 'neutral', word: 'Ready', needs: 0, goalActive: false, quiet: true } as const
+const reading = (state: LeadState): Omit<LeadPresence, 'quiet'> & { readonly quiet?: boolean } => {
   const thread = state.thread
   if (state.settings?.unavailable) return { mood: 'sleeping', word: 'Unavailable', needs: 0, goalActive: false }
   if (state.error) return { mood: 'sleeping', word: 'Desk offline', needs: 0, goalActive: false }
-  if (!thread) return { mood: 'neutral', word: 'Ready', needs: 0, goalActive: false }
+  // The page itself asks for the folder; the row and the bar stay quiet rather than repeat it.
+  if (state.projectMissing && !thread) return { mood: 'neutral', word: 'No folder open', needs: 0, goalActive: false, quiet: true }
+  if (!thread) return AT_REST
   const started = thread.state !== 'draft' || thread.messages.some(message => message.role === 'user')
   const reviewed = !!thread.contract || !!thread.pr || thread.cards.some(card => card.type === 'plan')
   const goalActive = reviewed && started && !ENDED.has(thread.state)
@@ -30,7 +40,7 @@ export const leadPresence = (state: LeadState): LeadPresence => {
   if (thread.state === 'following') return { mood: 'neutral', word: 'Following', needs: 0, goalActive }
   if (goalActive) return { mood: 'working', word: 'Working · 1 goal', needs: 0, goalActive }
   if (state.requestInFlight) return { mood: 'working', word: 'Thinking', needs: 0, goalActive: false }
-  return { mood: 'neutral', word: 'Ready', needs: 0, goalActive: false }
+  return AT_REST
 }
 
 /** "Checked 3 times · nothing new · stayed quiet": what the Lead did between turns without spending a request. */

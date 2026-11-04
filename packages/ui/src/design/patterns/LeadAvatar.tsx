@@ -14,11 +14,13 @@ const LARGE: ReadonlySet<LeadAvatarSize> = new Set(['popover', 'picker'])
  * The Lead's face on its character's disc. Below 28px an expression does not
  * read, so the small places draw the neutral face and the presence word beside
  * it says the state; the popover and the picker draw the mood. Never animated.
+ * Before the name is known the disc is drawn empty — a glyph there reads as a
+ * broken image, and the name arrives with the first read.
  */
 export const LeadAvatar = ({ name, size = 'header', mood = 'neutral' }: { readonly name: LeadName | null; readonly size?: LeadAvatarSize; readonly mood?: LeadMood }) => {
   const src = name ? leadFaceSrc(name, mood, LARGE.has(size)) : null
   return <span role="img" aria-label={name === 'lex' ? 'Lex' : name === 'dex' ? 'Dex' : 'Lead'} data-slot="lead-avatar" data-lead={name ?? undefined} data-size={size} data-mood={LARGE.has(size) ? mood : 'neutral'} className={styles.avatar}>
-    {src ? <img src={src} alt="" draggable={false} /> : <Text role="subject">…</Text>}
+    {src ? <img src={src} alt="" draggable={false} /> : null}
   </span>
 }
 
@@ -37,6 +39,22 @@ export const LeadNameChoice = ({ value, pending, onChange }: { readonly value: L
 /** A Lead line: a face column every line keeps, so the text aligns, and the face itself only on a turn's first line. */
 export const LeadTurn = ({ face, children }: { readonly face: ReactNode; readonly children: ReactNode }) =>
   <div className={styles.turn}><span className={styles.turnFace} data-slot="lead-turn-face">{face}</span><div className={styles.turnBody}>{children}</div></div>
+
+/**
+ * The empty Lead conversation as one composition: the face, who it is in the
+ * scale's 16, what it does in a sentence, and — only when something must come
+ * first — the one action that does it. A screen supplies the words and the
+ * action, never the layout.
+ */
+export const LeadGreeting = ({ avatar, title, children, action }: { readonly avatar: ReactNode; readonly title: ReactNode; readonly children: ReactNode; readonly action?: ReactNode }) =>
+  <div data-slot="lead-greeting" className={styles.greeting}>
+    {avatar}
+    <div className={styles.greetingWords}>
+      <Text as="h2" role="section" align="center">{title}</Text>
+      <Text as="p" role="prose" ink="secondary" align="center">{children}</Text>
+    </div>
+    {action != null && <div className={styles.greetingAction}>{action}</div>}
+  </div>
 
 /** Who the Lead is and where it stands, at the head of its status popover. */
 export const LeadIdentity = ({ avatar, name, word }: { readonly avatar: ReactNode; readonly name: ReactNode; readonly word: ReactNode }) =>

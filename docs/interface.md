@@ -2280,8 +2280,13 @@ top bar, thread, Items message renderer, empty-state layout and measured floatin
 composer as a session. Its name occupies the session title slot; the top bar
 carries the rail toggle and the settings glyph, titled Lead settings, which opens
 Settings › Lead. There is no body heading. A single LeadAvatar slot shows the chosen name's artwork and expression.
-Until settings arrive, the name reads Lead and the greeting says "Hi, tell me what
-you want done." The composer says Message Dex… or Message Lex…; Enter sends, Shift+Enter adds a
+An empty conversation is one LeadGreeting: the face, "Hi, I'm Dex" (or Lex), and
+"Tell me what you want done." Until settings arrive the name reads Lead, the disc is
+empty and the greeting says "Hi there". With no folder open the host has no Lead
+journal yet, so the page shows the name a journal starts with, Dex: the greeting
+says the Lead works inside one project folder and offers **Open folder…**, the
+dock shows no warning for it, and opening a folder reads the Lead again. The
+composer says Message Dex… or Message Lex…; Enter sends, Shift+Enter adds a
 line, and Send waits for the host's in-flight request. The Lead remains a
 host-owned thread, never a Session.
 
@@ -2293,7 +2298,9 @@ the plan or a question waits on the person), **Workers** (the roles the running
 step seats, in the plan card's words — Write, Review — never a runtime; before
 the run starts, every role the plan seats; while the goal waits or after it
 stops, no card, since the projection does not say which step it is on) and
-**Spend**. Spend says Up to the dollar cap before a
+**Spend**. Before a goal, one Goal line says what the rail will hold and what
+comes first: "Send a goal." or, with no folder open, "Open a folder, then send a
+goal." Spend says Up to the dollar cap before a
 goal, then the known total against it with Lead, Workers and Rounds facts;
 unconfirmed worker spend reads Not confirmed and draws no meter. Its pencil opens
 the limits popover: tightening applies at once, raising asks on a card in the

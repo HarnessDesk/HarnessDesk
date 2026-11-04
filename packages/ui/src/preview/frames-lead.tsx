@@ -25,6 +25,7 @@ import type { HostMethodName, LeadWindowProjection } from '@harnessdesk/protocol
 export const createLeadFixtureStore = (scene: LeadScene) => {
   const store = frameDestinationStore(previewStore({ leadAvailable: true, runtimes: [leadRuntime], theme: new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light' }))
   if (scene === 'settings-seeds') Object.assign(store.getSnapshot(), { workspaces: ['Widgets', 'Docs', 'Website'].map(name => ({ name, path: `/workspace/${name.toLowerCase()}`, git: { branch: 'main', sha: 'a'.repeat(40) } })) })
+  if (scene === 'no-folder') Object.assign(store.getSnapshot(), { workspaces: [], workspace: null, goals: new Map(), teams: new Map(), boardEvidence: new Map(), flowExecutions: new Map(), flowRuns: new Map(), sessions: new Map() })
   if (scene === 'opening-jobs') Object.assign(store.getSnapshot(), {
     goals: new Map([['demo-team', { goal: { id: 'demo-team', root: '/workspace/demo', state: 'open', sentence: 'Restore keyboard focus' } }]]),
     flowExecutions: new Map([['stalled', { id: 'stalled', goal: 'demo-team', state: 'stalled', rounds: [] }], ['finished', { id: 'finished', goal: 'demo-team', state: 'settled', rounds: [] }]]),
@@ -92,12 +93,16 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
     if (method === 'lead/schedule/update') return schedule = params.schedule
     if (method === 'lead/memory/read') return memory
     if (method === 'lead/memory/update') return memory = params.memory
-    if (method === 'lead/thread/read' || method === 'lead/settings/read') return scene === 'loading' ? new Promise<never>(() => {}) : current
+    if (method === 'lead/thread/read' || method === 'lead/settings/read') {
+      // A desk with no folder open: the host has no Lead journal yet and refuses both reads, as it does live.
+      if (scene === 'no-folder') throw Object.assign(new Error('lead-project-missing'), { code: 'lead-project-missing' })
+      return scene === 'loading' ? new Promise<never>(() => {}) : current
+    }
     return shellRequest(method, input as never)
   }) as typeof store.transport.request
   // A real facade, so frames exercise subscription, revision fencing and actions.
   Object.assign(store, { lead: createLeadState(store.transport, () => true) })
-  if (scene !== 'loading') emit(current)
+  if (scene !== 'loading' && scene !== 'no-folder') emit(current)
   {
     const workbench = { ...emptyWorkbench(), navigation: { current: scene.startsWith('settings-') ? { kind: 'settings' as const, route: { kind: 'section' as const, section: 'lead' as const, focus: scene === 'settings-runs' ? 'repeat:repeat-repeat-plan' : null } } : { kind: 'lead' as const }, back: [], forward: [] } }
     Object.assign(store.getSnapshot(), { workbench, layout: workbench.main, activeSessionKey: null, sessions: new Map(), sidebarCollapsed: false, sidebarFloating: false })
@@ -107,7 +112,7 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
 const LeadSurface = ({ scene }: { readonly scene: LeadScene }) => {
   useTheme()
   const store = useStore(), snapshot = useSnapshot(), current = snapshot.workbench.navigation.current
-  if (scene === 'app-shell') return <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}><TopBarProvider><ShellHostsProvider>
+  if (scene === 'app-shell' || scene === 'no-folder') return <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}><TopBarProvider><ShellHostsProvider>
     <Workbench pageActive pages={<MainPages onSignIn={() => {}} onNewTeam={() => {}} libraryImportIntent={0} />} sidebar={<Sidebar activeDestination="lead" onOpenSettings={() => {}} onOpenLibrary={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} />
     <ShellOutlets activeOwner="destination:lead" hostOwner="work" />
   </ShellHostsProvider></TopBarProvider></ShellProvider>
