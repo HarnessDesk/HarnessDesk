@@ -44,6 +44,7 @@ const modelsDisplay = (models: readonly ModelInfo[]): readonly ModelInfo[] => mo
   ...(entry.hidden !== undefined ? { hidden: entry.hidden } : {}),
   ...(entry.reasoningLevelsShared !== undefined ? { reasoningLevelsShared: entry.reasoningLevelsShared } : {}),
   ...(entry.thinking !== undefined ? { thinking: entry.thinking } : {}),
+  ...(entry.supportsFast !== undefined ? { supportsFast: entry.supportsFast } : {}),
 }))
 const optionsDisplay = (options: readonly ConfigOption[]): readonly ConfigOption[] => options.map(entry => ({
   id: entry.id, label: entry.label, type: entry.type, currentValue: entry.currentValue,

@@ -1,5 +1,5 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import { isLeadMessageSource, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
+import { firstAsk, isLeadMessageSource, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
 import { LeadChatControlStore, LeadChatHeldError } from './lead/chat-control.js'
 import { decideLeadSecondLook, leadDoneStopId, leadSecondLookAuthorized, type LeadSecondLookInput } from './lead/second-look.js'
 import { readChecks } from './evidence/checks-file.js'
@@ -9943,7 +9943,8 @@ export class Host {
         if (!this.#sessionIndex.isOwn(record.runtime, id)) return []
         const cost = record.session.usage?.cost
         return [{ runtime: record.runtime, id, running: record.running.size > 0, waiting: record.approvals.size > 0,
-          cost: cost && cost.currency === 'USD' ? cost.amount : null }]
+          cost: cost && cost.currency === 'USD' ? cost.amount : null,
+          preview: record.session.preview || firstAsk(record.session) }]
       }),
       seatName: (runtime) => {
         const known = this.#runtimes.get(runtime)
@@ -10118,12 +10119,16 @@ export class Host {
         const preferred = this.#state.state.preferences['activeRuntime']
         return ((typeof preferred === 'string' ? this.#runtimes.get(preferred) : undefined) ?? this.#runtimes.values().next().value)?.info.id ?? null
       },
-      projectRoots: () => this.#state.state.workspaces.map(workspace => workspace.path),
+      projectRoots: () => this.#state.state.workspaces.filter(workspace => !isManagedChatFolder(this.#state, workspace.path)).map(workspace => workspace.path),
       projectName: root => folderName(this.#sessionIndex.repo(root)?.repo?.root ?? root),
       canInterrupt: runtime => this.#runtimes.get(runtime)?.info.capabilities.interrupt === true,
-      newSessionValues: async (runtime, cwd) => {
+      models: async runtime => {
         await this.#ensureStarted(this.#runtime({ runtime }))
-        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params))
+        return this.call('runtime/models', { runtime })
+      },
+      newSessionValues: async (runtime, cwd, choices) => {
+        await this.#ensureStarted(this.#runtime({ runtime }))
+        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params), choices)
       },
       create: (params, effectStarted) => createConversation(this.#context, params, effectStarted),
       send: async (params, admitCwd) => {

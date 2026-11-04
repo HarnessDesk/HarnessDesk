@@ -7,6 +7,7 @@ import { approvalId, itemId, runtimeId, sessionId, turnId, type Session, type Se
 import { Host } from '../src/host.js'
 import { SessionIndex } from '../src/session-index.js'
 import { StateStore } from '../src/state.js'
+import { createChatFolder, rememberChatFolder } from '../src/chats.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -109,6 +110,32 @@ test('phone starts on the preferred runtime and sends and interrupts through the
   assert.equal((await host.call('workspace/thread/read', { id: created.id })).status, 'done')
 })
 
+test('phone starts use the desktop opening-message name in the list and header without renaming the agent history', async t => {
+  const { host, root, runtime, state } = await desk(t)
+  await state.setPreferences({ chatsFolder: join(root, 'chats') })
+  runtime.onSend = live => live.finish()
+  const created = await host.call('workspace/session/start', { text: '  Fix /Users/jane/proj/src/a.ts for dev@example.com TOKEN=placeholder\nIgnore this second line' })
+  assert.ok(!created.problem)
+  const expected = 'Fix … for … TOKEN=…'
+  const item = (await host.call('workspace/read', {})).items.find(item => item.id === created.id)
+  assert.equal(item?.title, expected)
+  const page = await host.call('workspace/sessions/list', {})
+  assert.equal(page.items.find(item => item.id === created.id)?.title, expected)
+  assert.equal((await host.call('workspace/thread/read', { id: created.id })).title, expected)
+  await host.call('workspace/session/send', { id: created.id, text: 'A different follow-up' })
+  assert.equal((await host.call('workspace/thread/read', { id: created.id })).title, expected)
+  const id = sessionId(created.id.slice(created.id.indexOf(':') + 1))
+  assert.equal(runtime.sessions.get(id)?.title, null, 'the opening is a display fallback, as on the desktop')
+  await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: id, title: 'Chosen title' })
+  assert.equal((await host.call('workspace/read', {})).items.find(item => item.id === created.id)?.title, 'Chosen title')
+  assert.equal((await host.call('workspace/thread/read', { id: created.id })).title, 'Chosen title')
+  const long = await host.call('workspace/session/start', { text: 'Fix the importer '.repeat(30) })
+  const longTitle = (await host.call('workspace/thread/read', { id: long.id })).title
+  assert.ok(longTitle.length <= 120)
+  assert.ok(longTitle.endsWith('…'))
+  assert.equal((await host.call('workspace/read', {})).items.find(item => item.id === long.id)?.title, longTitle)
+})
+
 test('phone project selection accepts a known displayed name and refuses unknown or ambiguous names', async t => {
   const { host, root, runtime, state } = await desk(t)
   const project = join(root, 'acme-api')
@@ -159,8 +186,9 @@ test('the host answers the phone’s snapshot of the work in the phone’s own u
   assert.equal(snapshot.items[0]!.title, 'Fix the sign-in for … in …')
   assert.equal(snapshot.items[0]!.project, undefined, 'a folder that is no repository names no project, in the list or in the conversation')
   assert.equal(snapshot.deskName, 'Desk')
-  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true })
-  assert.deepEqual([snapshot.models, snapshot.flows, snapshot.commands, snapshot.threads], [[], [], [], []])
+  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: true, choosePermissions: false, attach: false, undo: false, decide: true })
+  assert.deepEqual(snapshot.models.map(model => model.id), runtime.models.map(model => model.id))
+  assert.deepEqual([snapshot.flows, snapshot.commands, snapshot.threads], [[], [], []])
   // The usage scan may or may not have finished; when it has, it is seven days and no account.
   if (snapshot.usage) assert.equal(snapshot.usage.days.length, 7)
   const text = JSON.stringify(snapshot)
@@ -188,7 +216,7 @@ test('the host reads one conversation for the phone as what was said and done, a
   const text = JSON.stringify(thread)
   assert.ok(!text.includes(root), 'no path of the desk’s own leaves in a response')
   assert.ok(!text.includes('@'))
-  assert.ok(!text.includes('auth.ts failed'), 'a command’s output stays on the desk')
+  assert.ok(text.includes('auth.ts failed'), 'the scrubbed output tail reaches the phone')
 
   for (const id of [`${runtime.info.id}:seat`, `${runtime.info.id}:nope`, 'nope']) {
     await assert.rejects(host.call('workspace/thread/read', { id }), /not a session this desk can show/, id)
@@ -329,4 +357,42 @@ test('phone replies refuse a paused queue after interruption or failure without 
     await assert.rejects(host.call('workspace/session/send', { id: created.id, text: 'Keep this new draft' }), /paused.*desk/i)
     assert.equal(record.queue.messages.length, count)
   }
+})
+
+for (const operation of ['snapshot', 'start'] as const) test(`phone ${operation} starts a cold runtime before reading its model catalogue`, async t => {
+  const { host, root, state } = await desk(t)
+  class ColdModelsRuntime extends FakeRuntime {
+    override async listModels() {
+      if (this.health().state !== 'ready') throw new Error('Models are not known yet; start the runtime first.')
+      return super.listModels()
+    }
+  }
+  const runtime = new ColdModelsRuntime({ id: runtimeId(`cold-${operation}`) })
+  host.register(runtime)
+  await state.setPreferences({ activeRuntime: runtime.info.id, chatsFolder: join(root, 'chats') })
+  runtime.onSend = live => live.finish()
+  if (operation === 'snapshot') {
+    const snapshot = await host.call('workspace/read', {})
+    assert.equal(snapshot.capabilities.chooseModel, true)
+    assert.equal(snapshot.models[0]!.id, 'fake-1')
+  } else {
+    const result = await host.call('workspace/session/start', { text: 'Hello', model: 'fake-1' })
+    assert.equal(result.problem, undefined)
+    assert.ok(result.id.startsWith(`${runtime.info.id}:`))
+  }
+  assert.equal(runtime.health().state, 'ready')
+})
+
+test('a phone offers the admitted projects to start in, never a folder the host made for a no-folder chat', async t => {
+  const { host, root, state } = await desk(t)
+  const project = join(root, 'acme-api')
+  await mkdir(project, { recursive: true })
+  await state.touchWorkspace({ path: project, name: 'acme-api', lastOpenedAt: 1 })
+  const chat = await createChatFolder(state)
+  await rememberChatFolder(state, chat)
+  await state.touchWorkspace({ path: chat, name: 'chat', lastOpenedAt: 2 })
+  assert.equal(state.state.workspaces.length, 2)
+  const snapshot = await phoneCall(host, 'workspace/read', {})
+  assert.deepEqual(snapshot.projects, ['acme-api'])
+  assert.ok(!JSON.stringify(snapshot.projects).includes(root))
 })

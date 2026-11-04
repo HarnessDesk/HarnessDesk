@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Review work from your phone.** Conversations show your words without desk context wrappers, with bounded, scrubbed command output and diff lines. New sessions can choose the agent's model and effort.
+
+- **Lead works when running from source.** Development startup fetches the same verified runtime bundled with the app, and continues if the download is unavailable.
+
 - **Your phone reaches this Mac away from its Wi-Fi.** With your HarnessDesk account signed in, turn on Settings › Account › Reachable from your phone. Paired phones then connect through your account when they are not on the same network, still end-to-end encrypted, and the pairing code works away from home. Reachable says Connected, Connecting… or Can’t reach HarnessDesk, and Settings › Phone says how each phone is connected.
 
 - **The Lead page has a right rail.** It shows the goal, its plan step by step, the workers the current step seats and what the goal has spent against its limit. The dollar and round limits move from under the composer to the rail's Spend card; its toggle sits in the top bar, and the rail stays open until you close it.

@@ -48,6 +48,8 @@ export interface ModelInfo {
    * (#1013).
    */
   readonly reasoningLevelsShared?: boolean
+  /** Whether the runtime declares a fast service tier for this model. */
+  readonly supportsFast?: boolean
   readonly supportsImages: boolean
   /**
    * Whether the model reasons before it answers, when that is a property of

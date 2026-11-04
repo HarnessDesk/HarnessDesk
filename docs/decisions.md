@@ -5188,3 +5188,22 @@ leaves the sidebar row and the bar while the Lead is Ready or has no folder,
 and stays in the status popover. An empty disc replaces "…" for the moment
 before settings arrive. A chosen name with an empty thread now greets rather
 than leaving a blank page.
+
+
+## Paired phones can review bounded output and changes — 2026-11-03
+
+The owner approved command output and diff lines reaching a paired phone on
+2026-11-03 so a person can review a change away from the desk. A file count and
+a command title cannot show whether the work is right. The existing encrypted
+Read lane now includes scrubbed command tails and unified diff hunks.
+
+Command tails keep at most the last 40 lines, 300 characters per line and 8 KB
+per step. Hunks keep at most 400 lines per file and 1,500 per turn, each line
+capped at 300 characters; added and removed totals remain complete. Paths
+become project paths, and the transcript scrub removes addresses and
+key-shaped strings. Any cut marks the in-process projection truncated. Binary
+or absent diffs have no hunks; added-file content becomes numbered add lines.
+The complete thread is capped at 512 KB of serialized JSON, retaining recent
+entries and shortening a recent change if necessary to fit beneath the relay
+frame ceiling. HarnessDesk context injections are omitted; only
+host-verified Lead envelopes contribute Lead words and attribution.

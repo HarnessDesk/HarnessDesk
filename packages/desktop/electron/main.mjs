@@ -644,8 +644,8 @@ const watchDownloads = (guestSession, profile) => {
 const start = async () => {
   const bootstrap = createDefaultHost({
     leadEnabled: leadEnabled(process.env),
-    // This app's own runtime when it passes the Lead's capability probe, else the Node bundled for the Lead alone.
-    leadRuntimes: leadRuntimes({ execPath: process.execPath, versions: process.versions, resourcesPath: process.resourcesPath, packaged: app.isPackaged }),
+    // This app's runtime first, then the bundled or fetched Node; the Lead probes each candidate.
+    leadRuntimes: leadRuntimes({ execPath: process.execPath, versions: process.versions, resourcesPath: process.resourcesPath, packaged: app.isPackaged, arch: process.arch }),
     stateDir,
     version: app.getVersion(),
     browserEngine,

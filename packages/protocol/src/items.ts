@@ -118,7 +118,7 @@ export type FileChangeKind =
 export interface FileChange {
   readonly path: string
   readonly kind: FileChangeKind
-  /** Unified diff for `update`; full file content for `add`. */
+  /** Unified diff for `update`; added and deleted files may carry their full content. */
   readonly diff: string
 }
 

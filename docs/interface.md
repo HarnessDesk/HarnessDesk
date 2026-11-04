@@ -592,7 +592,8 @@ separate service lane.
 A paired phone can page through active and archived sessions, open their
 redacted conversations, and, with Run granted, start a session, reply or stop
 a running turn. Starting uses the desk's selected agent and an admitted project
-or a fresh chat folder. Replies keep the conversation's settings. Archived
+or a fresh chat folder, with model and effort choices from that agent when
+available. Replies keep the conversation's settings. Archived
 conversations are read-only until restored on the desk; Team-owned sessions
 remain with their Team. Approval answers require Answer separately from Run.
 

@@ -14,23 +14,71 @@ const TEXT_LIMIT = 4000
 
 const EMAIL = /[^\s@<>()"']+@[^\s@<>()"']+\.[^\s@<>()"']+/g
 const URL_WITH_REST = /\bhttps?:\/\/[^\s<>"'`)\]/?#]+[/?#][^\s<>"'`)\]]*/g
-// Not after a word, a colon or a slash: `https://host/…` is a link kept whole, not a path.
-const PATH = /(?<![\w:/])(?:[A-Za-z]:\\|~\/|\/)[^\s"'`)\]]*[\\/][^\s"'`)\]]*/g
+// Require nonempty segments, and exclude regex syntax. URLs and regex literals are protected tokens below.
+const PATH = /(?<![\w:/])(?:[A-Za-z]:\\[^\s"'`)<>{}\[\]\\/]+(?:\\[^\s"'`)<>{}\[\]\\/]+)+|~\/[^\s"'`)<>{}\[\]\\/]+(?:\/[^\s"'`)<>{}\[\]\\/]+)*|\/(?:[^\s"'`)<>{}\[\]\\/]+\/)+[^\s"'`)<>{}\[\]\\/]+)/g
+const URL_TOKEN = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"'`)\]]+/gi
+const REGEX = /(?<![\w/])\/(?:\\.|[^\\/\r\n])+\/[dgimsuvy]*(?=[\s,);.\]}]|$)/g
+const REGEX_LITERAL = new RegExp(`^(?:${REGEX.source})$`, 'i')
+const ABSOLUTE_PATH = new RegExp(`^(?:${PATH.source})$`, 'i')
+const TEXT_TOKEN = new RegExp(`${URL_TOKEN.source}|${REGEX.source}|${PATH.source}`, 'gi')
+const CREDENTIALLED_URL = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi
+const ASSIGNMENT_KEY = /\b([a-z][a-z0-9_-]*(?:[ \t]+key)?["']?[ \t]*(?:=|:(?!\/\/))[ \t]*)/gi
+const ASSIGNMENT_VALUE = /^(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:bearer|basic)[ \t]+[^\s,;"'<>)}\]]+|[^\s,;"'<>)}\]]+)/i
+
+const SECRET_NAME = /(?:^|[_-])(?:password|passwd|pass|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|authorization|bearer|credentials?)(?:[_-]|$)/i
+
+const withoutSecretValues = (text: string): string => {
+  let at = 0, result = ''
+  // Scan keys alone so an ordinary assignment cannot consume a later, nested secret.
+  for (const match of text.matchAll(ASSIGNMENT_KEY)) {
+    if (match.index < at) continue
+    const prefix = match[0]
+    const key = prefix.replace(/["' \t]*[:=][ \t]*$/, '').replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[ \t]+/g, '_')
+    if (!SECRET_NAME.test(key)) continue
+    const value = ASSIGNMENT_VALUE.exec(text.slice(match.index + prefix.length))?.[0]
+    if (!value) continue
+    result += text.slice(at, match.index) + prefix + '…'
+    at = match.index + prefix.length + value.length
+  }
+  return result + text.slice(at)
+}
+
 const KEY = /\b(?:sk|pk|rk|ghp|gho|ghs|ghu|github_pat|xox[abprs])[-_][A-Za-z0-9_-]{12,}/g
 const LONG_RUN = /\b[A-Za-z0-9+/_=-]{40,}\b/g
 
 /** Addresses and key-shaped strings, which no kind of text may carry out. */
-const withoutIdentities = (text: string): string => text.replace(EMAIL, '…').replace(KEY, '…').replace(LONG_RUN, '…')
+const withoutKeyShapes = (text: string): string => text.replace(KEY, '…').replace(LONG_RUN, '…')
+const withoutIdentities = (text: string): string => withoutKeyShapes(text.replace(EMAIL, '…'))
 
 /** A link keeps where it points and loses what follows: a path and a query can hold a token. */
 const withoutLinkRests = (text: string): string => text.replace(URL_WITH_REST, link => {
   try { return `${new URL(link).origin}/…` } catch { return '…' }
 })
 
-// Paths go before the long-run rule, which would otherwise eat the middle of one and leave its ends behind. A path at
-// the end of a sentence loses its stop with it otherwise: the punctuation is the sentence's, not the path's.
-const redact = (text: string): string =>
-  withoutIdentities(withoutLinkRests(text).replace(PATH, path => `…${/[.,;:!?]+$/.exec(path)?.[0] ?? ''}`))
+/** Preserve source syntax while redacting actual paths, credentialed URLs and named secret values. */
+const redact = (text: string, cwd?: string): string => {
+  const safe = withoutSecretValues(text.replace(CREDENTIALLED_URL, '$1…@'))
+  let at = 0, result = ''
+  for (const match of safe.matchAll(TEXT_TOKEN)) {
+    result += withoutIdentities(safe.slice(at, match.index))
+    const token = match[0]
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(token)) {
+      // Process the authority separately: the redacted userinfo marker is not an email address.
+      const [, scheme = '', host = '', rest = ''] = /^([a-z][a-z0-9+.-]*:\/\/)([^/?#]*)(.*)$/i.exec(token) ?? []
+      const link = scheme + withoutKeyShapes(host) + withoutIdentities(rest)
+      result += cwd ? link : withoutLinkRests(link)
+    } else if (REGEX_LITERAL.test(token) && (!ABSOLUTE_PATH.test(token) || /[(=,:!&|?{;\[]\s*$/.test(safe.slice(0, match.index)) || safe[match.index + token.length] === '.')) {
+      result += withoutIdentities(token)
+    } else {
+      const punctuation = /[.,;:!?]+$/.exec(token)?.[0] ?? ''
+      const bare = punctuation ? token.slice(0, -punctuation.length) : token
+      result += `${cwd ? projectPath(bare, cwd) : '…'}${punctuation}`
+    }
+    at = match.index + token.length
+  }
+  return result + withoutIdentities(safe.slice(at))
+}
 
 const shorten = (text: string, limit: number): string =>
   text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text
@@ -47,6 +95,10 @@ export const scrub = (text: string, limit = TITLE_LIMIT): string => shorten(reda
  */
 export const scrubText = (text: string, limit = TEXT_LIMIT): string =>
   shorten(redact(text).replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(), limit)
+
+/** Transcript scrubbing with in-project absolute paths rewritten to project paths first. */
+export const scrubProjectText = (text: string, cwd: string, limit = 300): string =>
+  shorten(redact(text, cwd).replace(/[ \t]+$/g, ''), limit)
 
 /** A folder's own name. Never the path above it, and never a name that is only a home or a root. */
 export const folderName = (path: string | null | undefined): string | null => {
@@ -67,6 +119,7 @@ export const micros = (dollars: number): { micros: number } => ({ micros: Math.r
  * under it, and the file's own name when it is not.
  */
 export const projectPath = (path: string, cwd: string | null | undefined): string => {
+  if (path.startsWith('~/')) return scrub(path.slice(2), 200)
   if (cwd && isAbsolute(path)) {
     const inside = relative(cwd, path)
     if (inside !== '' && !inside.startsWith('..') && !isAbsolute(inside)) return scrub(inside.split('\\').join('/'), 200)
@@ -76,14 +129,62 @@ export const projectPath = (path: string, cwd: string | null | undefined): strin
   return scrub(basename(path), 120) || 'file'
 }
 
+const SHELL_PROGRAMS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish'])
+
+/** Decode one quoted shell argument, without evaluating its contents or accepting trailing commands/arguments. */
+const quotedScript = (argument: string): string | null => {
+  if (argument[0] !== "'" && argument[0] !== '"') return null
+  let quote = '', script = ''
+  for (let index = 0; index < argument.length; index++) {
+    const char = argument[index]!
+    if (char === '\\' && quote !== "'") {
+      const next = argument[index + 1]
+      if (next === undefined) return null
+      if (quote === '' || ['$', '`', '"', '\\', '\n'].includes(next)) {
+        if (next !== '\n') script += next
+        index++
+      } else script += char
+    } else if (quote) {
+      if (char === quote) quote = ''
+      else script += char
+    } else if (char === "'" || char === '"') quote = char
+    else if (/\s/.test(char)) return argument.slice(index).trim() === '' && script.trim() !== '' ? script : null
+    else if (/[$`;&|<>()]/.test(char)) return null
+    else script += char
+  }
+  return quote === '' && script.trim() !== '' ? script : null
+}
+
+/** A display projection only: no shell runs, and a wrapper we cannot read whole is refused. */
+const unwrapPhoneCommand = (command: string): string | null => {
+  let text = command.trim()
+  for (let depth = 0; depth < 8; depth++) {
+    const program = /^(\S+)(?:\s+|$)/.exec(text)
+    if (!program || !SHELL_PROGRAMS.has(basename(program[1]!))) return text
+    let rest = text.slice(program[0].length), execute = false
+    for (;;) {
+      const flag = /^(-[a-zA-Z]+|--login|--noprofile|--norc|--posix)(?:\s+|$)/.exec(rest)
+      if (!flag) break
+      rest = rest.slice(flag[0].length)
+      if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(flag[1]!)) { execute = true; break }
+    }
+    if (!execute) return /(?:^|\s)-[a-zA-Z]*c[a-zA-Z]*(?:\s|$)/.test(rest) ? null : text
+    const script = quotedScript(rest)
+    if (script === null) return null
+    text = script.trim()
+  }
+  return null
+}
+
 /**
  * A command for a line of "what it did": the program and the words that name its job, and nothing after the first
  * flag, path, quote or assignment, where arguments (and whatever secret one carries) begin.
  */
 export const commandTitle = (command: string): string => {
-  const first = command.split(/&&|\|\||[;|\n]/)[0] ?? ''
+  const first = (unwrapPhoneCommand(command) ?? '').split(/&&|\|\||[;|\n]/)[0] ?? ''
   const words: string[] = []
-  for (const word of first.trim().split(/\s+/)) {
+  for (const [index, raw] of first.trim().split(/\s+/).entries()) {
+    const word = index === 0 && raw.includes('/') && !/^[-$'"`=]/.test(raw) && !/[='"`$]/.test(raw) ? basename(raw) : raw
     if (word === '' || words.length === 3) break
     if (/^[-/~.$'"`=]/.test(word) || /[=/\\'"`$]/.test(word)) break
     words.push(word)
@@ -106,8 +207,9 @@ const COMMAND_LIMIT = 600
  * become `.` and `~`, and an address or a key-shaped string becomes an ellipsis.
  */
 export const commandForApproval = (command: string, cwd: string | null | undefined, home: string | null | undefined, hasSecret: (text: string) => boolean): CommandView => {
-  if (hasSecret(command)) return { text: '', whole: false }
-  let text = command
+  const script = unwrapPhoneCommand(command)
+  if (script === null || hasSecret(command) || hasSecret(script) || withoutSecretValues(script) !== script || script.replace(CREDENTIALLED_URL, '$1…@') !== script) return { text: '', whole: false }
+  let text = script
   const swap = (folder: string | null | undefined, to: string): void => {
     if (!folder || folder === '/' || folder.length < 2) return
     const trimmed = folder.replace(/[\\/]+$/, '')

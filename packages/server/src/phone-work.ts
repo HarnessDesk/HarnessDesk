@@ -1,5 +1,5 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import type { LeadChatControl, UserContent } from '@harnessdesk/protocol'
+import type { LeadChatControl, UserContent, ModelInfo, PhoneModelChoice } from '@harnessdesk/protocol'
 import {
   findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
@@ -31,11 +31,12 @@ export interface PhoneWorkPorts {
   readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly pending: readonly Approval[]; readonly cwd: string | null; readonly queued?: number }
   readonly respond: (params: HostParams<'approval/respond'>) => Promise<void>
   readonly defaultRuntime: () => RuntimeId | null
-  /** Admitted project roots, with no caller-supplied path. */
+  /** Admitted project roots, with no caller-supplied path and no per-chat folder the host made for a no-folder chat. */
   readonly projectRoots: () => readonly string[]
   readonly projectName?: (root: string) => string | null
   readonly canInterrupt: (runtime: RuntimeId) => boolean
-  readonly newSessionValues: (runtime: RuntimeId, cwd?: string) => Promise<Readonly<Record<string, OptionValue>>>
+  readonly models: (runtime: RuntimeId) => Promise<readonly ModelInfo[]>
+  readonly newSessionValues: (runtime: RuntimeId, cwd?: string, choices?: PhoneStartChoices) => Promise<Readonly<Record<string, OptionValue>>>
   /** Host-only receipts: invoke after preflight, immediately before the actual
    * allocation, queue mutation, send or interrupt. Never take these from wire data. */
   readonly create: (params: HostParams<'session/create'>, effectStarted?: () => void) => Promise<HostResult<'session/create'>>
@@ -62,10 +63,26 @@ export class PhoneWorkRefusal extends Error {}
 
 const refuse = (message: string): never => { throw new PhoneWorkRefusal(message) }
 
+type PhoneStartChoices = Pick<HostParams<'workspace/session/start'>, 'model' | 'effort'>
+
+/** The phone has one step above high; use the highest step the runtime declares. */
+const effortId = (levels: readonly { readonly id: string }[], effort: NonNullable<PhoneStartChoices['effort']>): string | undefined => {
+  if (effort !== 'extra') return levels.find(level => level.id === effort)?.id
+  const high = levels.findIndex(level => level.id === 'high')
+  return levels.filter((level, index) => (high >= 0 && index > high && !/^(none|minimal|low|medium|high)$/.test(level.id)) || /^(xhigh|max|ultra|extra)$/.test(level.id)).at(-1)?.id
+}
+
+const modelChoices = (models: readonly ModelInfo[]): PhoneModelChoice[] => models.filter(model => !model.hidden).map(model => ({
+  id: model.id, name: scrub(model.displayName, 60), hint: scrub(model.description ?? '', 200),
+  efforts: (['low', 'medium', 'high', 'extra'] as const).filter(effort => effortId(model.reasoningLevels, effort) !== undefined),
+  fast: model.supportsFast === true,
+}))
+
 /** Saved desk picks and current adapter recommendations, validated before allocation. */
 export async function phoneSessionValues(
   runtime: RuntimeId, cwd: string | undefined, preferences: Readonly<Record<string, unknown>>,
   resolve: (params: HostParams<'runtime/sessionDefaults'>) => Promise<readonly ConfigOption[]>,
+  choices: PhoneStartChoices = {},
 ): Promise<Readonly<Record<string, OptionValue>>> {
   const drafts = preferences['draftValues']
   const raw = drafts && typeof drafts === 'object' && !Array.isArray(drafts)
@@ -90,10 +107,17 @@ export async function phoneSessionValues(
     }
   }
   const base = await read({})
+  if (choices.model !== undefined) {
+    for (const option of base) if (selector(option) || option.category === 'thought_level') delete saved[option.id]
+    const model = base.find(option => option.category === 'model')
+    if (!model || refuseOptionValue(model, choices.model)) return refuse('That model is not available on this desk.')
+    saved[model.id] = choices.model
+  }
+  if (choices.effort !== undefined) for (const option of base) if (option.category === 'thought_level') delete saved[option.id]
   const savedSelectors = Object.fromEntries(Object.entries(saved).filter(([id]) => base.some(option => option.id === id && selector(option))))
   validate(savedSelectors, base)
   const selectors = Object.fromEntries(Object.entries(recommendedOptionValues(base))
-    .filter(([id]) => base.some(option => option.id === id && selector(option))))
+    .filter(([id]) => base.some(option => option.id === id && selector(option) && !(choices.model !== undefined && option.category === '_profile'))))
   // A saved profile owns its model, just as it does in the desktop composer.
   if (base.some(option => option.category === '_profile' && Boolean(saved[option.id]) && !option.disabled)) {
     for (const option of base) if (option.category === 'model') delete selectors[option.id]
@@ -101,6 +125,12 @@ export async function phoneSessionValues(
   Object.assign(selectors, savedSelectors)
   const declared = Object.keys(selectors).length ? await read(selectors) : base
   validate(selectors, declared, true)
+  if (choices.effort !== undefined) {
+    const option = declared.find(option => option.category === 'thought_level' && option.type === 'select')
+    const value = option?.type === 'select' ? effortId(option.choices.map(choice => ({ id: choice.value })), choices.effort) : undefined
+    if (!option || !value || refuseOptionValue(option, value)) return refuse('That effort is not available for this model.')
+    saved[option.id] = value
+  }
   const dependentSaved = Object.fromEntries(Object.entries(saved).filter(([id]) => !(id in savedSelectors)))
   validate(dependentSaved, declared)
   const dependentRecommendations = (options: readonly ConfigOption[]) => Object.fromEntries(
@@ -138,13 +168,18 @@ export class PhoneWork {
   constructor(ports: PhoneWorkPorts) { this.#ports = ports }
 
   async snapshot(): Promise<PhoneWorkSnapshot> {
-    const [items, usage] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage()])
+    const runtime = this.#ports.defaultRuntime()
+    const [items, usage, catalogue] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
+      runtime ? this.#ports.models(runtime).catch(() => []) : Promise.resolve([])])
+    const models = modelChoices(catalogue)
+    let projects: string[] = []
+    try { projects = [...this.#projectNames()].filter(([, roots]) => roots.length === 1).map(([name]) => name).sort().slice(0, 50) } catch { /* Unreadable admission metadata is not a project choice. */ }
     return {
       deskName: scrub(this.#ports.deskName(), 60) || 'Desk',
-      items,
+      items, projects,
       ...(usage ? { usage } : {}),
-      models: [], flows: [], commands: [],
-      capabilities: CAPABILITIES,
+      models, flows: [], commands: [],
+      capabilities: { ...CAPABILITIES, chooseModel: models.length > 0 },
       threads: [],
     }
   }
@@ -187,10 +222,23 @@ export class PhoneWork {
     return this.#ports.workspace.workSessions(params)
   }
 
+  /** Scrub before comparing, so every advertised name round-trips and redaction cannot hide an ambiguity. */
+  #projectNames(): Map<string, string[]> {
+    const names = new Map<string, string[]>()
+    for (const root of new Set(this.#ports.projectRoots())) {
+      const name = scrub(this.#ports.projectName?.(root) ?? folderName(root) ?? '', 60)
+      if (!name) continue
+      const roots = names.get(name) ?? []
+      roots.push(root)
+      names.set(name, roots)
+    }
+    return names
+  }
+
   async sessionStart(params: HostParams<'workspace/session/start'>): Promise<HostResult<'workspace/session/start'>> {
     let cwd: string | undefined
     if (params.project !== undefined) {
-      const matches = [...new Set(this.#ports.projectRoots())].filter(root => (this.#ports.projectName?.(root) ?? folderName(root)) === params.project)
+      const matches = this.#projectNames().get(params.project) ?? []
       if (matches.length === 0) return refuse('That project is not available on this desk.')
       if (matches.length > 1) return refuse('More than one project has that name. Start it on the desk.')
       cwd = matches[0]!
@@ -199,11 +247,22 @@ export class PhoneWork {
   }
 
   /** Host-owned exact project root. `input` is a host-only envelope override, never phone params. */
-  async startInProject(params: { text: string }, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/start'>> {
+  async startInProject(params: { text: string } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/start'>> {
     const runtime = this.#ports.defaultRuntime()
     if (runtime === null) return refuse('No agent is available to start a session.')
     return guarded(async () => {
-      const values = await this.#ports.newSessionValues(runtime, cwd)
+      const choices: PhoneStartChoices = { ...(params.model !== undefined ? { model: params.model } : {}), ...(params.effort !== undefined ? { effort: params.effort } : {}) }
+      let values: Readonly<Record<string, OptionValue>>
+      try {
+        if (choices.model !== undefined && !modelChoices(await this.#ports.models(runtime)).some(model => model.id === choices.model)) {
+          return { id: '', problem: 'That model is not available on this desk. Refresh the model list and try again.' }
+        }
+        values = await this.#ports.newSessionValues(runtime, cwd, choices)
+      }
+      catch (error) {
+        if (choices.model !== undefined || choices.effort !== undefined) return { id: '', problem: scrub(error instanceof Error ? error.message : '', 200) || 'Those model choices are no longer available.' }
+        throw error
+      }
       await admit?.()
       const session = await this.#ports.create({ runtime, options: { ...(cwd ? { cwd } : {}), ...(Object.keys(values).length ? { options: values } : {}) } }, effectStarted)
       const id = `${runtime}:${session.id}`
