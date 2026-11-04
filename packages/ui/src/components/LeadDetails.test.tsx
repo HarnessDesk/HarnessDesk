@@ -21,9 +21,10 @@ const mount = async (projection: LeadWindowProjection) => {
 }
 const section = (box: HTMLElement, label: string) => box.querySelector<HTMLElement>(`section[aria-label="${label}"]`)
 
-it('shows only the allowance before there is a goal', async () => {
+it('says what the rail will hold and shows the allowance before there is a goal', async () => {
   const box = await mount(leadProjection())
-  expect([...box.querySelectorAll('section[data-slot="tool-section"]')].map(one => one.getAttribute('aria-label'))).toEqual(['Spend'])
+  expect([...box.querySelectorAll('section[data-slot="tool-section"]')].map(one => one.getAttribute('aria-label'))).toEqual(['Goal', 'Spend'])
+  expect(section(box, 'Goal')!.textContent).toBe('GoalSend a goal. Its plan, workers and spend show here.')
   expect(section(box, 'Spend')!.textContent).toContain('Up to $5.00')
   expect(section(box, 'Spend')!.textContent).toContain('4 rounds')
   expect(box.querySelector('[aria-label="Change limits"]')).not.toBeNull()

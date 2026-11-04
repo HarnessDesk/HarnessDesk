@@ -2492,9 +2492,13 @@ control; an unread recent-folder entry cannot permanently hide that control.
 Lead and a session share ConversationShell, ConversationThread, ConversationDock,
 ConversationComposerFrame and the same top-bar registration. LeadMessage uses Items;
 assistant decision prose uses the same TranscriptAssistantMessage frame as Items.
-The empty state is ConversationEmptyState with a single LeadAvatar slot and one
-short greeting. Until settings load, the greeting is "Hi, tell me what you want
-done." The chosen name occupies the title slot and composer placeholder.
+The empty state is ConversationEmptyState holding one LeadGreeting: the
+LeadAvatar, a title at the section step (16), one secondary sentence at 14, and
+an action only when something must come first (Open folder… with no folder open).
+Until settings load the disc is empty and the title is "Hi there". The Lead's
+presence word is drawn in the sidebar row and the bar only when it is not at
+rest; Ready and No folder open stay in the status popover. The chosen name
+occupies the title slot and composer placeholder.
 The tools slot holds the rail toggle (`PageRailToggle`) and the settings glyph opening Settings › Lead;
 the rail is LeadDetails, and the allowance lives on its Spend card, not under the composer.
 Active goals outside terminal predecessor waits use ComposerTrack name="send":
