@@ -31,7 +31,7 @@ export interface PhoneWorkPorts {
   readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly pending: readonly Approval[]; readonly cwd: string | null; readonly queued?: number }
   readonly respond: (params: HostParams<'approval/respond'>) => Promise<void>
   readonly defaultRuntime: () => RuntimeId | null
-  /** Admitted project roots, with no caller-supplied path. */
+  /** Admitted project roots, with no caller-supplied path and no per-chat folder the host made for a no-folder chat. */
   readonly projectRoots: () => readonly string[]
   readonly projectName?: (root: string) => string | null
   readonly canInterrupt: (runtime: RuntimeId) => boolean

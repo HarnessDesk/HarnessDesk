@@ -10119,7 +10119,7 @@ export class Host {
         const preferred = this.#state.state.preferences['activeRuntime']
         return ((typeof preferred === 'string' ? this.#runtimes.get(preferred) : undefined) ?? this.#runtimes.values().next().value)?.info.id ?? null
       },
-      projectRoots: () => this.#state.state.workspaces.map(workspace => workspace.path),
+      projectRoots: () => this.#state.state.workspaces.filter(workspace => !isManagedChatFolder(this.#state, workspace.path)).map(workspace => workspace.path),
       projectName: root => folderName(this.#sessionIndex.repo(root)?.repo?.root ?? root),
       canInterrupt: runtime => this.#runtimes.get(runtime)?.info.capabilities.interrupt === true,
       models: async runtime => {

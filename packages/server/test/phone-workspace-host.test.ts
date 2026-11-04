@@ -7,6 +7,7 @@ import { approvalId, itemId, runtimeId, sessionId, turnId, type Session, type Se
 import { Host } from '../src/host.js'
 import { SessionIndex } from '../src/session-index.js'
 import { StateStore } from '../src/state.js'
+import { createChatFolder, rememberChatFolder } from '../src/chats.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -380,4 +381,18 @@ for (const operation of ['snapshot', 'start'] as const) test(`phone ${operation}
     assert.ok(result.id.startsWith(`${runtime.info.id}:`))
   }
   assert.equal(runtime.health().state, 'ready')
+})
+
+test('a phone offers the admitted projects to start in, never a folder the host made for a no-folder chat', async t => {
+  const { host, root, state } = await desk(t)
+  const project = join(root, 'acme-api')
+  await mkdir(project, { recursive: true })
+  await state.touchWorkspace({ path: project, name: 'acme-api', lastOpenedAt: 1 })
+  const chat = await createChatFolder(state)
+  await rememberChatFolder(state, chat)
+  await state.touchWorkspace({ path: chat, name: 'chat', lastOpenedAt: 2 })
+  assert.equal(state.state.workspaces.length, 2)
+  const snapshot = await phoneCall(host, 'workspace/read', {})
+  assert.deepEqual(snapshot.projects, ['acme-api'])
+  assert.ok(!JSON.stringify(snapshot.projects).includes(root))
 })
