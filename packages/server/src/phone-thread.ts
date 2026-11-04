@@ -365,7 +365,8 @@ interface Timed { readonly id: string; readonly startedAt?: number; readonly com
 
 const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: ReadonlySet<string>, chatId: string): PhoneWorkTurn[] => {
   const turns: PhoneWorkTurn[] = []
-  let fold: { id: string; steps: PhoneWorkStep[]; from: number; to: number; spent: number } | null = null
+  // `silent` is whether the last step is reasoning with nothing to read, so a run of them shows as one Thinking row, as the desk folds them.
+  let fold: { id: string; steps: PhoneWorkStep[]; from: number; to: number; spent: number; silent: boolean } | null = null
   // The turn's plan sits at the end of its first fold of work, or on its own where it did none.
   let plan = planStep(turn)
   const close = (): void => {
@@ -377,9 +378,10 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: Reado
     turns.push({ type: 'work', id: `${fold.id}:work`, seconds: wall || fold.spent, summary: summaryOf(fold.steps), steps: shown })
     fold = null
   }
-  const into = (item: Timed, one: PhoneWorkStep): void => {
-    fold ??= { id: item.id, steps: [], from: Infinity, to: 0, spent: 0 }
-    fold.steps.push(one)
+  const into = (item: Timed, one: PhoneWorkStep, silent = false): void => {
+    fold ??= { id: item.id, steps: [], from: Infinity, to: 0, spent: 0, silent: false }
+    if (!(silent && fold.silent)) fold.steps.push(one)
+    fold.silent = silent
     if (item.startedAt !== undefined) fold.from = Math.min(fold.from, item.startedAt)
     const end = item.completedAt ?? (item.startedAt !== undefined && item.durationMs !== undefined ? item.startedAt + item.durationMs : undefined)
     if (end !== undefined) fold.to = Math.max(fold.to, end)
@@ -396,7 +398,8 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: Reado
     }
     if (item.type === 'error') { close(); turns.push({ type: 'agent', id: String(item.id), markdown: `Something went wrong: ${scrub(item.message, 300)}` }); continue }
     const one = stepOf(item, cwd, noteTruncated)
-    if (one) into({ id: String(item.id), startedAt: item.startedAt, completedAt: item.completedAt, durationMs: item.durationMs }, one)
+    const silent = item.type === 'reasoning' && item.summary.every(entry => scrub(entry, TEXT_STEP_TITLE) === '')
+    if (one) into({ id: String(item.id), startedAt: item.startedAt, completedAt: item.completedAt, durationMs: item.durationMs }, one, silent)
   }
   close()
   if (plan) { into({ id: `${turn.id}:plan` }, plan); close() }
