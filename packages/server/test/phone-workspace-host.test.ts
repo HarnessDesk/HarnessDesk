@@ -109,6 +109,32 @@ test('phone starts on the preferred runtime and sends and interrupts through the
   assert.equal((await host.call('workspace/thread/read', { id: created.id })).status, 'done')
 })
 
+test('phone starts use the desktop opening-message name in the list and header without renaming the agent history', async t => {
+  const { host, root, runtime, state } = await desk(t)
+  await state.setPreferences({ chatsFolder: join(root, 'chats') })
+  runtime.onSend = live => live.finish()
+  const created = await host.call('workspace/session/start', { text: '  Fix /Users/jane/proj/src/a.ts for dev@example.com TOKEN=placeholder\nIgnore this second line' })
+  assert.ok(!created.problem)
+  const expected = 'Fix … for … TOKEN=…'
+  const item = (await host.call('workspace/read', {})).items.find(item => item.id === created.id)
+  assert.equal(item?.title, expected)
+  const page = await host.call('workspace/sessions/list', {})
+  assert.equal(page.items.find(item => item.id === created.id)?.title, expected)
+  assert.equal((await host.call('workspace/thread/read', { id: created.id })).title, expected)
+  await host.call('workspace/session/send', { id: created.id, text: 'A different follow-up' })
+  assert.equal((await host.call('workspace/thread/read', { id: created.id })).title, expected)
+  const id = sessionId(created.id.slice(created.id.indexOf(':') + 1))
+  assert.equal(runtime.sessions.get(id)?.title, null, 'the opening is a display fallback, as on the desktop')
+  await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: id, title: 'Chosen title' })
+  assert.equal((await host.call('workspace/read', {})).items.find(item => item.id === created.id)?.title, 'Chosen title')
+  assert.equal((await host.call('workspace/thread/read', { id: created.id })).title, 'Chosen title')
+  const long = await host.call('workspace/session/start', { text: 'Fix the importer '.repeat(30) })
+  const longTitle = (await host.call('workspace/thread/read', { id: long.id })).title
+  assert.ok(longTitle.length <= 120)
+  assert.ok(longTitle.endsWith('…'))
+  assert.equal((await host.call('workspace/read', {})).items.find(item => item.id === long.id)?.title, longTitle)
+})
+
 test('phone project selection accepts a known displayed name and refuses unknown or ambiguous names', async t => {
   const { host, root, runtime, state } = await desk(t)
   const project = join(root, 'acme-api')

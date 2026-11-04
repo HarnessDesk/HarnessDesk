@@ -172,9 +172,11 @@ export class PhoneWork {
     const [items, usage, catalogue] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
       runtime ? this.#ports.models(runtime).catch(() => []) : Promise.resolve([])])
     const models = modelChoices(catalogue)
+    let projects: string[] = []
+    try { projects = [...this.#projectNames()].filter(([, roots]) => roots.length === 1).map(([name]) => name).sort().slice(0, 50) } catch { /* Unreadable admission metadata is not a project choice. */ }
     return {
       deskName: scrub(this.#ports.deskName(), 60) || 'Desk',
-      items,
+      items, projects,
       ...(usage ? { usage } : {}),
       models, flows: [], commands: [],
       capabilities: { ...CAPABILITIES, chooseModel: models.length > 0 },
@@ -220,10 +222,23 @@ export class PhoneWork {
     return this.#ports.workspace.workSessions(params)
   }
 
+  /** Scrub before comparing, so every advertised name round-trips and redaction cannot hide an ambiguity. */
+  #projectNames(): Map<string, string[]> {
+    const names = new Map<string, string[]>()
+    for (const root of new Set(this.#ports.projectRoots())) {
+      const name = scrub(this.#ports.projectName?.(root) ?? folderName(root) ?? '', 60)
+      if (!name) continue
+      const roots = names.get(name) ?? []
+      roots.push(root)
+      names.set(name, roots)
+    }
+    return names
+  }
+
   async sessionStart(params: HostParams<'workspace/session/start'>): Promise<HostResult<'workspace/session/start'>> {
     let cwd: string | undefined
     if (params.project !== undefined) {
-      const matches = [...new Set(this.#ports.projectRoots())].filter(root => (this.#ports.projectName?.(root) ?? folderName(root)) === params.project)
+      const matches = this.#projectNames().get(params.project) ?? []
       if (matches.length === 0) return refuse('That project is not available on this desk.')
       if (matches.length > 1) return refuse('More than one project has that name. Start it on the desk.')
       cwd = matches[0]!

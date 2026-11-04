@@ -93,6 +93,14 @@ const populated = async (): Promise<Fixture> => {
 
 // ------------------------------------------------------------------- sessions
 
+test('an unloaded untitled session uses its scrubbed indexed opening as the desktop does', async () => {
+  const f = await fixture()
+  try {
+    f.index.upsert(summary('opening', { title: '', preview: 'Fix /Users/jane/proj/src/a.ts for dev@example.com\nSecond line' }))
+    assert.equal(f.workspace.sessionsList({}).rows[0]?.title, 'Fix … for …')
+  } finally { await f.done() }
+})
+
 test('a session row carries only the redacted fields, and the live figure beats the stored one', async () => {
   const f = await populated()
   try {

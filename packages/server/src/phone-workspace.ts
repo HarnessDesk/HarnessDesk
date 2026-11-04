@@ -1,5 +1,5 @@
 import {
-  sessionIndexCursorOf,
+  sessionIndexCursorOf, sessionLabel,
   type GoalView, type LedgerQuery, type LedgerReport, type PhoneDashboard, type PhoneProjectShare, type PhoneRange, type PhoneSeatUsage,
   type PhoneSessionRow, type PhoneSessionsList, type PhoneSessionState, type PhoneTeamRow, type PhoneTeamsList, type PhoneTeamStage,
   type PhoneTeamStatus, type PhoneWorkAllowance, type PhoneWorkItem, type PhoneWorkPeriod, type PhoneWorkUsage, type PhoneWorkWorker,
@@ -23,6 +23,8 @@ export interface PhoneLiveSession {
   /** An approval or a question is waiting on the person. */
   readonly waiting: boolean
   readonly cost: number | null
+  /** Live opening, while the runtime's preview has not reached the index yet. */
+  readonly preview?: string | null
 }
 
 /** One open seat of a Team, as the phone draws a worker. */
@@ -103,7 +105,7 @@ export class PhoneWorkspace {
     const one = live.get(keyOf(summary.runtime, summary.id))
     return {
       id: `${summary.runtime}:${summary.id}`,
-      title: scrub(summary.title ?? '') || 'Untitled',
+      title: scrub(sessionLabel(summary.title, one?.preview ?? summary.preview, '')) || 'Untitled',
       project: projectOf(summary),
       state: this.#stateOf(summary, live),
       // The desk lists the person's own conversations; a Team's seats are listed under their Team, and nothing
@@ -213,7 +215,7 @@ export class PhoneWorkspace {
     const previous = inRange.totalCost !== null && doubled.totalCost !== null ? money(Math.max(0, doubled.totalCost - inRange.totalCost)) : null
     const costly = this.#ports.sessions.costliestSince(rangeStart, 3).flatMap(({ summary, cost }) => {
       const seat = this.#ports.seatName(summary.runtime)
-      return seat === null ? [] : [{ id: `${summary.runtime}:${summary.id}`, title: scrub(summary.title ?? '') || 'Untitled', project: projectOf(summary), cost: money(cost)! }]
+      return seat === null ? [] : [{ id: `${summary.runtime}:${summary.id}`, title: scrub(sessionLabel(summary.title, summary.preview, '')) || 'Untitled', project: projectOf(summary), cost: money(cost)! }]
     })
 
     return {
@@ -352,7 +354,7 @@ export class PhoneWorkspace {
         mostExpensive: this.#ports.sessions.costliestSince(daysAgo(midnight, span - 1), 3).flatMap(({ summary, cost }) => {
           const seat = this.#ports.seatName(summary.runtime)
           const project = projectOf(summary)
-          return seat === null ? [] : [{ title: scrub(summary.title ?? '') || 'Untitled', ...(project ? { project } : {}), cost: micros(money(cost) ?? 0) }]
+          return seat === null ? [] : [{ title: scrub(sessionLabel(summary.title, summary.preview, '')) || 'Untitled', ...(project ? { project } : {}), cost: micros(money(cost) ?? 0) }]
         }),
       }
     }

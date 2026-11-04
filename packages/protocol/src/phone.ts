@@ -348,6 +348,8 @@ export interface PhoneModelChoice {
 
 export interface PhoneWorkSnapshot {
   readonly deskName: string
+  /** Unambiguous admitted project names accepted by session start, sorted and capped at 50; never paths. */
+  readonly projects: readonly string[]
   readonly items: readonly PhoneWorkItem[]
   /** Left out until the desk has scanned its usage once: the phone then says Unknown. */
   readonly usage?: PhoneWorkUsage

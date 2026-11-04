@@ -135,7 +135,7 @@ test('a change is high risk when it deletes, leaves the project, touches code th
 test('the snapshot says what the desk honours, in micro-dollars, with usage left out until there is some', async () => {
   const empty = await rig().work.snapshot()
   assert.deepEqual(empty, {
-    deskName: 'Studio Mac', items: [], models: [], flows: [], commands: [], threads: [],
+    deskName: 'Studio Mac', items: [], projects: [], models: [], flows: [], commands: [], threads: [],
     capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true },
   })
   assert.ok(!('usage' in empty))
@@ -144,6 +144,38 @@ test('the snapshot says what the desk honours, in micro-dollars, with usage left
   assert.deepEqual(withUsage.usage, usage)
   const named = await rig({ deskName: () => `Jane at dev@example.com ${HOME}/x` }).work.snapshot()
   assert.ok(!/@|\/home/.test(named.deskName), named.deskName)
+})
+
+test('the phone lists admitted projects with no sessions, omits ambiguous names and accepts every listed name', async () => {
+  const roots = ['/Users/jane/zeta', '/Users/jane/alpha', '/Users/jane/alpha', '/Users/jane/one/shared', '/Users/jane/two/shared']
+  const started: string[] = []
+  const { work } = rig({ projectRoots: () => roots, create: async params => { started.push(params.options.cwd!); return session([]) } })
+  const snapshot = await work.snapshot()
+  assert.deepEqual(snapshot.items, [])
+  assert.deepEqual(snapshot.projects, ['alpha', 'zeta'])
+  assert.ok(!JSON.stringify(snapshot).includes('/Users/'))
+  for (const project of ['alpha', 'zeta']) await work.sessionStart({ text: 'Hello', project })
+  assert.deepEqual(started, ['/Users/jane/alpha', '/Users/jane/zeta'])
+  await assert.rejects(work.sessionStart({ text: 'Hello', project: 'shared' }), /more than one/i)
+})
+
+test('admitted project names are scrubbed before collision checks, sorted and capped at fifty', async () => {
+  const roots = Array.from({ length: 55 }, (_, i) => `/Users/jane/project-${String(i).padStart(2, '0')}`).reverse()
+  roots.push('/Users/jane/secret-one', '/Users/jane/secret-two', '/Users/jane/named')
+  const { work } = rig({ projectRoots: () => roots, projectName: root => root.includes('secret-') ? `PASSWORD=placeholder-${root.endsWith('one') ? 'one' : 'two'}` : root.endsWith('/named') ? 'Contact dev@example.com' : null })
+  const snapshot = await work.snapshot()
+  const projects = snapshot.projects
+  assert.equal(projects.length, 50)
+  assert.equal(projects[0], 'Contact …')
+  assert.equal(projects.at(-1), 'project-48')
+  assert.ok(!JSON.stringify(projects).includes('placeholder'))
+  assert.ok(!projects.includes('PASSWORD=…'), 'different secret values cannot become one ambiguous choice')
+  await work.sessionStart({ text: 'Hello', project: 'Contact …' })
+})
+
+test('unreadable admitted roots leave the phone project list empty', async () => {
+  const snapshot = await rig({ projectRoots: () => { throw new Error('unavailable') } }).work.snapshot()
+  assert.deepEqual(snapshot.projects, [])
 })
 
 test('a conversation is read as what was asked, answered and done, with bounded output and no machine path', async () => {
@@ -326,7 +358,7 @@ test('the change feed publishes a snapshot only when it differs, only while a ph
     build: async () => {
       builds++
       if (hold) await hold
-      return { deskName: `v${version}`, items: [], models: [], flows: [], commands: [], capabilities: {} as never, threads: [] }
+      return { deskName: `v${version}`, items: [], projects: [], models: [], flows: [], commands: [], capabilities: {} as never, threads: [] }
     },
     publish: snapshot => { published.push(snapshot) },
   })
@@ -372,7 +404,7 @@ test('a failed first send returns the created session instead of losing its iden
 test('an invalidated workspace feed retries a failed build and republishes an identical snapshot', async t => {
   let fail = false, builds = 0
   const published: PhoneWorkSnapshot[] = []
-  const snapshot = { deskName: 'Same', items: [], models: [], flows: [], commands: [], capabilities: {} as never, threads: [] }
+  const snapshot = { deskName: 'Same', items: [], projects: [], models: [], flows: [], commands: [], capabilities: {} as never, threads: [] }
   const feed = new WorkspaceFeed({ delayMs: 5, listening: () => true, build: async () => {
     builds++
     if (fail) { fail = false; throw new Error('Transient snapshot read failure') }

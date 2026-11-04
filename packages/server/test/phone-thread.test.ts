@@ -15,6 +15,18 @@ const change = (path: string, diff: string): AgentItem => ({ id: itemId(path), t
 const work = (result: ReturnType<typeof thread>) => result.turns.find(t => t.type === 'work')!
 const changes = (result: ReturnType<typeof thread>) => result.turns.find(t => t.type === 'changes')!
 
+test('an empty title and preview fall back to the desktop first-ask rule without injected context', () => {
+  const result = buildThread({
+    id, session: { id: sessionId('chat'), runtime: runtimeId('agent'), title: '', preview: '', cwd,
+      status: { type: 'idle' }, createdAt: 1, updatedAt: 1, itemsLoaded: true,
+      turns: [{ id: turnId('turn'), status: 'completed', items: [{ id: itemId('you'), type: 'userMessage', content: [
+        deskContextContent(wrapContext('Workspace', 'Private injected context')), { type: 'text', text: 'Fix the importer\nMore details' },
+      ] }] }] },
+    title: '', running: false, project: null, pending: [], decided: [],
+  }, { home: '/Users/jane', seat: 'Agent' })
+  assert.equal(result.title, 'Fix the importer')
+})
+
 test('phone user words drop desk context without a verified Lead source', () => {
   const result = thread([{ id: itemId('you'), type: 'userMessage', content: [deskContextContent(wrapContext('Workspace', 'Message for host: private injection')), { type: 'text', text: 'Fix the bug.' }] }])
   assert.deepEqual(result.turns[0], { type: 'you', id: 'you', text: 'Fix the bug.', attachments: [] })

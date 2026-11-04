@@ -1,5 +1,5 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import { isLeadMessageSource, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
+import { firstAsk, isLeadMessageSource, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
 import { LeadChatControlStore, LeadChatHeldError } from './lead/chat-control.js'
 import { decideLeadSecondLook, leadDoneStopId, leadSecondLookAuthorized, type LeadSecondLookInput } from './lead/second-look.js'
 import { readChecks } from './evidence/checks-file.js'
@@ -9943,7 +9943,8 @@ export class Host {
         if (!this.#sessionIndex.isOwn(record.runtime, id)) return []
         const cost = record.session.usage?.cost
         return [{ runtime: record.runtime, id, running: record.running.size > 0, waiting: record.approvals.size > 0,
-          cost: cost && cost.currency === 'USD' ? cost.amount : null }]
+          cost: cost && cost.currency === 'USD' ? cost.amount : null,
+          preview: record.session.preview || firstAsk(record.session) }]
       }),
       seatName: (runtime) => {
         const known = this.#runtimes.get(runtime)

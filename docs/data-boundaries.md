@@ -100,6 +100,9 @@ the paired phone and this desk.
 
 A paired phone can receive the Lead thread and redacted work projections,
 page active and archived session metadata, and read their redacted transcripts.
+It also receives up to 50 sorted, scrubbed admitted project names for starting
+a session, including projects with no sessions yet; ambiguous names are omitted
+and no project root paths are sent.
 Command output tails are limited to 40 lines, 300 characters per line and 8 KB
 per step. Diff hunks carry at most 400 lines per file and 1,500 per turn,
 300 characters per line; totals remain complete. Both are scrubbed like

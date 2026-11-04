@@ -1,4 +1,4 @@
-import { isLeadMessageSource, LEAD_MESSAGE_PREFIX, leadMessageKey, leadMessageWords, splitContextContent, wrapContext, type LeadChatControl } from '@harnessdesk/protocol'
+import { firstAsk, sessionLabel, isLeadMessageSource, LEAD_MESSAGE_PREFIX, leadMessageKey, leadMessageWords, splitContextContent, wrapContext, type LeadChatControl } from '@harnessdesk/protocol'
 import { basename, isAbsolute, relative } from 'node:path'
 import type {
   AgentItem, Approval, ApprovalOption, CommandItem, FileChange, PhoneApprovalState, PhoneDiffLine, PhoneDiffHunk, PhoneWorkFileChange, PhoneWorkStep, PhoneWorkThread, PhoneWorkTurn,
@@ -480,7 +480,7 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
   const result: PhoneWorkThread = {
     ...(input.leadControl ? { leadChatHolder: input.leadControl.holder } : {}),
     id: input.id,
-    title: scrub(input.title ?? session.title ?? session.preview ?? '') || 'Untitled',
+    title: scrub(sessionLabel(input.title ?? session.title, session.preview, '') || firstAsk(session) || '') || 'Untitled',
     ...(project ? { project } : {}),
     agent: { name: context.seat },
     status: input.pending.length > 0 ? 'asksYou' : input.running ? 'running' : 'done',
