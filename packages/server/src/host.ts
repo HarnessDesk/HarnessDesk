@@ -10121,9 +10121,10 @@ export class Host {
       projectRoots: () => this.#state.state.workspaces.map(workspace => workspace.path),
       projectName: root => folderName(this.#sessionIndex.repo(root)?.repo?.root ?? root),
       canInterrupt: runtime => this.#runtimes.get(runtime)?.info.capabilities.interrupt === true,
-      newSessionValues: async (runtime, cwd) => {
+      models: runtime => this.call('runtime/models', { runtime }),
+      newSessionValues: async (runtime, cwd, choices) => {
         await this.#ensureStarted(this.#runtime({ runtime }))
-        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params))
+        return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params), choices)
       },
       create: (params, effectStarted) => createConversation(this.#context, params, effectStarted),
       send: async (params, admitCwd) => {

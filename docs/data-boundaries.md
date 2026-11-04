@@ -100,10 +100,18 @@ the paired phone and this desk.
 
 A paired phone can receive the Lead thread and redacted work projections,
 page active and archived session metadata, and read their redacted transcripts.
+Command output tails are limited to 40 lines, 300 characters per line and 8 KB
+per step. Diff hunks carry at most 400 lines per file and 1,500 per turn,
+300 characters per line; totals remain complete. Both are scrubbed like
+transcript text, with absolute paths rewritten to project paths and
+key-shaped strings and addresses redacted. A serialized thread is capped at
+512 KB, retaining recent entries and bounded recent hunks so it fits the relay.
 With Run it can create a session in an admitted project or a fresh chat folder,
 send text to an active ordinary session, and interrupt a supported running
 turn. These actions reuse the desk's host methods without changing session
-permissions or model settings. It can also send to the Lead, stop or resume
+permissions. New sessions may choose a model and effort from the default
+runtime's own catalogue; the phone receives its model names, descriptions,
+effort choices and fast-tier capability, never a hard-coded model list. It can also send to the Lead, stop or resume
 it, answer its cards and permitted worker questions, and request required
 checks. Approval decisions require Answer. Read, Run and Answer grants bound its
 surface. Lead worker cards can carry complete bounded request details, including
@@ -120,7 +128,8 @@ LAN lane. Account sign-out and deletion do not remove this separate registry.
 Lead requires the startup opt-in `HARNESSDESK_LEAD=1`, a configured provider key
 and a runtime whose permission model blocks the network for its restricted
 child. The desktop app's bundled Node is downloaded from nodejs.org when the app
-is built, never by the installed app. Its host sends model requests containing
+is built or started from source, never by the installed app. Source startup
+uses the same pinned SHA-256 verification and continues if the fetch fails. Its host sends model requests containing
 the project root, system instructions, conversation, approved contract and tool
 results to the configured provider transport. When asked to manage project chats,
 these results can include their titles, state and redacted transcript projections.
@@ -136,8 +145,9 @@ host; the child asks through a bounded provider-send port. Workers retain their
 own agent connections. Lead's journal, plan decisions, allowances and worker
 observations stay in the desk's state folder. Stop ends the active request and
 owned work without deleting files; disabling the startup opt-in leaves the
-journal on disk. The current desktop's embedded runtime is below the child
-floor and reports Lead unavailable before sending a request.
+journal on disk. The desktop probes its embedded runtime first, then its bundled or locally
+fetched Node. If no candidate passes, Lead reports unavailable before sending
+a request.
 
 ### An armed trigger polls the same forge, on its own schedule
 

@@ -1,15 +1,15 @@
 import { isLeadMessageSource, LEAD_MESSAGE_PREFIX, leadMessageKey, leadMessageWords, splitContextContent, wrapContext, type LeadChatControl } from '@harnessdesk/protocol'
 import { basename, isAbsolute, relative } from 'node:path'
 import type {
-  AgentItem, Approval, ApprovalOption, CommandItem, FileChange, PhoneApprovalState, PhoneWorkStep, PhoneWorkThread, PhoneWorkTurn,
+  AgentItem, Approval, ApprovalOption, CommandItem, FileChange, PhoneApprovalState, PhoneDiffLine, PhoneDiffHunk, PhoneWorkFileChange, PhoneWorkStep, PhoneWorkThread, PhoneWorkTurn,
   PlanStep, Session, Turn, UserContent,
 } from '@harnessdesk/protocol'
-import { commandForApproval, commandTitle, projectPath, scrub, scrubText } from './phone-redact.js'
+import { commandForApproval, commandTitle, projectPath, scrub, scrubText, scrubProjectText } from './phone-redact.js'
 
 /**
  * A conversation as a paired phone reads it. Like the rest of what the phone sees it is built field by field and
- * then redacted, and it leaves out more than a desk's own transcript shows: a command's output, the lines of a
- * change and every absolute path stay on the desk. What it keeps is what a person would say about the work, which
+ * then redacted. Bounded, scrubbed command tails and diff hunks reach the paired phone; absolute paths are
+ * rewritten to project paths. What it keeps is what a person would say about the work, which
  * is the point of reading it on a phone: what was asked, what the agent answered, what it did, and what it is
  * waiting to be allowed.
  */
@@ -181,10 +181,12 @@ const seconds = (item: { durationMs?: number }): number | undefined =>
   item.durationMs === undefined ? undefined : Math.max(0, Math.round(item.durationMs / 1000))
 
 const countLines = (diff: string, kind: FileChange['kind']): { added: number; removed: number } => {
-  let added = 0, removed = 0
+  if (kind.type === 'add') return { added: diff.match(/[^\n]*\n|[^\n]+$/g)?.length ?? 0, removed: 0 }
+  let added = 0, removed = 0, inHunk = false
   for (const line of diff.split('\n')) {
-    if (kind.type === 'add') { if (line !== '') added++; continue }
-    if (line.startsWith('+++') || line.startsWith('---')) continue
+    if (line.startsWith('@@')) { inHunk = true; continue }
+    if (line.startsWith('diff --git ')) { inHunk = false; continue }
+    if (!inHunk && (line.startsWith('+++') || line.startsWith('---'))) continue
     if (line.startsWith('+')) added++
     else if (line.startsWith('-')) removed++
   }
@@ -195,7 +197,30 @@ const step = (id: string, kind: PhoneWorkStep['kind'], title: string, rest: Part
   id, kind, title, files: [], failed: false, output: [], todos: [], ...rest,
 })
 
-const commandStep = (item: CommandItem, cwd: string): PhoneWorkStep => {
+const boundedLine = (text: string, cwd: string, noteTruncated: () => void): string => {
+  const whole = scrubProjectText(text, cwd, Infinity)
+  const shown = scrubProjectText(text, cwd, 300)
+  if (shown !== whole) noteTruncated()
+  return shown
+}
+
+const outputTail = (output: string, cwd: string, noteTruncated: () => void): string[] => {
+  if (!output) return []
+  const lines = output.replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n')
+  if (lines.length > 40) noteTruncated()
+  const shown: string[] = []
+  let bytes = 2 // JSON array brackets
+  for (const line of lines.slice(-40).reverse()) {
+    const text = boundedLine(line, cwd, noteTruncated)
+    const size = Buffer.byteLength(JSON.stringify(text), 'utf8') + (shown.length ? 1 : 0)
+    if (bytes + size > 8192) { noteTruncated(); break }
+    bytes += size
+    shown.push(text)
+  }
+  return shown.reverse()
+}
+
+const commandStep = (item: CommandItem, cwd: string, noteTruncated: () => void): PhoneWorkStep => {
   const action = item.actions[0]
   const failed = item.status === 'failed' || (typeof item.exitCode === 'number' && item.exitCode !== 0)
   const common: Partial<PhoneWorkStep> = {
@@ -204,13 +229,13 @@ const commandStep = (item: CommandItem, cwd: string): PhoneWorkStep => {
   if (action?.type === 'read') return step(String(item.id), 'read', `Read ${scrub(action.name, 60) || 'a file'}`, { ...common, files: [projectPath(action.path, cwd)] })
   if (action?.type === 'listFiles') return step(String(item.id), 'read', 'Listed files', common)
   if (action?.type === 'search') return step(String(item.id), 'search', 'Searched the code', common)
-  return step(String(item.id), 'run', commandTitle(item.command), common)
+  return step(String(item.id), 'run', commandTitle(item.command), { ...common, output: outputTail(item.output ?? '', cwd, noteTruncated) })
 }
 
-const stepOf = (item: AgentItem, cwd: string): PhoneWorkStep | null => {
+const stepOf = (item: AgentItem, cwd: string, noteTruncated: () => void): PhoneWorkStep | null => {
   const id = String(item.id)
   switch (item.type) {
-    case 'command': return commandStep(item, cwd)
+    case 'command': return commandStep(item, cwd, noteTruncated)
     case 'fileChange': {
       const merged = mergeChanges(item.changes, cwd)
       const added = merged.reduce((sum, file) => sum + file.added, 0), removed = merged.reduce((sum, file) => sum + file.removed, 0)
@@ -250,6 +275,46 @@ const mergeChanges = (changes: readonly FileChange[], cwd: string): { path: stri
   return [...byPath.values()]
 }
 
+/** Parse only unified hunks; binary notices and absent diffs have no readable lines. */
+const changesWithHunks = (changes: readonly FileChange[], cwd: string, noteTruncated: () => void): PhoneWorkFileChange[] => {
+  const files = mergeChanges(changes, cwd).map(file => ({ ...file, hunks: [] as { header: string; lines: PhoneDiffLine[] }[] }))
+  const byPath = new Map(files.map(file => [file.path, file]))
+  const counts = new Map<string, number>()
+  let total = 0
+  for (const change of changes) {
+    const file = byPath.get(projectPath(change.path, cwd))!
+    let hunk: { header: string; lines: PhoneDiffLine[] } | undefined
+    let old = 0, next = 0, oldLeft = 0, nextLeft = 0
+    if (change.diff.includes('\0') || /^(?:Binary files |GIT binary patch)/.test(change.diff)) continue
+    // Added files carry full content in the protocol; synthesize their unified hunk.
+    const content = change.kind.type === 'add' && change.diff !== ''
+      ? change.diff.match(/[^\n]*\n|[^\n]+$/g)?.map(line => line.replace(/\n$/, '')) : undefined
+    const diff = content ? `@@ -0,0 +1,${content.length} @@\n${content.map(line => `+${line}`).join('\n')}` : change.diff
+    for (const line of diff.split('\n')) {
+      const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line)
+      if (header) {
+        old = Number(header[1]); next = Number(header[3])
+        oldLeft = Number(header[2] ?? 1); nextLeft = Number(header[4] ?? 1)
+        hunk = { header: boundedLine(line, cwd, noteTruncated), lines: [] }
+        continue
+      }
+      if (!hunk || (oldLeft === 0 && nextLeft === 0)) continue
+      const kind = line[0] === '+' ? 'add' : line[0] === '-' ? 'remove' : line[0] === ' ' ? 'context' : null
+      if (!kind) continue
+      if ((kind !== 'add' && oldLeft <= 0) || (kind !== 'remove' && nextLeft <= 0)) { hunk = undefined; continue }
+      const number = kind === 'remove' ? old : next
+      if (kind !== 'add') { old++; oldLeft-- }
+      if (kind !== 'remove') { next++; nextLeft-- }
+      if ((counts.get(file.path) ?? 0) >= 400 || total >= 1500) { noteTruncated(); continue }
+      if (hunk.lines.length === 0) file.hunks.push(hunk)
+      hunk.lines.push({ kind, number, text: boundedLine(line.slice(1), cwd, noteTruncated) })
+      counts.set(file.path, (counts.get(file.path) ?? 0) + 1)
+      total++
+    }
+  }
+  return files
+}
+
 const summaryOf = (steps: readonly PhoneWorkStep[]): string => {
   const count = (kind: PhoneWorkStep['kind']): number => steps.filter(one => one.kind === kind).length
   const edited = new Set(steps.filter(one => one.kind === 'edit').flatMap(one => one.files)).size
@@ -274,9 +339,9 @@ const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated:
   const split = splitContextContent(item.content)
   const verified = split.injections.filter(block => isLeadMessageSource(block.label) && sent.has(leadMessageKey(chatId, wrapContext(block.label, block.text))))
   const source = verified.length ? [
-    ...split.injections.map(block => verified.includes(block) ? leadMessageWords(block.text) : wrapContext(block.label, block.text)),
+    ...verified.map(block => leadMessageWords(block.text)),
     split.text,
-  ].filter(Boolean).join('\n') : item.content.flatMap((part: UserContent) => part.type === 'text' ? [part.text] : []).join('\n')
+  ].filter(Boolean).join('\n') : split.text
   const text = scrubText(source)
   if (text !== scrubText(source, Infinity)) noteTruncated()
   const attachments = item.content.flatMap((part: UserContent) => {
@@ -284,7 +349,7 @@ const youOf = (item: Extract<AgentItem, { type: 'userMessage' }>, noteTruncated:
     if (part.type === 'localImage') return [scrub(basename(part.path), 60) || 'Image']
     return []
   })
-  return text === '' && attachments.length === 0 ? null : { type: 'you', id: String(item.id), text, attachments, ...(verified.length === 1 && split.injections.length === 1 && split.text === '' && attachments.length === 0 ? { lead: { name: scrub(verified[0]!.label.slice(LEAD_MESSAGE_PREFIX.length), 60) } } : {}) }
+  return text === '' && attachments.length === 0 ? null : { type: 'you', id: String(item.id), text, attachments, ...(verified.length === 1 && split.text === '' && attachments.length === 0 ? { lead: { name: scrub(verified[0]!.label.slice(LEAD_MESSAGE_PREFIX.length), 60) } } : {}) }
 }
 
 interface Timed { readonly id: string; readonly startedAt?: number; readonly completedAt?: number; readonly durationMs?: number }
@@ -321,16 +386,57 @@ const turnsOf = (turn: Turn, cwd: string, noteTruncated: () => void, sent: Reado
       continue
     }
     if (item.type === 'error') { close(); turns.push({ type: 'agent', id: String(item.id), markdown: `Something went wrong: ${scrub(item.message, 300)}` }); continue }
-    const one = stepOf(item, cwd)
+    const one = stepOf(item, cwd, noteTruncated)
     if (one) into({ id: String(item.id), startedAt: item.startedAt, completedAt: item.completedAt, durationMs: item.durationMs }, one)
   }
   close()
   if (plan) { into({ id: `${turn.id}:plan` }, plan); close() }
 
   // What the turn changed, once, at its end: the files by their project path and the size of each change.
-  const files = mergeChanges(turn.items.flatMap(item => item.type === 'fileChange' && item.status !== 'failed' && item.status !== 'declined' ? item.changes : []), cwd)
-  if (files.length > 0) turns.push({ type: 'changes', id: `${turn.id}:changes`, files: files.map(file => ({ ...file, hunks: [] })) })
+  const files = changesWithHunks(turn.items.flatMap(item => item.type === 'fileChange' && item.status !== 'failed' && item.status !== 'declined' ? item.changes : []), cwd, noteTruncated)
+  if (files.length > 0) turns.push({ type: 'changes', id: `${turn.id}:changes`, files })
   return turns
+}
+
+/** Leave room below the relay's 1 MiB encrypted-frame ceiling, including wire framing. */
+const THREAD_BYTES = 512 * 1024
+const jsonBytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value), 'utf8')
+
+const fitChanges = (turn: Extract<PhoneWorkTurn, { type: 'changes' }>, budget: number): PhoneWorkTurn | null => {
+  const files = turn.files.map(file => ({ ...file, hunks: [] as PhoneDiffHunk[] }))
+  let bytes = jsonBytes({ ...turn, files })
+  if (bytes > budget) return null
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]!
+    for (const hunk of turn.files[i]!.hunks) {
+      const lines: PhoneDiffLine[] = []
+      const headerBytes = jsonBytes({ header: hunk.header, lines }) + (file.hunks.length ? 1 : 0)
+      for (const line of hunk.lines) {
+        const cost = jsonBytes(line) + (lines.length ? 1 : headerBytes)
+        if (bytes + cost > budget) return { ...turn, files }
+        if (!lines.length) file.hunks.push({ header: hunk.header, lines })
+        lines.push(line)
+        bytes += cost
+      }
+    }
+  }
+  return { ...turn, files }
+}
+
+const boundThread = (thread: PhoneWorkThread, noteTruncated: () => void): PhoneWorkThread => {
+  const shown: PhoneWorkTurn[] = []
+  let budget = THREAD_BYTES - jsonBytes({ ...thread, turns: [] })
+  for (const turn of [...thread.turns].reverse()) {
+    const bytes = jsonBytes(turn) + (shown.length ? 1 : 0)
+    if (bytes <= budget) { shown.push(turn); budget -= bytes; continue }
+    noteTruncated()
+    if (turn.type === 'changes') {
+      const fitted = fitChanges(turn, budget - (shown.length ? 1 : 0))
+      if (fitted) shown.push(fitted)
+    }
+    break
+  }
+  return { ...thread, turns: shown.reverse() }
 }
 
 export interface ThreadInput {
@@ -377,5 +483,6 @@ export const buildThread = (input: ThreadInput, context: ThreadContext): PhoneWo
       ...asks,
     ],
   }
-  return Object.defineProperty(result, projectionKey, { value: { omittedSourceTurns, truncated } satisfies ThreadProjection })
+  const bounded = boundThread(result, () => { truncated = true })
+  return Object.defineProperty(bounded, projectionKey, { value: { omittedSourceTurns, truncated } satisfies ThreadProjection })
 }

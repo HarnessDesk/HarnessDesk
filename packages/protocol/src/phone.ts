@@ -184,7 +184,7 @@ export interface PhoneDashboard {
  *
  * It is the same redacted view as the `phone/*` projections above, with two differences made on purpose. Money is
  * integer micro-dollars (`{ micros }`), the unit the phone's own `Money` decodes. And a conversation is readable:
- * its words go through `scrubText`, a command's output and a change's lines never leave the desk, and a file is
+ * its words go through `scrubText`, bounded scrubbed command tails and diff hunks reach the paired phone, and a file is
  * named by its path inside the project, never by one on this machine.
  */
 
@@ -338,12 +338,20 @@ export interface PhoneWorkCapabilities {
   readonly decide: boolean
 }
 
+export interface PhoneModelChoice {
+  readonly id: string
+  readonly name: string
+  readonly hint: string
+  readonly efforts: readonly ('low' | 'medium' | 'high' | 'extra')[]
+  readonly fast: boolean
+}
+
 export interface PhoneWorkSnapshot {
   readonly deskName: string
   readonly items: readonly PhoneWorkItem[]
   /** Left out until the desk has scanned its usage once: the phone then says Unknown. */
   readonly usage?: PhoneWorkUsage
-  readonly models: readonly never[]
+  readonly models: readonly PhoneModelChoice[]
   readonly flows: readonly never[]
   readonly commands: readonly never[]
   readonly capabilities: PhoneWorkCapabilities
@@ -359,19 +367,31 @@ export interface PhoneWorkStep {
   readonly added?: number
   readonly removed?: number
   readonly failed: boolean
-  /** Always empty: a command's output stays on the desk. */
+  /** Scrubbed command tail: at most 40 lines, 300 characters per line and 8 KB per step. */
   readonly output: readonly string[]
   readonly exitCode?: number
   readonly seconds?: number
   readonly todos: readonly { readonly text: string; readonly done: boolean; readonly active: boolean }[]
 }
 
+export interface PhoneDiffLine {
+  readonly kind: 'context' | 'add' | 'remove'
+  /** New-file number for context/add, old-file number for remove. */
+  readonly number: number
+  readonly text: string
+}
+
+export interface PhoneDiffHunk {
+  readonly header: string
+  readonly lines: readonly PhoneDiffLine[]
+}
+
 export interface PhoneWorkFileChange {
   readonly path: string
   readonly added: number
   readonly removed: number
-  /** Always empty: the lines of a change are file contents. */
-  readonly hunks: readonly never[]
+  /** Scrubbed hunks: 400 lines per file, 1,500 per turn, 300 characters per line. */
+  readonly hunks: readonly PhoneDiffHunk[]
 }
 
 export type PhoneApprovalState = 'pending' | 'allowed' | 'allowedForSession' | 'denied'

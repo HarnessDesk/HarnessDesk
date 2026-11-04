@@ -1029,7 +1029,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'phone/dashboard/read': shape({ range: optional(literalUnion('today', '7d', '30d')) }),
   'workspace/read': parseLeadEmpty,
   'workspace/sessions/list': phoneShape({ archived: optional(isBoolean), cursor: optional(phoneText(2048)), limit: optional(phonePageLimit) }),
-  'workspace/session/start': phoneShape({ text: phoneText(32_000), project: optional(phoneText(120)) }),
+  'workspace/session/start': phoneShape({ text: phoneText(32_000), project: optional(phoneText(120)), model: optional(phoneText(300)), effort: optional(literalUnion('low', 'medium', 'high', 'extra')) }),
   'workspace/session/send': phoneShape({ id: phoneText(300), text: phoneText(32_000) }),
   'workspace/stop': phoneShape({ id: phoneText(300) }),
   'workspace/thread/read': shape({ id: isString }),

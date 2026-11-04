@@ -10,7 +10,7 @@ import {
 import { Logger } from '../src/log.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { phoneLinkOff, PHONE_POLICY, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
-import { PhoneWork } from '../src/phone-work.js'
+import { PhoneWork, phoneSessionValues } from '../src/phone-work.js'
 
 const RT = runtimeId('agent-a')
 const SID = sessionId('s1')
@@ -33,7 +33,7 @@ const conversation: Session = {
     id: turnId('t1'), status: 'completed',
     items: [
       { id: itemId('u1'), type: 'userMessage', content: [{ type: 'text', text: `Fix ${CWD}/src/auth.ts for dev@example.com` }] },
-      { id: itemId('c1'), type: 'command', command: 'pnpm test', cwd: CWD, origin: 'agent', status: 'completed', actions: [], output: `${CWD}/src/auth.ts: the secret transcript line`, exitCode: 0 },
+      { id: itemId('c1'), type: 'command', command: 'pnpm test', cwd: CWD, origin: 'agent', status: 'completed', actions: [], output: `${CWD}/src/auth.ts: sk-abcdefghijklmnop`, exitCode: 0 },
       { id: itemId('a1'), type: 'assistantMessage', text: `Done in ${CWD}/src. Ask dev@example.com.`, phase: 'final' },
     ],
   }],
@@ -42,14 +42,14 @@ const conversation: Session = {
 /** Everything a phone must never read in any response. */
 const leaks = (value: unknown): string[] => {
   const text = JSON.stringify(value)
-  return [/\/home\//, /@/, /secret transcript/].filter(pattern => pattern.test(text)).map(String)
+  return [/\/home\//, /@/, /sk-abcdefghijklmnop/].filter(pattern => pattern.test(text)).map(String)
 }
 
 /**
  * The real link and the real wire methods over a desk whose work is one session, asked the way a phone asks.
  * What the desk would have to say is scripted through the ports of `PhoneWork`; everything between is the product.
  */
-const door = async () => {
+const door = async (chooseModel = false) => {
   const home = await mkdtemp(join(tmpdir(), 'hd-phone-wire-'))
   const state = { title: 'Fix the importer', pending: [asked()], builds: 0, running: false, responded: [] as any[], actions: [] as any[] }
   const items = (): PhoneWorkItem[] => [{ id: KEY, kind: 'session', title: state.title, phase: 'running', line: 'Working', updatedAt: 1 }]
@@ -63,7 +63,11 @@ const door = async () => {
     read: async () => conversation,
     live: () => ({ running: state.running, pending: state.pending, cwd: CWD }),
     defaultRuntime: () => RT, projectRoots: () => [CWD], canInterrupt: () => true,
-    newSessionValues: async () => ({}), queue: async params => { state.actions.push(['send', params]); state.running = true; return { queuedId: null, sent: true } }, create: async params => { state.actions.push(['create', params]); return conversation },
+    models: async () => chooseModel ? [{ id: 'one', displayName: 'Model One', supportsImages: false, reasoningLevels: [{ id: 'xhigh', label: 'Extra high' }] }] : [],
+    newSessionValues: async (runtime, cwd, choices) => chooseModel ? phoneSessionValues(runtime, cwd, {}, async params => [
+      { id: 'model', category: 'model', type: 'select', label: 'Model', currentValue: params.values?.model as string ?? 'one', choices: [{ value: 'one', label: 'Model One' }] },
+      { id: 'effort', category: 'thought_level', type: 'select', label: 'Effort', currentValue: params.values?.effort as string ?? 'xhigh', choices: [{ value: 'xhigh', label: 'Extra high' }] },
+    ], choices) : ({}), queue: async params => { state.actions.push(['send', params]); state.running = true; return { queuedId: null, sent: true } }, create: async params => { state.actions.push(['create', params]); return conversation },
     send: async params => { state.actions.push(['send', params]); state.running = true },
     interrupt: async params => { state.actions.push(['stop', params]); state.running = false },
     respond: async params => { state.responded.push(params); state.pending = state.pending.filter(one => one.id !== params.approvalId) },
@@ -159,7 +163,7 @@ test('session controls reject invalid text, hidden defaults, unbounded pages and
       ['workspace/sessions/list', { cursor: '' }], ['workspace/sessions/list', { archived: 'yes' }],
       ['workspace/session/start', { text: '' }], ['workspace/session/start', { text: ' \n ' }], ['workspace/session/start', { text: 'x'.repeat(32_001) }],
       ['workspace/session/start', { text: 'Hello', project: '' }], ['workspace/session/start', { text: 'Hello', permissions: 'always' }],
-      ['workspace/session/start', { text: 'Hello', model: 'hidden' }], ['workspace/session/send', { id: KEY, text: 'Hello', effort: 'high' }],
+      ['workspace/session/send', { id: KEY, text: 'Hello', effort: 'high' }],
       ['workspace/session/send', { id: KEY, text: ' ' }], ['workspace/session/send', { id: '', text: 'Hello' }],
       ['workspace/stop', {}], ['workspace/stop', { id: '' }],
     ] as const) assert.equal((await phone.request(method, params)).error.code, 'badRequest', `${method} ${JSON.stringify(params).slice(0, 100)}`)
@@ -175,7 +179,7 @@ test('the phone surface carries the three workspace names at the tiers a phone n
   assert.deepEqual(Object.keys(PHONE_POLICY.methods).filter(name => name.startsWith('workspace/')).sort(), ['workspace/approval/decide', 'workspace/read', 'workspace/session/send', 'workspace/session/start', 'workspace/sessions/list', 'workspace/stop', 'workspace/thread/read'])
 })
 
-test('a phone that may read gets the snapshot and a conversation, and neither holds a path, an address or output', async () => {
+test('a phone that may read gets the snapshot and a conversation, and both scrub machine paths, addresses and output tokens', async () => {
   const d = await door()
   try {
     const phone = await d.pair(['read'])
@@ -331,6 +335,26 @@ test('chat holder changes invalidate phone threads even when the bounded snapsho
     d.emit({ method: 'lead/chats/controlChanged', params: { project: '/w', chats: [{ id: KEY, holder: 'person', sent: [] }] } })
     await d.settle()
     assert.equal(phone.inbox.filter(isSnapshot).length, 1, 'a change beyond the snapshot still tells the phone to refresh')
+    phone.close()
+  } finally { await d.done() }
+})
+
+
+test('encrypted phone starts honour a listed model and effort and return a problem for an unknown model', async () => {
+  const d = await door(true)
+  try {
+    const phone = await d.pair()
+    const snapshot = await phone.request('workspace/read', {})
+    assert.equal(snapshot.result.capabilities.chooseModel, true)
+    assert.equal(snapshot.result.models[0].name, 'Model One')
+    const unknown = await phone.request('workspace/session/start', { text: 'Hello', model: 'unknown' })
+    assert.equal(unknown.ok, true)
+    assert.equal(unknown.result.id, '')
+    assert.match(unknown.result.problem, /model.*available/i)
+    assert.equal(d.state.actions.length, 0)
+    const started = await phone.request('workspace/session/start', { text: 'Hello', model: 'one', effort: 'extra' })
+    assert.deepEqual(started.result, { id: KEY })
+    assert.deepEqual(d.state.actions[0]![1].options.options, { model: 'one', effort: 'xhigh' })
     phone.close()
   } finally { await d.done() }
 })

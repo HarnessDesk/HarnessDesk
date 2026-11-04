@@ -107,6 +107,7 @@ test('models exclude hidden entries and carry reasoning efforts', async (t) => {
     ['low', 'high'],
   )
   assert.equal(models[0]?.supportsImages, true)
+  assert.equal(models[0]?.supportsFast, true)
 })
 
 test('account and rate limits are normalised, including no-credits', async (t) => {

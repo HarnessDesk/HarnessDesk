@@ -661,6 +661,7 @@ export class CodexRuntime implements AgentRuntime {
           label: effortLabel(option.reasoningEffort),
         })),
         supportsImages: model.inputModalities.includes('image'),
+        supportsFast: model.serviceTiers.some(tier => tier.id === 'priority'),
         isDefault: model.isDefault,
       }))
   }

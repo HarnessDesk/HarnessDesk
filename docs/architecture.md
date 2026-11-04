@@ -967,7 +967,8 @@ phone can show. The native client follows those pages and refreshes them on
 workspace changes. `workspace/session/start`, `workspace/session/send` and
 `workspace/stop` require Run and reach the ordinary session creation, turn
 dispatch and interrupt paths. They do not change a conversation's permissions
-or model. A new session uses the desk's selected runtime; project names resolve
+or model. A new session uses the desk's selected runtime and may select a model
+and effort from its reported catalogue; project names resolve
 only to admitted folders, and ambiguous names are refused. Archived sessions
 are readable; their mutations and Team-owned session ids are refused. Approval
 decisions retain the separate Answer grant and the existing approval path.

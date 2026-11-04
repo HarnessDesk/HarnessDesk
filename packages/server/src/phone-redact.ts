@@ -48,6 +48,14 @@ export const scrub = (text: string, limit = TITLE_LIMIT): string => shorten(reda
 export const scrubText = (text: string, limit = TEXT_LIMIT): string =>
   shorten(redact(text).replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(), limit)
 
+/** Transcript scrubbing with in-project absolute paths rewritten to project paths first. */
+export const scrubProjectText = (text: string, cwd: string, limit = 300): string =>
+  shorten(redact(text.replace(PATH, path => {
+    const punctuation = /[.,;:!?]+$/.exec(path)?.[0] ?? ''
+    const bare = punctuation ? path.slice(0, -punctuation.length) : path
+    return `${projectPath(bare, cwd)}${punctuation}`
+  })).replace(/[ \t]+$/g, ''), limit)
+
 /** A folder's own name. Never the path above it, and never a name that is only a home or a root. */
 export const folderName = (path: string | null | undefined): string | null => {
   if (!path) return null

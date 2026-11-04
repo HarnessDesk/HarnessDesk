@@ -8,6 +8,7 @@ import type { HostMethodTable } from './context.js'
 export const phoneWorkspaceMethods = {
   'workspace/read': ctx => ctx.phoneWork.snapshot(),
   'workspace/sessions/list': (ctx, params) => ctx.phoneWork.sessionsList(params),
+  // Current model membership is checked by PhoneWork before allocation and returns a phone problem.
   'workspace/session/start': (ctx, params) => ctx.phoneWork.sessionStart(params),
   'workspace/session/send': (ctx, params) => ctx.phoneWork.sessionSend(params),
   'workspace/stop': (ctx, params) => ctx.phoneWork.stop(params),

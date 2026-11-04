@@ -44,7 +44,7 @@ const rig = (over: Partial<PhoneWorkPorts> = {}): Rig => {
     read: async () => current,
     live: () => ({ running, pending, cwd: CWD }),
     defaultRuntime: () => RT, projectRoots: () => [], canInterrupt: () => true,
-    newSessionValues: async () => ({}), create: async () => session([]), send: async () => {}, queue: async () => ({ queuedId: null, sent: true }), interrupt: async () => {},
+    models: async () => [], newSessionValues: async () => ({}), create: async () => session([]), send: async () => {}, queue: async () => ({ queuedId: null, sent: true }), interrupt: async () => {},
     respond: async params => { responded.push(params); pending = pending.filter(one => one.id !== params.approvalId) },
     hasSecret: text => /sk-[A-Za-z0-9]{10,}/.test(text),
     now: () => 1_000,
@@ -146,7 +146,7 @@ test('the snapshot says what the desk honours, in micro-dollars, with usage left
   assert.ok(!/@|\/home/.test(named.deskName), named.deskName)
 })
 
-test('a conversation is read as what was asked, answered and done, with no output, no change lines and no path', async () => {
+test('a conversation is read as what was asked, answered and done, with bounded output and no machine path', async () => {
   // The sessions list's own summary names the project, and the conversation says the same.
   const r = rig({ summary: () => ({ repo: { root: CWD } }) as unknown as SessionSummary })
   r.setSession(session([{
@@ -184,11 +184,12 @@ test('a conversation is read as what was asked, answered and done, with no outpu
   assert.equal(work.steps[2].failed, true)
   assert.deepEqual(work.steps[3].files, ['src/auth.ts', 'outside.conf'])
   assert.deepEqual(work.steps[5].todos, [{ text: 'Find the bug', done: true, active: false }, { text: 'Fix it', done: false, active: true }])
-  assert.ok(work.steps.every((one: any) => one.output.length === 0))
-  assert.deepEqual(changes.files, [{ path: 'src/auth.ts', added: 2, removed: 1, hunks: [] }, { path: 'outside.conf', added: 2, removed: 0, hunks: [] }])
+  assert.deepEqual(work.steps[1].output, ['src/auth.ts:1: SECRET=abc'])
+  assert.deepEqual(work.steps[2].output, ['1 failing'])
+  assert.deepEqual(changes.files, [{ path: 'src/auth.ts', added: 2, removed: 1, hunks: [] }, { path: 'outside.conf', added: 2, removed: 0, hunks: [{ header: '@@ -0,0 +1,2 @@', lines: [{ kind: 'add', number: 1, text: 'one' }, { kind: 'add', number: 2, text: 'two' }] }] }])
 
   const text = JSON.stringify(thread)
-  for (const leak of ['/home', '@', 'hunter2', 'SECRET', 'sk-abcdef', 'old secret', 'new secret', 'failing', 'etc/outside']) assert.ok(!text.includes(leak), `${leak} leaked: ${text}`)
+  for (const leak of ['/home', 'dev@example.com', 'hunter2', 'sk-abcdef', 'old secret', 'new secret', 'etc/outside']) assert.ok(!text.includes(leak), `${leak} leaked: ${text}`)
 })
 
 test('a conversation waiting on an approval shows it, and a structured question is said in a sentence', async () => {
@@ -529,7 +530,7 @@ test('phone threads expose only host-verified Lead words, historical name and th
   unknown.setSession(session([{ id: turnId('lookalike-t'), status: 'completed', items: [{ id: itemId('lookalike-u'), type: 'userMessage', content }] }]))
   const plain = await unknown.work.threadRead({ id: key })
   assert.equal(plain.leadChatHolder, undefined)
-  assert.equal((plain.turns[0] as any).lead, undefined)
+  assert.equal((plain.turns[0] as any)?.lead, undefined)
 })
 
 test('a phone read rechecks session ownership after the host control read', async () => {
@@ -549,4 +550,49 @@ test('a verified block never attributes additional person words to the Lead on t
   assert.equal(message.lead, undefined)
   assert.equal(message.text, 'Run the tests.\nAlso check the docs.')
   assert.equal(message.text.includes('<context'), false)
+})
+
+test('phone model choices read through the default runtime and map its own effort levels', async () => {
+  const { work } = rig({ models: async runtime => {
+    assert.equal(runtime, RT)
+    return [{ id: 'one', displayName: 'Model One', description: 'From the runtime', reasoningLevels: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }, { id: 'xhigh', label: 'Extra high' }], supportsImages: true, supportsFast: true },
+      { id: 'two', displayName: 'Model Two', reasoningLevels: [{ id: 'high', label: 'High' }, { id: 'medium', label: 'Medium' }, { id: 'low', label: 'Low' }], supportsImages: false }]
+  } })
+  const snapshot = await work.snapshot()
+  assert.deepEqual(snapshot.models, [{ id: 'one', name: 'Model One', hint: 'From the runtime', efforts: ['low', 'high', 'extra'], fast: true }, { id: 'two', name: 'Model Two', hint: '', efforts: ['low', 'medium', 'high'], fast: false }])
+  assert.equal(snapshot.capabilities.chooseModel, true)
+})
+
+test('phone start returns a problem for an unknown model without allocating or throwing', async () => {
+  let created = false
+  const { work } = rig({ create: async () => { created = true; return session([]) } })
+  const result = await work.sessionStart({ text: 'Hello', model: 'unknown' } as never)
+  assert.equal(result.id, '')
+  assert.match(result.problem ?? '', /model.*available/i)
+  assert.equal(created, false)
+})
+
+test('phone start resolves explicit model and extra effort before allocating', async () => {
+  const seen: any[] = []
+  const { work } = rig({
+    models: async () => [{ id: 'one', displayName: 'One', supportsImages: true, reasoningLevels: [{ id: 'xhigh', label: 'Extra high' }] }],
+    newSessionValues: async (_runtime: unknown, _cwd: unknown, choices: unknown) => { seen.push(choices); return { model: 'one', effort: 'xhigh', permissions: 'workspace' } },
+    create: async (params: unknown) => { seen.push(params); return session([]) },
+  })
+  assert.deepEqual(await work.sessionStart({ text: 'Hello', model: 'one', effort: 'extra' } as never), { id: key })
+  assert.deepEqual(seen[0], { model: 'one', effort: 'extra' })
+  assert.deepEqual(seen[1].options.options, { model: 'one', effort: 'xhigh', permissions: 'workspace' })
+})
+
+test('explicit phone model overrides a saved profile and resolves its effort against current options', async () => {
+  const values = await phoneSessionValues(RT, undefined, { draftValues: { [RT]: { profile: 'old', model: 'two', effort: 'low' } } }, async params => {
+    assert.equal(params.values?.profile, undefined)
+    const model = params.values?.model ?? 'two'
+    return [
+      { id: 'profile', category: '_profile', type: 'select', label: 'Profile', currentValue: '', recommendedValue: 'old', choices: [{ value: '', label: 'None' }, { value: 'old', label: 'Old' }] },
+      { id: 'model', category: 'model', type: 'select', label: 'Model', currentValue: model as string, choices: [{ value: 'one', label: 'One' }, { value: 'two', label: 'Two' }] },
+      { id: 'effort', category: 'thought_level', type: 'select', label: 'Effort', currentValue: params.values?.effort as string ?? 'xhigh', choices: [{ value: 'xhigh', label: 'Extra high' }], recommendedValue: 'xhigh' },
+    ]
+  }, { model: 'one', effort: 'extra' })
+  assert.deepEqual(values, { model: 'one', effort: 'xhigh' })
 })
