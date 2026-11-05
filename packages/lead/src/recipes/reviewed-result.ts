@@ -1,7 +1,7 @@
 /** Private source, deliberately outside the host's built-in Flow catalogue.
  * Checks are the project's declared checks, run by the worker through its existing
  * tools and judged from desk evidence. No model-generated shell command is inserted. */
-export const leadReviewedResultSource = `version: 2
+const legacyLeadReviewedResultSource = `version: 2
 name: Lead reviewed result
 inputs: {}
 roles:
@@ -49,5 +49,11 @@ messaging: board-only
 budget: { rounds: 10, without-progress: 2 }
 wait: 240
 `
-export const LEAD_REVIEWED_RESULT = Object.freeze({ id: 'lead-reviewed-result', revision: 'recipe-1', source: leadReviewedResultSource,
+/** Preserve the exact frozen recipe bytes for journals and running recipe-1 plans. */
+export const leadReviewedResultSource = legacyLeadReviewedResultSource
+  .replace('Missing checks are not approval.', 'Missing checks are not approval. Approve only on evidence you saw; if you could not verify something, say request-changes and name it.')
+  .replace('      title: Repair the blocking findings and rerun required checks', '      title: Repair the blocking findings and rerun required checks\n      detail: Fix only the failed assertions listed; leave the passed ones. Re-run only the failed and errored checks.')
+export const leadReviewedResultSourceFor = (revision: string): string | null =>
+  revision === 'recipe-1' ? legacyLeadReviewedResultSource : revision === 'recipe-2' ? leadReviewedResultSource : null
+export const LEAD_REVIEWED_RESULT = Object.freeze({ id: 'lead-reviewed-result', revision: 'recipe-2', source: leadReviewedResultSource,
   outcomes: Object.freeze(['accepted', 'declined'] as const) })

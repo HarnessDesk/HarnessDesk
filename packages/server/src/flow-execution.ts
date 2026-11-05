@@ -1,4 +1,4 @@
-import { leadRoundId } from '@harnessdesk/lead'
+import { leadRoundId, leadRepairInput, leadRepairDetail, leadAcceptanceObservation, type LeadAcceptanceResult } from '@harnessdesk/lead'
 export { leadRoundId } from '@harnessdesk/lead'
 import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
@@ -179,6 +179,7 @@ export interface FlowLeadBinding {
   readonly base?: string
 }
 export interface FlowLeadGuard {
+  acceptance?(run: StoredFlowExecution): Promise<LeadAcceptanceResult | null>
   /** Host second-look authority and atomic admission, including terminal spend reopening. */
   prepareSecondLook?(run: StoredFlowExecution, key: string, round: number): Promise<void>
   prepareRepair?(run: StoredFlowExecution, key: string, round: number): Promise<void>
@@ -3265,7 +3266,7 @@ export class FlowExecutions {
       run = await this.#put({ ...run, state: 'running', reason: null,
         ...(!existing && run.findings ? { findings: { ...run.findings, idleRounds: 0 } } : {}) })
       return this.#openRound(run.id, { role: 'implement', title: 'Repair the followed pull request',
-        detail: `${op.detail ?? 'Repair the observed checks or review on this branch.'}\n\nCommit the change and rerun the required checks. Independent review and person acceptance still apply. Never publish or merge.` },
+        detail: `${op.detail ?? 'Repair the observed checks or review on this branch.'}\n\nCommit the change. Fix only the failed assertions listed; leave the passed ones. Re-run only the failed and errored checks. Independent review and person acceptance still apply. Never publish or merge.` },
         { key: cause, evidence: [] }, [], true)
     })
   }
@@ -3305,6 +3306,18 @@ export class FlowExecutions {
     const policy = policyOf(run)
     const role = policy.roles.find((one) => one.id === then.role)
     if (!role) throw new Error(`There is no role called "${then.role}".`)
+    let repairDetail: string | null = null
+    if (run.lead && role.id === 'implement' && run.rounds.length > 0 && !heldRepair && !existing?.cards.length) {
+      const acceptance = await this.#lead?.acceptance?.(run)
+      if (acceptance) {
+        if (leadRepairInput(acceptance).failed.length === 0) {
+          // Keep the run live so its existing person check actions remain available.
+          await this.#put({ ...run, reason: leadAcceptanceObservation(acceptance) })
+          return this.#get(id).rounds.at(-1)!
+        }
+        repairDetail = leadRepairDetail(acceptance)
+      }
+    }
     let round: FlowRoundState = existing ?? {
       n: run.rounds.length + 1, role: role.id, cards: [], seats: [], evidence: cause.evidence, state: 'opening', cause: cause.key,
     }
@@ -3398,6 +3411,7 @@ export class FlowExecutions {
       }
       const detail = board.intents.find((one) => one.dispatch === `${id}:${round.n}:${index}`)?.detail ?? [
         said as string | null,
+        repairDetail,
         answers.length > 0 && role.kind !== 'check' ? `Finish this with complete_claim and an outcome of exactly one of: ${answers.join(', ')}.` : null,
         ...asksSplit,
       ].filter((one): one is string => Boolean(one)).join('\n\n')

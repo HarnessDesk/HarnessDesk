@@ -113,7 +113,7 @@ export class LeadPersonActions {
       if (!file.digest) continue
       for (const check of file.checks) {
         if (facts.some(one => one.freshness.state === 'fresh' && one.record.fact.kind === 'check' && one.record.fact.at === review.at &&
-          one.record.fact.name === check.name && one.record.fact.run === check.run && one.record.fact.digest === file.digest && one.record.fact.counted === true) ||
+          one.record.fact.name === check.name && one.record.fact.run === check.run && one.record.fact.digest === file.digest && one.record.fact.counted === true && one.record.fact.exit !== null && !one.record.fact.timedOut) ||
           evidence.cards.some(card => ids.has(card.card) && card.running.some(running => running.name === check.name))) continue
         // A command must reach the person whole, screened by the same key guard as Lead prose.
         if (leadContainsSecret(check.run)) continue

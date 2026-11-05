@@ -565,3 +565,13 @@ test('Lead contracts preserve explicit no-publication pins without adding an abs
     assert.deepEqual(protocol.parseLeadAcceptanceContract(value), value)
   }
 })
+
+
+test('stored assertion results accept old and new statuses without changing their shape', () => {
+  for (const status of ['pending', 'passed', 'failed', 'unknown', 'no-evidence', 'errored']) {
+    const stored = { ...result, status }
+    assert.deepEqual(protocol.parseLeadAssertionResult(stored), stored)
+    assert.deepEqual(protocol.parseLeadCard({ ...cards[3], assertions: [stored] }).type, 'result')
+  }
+  assert.throws(() => protocol.parseLeadAssertionResult({ ...result, status: 'maybe' }))
+})

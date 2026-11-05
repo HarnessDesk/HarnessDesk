@@ -87,3 +87,23 @@ test('start settlement uses the same stable host round identity as recovery', as
     vars: {}, attended: true, seats: { implement: [contract.steps[0]!.assignments[0]!.seat], review: [contract.steps[0]!.assignments[1]!.seat] } } })
   assert.equal(s.journal.state.budget!.rounds[0]!.roundId, 'run-1:round:1')
 })
+
+
+test('a stored recipe-1 plan can still start its exact frozen source', async () => {
+  const { leadReviewedResultSourceFor, LEAD_REVIEWED_RESULT } = await import('../src/index.js')
+  assert.equal(LEAD_REVIEWED_RESULT.revision, 'recipe-2')
+  const source = leadReviewedResultSourceFor('recipe-1')!
+  assert.ok(source && source !== LEAD_REVIEWED_RESULT.source)
+  assert.equal(leadReviewedResultSourceFor('recipe-0'), null)
+  const s = await fixture()
+  const legacy = { ...contract, steps: contract.steps.map(step => ({ ...step, sourceRevision: 'recipe-1' })) }
+  await s.journal.offerCard({ version: 1, id: 'legacy', revision: 1, type: 'plan', contractDigest: legacy.digest, contract: legacy })
+  await s.journal.decideCard({ version: 1, cardId: 'legacy', cardType: 'plan', expectedRevision: 1, contractDigest: legacy.digest, choice: 'approve' }, 1000)
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true,
+    resolveTool: async (call: any) => ({ ...await s.options.resolveTool(call), start: legacy.steps[0],
+      preview: { token: 'preview-1', source, expiresAt: 200 } }) })
+  const result = await tools.execute({ method: 'flow/start-goal', params: { root: project.path, source, token: 'preview-1', sentence: legacy.goal,
+    vars: {}, attended: true, seats: Object.fromEntries(legacy.steps[0]!.assignments.map(assignment => [assignment.role, [assignment.seat]])) } })
+  assert.equal(result.outcome, 'succeeded')
+  assert.equal(s.journal.state.runs.length, 1)
+})

@@ -1,4 +1,4 @@
-import { createLeadJournal, createLeadTools, leadReviewedResultSource, type LeadJournalRecord } from '@harnessdesk/lead'
+import { createLeadJournal, createLeadTools, leadReviewedResultSourceFor, type LeadJournalRecord } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract } from '@harnessdesk/protocol'
 import { LeadAdmission } from '../../src/lead/admission.js'
 import { LeadBudgets } from '../../src/lead/budgets.js'
@@ -7,7 +7,8 @@ import { createLeadClientAuthority } from '../../src/lead/client-authority.js'
 import { flowMethods } from '../../src/methods/flows.js'
 import { agent, goalRig } from './flow-goal-rig.js'
 
-export const leadRig = async (t: { after(fn: () => Promise<void>): void }) => {
+export const leadRig = async (t: { after(fn: () => Promise<void>): void }, revision = 'recipe-2') => {
+  const source = leadReviewedResultSourceFor(revision)!
   let budgets!: LeadBudgets
   const rig = await goalRig(t, { executionOptions: { lead: {
     prepareRepair: (run: any, key: string, round: number) => budgets.prepareRepair(run, key, round),
@@ -20,7 +21,7 @@ export const leadRig = async (t: { after(fn: () => Promise<void>): void }) => {
   const journal = await createLeadJournal(storage)
   const seats = { implement: [{ runtime: 'alpha', model: 'fixture/model' }], review: [{ runtime: 'beta', model: 'fixture/model' }] }
   const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Repair the check', project,
-    policyRevision: 1, steps: [{ id: 'work', title: 'Repair', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments: [
+    policyRevision: 1, steps: [{ id: 'work', title: 'Repair', flow: 'lead-reviewed-result', sourceRevision: revision, variables: {}, attendance: 'attended', assignments: [
       { role: 'implement', agent: 'implementer', seat: seats.implement[0], ceiling: 'edit' },
       { role: 'review', agent: 'code-reviewer', seat: seats.review[0], ceiling: 'read' }] }],
     assertions: [{ id: 'review', kind: 'review', description: 'Independent review' }], caps: { usdMicros: 100_000, rounds: 10 } })
@@ -54,9 +55,9 @@ export const leadRig = async (t: { after(fn: () => Promise<void>): void }) => {
     project: project.path, owned: [], admission })
   const ctx: any = { flowPreviews: previews, flows: rig.flows, leadStarts: budgets, workspaces: { admitTeamProject: async () => { admitted++ } } }
   const params = async () => {
-    const preview = await admission.preview({ root: project.path, source: leadReviewedResultSource, vars: {}, seats, attended: true })
+    const preview = await admission.preview({ root: project.path, source, vars: {}, seats, attended: true })
     if (!preview.token) throw new Error(JSON.stringify(preview.problems))
-    return { root: project.path, source: leadReviewedResultSource, sentence: contract.goal, token: preview.token, vars: {}, seats, attended: true }
+    return { root: project.path, source, sentence: contract.goal, token: preview.token, vars: {}, seats, attended: true }
   }
   const admit = async (request: Awaited<ReturnType<typeof params>>) => {
     let ready!: () => void, finish!: () => void

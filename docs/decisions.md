@@ -5219,3 +5219,25 @@ The complete thread is capped at 512 KB of serialized JSON, retaining recent
 entries and shortening a recent change if necessary to fit beneath the relay
 frame ceiling. HarnessDesk context injections are omitted; only
 host-verified Lead envelopes contribute Lead words and attribution.
+
+
+## Lead acceptance stays internal and distinguishes a broken check from broken code — 2026-11-05
+
+A timeout, interrupted run or null exit produced no verdict. It needs a check
+again through the existing person action, not a code repair. Missing facts and
+stale or incomplete facts remain distinct internally so Lead can ask for the
+right observation. Only a recorded negative verdict enters a repair brief;
+passed assertions stay out, and errored checks are named separately.
+
+An approval with hedged prose cannot support done. A short, closed phrase list
+on the host checks whole words outside backtick code. This is a deterministic
+acceptance rule, not another model's judgment of the first model. Reviews must
+approve only what they verified and request changes for what they could not.
+The exact recipe-1 source remains available for old plans and stored runs;
+new plans use recipe-2.
+
+The gate is internal: there are no Evidence or Rounds screens. The person's
+report gets its how to verify line from passed assertions' recorded evidence,
+never the model's confidence. Internal failure reasons are not rendered as
+person-facing prose. A failed result may offer at most one general, sourced
+Remember: lesson; an errored check teaches no lesson about the code.

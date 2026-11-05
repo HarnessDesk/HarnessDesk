@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import { LEAD_LIMITS, type FlowPreview, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type Sha } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, type GoalView, type FlowPreview, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type Sha } from '@harnessdesk/protocol'
 import { createLeadJournal, leadBudgetProjection, leadDraftCaps, LEAD_MESSAGES_DEFAULTS, parseLeadSeatChoices,
   type LeadAcceptanceEvidence, type LeadJournal, type LeadState, type LeadPermissionCall, type LeadResolvedTool, type LeadSeatChoices, type MessagesPrice } from '@harnessdesk/lead'
 import { readChecksAt } from '../evidence/checks-file.js'
@@ -82,7 +82,7 @@ type Fact = { readonly id: string; readonly fact: { readonly kind: string; reado
 type Card = { readonly card: number; readonly facts: readonly { readonly record: Fact; readonly freshness: { readonly state: string } }[] }
 
 /** Evidence for one run at the revision its last review saw, from facts read through the host's gate right
- * now. A fact that is missing, belongs to another revision or is no longer fresh leaves `complete` false:
+ * now. Missing facts stay absent; stale and incomplete facts retain their own validity:
  * nothing here starts a check, tolerates a failed read or invents a figure. */
 export const readLeadEvidence = async (journal: Pick<LeadJournal, 'state'>, runId: string,
   read: (call: LeadPermissionCall) => Promise<unknown>, now: () => number): Promise<LeadAcceptanceEvidence> => {
@@ -94,25 +94,45 @@ export const readLeadEvidence = async (journal: Pick<LeadJournal, 'state'>, runI
   const execution = await read({ method: 'flow/execution', params: { run: runId } }) as { rounds?: { cards: number[] }[] }
   const cardIds = new Set((execution.rounds ?? []).flatMap(round => round.cards))
   const evidence = await read({ method: 'evidence/board', params: { room: owned.teamId } }) as { cards: Card[] }
-  const facts = evidence.cards.filter(card => cardIds.has(card.card)).flatMap(card => card.facts)
-  const reviews = facts.filter(one => one.record.fact.kind === 'review')
-  const revision = reviews.at(-1)?.record.fact.at ?? ''
-  if (!revision) return unknown('')
+  const board = await read({ method: 'goal/read', params: { goal: owned.teamId } }) as Pick<GoalView, 'board'>
+  const recorded = evidence.cards.filter(card => cardIds.has(card.card)).flatMap(card => card.facts.map(one => ({ ...one, card: card.card })))
+  // Older rounds remain evidence of an attempt; prefer a fact at the subject
+  // revision for each question, without hiding a stale-only question.
+  const revision = recorded.filter(one => one.record.fact.kind === 'review').at(-1)?.record.fact.at ?? ''
+  const latest = new Map<string, (typeof recorded)[number]>()
+  for (const one of recorded) {
+    const key = `${one.record.fact.kind}:${one.record.fact.name ?? ''}`
+    const before = latest.get(key)
+    if (!before || one.record.fact.at === revision || before.record.fact.at !== revision) latest.set(key, one)
+  }
+  const reviewRecords = recorded.filter(one => one.record.fact.kind === 'review')
+  const currentReviews = reviewRecords.filter(one => one.record.fact.at === revision)
+  const facts = [...[...latest.values()].filter(one => one.record.fact.kind !== 'review'), ...(currentReviews.length ? currentReviews : reviewRecords)]
   const findings = await read({ method: 'finding/run', params: { goal: owned.teamId, run: runId } }) as { embargoed: boolean; blocking: boolean }
   const observedAt = now()
-  const atRevision = facts.filter(one => (one.record.fact.kind === 'check' || one.record.fact.kind === 'review') && one.record.fact.at === revision)
-  const fresh = atRevision.filter(one => one.freshness.state === 'fresh').map(one => one.record)
-  const assertionOf = (kind: string) => contract.assertions.find(one => one.kind === kind)?.id
-  const checks = fresh.flatMap(record => record.fact.kind === 'check' ? [{ assertionId: assertionOf('check') ?? 'check', id: record.id, revision,
-    observedAt, exit: record.fact.exit ?? null, timedOut: record.fact.timedOut === true, dirty: record.fact.dirty === true, counted: record.fact.counted === true }] : [])
-  const reviewFacts = fresh.flatMap(record => record.fact.kind === 'review' ? [{ assertionId: assertionOf('review') ?? 'review', id: record.id, revision,
-    observedAt, verdict: record.fact.verdict ?? '', complete: true }] : [])
+  const assertionOf = (kind: string, name?: string) => contract.assertions.find(one => one.kind === kind && one.id === name)?.id ??
+    contract.assertions.find(one => one.kind === kind)?.id
   const needsCheck = contract.assertions.some(one => one.kind === 'check')
-  const declared = needsCheck ? await readChecksAt(project.path, revision as Sha) : null
-  const allChecks = !needsCheck || !!declared?.digest && declared.problems.length === 0 && declared.checks.length > 0 && declared.checks.every(check =>
-    fresh.some(record => record.fact.kind === 'check' && record.fact.name === check.name && record.fact.run === check.run &&
-      record.fact.digest === declared.digest && record.fact.counted === true && record.fact.exit === 0 && !record.fact.timedOut && !record.fact.dirty))
-  const complete = allChecks && fresh.length === atRevision.length && reviewFacts.length > 0 && (!needsCheck || checks.length > 0) && !findings.embargoed
+  const declared = needsCheck && revision ? await readChecksAt(project.path, revision as Sha) : null
+  const checkRecords = facts.filter(one => one.record.fact.kind === 'check')
+  const matches = (record: Fact, check: { name: string; run: string }) => record.fact.name === check.name &&
+    record.fact.run === check.run && record.fact.digest === declared?.digest
+  const checks = checkRecords.map(one => {
+    const { record } = one, assertionId = assertionOf('check', record.fact.name) ?? 'check'
+    const required = declared?.checks.filter(check => assertionOf('check', check.name) === assertionId) ?? []
+    return { assertionId, name: record.fact.name, id: record.id, revision: record.fact.at ?? '', observedAt,
+      complete: one.freshness.state === 'fresh' && !!declared?.digest && declared.problems.length === 0 &&
+        required.some(check => matches(record, check)) && required.every(check => checkRecords.some(other => matches(other.record, check))),
+      exit: record.fact.exit ?? null, timedOut: record.fact.timedOut === true, dirty: record.fact.dirty === true, counted: record.fact.counted === true }
+  })
+  const reviewFacts = facts.flatMap(one => one.record.fact.kind === 'review' ? [{ assertionId: assertionOf('review') ?? 'review',
+    id: one.record.id, revision: one.record.fact.at ?? '', observedAt, verdict: one.record.fact.verdict ?? '',
+    complete: one.freshness.state === 'fresh' && board.board.intents.some(card => card.id === one.card && card.state === 'done'),
+    text: [board.board.intents.find(card => card.id === one.card)?.note, board.board.intents.find(card => card.id === one.card)?.handoff].filter(Boolean).join('\n'),
+  }] : [])
+  // Completeness is about the reads, not whether their verdicts passed. Keep
+  // stale facts so the evaluator can distinguish them from absent facts.
+  const complete = !findings.embargoed
   return { project, runId, contractDigest: contract.digest, revision, observedAt, complete,
     spendComplete: leadBudgetProjection(state.budget, observedAt).spend === 'known', checks, reviews: reviewFacts,
     findingsComplete: !findings.embargoed, findings: findings.blocking ? [{ id: `${runId}:blocking`, revision, blocking: true, resolved: false }] : [], diffs: [] }

@@ -226,7 +226,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       { role: 'review', agent: 'code-reviewer', seat: { runtime: 'rig-reviewer', model: 'gpt-5.5' }, ceiling: 'read' },
     ]
     const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1, ...(options.repeat ? { repeat: { every: 'day', at: '09:00' } } : {}), ...(options.publication ? { publicationRepository: 'acme/widgets' } : {}),
-      steps: (options.manualChecks || options.publication ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments })),
+      steps: (options.manualChecks || options.publication ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-2', variables: {}, attendance: 'attended', assignments })),
       assertions: [{ id: 'unit', kind: 'check', description: 'Required check passes' }, { id: 'review', kind: 'review', description: 'Independent review approves' },
         { id: 'blockers', kind: 'blocking-findings', description: 'No unresolved blockers' }], caps: { usdMicros: 10_000_000, rounds: 20 } })
     const seats = Object.fromEntries(assignments.map(one => [one.role, [one.seat]]))

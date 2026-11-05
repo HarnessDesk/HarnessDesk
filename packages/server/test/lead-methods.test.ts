@@ -14,7 +14,7 @@ const key = 'sk-test-not-real-0000'
 const project = { id: 'demo', path: '/workspace/demo' }
 const policy = { version: 1 as const, revision: 1, mode: 'default' as const, rules: [] }
 const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Inspect the check', project,
-  policyRevision: 1, steps: [{ id: 'work', title: 'Review work', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended',
+  policyRevision: 1, steps: [{ id: 'work', title: 'Review work', flow: 'lead-reviewed-result', sourceRevision: 'recipe-2', variables: {}, attendance: 'attended',
     assignments: [{ role: 'implement', agent: 'builder', seat: { runtime: 'fixture', model: 'fixture-model' }, ceiling: 'edit' }] }],
   assertions: [{ id: 'unit', kind: 'check', description: 'Tests pass' }, { id: 'review', kind: 'review', description: 'Review approves' }, { id: 'blockers', kind: 'blocking-findings', description: 'No blockers' }], caps: { usdMicros: 100000, rounds: 5 } })
 const plan = { version: 1 as const, id: 'plan', revision: 1, type: 'plan' as const, contractDigest: contract.digest, contract }
@@ -1771,6 +1771,7 @@ test('result decisions re-read every declared check before completing a person g
   const check = (name: string) => ({ record: { id: name, fact: { kind: 'check', at: revision, name, run: `node ${name}.mjs`, digest: file.digest, exit: 0, counted: true } }, freshness: { state: 'fresh' } })
   const facts = [{ record: { id: 'review-1', fact: { kind: 'review', at: revision, verdict: 'approve' } }, freshness: { state: 'fresh' } }, check('unit')]
   g.options.readEvidence = (runId: string) => readLeadEvidence(g.options.journal, runId, async call => {
+    if (call.method === 'goal/read') return { board: { intents: [{ id: 7, state: 'done' }] } }
     if (call.method === 'flow/execution') return { rounds: [{ cards: [7] }] }
     if (call.method === 'evidence/board') return { cards: [{ card: 7, facts }] }
     if (call.method === 'finding/run') return { embargoed: false, blocking: false }
@@ -1779,7 +1780,7 @@ test('result decisions re-read every declared check before completing a person g
   const { evaluateLeadAcceptance } = await import('@harnessdesk/lead')
   const partial = await g.options.readEvidence('run-1')
   // Match the card to the partial facts an earlier reader could offer as complete.
-  const offered = evaluateLeadAcceptance(g.c, { ...partial, complete: true }, { now: 100, freshnessMs: 60000, revision: g.options.journal.state.seq })
+  const offered = evaluateLeadAcceptance(g.c, { ...partial, complete: true, checks: partial.checks.map((check: import('@harnessdesk/lead').LeadAcceptanceEvidence['checks'][number]) => ({ ...check, complete: true })) }, { now: 100, freshnessMs: 60000, revision: g.options.journal.state.seq })
   assert.equal(offered.status, 'reviewed')
   g.card.assertions = offered.assertions.map(assertion => ({ ...assertion, evidence: [...assertion.evidence] }))
   await assert.rejects(g.answerLeadResult(g.options, g.card, g.click, g.c), code('lead-gate-changed'))

@@ -171,3 +171,63 @@ test('an admitted start stays authorized while an automatic worker answer is in 
   })
   assert.equal(s.journal.state.phase, 'running')
 })
+
+
+test('a stored recipe-1 plan starts and keeps its host guard after recovery', async t => {
+  const s = await leadRig(t, 'recipe-1'), run = await s.start()
+  await s.observe(0)
+  const stored = s.rig.flows.leadRuns().find(one => one.id === run.id)!
+  assert.equal(s.contract.steps[0]!.sourceRevision, 'recipe-1')
+  assert.deepEqual(await s.budgets.gate(stored), { ok: true })
+  await s.rig.restart()
+  const recovered = s.rig.flows.leadRuns().find(one => one.id === run.id)!
+  assert.equal(recovered.source, stored.source)
+  assert.deepEqual(await s.budgets.gate(recovered), { ok: true })
+})
+
+
+for (const failed of [true, false]) test(`repair scheduling carries actual failed assertions and preserves error-only checks (failed=${failed})`, async t => {
+  const { agent, goalRig } = await import('./fixtures/flow-goal-rig.js')
+  const assertions = [
+    { assertionId: 'unit', status: failed ? 'failed' as const : 'passed' as const, reason: failed ? 'Unit check found a defect' : null },
+    { assertionId: 'lint', status: 'passed' as const, reason: null },
+    { assertionId: 'runner', status: 'errored' as const, reason: 'The check could not produce a verdict' },
+  ].map(assertion => ({ ...assertion, revision: 1, contractRevision: 1, evidence: [] }))
+  const rig = await goalRig(t, { executionOptions: { lead: {
+    bind: async () => {}, round: async () => {}, gate: async () => ({ ok: true as const }),
+    acceptance: async () => ({ status: failed ? 'failed' as const : 'unknown' as const, assertions, erroredChecks: ['runner'] }),
+  } } })
+  rig.providers.set('alpha', 'writer-vendor'); rig.providers.set('beta', 'review-vendor')
+  const reviewer = agent('code-reviewer', ['approve', 'request-changes'], 'beta')
+  const agents = [agent('implementer', ['committed']), { ...reviewer, definition: { ...reviewer.definition!, ceiling: 'read' as const } }]
+  rig.beforeClaim = n => {
+    const seat = rig.seats.get(`seat-${n}`)!
+    Object.assign(seat.checkout, { head: 'a'.repeat(40) })
+    rig.heads.set(seat.checkout.cwd, { at: 'a'.repeat(40), dirty: false })
+  }
+  const run = await rig.flows.startGoal({ root: '/repo', sentence: 'Verify the repair brief', source: leadReviewedResultSource,
+    sourcePath: null, compiled: rig.compile(leadReviewedResultSource, agents), requireHeld: true,
+    lead: { logicalGoalId: 'logical', contractDigest: 'a'.repeat(64), startId: 'start', stepId: 'work' },
+    authorization: { sourceDigest: (await import('../src/flow-execution.js')).sourceDigest(leadReviewedResultSource), commandDigest: '', approvedAt: 1, start: 'front-door' },
+  })
+  const implement = run.rounds[0]!
+  await rig.team.complete(implement.cards[0]!, { outcome: 'committed' }, rig.sessionOf(implement.seats[0]!))
+  await rig.flows.flush()
+  const review = rig.flows.executionOf(run.id)!.rounds.at(-1)!
+  assert.equal(review.role, 'review')
+  assert.ok(review.seats.length, rig.flows.executionOf(run.id)!.reason ?? 'review must seat')
+  await rig.team.complete(review.cards[0]!, { outcome: 'request-changes' }, rig.sessionOf(review.seats[0]!))
+  await rig.flows.flush()
+  const after = rig.flows.executionOf(run.id)!
+  assert.equal(after.state, 'running')
+  assert.equal(after.rounds.length, failed ? 3 : 2)
+  if (failed) {
+    const repair = rig.board(run.goal).intents.find(card => card.id === after.rounds[2]!.cards[0])!
+    const input = JSON.parse(repair.detail!.split('Repair input: ')[1]!.split('\n')[0]!)
+    assert.deepEqual(input, { failed: [{ assertionId: 'unit', reason: 'Unit check found a defect' }], errored: ['runner'] })
+    assert.doesNotMatch(repair.detail!, /"assertionId":"lint"/)
+  } else {
+    assert.equal(rig.board(run.goal).intents.length, 2)
+    assert.match(after.reason!, /Re-run these checks; they did not fail, they could not run/)
+  }
+})

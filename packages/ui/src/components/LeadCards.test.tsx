@@ -312,3 +312,12 @@ it('offers goal consent only when eligible and lists revocable saved approvals',
   await act(async () => button(box, 'Revoke').click())
   expect(revoke).toHaveBeenCalledWith({ id: 'saved', contractDigest: leadContract.digest })
 })
+
+
+it.each(['no-evidence', 'errored'] as const)('keeps %s internal and never calls it a failure', status => {
+  const assertions = leadResult.assertions.map(result => ({ ...result, status, reason: 'Internal assertion reason' }))
+  const { box } = mount([{ ...leadResult, assertions }])
+  expect(box.textContent).toContain('Checks not confirmed')
+  expect(box.textContent).not.toContain('failed')
+  expect(box.textContent).not.toContain('Internal assertion reason')
+})

@@ -22,3 +22,89 @@ test('omitting any mandatory acceptance gate cannot produce reviewed acceptance'
     assert.equal(exported('evaluateLeadAcceptance')(proposal, evidence(), { now: 100, freshnessMs: 50, revision: 1 }).status, 'unknown', kind)
   }
 })
+
+const options = { now: 100, freshnessMs: 50, revision: 1 }
+const evaluate = (patch: object = {}, plan = contract) => exported('evaluateLeadAcceptance')(plan, { ...evidence(), ...patch }, options)
+
+test('missing facts differ from stale, incomplete or incompatible facts', () => {
+  assert.equal(evaluate({ checks: [] }).assertions[0].status, 'no-evidence')
+  for (const patch of [{ observedAt: 0 }, { contractDigest: 'b'.repeat(64) }, { complete: false },
+    { checks: [{ ...evidence().checks[0], revision: 'old' }] }])
+    assert.equal(evaluate(patch).assertions[0].status, 'unknown')
+  assert.notEqual(evaluate({ checks: [] }).assertions[0].reason, evaluate({ observedAt: 0 }).assertions[0].reason)
+})
+
+test('checks that cannot run are errored, never a code failure', () => {
+  for (const patch of [{ timedOut: true, exit: 1 }, { exit: null }]) {
+    const result = evaluate({ checks: [{ ...evidence().checks[0], ...patch }] })
+    assert.equal(result.assertions[0].status, 'errored')
+    assert.equal(result.status, 'unknown')
+    assert.deepEqual(exported('leadAssertionsToRerun')(result), ['unit'])
+  }
+  for (const patch of [{ exit: 1 }, { dirty: true }, { counted: false }])
+    assert.equal(evaluate({ checks: [{ ...evidence().checks[0], ...patch }] }).assertions[0].status, 'failed')
+  assert.deepEqual(exported('leadAssertionsToRerun')(evaluate({ checks: [] })), ['unit'])
+  assert.deepEqual(exported('leadAssertionsToRerun')(evaluate({ checks: [{ ...evidence().checks[0], observedAt: 0 }] })), ['unit'])
+})
+
+test('approval must not hedge outside quoted code', () => {
+  for (const text of ['This SHOULD WORK.', 'Probably correct', "I didn't run the tests", 'It might pass']) {
+    const result = evaluate({ reviews: [{ ...evidence().reviews[0], text }] })
+    assert.equal(result.status, 'failed', text)
+    assert.equal(result.assertions[1].reason, 'hedged-approval')
+  }
+  for (const text of ['Verified the checks and inspected the diff.', 'The string `should work` is tested.',
+    'Example: ``a `should work` string``.', '```ts\n// should work\n```', 'The mightiest test passed.'])
+    assert.equal(evaluate({ reviews: [{ ...evidence().reviews[0], text }] }).status, 'reviewed', text)
+})
+
+test('repair input carries exactly failed assertions, with separate errored checks', () => {
+  const plan = { ...contract, assertions: [...contract.assertions, { id: 'lint', kind: 'check', description: 'Lint passes' }] }
+  const result = evaluate({ checks: [{ ...evidence().checks[0], exit: 1 }, { ...evidence().checks[0], assertionId: 'lint', id: 'lint-1' }] }, plan as typeof contract)
+  assert.equal(result.status, 'failed')
+  assert.deepEqual(exported('leadRepairInput')(result), { failed: [{ assertionId: 'unit', reason: 'Recorded evidence failed' }], errored: [] })
+  assert.deepEqual(exported('leadAssertionsToRerun')(result), [])
+})
+
+
+test('errored and missing evidence request a check action, not a repair', () => {
+  const errored = evaluate({ checks: [{ ...evidence().checks[0], exit: null }] })
+  assert.deepEqual(exported('leadRepairInput')(errored), { failed: [], errored: ['unit'] })
+  assert.match(exported('leadAcceptanceObservation')(errored), /Re-run these checks; they did not fail, they could not run/)
+  assert.match(exported('leadAcceptanceObservation')(errored), /existing check action/)
+  const mixed = evaluate({ checks: [{ ...evidence().checks[0], exit: null }, { ...evidence().checks[0], id: 'other', exit: 1 }] })
+  assert.equal(mixed.status, 'failed', 'a real failure wins over a concurrent runner error')
+})
+
+test('repair brief carries failed ids and reasons without including passed checks', () => {
+  const result = evaluate({ reviews: [{ ...evidence().reviews[0], text: 'should work' }] })
+  const brief = exported('leadRepairDetail')(result)
+  assert.match(brief, /"assertionId":"review","reason":"hedged-approval"/)
+  assert.doesNotMatch(brief, /"assertionId":"unit"/)
+  assert.match(brief, /leave the passed ones/)
+})
+
+
+test('an aggregate check assertion names only the checks whose verdict failed', () => {
+  const result = evaluate({ checks: [{ ...evidence().checks[0], name: 'unit', exit: 1 },
+    { ...evidence().checks[0], name: 'lint', id: 'lint', exit: 0 }] })
+  assert.equal(result.assertions[0].reason, 'Recorded evidence failed: unit')
+  assert.doesNotMatch(exported('leadRepairDetail')(result), /lint/)
+})
+
+
+test('a failed aggregate still carries the other check that could not run', () => {
+  const result = evaluate({ checks: [{ ...evidence().checks[0], name: 'unit', exit: 1 },
+    { ...evidence().checks[0], name: 'lint', id: 'lint', exit: null }] })
+  assert.equal(result.status, 'failed')
+  assert.deepEqual(exported('leadRepairInput')(result), {
+    failed: [{ assertionId: 'unit', reason: 'Recorded evidence failed: unit' }], errored: ['lint'],
+  })
+})
+
+
+test('a hedged approving fact keeps its reason alongside another rejecting review', () => {
+  const result = evaluate({ reviews: [{ ...evidence().reviews[0], text: 'should work' },
+    { ...evidence().reviews[0], id: 'review-2', verdict: 'request-changes', text: 'A defect remains.' }] })
+  assert.equal(result.assertions[1].reason, 'hedged-approval')
+})

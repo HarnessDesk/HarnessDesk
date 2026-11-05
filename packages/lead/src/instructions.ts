@@ -1,7 +1,7 @@
 import { leadNoSpendLimit, parseLeadAcceptanceContract, type FlowSeat, type LeadAcceptanceContract, type LeadAction, type LeadCaps, type LeadProject } from '@harnessdesk/protocol'
 import { ipcObject } from './child-ipc.js'
 import type { MessagesText } from './messages-types.js'
-import { leadReviewedResultSource } from './recipes/reviewed-result.js'
+import { LEAD_REVIEWED_RESULT, leadReviewedResultSource, leadReviewedResultSourceFor } from './recipes/reviewed-result.js'
 
 /** The seats a plan's assignments may name, by role of the private Flow. The host that composes the
  * service supplies them; the host still checks a plan before any card and again before any start. */
@@ -25,7 +25,7 @@ export interface LeadInstructionFacts {
  * parentheses so a copied one cannot pass for content. The digest is replaced by the desk. */
 const examplePlan = (facts: Omit<LeadInstructionFacts, 'seats'>, implement: FlowSeat, review: FlowSeat): LeadAcceptanceContract => parseLeadAcceptanceContract({
   version: 1, revision: 1, digest: '0'.repeat(64), goal: "(the person's goal, in your words)", project: facts.project, policyRevision: facts.policyRevision,
-  steps: [{ id: 'step-1', title: '(what this step changes)', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended',
+  steps: [{ id: 'step-1', title: '(what this step changes)', flow: 'lead-reviewed-result', sourceRevision: LEAD_REVIEWED_RESULT.revision, variables: {}, attendance: 'attended',
     assignments: [{ role: 'implement', agent: 'implementer', seat: implement, ceiling: 'edit' },
       { role: 'review', agent: 'code-reviewer', seat: review, ceiling: 'read' }] }],
   assertions: [{ id: 'unit', kind: 'check', description: 'The required checks pass' },
@@ -56,6 +56,8 @@ export const leadInstructions = (facts: LeadInstructionFacts): string => {
     'On an automatic desk, schedule or trigger wake, emit exactly one finding, one caveat and one ask as {"version":1,"type":"lead-output","proactive":{"finding":"one finding","caveat":"one caveat","ask":"one ask"}}. Each part is one line, at most 800 characters. You may add action: "plan", "changes" or "approvals" inside proactive only for that existing navigation action. The envelope may also contain plan or cards. Plain text without a valid proactive shape stays silent; the host never invents a finding to replace it. When evidence is older than the latest desk read or a read failed, say it could not be verified and never state the finding as fact. Person turns and their tool continuations use ordinary text, including the lead-output text field.',
     'When asked to push, propose a result card with publication: "push" through the lead-output cards envelope. This only asks the host to prepare a fresh approval card; you cannot push, publish or merge.',
     'Only when the person asks for recurring work, offer a reviewed plan with repeat: { every, at }. every is day, weekdays, mondays or fridays; at is local HH:MM. State the round cap per run, and the dollar cap when one applies. One person approval covers that exact repeat contract. Only the person can create or control a repeat; do not try to create, approve, pause, resume, stop or run one through tools.',
+    'When a reviewed result comes back failed, end your report with at most one Remember: line only if the failure teaches a general lesson. State it in one sentence and name its source in brackets, for example Remember: run the migration check before review [failed check: db-migrate]. Never learn a lesson from an errored check.',
+    'The report includes a how to verify line drawn from the passed assertions and their recorded evidence, never from your belief. Missing, stale or errored evidence is a wait, not a code failure. Ask the person once to re-run those checks through the existing check action; never start a repair round for them.',
     'Name each open worker approval by role and what it asks, in plain words (for example, "The reviewer wants to read the git log"). A waiting worker has not finished. Name each required check without a result. Approvals and checks are answered on their cards, never by a chat reply. If the person types "approve", direct them to the card; you cannot answer it or run a check that counts.',
   ]
   // The portable ceiling stands in for Off in the caps; the model must not read it as a figure to quote or lower.
@@ -101,12 +103,13 @@ export const leadContinuation = (facts: LeadContinuationFacts): readonly Message
     'Answer the latest person message normally. A question, clarification or ordinary task does not replace this reviewed plan or authorize new reviewed steps. Keep unrelated conversation separate from its execution.',
     `Approved contract: ${JSON.stringify(contract)}`,
     `Step states: ${states}.`,
+    ...(facts.contract.steps.some(step => step.sourceRevision === 'recipe-1') ? [`For steps recorded under recipe-1, use this frozen Flow source unchanged:\n${leadReviewedResultSourceFor('recipe-1')}`] : []),
     leadObservation(facts.personActions ?? []),
     ...(facts.runs ? [`Runs owned by these steps (including settled runs): ${JSON.stringify(facts.runs)}.`] : []),
     ...(facts.mayProposeNewPlan ? ['The desk has confirmed that every started step has settled and no result is awaiting your decision. The new person message permits you to propose a new plan now.'] : []),
     'If every approved step has started and fresh desk observations confirm its run has settled with no result possible, respond to a new person message with a new plan for approval. Use new step ids, a higher contract revision and the same project. Do not ask the person to approve a plan you have not proposed. The earlier approval covers only its own steps; start nothing new until the new plan is approved.',
     'The desk keeps no separate goal record for this contract, so do not look for one. ' +
-      "To start a step, call flow_preview with root (the project root), source (the private Flow in your instructions, unchanged), seats (each of the step's assignments as its role mapped to a list holding its seat), " +
+      "To start a step, call flow_preview with root (the project root), source (the frozen Flow for that step, unchanged), seats (each of the step's assignments as its role mapped to a list holding its seat), " +
       "vars (the step's variables) and attended (true when the step is attended). Then call flow_start_goal with the same fields plus token (from the preview) and sentence (the contract's goal, unchanged). " +
       'Start no step that has already started. Then wait; never answer worker approvals.',
     // A worker's own check run is recorded as advisory, so the result card waits on the person's run of it: without this

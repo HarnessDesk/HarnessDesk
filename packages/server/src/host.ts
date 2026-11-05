@@ -158,10 +158,10 @@ import { LeadAdmission, leadPredecessorReadiness } from './lead/admission.js'
 import { LeadBudgets } from './lead/budgets.js'
 import { leadStopReachesRun } from './lead/stop.js'
 import { LeadService, type LeadServiceOptions } from './lead/service.js'
-import { leadContractDigest, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
+import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
 import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
@@ -976,6 +976,10 @@ export class Host {
     delegation: seat => this.#delegationUncertainRuntimes.has(seat.session.runtime) ? 'unknown' : 'none',
     runs: () => this.#flows.leadRuns(),
     member: async project => { try { await this.#confineRoom(project.path); return true } catch { return false } },
+    acceptance: async (run, journal) => {
+      const evidence = await readLeadEvidence(journal, run.id, call => this.call(call.method, call.params), () => Date.now())
+      return evaluateLeadAcceptance(journal.state.contract!, evidence, { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
+    },
     interruptChecks: goal => this.#flows.interruptChecks(goal),
     stop: (run, reason) => this.#flows.stopRun(run, reason, 'desk'),
   })
@@ -3928,7 +3932,7 @@ export class Host {
     }
     this.#leadOwnsWorker = (runtime, sessionId, includeClosed) => !!ownedWorker(runtime, sessionId, includeClosed)
     const decisionEvidence = (runId: string) => options.readEvidence(runId, call => {
-      if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
+      if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal', 'goal/read'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
       return this.call(call.method, call.params)
     })
     const validateResult: LeadPrFollowOptions['validate'] =
@@ -3966,7 +3970,11 @@ export class Host {
           !await this.#leadBudgets.port.member(project) ? 'lead-project-withdrawn' : null
       },
       round: id => (this.#flows.leadRuns().find(run => run.id === id)?.rounds.length ?? 0) + 1,
-      open: async op => (await this.#flows.prepareLeadRepair(op)).n,
+      open: async op => {
+        const result = evaluateLeadAcceptance(journal.state.contract!, await decisionEvidence(op.runId),
+          { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
+        return (await this.#flows.prepareLeadRepair({ ...op, detail: `${op.detail ?? ''}\n\nThe observed pull request failure above is separate from the local assertion verdicts. Address only that observed failure and the failed assertions below; passed local assertions remain passed.\n${leadRepairDetail(result)}` })).n
+      },
       release: op => this.#flows.releaseLeadRepair(op),
       ciPassed: (op, head) => this.#evidence.observeLeadCi(project.path, op.teamId, `lead-ci-${head}`, head),
       reviewed: async op => (await repairResult(op))?.source ?? null,
@@ -4033,8 +4041,8 @@ export class Host {
         if (contract.project.id !== project.id || !samePath(contract.project.path, project.path)) return 'The selected project changed'
         if (contract.policyRevision !== journal.state.policy?.revision) return 'The permissions changed'
         for (const step of contract.steps) {
-          if (step.flow !== 'lead-reviewed-result' || step.sourceRevision !== 'recipe-1') return 'The Flow source changed'
-          const preview = await this.#flowPreviews.preview(project.path, leadReviewedResultSource, step.variables, undefined, undefined, {
+          if (step.flow !== 'lead-reviewed-result' || !leadReviewedResultSourceFor(step.sourceRevision)) return 'The Flow source changed'
+          const preview = await this.#flowPreviews.preview(project.path, leadReviewedResultSourceFor(step.sourceRevision)!, step.variables, undefined, undefined, {
             seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])), attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
           if (leadPreviewUnfit(preview)) return 'The agents can no longer hold the approved seats'
           const [writer, reviewer] = await Promise.all(['implement', 'review'].map(role => {
@@ -4074,7 +4082,7 @@ export class Host {
       revokeApproval: input => personActions.revoke(input),
       decidePerson: (card, decision, contract) => answerLeadPersonGate({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team,
         readEvidence: runId => options.readEvidence(runId, call => {
-          if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
+          if (!['flow/execution', 'finding/run', 'finding/list', 'evidence/board', 'insight/goal', 'goal/read'].includes(call.method)) throw leadRefusal('lead-evidence-read-refused')
           return this.call(call.method, call.params)
         }) }, card, decision, contract),
       decideResult: (card, decision, contract) => answerLeadResult({ journal, project, now: () => Date.now(), flows: this.#flows, team: this.#team, readEvidence: decisionEvidence }, card, decision, contract),
