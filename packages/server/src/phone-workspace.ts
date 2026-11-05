@@ -66,7 +66,12 @@ export interface PhoneWorkspacePorts {
   readonly teams: () => Promise<readonly PhoneTeamInput[]>
   readonly reports: () => Promise<readonly UsageReport[]>
   readonly ledger: (query: LedgerQuery) => Promise<LedgerReport>
+  /** The Lead's name and the chats it directs (`runtime:session`); null while no Lead runs here. */
+  readonly leadChats?: () => LeadChats | null
 }
+
+/** The chats the Lead holds in its project. A chat the person took over is theirs again. */
+interface LeadChats { readonly name: string; readonly ids: ReadonlySet<string> }
 
 const WEEK_MINUTES = 7 * 24 * 60
 const SCAN_LIMIT = 2000
@@ -98,19 +103,21 @@ export class PhoneWorkspace {
     return one?.waiting ? 'needs-you' : one?.running ? 'running' : 'done'
   }
 
-  #sessionRow(entry: { summary: SessionSummary; cost: number | null }, live: ReadonlyMap<string, PhoneLiveSession>): PhoneSessionRow | null {
+  #sessionRow(entry: { summary: SessionSummary; cost: number | null }, live: ReadonlyMap<string, PhoneLiveSession>,
+    lead: LeadChats | null): PhoneSessionRow | null {
     const { summary } = entry
     const seat = this.#ports.seatName(summary.runtime)
     if (seat === null) return null
     const one = live.get(keyOf(summary.runtime, summary.id))
+    const id = `${summary.runtime}:${summary.id}`
     return {
-      id: `${summary.runtime}:${summary.id}`,
+      id,
       title: scrub(sessionLabel(summary.title, one?.preview ?? summary.preview, '')) || 'Untitled',
       project: projectOf(summary),
       state: this.#stateOf(summary, live),
-      // The desk lists the person's own conversations; a Team's seats are listed under their Team, and nothing
-      // records that a Lead opened one.
-      startedBy: 'you',
+      // The desk lists the person's own conversations; a Team's seats are listed under their Team. A chat the
+      // Lead directs is its work, even though it runs as an ordinary conversation.
+      startedBy: lead?.ids.has(id) ? 'lead' : 'you',
       seat,
       cost: money(one?.cost ?? entry.cost),
       lastActivityAt: summary.updatedAt,
@@ -129,6 +136,7 @@ export class PhoneWorkspace {
     const limit = clamp(params.limit, 30, 100)
     const liveSessions = this.#ports.live()
     const live = new Map(liveSessions.map(one => [keyOf(one.runtime, one.id), one]))
+    const lead = this.#ports.leadChats?.() ?? null
     const archived = params.state === 'archived'
     const rows: PhoneSessionRow[] = []
     let cursor = params.cursor
@@ -140,7 +148,7 @@ export class PhoneWorkspace {
       for (const [index, entry] of page.rows.entries()) {
         scanned++
         last = entry.summary
-        const row = this.#sessionRow(entry, live)
+        const row = this.#sessionRow(entry, live, lead)
         if (row && (params.state === undefined || row.state === params.state)) rows.push(row)
         if (rows.length === limit) {
           const more = index < page.rows.length - 1 || page.nextCursor !== null
@@ -250,16 +258,19 @@ export class PhoneWorkspace {
 
   workSessions(params: { archived?: boolean; cursor?: string; limit?: number }): { items: PhoneWorkItem[]; nextCursor: string | null } {
     const page = this.sessionsList({ ...(params.archived ? { state: 'archived' as const } : {}), cursor: params.cursor, limit: params.limit ?? WORK_ITEMS })
-    return { items: page.rows.map(row => this.#sessionItem(row)), nextCursor: page.next }
+    const lead = this.#ports.leadChats?.()?.name
+    return { items: page.rows.map(row => this.#sessionItem(row, lead)), nextCursor: page.next }
   }
 
-  #sessionItem(row: PhoneSessionRow): PhoneWorkItem {
+  #sessionItem(row: PhoneSessionRow, leadName: string | undefined): PhoneWorkItem {
+    const lead = row.startedBy === 'lead' ? leadName : undefined
     return {
       id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
       ...(row.state === 'archived' ? { archived: true } : {}),
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
       line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
-      agent: { name: row.seat }, updatedAt: row.lastActivityAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
+      agent: { name: row.seat }, ...(lead ? { by: lead } : {}),
+      updatedAt: row.lastActivityAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
     }
   }
 
@@ -267,8 +278,9 @@ export class PhoneWorkspace {
   async workItems(limit = WORK_ITEMS): Promise<PhoneWorkItem[]> {
     const [{ rows: sessions }, inputs] = [this.sessionsList({ limit }), await this.#ports.teams()]
     const live = new Map(this.#ports.live().map(one => [keyOf(one.runtime, one.id), one]))
+    const leadName = this.#ports.leadChats?.()?.name
     const items: PhoneWorkItem[] = [
-      ...sessions.map(row => this.#sessionItem(row)),
+      ...sessions.map(row => this.#sessionItem(row, leadName)),
       ...inputs.map(input => this.#teamItem(input, live)),
     ]
     return items.sort((a, b) => b.updatedAt - a.updatedAt)

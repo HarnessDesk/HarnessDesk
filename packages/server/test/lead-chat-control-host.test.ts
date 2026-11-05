@@ -104,6 +104,23 @@ for (const entry of ['window', 'phone'] as const) test(`${entry} reads restore t
   else assert.equal((await h.host.call('workspace/thread/read', { id })).leadChatHolder, 'person')
 })
 
+test('a chat the Lead held before a restart lists as the Lead\'s on the phone once the Lead starts', async t => {
+  const h = await evidenceDesk(t, { leadEnabled: true })
+  const project = { id: 'project-demo', path: await realpath(h.repo.dir) }
+  const created = await h.host.call('session/create', { runtime: h.runtime.info.id, options: { cwd: project.path } })
+  const id = `${h.runtime.info.id}:${created.id}`
+  await new LeadChatControlStore(join(h.stateDir, 'lead', 'chat-control.json')).noteSent(project.path, id, 'a'.repeat(64))
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', logicalGoalId: 'ordinary-delegation', now: Date.now(), caps: { usdMicros: 100000, rounds: 3 }, freshnessMs: 60000 })
+  h.host.createLeadService({ journal, project, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }),
+  })
+  const item = await until(() => h.host.call('workspace/sessions/list', {}).then(page => page.items.find(one => one.id === id && one.by !== undefined) ?? null), 'the Lead-held chat')
+  assert.equal(item.by, 'Dex')
+})
+
 for (const entry of ['window', 'phone'] as const) test(`${entry} control reads do not construct the Lead or pin a project`, async t => {
   const h = await evidenceDesk(t, { leadEnabled: true })
   const created = await h.host.call('session/create', { runtime: h.runtime.info.id, options: { cwd: h.repo.dir } })

@@ -1652,6 +1652,76 @@ test('a chat push proposal uses the existing output path and rebuilds its approv
   } finally { await loop.close() }
 })
 
+test('a push proposed with the quiet marker is still offered after the person is answered', async () => {
+  let proposed: any
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }),
+    async () => message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: lead.LEAD_QUIET, cards: [proposed] }) }]),
+    message([{ type: 'text', text: 'The push card is ready for you.' }])])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const first = exported('createLeadLoop')(s.options)
+  await first.request(input)
+  const card = s.journal.state.cards.find(card => card.type === 'result')!
+  proposed = { ...card, publication: 'push', assertions: [], summary: 'Untrusted proposed summary' }
+  await first.close()
+  const state: any = { ...s.journal.state, phase: 'following', decidedCards: [...s.journal.state.decidedCards, `${card.id}:${card.revision}`],
+    pr: { repository: 'acme/widgets', number: 7, branch: 'worker', head: 'a'.repeat(40), state: 'open', check: null, at: 100 } }
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  try {
+    await journal.appendMessage('push', 'Push the reviewed work')
+    await loop.request({ ...input, messages: [{ role: 'user', content: [{ type: 'text', text: 'Push the reviewed work' }] }] })
+    const push = journal.state.cards.find(card => card.type === 'result' && card.publication === 'push')
+    assert.ok(push && push.type === 'result')
+    assert.equal(push.summary, 'Push the reviewed branch and open its pull request.')
+    assert.equal((push as any).publicationSource?.reviewedHead, 'head-1')
+    assert.equal(typeof (push as any).publicationSource?.evidenceRevision, 'string')
+    assert.equal(push.assertions.length, contract.assertions.length)
+    assert.ok(push.assertions.every(assertion => assertion.status === 'passed'))
+    assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
+    assert.equal(s.fake.requests.length, 3)
+    assert.equal(journal.state.messages.at(-1)?.text, 'The push card is ready for you.')
+  } finally { await loop.close() }
+})
+
+test('a person turn that completes with no text at all is asked to answer', async () => {
+  const s = await fixture([message([{ type: 'text', text: '' }]), message([{ type: 'text', text: 'Nothing has changed since your last look.' }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.journal.appendMessage('ask', 'Status?')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.equal(s.fake.requests.length, 2)
+    assert.deepEqual(said(s), ['Nothing has changed since your last look.'])
+  } finally { await loop.close() }
+})
+
+test('a person answered with the quiet marker twice waits for them, never silence', async () => {
+  const s = await fixture([message([{ type: 'text', text: lead.LEAD_QUIET }]), message([{ type: 'text', text: lead.LEAD_QUIET }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.journal.appendMessage('ask', 'Status?')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.equal(s.fake.requests.length, 2)
+    assert.deepEqual(said(s), [])
+    assert.equal(loop.state.phase, 'waiting-for-user')
+    assert.equal(loop.state.reason, 'lead-request-failed')
+  } finally { await loop.close() }
+})
+
+test('an answer that fails after the quiet marker waits for the person, never silence', async () => {
+  const s = await fixture([
+    message([{ type: 'text', text: lead.LEAD_QUIET }]),
+    { status: 429, processing: 'not-started' as const, retryAfter: '999999', body: '' },
+  ])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.journal.appendMessage('ask', 'Status?')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.equal(s.fake.requests.length, 2)
+    assert.equal(loop.state.phase, 'waiting-for-user')
+    assert.match(loop.state.reason, /^lead-request-(rate-limited|failed)$/)
+  } finally { await loop.close() }
+})
+
 test('an open PR stays passive after a request failure and Resume', async () => {
   const s = await fixture([message([tool('late', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
   await s.approve()
@@ -1769,6 +1839,65 @@ test('a person tool continuation stays a person reply when a notice coalesces wi
     assert.ok(s.journal.state.messages.every(message => !message.proactive))
     assert.ok(s.journal.state.wakes.every(wake => wake.source === 'person'))
     assert.equal(s.records.filter(record => record.type === 'wake').length, 2)
+  } finally { await loop.close() }
+})
+
+test('a person whose turn ends in the quiet marker is answered all the same', async () => {
+  const s = await fixture([
+    message([tool('catalog', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' }),
+    message([{ type: 'text', text: lead.LEAD_QUIET }]),
+    async request => {
+      const latest = JSON.stringify(JSON.parse(request.body).messages.at(-1).content)
+      return message([{ type: 'text', text: latest.includes('has no reply yet') ? 'I read the catalog; nothing fits yet.' : 'unprompted' }])
+    },
+  ])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); await s.journal.appendMessage('ask', 'What is in the catalog?')
+    await loop.request({ ...input, wakeSource: 'person' })
+    s.emit({ type: 'notice', team: null, text: 'Desk notice' }); await s.drain(); await s.tick(); await loop.idle()
+    assert.deepEqual(said(s), ['I read the catalog; nothing fits yet.'])
+    assert.equal(s.fake.requests.length, 3, 'one more request, only once')
+  } finally { await loop.close() }
+})
+
+test('the quiet marker stays quiet once the person has their reply', async () => {
+  const s = await fixture([message([{ type: 'text', text: lead.LEAD_QUIET }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); await s.journal.appendMessage('ask', 'Status?')
+    await s.journal.appendReply('Running.')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.deepEqual(said(s), ['Running.'])
+    assert.equal(s.fake.requests.length, 1)
+  } finally { await loop.close() }
+})
+
+test('a quiet reply that proposes a plan is an answer, and asks nothing more', async () => {
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: lead.LEAD_QUIET, plan: contract }) }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.journal.appendMessage('ask', 'Plan the fix.')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.equal(s.fake.requests.length, 1)
+    assert.ok(s.journal.state.cards.some(card => card.type === 'plan'))
+  } finally { await loop.close() }
+})
+
+test('a quiet reply whose only card is a summary the host never offers is still asked to answer', async () => {
+  const summary = { version: 1, id: 'model-result', revision: 1, type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'All passed', assertions: [], budget: {
+    version: 1, revision: 1, caps: contract.caps, leadUsdMicros: 0, workerUsdMicros: 0, reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known', stop: null } }
+  const s = await fixture([
+    message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: lead.LEAD_QUIET, cards: [summary] }) }]),
+    message([{ type: 'text', text: 'The checks passed; nothing is pushed yet.' }]),
+  ])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); await s.journal.appendMessage('ask', 'Did it pass?')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.equal(s.fake.requests.length, 2)
+    assert.deepEqual(said(s), ['The checks passed; nothing is pushed yet.'])
+    assert.ok(!s.journal.state.cards.some(card => card.id === 'model-result'))
   } finally { await loop.close() }
 })
 
