@@ -191,7 +191,8 @@ export class PhoneWork {
     const key = String(one), failed = this.#modelsFailed.get(key)
     if (failed !== undefined && this.#ports.now() - failed < AGENT_MODELS_RETRY) return []
     let timer: ReturnType<typeof setTimeout> | undefined
-    const late = new Promise<'late'>(resolve => { timer = setTimeout(() => resolve('late'), AGENT_MODELS_WAIT); timer.unref?.() })
+    // Not unref'd: a snapshot is waiting on this timer, so it must hold the loop open until the wait ends.
+    const late = new Promise<'late'>(resolve => { timer = setTimeout(() => resolve('late'), AGENT_MODELS_WAIT) })
     try {
       const models = await Promise.race([this.#ports.knownModels(one), late])
       // A read that hangs is treated like one that failed, so the next pokes do not wait on it too.
