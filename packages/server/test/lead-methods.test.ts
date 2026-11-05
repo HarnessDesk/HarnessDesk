@@ -451,6 +451,16 @@ test('send before key configuration refuses without appending any text', async (
   await assert.rejects(s.controls.send({ idempotencyKey: 'prekey', text: 'Inspect this private request' }), code('lead-key-missing'))
   assert.equal(s.journal.state.seq, seq); assert.equal(JSON.stringify(s.records).includes('Inspect this private request'), false)
 })
+test('a person writing after the Lead spoke first sends a history that opens with the person', async () => {
+  const s = await rig({ configured: true })
+  // A resume or an automatic wake can leave the Lead's reply as the first readable message.
+  await s.journal.appendReply('The package is at 1.3.0.')
+  await s.controls.send({ idempotencyKey: 'after-lead', text: 'Now add slugify.' })
+  await s.controls.idle()
+  const request = s.sends.at(-1) as any
+  assert.equal(request.messages[0].role, 'user')
+  assert.deepEqual(request.messages.slice(1, 3).map((turn: any) => turn.content[0].text), ['The package is at 1.3.0.', 'Now add slugify.'])
+})
 test('key-shaped text is refused independently of the configured key', async () => {
   const s = await rig({ configured: true }), seq = s.journal.state.seq
   await assert.rejects(s.controls.send({ idempotencyKey: 'secret', text: 'Use sk-ant-test-not-real-0000' }), code('lead-secret-refused')) // hd-secrets-ok: synthetic provider credential

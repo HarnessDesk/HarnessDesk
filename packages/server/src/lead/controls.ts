@@ -5,7 +5,7 @@ import {
   parseLeadBudgetRaise, type LeadBudgetRaise, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, leadHistory, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -325,9 +325,7 @@ export class LeadControls {
       try { await this.options.meterSpend?.() } catch { /* The Lead itself refuses while spend stays unknown. */ }
       // History is rebuilt from what the person can read, as plain text, so no reasoning block from an earlier
       // request is carried into a prefix that has changed since the provider wrote it.
-      const messages: MessagesTurn[] = journal.state.messages.filter(message => message.role === 'user' || message.role === 'assistant').map(message => ({
-        role: message.role as 'user' | 'assistant', content: [{ type: 'text' as const, text: message.text }],
-      }))
+      const messages: MessagesTurn[] = leadHistory(journal.state.messages)
       const waitReason = this.#requestWaitReason
       this.#requestWaitReason = null
       const recovery = leadRecoveryContext(waitReason)
