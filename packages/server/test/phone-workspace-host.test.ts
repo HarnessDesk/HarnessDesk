@@ -13,9 +13,9 @@ import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 /** A real host over a fake agent and an index seeded the way a desk's own is, asked the phone's way. */
-const desk = async (t: TestContext, bulk = false, interrupt = true) => {
+const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?: boolean) => {
   const root = tempDir('hd-phone-host-')
-  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt } })
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt, ...(startTimes === undefined ? {} : { startTimes }) } })
   const row = (id: string, over: Partial<SessionSummary>): SessionSummary =>
     ({ runtime: runtime.info.id, id: sessionId(id), title: id, cwd: join(root, 'acme-api'), createdAt: 10, updatedAt: 20, status: { type: 'notLoaded' }, archived: false, ...over })
   const index = new SessionIndex(join(root, 'sessions.sqlite'))
@@ -46,6 +46,17 @@ const desk = async (t: TestContext, bulk = false, interrupt = true) => {
 
 // The phone uses these request names at the host boundary, rather than invoking projection internals.
 const phoneCall = (host: Host, method: string, params: unknown): Promise<any> => host.call(method as never, params as never)
+
+test('the phone hears when a session began only from an agent that records starts', async t => {
+  const startOf = async (startTimes?: boolean) => {
+    const { host } = await desk(t, false, true, startTimes)
+    const page = await phoneCall(host, 'workspace/sessions/list', { limit: 50 })
+    return page.items.find((item: any) => item.title === 'Tidy the settings page')?.startedAt
+  }
+  assert.equal(await startOf(true), 10, 'a measured start is passed on')
+  assert.equal(await startOf(false), undefined, 'an agent that lists only its last activity gives no start')
+  assert.equal(await startOf(), undefined, 'and neither does one that does not say')
+})
 
 test('phone workspace pages cover all 198 active sessions and the archive, without duplicates or Team seats', async t => {
   const { host, runtime } = await desk(t, true)
@@ -186,8 +197,11 @@ test('the host answers the phone’s snapshot of the work in the phone’s own u
   assert.equal(snapshot.items[0]!.title, 'Fix the sign-in for … in …')
   assert.equal(snapshot.items[0]!.project, undefined, 'a folder that is no repository names no project, in the list or in the conversation')
   assert.equal(snapshot.deskName, 'Desk')
-  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: true, choosePermissions: false, attach: false, undo: false, decide: true })
+  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: true, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
   assert.deepEqual(snapshot.models.map(model => model.id), runtime.models.map(model => model.id))
+  // The desk starts its default agent in the background; once it answers it is listed with its own models.
+  const ready = await host.call('workspace/read', {})
+  assert.deepEqual(ready.agents?.map(agent => [agent.id, agent.name, agent.default, agent.models.map(model => model.id)]), [[String(runtime.info.id), runtime.info.presentation.name, true, runtime.models.map(model => model.id)]])
   assert.deepEqual([snapshot.flows, snapshot.commands, snapshot.threads], [[], [], []])
   // The usage scan may or may not have finished; when it has, it is seven days and no account.
   if (snapshot.usage) assert.equal(snapshot.usage.days.length, 7)
@@ -381,6 +395,29 @@ for (const operation of ['snapshot', 'start'] as const) test(`phone ${operation}
     assert.ok(result.id.startsWith(`${runtime.info.id}:`))
   }
   assert.equal(runtime.health().state, 'ready')
+})
+
+test('a phone snapshot lists an idle agent without starting it, and a start on that agent does', async t => {
+  const { host, root, runtime, state } = await desk(t)
+  const calls: string[] = []
+  class IdleRuntime extends FakeRuntime {
+    override async start() { calls.push('start'); return super.start() }
+    override async listModels() { calls.push('models'); return super.listModels() }
+  }
+  const idle = new IdleRuntime({ id: runtimeId('idle-agent') })
+  host.register(idle)
+  idle.setHealth({ state: 'idle' })
+  idle.onSend = live => live.finish()
+  await state.setPreferences({ activeRuntime: runtime.info.id, chatsFolder: join(root, 'chats') })
+  await host.call('workspace/read', {})
+  const snapshot = await host.call('workspace/read', {})
+  assert.deepEqual(snapshot.agents?.find(agent => agent.id === 'idle-agent'), { id: 'idle-agent', name: idle.info.presentation.name, models: [] })
+  assert.equal(snapshot.capabilities.chooseAgent, true)
+  assert.deepEqual(calls, [], 'no start and no model read for an agent that is not running')
+  const started = await host.call('workspace/session/start', { text: 'Hello', agent: 'idle-agent', model: 'fake-1' })
+  assert.equal(started.problem, undefined)
+  assert.ok(started.id.startsWith('idle-agent:'))
+  assert.equal(calls[0], 'start')
 })
 
 test('a phone offers the admitted projects to start in, never a folder the host made for a no-folder chat', async t => {

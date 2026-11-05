@@ -279,6 +279,11 @@ export interface RuntimeCapabilities {
   readonly deleteHistory: false | 'trash' | 'erase'
   /** False when the agent's durable history cannot serve a readable body. */
   readonly readableHistory?: boolean
+  /**
+   * A conversation's `createdAt` is when it began, as the agent recorded it. Left out where the agent lists only
+   * its last activity and `createdAt` stands in for a start nobody measured, so nothing presents it as one.
+   */
+  readonly startTimes?: boolean
   /** Surfaces a plugin catalogue — `RuntimeExtensions.catalog`. */
   readonly extensionStore: boolean
   /** Exposes configured hooks — `AgentRuntime.listHooks`. */

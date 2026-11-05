@@ -1,5 +1,5 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import type { LeadChatControl, UserContent, ModelInfo, PhoneModelChoice } from '@harnessdesk/protocol'
+import type { LeadChatControl, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
 import {
   findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
@@ -31,11 +31,15 @@ export interface PhoneWorkPorts {
   readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly pending: readonly Approval[]; readonly cwd: string | null; readonly queued?: number }
   readonly respond: (params: HostParams<'approval/respond'>) => Promise<void>
   readonly defaultRuntime: () => RuntimeId | null
+  /** Runtimes that can start a session now or on demand, in the desk's stable order. */
+  readonly readyRuntimes: () => readonly RuntimeId[]
   /** Admitted project roots, with no caller-supplied path and no per-chat folder the host made for a no-folder chat. */
   readonly projectRoots: () => readonly string[]
   readonly projectName?: (root: string) => string | null
   readonly canInterrupt: (runtime: RuntimeId) => boolean
   readonly models: (runtime: RuntimeId) => Promise<readonly ModelInfo[]>
+  /** A runtime's models only if the desk already holds them or the runtime is running; null rather than start it. */
+  readonly knownModels: (runtime: RuntimeId) => Promise<readonly ModelInfo[] | null>
   readonly newSessionValues: (runtime: RuntimeId, cwd?: string, choices?: PhoneStartChoices) => Promise<Readonly<Record<string, OptionValue>>>
   /** Host-only receipts: invoke after preflight, immediately before the actual
    * allocation, queue mutation, send or interrupt. Never take these from wire data. */
@@ -50,10 +54,15 @@ export interface PhoneWorkPorts {
 
 /** The controls the desk honours for a phone so far. The rest are left false, and the phone leaves them out. */
 const CAPABILITIES: PhoneWorkCapabilities = {
-  startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false,
+  startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false,
   choosePermissions: false, attach: false, undo: false, decide: true,
 }
 
+const AGENTS = 8
+/** How long a snapshot waits for another agent's models, and how long a failed read is not retried. */
+const AGENT_MODELS_WAIT = 2_000, AGENT_MODELS_RETRY = 60_000
+/** The longest agent id a phone start can name (the wire's own bound). */
+const AGENT_ID = 120
 const REMEMBER_DECISIONS = 200
 const SHOW_DECISIONS = 20
 const DECISION_TTL = 24 * 60 * 60 * 1000
@@ -167,19 +176,53 @@ export class PhoneWork {
 
   constructor(ports: PhoneWorkPorts) { this.#ports = ports }
 
+  /** When another agent's model read last failed, so a snapshot does not ask it again every poke. In memory only. */
+  readonly #modelsFailed = new Map<string, number>()
+
+  /** The agents a phone may start on: the default (which a start without an agent uses anyway), then the ready ones the desk knows, capped. */
+  #agents(runtime: RuntimeId | null): RuntimeId[] {
+    const startable = (one: RuntimeId) => this.#ports.seatName(one) !== null && String(one).length <= AGENT_ID
+    const ready = [...new Set(this.#ports.readyRuntimes())].filter(one => one !== runtime && startable(one))
+    return (runtime !== null && startable(runtime) ? [runtime, ...ready] : ready).slice(0, AGENTS)
+  }
+
+  /** Another agent's models as the desk holds them, never by starting it, given up on after a short wait. */
+  async #knownModels(one: RuntimeId): Promise<readonly ModelInfo[]> {
+    const key = String(one), failed = this.#modelsFailed.get(key)
+    if (failed !== undefined && this.#ports.now() - failed < AGENT_MODELS_RETRY) return []
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // Not unref'd: a snapshot is waiting on this timer, so it must hold the loop open until the wait ends.
+    const late = new Promise<'late'>(resolve => { timer = setTimeout(() => resolve('late'), AGENT_MODELS_WAIT) })
+    try {
+      const models = await Promise.race([this.#ports.knownModels(one), late])
+      // A read that hangs is treated like one that failed, so the next pokes do not wait on it too.
+      if (models === 'late') { this.#modelsFailed.set(key, this.#ports.now()); return [] }
+      this.#modelsFailed.delete(key)
+      return models ?? []
+    }
+    catch { this.#modelsFailed.set(key, this.#ports.now()); return [] }
+    finally { clearTimeout(timer) }
+  }
+
   async snapshot(): Promise<PhoneWorkSnapshot> {
     const runtime = this.#ports.defaultRuntime()
-    const [items, usage, catalogue] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
-      runtime ? this.#ports.models(runtime).catch(() => []) : Promise.resolve([])])
-    const models = modelChoices(catalogue)
+    const ids = this.#agents(runtime)
+    const reads = [...new Set(runtime ? [runtime, ...ids] : ids)]
+    // Only the default agent is started for its models; a snapshot never starts any other agent.
+    const read = (one: RuntimeId) => one === runtime ? this.#ports.models(one) : this.#knownModels(one)
+    const [items, usage, catalogues] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
+      Promise.all(reads.map(one => read(one).then(modelChoices).catch((): PhoneModelChoice[] => [])))])
+    const choices = new Map(reads.map((one, index) => [one, catalogues[index]!]))
+    const models = runtime ? choices.get(runtime)! : []
+    const agents: PhoneAgentChoice[] = ids.map(id => ({ id: String(id), name: scrub(this.#ports.seatName(id) ?? '', 60) || 'Agent', models: choices.get(id)!, ...(id === runtime ? { default: true as const } : {}) }))
     let projects: string[] = []
     try { projects = [...this.#projectNames()].filter(([, roots]) => roots.length === 1).map(([name]) => name).sort().slice(0, 50) } catch { /* Unreadable admission metadata is not a project choice. */ }
     return {
       deskName: scrub(this.#ports.deskName(), 60) || 'Desk',
       items, projects,
       ...(usage ? { usage } : {}),
-      models, flows: [], commands: [],
-      capabilities: { ...CAPABILITIES, chooseModel: models.length > 0 },
+      models, agents, flows: [], commands: [],
+      capabilities: { ...CAPABILITIES, chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
       threads: [],
     }
   }
@@ -246,9 +289,11 @@ export class PhoneWork {
     return this.startInProject(params, cwd)
   }
 
-  /** Host-owned exact project root. `input` is a host-only envelope override, never phone params. */
-  async startInProject(params: { text: string } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/start'>> {
-    const runtime = this.#ports.defaultRuntime()
+  /** Host-owned exact project root. `input` is a host-only envelope override, never phone params. Without `agent` it starts on the default runtime. */
+  async startInProject(params: { text: string; agent?: string } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/start'>> {
+    const preferred = this.#ports.defaultRuntime()
+    const runtime = params.agent === undefined ? preferred : this.#agents(preferred).find(one => String(one) === params.agent) ?? null
+    if (runtime === null && params.agent !== undefined) return { id: '', problem: 'That agent is not available on this desk. Refresh and try again.' }
     if (runtime === null) return refuse('No agent is available to start a session.')
     return guarded(async () => {
       const choices: PhoneStartChoices = { ...(params.model !== undefined ? { model: params.model } : {}), ...(params.effort !== undefined ? { effort: params.effort } : {}) }
