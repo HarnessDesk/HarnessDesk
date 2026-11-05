@@ -1,10 +1,10 @@
 import { useState, useSyncExternalStore } from 'react'
-import { LEAD_LIMITS, type LeadThreadState, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, leadNoSpendLimit, type LeadThreadState, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { Button, Checklist, ChecklistItem, Chip, FormStack, InlineParts, Input, LeadSlot, ListRow, ListRows, Popover, Progress, SummaryItem, SummaryList, Text, ToolBody, ToolProse, ToolSection, leadRoleWord, type ChecklistState } from '../design'
 import { useStore } from '../state/context'
 import { sanitizeText } from '../lib/sanitize'
 import { leadRefusalText } from './lead-refusals'
-import { leadDollars } from './LeadCards'
+import { leadDollars, leadSpendCap } from './LeadCards'
 import { PencilIcon } from './Icons'
 
 /** A Flow role is an id (`implement`); the rail says it in the plan card's word, capitalised for a row title. */
@@ -24,19 +24,21 @@ const LeadLimits = ({ disabled }: { readonly disabled: boolean }) => {
   const [dollars, setDollars] = useState(''), [rounds, setRounds] = useState(''), [pending, setPending] = useState(false), [error, setError] = useState<string | null>(null)
   if (!caps) return null
   const micros = Math.round(Number(dollars) * 1000000), roundCount = Number(rounds)
-  const valid = dollars.trim() !== '' && rounds.trim() !== '' && Number.isSafeInteger(micros) && micros >= 0 && micros <= LEAD_LIMITS.maxUsdMicros && Number.isSafeInteger(roundCount) && roundCount >= 0 && roundCount <= LEAD_LIMITS.rounds
-  const raises = valid && (micros > caps.usdMicros || roundCount > caps.rounds)
+  // With no spending limit the dollar field starts empty and empty keeps it: only a figure typed in caps this goal.
+  const unlimited = leadNoSpendLimit(caps.usdMicros), dollarsAt = unlimited && dollars.trim() === '' ? caps.usdMicros : micros
+  const valid = (unlimited || dollars.trim() !== '') && rounds.trim() !== '' && Number.isSafeInteger(dollarsAt) && dollarsAt >= 0 && dollarsAt <= LEAD_LIMITS.maxUsdMicros && Number.isSafeInteger(roundCount) && roundCount >= 0 && roundCount <= LEAD_LIMITS.rounds
+  const raises = valid && (dollarsAt > caps.usdMicros || roundCount > caps.rounds)
   return <Popover title="Lead and reviewed-run limits" aria-label="Change limits" triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} disabled={disabled} label={<PencilIcon />}
-    onOpenChange={open => { if (open) { setDollars(String(caps.usdMicros / 1000000)); setRounds(String(caps.rounds)); setError(null) } }}>
+    onOpenChange={open => { if (open) { setDollars(unlimited ? '' : String(caps.usdMicros / 1000000)); setRounds(String(caps.rounds)); setError(null) } }}>
     {close => <LeadSlot slot="lead-limits"><FormStack>
       <Text role="muted">Covers Lead replies and reviewed runs. Ordinary chats have their own session spend.</Text>
-      <InlineParts><Text role="muted">Up to $</Text><Input aria-label="Dollar limit" type="number" min={0} step="0.01" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} /></InlineParts>
+      <InlineParts><Text role="muted">Up to $</Text><Input aria-label="Dollar limit" type="number" min={0} step="0.01" placeholder={unlimited ? 'No limit' : undefined} value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} /></InlineParts>
       <InlineParts><Input aria-label="Round limit" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} /><Text role="muted">rounds</Text></InlineParts>
       <Text role="muted">{raises ? 'Raising asks for your approval in the conversation.' : 'Tightening applies at once.'}</Text>
       {error && <Text role="muted">{error}</Text>}
-      <Button disabled={pending || !valid || micros === caps.usdMicros && roundCount === caps.rounds} aria-busy={pending} onClick={async () => {
+      <Button disabled={pending || !valid || dollarsAt === caps.usdMicros && roundCount === caps.rounds} aria-busy={pending} onClick={async () => {
         setPending(true); setError(null)
-        try { await store.lead.updateSettings({ caps: { usdMicros: micros, rounds: roundCount } }); close() } catch (failure) { setError(leadRefusalText(failure)) } finally { setPending(false) }
+        try { await store.lead.updateSettings({ caps: { usdMicros: dollarsAt, rounds: roundCount } }); close() } catch (failure) { setError(leadRefusalText(failure)) } finally { setPending(false) }
       }}>{raises ? 'Ask to raise' : 'Apply'}</Button>
     </FormStack></LeadSlot>}
   </Popover>
@@ -77,10 +79,10 @@ export const LeadDetails = () => {
         <ListRows>{workers.map(role => <ListRow key={role} size="sm" title={role} />)}</ListRows>
       </ToolSection>}
     </>}
-    {caps && <ToolSection label="Spend" value={budget ? known ? `${leadDollars(spent)} of ${leadDollars(caps.usdMicros)}` : 'Not confirmed' : `Up to ${leadDollars(caps.usdMicros)}`}
+    {caps && <ToolSection label="Spend" value={budget ? known ? leadNoSpendLimit(caps.usdMicros) ? `${leadDollars(spent)} · no limit` : `${leadDollars(spent)} of ${leadDollars(caps.usdMicros)}` : 'Not confirmed' : leadSpendCap(caps.usdMicros)}
       action={<LeadLimits disabled={!!state.error || state.revision < 0} />}>
       <SummaryList surface="panel" aria-label="Spend facts">
-        {budget && known && <SummaryItem label="Spent"><Progress size="sm" value={spent} max={caps.usdMicros} label={`${leadDollars(spent)} of ${leadDollars(caps.usdMicros)}`} aria-label="Spent" /></SummaryItem>}
+        {budget && known && <SummaryItem label="Spent">{leadNoSpendLimit(caps.usdMicros) ? leadDollars(spent) : <Progress size="sm" value={spent} max={caps.usdMicros} label={`${leadDollars(spent)} of ${leadDollars(caps.usdMicros)}`} aria-label="Spent" />}</SummaryItem>}
         {budget && <SummaryItem label="Lead">{leadDollars(budget.leadUsdMicros)}</SummaryItem>}
         {budget && <SummaryItem label="Workers">{known ? leadDollars(budget.workerUsdMicros) : 'Not confirmed'}</SummaryItem>}
         <SummaryItem label="Rounds">{budget ? `${budget.roundsAdmitted} of ${caps.rounds}` : roundsWords(caps.rounds)}</SummaryItem>

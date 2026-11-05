@@ -19,7 +19,7 @@ import { LeadAvatar, LeadNameChoice, LeadPlanFlow } from '../design'
 import { useTheme } from '../state/theme'
 import { previewStore } from './harness'
 import { LEAD_SCENES, leadWakeFixture, leadContract, leadMemory, leadRuntime, leadSceneProjection, leadSchedule, type LeadScene } from './lead-fixture'
-import type { HostMethodName, LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, type HostMethodName, type LeadWindowProjection } from '@harnessdesk/protocol'
 
 /** Isolated fake window facade. No connect(), Keychain or vendor requests. */
 export const createLeadFixtureStore = (scene: LeadScene) => {
@@ -83,6 +83,14 @@ export const createLeadFixtureStore = (scene: LeadScene) => {
       if (params.expectedRevision !== current.revision) throw { code: 'lead-revision-stale' }
       emit({ ...current, revision: current.revision + 1, settings: { ...current.settings, caps: params.caps }, thread: { ...current.thread,
         ...(current.thread.budget && { budget: { ...current.thread.budget, caps: params.caps } }) } })
+      return current
+    }
+    if (method === 'lead/spendLimit/set') {
+      // As on the desk: the goal in hand takes the limit at once, Off as the portable ceiling, rounds untouched.
+      if (params.expectedRevision !== current.revision) throw { code: 'lead-revision-stale' }
+      const caps = { ...current.settings.caps, usdMicros: params.usdMicros ?? LEAD_LIMITS.maxUsdMicros }
+      emit({ ...current, revision: current.revision + 1, settings: { ...current.settings, caps, spendLimitUsdMicros: params.usdMicros }, thread: { ...current.thread,
+        ...(current.thread.budget && { budget: { ...current.thread.budget, caps } }) } })
       return current
     }
     if (method === 'lead/repeat/control') {

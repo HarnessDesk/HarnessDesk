@@ -308,3 +308,18 @@ test('a frozen repeat keeps its digest through approval and disk read, but refus
   assert.equal(nextJournal.state.contract, null)
   await controls.idle()
 })
+
+test('a repeat keeps the figure it was approved with when the spending limit is Off, and a set limit caps it', async () => {
+  for (const [usdMicros, limit, runs] of [[2_000_000, null, 2_000_000], [5_000_000, 3_000_000, 3_000_000]] as const) {
+    const caps = { usdMicros, rounds: 3 }, base = parseLeadAcceptanceContract({ ...contract, caps }), repeat = { ...base, digest: leadContractDigest(base) }
+    const journal = await memoryJournal(); let calls = 0
+    await journal.setSpendLimit(limit, journal.state.seq, 100)
+    const controls = new LeadControls({ journal, project: repeat.project, model: 'fixture', now: () => 100, nextId: () => `id-${++calls}`, push() {},
+      service: { async status() { return { configured: true, protection: 'encrypted' as const } }, async setKey() {}, async deleteKey() {}, async assertPublic() {}, async send() { return { status: 'completed' as const } } } as any,
+      async decidePerson() {}, async decideResult() {}, async validateRepeat() { return null }, async freezeRepeat(contract) { return { ...contract, digest: leadContractDigest(contract) } } })
+    assert.equal((await controls.runScheduled({ ...task, approved: { contract: repeat, contractDigest: repeat.digest }, perRunCaps: caps }, 100)).approved, true)
+    await controls.idle(); controls.close()
+    assert.equal(journal.state.contract!.caps.usdMicros, runs, `$${usdMicros / 1e6} approved, limit ${limit}`)
+    assert.equal(journal.state.budget!.caps.usdMicros, runs)
+  }
+})

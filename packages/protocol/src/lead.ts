@@ -23,11 +23,14 @@ export const LEAD_LIMITS = {
 export type LeadRevision = number
 export type LeadUsdMicros = number
 export interface LeadCaps {
-  /** Observed worker spend stops at this threshold; this is not an invoice ceiling. Zero closes admission. */
+  /** Observed worker spend stops at this threshold; this is not an invoice ceiling. Zero closes admission.
+   * LEAD_LIMITS.maxUsdMicros is the portable ceiling a goal runs with when the person's spending limit is Off. */
   readonly usdMicros: LeadUsdMicros
   /** Total rounds admitted across every execution of this logical goal. */
   readonly rounds: number
 }
+/** A goal at the portable ceiling has no money limit of the person's: only the overflow stop guards it. */
+export const leadNoSpendLimit = (usdMicros: LeadUsdMicros): boolean => usdMicros >= LEAD_LIMITS.maxUsdMicros
 /** Canonical identity supplied by the host, never inferred by the portable loop. */
 export interface LeadProject { readonly id: string; readonly path: string }
 export interface LeadAssignment {
@@ -279,6 +282,9 @@ export interface LeadSettingsProjection {
   readonly key: { readonly configured: boolean; readonly protection: 'encrypted' | 'unavailable' }
   readonly policy: LeadPermissionPolicy
   readonly caps: LeadCaps
+  /** The person's standing money limit per goal in USD micros; null is Off. Absent only on a desk that has not
+   * recorded one yet. `caps` is the goal in hand, which a raise or a plan may have set apart from this. */
+  readonly spendLimitUsdMicros?: LeadUsdMicros | null
   readonly follow?: LeadFollowPreferences
 }
 export interface LeadHostProjection {
@@ -320,6 +326,8 @@ export interface LeadScheduledRun {
 }
 export interface LeadRepeatControl { readonly taskId: string; readonly action: 'pause' | 'resume' | 'stop' | 'run-now' }
 export interface LeadBudgetRaise { readonly logicalGoalId: string; readonly caps: LeadCaps; readonly expectedRevision: number }
+/** The money limit alone, never policy, rounds, name or credentials: narrow enough for a paired phone. Null is Off. */
+export interface LeadSpendLimitSet { readonly usdMicros: LeadUsdMicros | null; readonly expectedRevision: number }
 export interface LeadScheduledTask {
   readonly project?: string
   readonly id: string; readonly title: string; readonly goal: string
@@ -766,7 +774,9 @@ export const parseLeadSettingsProjection: Validator<LeadSettingsProjection> = om
   unavailable: optional(literalUnion('runtime')), unavailableReason: optional(text(LEAD_LIMITS.unavailableReasonChars)),
   version, name: literalUnion('dex', 'lex'), nameChosen: optional(isBoolean), model: opaque, key: object({ configured: isBoolean, protection: literalUnion('encrypted', 'unavailable') }),
   policy: parseLeadPermissionPolicy, caps: parseLeadCaps, follow: (value, path) => value === undefined ? { checks: true, reviews: true } : parseLeadFollowPreferences(value, path),
-}), ['nameChosen', 'unavailable', 'unavailableReason'])
+  // Zero is only an older desk's closed allowance carried over; a person sets 1 or more.
+  spendLimitUsdMicros: optionalNullable(micros),
+}), ['nameChosen', 'unavailable', 'unavailableReason', 'spendLimitUsdMicros'])
 export const parseLeadHostProjection: Validator<LeadHostProjection> = object({
   version, revision, thread: parseLeadThread, settings: parseLeadSettingsProjection,
 })
@@ -817,6 +827,8 @@ export const parseLeadScheduledTask: Validator<LeadScheduledTask> = (value, path
 }
 export const parseLeadRepeatControl: Validator<LeadRepeatControl> = object({ taskId: id, action: literalUnion('pause', 'resume', 'stop', 'run-now') })
 export const parseLeadBudgetRaise: Validator<LeadBudgetRaise> = object({ logicalGoalId: id, caps: parseLeadCaps, expectedRevision: revision })
+// The ceiling itself is how Off reads in caps, so a figure stops one short of it.
+export const parseLeadSpendLimitSet: Validator<LeadSpendLimitSet> = object({ usdMicros: nullable(integer(1, LEAD_LIMITS.maxUsdMicros - 1)), expectedRevision: revision })
 export const parseLeadSchedule: Validator<LeadSchedule> = object({ seedChoices: optional(list(opaque, 256, 0, key => key)), version, tasks: list(parseLeadScheduledTask, LEAD_SCHEDULE_LIMITS.tasks, 0, task => task.id),
   quiet: nullable(object<LeadQuietHours>({ from: clockTime, to: clockTime })) })
 const parseLeadMemoryItem: Validator<LeadMemoryItem> = object({ id, text: text(400), state: literalUnion('kept', 'suggested'), at: integer(0, Number.MAX_SAFE_INTEGER) })

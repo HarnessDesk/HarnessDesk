@@ -5374,6 +5374,7 @@ export class Host {
       leadResume: async (params) => (await this.#leadWindow()).resume(params),
       leadSteer: async (params) => (await this.#leadWindow()).steer(params),
       leadBudgetRaise: async params => (await this.#leadWindow()).raiseBudget(params),
+      leadSpendLimitSet: async params => (await this.#leadWindow()).setSpendLimit(params),
       leadRepeatControl: async params => {
         await this.#leadWindow()
         if (params.action === 'run-now') { await this.#leadRepeats!.runNow(params.taskId); return this.#leadPlanner().readSchedule() }

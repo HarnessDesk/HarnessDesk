@@ -97,7 +97,7 @@ it('gates the Lead settings entry and its restored route with the host capabilit
 })
 it('a widening save shows the waiting line and Open lands on its decision message', async () => {
   const { box } = await mount('settings', true, [leadPlan])
-  await fill(box.querySelector('[aria-label="Dollar allowance"]')!, '10')
+  await fill(box.querySelector('[aria-label="Round allowance"]')!, '10')
   await act(async () => button(box, 'Save allowances').click())
   expect(box.textContent).toContain('Waiting for your approval in the conversation')
   await act(async () => button(box, 'Open').click())

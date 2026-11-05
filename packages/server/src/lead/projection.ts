@@ -19,6 +19,7 @@ export const admitLeadCard = (state: LeadState, card: LeadCard, project: LeadPro
   try {
     leadWindowThread({ ...state, seq: state.seq + 1, cardPositions: { ...state.cardPositions, [card.id]: state.cardPositions[card.id] ?? state.seq + 1 }, cards: [...state.cards.filter(old => old.id !== card.id), card] }, project, {
       version: 1, name: state.name, nameChosen: state.nameChosen, follow: state.follow, model, policy: state.policy, caps: state.budget.caps, key: { configured: false, protection: 'unavailable' },
+      ...(state.spendLimit ? { spendLimitUsdMicros: state.spendLimit.usdMicros } : {}),
     })
   } catch { throw Object.assign(new Error('lead-card-too-large'), { wireCode: 'lead-card-too-large' }) }
 }

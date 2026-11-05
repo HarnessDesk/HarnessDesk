@@ -1,4 +1,4 @@
-import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
+import { parseLeadWorkerApprovalRule, leadWorkerRuleInProject, boundLeadApprovalEntries, LEAD_APPROVAL_HISTORY_BYTES, LEAD_LIMITS, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import { parseLeadDecisionMessage, parseLeadWakeLog, parseLeadOrigin, parseLeadHandback, parseLeadFollowPreferences, parseLeadPullRequest, parseLeadMessage, parseLeadThreadSend, parseLeadAcceptanceContract, parseLeadCard, parseLeadPermissionPolicy, parseLeadCaps } from '@harnessdesk/protocol'
 import { parseLeadOwnedPush, parseLeadPublicationOperation, parseLeadJournalRecord, parseLeadRunIdentity, parseLeadRunEvidence } from './journal.js'
 import { initialLeadState, removedWorkerApprovalNotice, retireLeadWorkerApprovals, fenceLeadWorkerDispatch, type LeadState, type LeadAttemptState } from './state.js'
@@ -27,7 +27,7 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   // cards after that message and before the next journal write.
   const namedSource = threadSource && { ...threadSource, completedBudgets: Object.hasOwn(threadSource, 'completedBudgets') ? threadSource.completedBudgets : [], decisionRevision: threadSource.decisionRevision ?? threadSource.seq, wakes: threadSource.wakes ?? [], nameChosen: threadSource.nameChosen ?? (threadSource.messages.length > 0 || threadSource.olderMessages > 0), name: Object.hasOwn(threadSource, 'name') ? threadSource.name : 'dex', decisionMessages: Object.hasOwn(threadSource, 'decisionMessages') ? threadSource.decisionMessages : [] }
   const followSource = namedSource && { ...namedSource, follow: Object.hasOwn(namedSource, 'follow') ? namedSource.follow : { checks: true, reviews: true }, pr: Object.hasOwn(namedSource, 'pr') ? namedSource.pr : null, publication: Object.hasOwn(namedSource, 'publication') ? namedSource.publication : null, ownedPush: Object.hasOwn(namedSource, 'ownedPush') ? namedSource.ownedPush : null }
-  const repairSource = followSource && { ...followSource, workerAuditWait: Object.hasOwn(followSource, 'workerAuditWait') ? followSource.workerAuditWait : false, orphanedWorkerDispatch: followSource.orphanedWorkerDispatch ?? null, workerApprovals: Object.hasOwn(followSource, 'workerApprovals') ? followSource.workerApprovals : [], goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, chatEffectsSinceReply: followSource.chatEffectsSinceReply ?? { started: 0, sent: 0, stopped: 0 }, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, chatEffectsAcknowledged: followSource.chatEffectsAcknowledged ?? false, secondLooks: followSource.secondLooks ?? [], raisedFrom: followSource.raisedFrom ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
+  const repairSource = followSource && { ...followSource, workerAuditWait: Object.hasOwn(followSource, 'workerAuditWait') ? followSource.workerAuditWait : false, orphanedWorkerDispatch: followSource.orphanedWorkerDispatch ?? null, workerApprovals: Object.hasOwn(followSource, 'workerApprovals') ? followSource.workerApprovals : [], goalStartedSeq: Object.hasOwn(followSource, 'goalStartedSeq') ? followSource.goalStartedSeq : 0, chatEffectsSinceReply: followSource.chatEffectsSinceReply ?? { started: 0, sent: 0, stopped: 0 }, origin: followSource.origin ?? null, originKey: followSource.originKey ?? null, retryResult: followSource.retryResult ?? null, chatEffectsAcknowledged: followSource.chatEffectsAcknowledged ?? false, secondLooks: followSource.secondLooks ?? [], raisedFrom: followSource.raisedFrom ?? null, spendLimit: followSource.spendLimit ?? null, handbacks: followSource.handbacks ?? [], handbackLimit: followSource.handbackLimit ?? false, ciPassed: followSource.ciPassed ?? [] }
   const source = repairSource && !Object.hasOwn(repairSource, 'cardPositions')
     ? { ...repairSource, cardPositions: Object.fromEntries(threadSource.cards.map(card => [card.id, Math.max(1, ...threadSource.messages.map(message => message.revision))])) } : repairSource
   assert(source && Object.keys(source).sort().join() === Object.keys(initialLeadState()).sort().join())
@@ -116,6 +116,11 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
   if (source.raisedFrom !== null) {
     const raisedFrom = parseLeadCaps(source.raisedFrom)
     assert(budget && raisedFrom.usdMicros <= budget.caps.usdMicros && raisedFrom.rounds <= budget.caps.rounds)
+  }
+  if (source.spendLimit !== null) {
+    const limit = source.spendLimit
+    assert(limit && typeof limit === 'object' && Object.keys(limit).join() === 'usdMicros' && (limit.usdMicros === null ||
+      Number.isSafeInteger(limit.usdMicros) && limit.usdMicros >= 0 && limit.usdMicros <= LEAD_LIMITS.maxUsdMicros))
   }
   assert(!budget?.stop || ['stopped', 'accepted', 'declined'].includes(source.phase))
   assert(typeof source.chatEffectsAcknowledged === 'boolean')

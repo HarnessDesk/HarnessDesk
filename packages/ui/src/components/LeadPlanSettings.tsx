@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { LEAD_SCHEDULE_LIMITS, parseLeadMemory, parseLeadSchedule, type LeadCard, type LeadMemory, type LeadMemoryItem, type LeadSchedule, type LeadScheduledTask, type LeadTaskRepeat } from '@harnessdesk/protocol'
+import { LEAD_SCHEDULE_LIMITS, leadNoSpendLimit, parseLeadMemory, parseLeadSchedule, type LeadCard, type LeadMemory, type LeadMemoryItem, type LeadSchedule, type LeadScheduledTask, type LeadTaskRepeat } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, FormStack, InlineParts, Input, NativeSelect, Row, Rows, Section, Switch, Text, Textarea } from '../design'
 import { sanitizeText } from '../lib/sanitize'
 import { useStore, useSnapshot } from '../state/context'
@@ -7,7 +7,7 @@ import { useDestinationActive } from '../panels/destination-page'
 import { leadRefusalText } from './lead-refusals'
 import { leadNextSlot, leadRepeatWords } from '../lib/lead-repeat'
 import { formatLeadRunTime } from '../lib/lead-time'
-import { leadDollars } from './LeadCards'
+import { leadDollars, leadSpendCap } from './LeadCards'
 
 const REPEATS = leadRepeatWords
 const newId = () => `task-${crypto.randomUUID()}`
@@ -63,7 +63,7 @@ export const LeadScheduleSettings = ({ label, schedule, pending, save, projects 
               <Button variant="quiet" disabled={pending} onClick={() => put(schedule.tasks.filter(one => one.id !== task.id))}>Remove</Button></>}
           </InlineParts>} />
           {expanded === task.id && <Row title={`Runs · ${sanitizeText(task.title)}`} desc={<div ref={runsView} tabIndex={-1} data-repeat-runs={task.id}><FormStack>
-            {task.perRunCaps && <Text as="p" role="meta">Up to {leadDollars(task.perRunCaps.usdMicros)} a run · {task.perRunCaps.rounds} rounds</Text>}
+            {task.perRunCaps && <Text as="p" role="meta">{leadSpendCap(task.perRunCaps.usdMicros)}{leadNoSpendLimit(task.perRunCaps.usdMicros) ? '' : ' a run'} · {task.perRunCaps.rounds} rounds</Text>}
             <Text as="p" role="muted">{task.paused ? 'Runs are skipped until you resume.' : !task.enabled ? 'This repeat has stopped. Past runs stay here.' : `Next run: ${formatLeadRunTime(leadNextSlot(task))}`}</Text>
             {task.enabled && !canRunNow && <Text as="p" role="muted">The Lead has work open.</Text>}
             <Rows>{(task.runs ?? []).slice().reverse().map((run, index) => <Row key={`${run.slot}:${index}`} title={run.outcome ? { accepted: 'Accepted', declined: 'Declined', stopped: 'Stopped' }[run.outcome] : { started: 'Started', skipped: 'Skipped', 'needs-approval': 'Needs approval' }[run.state]}

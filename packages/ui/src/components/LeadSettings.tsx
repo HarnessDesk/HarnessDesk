@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { LEAD_LIMITS, type ClientMethodName, type LeadPermissionPolicy, type LeadSettingsProjection, type LeadSettingsUpdate, type LeadCard } from '@harnessdesk/protocol'
-import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, Input, NativeSelect, Row, Rows, Section, LeadNameChoice, Text } from '../design'
+import { LEAD_LIMITS, leadNoSpendLimit, type ClientMethodName, type LeadWindowProjection, type LeadPermissionPolicy, type LeadSettingsProjection, type LeadSettingsUpdate, type LeadCard } from '@harnessdesk/protocol'
+import { Banner, Button, Chip, ConfirmDialog, FormStack, InlineParts, Input, NativeSelect, Row, Rows, Section, LeadNameChoice, Switch, Text } from '../design'
 
 import { useStore } from '../state/context'
 import { useDestinationActive } from '../panels/destination-page'
@@ -18,11 +18,16 @@ export const leadPolicyWidens = (previous: LeadPermissionPolicy, next: LeadPermi
     return old ? effects[rule.effect] > effects[old.effect] || rule.method !== old.method || rule.action !== old.action || rule.project !== old.project : rule.effect === 'allow'
   })
 
-export const LeadSettings = ({ settings, expiry, update, onError, error, cards = [], onOpen }: {
+/** The person's standing money limit, or null for Off. A desk that has not recorded one reads it from the goal's cap. */
+const spendLimitOf = (settings: LeadSettingsProjection): number | null => settings.spendLimitUsdMicros !== undefined ? settings.spendLimitUsdMicros
+  : leadNoSpendLimit(settings.caps.usdMicros) ? null : settings.caps.usdMicros
+
+export const LeadSettings = ({ settings, expiry, update, setSpendLimit, onError, error, cards = [], onOpen }: {
   readonly error?: string | null
   readonly settings: LeadSettingsProjection
   readonly expiry: number | null
   readonly update: (value: Omit<LeadSettingsUpdate, 'expectedRevision'>) => Promise<unknown>
+  readonly setSpendLimit: (usdMicros: number | null) => Promise<LeadWindowProjection>
   readonly cards?: readonly LeadCard[]
   readonly onOpen: (id: string) => void
   readonly onError: (error: unknown) => void
@@ -33,17 +38,32 @@ export const LeadSettings = ({ settings, expiry, update, onError, error, cards =
   const [pending, setPending] = useState(false), [remove, setRemove] = useState(false)
   const [editingKey, setEditingKey] = useState(false)
   const [policy, setPolicy] = useState(settings.policy)
-  const [dollars, setDollars] = useState(String(settings.caps.usdMicros / 1000000)), [rounds, setRounds] = useState(String(settings.caps.rounds))
+  const limit = spendLimitOf(settings)
+  const [limitOn, setLimitOn] = useState(limit !== null), [dollars, setDollars] = useState(limit === null ? '' : String(limit / 1000000))
+  const [rounds, setRounds] = useState(String(settings.caps.rounds))
   // A widening waits on a card, and a declined one changes nothing: the draft goes back to what holds once the card settles.
   const policyCard = cards.find(card => card.type === 'permission-change')?.id ?? null, capsCard = cards.find(card => card.type === 'budget-change')?.id ?? null
   useEffect(() => { if (!policyCard) setPolicy(settings.policy) }, [settings.policy.revision, policyCard])
-  useEffect(() => { if (!capsCard) { setDollars(String(settings.caps.usdMicros / 1000000)); setRounds(String(settings.caps.rounds)) } }, [settings.caps.usdMicros, settings.caps.rounds, capsCard])
+  useEffect(() => { setLimitOn(limit !== null); setDollars(limit === null ? '' : String(limit / 1000000)) }, [limit])
+  useEffect(() => { if (!capsCard) setRounds(String(settings.caps.rounds)) }, [settings.caps.rounds, capsCard])
   const policyChanged = JSON.stringify({ ...policy, revision: 0 }) !== JSON.stringify({ ...settings.policy, revision: 0 })
   const widening = leadPolicyWidens(settings.policy, policy)
   const micros = Math.round(Number(dollars) * 1000000), roundCount = Number(rounds)
-  const validCaps = dollars.trim() !== '' && rounds.trim() !== '' && Number.isSafeInteger(micros) && micros >= 0 && micros <= LEAD_LIMITS.maxUsdMicros && Number.isSafeInteger(roundCount) && roundCount >= 0 && roundCount <= LEAD_LIMITS.rounds
-  const capsChanged = micros !== settings.caps.usdMicros || roundCount !== settings.caps.rounds
-  const capsWiden = micros > settings.caps.usdMicros || roundCount > settings.caps.rounds
+  const limitChanged = (limitOn ? micros : null) !== limit, roundsChanged = roundCount !== settings.caps.rounds
+  // A legacy limit of $0 stays as it is until the person changes it; a new one is at least one microdollar.
+  const validLimit = !limitOn || !limitChanged || dollars.trim() !== '' && Number.isSafeInteger(micros) && micros >= 1 && micros < LEAD_LIMITS.maxUsdMicros
+  const validCaps = validLimit && rounds.trim() !== '' && Number.isSafeInteger(roundCount) && roundCount >= 0 && roundCount <= LEAD_LIMITS.rounds
+  const roundsWiden = roundCount > settings.caps.rounds
+  // The limit first, then rounds against the dollars it left: a rounds card drafted on the old dollars would go stale.
+  const saveAllowances = async () => {
+    if (busy.current) return
+    busy.current = true; setPending(true)
+    try {
+      const after = limitChanged ? (await setSpendLimit(limitOn ? micros : null)).settings.caps : settings.caps
+      if (roundsChanged) await update({ caps: { usdMicros: after.usdMicros, rounds: roundCount } })
+    } catch (error) { onError(error) }
+    finally { busy.current = false; setPending(false) }
+  }
   const submit = async (value: Omit<LeadSettingsUpdate, 'expectedRevision'>, onSuccess?: () => void) => {
     if (busy.current) return
     busy.current = true; setPending(true)
@@ -73,11 +93,13 @@ export const LeadSettings = ({ settings, expiry, update, onError, error, cards =
       </Section>
       <Section title="Allowances">
       <Rows>
-        <Row title="Dollar allowance" desc={capsWiden ? 'Asks for your approval in the conversation.' : 'Tightening applies at once. Stops when reported spend reaches the cap.'} control={<Input aria-label="Dollar allowance" type="number" min={0} step="0.000001" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} />} />
-        <Row title="Round allowance" control={<Input aria-label="Round allowance" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} />} />
+        <Row title="Spending limit" desc={limitOn ? 'Stops when reported spend reaches the limit. Applies to the goal in hand once saved.' : 'Off. No dollar limit; work still stops at the round allowance or when you stop it.'}
+          control={<Switch aria-label="Spending limit" checked={limitOn} disabled={pending} onCheckedChange={setLimitOn} />} />
+        {limitOn && <Row title="Limit per goal" control={<Input aria-label="Spending limit amount" type="number" min={0.000001} step="0.000001" placeholder="Dollars" value={dollars} disabled={pending} onChange={event => setDollars(event.target.value)} />} />}
+        <Row title="Round allowance" desc={roundsWiden ? 'Asks for your approval in the conversation.' : 'Tightening applies at once.'} control={<Input aria-label="Round allowance" type="number" min={0} max={LEAD_LIMITS.rounds} step={1} value={rounds} disabled={pending} onChange={event => setRounds(event.target.value)} />} />
         {expiry !== null && <Row title="Plan consent expires" desc={formatLeadConsentTime(expiry)} />}
       </Rows>
-      <Row title={null} control={<Button disabled={pending || !validCaps || !capsChanged} aria-busy={pending} onClick={() => void submit({ caps: { usdMicros: micros, rounds: roundCount } })}>Save allowances</Button>} />
+      <Row title={null} control={<Button disabled={pending || !validCaps || !limitChanged && !roundsChanged} aria-busy={pending} onClick={() => void saveAllowances()}>Save allowances</Button>} />
       {waiting('budget-change')}
       </Section>
       <Section title="Permissions">
@@ -108,6 +130,7 @@ export const LeadSettingsSection = ({ focus }: { readonly focus?: string | null 
   useEffect(() => { if (active) void store.lead.readSettings().catch(error => setError(leadRefusalText(error))) }, [active, store])
   return state.settings ? <><LeadSettings settings={state.settings} expiry={state.planConsentExpiresAt} cards={state.thread?.cards}
     error={error} onError={error => setError(leadRefusalText(error))} update={value => { setError(null); return store.lead.updateSettings(value) }}
+    setSpendLimit={usdMicros => { setError(null); return store.lead.setSpendLimit(usdMicros) }}
     onOpen={focus => store.openDestination({ kind: 'lead', focus })} />
     <LeadTriggerSettings follow={state.settings.follow} root={state.thread?.project?.path ?? null} update={value => store.lead.updateSettings(value)} onError={error => setError(leadRefusalText(error))} />
     <LeadPlanSettingsSection focus={focus} label={state.settings.name === 'lex' ? 'Lex' : 'Dex'} cards={state.thread?.cards} /></> : error ? <Banner role="alert" tone="warning">{error}</Banner> : null

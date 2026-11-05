@@ -56,6 +56,8 @@ export const PHONE_POLICY: PhonePolicy = {
     'lead/action/perform': 'answer',
     'lead/approval/revoke': 'answer',
     'lead/budget/raise': 'answer',
+    // The money limit alone, as narrow as a raise: `lead/settings/update`, which also writes policy and keys, stays off the phone.
+    'lead/spendLimit/set': 'answer',
   },
   topics: { lead: 'read', workspace: 'read' },
   // A phone the person allows can answer a card, which is what a phone is for; the window can narrow it later.

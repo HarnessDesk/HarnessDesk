@@ -124,7 +124,9 @@ for this. An agent other than the default shows the models the desk already
 holds, or none if the read is slow or fails. A start may name one of those
 agents; its model and effort are checked against that agent's own catalogue. It can also send to the Lead, stop or resume
 it, answer its cards and permitted worker questions, and request required
-checks. Approval decisions require Answer. Read, Run and Answer grants bound its
+checks. Approval decisions require Answer, as does setting or turning off the
+Lead's spending limit; the phone never changes the Lead's other settings,
+permissions or key. Read, Run and Answer grants bound its
 surface. Lead worker cards can carry complete bounded request details, including
 extra permissions. Saved approvals expose target descriptions and counts; each
 automatically allowed file change adds its exact bounded diff to that rule’s

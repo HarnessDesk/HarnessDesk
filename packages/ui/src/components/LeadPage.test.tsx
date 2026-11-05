@@ -1,7 +1,7 @@
 import { act, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
-import { LEAD_CONTROL_REFUSALS, type LeadWindowProjection } from '@harnessdesk/protocol'
+import { LEAD_CONTROL_REFUSALS, LEAD_LIMITS, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { AppStore } from '../state/store'
 import { StoreProvider } from '../state/context'
 import { previewStore } from '../preview/harness'
@@ -234,15 +234,15 @@ it('retries expiry reads with bounded backoff until the host reflects expiry', a
 it('puts a declined widening back to what holds, rather than leaving it as the draft', async () => {
   const { store, update } = await mount()
   await act(async () => button('Settings').click())
-  const select = document.querySelector<HTMLSelectElement>('[aria-label="Permission mode"]')!, dollars = document.querySelector<HTMLInputElement>('[aria-label="Dollar allowance"]')!
-  const before = select.value, cap = dollars.value, state = store.lead.state, policy = state.settings!.policy, caps = state.settings!.caps
+  const select = document.querySelector<HTMLSelectElement>('[aria-label="Permission mode"]')!, rounds = document.querySelector<HTMLInputElement>('[aria-label="Round allowance"]')!
+  const before = select.value, cap = rounds.value, state = store.lead.state, policy = state.settings!.policy, caps = state.settings!.caps
   await act(async () => { select.value = 'manage'; select.dispatchEvent(new Event('change', { bubbles: true })) })
-  await input(dollars, String(Number(cap) + 5))
+  await input(rounds, String(Number(cap) + 5))
   await update({ thread: { ...state.thread!, cards: [{ version: 1, id: 'policy', revision: 1, type: 'permission-change', contractDigest: null, previous: policy, proposed: { ...policy, revision: 2, mode: 'manage' } },
-    { version: 1, id: 'caps', revision: 1, type: 'budget-change', contractDigest: null, logicalGoalId: 'goal', previous: { revision: 1, caps }, proposed: { ...caps, usdMicros: caps.usdMicros + 5_000_000 } }] } })
+    { version: 1, id: 'caps', revision: 1, type: 'budget-change', contractDigest: null, logicalGoalId: 'goal', previous: { revision: 1, caps }, proposed: { ...caps, rounds: caps.rounds + 5 } }] } })
   expect(select.value).toBe('manage')
   await update({ thread: { ...state.thread!, cards: [] } })
-  expect(select.value).toBe(before); expect(dollars.value).toBe(cap)
+  expect(select.value).toBe(before); expect(rounds.value).toBe(cap)
   expect(button('Save permissions').disabled).toBe(true); expect(button('Save allowances').disabled).toBe(true)
 })
 
@@ -319,12 +319,36 @@ it('says an approved goal has not started, and offers Resume, when the Lead ende
   expect(button('Resume')).toBeDefined()
   expect(box.textContent).not.toContain('The Lead is waiting for you to continue.')
 })
-it('names the key row once and puts the allowance note on its dollar row', async () => {
+it('names the key row once and puts the allowance note on its spending limit row', async () => {
   await mount(); await act(async () => button('Settings').click())
   const rows = [...document.querySelectorAll('[data-slot="row"]')]
   expect(rows.some(row => row.textContent?.startsWith('Key'))).toBe(true)
   expect(rows.some(row => row.textContent?.startsWith('Reported spend'))).toBe(false)
-  expect(rows.find(row => row.textContent?.startsWith('Dollar allowance'))?.textContent).toContain('Stops when reported spend reaches the cap.')
+  expect(rows.find(row => row.textContent?.startsWith('Spending limit'))?.textContent).toContain('Stops when reported spend reaches the limit.')
+})
+
+it('turns the spending limit Off through its own method, then saves rounds against the dollars that left', async () => {
+  const base = leadProjection(), { request, update } = await mount(base); await act(async () => button('Settings').click())
+  const off = { ...base, revision: base.revision + 1, settings: { ...base.settings, spendLimitUsdMicros: null, caps: { ...base.settings.caps, usdMicros: LEAD_LIMITS.maxUsdMicros } } }
+  request.mockImplementation(async method => (method === 'lead/spendLimit/set' ? off : base) as never)
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Spending limit"]')!.click())
+  expect(document.querySelector('[aria-label="Spending limit amount"]')).toBeNull()
+  await input(document.querySelector<HTMLInputElement>('[aria-label="Round allowance"]')!, '2')
+  await act(async () => button('Save allowances').click())
+  const calls = request.mock.calls.filter(([method]) => method.startsWith('lead/spendLimit') || method === 'lead/settings/update')
+  expect(calls).toEqual([['lead/spendLimit/set', { usdMicros: null, expectedRevision: base.revision }],
+    ['lead/settings/update', { caps: { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 2 }, expectedRevision: off.revision }]])
+  await update(off)
+  expect(document.querySelector<HTMLElement>('[aria-label="Spending limit"]')!.getAttribute('aria-checked')).toBe('false')
+  expect([...document.querySelectorAll('[data-slot="row"]')].find(row => row.textContent?.startsWith('Spending limit'))?.textContent).toContain('No dollar limit')
+  // On again needs a whole amount above zero before Save.
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Spending limit"]')!.click())
+  expect(button('Save allowances').disabled).toBe(true)
+  await input(document.querySelector<HTMLInputElement>('[aria-label="Spending limit amount"]')!, '0')
+  expect(button('Save allowances').disabled).toBe(true)
+  await input(document.querySelector<HTMLInputElement>('[aria-label="Spending limit amount"]')!, '2.5')
+  await act(async () => button('Save allowances').click())
+  expect(request).toHaveBeenCalledWith('lead/spendLimit/set', { usdMicros: 2_500_000, expectedRevision: expect.any(Number) })
 })
 
 it('uses unconstrained Lead settings groups and trailing Save rows', async () => {
