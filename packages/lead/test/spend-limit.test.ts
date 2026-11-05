@@ -3,7 +3,7 @@ import test from 'node:test'
 import { LEAD_LIMITS, parseLeadAcceptanceContract, parseLeadPermissionPolicy } from '@harnessdesk/protocol'
 import { createLeadJournal } from '../src/journal.js'
 import { leadCheckpoint, parseLeadCheckpoint } from '../src/checkpoint.js'
-import { leadLimitedCaps } from '../src/state.js'
+import { leadDraftCaps, leadLimitedCaps } from '../src/state.js'
 import { leadInstructions } from '../src/instructions.js'
 
 const max = LEAD_LIMITS.maxUsdMicros
@@ -69,7 +69,7 @@ test('the setting changes only dollars, is revision fenced and refuses amounts o
   const s = await rig()
   const before = { policy: s.journal.state.policy, rounds: s.journal.state.budget!.caps.rounds }
   await assert.rejects(s.journal.setSpendLimit(null, s.journal.state.seq - 1, 100), (error: any) => error.wireCode === 'lead-revision-stale')
-  for (const usdMicros of [0, -1, 1.5, max + 1]) await assert.rejects(s.journal.setSpendLimit(usdMicros, s.journal.state.seq, 100), String(usdMicros))
+  for (const usdMicros of [0, -1, 1.5, max, max + 1]) await assert.rejects(s.journal.setSpendLimit(usdMicros, s.journal.state.seq, 100), String(usdMicros))
   await assert.rejects(s.journal.setSpendLimit(2_000_000, s.journal.state.seq, 50), 'a clock behind the ledger is refused')
   assert.equal(s.journal.state.spendLimit, null)
   await s.journal.setSpendLimit(2_000_000, s.journal.state.seq, 100)
@@ -79,11 +79,18 @@ test('the setting changes only dollars, is revision fenced and refuses amounts o
   assert.equal(s.journal.state.seq, seq, 'an unchanged setting writes nothing')
 })
 
-test('a plan cannot re-impose a limit the person turned Off, nor exceed one the person set', async () => {
+test('Off never lifts an approved figure, a set limit caps one, and a Lead draft is lifted only before approval', async () => {
   const off = await rig()
   await off.journal.setSpendLimit(null, off.journal.state.seq, 100)
-  await off.approve({ usdMicros: 1_000_000, rounds: 2 })
-  assert.deepEqual(off.journal.state.budget!.caps, { usdMicros: max, rounds: 2 })
+  await off.approve({ usdMicros: 5_000_000, rounds: 2 })
+  assert.deepEqual(off.journal.state.budget!.caps, { usdMicros: 5_000_000, rounds: 2 }, 'a $5 card approved after Off stays $5')
+  await off.journal.setSpendLimit(2_000_000, off.journal.state.seq, 100)
+  assert.equal(off.journal.state.budget!.caps.usdMicros, 2_000_000, 'a limit lowers an approved goal')
+  await off.journal.setSpendLimit(null, off.journal.state.seq, 100)
+  assert.equal(off.journal.state.budget!.caps.usdMicros, 5_000_000, 'Off goes back to the approved figure, never past it')
+  assert.deepEqual(leadDraftCaps({ usdMicros: null }, { usdMicros: 5_000_000, rounds: 2 }), { usdMicros: max, rounds: 2 }, 'a draft frozen while Off carries the ceiling')
+  assert.deepEqual(leadLimitedCaps({ usdMicros: null }, { usdMicros: 2_000_000, rounds: 1 }), { usdMicros: 2_000_000, rounds: 1 }, 'a $2 repeat stays $2 after Off')
+  assert.deepEqual(leadLimitedCaps({ usdMicros: 3_000_000 }, { usdMicros: 5_000_000, rounds: 1 }), { usdMicros: 3_000_000, rounds: 1 }, 'a $5 repeat runs at $3 under a $3 limit')
   const on = await rig()
   await on.journal.setSpendLimit(3_000_000, on.journal.state.seq, 100)
   await on.approve({ usdMicros: 9_000_000, rounds: 2 })

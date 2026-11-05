@@ -82,11 +82,21 @@ export interface LeadState {
 }
 export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, spendLimit: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
   cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
-/** The caps a goal runs with once the person's money limit is journaled: that limit is authoritative over the dollars
- * of any caps it is given. Off runs at the portable ceiling, which still trips the overflow stop; a set limit is never
- * exceeded by a plan the Lead drafted, though a lower one the person approved still holds. Rounds are untouched. */
-export const leadLimitedCaps = (limit: LeadState['spendLimit'], caps: LeadCaps): LeadCaps => limit === null ? caps
+/** A figure the Lead drafted, before the person sees it: Off drafts at the portable ceiling (which still trips the
+ * overflow stop) so the card never shows a cap the person turned off; a set limit caps it. Rounds are untouched. */
+export const leadDraftCaps = (limit: LeadState['spendLimit'], caps: LeadCaps): LeadCaps => limit === null ? caps
   : { usdMicros: limit.usdMicros === null ? LEAD_LIMITS.maxUsdMicros : Math.min(caps.usdMicros, limit.usdMicros), rounds: caps.rounds }
+/** A figure the person approved, on a plan card or a repeat: a set limit still caps it, but Off never lifts it,
+ * because Off means no limit of the desk's own, not consent to spend past what the person agreed to. */
+export const leadLimitedCaps = (limit: LeadState['spendLimit'], caps: LeadCaps): LeadCaps => limit === null || limit.usdMicros === null ? caps
+  : { usdMicros: Math.min(caps.usdMicros, limit.usdMicros), rounds: caps.rounds }
+/** The dollars the goal in hand runs with under a limit. With no approved plan it follows the limit (Off is the
+ * ceiling); with one, the approved figure (the plan's or a person's raise above it) is the most it can get back to. */
+export const leadGoalSpendCap = (state: LeadState, usdMicros: number | null): number => {
+  if (state.contract === null || !state.budget) return usdMicros ?? LEAD_LIMITS.maxUsdMicros
+  const approved = Math.max(state.contract.caps.usdMicros, state.budget.caps.usdMicros)
+  return usdMicros === null ? approved : Math.min(approved, usdMicros)
+}
 /** A read's journal revision remains valid through observation-only wakes. Any
  * intervening decision-affecting write advances the lower bound and refuses it. */
 export const leadDecisionRevisionMatches = (state: LeadState, expected: number): boolean =>
@@ -502,7 +512,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       let { budget, raisedFrom } = state
       if (event.logicalGoalId !== undefined) {
         ensure(budget?.logicalGoalId === event.logicalGoalId && event.now >= budget.now && !['accepted', 'declined'].includes(state.phase))
-        const usdMicros = event.usdMicros ?? LEAD_LIMITS.maxUsdMicros
+        const usdMicros = leadGoalSpendCap(state, event.usdMicros)
         if (usdMicros !== budget!.caps.usdMicros) {
           // The same ledger change as a tightening or a person's raise: a stop latches below what is spent, none clears.
           budget = applyLeadBudgetCaps({ ...budget!, now: event.now }, { usdMicros, rounds: budget!.caps.rounds })

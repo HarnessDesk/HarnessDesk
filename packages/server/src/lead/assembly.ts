@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { LEAD_LIMITS, type FlowPreview, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type Sha } from '@harnessdesk/protocol'
-import { createLeadJournal, leadBudgetProjection, leadLimitedCaps, LEAD_MESSAGES_DEFAULTS, parseLeadSeatChoices,
+import { createLeadJournal, leadBudgetProjection, leadDraftCaps, LEAD_MESSAGES_DEFAULTS, parseLeadSeatChoices,
   type LeadAcceptanceEvidence, type LeadJournal, type LeadState, type LeadPermissionCall, type LeadResolvedTool, type LeadSeatChoices, type MessagesPrice } from '@harnessdesk/lead'
 import { readChecksAt } from '../evidence/checks-file.js'
 import { atomicJson } from '../goals/store.js'
@@ -218,7 +218,7 @@ export class LeadAssembly {
       await journal.recordSpendLimit(migrated.usdMicros, migrated.applyToGoal, options.now())
     }
     if (!journal.state.budget) await journal.updateBudget({ version: 1, type: 'initialize', now: options.now(), logicalGoalId: 'lead-goal',
-      caps: leadLimitedCaps(journal.state.spendLimit, LEAD_DEFAULT_CAPS), freshnessMs: FRESHNESS_MS })
+      caps: leadDraftCaps(journal.state.spendLimit, LEAD_DEFAULT_CAPS), freshnessMs: FRESHNESS_MS })
     const seats = leadSeatChoices(options.readySeats())
     await options.create({ journal, project, model: LEAD_MESSAGES_DEFAULTS.model, prices: LEAD_PRICES,
       ...(seats ? { seats } : {}),
@@ -229,7 +229,7 @@ export class LeadAssembly {
           if (unfit) throw Object.assign(new Error(unfit), { wireCode: unfit })
         }
         // The card shows the dollars the plan will run with: the person's limit, never the Lead's own figure above it.
-        return freezeLeadPlan({ ...contract, caps: leadLimitedCaps(journal.state.spendLimit, contract.caps) })
+        return freezeLeadPlan({ ...contract, caps: leadDraftCaps(journal.state.spendLimit, contract.caps) })
       },
       resolveTool: async call => {
         const state = journal.state, params = call.params as Record<string, unknown>

@@ -7,7 +7,7 @@ import {
 import { compareLeadPolicyAuthority, sameLeadPolicyValues, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
 import { prepareLeadJournalData, mergeLeadJournalSecurity, type LeadJournalSecurity } from './journal-security.js'
 import type { LeadPersistencePort } from './ports.js'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, fenceLeadWorkerDispatch, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, type LeadState } from './state.js'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, isLeadCancellation, canReportLeadChatEffect, leadDecisionRevisionMatches, reduceLeadRecord, replayLeadJournal, fenceLeadWorkerDispatch, hasPendingLeadPlan, leadWorkerDispatchBlockedByOpenPr, assertPlanApprovable, leadGoalSpendCap, type LeadState } from './state.js'
 import { leadBudgetProjection, type LeadBudgetLedger } from './budget.js'
 
 const boolean = (value: unknown): boolean => { if (typeof value !== 'boolean') throw new Error('lead-journal-boolean'); return value }
@@ -380,10 +380,10 @@ export class LeadJournal {
     return this.#budgetWrite(async () => {
       this.#expectRevision(expectedRevision)
       const state = this.#state, budget = state.budget
-      if (usdMicros !== null && (!Number.isSafeInteger(usdMicros) || usdMicros < 1 || usdMicros > LEAD_LIMITS.maxUsdMicros) ||
+      if (usdMicros !== null && (!Number.isSafeInteger(usdMicros) || usdMicros < 1 || usdMicros >= LEAD_LIMITS.maxUsdMicros) ||
         !budget || !Number.isSafeInteger(now) || now < budget.now) throw new Error('lead-budget-refused')
       const open = !['accepted', 'declined'].includes(state.phase)
-      if (state.spendLimit?.usdMicros === usdMicros && (!open || budget.caps.usdMicros === (usdMicros ?? LEAD_LIMITS.maxUsdMicros))) return
+      if (state.spendLimit?.usdMicros === usdMicros && (!open || budget.caps.usdMicros === leadGoalSpendCap(state, usdMicros))) return
       await this.#append({ type: 'spend-limit', usdMicros, now, ...(open ? { logicalGoalId: budget.logicalGoalId } : {}) })
     }, stopEffects)
   }

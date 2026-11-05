@@ -490,7 +490,7 @@ export class LeadControls {
     }
     const reason = await this.options.validateRepeat(task.approved.contract)
     const original = task.approved.contract
-    // Each run takes the person's limit as it stands now: Off lifts the cap the run was approved with, a set limit caps it.
+    // Each run takes the person's limit as it stands now: a set limit caps the figure the repeat was approved with, Off keeps it.
     const perRun = leadLimitedCaps(journal.state.spendLimit, task.perRunCaps ?? original.caps)
     if (reason) {
       await journal.appendReply(`This run needs your approval: ${reason}`)

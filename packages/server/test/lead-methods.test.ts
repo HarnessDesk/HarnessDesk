@@ -2089,7 +2089,7 @@ test('the person turns the spending limit Off and sets it again, fenced by revis
     const policy = s.journal.state.policy, rounds = s.journal.state.budget!.caps.rounds
     await assert.rejects(s.call('lead/spendLimit/set', { usdMicros: null, expectedRevision: s.journal.state.seq - 1 }), code('lead-revision-stale'))
     for (const params of [{ usdMicros: 0, expectedRevision: s.journal.state.seq }, { usdMicros: -1, expectedRevision: s.journal.state.seq },
-      { usdMicros: 1.5, expectedRevision: s.journal.state.seq }, { usdMicros: LEAD_LIMITS.maxUsdMicros + 1, expectedRevision: s.journal.state.seq },
+      { usdMicros: 1.5, expectedRevision: s.journal.state.seq }, { usdMicros: LEAD_LIMITS.maxUsdMicros, expectedRevision: s.journal.state.seq }, { usdMicros: LEAD_LIMITS.maxUsdMicros + 1, expectedRevision: s.journal.state.seq },
       { usdMicros: null, expectedRevision: s.journal.state.seq, caps: { usdMicros: 1, rounds: 1 } }])
       await assert.rejects(s.call('lead/spendLimit/set', params), JSON.stringify(params))
     assert.equal(s.journal.state.spendLimit, null)
@@ -2099,13 +2099,15 @@ test('the person turns the spending limit Off and sets it again, fenced by revis
     assert.deepEqual(off.thread.budget.caps, off.settings.caps)
     assert.equal(s.journal.state.cards.some(card => card.type === 'budget-change'), false, 'the person\'s own setting needs no card')
     assert.deepEqual(s.journal.state.policy, policy)
-    // A plan drafted with the Lead's own figure runs with no limit: the person's Off is authoritative.
+    // A card the person approves keeps its figure: Off is no limit of the desk's, not consent to spend past the card.
     await s.journal.offerCard(plan)
     const approved = await s.call('lead/card/decide', planClick)
-    assert.deepEqual(approved.settings.caps, { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: contract.caps.rounds })
-    const on = await s.call('lead/spendLimit/set', { usdMicros: 2_500_000, expectedRevision: s.journal.state.seq })
-    assert.equal(on.settings.spendLimitUsdMicros, 2_500_000)
-    assert.deepEqual(on.settings.caps, { usdMicros: 2_500_000, rounds: contract.caps.rounds })
+    assert.deepEqual(approved.settings.caps, contract.caps)
+    const on = await s.call('lead/spendLimit/set', { usdMicros: 50_000, expectedRevision: s.journal.state.seq })
+    assert.equal(on.settings.spendLimitUsdMicros, 50_000)
+    assert.deepEqual(on.settings.caps, { usdMicros: 50_000, rounds: contract.caps.rounds })
+    const higher = await s.call('lead/spendLimit/set', { usdMicros: 2_500_000, expectedRevision: s.journal.state.seq })
+    assert.deepEqual(higher.settings.caps, contract.caps, 'a higher limit never lifts the goal past its approved figure')
     assert.deepEqual(s.journal.state.policy, policy)
   } finally { s.controls.close() }
 })

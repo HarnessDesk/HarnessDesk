@@ -827,7 +827,8 @@ export const parseLeadScheduledTask: Validator<LeadScheduledTask> = (value, path
 }
 export const parseLeadRepeatControl: Validator<LeadRepeatControl> = object({ taskId: id, action: literalUnion('pause', 'resume', 'stop', 'run-now') })
 export const parseLeadBudgetRaise: Validator<LeadBudgetRaise> = object({ logicalGoalId: id, caps: parseLeadCaps, expectedRevision: revision })
-export const parseLeadSpendLimitSet: Validator<LeadSpendLimitSet> = object({ usdMicros: nullable(integer(1, LEAD_LIMITS.maxUsdMicros)), expectedRevision: revision })
+// The ceiling itself is how Off reads in caps, so a figure stops one short of it.
+export const parseLeadSpendLimitSet: Validator<LeadSpendLimitSet> = object({ usdMicros: nullable(integer(1, LEAD_LIMITS.maxUsdMicros - 1)), expectedRevision: revision })
 export const parseLeadSchedule: Validator<LeadSchedule> = object({ seedChoices: optional(list(opaque, 256, 0, key => key)), version, tasks: list(parseLeadScheduledTask, LEAD_SCHEDULE_LIMITS.tasks, 0, task => task.id),
   quiet: nullable(object<LeadQuietHours>({ from: clockTime, to: clockTime })) })
 const parseLeadMemoryItem: Validator<LeadMemoryItem> = object({ id, text: text(400), state: literalUnion('kept', 'suggested'), at: integer(0, Number.MAX_SAFE_INTEGER) })

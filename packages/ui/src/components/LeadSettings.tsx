@@ -51,7 +51,7 @@ export const LeadSettings = ({ settings, expiry, update, setSpendLimit, onError,
   const micros = Math.round(Number(dollars) * 1000000), roundCount = Number(rounds)
   const limitChanged = (limitOn ? micros : null) !== limit, roundsChanged = roundCount !== settings.caps.rounds
   // A legacy limit of $0 stays as it is until the person changes it; a new one is at least one microdollar.
-  const validLimit = !limitOn || !limitChanged || dollars.trim() !== '' && Number.isSafeInteger(micros) && micros >= 1 && micros <= LEAD_LIMITS.maxUsdMicros
+  const validLimit = !limitOn || !limitChanged || dollars.trim() !== '' && Number.isSafeInteger(micros) && micros >= 1 && micros < LEAD_LIMITS.maxUsdMicros
   const validCaps = validLimit && rounds.trim() !== '' && Number.isSafeInteger(roundCount) && roundCount >= 0 && roundCount <= LEAD_LIMITS.rounds
   const roundsWiden = roundCount > settings.caps.rounds
   // The limit first, then rounds against the dollars it left: a rounds card drafted on the old dollars would go stale.

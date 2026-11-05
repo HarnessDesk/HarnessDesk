@@ -35,11 +35,11 @@ test('Lead controls reject open shapes, invalid fences and unbounded secret/text
 })
 
 
-test('lead/spendLimit/set takes a whole positive amount up to the ceiling, or null for Off, and nothing else', () => {
+test('lead/spendLimit/set takes a whole positive amount below the ceiling (which reads as Off), or null for Off, and nothing else', () => {
   const max = LEAD_LIMITS.maxUsdMicros
-  for (const usdMicros of [null, 1, 2_500_000, max]) assert.doesNotThrow(() => request('lead/spendLimit/set', { usdMicros, expectedRevision: 3 }), String(usdMicros))
+  for (const usdMicros of [null, 1, 2_500_000, max - 1]) assert.doesNotThrow(() => request('lead/spendLimit/set', { usdMicros, expectedRevision: 3 }), String(usdMicros))
   for (const params of [{ usdMicros: 0, expectedRevision: 1 }, { usdMicros: -1, expectedRevision: 1 }, { usdMicros: 1.5, expectedRevision: 1 },
-    { usdMicros: max + 1, expectedRevision: 1 }, { usdMicros: '1000000', expectedRevision: 1 }, { usdMicros: 1_000_000 }, { expectedRevision: 1 },
+    { usdMicros: max, expectedRevision: 1 }, { usdMicros: max + 1, expectedRevision: 1 }, { usdMicros: '1000000', expectedRevision: 1 }, { usdMicros: 1_000_000 }, { expectedRevision: 1 },
     { usdMicros: 1_000_000, expectedRevision: -1 }, { usdMicros: 1_000_000, expectedRevision: 1, rounds: 4 },
     { usdMicros: 1_000_000, expectedRevision: 1, policy: { mode: 'ask' } }])
     assert.throws(() => request('lead/spendLimit/set', params), { name: 'ValidationError' }, JSON.stringify(params))
