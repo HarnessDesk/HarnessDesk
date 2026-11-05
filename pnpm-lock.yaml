@@ -18,9 +18,9 @@ overrides:
   body-parser@>=2.0.0 <2.4.0: ^2.4.0
   ip-address@>=10.0.0 <10.7.4: ^10.7.4
   source-map-js@>=1.0.0 <1.2.2: ^1.2.2
-  brace-expansion@<1.1.21: ^1.1.21
+  brace-expansion@>=1.0.0 <1.1.21: ^1.1.21
   brace-expansion@>=2.0.0 <2.1.7: ^2.1.7
-  brace-expansion@>=4.0.0 <5.0.12: ^5.0.12
+  brace-expansion@>=5.0.0 <5.0.12: ^5.0.12
   zod@>=4.0.0 <4.6.6: 4.6.6
 
 patchedDependencies:
