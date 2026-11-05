@@ -1772,6 +1772,37 @@ test('a person tool continuation stays a person reply when a notice coalesces wi
   } finally { await loop.close() }
 })
 
+test('a person whose turn ends in the quiet marker is answered all the same', async () => {
+  const s = await fixture([
+    message([tool('catalog', 'flow_catalog', { root: contract.project.path })], { stop_reason: 'tool_use' }),
+    message([{ type: 'text', text: lead.LEAD_QUIET }]),
+    async request => {
+      const latest = JSON.stringify(JSON.parse(request.body).messages.at(-1).content)
+      return message([{ type: 'text', text: latest.includes('has no reply yet') ? 'I read the catalog; nothing fits yet.' : 'unprompted' }])
+    },
+  ])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); await s.journal.appendMessage('ask', 'What is in the catalog?')
+    await loop.request({ ...input, wakeSource: 'person' })
+    s.emit({ type: 'notice', team: null, text: 'Desk notice' }); await s.drain(); await s.tick(); await loop.idle()
+    assert.deepEqual(said(s), ['I read the catalog; nothing fits yet.'])
+    assert.equal(s.fake.requests.length, 3, 'one more request, only once')
+  } finally { await loop.close() }
+})
+
+test('the quiet marker stays quiet once the person has their reply', async () => {
+  const s = await fixture([message([{ type: 'text', text: lead.LEAD_QUIET }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); await s.journal.appendMessage('ask', 'Status?')
+    await s.journal.appendReply('Running.')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.deepEqual(said(s), ['Running.'])
+    assert.equal(s.fake.requests.length, 1)
+  } finally { await loop.close() }
+})
+
 for (const coalesced of [false, true]) test(`a two-step goal starts step 2 through a desk-woken preview continuation${coalesced ? ' with another desk change' : ''}`, async () => {
   const s = await fixture([message(), message([tool('preview-second', 'flow_preview', {
     root: contract.project.path, source: lead.leadReviewedResultSource,
