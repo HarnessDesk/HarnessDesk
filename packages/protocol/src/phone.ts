@@ -336,6 +336,8 @@ export interface PhoneWorkCapabilities {
   readonly stop: boolean
   readonly delete: boolean
   readonly chooseModel: boolean
+  /** More than one agent is listed in `agents`, so a new session can start on another one. */
+  readonly chooseAgent: boolean
   readonly choosePermissions: boolean
   readonly attach: boolean
   readonly undo: boolean
@@ -350,6 +352,15 @@ export interface PhoneModelChoice {
   readonly fast: boolean
 }
 
+/** An agent a new session can start on: its opaque runtime id (the prefix of a work item's id), the adapter's own name, and its own models. */
+export interface PhoneAgentChoice {
+  readonly id: string
+  readonly name: string
+  readonly models: readonly PhoneModelChoice[]
+  /** The desk's selected agent, which a start without `agent` uses. */
+  readonly default?: true
+}
+
 export interface PhoneWorkSnapshot {
   readonly deskName: string
   /** Unambiguous admitted project names accepted by session start, sorted and capped at 50; never paths. */
@@ -357,7 +368,10 @@ export interface PhoneWorkSnapshot {
   readonly items: readonly PhoneWorkItem[]
   /** Left out until the desk has scanned its usage once: the phone then says Unknown. */
   readonly usage?: PhoneWorkUsage
+  /** The default agent's models, for phones that do not read `agents`. */
   readonly models: readonly PhoneModelChoice[]
+  /** Agents ready to start a session on this desk, default first, at most 8. */
+  readonly agents?: readonly PhoneAgentChoice[]
   readonly flows: readonly never[]
   readonly commands: readonly never[]
   readonly capabilities: PhoneWorkCapabilities

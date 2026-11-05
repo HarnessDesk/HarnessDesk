@@ -43,7 +43,7 @@ const rig = (over: Partial<PhoneWorkPorts> = {}): Rig => {
     summary: () => null,
     read: async () => current,
     live: () => ({ running, pending, cwd: CWD }),
-    defaultRuntime: () => RT, projectRoots: () => [], canInterrupt: () => true,
+    defaultRuntime: () => RT, readyRuntimes: () => [RT], projectRoots: () => [], canInterrupt: () => true,
     models: async () => [], newSessionValues: async () => ({}), create: async () => session([]), send: async () => {}, queue: async () => ({ queuedId: null, sent: true }), interrupt: async () => {},
     respond: async params => { responded.push(params); pending = pending.filter(one => one.id !== params.approvalId) },
     hasSecret: text => /sk-[A-Za-z0-9]{10,}/.test(text),
@@ -135,8 +135,8 @@ test('a change is high risk when it deletes, leaves the project, touches code th
 test('the snapshot says what the desk honours, in micro-dollars, with usage left out until there is some', async () => {
   const empty = await rig().work.snapshot()
   assert.deepEqual(empty, {
-    deskName: 'Studio Mac', items: [], projects: [], models: [], flows: [], commands: [], threads: [],
-    capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true },
+    deskName: 'Studio Mac', items: [], projects: [], models: [], agents: [{ id: String(RT), name: 'Agent A', models: [], default: true }], flows: [], commands: [], threads: [],
+    capabilities: { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true },
   })
   assert.ok(!('usage' in empty))
   const usage = { spentToday: { micros: 1_250_000 } } as never
@@ -593,6 +593,74 @@ test('phone model choices read through the default runtime and map its own effor
   const snapshot = await work.snapshot()
   assert.deepEqual(snapshot.models, [{ id: 'one', name: 'Model One', hint: 'From the runtime', efforts: ['low', 'high', 'extra'], fast: true }, { id: 'two', name: 'Model Two', hint: '', efforts: ['low', 'medium', 'high'], fast: false }])
   assert.equal(snapshot.capabilities.chooseModel, true)
+})
+
+const RT2 = runtimeId('agent-b')
+const model = (id: string) => ({ id, displayName: id.toUpperCase(), supportsImages: false, reasoningLevels: [{ id: 'high', label: 'High' }] })
+const choice = (id: string) => ({ id, name: id.toUpperCase(), hint: '', efforts: ['high'], fast: false })
+const agentsRig = (over: Partial<PhoneWorkPorts> = {}) => {
+  const created: any[] = [], choices: any[] = []
+  const r = rig({
+    seatName: runtime => runtime === RT ? 'Agent A' : runtime === RT2 ? 'Fake Agent' : null,
+    readyRuntimes: () => [RT2, runtimeId('unknown-seat'), RT],
+    isOwn: (_runtime, id) => id === SID,
+    models: async runtime => runtime === RT ? [model('one')] : [model('two'), model('three')],
+    newSessionValues: async (runtime, _cwd, picked) => { choices.push([runtime, picked]); return {} },
+    create: async params => { created.push(params); return session([], { runtime: params.runtime }) },
+    ...over,
+  })
+  return { ...r, created, choices }
+}
+
+test('the snapshot lists each ready agent with its own models, the default first, and keeps the default models for older phones', async () => {
+  const snapshot = await agentsRig().work.snapshot()
+  assert.deepEqual(snapshot.agents, [
+    { id: String(RT), name: 'Agent A', models: [choice('one')], default: true },
+    { id: String(RT2), name: 'Fake Agent', models: [choice('two'), choice('three')] },
+  ])
+  assert.deepEqual(snapshot.models, [choice('one')])
+  assert.equal(snapshot.capabilities.chooseAgent, true)
+  assert.equal((await rig().work.snapshot()).capabilities.chooseAgent, false, 'one agent is not a choice')
+  const unready = await agentsRig({ readyRuntimes: () => [RT2] }).work.snapshot()
+  assert.deepEqual(unready.agents?.map(agent => [agent.id, agent.default]), [[String(RT2), undefined]], 'a default that cannot start is not listed')
+  assert.deepEqual(unready.models, [choice('one')])
+  const many = Array.from({ length: 12 }, (_, index) => runtimeId(`agent-${index}`))
+  const capped = await rig({ readyRuntimes: () => many, seatName: () => 'Fake Agent' }).work.snapshot()
+  assert.deepEqual(capped.agents?.map(agent => agent.id), many.slice(0, 8).map(String))
+})
+
+test('an agent whose model read fails is listed with no models, never invented ones', async () => {
+  const snapshot = await agentsRig({ models: async runtime => { if (runtime === RT2) throw new Error('Synthetic model lookup failure'); return [model('one')] } }).work.snapshot()
+  assert.deepEqual(snapshot.agents?.map(agent => [agent.id, agent.models.map(one => one.id)]), [[String(RT), ['one']], [String(RT2), []]])
+  assert.equal(snapshot.capabilities.chooseModel, true)
+})
+
+test('agent names on the phone are scrubbed and bounded, and carry no path or account', async () => {
+  const snapshot = await agentsRig({ seatName: runtime => runtime === RT2 ? `Fake Agent dev@example.com ${HOME}/acme-api ${'name '.repeat(30)}` : 'Agent A' }).work.snapshot()
+  const named = snapshot.agents!.find(agent => agent.id === String(RT2))!
+  assert.ok(named.name.length <= 60 && named.name.startsWith('Fake Agent'), named.name)
+  assert.ok(!/@|\/home/.test(JSON.stringify(snapshot.agents)), JSON.stringify(snapshot.agents))
+})
+
+test('phone start on a chosen agent uses that runtime and checks the model against its own list', async () => {
+  const r = agentsRig()
+  assert.deepEqual(await r.work.sessionStart({ text: 'Hello', agent: String(RT2), model: 'two', effort: 'high' }), { id: `${RT2}:${SID}` })
+  assert.equal(r.created[0].runtime, RT2)
+  assert.deepEqual(r.choices[0], [RT2, { model: 'two', effort: 'high' }])
+  const other = await r.work.sessionStart({ text: 'Hello', agent: String(RT2), model: 'one' })
+  assert.equal(other.id, '')
+  assert.match(other.problem ?? '', /model.*available/i)
+  assert.equal(r.created.length, 1, 'another agent’s model allocates nothing')
+  assert.deepEqual(await r.work.sessionStart({ text: 'Hello', model: 'one' }), { id: key }, 'without an agent the default runtime starts as before')
+  assert.equal(r.created[1].runtime, RT)
+})
+
+test('phone start refuses an agent the desk does not list without allocating', async () => {
+  const r = agentsRig({ readyRuntimes: () => [RT] })
+  for (const agent of [String(RT2), 'unknown-seat', 'nobody']) {
+    assert.deepEqual(await r.work.sessionStart({ text: 'Hello', agent }), { id: '', problem: 'That agent is not available on this desk. Refresh and try again.' })
+  }
+  assert.equal(r.created.length, 0)
 })
 
 test('phone start returns a problem for an unknown model without allocating or throwing', async () => {

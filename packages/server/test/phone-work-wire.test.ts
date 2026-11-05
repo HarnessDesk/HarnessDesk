@@ -62,7 +62,7 @@ const door = async (chooseModel = false) => {
     summary: () => null,
     read: async () => conversation,
     live: () => ({ running: state.running, pending: state.pending, cwd: CWD }),
-    defaultRuntime: () => RT, projectRoots: () => [CWD], canInterrupt: () => true,
+    defaultRuntime: () => RT, readyRuntimes: () => [RT], projectRoots: () => [CWD], canInterrupt: () => true,
     models: async () => chooseModel ? [{ id: 'one', displayName: 'Model One', supportsImages: false, reasoningLevels: [{ id: 'xhigh', label: 'Extra high' }] }] : [],
     newSessionValues: async (runtime, cwd, choices) => chooseModel ? phoneSessionValues(runtime, cwd, {}, async params => [
       { id: 'model', category: 'model', type: 'select', label: 'Model', currentValue: params.values?.model as string ?? 'one', choices: [{ value: 'one', label: 'Model One' }] },
@@ -187,7 +187,7 @@ test('a phone that may read gets the snapshot and a conversation, and both scrub
     assert.equal(snapshot.ok, true, JSON.stringify(snapshot))
     assert.equal(snapshot.result.deskName, 'Studio Mac')
     assert.deepEqual(snapshot.result.items.map((item: any) => item.id), [KEY])
-    assert.deepEqual(snapshot.result.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, choosePermissions: false, attach: false, undo: false, decide: true })
+    assert.deepEqual(snapshot.result.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
     const thread = await phone.request('workspace/thread/read', { id: KEY })
     assert.equal(thread.ok, true, JSON.stringify(thread))
     assert.equal(thread.result.status, 'asksYou')

@@ -4112,11 +4112,16 @@ export class Host {
     return this.#leadService
   }
 
+  /** Runtimes that answer now or start on demand, in registration order: what the Lead may seat and a phone may start on. */
+  #readyRuntimes(): RuntimeId[] {
+    return [...this.#runtimes.values()].filter(runtime => leadSeatable(runtime.health())).map(runtime => runtime.info.id)
+  }
+
   /** The production assembly behind `HARNESSDESK_LEAD=1`: it builds the Lead from this host's own state on first use. */
   #assembleLead(): LeadAssembly {
     return new LeadAssembly({ home: this.#state.directory, now: () => Date.now(),
       workspace: async () => this.#state.state.workspaces.find(one => !isManagedChatFolder(this.#state, one.path))?.path ?? null,
-      readySeats: () => [...this.#runtimes.values()].filter(runtime => leadSeatable(runtime.health())).map(runtime => String(runtime.info.id)),
+      readySeats: () => this.#readyRuntimes().map(String),
       heldPreview: token => this.#flowPreviews.leadHeld(token),
       seatsHold: async (root, step) => {
         // A preview that cannot even be taken is a plan that cannot start: the same answer, never a broken Lead.
@@ -10131,6 +10136,7 @@ export class Host {
         const preferred = this.#state.state.preferences['activeRuntime']
         return ((typeof preferred === 'string' ? this.#runtimes.get(preferred) : undefined) ?? this.#runtimes.values().next().value)?.info.id ?? null
       },
+      readyRuntimes: () => this.#readyRuntimes(),
       projectRoots: () => this.#state.state.workspaces.filter(workspace => !isManagedChatFolder(this.#state, workspace.path)).map(workspace => workspace.path),
       projectName: root => folderName(this.#sessionIndex.repo(root)?.repo?.root ?? root),
       canInterrupt: runtime => this.#runtimes.get(runtime)?.info.capabilities.interrupt === true,

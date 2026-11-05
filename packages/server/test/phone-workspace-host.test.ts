@@ -186,8 +186,11 @@ test('the host answers the phone’s snapshot of the work in the phone’s own u
   assert.equal(snapshot.items[0]!.title, 'Fix the sign-in for … in …')
   assert.equal(snapshot.items[0]!.project, undefined, 'a folder that is no repository names no project, in the list or in the conversation')
   assert.equal(snapshot.deskName, 'Desk')
-  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: true, choosePermissions: false, attach: false, undo: false, decide: true })
+  assert.deepEqual(snapshot.capabilities, { startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: true, chooseAgent: false, choosePermissions: false, attach: false, undo: false, decide: true })
   assert.deepEqual(snapshot.models.map(model => model.id), runtime.models.map(model => model.id))
+  // The desk starts its default agent in the background; once it answers it is listed with its own models.
+  const ready = await host.call('workspace/read', {})
+  assert.deepEqual(ready.agents?.map(agent => [agent.id, agent.name, agent.default, agent.models.map(model => model.id)]), [[String(runtime.info.id), runtime.info.presentation.name, true, runtime.models.map(model => model.id)]])
   assert.deepEqual([snapshot.flows, snapshot.commands, snapshot.threads], [[], [], []])
   // The usage scan may or may not have finished; when it has, it is seven days and no account.
   if (snapshot.usage) assert.equal(snapshot.usage.days.length, 7)

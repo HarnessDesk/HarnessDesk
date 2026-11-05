@@ -1,5 +1,5 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import type { LeadChatControl, UserContent, ModelInfo, PhoneModelChoice } from '@harnessdesk/protocol'
+import type { LeadChatControl, UserContent, ModelInfo, PhoneAgentChoice, PhoneModelChoice } from '@harnessdesk/protocol'
 import {
   findOption, recommendedOptionValues, refuseOptionValue, runtimeId, sessionId as makeSessionId, type ConfigOption, type OptionValue, type Approval, type HostParams, type HostResult, type PhoneApprovalState, type PhoneWorkCapabilities, type PhoneWorkSnapshot,
   type PhoneWorkThread, type RuntimeId, type Session, type SessionId, type SessionSummary,
@@ -31,6 +31,8 @@ export interface PhoneWorkPorts {
   readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly pending: readonly Approval[]; readonly cwd: string | null; readonly queued?: number }
   readonly respond: (params: HostParams<'approval/respond'>) => Promise<void>
   readonly defaultRuntime: () => RuntimeId | null
+  /** Runtimes that can start a session now or on demand, in the desk's stable order. */
+  readonly readyRuntimes: () => readonly RuntimeId[]
   /** Admitted project roots, with no caller-supplied path and no per-chat folder the host made for a no-folder chat. */
   readonly projectRoots: () => readonly string[]
   readonly projectName?: (root: string) => string | null
@@ -50,10 +52,11 @@ export interface PhoneWorkPorts {
 
 /** The controls the desk honours for a phone so far. The rest are left false, and the phone leaves them out. */
 const CAPABILITIES: PhoneWorkCapabilities = {
-  startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false,
+  startSession: true, startTeam: false, reply: true, stop: true, delete: false, chooseModel: false, chooseAgent: false,
   choosePermissions: false, attach: false, undo: false, decide: true,
 }
 
+const AGENTS = 8
 const REMEMBER_DECISIONS = 200
 const SHOW_DECISIONS = 20
 const DECISION_TTL = 24 * 60 * 60 * 1000
@@ -167,19 +170,29 @@ export class PhoneWork {
 
   constructor(ports: PhoneWorkPorts) { this.#ports = ports }
 
+  /** The agents a phone may start on: ready, known to the desk, default first, capped. */
+  #agents(runtime: RuntimeId | null): RuntimeId[] {
+    const ready = [...new Set(this.#ports.readyRuntimes())].filter(one => this.#ports.seatName(one) !== null)
+    return (runtime !== null && ready.includes(runtime) ? [runtime, ...ready.filter(one => one !== runtime)] : ready).slice(0, AGENTS)
+  }
+
   async snapshot(): Promise<PhoneWorkSnapshot> {
     const runtime = this.#ports.defaultRuntime()
-    const [items, usage, catalogue] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
-      runtime ? this.#ports.models(runtime).catch(() => []) : Promise.resolve([])])
-    const models = modelChoices(catalogue)
+    const ids = this.#agents(runtime)
+    const reads = [...new Set(runtime ? [runtime, ...ids] : ids)]
+    const [items, usage, catalogues] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
+      Promise.all(reads.map(one => this.#ports.models(one).then(modelChoices).catch((): PhoneModelChoice[] => [])))])
+    const choices = new Map(reads.map((one, index) => [one, catalogues[index]!]))
+    const models = runtime ? choices.get(runtime)! : []
+    const agents: PhoneAgentChoice[] = ids.map(id => ({ id: String(id), name: scrub(this.#ports.seatName(id) ?? '', 60) || 'Agent', models: choices.get(id)!, ...(id === runtime ? { default: true as const } : {}) }))
     let projects: string[] = []
     try { projects = [...this.#projectNames()].filter(([, roots]) => roots.length === 1).map(([name]) => name).sort().slice(0, 50) } catch { /* Unreadable admission metadata is not a project choice. */ }
     return {
       deskName: scrub(this.#ports.deskName(), 60) || 'Desk',
       items, projects,
       ...(usage ? { usage } : {}),
-      models, flows: [], commands: [],
-      capabilities: { ...CAPABILITIES, chooseModel: models.length > 0 },
+      models, agents, flows: [], commands: [],
+      capabilities: { ...CAPABILITIES, chooseModel: models.length > 0, chooseAgent: agents.length > 1 },
       threads: [],
     }
   }
@@ -246,9 +259,11 @@ export class PhoneWork {
     return this.startInProject(params, cwd)
   }
 
-  /** Host-owned exact project root. `input` is a host-only envelope override, never phone params. */
-  async startInProject(params: { text: string } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/start'>> {
-    const runtime = this.#ports.defaultRuntime()
+  /** Host-owned exact project root. `input` is a host-only envelope override, never phone params. Without `agent` it starts on the default runtime. */
+  async startInProject(params: { text: string; agent?: string } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/start'>> {
+    const preferred = this.#ports.defaultRuntime()
+    const runtime = params.agent === undefined ? preferred : this.#agents(preferred).find(one => String(one) === params.agent) ?? null
+    if (runtime === null && params.agent !== undefined) return { id: '', problem: 'That agent is not available on this desk. Refresh and try again.' }
     if (runtime === null) return refuse('No agent is available to start a session.')
     return guarded(async () => {
       const choices: PhoneStartChoices = { ...(params.model !== undefined ? { model: params.model } : {}), ...(params.effort !== undefined ? { effort: params.effort } : {}) }
