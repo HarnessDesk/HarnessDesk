@@ -98,6 +98,32 @@ test('Resume after a silent turn tells the Lead the chat it already started, so 
   assert.equal(r.journal.state.messages.at(-1)?.role, 'assistant')
 })
 
+test('Resume after a silent turn that started and then stopped a chat says both, never that the work is under way', async t => {
+  const r = await refusalRig(t)
+  const sent: import('@harnessdesk/lead').MessagesTurn[][] = []
+  const controls = new LeadControls({ journal: r.journal, project: r.project, model: 'fixture-model', now: () => Date.now(), nextId: () => 'fresh-logical-goal',
+    push() {}, decidePerson: async () => {}, decideResult: async () => {}, stopEffects: async () => {},
+    service: { status: async () => ({ configured: true, protection: 'synthetic' }), assertPublic: async () => {}, setKey: async () => {}, deleteKey: async () => {},
+      send: async input => {
+        sent.push([...input.messages])
+        if (sent.length === 1) {
+          const started = await r.execute({ method: 'lead/chat/start', params: { text: 'Add a snake case helper' } })
+          assert.equal(started.outcome, 'succeeded')
+          const id = (started.value as { id: string }).id
+          assert.equal((await r.execute({ method: 'lead/chat/stop', params: { id } })).outcome, 'succeeded')
+          return { status: 'completed', text: '' }
+        }
+        return { status: 'completed', text: 'I started the chat and stopped it.' }
+      } },
+  })
+  t.after(() => controls.close())
+  await controls.send({ idempotencyKey: 'first-person', text: 'Add a snake case helper, then cancel it' }); await controls.idle()
+  await controls.resume({ expectedRevision: r.journal.state.seq }); await controls.idle()
+  const words = JSON.stringify(sent[1])
+  assert.match(words, /already started 1 chat and stopped 1 chat/)
+  assert.doesNotMatch(words, /under way/)
+})
+
 test('a chat the Lead started before its last reply is not reported again', async t => {
   const r = await refusalRig(t)
   const sent: import('@harnessdesk/lead').MessagesTurn[][] = []
