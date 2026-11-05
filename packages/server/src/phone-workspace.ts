@@ -63,6 +63,8 @@ export interface PhoneWorkspacePorts {
   readonly live: () => readonly PhoneLiveSession[]
   /** The agent's presentation name, from the runtime's own `presentation`; null for an agent this host does not know. */
   readonly seatName: (runtime: RuntimeId) => string | null
+  /** Whether this runtime's `createdAt` is a measured start (`capabilities.startTimes`); absent means it is not. */
+  readonly knowsStart?: (runtime: RuntimeId) => boolean
   readonly teams: () => Promise<readonly PhoneTeamInput[]>
   readonly reports: () => Promise<readonly UsageReport[]>
   readonly ledger: (query: LedgerQuery) => Promise<LedgerReport>
@@ -121,8 +123,9 @@ export class PhoneWorkspace {
       seat,
       cost: money(one?.cost ?? entry.cost),
       lastActivityAt: summary.updatedAt,
-      // A start the desk does not know, or one later than the last activity, is left out rather than guessed.
-      ...(Number.isFinite(summary.createdAt) && summary.createdAt > 0 && summary.createdAt <= summary.updatedAt ? { startedAt: summary.createdAt } : {}),
+      // A start the agent never recorded, or one later than the last activity, is left out rather than guessed.
+      ...(this.#ports.knowsStart?.(summary.runtime) === true && Number.isFinite(summary.createdAt) && summary.createdAt > 0 &&
+        summary.createdAt <= summary.updatedAt ? { startedAt: summary.createdAt } : {}),
       pinned: false,
     }
   }

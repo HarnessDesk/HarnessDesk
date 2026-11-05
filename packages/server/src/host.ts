@@ -9961,6 +9961,10 @@ export class Host {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
       },
+      knowsStart: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? this.#infoOf(known).capabilities.startTimes === true : false
+      },
       leadChats: () => {
         const journal = this.#leadJournal, project = this.#leadChatProject, store = this.#leadChatControl
         if (!journal || !project || !store) return null

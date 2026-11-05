@@ -41,6 +41,7 @@ interface Fixture {
   reports: UsageReport[]
   ledger: (query: LedgerQuery) => LedgerReport
   lead: { name: string; ids: Set<string> } | null
+  knowsStart: boolean
   readonly done: () => Promise<void>
 }
 
@@ -50,7 +51,7 @@ const fixture = async (): Promise<Fixture> => {
   const index = new SessionIndex(file)
   const db = new DatabaseSync(file)
   const state: Fixture = {
-    index, db, live: [], teams: [], reports: [], lead: null, ledger: () => ({ totalCost: null, scannedAt: null, rows: [], daily: [] } as unknown as LedgerReport),
+    index, db, live: [], teams: [], reports: [], lead: null, knowsStart: true, ledger: () => ({ totalCost: null, scannedAt: null, rows: [], daily: [] } as unknown as LedgerReport),
     workspace: undefined as never, done: async () => { db.close(); index.close(); await rm(root, { recursive: true, force: true }) },
   }
   const workspace = new PhoneWorkspace({
@@ -63,6 +64,7 @@ const fixture = async (): Promise<Fixture> => {
     },
     live: () => state.live,
     seatName: runtime => runtime === agent ? 'Fake Agent' : null,
+    knowsStart: () => state.knowsStart,
     teams: async () => state.teams,
     reports: async () => state.reports,
     ledger: async query => state.ledger(query),
@@ -134,6 +136,10 @@ test('a phone work item says when its session began, and leaves it out when the 
       assert.ok(!('startedAt' in row), `${id}: an unknown or impossible start is left out of the row, never zero`)
       assert.ok(!('startedAt' in item), `${id}: and out of the work item`)
     }
+    // An agent that lists only its last activity hands back that time as `createdAt`; it is not a start.
+    f.knowsStart = false
+    assert.ok(f.workspace.sessionsList({}).rows.every(row => !('startedAt' in row)), 'a runtime without measured starts reports none')
+    assert.ok(f.workspace.workSessions({}).items.every(item => !('startedAt' in item)))
   } finally { await f.done() }
 })
 

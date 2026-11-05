@@ -214,6 +214,7 @@ const CAPABILITIES = {
   nameHistory: true,
   deleteHistory: 'erase',
   readableHistory: true,
+  startTimes: true,
   extensionStore: true,
   hooks: true,
   pluginTools: true,
