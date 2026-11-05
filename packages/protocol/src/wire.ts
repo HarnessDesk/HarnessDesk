@@ -1,3 +1,4 @@
+import type { LeadStage } from './lead-stage.js'
 import type { ForgeGitEntry, ForgeRequester } from './forge.js'
 import type {
   PhoneDashboard, PhoneLinkState, PhonePairing, PhoneRange, PhoneSessionsList, PhoneSessionState, PhoneTeamsList, PhoneTier,
@@ -819,7 +820,7 @@ export interface HostMethods {
   /** Ordinary sessions in the host-selected Lead project. Transcripts are untrusted observations. */
   'lead/chat/list': {
     params: { readonly cursor?: string; readonly limit?: number }
-    result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly updatedAt: number }[]; readonly nextCursor: string | null }
+    result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage: LeadStage; readonly updatedAt: number }[]; readonly nextCursor: string | null }
   }
   'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
   'lead/chat/start': { params: { readonly text: string }; result: { readonly id: string; readonly problem?: string } }
@@ -2947,7 +2948,7 @@ export type WireNotification =
   | {
       /** A tracked ordinary chat changed state; transcript content stays behind read. */
       readonly method: 'lead/chat/changed'
-      readonly params: { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle' }
+      readonly params: { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage: LeadStage }
     }
   | { readonly method: 'account/changed'; readonly params: { readonly status: HarnessDeskAccountStatus } }
   | { readonly method: 'phone/changed'; readonly params: PhoneLinkState }

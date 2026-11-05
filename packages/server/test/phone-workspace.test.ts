@@ -496,3 +496,39 @@ test('a phone without the read tier is refused all three, and bad params are ref
     reader.close()
   } finally { await d.done(); await f.done() }
 })
+
+test('work stages carry host waits and both counts use the same waiting predicate', async () => {
+  const f = await populated()
+  try {
+    f.teams = [team('answer', { activity: 'needs-you' }), team('review', { activity: 'ready-to-wrap' }),
+      team('blocked', { run: 'stopped' }), team('working'), team('done', { state: 'wrapped', activity: null })]
+    const items = await f.workspace.workItems()
+    const stages = Object.fromEntries(items.map(item => [item.id, (item as any).stage]))
+    assert.equal(stages['fake-agent:waiting'], 'you-answer')
+    assert.equal(stages['fake-agent:running'], 'working')
+    assert.equal(stages.answer, 'you-answer'); assert.equal(stages.review, 'you-review'); assert.equal(stages.blocked, 'you-blocked')
+    assert.equal(stages.working, 'working'); assert.equal(stages.done, 'idle')
+    assert.ok(items.every(item => typeof (item as any).stageReason === 'string' && (item as any).stageReason.length > 0))
+    const waiting = (item: any) => item.stage.startsWith('you-')
+    assert.equal((await f.workspace.dashboardRead({})).counts.needsYou, items.filter(waiting).length)
+    assert.equal(f.workspace.sessionsList({}).counts.needsYou, items.filter(item => item.kind === 'session').filter(waiting).length)
+    assert.equal((f.workspace.workSessions({ archived: true }).items[0] as any).stage, 'idle')
+  } finally { await f.done() }
+})
+
+test('queued, failed and paused live sessions keep legacy words while stage names the actual wait', async () => {
+  const f = await fixture()
+  try {
+    for (const id of ['queued', 'failed', 'paused']) f.index.upsert(summary(id))
+    f.live = ['queued', 'failed', 'paused'].map(id => ({ runtime: agent, id: sessionId(id), running: false, waiting: false, cost: null,
+      queued: id !== 'failed', failed: id === 'failed', queuePaused: id === 'paused' }))
+    const items = f.workspace.workSessions({}).items
+    assert.deepEqual(Object.fromEntries(items.map(item => [item.id.split(':')[1], item.stage])), { queued: 'queued', failed: 'you-blocked', paused: 'you-blocked' })
+    assert.ok(items.every(item => item.phase === 'done' && item.line === 'Done'))
+    assert.equal(f.workspace.sessionsList({}).counts.needsYou, 2)
+    const input = team('reserved', { run: 'stopped' })
+    f.teams = [{ ...input, view: { ...input.view, stage: 'queued', stageReason: 'start-queued' } }]
+    const one = (await f.workspace.workItems()).find(item => item.id === 'reserved')!
+    assert.equal(one.stage, 'queued', 'the authoritative host stage wins over an older run used by legacy phone words')
+  } finally { await f.done() }
+})

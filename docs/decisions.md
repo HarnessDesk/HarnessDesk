@@ -7,6 +7,18 @@ the rule is the last line of its section.
 
 ---
 
+## One host table says who work waits on — 2026-11-05
+
+Lead threads, ordinary chats and Teams carry a deterministic stage from the
+closed, ordered table in `packages/protocol/src/lead-stage.ts`. First match
+wins: a person's decision takes precedence over concurrent work, and each
+kind ends with an idle catch-all. Phone counts and the Lead's observations
+read that host stage, so each surface answers the same question. The model
+never computes it: prose cannot decide who owes an action, and a new wait
+reason requires an explicit classification. Legacy phone phase and line
+fields remain for older phones; newer phones fall back to phase only when an
+older desk omits stage.
+
 ## Groups are cards by default, and a sheet is a foundation — 2026-11-01
 
 The app-frame canvas drew every left-menu mode twice: Cards, where each group

@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **One answer to what needs you.** Lead and phone work lists share the desk’s stages for answers, reviews, blockers, working and queued items.
+
 - **Chats the Lead starts say what they are for.** A chat the Lead starts is named by the task it was given, not "Lead message from …", and your phone lists a chat the Lead directs as the Lead's until you take it over. The Lead names a chat by its task when it tells you about it, never by an id.
 - **The Lead always answers your message.** When a desk change arrived in the middle of your turn, the Lead could finish the work you asked for and say nothing, which left your message looking unanswered and let Resume start the same work a second time. It now always replies once its work for your message is done. Resume after a failed or silent turn also tells the Lead which chats it already started, so it does not start them again.
 

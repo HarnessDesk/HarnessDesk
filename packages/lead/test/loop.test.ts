@@ -1030,13 +1030,13 @@ test('ordinary chat work returns completion to the same Lead conversation withou
   assert.equal(s.journal.state.cards.length, 0)
   assert.notEqual(s.journal.state.phase, 'waiting-for-user')
   assert.equal(s.fake.requests.length, 2)
-  s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'idle' })
+  s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'idle', stage: 'idle' })
   await s.drain(); await s.tick(); await loop.idle()
   assert.equal(s.fake.requests.length, 3, 'completion gets one automatic turn')
   assert.match(s.fake.requests.at(-1).body, /fixture:capture/)
   assert.match(s.journal.state.messages.at(-1)!.text, /screenshot is saved/)
-  for (let i = 0; i < 8; i++) s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'idle' })
-  s.emit({ type: 'chat.changed', id: 'other:chat', project: '/workspace/foreign', state: 'waiting' })
+  for (let i = 0; i < 8; i++) s.emit({ type: 'chat.changed', id: 'fixture:capture', project: contract.project.path, state: 'idle', stage: 'idle' })
+  s.emit({ type: 'chat.changed', id: 'other:chat', project: '/workspace/foreign', state: 'waiting', stage: 'you-answer' })
   await s.drain(); await s.tick(); await loop.idle()
   assert.equal(s.fake.requests.length, 3, 'unchanged or foreign work stays quiet')
   await loop.close()
@@ -2035,5 +2035,23 @@ for (const name of ['chat_start', 'chat_send'] as const) test(`loop tools-refuse
     await s.tick(); await loop.idle()
     assert.equal(effects, 1)
     assert.equal(s.fake.requests.length, 1)
+  } finally { await loop.close() }
+})
+
+test('a Team stage-only change reaches a wake observation and an unchanged stage stays quiet', async () => {
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }), message(), message()])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); s.setEvidence({ ...spendEvidence(), reviews: [] }); await loop.request(input)
+    const stage = (value: string) => {
+      s.setSnapshot({ teams: [{ goal: { id: 'team-1' }, stage: value }], runs: [], boards: [], seats: [], approvals: [], reviews: [], waiting: [] })
+      s.emit({ type: 'team.changed', team: 'team-1', activity: 'working', sentence: 'Work', stage: value })
+    }
+    const requests = s.fake.requests.length
+    stage('you-answer'); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+    assert.match(s.fake.requests.at(-1).body, /Team stages:.*you-answer/)
+    stage('you-answer'); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
   } finally { await loop.close() }
 })

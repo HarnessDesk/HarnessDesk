@@ -1153,7 +1153,7 @@ test('chat subscribe replays only admitted tracked states and reconciles complet
   let broadcast!: (notification: WireNotification) => void
   const add = h.host.addBroadcaster.bind(h.host)
   Object.defineProperty(h.host, 'addBroadcaster', { value: (callback: typeof broadcast) => { broadcast = callback; return add(callback) } })
-  const chat = (id: string, state: string, root = project) => ({ id, project: root, state })
+  const chat = (id: string, state: string, root = project) => ({ id, project: root, state, stage: state === 'waiting' ? 'you-answer' : state === 'running' ? 'working' : 'idle' })
   Object.defineProperty(h.host, 'leadChatActivities', { value: async () => {
     broadcast({ method: 'lead/chat/changed', params: chat('demo:session-1', 'waiting') } as WireNotification)
     broadcast({ method: 'lead/chat/changed', params: chat('demo:session-1', 'idle') } as WireNotification)
@@ -1183,7 +1183,7 @@ test('outside clients cannot subscribe to chat baselines or live changes', async
   const add = h.host.addBroadcaster.bind(h.host)
   Object.defineProperty(h.host, 'addBroadcaster', { value: (callback: typeof broadcast) => { broadcast = callback; return add(callback) } })
   let reads = 0
-  Object.defineProperty(h.host, 'leadChatActivities', { value: async () => { reads++; return [{ id: 'demo:chat', project: home, state: 'idle' }] } })
+  Object.defineProperty(h.host, 'leadChatActivities', { value: async () => { reads++; return [{ id: 'demo:chat', project: home, state: 'idle', stage: 'idle' }] } })
   const peer = await Peer.open(door.socketPath)
   t.after(() => peer.socket.close())
   const hello = await peer.hello()
@@ -1192,7 +1192,7 @@ test('outside clients cannot subscribe to chat baselines or live changes', async
     const result = await peer.call('client/subscribe', { topics: ['chats'], ...(scope ? { scope } : {}) })
     assert.equal(result.error?.code, 'notOnClientSurface')
   }
-  broadcast({ method: 'lead/chat/changed', params: { id: 'demo:chat', project: home, state: 'idle' } })
+  broadcast({ method: 'lead/chat/changed', params: { id: 'demo:chat', project: home, state: 'idle', stage: 'idle' } })
   await peer.call('goal/list', {})
   assert.equal(reads, 0)
   assert.equal(peer.messages.some(message => message.method === 'lead/chat/changed'), false)

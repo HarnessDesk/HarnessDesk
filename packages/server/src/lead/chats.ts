@@ -1,3 +1,4 @@
+import { leadStage, type LeadStage } from '@harnessdesk/protocol'
 import type { DispatchAdmission } from '../dispatch-admission.js'
 import { deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
 import { LeadChatHeldError, type LeadChatControlStore } from './chat-control.js'
@@ -12,7 +13,7 @@ import { boundLeadChatRead } from './chat-read.js'
 
 export const LEAD_CHAT_HELD = 'The person has taken this chat over. Wait until they hand it back.'
 
-export interface LeadChatActivity { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle' }
+export interface LeadChatActivity { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage: LeadStage }
 
 export interface LeadChatsPorts {
   readonly control?: Pick<LeadChatControlStore, 'holder' | 'noteSent'> & Partial<Pick<LeadChatControlStore, 'assertDispatch' | 'assertCanStart'>>
@@ -25,7 +26,7 @@ export interface LeadChatsPorts {
   readonly index: Pick<SessionIndex, 'list' | 'get' | 'isOwn'>
   /** Actual live/transcript cwd, without restoring archived or removed sessions. */
   readonly cwd: (runtime: RuntimeId, id: SessionId) => Promise<string | null>
-  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly waiting: boolean }
+  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly waiting: boolean; readonly approvalWaiting?: boolean; readonly queued?: boolean; readonly failed?: boolean; readonly queuePaused?: boolean }
   /** Only the host holds this receipt; it is never exposed to the child. */
   readonly noteDispatchNotStarted: (id: string) => void
   readonly work: Pick<PhoneWork, 'threadRead' | 'startInProject' | 'sessionSend' | 'stop'>
@@ -44,7 +45,9 @@ export class LeadChats {
   readonly #cursors = new Map<string, { root: string; cursor: string; expires: number }>()
   readonly #consumed = new Set<string>()
   readonly #watched = new Set<string>()
-  readonly #states = new Map<string, 'running' | 'waiting' | 'idle'>()
+  readonly #states = new Map<string, LeadStage>()
+  readonly #queuedMutations = new Set<string>()
+  get effectsQueued(): boolean { return this.#queuedMutations.size > 0 }
   #tail: Promise<unknown> = Promise.resolve()
   #changes: Promise<unknown> = Promise.resolve()
   constructor(private readonly ports: LeadChatsPorts) {}
@@ -53,9 +56,13 @@ export class LeadChats {
     const at = id.indexOf(':'), live = this.ports.live(runtimeId(id.slice(0, at)), sessionId(id.slice(at + 1)))
     return live.waiting ? 'waiting' : live.running ? 'running' : 'idle'
   }
+  #stageOf(id: string): LeadStage {
+    const at = id.indexOf(':'), live = this.ports.live(runtimeId(id.slice(0, at)), sessionId(id.slice(at + 1)))
+    return leadStage({ kind: 'session', archived: false, waiting: live.approvalWaiting ?? live.waiting, running: live.running, failed: live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false }).stage
+  }
   async #watch(id: string): Promise<void> {
     await this.ports.watches?.watch(this.ports.project.path, id)
-    if (!this.#watched.has(id)) this.#states.set(id, this.#stateOf(id))
+    if (!this.#watched.has(id)) this.#states.set(id, this.#stageOf(id))
     this.#watched.delete(id); this.#watched.add(id)
     while (this.#watched.size > 64) { const first = this.#watched.values().next().value!; this.#watched.delete(first); this.#states.delete(first) }
   }
@@ -73,7 +80,7 @@ export class LeadChats {
       try {
         await this.#target(id, false); await this.#gate({ method: 'lead/chat/read', params: { id } })
         if (this.ports.project.path !== root) return []
-        activities.push({ id, project: root, state: this.#stateOf(id) })
+        activities.push({ id, project: root, state: this.#stateOf(id), stage: this.#stageOf(id) })
       } catch { /* Withdrawn, archived and removed watches disclose no identity. */ }
     }
     return activities
@@ -83,16 +90,16 @@ export class LeadChats {
   changed(runtime: RuntimeId, session: SessionId): Promise<void> {
     // Capture while the host is handling this event. A fast turn may complete
     // before asynchronous file/scope checks return; its two transitions still matter.
-    const id = `${runtime}:${session}`, state = this.#stateOf(id)
+    const id = `${runtime}:${session}`, state = this.#stateOf(id), stage = this.#stageOf(id)
     const changed = this.#changes.then(async () => {
       try {
         const tracked = this.ports.watches ? await this.ports.watches.read(this.ports.project.path) : [...this.#watched]
         if (!tracked.includes(id)) return
         await this.#target(id, false); await this.#gate({ method: 'lead/chat/read', params: { id } })
-        if (this.#states.get(id) === state) return
-        this.#states.set(id, state)
+        if (this.#states.get(id) === stage) return
+        this.#states.set(id, stage)
         while (this.#states.size > 64) this.#states.delete(this.#states.keys().next().value!)
-        this.ports.publish?.({ id, project: this.ports.project.path, state })
+        this.ports.publish?.({ id, project: this.ports.project.path, state, stage })
       } catch { this.#states.delete(id) }
     })
     this.#changes = changed.catch(() => {})
@@ -146,6 +153,14 @@ export class LeadChats {
   }
 
   #mutate<T>(call: LeadPermissionCall, work: (admit: (id?: string) => Promise<void>, effectStarted: () => void, attemptId: string) => Promise<T>): Promise<T> {
+    // Only an already accepted durable call counts as queued. Admission still
+    // rechecks its record inside the tail before crossing any effect boundary.
+    const summary = JSON.stringify(summarizeLeadArguments(call.params))
+    const accepted = [...this.ports.state().attempts.values()].filter(attempt => attempt.method === call.method && attempt.kind === 'mutation' &&
+      attempt.phase === 'started' && attempt.dispatched && attempt.effect === 'allow' && !this.#consumed.has(attempt.id) && JSON.stringify(attempt.arguments) === summary)
+    const queued = accepted.length === 1 ? accepted[0]!.id : null
+    if (queued) this.#queuedMutations.add(queued)
+    const dispatched = () => { if (queued) this.#queuedMutations.delete(queued) }
     const task = this.#tail.then(async () => {
       // A model cannot bypass journaling with a raw private socket call, or replay
       // a durable attempt. Summary matching is an audit constraint; the actual
@@ -171,7 +186,7 @@ export class LeadChats {
       let effectStarted = false
       try {
         await admit()
-        return await work(admit, () => { effectStarted = true }, id)
+        return await work(admit, () => { effectStarted = true; dispatched() }, id)
       } catch (error) {
         // Only this host's exact dispatch callback can cross the boundary. An
         // agent error, error text or child response cannot prove absence of effects.
@@ -179,8 +194,9 @@ export class LeadChats {
         throw error
       }
     })
-    this.#tail = task.catch(() => {})
-    return task
+    const result = task.finally(dispatched)
+    this.#tail = result.catch(() => {})
+    return result
   }
 
   async list(params: HostParams<'lead/chat/list'>): Promise<HostResult<'lead/chat/list'>> {
@@ -200,7 +216,7 @@ export class LeadChats {
       try { await this.#target(id, false) } catch { continue }
       const live = this.ports.live(summary.runtime, summary.id)
       const item: typeof items[number] = { id, title: scrub(summary.title ?? summary.preview ?? '', 160) || 'Conversation',
-        state: live.waiting ? 'waiting' : live.running ? 'running' : 'idle', updatedAt: summary.updatedAt }
+        state: live.waiting ? 'waiting' : live.running ? 'running' : 'idle', stage: this.#stageOf(id), updatedAt: summary.updatedAt }
       // Counts alone do not bound UTF-8 or escaped JSON. Leave room for the
       // opaque continuation token and stop before consuming the omitted row.
       if (Buffer.byteLength(JSON.stringify({ items: [...items, item], nextCursor: '0'.repeat(36) })) > 12_000) {

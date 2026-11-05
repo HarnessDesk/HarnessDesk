@@ -1,4 +1,4 @@
-import type { LeadAction, LeadRunClass, LeadRunReading } from '@harnessdesk/protocol'
+import type { LeadStage, LeadAction, LeadRunClass, LeadRunReading } from '@harnessdesk/protocol'
 import type { ClientSnapshot } from '@harnessdesk/client'
 
 /**
@@ -25,10 +25,12 @@ export interface LeadWakeCounts {
 }
 export const LEAD_STUCK_MS = 20 * 60_000
 
+export interface LeadObservedStage { readonly id: string; readonly stage: LeadStage }
+
 type Owned = { readonly runs: readonly string[]; readonly teams: readonly string[] }
 
 /** The facts a decision rests on, as one comparable string. Activity that only adds lines leaves it unchanged. */
-export const leadDeskFingerprint = (snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[]): string => {
+export const leadDeskFingerprint = (snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[], chats: readonly LeadObservedStage[] = []): string => {
   if (!snapshot) return 'unsynchronized'
   const runs = snapshot.runs.filter(run => owned.runs.includes(run.id)).map(run => ({
     id: run.id, state: run.state, reason: run.reason, end: run.end?.kind ?? null,
@@ -39,7 +41,8 @@ export const leadDeskFingerprint = (snapshot: ClientSnapshot | null, owned: Owne
   const boards = snapshot.boards.filter(board => owned.teams.includes(board.id)).map(board => JSON.stringify({ ...board, updatedAt: 0 })).sort()
   const waiting = (snapshot.waiting ?? []).filter(item => item.team === null || owned.teams.includes(item.team)).map(item => item.id).sort()
   const reviews = snapshot.reviews.filter(review => owned.runs.includes(review.run)).map(review => `${review.run}:${review.rounds.length}`).sort()
-  return JSON.stringify({ runs, boards, waiting, reviews, actions: actions.map(action => action.id).sort() })
+  const teams = snapshot.teams.filter(team => owned.teams.includes(team.goal.id)).map(team => ({ id: team.goal.id, stage: team.stage ?? null })).sort((a, b) => a.id.localeCompare(b.id))
+  return JSON.stringify({ runs, boards, waiting, reviews, teams, chats: [...chats].map(({ id, stage }) => ({ id, stage })).sort((a, b) => a.id.localeCompare(b.id)), actions: actions.map(action => action.id).sort() })
 }
 
 /** One reading per owned run. A run that has not moved for `stuckMs` while running is stuck, whatever it last said. */
@@ -78,13 +81,17 @@ export const createLeadWakeGate = (stuckMs = LEAD_STUCK_MS) => {
     handledStop(key: string, runId: string, snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[]) {
       if (handledStops.has(key) || !snapshot) return
       handledStops.add(key)
-      const current = JSON.parse(leadDeskFingerprint(snapshot, owned, actions)) as { runs: { id: string }[]; boards: string[]; waiting: string[]; reviews: string[]; actions: string[] }
-      const previous = seen && seen !== 'unsynchronized' ? JSON.parse(seen) as typeof current : { runs: [], boards: [], waiting: [], reviews: [], actions: [] }
+      const current = JSON.parse(leadDeskFingerprint(snapshot, owned, actions)) as { runs: { id: string }[]; boards: string[]; waiting: string[]; reviews: string[]; actions: string[]; teams: { id: string; stage: LeadStage | null }[]; chats: LeadObservedStage[] }
+      const previous = seen && seen !== 'unsynchronized' ? JSON.parse(seen) as typeof current : { runs: [], boards: [], waiting: [], reviews: [], teams: [], chats: [], actions: [] }
       const run = snapshot.runs.find(run => run.id === runId), reading = current.runs.find(run => run.id === runId)
       if (!run || !reading) return
       // Consume only the handled run and the worker cards that said this stop.
       // Person actions, another run and unrelated board edits stay observable.
       previous.runs = [...previous.runs.filter(run => run.id !== runId), reading].sort((a, b) => a.id.localeCompare(b.id))
+      // The handled stop's own attention transition is consumed with its run.
+      // Another Team, a chat or a concurrent person action remains observable.
+      const team = current.teams.find(team => team.id === run.goal)
+      if (team) previous.teams = [...previous.teams.filter(old => old.id !== team.id), team].sort((a, b) => a.id.localeCompare(b.id))
       const board = snapshot.boards.find(board => board.id === run.goal)
       if (board) {
         const currentBoard = { ...board, updatedAt: 0 }, index = previous.boards.findIndex(value => (JSON.parse(value) as { id: string }).id === board.id)
@@ -100,13 +107,13 @@ export const createLeadWakeGate = (stuckMs = LEAD_STUCK_MS) => {
       }
       seen = JSON.stringify(previous)
     },
-    look(snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[], now: number): { readonly wake: boolean; readonly fingerprint: string; readonly why: 'changed' | 'stuck' | null } {
+    look(snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[], now: number, chats: readonly LeadObservedStage[] = []): { readonly wake: boolean; readonly fingerprint: string; readonly why: 'changed' | 'stuck' | null } {
       for (const run of snapshot?.runs ?? []) {
         if (!owned.runs.includes(run.id)) continue
         const key = JSON.stringify([run.state, run.rounds.map(round => round.state), run.operations.map(operation => operation.state)])
         if (lastRun.get(run.id) !== key) { lastRun.set(run.id, key); moved.set(run.id, now); stuckSaid.delete(run.id) }
       }
-      const fingerprint = leadDeskFingerprint(snapshot, owned, actions)
+      const fingerprint = leadDeskFingerprint(snapshot, owned, actions, chats)
       const stuck = classifyLeadRuns(snapshot, owned, actions, moved, now, stuckMs).filter(reading => reading.kind === 'stuck' && !stuckSaid.has(reading.runId))
       const why = fingerprint !== seen ? 'changed' as const : stuck.length ? 'stuck' as const : null
       for (const reading of stuck) stuckSaid.add(reading.runId)

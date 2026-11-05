@@ -44,3 +44,14 @@ describe('the Lead between turns', () => {
       .toEqual(['Run 1 moving', 'Run 2 stuck · quiet 24 min', 'Run 3 planned, nothing done'])
   })
 })
+
+it('uses the host stage for the one Lead item instead of inferring a wait from thread state', () => {
+  const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
+  state.changed({ method: 'lead/changed', params: leadProjection({ stage: 'working', stageReason: 'running',
+    thread: { ...leadProjection().thread, state: 'waiting-for-user' }, wayOut: 'resume' }) })
+  expect(leadPresence(state.state).needs).toBe(0)
+  state.changed({ method: 'lead/changed', params: leadProjection({ revision: 11, stage: 'you-blocked', stageReason: 'failed' }) })
+  expect(leadPresence(state.state)).toMatchObject({ needs: 1, word: '1 needs you' })
+  state.changed({ method: 'lead/changed', params: leadProjection({ revision: 11, stage: 'you-review', stageReason: 'result-ready' }) })
+  expect(leadPresence(state.state)).toMatchObject({ needs: 1, word: 'Done · ready to accept' })
+})

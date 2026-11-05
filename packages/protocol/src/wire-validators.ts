@@ -1,3 +1,4 @@
+import { LEAD_STAGES } from './lead-stage.js'
 import { parseLeadApprovalRevoke, parseLeadRepeatControl, parseLeadBudgetRaise, parseLeadSpendLimitSet, parseLeadActionInput, parseLeadCardDecision, parseLeadEmpty, parseLeadResume, parseLeadSettingsUpdate, parseLeadSteerInput, parseLeadScheduleUpdate, parseLeadMemoryUpdate, parseLeadThreadSend } from './lead.js'
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import { AUTHORING_AGENT_LIMIT, SHAPE_LAYOUT_SIZE_LIMIT, type AgentFieldEdit, type AuthoringTarget, type StartContext, type WritableAuthoringTarget } from './authoring.js'
@@ -1692,7 +1693,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
 
 const leadChatChangedParamsValidator: Validator<Extract<WireNotification, { method: 'lead/chat/changed' }>['params']> =
-  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle') })
+  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: literalUnion(...LEAD_STAGES) })
 
 /** State-only wake signal; never accepts transcript content as an event. */
 export const parseLeadChatChangedParams = (

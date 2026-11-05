@@ -1,3 +1,4 @@
+import { leadThreadStage } from './projection.js'
 import { boundLeadApprovalHistory, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
 import {
   parseLeadApprovalRevoke, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
@@ -66,6 +67,7 @@ interface LeadControlsOptions {
   readonly stopEffects?: () => Promise<void>
   /** Child execution may continue across multiple service.send results. */
   readonly readRequestInFlight?: () => boolean
+  readonly readChatEffectQueued?: () => boolean
   /** The Lead's latest checks between turns; shown only while a goal runs. */
   readonly readPresence?: () => LeadPresence | null
   /** Hands the text to the goal's worker that is in a turn; false when none took it. */
@@ -189,8 +191,10 @@ export class LeadControls {
     const steers = this.#steers.list.slice(-64)
     const auditFailed = state.managementReason === 'lead-worker-audit-failed'
     const approvalHistory = boundLeadApprovalHistory(state.workerApprovals.map(rule => ({ ...rule, entries: auditFailed ? leadWorkerApprovalEntries(rule) : rule.entries ?? [] })))
-    const result = parseLeadWindowProjection({ version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
-      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight: this.#inFlight(), personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
+    const requestInFlight = this.#inFlight()
+    const { stage, reason: stageReason } = leadThreadStage(state, thread, personActions, waitReason as LeadWindowProjection['waitReason'], requestInFlight, this.options.readChatEffectQueued?.() ?? false)
+    const result = parseLeadWindowProjection({ stage, stageReason, version: 1, revision: state.seq, thread, settings, wayOut, waitReason,
+      planConsentExpiresAt: state.consent?.expiresAt ?? null, requestInFlight, personActions, savedApprovals: approvalHistory.filter(rule => !rule.revoked).map(({ id, target, count, entries, dispatch }) => ({ id, target, count, ...(dispatch && auditFailed ? { uncertain: true } : {}), ...(entries?.length ? { entries } : {}) })), revokedApprovals: approvalHistory.filter(rule => rule.revoked).map(({ id, target, count, entries }) => ({ id, target, count, ...(entries?.length ? { entries } : {}) })), ...(progress && { progress }), ...(team && { team }), ...(presence && { presence }), ...(steers.length && { steers }) })
     try { await this.options.service.assertPublic(result, state.seq) } catch (error) { this.#publicFailure(error) }
     return result
   }

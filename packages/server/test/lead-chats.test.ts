@@ -166,7 +166,7 @@ test('ordinary chat activity emits meaningful scoped state transitions once with
   await r.service.changed(runtimeId('fixture'), sessionId('foreign'))
   r.setLive({ running: true, waiting: true }); await r.service.changed(runtimeId('fixture'), sessionId('own'))
   r.setLive({ running: false, waiting: false }); await r.service.changed(runtimeId('fixture'), sessionId('own'))
-  assert.deepEqual(r.published, ['running', 'waiting', 'idle'].map(state => ({ id: 'fixture:own', project: r.root, state })))
+  assert.deepEqual(r.published, ['running', 'waiting', 'idle'].map(state => ({ id: 'fixture:own', project: r.root, state, stage: state === 'waiting' ? 'you-answer' : state === 'running' ? 'working' : 'idle' })))
   assert.equal(await r.service.canRead('fixture:own'), true)
   assert.equal(await r.service.canRead('fixture:foreign'), false)
 })
@@ -266,4 +266,38 @@ test('take over while the envelope is being recorded refuses enqueue and first d
   r.authorize('lead/chat/start', { text: 'Start work' })
   await assert.rejects(r.service.start({ text: 'Start work' }), { message: LEAD_CHAT_HELD })
   assert.equal(r.sentInput.length, 0)
+})
+
+test('chat lists and tracked transitions carry host stages including a queued send', async t => {
+  const r = await rig(t)
+  r.row('own')
+  const stage = async () => (await r.service.list({})).items[0] as any
+  assert.equal((await stage()).stage, 'idle')
+  await r.service.read({ id: 'fixture:own' })
+  r.setLive({ running: false, waiting: false, queued: true } as any)
+  assert.equal((await stage()).stage, 'queued')
+  await r.service.changed(runtimeId('fixture'), sessionId('own'))
+  assert.equal(r.published.at(-1).stage, 'queued')
+  r.setLive({ running: true, waiting: false })
+  assert.equal((await stage()).stage, 'working')
+  r.setLive({ running: true, waiting: true })
+  assert.equal((await stage()).stage, 'you-answer')
+})
+
+test('only a durably accepted chat call is queued until dispatch or refusal', async t => {
+  const r = await rig(t)
+  r.row('own')
+  const params = { id: 'fixture:own', text: 'Follow up' }
+  const unaccepted = r.service.send(params)
+  assert.equal(r.service.effectsQueued, false)
+  await assert.rejects(unaccepted, /attempt/)
+  r.authorize('lead/chat/send', params)
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  r.onCwd(() => held)
+  const accepted = r.service.send(params)
+  assert.equal(r.service.effectsQueued, true)
+  release()
+  await accepted
+  assert.equal(r.service.effectsQueued, false)
 })

@@ -29,7 +29,7 @@ export type ClientEvent = EventBase & (
   | { readonly type: 'card.changed'; readonly team: string; readonly card: number; readonly role: string | null; readonly state: Intent['state']; readonly outcome: string | null; readonly title: string; readonly seat?: string; readonly since?: number }
   | { readonly type: 'seat.changed'; readonly team: string; readonly seat: string; readonly role: string | null; readonly card: number | null; readonly state: SeatActivity['state']; readonly doing: SeatActivity['doing']; readonly since?: number }
   | ({ readonly type: 'review.changed'; readonly team: string; readonly run: string } & FindingRoundPublication)
-  | { readonly type: 'team.changed'; readonly team: string; readonly activity: GoalActivity | null; readonly sentence: string }
+  | { readonly type: 'team.changed'; readonly stage?: GoalView['stage']; readonly team: string; readonly activity: GoalActivity | null; readonly sentence: string }
   | ({ readonly type: 'waiting' | 'waiting.cleared' } & WaitingItem)
   | { readonly type: 'notice'; readonly team: string | null; readonly text: string }
   | { readonly type: 'gap'; readonly reason: string }
@@ -175,8 +175,8 @@ class Observation {
         let chat: ReturnType<typeof parseLeadChatChangedParams>
         try { chat = parseLeadChatChangedParams(notification.params) } catch { break }
         if (chat.project !== this.chatProject) break
-        const { id, project, state } = chat
-        if (this.changed(this.chatValues, id, [project, state])) this.emit({ type: 'chat.changed', id, project, state })
+        const { id, project, state, stage } = chat
+        if (this.changed(this.chatValues, id, [project, stage])) this.emit({ type: 'chat.changed', id, project, state, stage })
         break
       }
       case 'flow/execution-changed': {
@@ -215,10 +215,10 @@ class Observation {
       }
       case 'goal/changed': {
         this.teams.set(notification.params.view.goal.id, notification.params.view)
-        const { goal, activity, board } = notification.params.view
+        const { goal, activity, board, stage } = notification.params.view
         this.boards.set(board.id, board)
-        if (this.topics.has('teams') && this.changed(this.teamValues, goal.id, [activity, goal.sentence])) {
-          this.emit({ type: 'team.changed', team: goal.id, activity, sentence: goal.sentence })
+        if (this.topics.has('teams') && this.changed(this.teamValues, goal.id, [activity, goal.sentence, stage])) {
+          this.emit({ type: 'team.changed', team: goal.id, activity, sentence: goal.sentence, ...(stage === undefined ? {} : { stage }) })
         }
         this.personWaiting()
         break
@@ -227,7 +227,7 @@ class Observation {
         const { goal, activity, sentence } = notification.params
         const view = this.teams.get(goal)
         if (view) this.teams.set(goal, { ...view, activity, goal: { ...view.goal, sentence } })
-        if (this.topics.has('teams') && this.changed(this.teamValues, goal, [activity, sentence])) this.emit({ type: 'team.changed', team: goal, activity, sentence })
+        if (this.topics.has('teams') && this.changed(this.teamValues, goal, [activity, sentence, view?.stage])) this.emit({ type: 'team.changed', team: goal, activity, sentence, ...(view?.stage === undefined ? {} : { stage: view.stage }) })
         break
       }
       case 'event': {

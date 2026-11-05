@@ -2228,3 +2228,18 @@ test('ordinary chat cannot resume an orphaned worker audit; explicit Resume can'
   assert.equal(journal.state.orphanedWorkerDispatch, null)
   assert.equal(s.sends.length, 1)
 })
+
+test('live queue stage updates publish at the same journal revision', async () => {
+  let queued = true
+  const s = await rig({ controls: { readChatEffectQueued: () => queued } })
+  try {
+    const first = await s.controls.readThread()
+    assert.equal(first.stage, 'queued'); assert.equal(first.stageReason, 'chat-effect-queued')
+    queued = false
+    await s.controls.workerApprovalsChanged(); await s.controls.idle()
+    const last = s.notifications.at(-1) as Extract<WireNotification, { method: 'lead/changed' }>
+    assert.equal(last.params.revision, first.revision)
+    assert.ok('stage' in last.params)
+    if ('stage' in last.params) assert.equal(last.params.stage, 'idle')
+  } finally { s.controls.close() }
+})
