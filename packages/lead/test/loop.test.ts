@@ -1814,6 +1814,23 @@ test('a quiet reply that proposes a plan is an answer, and asks nothing more', a
   } finally { await loop.close() }
 })
 
+test('a quiet reply whose only card is a summary the host never offers is still asked to answer', async () => {
+  const summary = { version: 1, id: 'model-result', revision: 1, type: 'result', contractDigest: contract.digest, outcome: 'reviewed', summary: 'All passed', assertions: [], budget: {
+    version: 1, revision: 1, caps: contract.caps, leadUsdMicros: 0, workerUsdMicros: 0, reservedUsdMicros: 0, roundsAdmitted: 0, spend: 'known', stop: null } }
+  const s = await fixture([
+    message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: lead.LEAD_QUIET, cards: [summary] }) }]),
+    message([{ type: 'text', text: 'The checks passed; nothing is pushed yet.' }]),
+  ])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.approve(); await s.journal.appendMessage('ask', 'Did it pass?')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.equal(s.fake.requests.length, 2)
+    assert.deepEqual(said(s), ['The checks passed; nothing is pushed yet.'])
+    assert.ok(!s.journal.state.cards.some(card => card.id === 'model-result'))
+  } finally { await loop.close() }
+})
+
 for (const coalesced of [false, true]) test(`a two-step goal starts step 2 through a desk-woken preview continuation${coalesced ? ' with another desk change' : ''}`, async () => {
   const s = await fixture([message(), message([tool('preview-second', 'flow_preview', {
     root: contract.project.path, source: lead.leadReviewedResultSource,
