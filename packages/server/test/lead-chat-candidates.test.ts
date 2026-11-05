@@ -17,3 +17,11 @@ test('an unresponsive sign-in read is bounded and cannot block another candidate
   const choices = await leadChatCandidates([unavailable], undefined, new Map(), 5)
   assert.deepEqual(choices, [])
 })
+
+test('a silent quota snapshot falls back within the deadline instead of blocking recovery', async () => {
+  const module = await import('../src/lead/' + 'chat-candidates.js')
+  assert.equal(typeof module.readLeadChatLimits, 'function')
+  const runtime = new FakeRuntime()
+  runtime.getRateLimits = () => new Promise(() => {})
+  assert.equal(await module.readLeadChatLimits(runtime, 5), null)
+})

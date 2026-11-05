@@ -17,7 +17,7 @@ import { LeadPrFollow, type LeadPrFollowOptions } from './lead/pr-follow.js'
 import { leadPublicationPorts } from './lead/pr-publication.js'
 import { LeadPersonActions } from './lead/person-actions.js'
 import { LeadChatWatches } from './lead/chat-watches.js'
-import { leadChatCandidates } from './lead/chat-candidates.js'
+import { leadChatCandidates, readLeadChatLimits } from './lead/chat-candidates.js'
 import type { RateLimits } from '@harnessdesk/protocol'
 import { LeadChats } from './lead/chats.js'
 import { loadLeadProjectPolicy } from './lead/project-policy.js'
@@ -3783,7 +3783,8 @@ export class Host {
         }), exclude, this.#leadChatLimits),
         limits: async id => {
           const runtime = runtimeId(id.slice(0, id.indexOf(':')))
-          return this.#leadChatLimits.get(runtime) ?? await this.#runtimes.get(runtime)?.getRateLimits().catch(() => null) ?? null
+          const cached = this.#leadChatLimits.get(runtime), agent = this.#runtimes.get(runtime)
+          return cached ?? (agent ? await readLeadChatLimits(agent) : null)
         },
         firstMessage: async id => {
           const at = id.indexOf(':'), runtime = runtimeId(id.slice(0, at)), sessionId = makeSessionId(id.slice(at + 1))

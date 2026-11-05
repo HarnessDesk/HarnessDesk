@@ -27,3 +27,7 @@ export const leadChatCandidates = async (runtimes: readonly AgentRuntime[], excl
   }))
   return choices.filter((one): one is NonNullable<typeof one> => one !== null)
 }
+
+/** A missing provider clock is a bounded backoff, never an unbounded read. */
+export const readLeadChatLimits = (runtime: AgentRuntime, timeoutMs = READ_DEADLINE_MS): Promise<RateLimits | null> =>
+  within(() => runtime.getRateLimits(), timeoutMs)
