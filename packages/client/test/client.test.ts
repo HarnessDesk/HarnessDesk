@@ -613,3 +613,20 @@ test('reconnect replays a tracked chat baseline that completed while disconnecte
   assert.deepEqual(client.snapshot().runs, [])
   client.close()
 })
+
+test('chat incident transitions survive transport and deduplicate independently of live chat state', async () => {
+  const transport = new ScriptedTransport()
+  const client = await connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['chats'], scope: { project: '/tmp/demo' } } })
+  const events = client.events()[Symbol.asyncIterator](); await next(events)
+  const incident = { chatId: 'demo:session-1', kind: 'credits', attempts: 0, firstAt: 1, lastAt: 1, resetsAt: null,
+    lastError: { code: 'credits', message: 'No credit' }, state: 'asked', candidates: [{ key: 'opaque', name: 'Agent Two' }] }
+  const changed = (value: unknown) => transport.emit({ method: 'lead/chat/changed', params: { id: 'demo:session-1', project: '/tmp/demo', state: 'waiting', incident: value } } as WireNotification)
+  changed(incident); changed(structuredClone(incident)); changed({ ...incident, state: 'moved', movedTo: 'other:new' })
+  client.close()
+  const actual: ClientEvent[] = []
+  for (;;) { const one = await events.next(); if (one.done) break; actual.push(one.value) }
+  const chats = actual.filter(one => one.type === 'chat.changed')
+  assert.equal(chats.length, 2)
+  assert.equal(chats[0]?.incident?.candidates[0]?.name, 'Agent Two')
+  assert.equal(chats[1]?.incident?.movedTo, 'other:new')
+})

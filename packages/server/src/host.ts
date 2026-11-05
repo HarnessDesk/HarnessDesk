@@ -1,5 +1,5 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import { firstAsk, isLeadMessageSource, leadDisplayName, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
+import { firstAsk, leadMessageWords, isLeadMessageSource, leadDisplayName, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
 import { LeadChatControlStore, LeadChatHeldError } from './lead/chat-control.js'
 import { decideLeadSecondLook, leadDoneStopId, leadSecondLookAuthorized, type LeadSecondLookInput } from './lead/second-look.js'
 import { readChecks } from './evidence/checks-file.js'
@@ -17,6 +17,8 @@ import { LeadPrFollow, type LeadPrFollowOptions } from './lead/pr-follow.js'
 import { leadPublicationPorts } from './lead/pr-publication.js'
 import { LeadPersonActions } from './lead/person-actions.js'
 import { LeadChatWatches } from './lead/chat-watches.js'
+import { leadChatCandidates } from './lead/chat-candidates.js'
+import type { RateLimits } from '@harnessdesk/protocol'
 import { LeadChats } from './lead/chats.js'
 import { loadLeadProjectPolicy } from './lead/project-policy.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
@@ -853,6 +855,7 @@ export class Host {
   /** The running Lead's journal, read for its name; null while no Lead runs. */
   #leadJournal: LeadServiceOptions['journal'] | null = null
   #leadChatCancellation: ((id: string, count: number) => Promise<void>) | null = null
+  #leadChatLimits = new Map<string, RateLimits>()
   #leadChats: LeadChats | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
   #leadRepeats: LeadRepeats | null = null
@@ -3764,6 +3767,7 @@ export class Host {
       },
       work: this.#phoneWorkView(),
       control: {
+        current: root => chatControl.current(root),
         assertDispatch: (project, id) => chatControl.assertDispatch(project, id),
         assertCanStart: project => checkedControl(project, () => chatControl.assertCanStart(project)),
         holder: (project, id) => checkedControl(project, () => chatControl.holder(project, id)),
@@ -3772,12 +3776,42 @@ export class Host {
           this.#push({ method: 'lead/chats/controlChanged', params: await chatControl.list(project) })
         },
       },
+      recovery: {
+        file: join(this.#state.directory, 'lead', 'incidents.json'),
+        candidates: exclude => leadChatCandidates(this.#phoneWorkView().startableAgents().flatMap(id => {
+          const runtime = this.#runtimes.get(id); return runtime ? [runtime] : []
+        }), exclude, this.#leadChatLimits),
+        limits: async id => {
+          const runtime = runtimeId(id.slice(0, id.indexOf(':')))
+          return this.#leadChatLimits.get(runtime) ?? await this.#runtimes.get(runtime)?.getRateLimits().catch(() => null) ?? null
+        },
+        firstMessage: async id => {
+          const at = id.indexOf(':'), runtime = runtimeId(id.slice(0, at)), sessionId = makeSessionId(id.slice(at + 1))
+          const transcript = await this.#readTranscript(this.#runtime({ runtime }), sessionId, false)
+          const first = transcript.turns.flatMap(turn => turn.items).find(item => item.type === 'userMessage')
+          if (first?.type !== 'userMessage') return null
+          const words = splitContextContent(first.content), block = words.injections.find(block => isLeadMessageSource(block.label))
+          return block ? leadMessageWords(block.text) : words.text
+        },
+        retry: async (id, current) => {
+          const call = { method: 'lead/chat/send', params: { id, text: 'Continue from where you stopped.' } } as const
+          const scope = await options.resolveTool(call)
+          const projectPolicy = await loadLeadProjectPolicy(project.path, journal.state.policy!)
+          const result = await journal.execute({ id: `chat-retry-${randomUUID()}`, request: { ...call, project, runId: null, start: null },
+            context: { ...scope.context, desk: journal.state.policy!, projectPolicy, project, now: Date.now() } },
+          async () => ({ value: await this.#leadChats!.send(call.params, current), identity: null }))
+          if (result.decision.effect !== 'allow' || result.outcome !== 'succeeded') throw new Error('Lead chat retry was refused or could not be confirmed.')
+        },
+      },
       watches: new LeadChatWatches(join(this.#state.directory, 'lead', 'chats.json')),
       publish: params => this.#push({ method: 'lead/chat/changed', params }),
     })
+    void this.#leadChats.restore().catch(() => { this.#logger.warn('Lead incidents could not be restored') })
+    this.onDispose(() => this.#leadChats?.close())
     let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
     this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadJournal = null; this.#leadChatCancellation = null })
     this.onDispose(journal.onChange(() => {
+      if (['stopped', 'accepted', 'declined'].includes(journal.state.phase)) this.#leadChats?.incidents?.cancel()
       const id = journal.state.budget!.logicalGoalId
       if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
     }))
@@ -3892,6 +3926,10 @@ export class Host {
     }
     let leadPresence: LeadPresence | null = null
     this.#leadService = new LeadService({ ...options,
+      onManagementStopped: reason => {
+        if (reason === 'lead-host-shutdown') void this.#leadChats?.close()
+        else this.#leadChats?.incidents?.cancel()
+      },
       ...(this.options.leadRuntimes ? { runtimes: this.options.leadRuntimes } : {}),
       onRuntimeUnavailable: reason => this.#logger.warn('Lead runtime unavailable', { reason }),
       onPresence: presence => { leadPresence = presence; void this.#leadControls?.workerApprovalsChanged().catch(() => {}) },
@@ -4049,7 +4087,10 @@ export class Host {
         const root = await this.#confineGitRoot(path)
         if (!samePath(root, resolve(path)) || !this.#leadAssembly) throw leadRefusal('lead-project-missing')
         await this.#leadAssembly.rememberProject(root)
+        this.#leadChats?.incidents?.cancel()
+        await this.#leadChats?.incidents?.idle()
         Object.assign(project, leadProjectOf(root))
+        await this.#leadChats?.projectChanged()
       },
       readRequestInFlight: () => this.#leadService?.requestInFlight ?? false,
       service: this.#leadService, project, model: options.model ?? LEAD_MESSAGES_DEFAULTS.model,
@@ -9970,7 +10011,7 @@ export class Host {
         const journal = this.#leadJournal, project = this.#leadChatProject, store = this.#leadChatControl
         if (!journal || !project || !store) return null
         const ids = new Set(store.current(project.path).chats.filter(chat => chat.holder === 'lead').map(chat => chat.id))
-        return { name: leadDisplayName(journal.state.name), ids }
+        return { name: leadDisplayName(journal.state.name), ids, retrying: new Set([...ids].filter(id => this.#leadChats?.incidents?.waiting(id))) }
       },
       teams: async () => (await this.#goals.list()).map((view) => {
         const latest = this.#flows.executionSummaries({ team: view.goal.id, active: false })[0]
@@ -10081,6 +10122,7 @@ export class Host {
     let cancelled = 0, fenced = false
     const fence = () => {
       store.hold(project.path, id)
+      void this.#leadChats?.incidents?.stop(id).catch(() => {})
       cancelled = this.#cancelLeadQueued(id, store.current(project.path).chats.find(chat => chat.id === id)?.sent ?? [])
       fenced = true
     }
@@ -10106,6 +10148,12 @@ export class Host {
   #phoneWorkView(): PhoneWork {
     return this.#phoneWork ??= new PhoneWork({
       workspace: this.#phoneWorkspaceView(),
+      cancelRecovery: async id => {
+        const project = this.#leadChatProject
+        if (project && this.#leadChatControl?.current(project.path).chats.some(chat => chat.id === id && chat.holder === 'lead'))
+          return await this.#leadChats?.incidents?.stop(id) ?? false
+        return false
+      },
       chatControl: async (id, cwd) => {
         try {
           const list = await this.#chatControlList()
@@ -10134,7 +10182,9 @@ export class Host {
       },
       live: (runtime, id) => {
         const record = this.registry.get(runtime, id)
-        return { running: (record?.running.size ?? 0) > 0, pending: record ? [...record.approvals.values()] : [], cwd: record?.session.cwd ?? null, queued: record?.queue.messages.length ?? 0 }
+        const key = `${runtime}:${id}`, project = this.#leadChatProject
+        const retrying = project && this.#leadChatControl?.current(project.path).chats.some(chat => chat.id === key && chat.holder === 'lead') && this.#leadChats?.incidents?.waiting(key)
+        return { running: (record?.running.size ?? 0) > 0 || !!retrying, pending: record ? [...record.approvals.values()] : [], cwd: record?.session.cwd ?? null, queued: record?.queue.messages.length ?? 0 }
       },
       respond: async (params) => { await this.call('approval/respond', params) },
       defaultRuntime: () => {
@@ -10240,11 +10290,16 @@ export class Host {
         if (session) this.#seatActivities.session(String(runtime), String(session))
       }
     }
+    if (!this.#disposed && notification.method === 'event') {
+      const { runtime, event } = notification.params
+      if (event.type === 'limits/updated') this.#leadChatLimits.set(String(runtime), event.limits)
+      else if (event.type === 'account/changed') this.#leadChatLimits.delete(String(runtime))
+    }
     if (!this.#disposed && this.#leadChats && notification.method === 'event') {
       const { runtime, event } = notification.params
       if (['turn/started', 'turn/completed', 'approval/requested', 'approval/resolved', 'session/status', 'session/queue', 'session/closed', 'session/detached'].includes(event.type)) {
         const id = event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : null
-        if (id) void this.#leadChats.changed(runtime, id).catch(() => {})
+        if (id) void this.#leadChats.changed(runtime, id, event.type === 'turn/completed' ? event.turn : undefined).catch(() => {})
       }
     }
     // What a trigger Goal's waits are made of: named again once the current pass ends.

@@ -503,3 +503,19 @@ Answer through the existing send method, using the exact option label as text:
 No new method or tier is needed. An older phone ignores the optional fields and
 keeps showing the proactive question line. For an ordinary reply it shows the
 existing prose, including the question when it also appears in `text`.
+
+
+## Delegated chat incidents
+
+A quota wait keeps the chat Working while the host waits for the provider's
+reset and tries at most two attributed continues. Waiting makes no Lead model
+request and spends none of its allowance. Credits or exhausted recovery wake
+the Lead with a bounded incident observation (kind, attempts, reset time,
+scrubbed error and available agent presentation names/opaque keys).
+
+The person sees and answers the existing structured Lead ask, on phone or
+desk: retry when it resets, move to an available agent, or stop. No new phone
+method or permission is needed. After the person's choice, a move starts an
+ordinary chat on that agent with the brief, original first message and a
+host-built bounded progress digest. The old chat remains. Person-held chats
+are excluded; Stop during a reset wait cancels its retry.

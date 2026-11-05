@@ -5235,3 +5235,31 @@ The model selects message ids, never re-types their words. This keeps wording
 and scope intact, rejects references outside the current journal window, and
 refuses an oversized brief plus quotes instead of silently losing context.
 Stored proactive reports without options remain readable.
+
+
+## Delegated chat recovery follows the provider's clock, then the person's choice — 2026-11-05
+
+The host owns recovery timers because a quota reset is a provider observation,
+not a model decision. Waiting buys no Lead turn and reserves no allowance.
+A Lead-held chat gets at most two automatic continues per incident: the reached
+window's reset plus a small jitter, or one minute then five minutes when there
+is no reset or the failure is transient. Credits, other failures, authentication,
+version and sandbox refusals ask immediately. A later successful turn clears
+the incident. A waiting chat remains working, never done.
+
+The bounded host record persists its due time and claims an attempt before
+sending through the ordinary attributed, journaled chat path. Restart restores
+one timer; an already claimed but unconfirmed send asks instead of replaying.
+Explicit Lead stop, disable, project change and person take-over cancel retries;
+closing the desk preserves the wait. No recovery transition changes policy,
+caps, saved approvals or publication authority.
+
+After the bound, an incident observation wakes the Lead once per meaningful
+change. The existing structured ask offers retry, move to an eligible agent,
+or stop; credit exhaustion recommends moving when another agent fits. Moving
+needs the person's tap or typed answer because the reset clock grants no
+permission to change who does their work. The host validates the live workspace
+start roster, reserves one move, and builds the new first message from the
+brief, the original first message (including the person's verbatim words), and
+a bounded recent transcript/file digest. It leaves the old chat intact. Agent
+configuration and credentials remain in the agents' own worlds.

@@ -1040,7 +1040,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     return limit
   }) }),
   'lead/chat/read': phoneShape({ id: phoneText(300) }),
-  'lead/chat/start': phoneShape({ text: phoneText(16_384), quote: optional((value, path = '') => {
+  'lead/chat/start': phoneShape({ text: phoneText(16_384), agent: optional(phoneText(300)), moveFrom: optional(phoneText(300)), quote: optional((value, path = '') => {
     const ids = arrayOf((value, at = '') => {
       const id = phoneText(256)(value, at)
       if (!/^[A-Za-z0-9._:/@-]+$/.test(id)) throw new ValidationError(at, 'expected a message id')
@@ -1699,14 +1699,26 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
 
+const incidentObservation: Validator<import('./lead.js').LeadChatIncidentObservation> = shape({
+  chatId: atMost(300, isFilled), kind: literalUnion('quota', 'credits', 'transient', 'failed'), attempts: nonNegativeSafeInteger,
+  firstAt: nonNegativeSafeInteger, lastAt: nonNegativeSafeInteger,
+  resetsAt: (v, p) => v === null ? null : nonNegativeSafeInteger(v, p),
+  lastError: shape({ code: literalUnion('auth', 'credits', 'rateLimit', 'versionGate', 'sandboxDenied', 'network', 'interrupted', 'runtimeUnavailable', 'protocol', 'unknown'), message: atMost(300, isString) }),
+  state: literalUnion('waiting-reset', 'retrying', 'asked', 'moved', 'stopped', 'cleared'), movedTo: optional(atMost(300, isFilled)),
+  candidates: (v, p) => { const list = arrayOf(shape({ key: atMost(300, isFilled), name: atMost(80, isFilled) }))(v, p)
+    if (list.length > 8) throw new ValidationError(p ?? '', 'too many recovery candidates')
+    return list },
+})
 const leadChatChangedParamsValidator: Validator<Extract<WireNotification, { method: 'lead/chat/changed' }>['params']> =
-  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle') })
+  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), incident: optional(incidentObservation) })
 
 /** State-only wake signal; never accepts transcript content as an event. */
 export const parseLeadChatChangedParams = (
   raw: unknown,
-): Extract<WireNotification, { method: 'lead/chat/changed' }>['params'] =>
-  leadChatChangedParamsValidator(raw, 'notification.params')
+): Extract<WireNotification, { method: 'lead/chat/changed' }>['params'] => {
+  const { id, project, state, incident } = leadChatChangedParamsValidator(raw, 'notification.params')
+  return { id, project, state, ...(incident ? { incident } : {}) }
+}
 
 const sessionRemovedParamsValidator: Validator<Extract<WireNotification, { method: 'session/removed' }>['params']> =
   shape({

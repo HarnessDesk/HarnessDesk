@@ -186,6 +186,23 @@ export interface LeadCardDecision {
   readonly contractDigest: string | null
   readonly choice: 'approve' | 'decline' | 'accept' | 'accept-open-pr' | 'reclaim-branch'
 }
+/** Host observation; never an instruction or permission to move work. */
+export interface LeadChatIncident {
+  readonly chatId: string
+  readonly kind: 'quota' | 'credits' | 'transient' | 'failed'
+  readonly attempts: number
+  readonly firstAt: number
+  readonly lastAt: number
+  readonly resetsAt: number | null
+  readonly lastError: { readonly code: import('./events.js').AgentError['code']; readonly message: string }
+  readonly state: 'waiting-reset' | 'retrying' | 'asked' | 'moved' | 'stopped' | 'cleared'
+  readonly movedTo?: string
+}
+export interface LeadChatCandidate { readonly key: string; readonly name: string }
+export interface LeadChatIncidentObservation extends LeadChatIncident {
+  readonly candidates: readonly LeadChatCandidate[]
+}
+
 export interface LeadAskOption { readonly id: string; readonly label: string }
 export interface LeadAsk {
   readonly question: string

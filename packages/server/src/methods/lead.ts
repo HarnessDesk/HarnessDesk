@@ -8,6 +8,7 @@ export const leadMethods = {
   'lead/chat/handBack': (ctx, params) => ctx.leadChatControl.handBack(params.id),
   'lead/chat/list': (ctx, params) => ctx.leadChats.list(params),
   'lead/chat/read': (ctx, params) => ctx.leadChats.read(params),
+  // The host validates agent candidates and composes moveFrom handoffs.
   'lead/chat/start': (ctx, params) => ctx.leadChats.start(params),
   'lead/chat/send': (ctx, params) => ctx.leadChats.send(params),
   'lead/chat/stop': (ctx, params) => ctx.leadChats.stop(params),

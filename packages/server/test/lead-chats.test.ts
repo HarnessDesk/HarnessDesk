@@ -9,7 +9,7 @@ import { LEAD_CHAT_HELD } from '../src/lead/chats.js'
 import { SessionIndex } from '../src/session-index.js'
 
 const modulePath = '../src/lead/chats.js'
-const rig = async (t: TestContext) => {
+const rig = async (t: TestContext, recovery = false) => {
   assert.ok(existsSync(new URL(modulePath, import.meta.url)), 'The host must supply the project-pinned LeadChats service')
   const { LeadChats } = await import(modulePath)
   const home = await realpath(await mkdtemp('/tmp/hd-lead-chats-')), root = join(home, 'project'), foreign = join(home, 'foreign')
@@ -39,24 +39,27 @@ const rig = async (t: TestContext) => {
 
     return id
   }
+  let firstMessage = "Original brief\n\nThe person's words, verbatim:\n> Preserve  these words."
+  let transcript: any[] = [{ type: 'agent', markdown: 'Implemented the helper; tests remain.' }, { type: 'changes', files: [{ path: 'src/helper.ts' }] }]
   const sentInput: (readonly UserContent[] | undefined)[] = []
   const holders = new Map<string, 'lead' | 'person'>(), sentKeys: { id: string; key: string }[] = []
   const control = {
     holder: async (_project: string, id: string) => holders.get(id) ?? null,
     noteSent: async (_project: string, id: string, key: string) => { sentKeys.push({ id, key }); onRecord?.(); if (!holders.has(id)) holders.set(id, 'lead') },
   }
-  const service = new LeadChats({ noteDispatchNotStarted: () => {}, control, project, state: () => state, member: async () => member, now: () => 100,
+  const service = new LeadChats({ ...(recovery ? { recovery: { file: join(home, 'incidents.json'), candidates: async () => [{ key: 'agent-two', name: 'Agent Two' }], firstMessage: async () => firstMessage, limits: async () => null, retry: async () => {} } } : {}), noteDispatchNotStarted: () => {}, control, project, state: () => state, member: async () => member, now: () => 100,
     context: async (): Promise<LeadPermissionContext> => { onContext?.(); return { desk: state.policy!, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } },
     index, cwd: async (runtime: any, id: any) => { await cwdRead?.(); return index.get(runtime, id)?.cwd ?? null },
     live: () => live, publish: (event: any) => { published.push(event) },
     work: {
-      threadRead: async (params: any) => { calls.push({ method: 'read', params }); return { id: params.id, title: 'Project chat', agent: { name: 'Agent' }, status: 'done', turns: [] } },
+      threadRead: async (params: any) => { calls.push({ method: 'read', params }); return { id: params.id, title: 'Project chat', agent: { name: 'Agent' }, status: 'done', turns: transcript } },
       startInProject: async (params: any, root: string, admit: (id?: string) => Promise<void>, _effect: unknown, _scope: unknown, input?: readonly UserContent[]) => { await admit(); row('created'); await admit('fixture:created'); sentInput.push(input); calls.push({ method: 'start', params: { ...params, root } }); return { id: 'fixture:created' } },
       sessionSend: async (params: any, admit: () => Promise<void>, _effect: unknown, scope: (cwd: string) => Promise<void>, input?: readonly UserContent[]) => { await admit(); sentInput.push(input); queuedScope = scope; calls.push({ method: 'send', params }); return { queued: true } },
       stop: async (params: any, admit: () => Promise<void>) => { await admit(); calls.push({ method: 'stop', params }); return {} },
     },
   })
-  return { service, onContext: (callback: () => void) => { onContext = callback }, onRecord: (callback: () => void) => { onRecord = callback }, sentInput, holders, sentKeys, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
+  t.after(() => service.close())
+  return { service, project, onContext: (callback: () => void) => { onContext = callback }, onRecord: (callback: () => void) => { onRecord = callback }, sentInput, holders, sentKeys, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
     withdraw: () => { member = false }, onCwd: (callback: () => Promise<void>) => { cwdRead = callback } }
 }
 
@@ -361,4 +364,60 @@ test('default quotes skip successive taps but retain a new request that is not a
     await r.service.start(params)
     assert.equal(r.calls.at(-1)!.params.text, `${params.text}\n\n---\nThe person's words, verbatim:\n\n> ${expected}`)
   }
+})
+
+test('recovery asks once with candidates and moves a host-composed transcript after the person answers', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead')
+  await r.service.read({ id: 'fixture:own' })
+  const turn = { id: 'failed-turn', status: 'failed', items: [], error: { code: 'credits', message: 'Out of credit' } } as any
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), turn)
+  const observation = r.published.at(-1)?.incident
+  assert.equal(observation?.kind, 'credits')
+  assert.deepEqual(observation.candidates, [{ key: 'agent-two', name: 'Agent Two' }])
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), turn)
+  assert.equal(r.published.length, 1)
+  const params = { text: 'Finish the helper', agent: 'Agent Two', moveFrom: 'fixture:own' }
+  r.authorize('lead/chat/start', params)
+  const result = await r.service.start(params)
+  assert.equal(result.id, 'fixture:created')
+  assert.equal(r.calls.at(-1)?.params.agent, 'agent-two')
+  const message = JSON.stringify(r.sentInput.at(-1))
+  for (const words of ['Finish the helper', 'Preserve  these words.', 'Implemented the helper', 'src/helper.ts']) assert.ok(message.includes(words), words)
+  r.authorize('lead/chat/start', params)
+  await assert.rejects(r.service.start(params), /incident|moved/i)
+})
+
+test('recovery refuses agents outside the live candidate list and any move from a person-held chat', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'one', status: 'failed', items: [], error: { code: 'credits', message: 'No credit' } } as any)
+  for (const params of [{ text: 'Brief', agent: 'invented' }, { text: 'Brief', agent: 'Agent Two', moveFrom: 'fixture:own' }]) {
+    r.holders.set('fixture:own', 'person'); r.authorize('lead/chat/start', params)
+    await assert.rejects(r.service.start(params), /agent|taken|person/i)
+  }
+  assert.equal(r.calls.filter(call => call.method === 'start').length, 0)
+  const before = r.published.length
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'two', status: 'failed', items: [], error: { code: 'network', message: 'Offline' } } as any)
+  assert.equal(r.published.length, before)
+})
+
+
+test('a project change cancels pending retries and leaves no old-project incident or wake in the new scope', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead')
+  await r.service.read({ id: 'fixture:own' })
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'one', status: 'failed', items: [], error: { code: 'network', message: 'Offline' } } as any)
+  assert.equal(r.service.incidents.get('fixture:own')?.state, 'waiting-reset')
+  Object.assign(r.project, { id: 'other-project', path: r.foreign })
+  await r.service.projectChanged(); await r.service.restore()
+  assert.equal(r.service.incidents.get('fixture:own'), undefined)
+  assert.deepEqual(await r.service.activities(), [])
+  assert.equal(r.published.length, 0)
+})
+
+test('take over during an activity scope check suppresses the pending wake', async t => {
+  const r = await rig(t); r.row('own'); r.holders.set('fixture:own', 'lead')
+  await r.service.read({ id: 'fixture:own' })
+  r.setLive({ running: true, waiting: false })
+  r.onContext(() => { r.holders.set('fixture:own', 'person') })
+  await r.service.changed(runtimeId('fixture'), sessionId('own'))
+  assert.equal(r.published.length, 0)
 })

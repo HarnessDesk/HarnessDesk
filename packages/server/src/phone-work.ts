@@ -15,6 +15,8 @@ import type { PhoneWorkspace } from './phone-workspace.js'
  */
 
 export interface PhoneWorkPorts {
+  /** Cancel a host-owned recovery wait; no native interrupt capability is needed. */
+  readonly cancelRecovery?: (id: string) => Promise<boolean>
   /** Host-only provenance, never supplied by the phone. */
   readonly chatControl?: (id: string, cwd: string) => Promise<LeadChatControl | undefined>
   readonly workspace: Pick<PhoneWorkspace, 'workItems' | 'workUsage' | 'workSessions'>
@@ -186,6 +188,9 @@ export class PhoneWork {
     return (runtime !== null && startable(runtime) ? [runtime, ...ready] : ready).slice(0, AGENTS)
   }
 
+  /** The exact workspace-start roster, shared by host recovery candidate reads. */
+  startableAgents(): readonly RuntimeId[] { return this.#agents(this.#ports.defaultRuntime()) }
+
   /** Another agent's models as the desk holds them, never by starting it, given up on after a short wait. */
   async #knownModels(one: RuntimeId): Promise<readonly ModelInfo[]> {
     const key = String(one), failed = this.#modelsFailed.get(key)
@@ -332,8 +337,12 @@ export class PhoneWork {
 
   async stop(params: HostParams<'workspace/stop'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>): Promise<HostResult<'workspace/stop'>> {
     const { runtime, session } = this.#target(params.id)
+    let cancelledRecovery = false
+    if (this.#ports.cancelRecovery) { await admit?.(); cancelledRecovery = await this.#ports.cancelRecovery(params.id) }
+    const live = this.#ports.live(runtime, session)
+    if (!live.running && cancelledRecovery) return live.queued ? { queued: true } : {}
     if (!this.#ports.canInterrupt(runtime)) return refuse('This agent cannot stop a session from the phone.')
-    if (!this.#ports.live(runtime, session).running) return this.#ports.live(runtime, session).queued ? { queued: true } : {}
+    if (!live.running) return live.queued ? { queued: true } : {}
     await admit?.()
     this.#target(params.id)
     await guarded(() => this.#ports.interrupt({ runtime, sessionId: session }, effectStarted, admitCwd))

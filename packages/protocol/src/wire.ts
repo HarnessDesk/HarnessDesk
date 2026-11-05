@@ -822,7 +822,7 @@ export interface HostMethods {
     result: { readonly items: readonly { readonly id: string; readonly title: string; readonly state: 'running' | 'waiting' | 'idle'; readonly updatedAt: number }[]; readonly nextCursor: string | null }
   }
   'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
-  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[] }; result: { readonly id: string; readonly problem?: string } }
+  'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly agent?: string; readonly moveFrom?: string }; result: { readonly id: string; readonly problem?: string } }
   'lead/chat/send': { params: { readonly id: string; readonly text: string }; result: { readonly queued?: boolean } }
   /** Window only. Which Lead-touched chats the person holds, and the keys of what the Lead sent. */
   'lead/chats/resetControl': { params: Record<string, never>; result: LeadChatControlList }
@@ -2947,7 +2947,7 @@ export type WireNotification =
   | {
       /** A tracked ordinary chat changed state; transcript content stays behind read. */
       readonly method: 'lead/chat/changed'
-      readonly params: { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle' }
+      readonly params: { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly incident?: import('./lead.js').LeadChatIncidentObservation }
     }
   | { readonly method: 'account/changed'; readonly params: { readonly status: HarnessDeskAccountStatus } }
   | { readonly method: 'phone/changed'; readonly params: PhoneLinkState }

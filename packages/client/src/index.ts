@@ -175,8 +175,8 @@ class Observation {
         let chat: ReturnType<typeof parseLeadChatChangedParams>
         try { chat = parseLeadChatChangedParams(notification.params) } catch { break }
         if (chat.project !== this.chatProject) break
-        const { id, project, state } = chat
-        if (this.changed(this.chatValues, id, [project, state])) this.emit({ type: 'chat.changed', id, project, state })
+        const { id, project, state, incident } = chat
+        if (this.changed(this.chatValues, id, [project, state, incident])) this.emit({ type: 'chat.changed', id, project, state, ...(incident ? { incident } : {}) })
         break
       }
       case 'flow/execution-changed': {

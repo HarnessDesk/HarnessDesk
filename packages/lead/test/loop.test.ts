@@ -2061,3 +2061,23 @@ test('an ask-only ordinary reply answers the person without a silent-turn retry'
     assert.deepEqual(s.journal.state.messages.at(-1)?.ask, ask)
   } finally { await loop.close() }
 })
+
+test('a stuck-chat observation wakes once with candidates and uses the existing structured ask', async () => {
+  const report = { version: 1, type: 'lead-output', proactive: { finding: 'The helper chat ran out of credit.', caveat: 'It has not finished.',
+    ask: 'Move the helper work?', options: [{ id: 'retry', label: 'Retry when it resets' }, { id: 'move', label: 'Move to Agent Two' }, { id: 'stop', label: 'Stop' }], recommended: 'move' } }
+  const s = await fixture([message(), message([{ type: 'text', text: JSON.stringify(report) }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    const incident = { chatId: 'fixture:helper', kind: 'credits', state: 'asked', attempts: 0, firstAt: 1, lastAt: 1, resetsAt: null,
+      lastError: { code: 'credits', message: 'No credit' }, candidates: [{ key: 'opaque-agent', name: 'Agent Two' }] }
+    const event = { type: 'chat.changed', id: 'fixture:helper', project: contract.project.path, state: 'waiting', incident } as any
+    s.emit(event); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2)
+    assert.match(s.fake.requests[1]!.body, /Agent Two/)
+    assert.match(s.fake.requests[1]!.body, /credits/)
+    assert.equal(s.journal.state.messages.at(-1)?.proactive?.recommended, 'move')
+    s.emit(structuredClone(event)); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2, 'the same incident cannot buy a second model turn')
+  } finally { await loop.close() }
+})
