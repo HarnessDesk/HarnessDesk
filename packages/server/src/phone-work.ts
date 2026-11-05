@@ -59,6 +59,10 @@ const CAPABILITIES: PhoneWorkCapabilities = {
 }
 
 const AGENTS = 8
+/** How long a snapshot waits for another agent's models, and how long a failed read is not retried. */
+const AGENT_MODELS_WAIT = 2_000, AGENT_MODELS_RETRY = 60_000
+/** The longest agent id a phone start can name (the wire's own bound). */
+const AGENT_ID = 120
 const REMEMBER_DECISIONS = 200
 const SHOW_DECISIONS = 20
 const DECISION_TTL = 24 * 60 * 60 * 1000
@@ -172,10 +176,31 @@ export class PhoneWork {
 
   constructor(ports: PhoneWorkPorts) { this.#ports = ports }
 
-  /** The agents a phone may start on: ready, known to the desk, default first, capped. */
+  /** When another agent's model read last failed, so a snapshot does not ask it again every poke. In memory only. */
+  readonly #modelsFailed = new Map<string, number>()
+
+  /** The agents a phone may start on: the default (which a start without an agent uses anyway), then the ready ones the desk knows, capped. */
   #agents(runtime: RuntimeId | null): RuntimeId[] {
-    const ready = [...new Set(this.#ports.readyRuntimes())].filter(one => this.#ports.seatName(one) !== null)
-    return (runtime !== null && ready.includes(runtime) ? [runtime, ...ready.filter(one => one !== runtime)] : ready).slice(0, AGENTS)
+    const startable = (one: RuntimeId) => this.#ports.seatName(one) !== null && String(one).length <= AGENT_ID
+    const ready = [...new Set(this.#ports.readyRuntimes())].filter(one => one !== runtime && startable(one))
+    return (runtime !== null && startable(runtime) ? [runtime, ...ready] : ready).slice(0, AGENTS)
+  }
+
+  /** Another agent's models as the desk holds them, never by starting it, given up on after a short wait. */
+  async #knownModels(one: RuntimeId): Promise<readonly ModelInfo[]> {
+    const key = String(one), failed = this.#modelsFailed.get(key)
+    if (failed !== undefined && this.#ports.now() - failed < AGENT_MODELS_RETRY) return []
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<'late'>(resolve => { timer = setTimeout(() => resolve('late'), AGENT_MODELS_WAIT); timer.unref?.() })
+    try {
+      const models = await Promise.race([this.#ports.knownModels(one), late])
+      // A read that hangs is treated like one that failed, so the next pokes do not wait on it too.
+      if (models === 'late') { this.#modelsFailed.set(key, this.#ports.now()); return [] }
+      this.#modelsFailed.delete(key)
+      return models ?? []
+    }
+    catch { this.#modelsFailed.set(key, this.#ports.now()); return [] }
+    finally { clearTimeout(timer) }
   }
 
   async snapshot(): Promise<PhoneWorkSnapshot> {
@@ -183,7 +208,7 @@ export class PhoneWork {
     const ids = this.#agents(runtime)
     const reads = [...new Set(runtime ? [runtime, ...ids] : ids)]
     // Only the default agent is started for its models; a snapshot never starts any other agent.
-    const read = (one: RuntimeId) => one === runtime ? this.#ports.models(one) : this.#ports.knownModels(one).then(models => models ?? [])
+    const read = (one: RuntimeId) => one === runtime ? this.#ports.models(one) : this.#knownModels(one)
     const [items, usage, catalogues] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
       Promise.all(reads.map(one => read(one).then(modelChoices).catch((): PhoneModelChoice[] => [])))])
     const choices = new Map(reads.map((one, index) => [one, catalogues[index]!]))

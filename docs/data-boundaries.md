@@ -117,12 +117,12 @@ turn. These actions reuse the desk's host methods without changing session
 permissions. New sessions may choose a model and effort from the default
 runtime's own catalogue; the phone receives its model names, descriptions,
 effort choices and fast-tier capability, never a hard-coded model list. It
-also receives up to eight agents that can start a session now or on demand: each one’s
-runtime id, the adapter's own scrubbed name and that agent's model list, with
-no path or account. A snapshot never starts an agent for this: an agent other
-than the default lists the models the desk already holds from an earlier read,
-or none. A start may name one of those agents; its model and effort
-are checked against that agent's own catalogue. It can also send to the Lead, stop or resume
+also receives up to eight agents a session can start on, default first. Each
+has an opaque runtime id, the adapter's own scrubbed name and that agent's
+model list; none carries a path or account. A snapshot never starts an agent
+for this. An agent other than the default shows the models the desk already
+holds, or none if the read is slow or fails. A start may name one of those
+agents; its model and effort are checked against that agent's own catalogue. It can also send to the Lead, stop or resume
 it, answer its cards and permitted worker questions, and request required
 checks. Approval decisions require Answer. Read, Run and Answer grants bound its
 surface. Lead worker cards can carry complete bounded request details, including

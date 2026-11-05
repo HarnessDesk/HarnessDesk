@@ -623,17 +623,40 @@ test('the snapshot lists each ready agent with its own models, the default first
   assert.equal(snapshot.capabilities.chooseAgent, true)
   assert.equal((await rig().work.snapshot()).capabilities.chooseAgent, false, 'one agent is not a choice')
   const unready = await agentsRig({ readyRuntimes: () => [RT2] }).work.snapshot()
-  assert.deepEqual(unready.agents?.map(agent => [agent.id, agent.default]), [[String(RT2), undefined]], 'a default that cannot start is not listed')
+  assert.deepEqual(unready.agents?.map(agent => [agent.id, agent.default]), [[String(RT), true], [String(RT2), undefined]], 'the default is listed even before it is ready, as a start without an agent uses it')
   assert.deepEqual(unready.models, [choice('one')])
+  assert.deepEqual(await agentsRig({ readyRuntimes: () => [RT2] }).work.sessionStart({ text: 'Hello', agent: String(RT) }), { id: `${RT}:${SID}` }, 'naming the default starts it as no agent does')
+  const long = runtimeId('a'.repeat(121))
+  const longRig = await rig({ readyRuntimes: () => [RT, long], seatName: () => 'Fake Agent' }).work.snapshot()
+  assert.deepEqual(longRig.agents?.map(agent => agent.id), [String(RT)], 'an id a start could not name is not listed')
   const many = Array.from({ length: 12 }, (_, index) => runtimeId(`agent-${index}`))
   const capped = await rig({ readyRuntimes: () => many, seatName: () => 'Fake Agent' }).work.snapshot()
-  assert.deepEqual(capped.agents?.map(agent => agent.id), many.slice(0, 8).map(String))
+  assert.deepEqual(capped.agents?.map(agent => agent.id), [String(RT), ...many.slice(0, 7).map(String)], 'the default, then the first seven ready')
 })
 
 test('an agent whose model read fails is listed with no models, never invented ones', async () => {
   const snapshot = await agentsRig({ knownModels: async () => { throw new Error('Synthetic model lookup failure') } }).work.snapshot()
   assert.deepEqual(snapshot.agents?.map(agent => [agent.id, agent.models.map(one => one.id)]), [[String(RT), ['one']], [String(RT2), []]])
   assert.equal(snapshot.capabilities.chooseModel, true)
+})
+
+test('another agent whose model read hangs or fails does not hold up the snapshot, and is not asked again at once', async () => {
+  let asked = 0, clock = 1_000_000
+  const r = agentsRig({ now: () => clock, knownModels: async runtime => { asked++; return runtime === RT2 ? new Promise<never>(() => {}) : null } })
+  const started = Date.now()
+  const first = await r.work.snapshot()
+  assert.ok(Date.now() - started < 5_000)
+  assert.deepEqual(first.agents?.map(agent => [agent.id, agent.models.length]), [[String(RT), 1], [String(RT2), 0]])
+  await r.work.snapshot()
+  assert.equal(asked, 1, 'a read that hung is not repeated on the next poke')
+  clock += 61_000
+  const failing = agentsRig({ now: () => clock, knownModels: async () => { asked++; throw new Error('Synthetic model lookup failure') } })
+  asked = 0
+  await failing.work.snapshot(); await failing.work.snapshot()
+  assert.equal(asked, 1, 'a failed read waits before it is tried again')
+  clock += 61_000
+  await failing.work.snapshot()
+  assert.equal(asked, 2)
 })
 
 test('a snapshot never starts an agent other than the default to read its models', async () => {
