@@ -173,6 +173,12 @@ export const createLeadState = (transport: LeadTransport, available: () => boole
       const result = await transport.request('lead/budget/raise', { logicalGoalId, caps, expectedRevision: state.revision })
       apply(result, before); return result
     },
+    /** The person's money limit, or null for Off. Its own method so the phone can carry it without settings authority. */
+    async setSpendLimit(usdMicros: number | null) {
+      checkRead(); const before = state
+      const result = await transport.request('lead/spendLimit/set', { usdMicros, expectedRevision: state.revision })
+      apply(result, before); return result
+    },
     async readMemory() { check(); return transport.request('lead/memory/read', {}) },
     async updateMemory(memory: LeadMemory) { check(); return transport.request('lead/memory/update', { memory }) },
     async resume() { checkRead(); const before = state, result = await transport.request('lead/resume', { expectedRevision: state.revision }); apply(result, before); return result },

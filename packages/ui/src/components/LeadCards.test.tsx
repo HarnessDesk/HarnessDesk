@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { previewStore } from '../preview/harness'
-import type { LeadCard } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, type LeadCard } from '@harnessdesk/protocol'
 import { leadBudget, leadContract, leadPlan, leadResult, leadRuntime, leadWaiting } from '../preview/lead-fixture'
 // An absent implementation renders nothing, so the first run fails on the promised behavior.
 const modules = import.meta.glob('./LeadCards.tsx', { eager: true }) as Record<string, { LeadCards: React.ComponentType<any>; leadDollars: (micros: number) => string }>
@@ -280,6 +280,14 @@ it('omits the project separator when an allowance has no matching scope', () => 
   const format = (modules['./LeadCards.tsx'] as any).leadAllowance
   expect(format).toBeTypeOf('function')
   expect(format(leadBudget.caps)).toBe('Up to $5.00 · 4 rounds')
+})
+it('says no spending limit rather than printing the ceiling that stands for Off', () => {
+  const cards = modules['./LeadCards.tsx'] as any, max = LEAD_LIMITS.maxUsdMicros
+  expect(cards.leadAllowance({ usdMicros: max, rounds: 4 })).toBe('No spending limit · 4 rounds')
+  expect(cards.budgetQuestion({ usdMicros: 5_000_000, rounds: 4 }, { usdMicros: max, rounds: 4 })).toBe('Raise the allowance from $5.00 to no limit?')
+  const { box } = mount([{ ...leadPlan, contract: { ...leadPlan.contract, caps: { usdMicros: max, rounds: 4 } } }])
+  expect(box.textContent).toContain('No spending limit · 4 rounds')
+  expect(box.textContent).not.toContain('$1,000,000')
 })
 
 it('renders exactly three proactive parts and only maps existing navigation actions', () => {

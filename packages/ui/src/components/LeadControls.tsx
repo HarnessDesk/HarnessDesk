@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from 'react'
-import type { LeadName } from '@harnessdesk/protocol'
+import { leadNoSpendLimit, type LeadName } from '@harnessdesk/protocol'
 import { ConfirmDialog, LeadAvatar, LeadIdentity, MenuItem, MenuNote, MenuSeparator, Text } from '../design'
 import { leadPresence, leadReadingWords, leadWakeLine } from '../lib/lead-presence'
 import { useStore } from '../state/context'
@@ -56,7 +56,7 @@ export const LeadStatusPanel = ({ close, controls }: { readonly close: () => voi
     <MenuNote>{[
       progress ? `Step ${progress.step} of ${progress.steps}` : presence.goalActive ? 'Planning' : 'No goal running',
       presence.needs ? `${presence.needs} need${presence.needs === 1 ? 's' : ''} you` : null,
-      budget ? `${leadDollars(spent)} of ${leadDollars(budget.caps.usdMicros)} spent` : null,
+      budget ? leadNoSpendLimit(budget.caps.usdMicros) ? `${leadDollars(spent)} spent` : `${leadDollars(spent)} of ${leadDollars(budget.caps.usdMicros)} spent` : null,
     ].filter(Boolean).join(' · ')}</MenuNote>
     {presence.goalActive && state.presence && <MenuNote>{[...leadReadingWords(state.presence), leadWakeLine(state.presence)].filter(Boolean).join(' · ')}</MenuNote>}
     {error && <MenuNote tone="warning">{error}</MenuNote>}

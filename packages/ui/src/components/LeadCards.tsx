@@ -1,7 +1,7 @@
 import { OutsideHeadBanner } from './GitRecord'
 import { useRef, useState, type MutableRefObject } from 'react'
 import type { LeadSavedApproval, LeadProactive, LeadAcceptanceContract, LeadAction, LeadActionInput, LeadBudgetState, LeadCard, LeadCardDecision, LeadDecisionMessage, LeadPullRequest } from '@harnessdesk/protocol'
-import { LEAD_LIMITS, type LeadCaps } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, leadNoSpendLimit, type LeadCaps } from '@harnessdesk/protocol'
 import { Banner, Button, Chip, CodeText, Dialog, FormStack, Input, Row, Rows, LeadContract, LeadPlanFlow, Text } from '../design'
 import { leadRepeatWords } from '../lib/lead-repeat'
 import { folderName } from '../lib/projects'
@@ -16,7 +16,7 @@ const cents = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD
 /** Only what changes is asked about: an allowance whose rounds stay put is a question about dollars alone. */
 export const budgetQuestion = (from: { readonly usdMicros: number; readonly rounds: number }, to: { readonly usdMicros: number; readonly rounds: number }): string => {
   const parts = [
-    ...(from.usdMicros !== to.usdMicros ? [`from ${leadDollars(from.usdMicros)} to ${leadDollars(to.usdMicros)}`] : []),
+    ...(from.usdMicros !== to.usdMicros ? [`from ${leadLimitDollars(from.usdMicros)} to ${leadLimitDollars(to.usdMicros)}`] : []),
     ...(from.rounds !== to.rounds ? [`from ${from.rounds} to ${to.rounds} rounds`] : []),
   ]
   return parts.length === 0 ? 'Keep the allowance as it is?' : `Raise the allowance ${parts.join(' and ')}?`
@@ -26,8 +26,11 @@ export const leadDollars = (micros: number) => {
   const text = cents.format(micros / 1000000)
   return micros > 0 && text === '$0.00' ? 'less than $0.01' : text
 }
+/** A dollar cap at the portable ceiling is the person's spending limit turned Off: said as no limit, never as a figure. */
+export const leadLimitDollars = (micros: number) => leadNoSpendLimit(micros) ? 'no limit' : leadDollars(micros)
+export const leadSpendCap = (micros: number) => leadNoSpendLimit(micros) ? 'No spending limit' : `Up to ${leadDollars(micros)}`
 export const leadAllowance = (caps: { readonly usdMicros: number; readonly rounds: number }, project?: string): string =>
-  `Up to ${leadDollars(caps.usdMicros)} · ${caps.rounds} rounds${project ? ` · ${folderName(project)}` : ''}`
+  `${leadSpendCap(caps.usdMicros)} · ${caps.rounds} rounds${project ? ` · ${folderName(project)}` : ''}`
 const policyMode = { plan: 'Plan', default: 'Default', manage: 'Manage' }
 const ruleWords = (rule: { effect: string; method: keyof typeof PERMISSION_LABELS; action: string | null; project: string | null } | undefined) => rule ? `${rule.effect} · ${PERMISSION_LABELS[rule.method]} · ${rule.action ?? 'All actions'} · ${rule.project ?? 'Approved project'}` : 'No rule'
 
@@ -120,7 +123,7 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
             <Text as="p" role="muted">Runs once when the desk wakes, if it was asleep</Text></>}
           <LeadPlanFlow steps={card.contract.steps} /><Markdown text={`Done when:\n\n${card.contract.assertions.map(assertion => `- ${assertion.description}`).join('\n')}`} /></>}
         {card.type === 'result' && card.publication === 'push' && <Text as="p" role="meta">Push the reviewed changes and open a pull request.</Text>}
-        {caps && <><Text as="p" role="meta">{card.type === 'plan' && card.contract.repeat ? `Up to ${leadDollars(caps.usdMicros)} a run · ${caps.rounds} rounds` : leadAllowance(caps, scope?.project.path)}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}
+        {caps && <><Text as="p" role="meta">{card.type === 'plan' && card.contract.repeat ? `${leadNoSpendLimit(caps.usdMicros) ? 'No spending limit' : `Up to ${leadDollars(caps.usdMicros)} a run`} · ${caps.rounds} rounds` : leadAllowance(caps, scope?.project.path)}</Text><Text as="p" role="meta">Publishing, merging and deleting still need your separate approval.</Text></>}
         {(card.type === 'plan' || card.type === 'result') && scope?.repeat && onRuns && <Button variant="quiet" onClick={() => onRuns(scope)}>Runs</Button>}
         {(card.type === 'waiting' && !worker || card.type === 'result') && <>
           <Text as="p" role="meta">{(['check', 'review', 'blocking-findings', 'diff'] as const).flatMap(kind => {
