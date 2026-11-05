@@ -118,16 +118,36 @@ test('a chat the Lead directs says so, by the Lead\'s name, and the person\'s ow
   } finally { await f.done() }
 })
 
+test('a phone work item says when its session began, and leaves it out when the desk does not know', async () => {
+  const f = await populated()
+  try {
+    const items = f.workspace.workSessions({}).items
+    assert.equal(items.find(item => item.id === 'fake-agent:running')?.startedAt, NOW - 30 * HOUR)
+    f.index.upsert(summary('no-start', { createdAt: 0, updatedAt: NOW - HOUR }), { archived: false })
+    f.index.upsert(summary('late-start', { createdAt: NOW, updatedAt: NOW - HOUR }), { archived: false })
+    const rows = f.workspace.sessionsList({}).rows
+    const after = f.workspace.workSessions({}).items
+    for (const id of ['fake-agent:no-start', 'fake-agent:late-start']) {
+      const row = rows.find(r => r.id === id)
+      const item = after.find(i => i.id === id)
+      assert.ok(row && item, `${id} is listed`)
+      assert.ok(!('startedAt' in row), `${id}: an unknown or impossible start is left out of the row, never zero`)
+      assert.ok(!('startedAt' in item), `${id}: and out of the work item`)
+    }
+  } finally { await f.done() }
+})
+
 test('a session row carries only the redacted fields, and the live figure beats the stored one', async () => {
   const f = await populated()
   try {
     const list = f.workspace.sessionsList({})
     assert.deepEqual(list.rows.map(row => row.id), ['fake-agent:running', 'fake-agent:waiting', 'fake-agent:done-new', 'fake-agent:foreign-money', 'fake-agent:done-old'])
     const [running, waiting, doneNew, foreign] = list.rows
-    assert.deepEqual(Object.keys(running!).sort(), ['cost', 'id', 'lastActivityAt', 'pinned', 'project', 'seat', 'startedBy', 'state', 'title'])
+    assert.deepEqual(Object.keys(running!).sort(), ['cost', 'id', 'lastActivityAt', 'pinned', 'project', 'seat', 'startedAt', 'startedBy', 'state', 'title'])
     assert.deepEqual({ project: running!.project, state: running!.state, startedBy: running!.startedBy, seat: running!.seat, cost: running!.cost, pinned: running!.pinned },
       { project: 'acme-api', state: 'running', startedBy: 'you', seat: 'Fake Agent', cost: 2.5, pinned: false })
     assert.equal(running!.lastActivityAt, NOW - HOUR)
+    assert.equal(running!.startedAt, NOW - 30 * HOUR, 'the phone reads how long a session has been open from when it began')
     assert.equal(waiting!.state, 'needs-you')
     assert.equal(waiting!.cost, null, 'no figure is zero, not invented')
     assert.equal(doneNew!.cost, 0.4, 'a finished session shows what the desk stored for it')

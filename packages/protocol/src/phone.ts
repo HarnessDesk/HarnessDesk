@@ -77,6 +77,8 @@ export interface PhoneSessionRow {
   readonly cost: number | null
   /** Epoch milliseconds. */
   readonly lastActivityAt: number
+  /** When the desk created the session, epoch milliseconds; not a measure of work. Left out when unknown. */
+  readonly startedAt?: number
   /** Pins live on the phone; the desk never sets this. */
   readonly pinned: boolean
 }
@@ -232,6 +234,8 @@ export interface PhoneWorkItem {
   /** Left out for the person themselves. */
   readonly by?: string
   readonly updatedAt: number
+  /** When a session began, epoch milliseconds; a Team says it in `team.startedAt`. Left out when unknown. */
+  readonly startedAt?: number
   readonly cost?: PhoneMoney
   readonly team?: PhoneWorkTeam
 }

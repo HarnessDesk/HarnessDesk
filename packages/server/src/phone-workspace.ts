@@ -121,6 +121,8 @@ export class PhoneWorkspace {
       seat,
       cost: money(one?.cost ?? entry.cost),
       lastActivityAt: summary.updatedAt,
+      // A start the desk does not know, or one later than the last activity, is left out rather than guessed.
+      ...(Number.isFinite(summary.createdAt) && summary.createdAt > 0 && summary.createdAt <= summary.updatedAt ? { startedAt: summary.createdAt } : {}),
       pinned: false,
     }
   }
@@ -270,7 +272,8 @@ export class PhoneWorkspace {
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
       line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
       agent: { name: row.seat }, ...(lead ? { by: lead } : {}),
-      updatedAt: row.lastActivityAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
+      updatedAt: row.lastActivityAt, ...(row.startedAt === undefined ? {} : { startedAt: row.startedAt }),
+      ...(row.cost === null ? {} : { cost: micros(row.cost) }),
     }
   }
 
