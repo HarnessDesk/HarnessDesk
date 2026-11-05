@@ -1803,6 +1803,17 @@ test('the quiet marker stays quiet once the person has their reply', async () =>
   } finally { await loop.close() }
 })
 
+test('a quiet reply that proposes a plan is an answer, and asks nothing more', async () => {
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: lead.LEAD_QUIET, plan: contract }) }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.journal.appendMessage('ask', 'Plan the fix.')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.equal(s.fake.requests.length, 1)
+    assert.ok(s.journal.state.cards.some(card => card.type === 'plan'))
+  } finally { await loop.close() }
+})
+
 for (const coalesced of [false, true]) test(`a two-step goal starts step 2 through a desk-woken preview continuation${coalesced ? ' with another desk change' : ''}`, async () => {
   const s = await fixture([message(), message([tool('preview-second', 'flow_preview', {
     root: contract.project.path, source: lead.leadReviewedResultSource,

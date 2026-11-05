@@ -299,8 +299,12 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       // A person's message is answered, never left to silence. A desk event that arrives inside their turn can
       // talk the model into the quiet marker, and a message that looks unanswered is one Resume would run again,
       // starting its work twice. One more request, told what is owed, settles it.
-      if (!input.proactive && result.status === 'completed' && !result.toolResults?.length && result.text && isLeadQuiet(result.text) && result.messages && personOwed() && !active.signal.aborted)
-        result = await messages.request({ ...request, messages: withObservation(result.messages, LEAD_PERSON_OWED), system }, active.signal)
+      // A plan or card is an answer of its own. A second request that does not complete leaves the first one standing.
+      if (!input.proactive && result.status === 'completed' && !result.toolResults?.length && !result.proposals?.plan && !result.proposals?.cards?.length &&
+        result.text && isLeadQuiet(result.text) && result.messages && personOwed() && !active.signal.aborted && !blocked()) {
+        const again = await messages.request({ ...request, messages: withObservation(result.messages, LEAD_PERSON_OWED), system }, active.signal)
+        if (again.status === 'completed') result = again
+      }
     }
     catch { result = { status: 'failed', reason: 'lead-messages-failed' } }
     finally { signal?.removeEventListener('abort', abort); active = null }
