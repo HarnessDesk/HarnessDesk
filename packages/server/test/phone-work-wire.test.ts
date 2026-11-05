@@ -63,6 +63,7 @@ const door = async (chooseModel = false) => {
     read: async () => conversation,
     live: () => ({ running: state.running, pending: state.pending, cwd: CWD }),
     defaultRuntime: () => RT, readyRuntimes: () => [RT], projectRoots: () => [CWD], canInterrupt: () => true,
+    knownModels: async () => null,
     models: async () => chooseModel ? [{ id: 'one', displayName: 'Model One', supportsImages: false, reasoningLevels: [{ id: 'xhigh', label: 'Extra high' }] }] : [],
     newSessionValues: async (runtime, cwd, choices) => chooseModel ? phoneSessionValues(runtime, cwd, {}, async params => [
       { id: 'model', category: 'model', type: 'select', label: 'Model', currentValue: params.values?.model as string ?? 'one', choices: [{ value: 'one', label: 'Model One' }] },

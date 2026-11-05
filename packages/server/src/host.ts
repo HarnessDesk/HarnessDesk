@@ -10144,6 +10144,12 @@ export class Host {
         await this.#ensureStarted(this.#runtime({ runtime }))
         return this.call('runtime/models', { runtime })
       },
+      // What an earlier read left, else a running runtime's answer; never a start.
+      knownModels: async runtime => {
+        const known = this.#runtimes.get(runtime)
+        if (!known) return null
+        return this.#runtimeCache.get(String(runtime)).models ?? (known.health().state === 'ready' ? this.call('runtime/models', { runtime }) : null)
+      },
       newSessionValues: async (runtime, cwd, choices) => {
         await this.#ensureStarted(this.#runtime({ runtime }))
         return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params), choices)

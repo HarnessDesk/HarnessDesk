@@ -44,7 +44,7 @@ const rig = (over: Partial<PhoneWorkPorts> = {}): Rig => {
     read: async () => current,
     live: () => ({ running, pending, cwd: CWD }),
     defaultRuntime: () => RT, readyRuntimes: () => [RT], projectRoots: () => [], canInterrupt: () => true,
-    models: async () => [], newSessionValues: async () => ({}), create: async () => session([]), send: async () => {}, queue: async () => ({ queuedId: null, sent: true }), interrupt: async () => {},
+    models: async () => [], knownModels: async () => null, newSessionValues: async () => ({}), create: async () => session([]), send: async () => {}, queue: async () => ({ queuedId: null, sent: true }), interrupt: async () => {},
     respond: async params => { responded.push(params); pending = pending.filter(one => one.id !== params.approvalId) },
     hasSecret: text => /sk-[A-Za-z0-9]{10,}/.test(text),
     now: () => 1_000,
@@ -605,6 +605,7 @@ const agentsRig = (over: Partial<PhoneWorkPorts> = {}) => {
     readyRuntimes: () => [RT2, runtimeId('unknown-seat'), RT],
     isOwn: (_runtime, id) => id === SID,
     models: async runtime => runtime === RT ? [model('one')] : [model('two'), model('three')],
+    knownModels: async runtime => runtime === RT2 ? [model('two'), model('three')] : null,
     newSessionValues: async (runtime, _cwd, picked) => { choices.push([runtime, picked]); return {} },
     create: async params => { created.push(params); return session([], { runtime: params.runtime }) },
     ...over,
@@ -630,9 +631,23 @@ test('the snapshot lists each ready agent with its own models, the default first
 })
 
 test('an agent whose model read fails is listed with no models, never invented ones', async () => {
-  const snapshot = await agentsRig({ models: async runtime => { if (runtime === RT2) throw new Error('Synthetic model lookup failure'); return [model('one')] } }).work.snapshot()
+  const snapshot = await agentsRig({ knownModels: async () => { throw new Error('Synthetic model lookup failure') } }).work.snapshot()
   assert.deepEqual(snapshot.agents?.map(agent => [agent.id, agent.models.map(one => one.id)]), [[String(RT), ['one']], [String(RT2), []]])
   assert.equal(snapshot.capabilities.chooseModel, true)
+})
+
+test('a snapshot never starts an agent other than the default to read its models', async () => {
+  const started: string[] = [], known: string[] = []
+  const r = agentsRig({
+    models: async runtime => { started.push(String(runtime)); return runtime === RT ? [model('one')] : [model('two')] },
+    knownModels: async runtime => { known.push(String(runtime)); return null },
+  })
+  const snapshot = await r.work.snapshot()
+  assert.deepEqual(started, [String(RT)], 'only the default agent is read through the starting path')
+  assert.deepEqual(known, [String(RT2)])
+  assert.deepEqual(snapshot.agents?.map(agent => [agent.id, agent.models.map(one => one.id)]), [[String(RT), ['one']], [String(RT2), []]])
+  assert.deepEqual(await r.work.sessionStart({ text: 'Hello', agent: String(RT2), model: 'two' }), { id: `${RT2}:${SID}` }, 'a start on that agent reads its models then')
+  assert.deepEqual(started, [String(RT), String(RT2)])
 })
 
 test('agent names on the phone are scrubbed and bounded, and carry no path or account', async () => {

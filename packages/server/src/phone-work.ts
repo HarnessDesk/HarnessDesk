@@ -38,6 +38,8 @@ export interface PhoneWorkPorts {
   readonly projectName?: (root: string) => string | null
   readonly canInterrupt: (runtime: RuntimeId) => boolean
   readonly models: (runtime: RuntimeId) => Promise<readonly ModelInfo[]>
+  /** A runtime's models only if the desk already holds them or the runtime is running; null rather than start it. */
+  readonly knownModels: (runtime: RuntimeId) => Promise<readonly ModelInfo[] | null>
   readonly newSessionValues: (runtime: RuntimeId, cwd?: string, choices?: PhoneStartChoices) => Promise<Readonly<Record<string, OptionValue>>>
   /** Host-only receipts: invoke after preflight, immediately before the actual
    * allocation, queue mutation, send or interrupt. Never take these from wire data. */
@@ -180,8 +182,10 @@ export class PhoneWork {
     const runtime = this.#ports.defaultRuntime()
     const ids = this.#agents(runtime)
     const reads = [...new Set(runtime ? [runtime, ...ids] : ids)]
+    // Only the default agent is started for its models; a snapshot never starts any other agent.
+    const read = (one: RuntimeId) => one === runtime ? this.#ports.models(one) : this.#ports.knownModels(one).then(models => models ?? [])
     const [items, usage, catalogues] = await Promise.all([this.#ports.workspace.workItems(), this.#ports.workspace.workUsage(),
-      Promise.all(reads.map(one => this.#ports.models(one).then(modelChoices).catch((): PhoneModelChoice[] => [])))])
+      Promise.all(reads.map(one => read(one).then(modelChoices).catch((): PhoneModelChoice[] => [])))])
     const choices = new Map(reads.map((one, index) => [one, catalogues[index]!]))
     const models = runtime ? choices.get(runtime)! : []
     const agents: PhoneAgentChoice[] = ids.map(id => ({ id: String(id), name: scrub(this.#ports.seatName(id) ?? '', 60) || 'Agent', models: choices.get(id)!, ...(id === runtime ? { default: true as const } : {}) }))

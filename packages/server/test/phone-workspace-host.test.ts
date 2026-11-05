@@ -386,6 +386,29 @@ for (const operation of ['snapshot', 'start'] as const) test(`phone ${operation}
   assert.equal(runtime.health().state, 'ready')
 })
 
+test('a phone snapshot lists an idle agent without starting it, and a start on that agent does', async t => {
+  const { host, root, runtime, state } = await desk(t)
+  const calls: string[] = []
+  class IdleRuntime extends FakeRuntime {
+    override async start() { calls.push('start'); return super.start() }
+    override async listModels() { calls.push('models'); return super.listModels() }
+  }
+  const idle = new IdleRuntime({ id: runtimeId('idle-agent') })
+  host.register(idle)
+  idle.setHealth({ state: 'idle' })
+  idle.onSend = live => live.finish()
+  await state.setPreferences({ activeRuntime: runtime.info.id, chatsFolder: join(root, 'chats') })
+  await host.call('workspace/read', {})
+  const snapshot = await host.call('workspace/read', {})
+  assert.deepEqual(snapshot.agents?.find(agent => agent.id === 'idle-agent'), { id: 'idle-agent', name: idle.info.presentation.name, models: [] })
+  assert.equal(snapshot.capabilities.chooseAgent, true)
+  assert.deepEqual(calls, [], 'no start and no model read for an agent that is not running')
+  const started = await host.call('workspace/session/start', { text: 'Hello', agent: 'idle-agent', model: 'fake-1' })
+  assert.equal(started.problem, undefined)
+  assert.ok(started.id.startsWith('idle-agent:'))
+  assert.equal(calls[0], 'start')
+})
+
 test('a phone offers the admitted projects to start in, never a folder the host made for a no-folder chat', async t => {
   const { host, root, state } = await desk(t)
   const project = join(root, 'acme-api')
