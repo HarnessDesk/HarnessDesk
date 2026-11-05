@@ -18,6 +18,7 @@ export interface LeadAttemptState {
   /** A lookup contradicted this start: the window may confirm a run, never attest none. */
   readonly contested: boolean
 }
+export interface LeadChatEffects { readonly started: number; readonly sent: number; readonly stopped: number }
 export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null; readonly contractDigest: string | null }
 export interface LeadState {
   readonly workerApprovals: readonly LeadWorkerApprovalRule[]
@@ -32,6 +33,10 @@ export interface LeadState {
   readonly originKey: string | null
   /** New-goal sequence, so retained conversation history cannot claim a fresh draft. */
   readonly goalStartedSeq: number
+  /** Ordinary chat effects that succeeded since the Lead's latest reply in this goal. A request is rebuilt from the
+   * conversation's words alone, and the bounded attempt index can drop the attempts themselves, so they are counted
+   * here and cleared by the next reply. */
+  readonly chatEffectsSinceReply: LeadChatEffects
   readonly handbacks: readonly LeadHandback[]
   readonly handbackLimit: boolean
   readonly ciPassed: readonly string[]
@@ -72,7 +77,7 @@ export interface LeadState {
   readonly teams: readonly string[]
   readonly runs: readonly LeadRunIdentity[]
 }
-export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
+export const initialLeadState = (): LeadState => ({ workerApprovals: [], workerAuditWait: false, orphanedWorkerDispatch: null, decisionRevision: 0, wakes: [], secondLooks: [], origin: null, originKey: null, goalStartedSeq: 0, chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 }, handbacks: [], handbackLimit: false, ciPassed: [], completedBudgets: [], follow: { checks: true, reviews: true }, pr: null, publication: null, ownedPush: null, name: 'dex', nameChosen: false, decisionMessages: [], messages: [], olderMessages: 0, sends: [], seq: 0, phase: 'draft', managementReason: null, policy: null, contract: null, consent: null, budget: null, raisedFrom: null, stopEffectsPending: null, chatEffectsAcknowledged: false,
   cards: [], retryResult: null, decidedCards: [], steps: [], attempts: new Map(), recoveryBlocked: false, cardPositions: {}, cardRevisions: {}, runs: [], teams: [] })
 /** A read's journal revision remains valid through observation-only wakes. Any
  * intervening decision-affecting write advances the lower bound and refuses it. */
@@ -431,7 +436,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       const all = [...state.messages, event.message], excess = Math.max(0, all.length - 256)
       const thread = windowLeadThread({ version: 1, id: 'lead', revision: state.seq, state: state.phase, project: null,
         messages: all.slice(excess), olderMessages: state.olderMessages + excess, cards: [] }, 131072)
-      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages,
+      state = { ...state, messages: thread.messages, olderMessages: thread.olderMessages, ...(event.message.role === 'assistant' ? { chatEffectsSinceReply: { started: 0, sent: 0, stopped: 0 } } : {}),
         sends: event.idempotencyKey === null ? state.sends : [...state.sends, { key: event.idempotencyKey, messageId: event.message.id, revision: event.seq }].slice(-LEAD_SEND_RECEIPTS) }
       break
     }
@@ -648,6 +653,10 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       else ensure(event.identity === null)
       if (event.outcome === 'failed' && attempt!.method === 'flow/start-goal') releaseStart(event.id)
       updateAttempt(event.id, attempt => ({ ...attempt, phase: 'finished', outcome: event.outcome }))
+      if (event.outcome === 'succeeded') {
+        const effect = ({ 'lead/chat/start': 'started', 'lead/chat/send': 'sent', 'lead/chat/stop': 'stopped' } as const)[attempt!.method as 'lead/chat/start']
+        if (effect) state = { ...state, chatEffectsSinceReply: { ...state.chatEffectsSinceReply, [effect]: state.chatEffectsSinceReply[effect] + 1 } }
+      }
       if (event.outcome === 'uncertain' && isLeadChatEffect(attempt!)) state = { ...state, chatEffectsAcknowledged: false }
       if (event.outcome === 'uncertain' && attempt!.kind !== 'read') state = { ...state, phase: 'waiting-for-user',
         steps: state.steps.map(step => step.attemptId === event.id ? { ...step, state: 'uncertain' } : step) }

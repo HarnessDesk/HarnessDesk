@@ -7,7 +7,7 @@ export { LEAD_JOURNAL_BYTES, summarizeLeadArguments, parseLeadOwnedPush, parseLe
 export type { LeadJournalEvent, LeadJournalRecord, LeadJournalStorage, LeadRunIdentity, LeadRunObservation, LeadOwnedPush, LeadPublicationSource, LeadPublicationOperation, LeadArgumentSummary,
   LeadAttemptOutcome, LeadToolAttempt, LeadDispatch, LeadDispatchResult, LeadRecoveryAction } from './journal.js'
 export { hasPendingLeadPlan, isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, leadHandbackTerminal, leadRepairResultReady, leadWorkerDispatchBlockedByOpenPr, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, initialLeadState, reduceLeadRecord, replayLeadJournal } from './state.js'
-export type { LeadState, LeadStepState, LeadAttemptState } from './state.js'
+export type { LeadState, LeadStepState, LeadAttemptState, LeadChatEffects } from './state.js'
 
 export type { LeadJournalSecurity } from './journal-security.js'
 export { leadCheckpoint, parseLeadCheckpoint } from './checkpoint.js'
