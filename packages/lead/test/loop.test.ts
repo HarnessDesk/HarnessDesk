@@ -1652,6 +1652,52 @@ test('a chat push proposal uses the existing output path and rebuilds its approv
   } finally { await loop.close() }
 })
 
+test('a push proposed with the quiet marker is still offered after the person is answered', async () => {
+  let proposed: any
+  const s = await fixture([message([tool('start', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' }),
+    async () => message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: lead.LEAD_QUIET, cards: [proposed] }) }]),
+    message([{ type: 'text', text: 'The push card is ready for you.' }])])
+  await s.approve(); s.setEvidence(spendEvidence())
+  const first = exported('createLeadLoop')(s.options)
+  await first.request(input)
+  const card = s.journal.state.cards.find(card => card.type === 'result')!
+  proposed = { ...card, publication: 'push', assertions: [], summary: 'Untrusted proposed summary' }
+  await first.close()
+  const state: any = { ...s.journal.state, phase: 'following', decidedCards: [...s.journal.state.decidedCards, `${card.id}:${card.revision}`],
+    pr: { repository: 'acme/widgets', number: 7, branch: 'worker', head: 'a'.repeat(40), state: 'open', check: null, at: 100 } }
+  const journal = await lead.createLeadJournal({ async read() { return [] }, async append() {}, checkpoint() { return state } })
+  const loop = exported('createLeadLoop')({ ...s.options, journal })
+  try {
+    await journal.appendMessage('push', 'Push the reviewed work')
+    await loop.request({ ...input, messages: [{ role: 'user', content: [{ type: 'text', text: 'Push the reviewed work' }] }] })
+    const push = journal.state.cards.find(card => card.type === 'result' && card.publication === 'push')
+    assert.ok(push && push.type === 'result')
+    assert.equal(push.summary, 'Push the reviewed branch and open its pull request.')
+    assert.equal((push as any).publicationSource?.reviewedHead, 'head-1')
+    assert.equal(typeof (push as any).publicationSource?.evidenceRevision, 'string')
+    assert.equal(push.assertions.length, contract.assertions.length)
+    assert.ok(push.assertions.every(assertion => assertion.status === 'passed'))
+    assert.equal(s.calls.filter(call => call.method === 'flow/start-goal').length, 1)
+    assert.equal(s.fake.requests.length, 3)
+    assert.equal(journal.state.messages.at(-1)?.text, 'The push card is ready for you.')
+  } finally { await loop.close() }
+})
+
+test('an answer that fails after the quiet marker waits for the person, never silence', async () => {
+  const s = await fixture([
+    message([{ type: 'text', text: lead.LEAD_QUIET }]),
+    { status: 429, processing: 'not-started' as const, retryAfter: '999999', body: '' },
+  ])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.journal.appendMessage('ask', 'Status?')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.equal(s.fake.requests.length, 2)
+    assert.equal(loop.state.phase, 'waiting-for-user')
+    assert.match(loop.state.reason, /^lead-request-(rate-limited|failed)$/)
+  } finally { await loop.close() }
+})
+
 test('an open PR stays passive after a request failure and Resume', async () => {
   const s = await fixture([message([tool('late', 'flow_start_goal', startCall().params)], { stop_reason: 'tool_use' })])
   await s.approve()

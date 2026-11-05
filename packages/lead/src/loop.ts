@@ -300,12 +300,15 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       // talk the model into the quiet marker, and a message that looks unanswered is one Resume would run again,
       // starting its work twice. One more request, told what is owed, settles it.
       // A proposed plan always reaches the person, as its card or as the wait that refuses it, so it is an answer.
-      // A proposed card is not: model cards are summaries the host may never offer. A second request that does not
-      // complete leaves the first one standing.
+      // A proposed card is not: model cards are summaries the host may never offer. The answer keeps the cards the
+      // first reply proposed (a push it asked for is still checked), and an answer that fails goes to the person
+      // through the same wait as any failed request, never back to silence.
       if (!input.proactive && result.status === 'completed' && !result.toolResults?.length && !result.proposals?.plan &&
         result.text && isLeadQuiet(result.text) && result.messages && personOwed() && !active.signal.aborted && !blocked()) {
-        const again = await messages.request({ ...request, messages: withObservation(result.messages, LEAD_PERSON_OWED), system }, active.signal)
-        if (again.status === 'completed') result = again
+        const first = result, again = await messages.request({ ...request, messages: withObservation(first.messages!, LEAD_PERSON_OWED), system }, active.signal)
+        const cards = [...first.proposals?.cards ?? [], ...again.proposals?.cards ?? []]
+        result = { ...again, messages: again.messages ?? first.messages, usage: again.usage ?? first.usage,
+          ...(cards.length || again.proposals ? { proposals: { plan: again.proposals?.plan ?? null, cards } } : {}) }
       }
     }
     catch { result = { status: 'failed', reason: 'lead-messages-failed' } }
