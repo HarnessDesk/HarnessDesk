@@ -13,9 +13,9 @@ import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
 /** A real host over a fake agent and an index seeded the way a desk's own is, asked the phone's way. */
-const desk = async (t: TestContext, bulk = false, interrupt = true) => {
+const desk = async (t: TestContext, bulk = false, interrupt = true, startTimes?: boolean) => {
   const root = tempDir('hd-phone-host-')
-  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt } })
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false, interrupt, ...(startTimes === undefined ? {} : { startTimes }) } })
   const row = (id: string, over: Partial<SessionSummary>): SessionSummary =>
     ({ runtime: runtime.info.id, id: sessionId(id), title: id, cwd: join(root, 'acme-api'), createdAt: 10, updatedAt: 20, status: { type: 'notLoaded' }, archived: false, ...over })
   const index = new SessionIndex(join(root, 'sessions.sqlite'))
@@ -46,6 +46,17 @@ const desk = async (t: TestContext, bulk = false, interrupt = true) => {
 
 // The phone uses these request names at the host boundary, rather than invoking projection internals.
 const phoneCall = (host: Host, method: string, params: unknown): Promise<any> => host.call(method as never, params as never)
+
+test('the phone hears when a session began only from an agent that records starts', async t => {
+  const startOf = async (startTimes?: boolean) => {
+    const { host } = await desk(t, false, true, startTimes)
+    const page = await phoneCall(host, 'workspace/sessions/list', { limit: 50 })
+    return page.items.find((item: any) => item.title === 'Tidy the settings page')?.startedAt
+  }
+  assert.equal(await startOf(true), 10, 'a measured start is passed on')
+  assert.equal(await startOf(false), undefined, 'an agent that lists only its last activity gives no start')
+  assert.equal(await startOf(), undefined, 'and neither does one that does not say')
+})
 
 test('phone workspace pages cover all 198 active sessions and the archive, without duplicates or Team seats', async t => {
   const { host, runtime } = await desk(t, true)

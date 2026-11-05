@@ -77,7 +77,8 @@ export interface PhoneSessionRow {
   readonly cost: number | null
   /** Epoch milliseconds. */
   readonly lastActivityAt: number
-  /** When the desk created the session, epoch milliseconds; not a measure of work. Left out when unknown. */
+  /** When the session began as its agent recorded it, epoch milliseconds; not a measure of work. Left out when the
+   * agent records no start (`RuntimeCapabilities.startTimes`) or the time is impossible. */
   readonly startedAt?: number
   /** Pins live on the phone; the desk never sets this. */
   readonly pinned: boolean
