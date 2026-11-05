@@ -40,6 +40,7 @@ interface Fixture {
   teams: PhoneTeamInput[]
   reports: UsageReport[]
   ledger: (query: LedgerQuery) => LedgerReport
+  lead: { name: string; ids: Set<string> } | null
   readonly done: () => Promise<void>
 }
 
@@ -49,7 +50,7 @@ const fixture = async (): Promise<Fixture> => {
   const index = new SessionIndex(file)
   const db = new DatabaseSync(file)
   const state: Fixture = {
-    index, db, live: [], teams: [], reports: [], ledger: () => ({ totalCost: null, scannedAt: null, rows: [], daily: [] } as unknown as LedgerReport),
+    index, db, live: [], teams: [], reports: [], lead: null, ledger: () => ({ totalCost: null, scannedAt: null, rows: [], daily: [] } as unknown as LedgerReport),
     workspace: undefined as never, done: async () => { db.close(); index.close(); await rm(root, { recursive: true, force: true }) },
   }
   const workspace = new PhoneWorkspace({
@@ -65,6 +66,7 @@ const fixture = async (): Promise<Fixture> => {
     teams: async () => state.teams,
     reports: async () => state.reports,
     ledger: async query => state.ledger(query),
+    leadChats: () => state.lead,
   })
   return Object.assign(state, { workspace })
 }
@@ -98,6 +100,21 @@ test('an unloaded untitled session uses its scrubbed indexed opening as the desk
   try {
     f.index.upsert(summary('opening', { title: '', preview: 'Fix /Users/jane/proj/src/a.ts for dev@example.com\nSecond line' }))
     assert.equal(f.workspace.sessionsList({}).rows[0]?.title, 'Fix … for …')
+  } finally { await f.done() }
+})
+
+test('a chat the Lead directs says so, by the Lead\'s name, and the person\'s own chats stay unmarked', async () => {
+  const f = await populated()
+  try {
+    f.lead = { name: 'Lex', ids: new Set(['fake-agent:done-new']) }
+    const rows = f.workspace.sessionsList({}).rows
+    assert.equal(rows.find(row => row.id === 'fake-agent:done-new')?.startedBy, 'lead')
+    assert.equal(rows.find(row => row.id === 'fake-agent:running')?.startedBy, 'you')
+    const items = f.workspace.workSessions({}).items
+    assert.equal(items.find(item => item.id === 'fake-agent:done-new')?.by, 'Lex')
+    assert.equal(items.find(item => item.id === 'fake-agent:running')?.by, undefined, 'the person themselves is left out')
+    f.lead = null
+    assert.equal(f.workspace.workSessions({}).items.find(item => item.id === 'fake-agent:done-new')?.by, undefined, 'no Lead, no claim')
   } finally { await f.done() }
 })
 

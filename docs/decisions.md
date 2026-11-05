@@ -5098,6 +5098,13 @@ fall back to the folded “Lead message from …” context block. On the phone,
 mixed message containing both Lead context and ordinary user content drops the
 Lead label rather than attributing the whole message to the Lead.
 
+A chat the Lead starts is named by the first line of the Lead's words, not by
+its envelope label: the label is the same on every chat the Lead opens, so a
+list of them read "Lead message from Lex" five times. The label stays the name
+only when the Lead sent no words. The phone's session list marks a chat whose
+holder is the Lead as the Lead's (`startedBy: 'lead'`, `by` its name); a chat
+the person took over reads as theirs again.
+
 Control records retain up to 64 chats per project; person holds are never
 evicted. An invalid record fails closed for every Lead send,
 stop and queued delivery until the person confirms **Reset chat control** in

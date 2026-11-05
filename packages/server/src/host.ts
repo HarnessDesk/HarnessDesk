@@ -1,5 +1,5 @@
 import type { DispatchAdmission } from './dispatch-admission.js'
-import { firstAsk, isLeadMessageSource, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
+import { firstAsk, isLeadMessageSource, leadDisplayName, leadMessageKey, splitContextContent, wrapContext, type LeadChatControlList, type LeadChatHolder } from '@harnessdesk/protocol'
 import { LeadChatControlStore, LeadChatHeldError } from './lead/chat-control.js'
 import { decideLeadSecondLook, leadDoneStopId, leadSecondLookAuthorized, type LeadSecondLookInput } from './lead/second-look.js'
 import { readChecks } from './evidence/checks-file.js'
@@ -850,6 +850,8 @@ export class Host {
   #leadControls: LeadControls | null = null
   #leadChatControl: LeadChatControlStore | null = null
   #leadChatProject: LeadProject | null = null
+  /** The running Lead's journal, read for its name; null while no Lead runs. */
+  #leadJournal: LeadServiceOptions['journal'] | null = null
   #leadChatCancellation: ((id: string, count: number) => Promise<void>) | null = null
   #leadChats: LeadChats | null = null
   #leadAutomatic: { readonly project: LeadProject; readonly owner: LeadAutomaticGoals } | null = null
@@ -3727,6 +3729,7 @@ export class Host {
     const chatControl = this.#chatControlStore()
     this.#leadChatControl = chatControl
     this.#leadChatProject = project
+    this.#leadJournal = journal
     const checkedControl = async <T>(root: string, work: () => Promise<T>): Promise<T> => {
       const failure = chatControl.failure
       try {
@@ -3770,7 +3773,7 @@ export class Host {
       publish: params => this.#push({ method: 'lead/chat/changed', params }),
     })
     let budgetOwner = this.registerLead(journal, project), budgetGoal = journal.state.budget!.logicalGoalId
-    this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadChatCancellation = null })
+    this.onDispose(() => { budgetOwner.close(); this.#leadChatControl = null; this.#leadChatProject = null; this.#leadJournal = null; this.#leadChatCancellation = null })
     this.onDispose(journal.onChange(() => {
       const id = journal.state.budget!.logicalGoalId
       if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
@@ -9949,6 +9952,12 @@ export class Host {
       seatName: (runtime) => {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
+      },
+      leadChats: () => {
+        const journal = this.#leadJournal, project = this.#leadChatProject, store = this.#leadChatControl
+        if (!journal || !project || !store) return null
+        const ids = new Set(store.current(project.path).chats.filter(chat => chat.holder === 'lead').map(chat => chat.id))
+        return { name: leadDisplayName(journal.state.name), ids }
       },
       teams: async () => (await this.#goals.list()).map((view) => {
         const latest = this.#flows.executionSummaries({ team: view.goal.id, active: false })[0]

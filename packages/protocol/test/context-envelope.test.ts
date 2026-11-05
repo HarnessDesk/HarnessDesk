@@ -361,8 +361,11 @@ test('words without the notice come back unchanged', () => {
   assert.equal(leadMessageWords('typed by hand'), 'typed by hand')
 })
 
-test('a chat the Lead opened previews by its label', () => {
-  assert.equal(openingOfContent([deskContextContent(leadMessageEnvelope('Dex', 'Fix the flaky test'))]), 'Lead message from Dex')
+test('a chat the Lead opened is named by the task it was given, not by the sender', () => {
+  assert.equal(openingOfContent([deskContextContent(leadMessageEnvelope('Dex', 'Fix the flaky test\n\nIt fails on CI only.'))]), 'Fix the flaky test')
+  assert.equal(openingOf(leadMessageEnvelope('Lex', '\nAdd a slugify helper')), 'Add a slugify helper')
+  // With no words of its own, the sender is still a name.
+  assert.equal(openingOfContent([deskContextContent(leadMessageEnvelope('Dex', ''))]), 'Lead message from Dex')
 })
 
 test('a Lead receipt is bound to the chat identity, including the runtime', () => {

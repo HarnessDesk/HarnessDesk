@@ -66,6 +66,8 @@ export interface PhoneWorkspacePorts {
   readonly teams: () => Promise<readonly PhoneTeamInput[]>
   readonly reports: () => Promise<readonly UsageReport[]>
   readonly ledger: (query: LedgerQuery) => Promise<LedgerReport>
+  /** The Lead's name and the chats it directs (`runtime:session`); null while no Lead runs here. */
+  readonly leadChats?: () => { readonly name: string; readonly ids: ReadonlySet<string> } | null
 }
 
 const WEEK_MINUTES = 7 * 24 * 60
@@ -103,14 +105,15 @@ export class PhoneWorkspace {
     const seat = this.#ports.seatName(summary.runtime)
     if (seat === null) return null
     const one = live.get(keyOf(summary.runtime, summary.id))
+    const id = `${summary.runtime}:${summary.id}`
     return {
-      id: `${summary.runtime}:${summary.id}`,
+      id,
       title: scrub(sessionLabel(summary.title, one?.preview ?? summary.preview, '')) || 'Untitled',
       project: projectOf(summary),
       state: this.#stateOf(summary, live),
-      // The desk lists the person's own conversations; a Team's seats are listed under their Team, and nothing
-      // records that a Lead opened one.
-      startedBy: 'you',
+      // The desk lists the person's own conversations; a Team's seats are listed under their Team. A chat the
+      // Lead directs is its work, even though it runs as an ordinary conversation.
+      startedBy: this.#ports.leadChats?.()?.ids.has(id) ? 'lead' : 'you',
       seat,
       cost: money(one?.cost ?? entry.cost),
       lastActivityAt: summary.updatedAt,
@@ -254,12 +257,14 @@ export class PhoneWorkspace {
   }
 
   #sessionItem(row: PhoneSessionRow): PhoneWorkItem {
+    const lead = row.startedBy === 'lead' ? this.#ports.leadChats?.()?.name : undefined
     return {
       id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
       ...(row.state === 'archived' ? { archived: true } : {}),
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
       line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
-      agent: { name: row.seat }, updatedAt: row.lastActivityAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
+      agent: { name: row.seat }, ...(lead ? { by: lead } : {}),
+      updatedAt: row.lastActivityAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
     }
   }
 

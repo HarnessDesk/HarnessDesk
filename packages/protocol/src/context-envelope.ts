@@ -240,9 +240,19 @@ export const openingOf = (raw: string, options: { readonly skip?: (label: string
   const lineOf = (value: string): string => value.split('\n').find((line) => line.trim() !== '')?.trim() ?? ''
   const said = lineOf(withoutCompaction(text))
   if (said) return options.deskContext === undefined && opensEnvelope(said) ? '' : said
-  const labels = injections.map((block) => block.label).filter((label) => !options.skip?.(label))
-  return lineOf(labels.find((label) => isHandoffSource(label) || isAgentMessageSource(label) || isLeadMessageSource(label)) ?? labels[0] ?? '')
+  const blocks = injections.filter((block) => !options.skip?.(block.label))
+  const named = blocks.find((block) => isHandoffSource(block.label) || isAgentMessageSource(block.label) || isLeadMessageSource(block.label)) ?? blocks[0]
+  return named ? openingOfBlock(named) : ''
 }
+
+const firstLine = (value: string): string => value.split('\n').find((line) => line.trim() !== '')?.trim() ?? ''
+
+/**
+ * What a block names a conversation by: its label, except for a Lead's message,
+ * whose label is the same on every chat the Lead starts. Its first line says the task.
+ */
+const openingOfBlock = (block: { readonly label: string; readonly text: string }): string =>
+  (isLeadMessageSource(block.label) ? firstLine(leadMessageWords(block.text)) : '') || firstLine(block.label)
 
 /**
  * A stable identity for a block the desk composed itself — a page's
@@ -311,8 +321,9 @@ export const openingOfContent = (content: readonly UserContent[]): string => {
   const recorded = content.some(part => part.type === 'text' && part.deskContext !== undefined)
   const said = openingOf(split.text, recorded ? { deskContext: { prefixLength: 0 } } : {})
   if (said) return said
-  return split.injections.find(block => isHandoffSource(block.label) || isAgentMessageSource(block.label) || isLeadMessageSource(block.label))?.label
-    ?? split.injections[0]?.label ?? ''
+  const named = split.injections.find(block => isHandoffSource(block.label) || isAgentMessageSource(block.label) || isLeadMessageSource(block.label))
+    ?? split.injections[0]
+  return named ? openingOfBlock(named) : ''
 }
 
 /**

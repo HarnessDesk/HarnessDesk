@@ -7,6 +7,8 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Chats the Lead starts say what they are for.** A chat the Lead starts is named by the task it was given, not "Lead message from …", and your phone lists it as the Lead's. The Lead names a chat by its task when it tells you about it, never by an id.
+
 - **Review work from your phone.** Conversations show your words without desk context wrappers, with bounded, scrubbed command output and diff lines. New sessions can choose the agent's model and effort.
 
 - **Lead works when running from source.** Development startup fetches the same verified runtime bundled with the app, and continues if the download is unavailable.
