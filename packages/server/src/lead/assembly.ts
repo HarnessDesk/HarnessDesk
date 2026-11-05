@@ -36,6 +36,8 @@ export const LEAD_LEGACY_DEFAULT_USD_MICROS = 1_000_000
 export const leadSpendLimitMigration = (state: LeadState): { readonly usdMicros: number | null; readonly applyToGoal: boolean } => {
   const standing = state.raisedFrom ?? state.budget?.caps
   if (!standing || !state.budget) return { usdMicros: null, applyToGoal: false }
+  // The ceiling is what Off means now, so a desk that already stood at it was never limited below it.
+  if (standing.usdMicros >= LEAD_LIMITS.maxUsdMicros) return { usdMicros: null, applyToGoal: false }
   if (standing.usdMicros !== LEAD_LEGACY_DEFAULT_USD_MICROS) return { usdMicros: standing.usdMicros, applyToGoal: false }
   return { usdMicros: null, applyToGoal: state.contract === null && state.budget.caps.usdMicros === LEAD_LEGACY_DEFAULT_USD_MICROS &&
     !['accepted', 'declined'].includes(state.phase) }

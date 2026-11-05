@@ -196,6 +196,10 @@ test('an older desk migrates its spending limit: the untouched default becomes O
   assert.deepEqual(custom.journal.state.budget!.caps, { usdMicros: 7_000_000, rounds: 16 })
   const closed = await desk({ usdMicros: 0, rounds: 16 })
   assert.deepEqual(closed.journal.state.spendLimit, { usdMicros: 0 }, 'a closed allowance is a chosen figure too')
+  const ceiling = await desk({ usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 })
+  assert.deepEqual(ceiling.migrated, { usdMicros: null, applyToGoal: false }, 'a desk already at the ceiling is Off, not a limit the method refuses')
+  assert.deepEqual(ceiling.journal.state.spendLimit, { usdMicros: null })
+  assert.deepEqual(ceiling.journal.state.budget!.caps, { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 })
   // A raise is for its goal alone: what stood before it decides, and the raised goal keeps its raise to the end.
   const raised = await desk({ usdMicros: legacy, rounds: 16 }, journal => journal.raiseBudget('goal-1', { usdMicros: 4_000_000, rounds: 16 }, journal.state.seq, 100))
   assert.deepEqual(raised.migrated, { usdMicros: null, applyToGoal: false })
