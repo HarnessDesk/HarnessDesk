@@ -225,7 +225,7 @@ test('the bridge uses the official Claude ACP package contract', () => {
     '@agentclientprotocol/sdk': '1.7.0',
     '@anthropic-ai/claude-agent-sdk': '0.3.288',
     '@modelcontextprotocol/sdk': '1.32.0',
-    zod: '4.6.5',
+    zod: '4.6.6',
   })
   assert.equal(Object.hasOwn(manifest.dependencies ?? {}, '@zed-industries/claude-code-acp'), false)
 })
