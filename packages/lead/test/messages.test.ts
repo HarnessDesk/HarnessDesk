@@ -514,6 +514,13 @@ test('the readable conversation becomes a history every request admits, whoever 
   assert.equal((cut.at(-1)!.content[0] as { text: string }).text, 'turn 255')
   assert.doesNotThrow(() => admits(cut))
   assert.throws(() => admits(long.map(m => ({ role: m.role, content: [{ type: 'text', text: m.text }] }))), 'the uncut conversation is the one a request refused')
+  // Long reports are cut by size too: a window of the largest messages still fits one request.
+  const large = Array.from({ length: 128 }, (_, i) => said(i % 2 ? 'user' : 'assistant', 'x'.repeat(16_000)))
+  const sized = lead.leadHistory(large)
+  assert.ok(new TextEncoder().encode(JSON.stringify(sized)).length <= lead.LEAD_HISTORY_BYTES + 200)
+  assert.equal(sized[0]!.role, 'user')
+  assert.doesNotThrow(() => admits(sized))
+  assert.throws(() => admits([{ role: 'user', content: [{ type: 'text', text: 'Start' }] }, ...large.map(m => ({ role: m.role, content: [{ type: 'text', text: m.text }] }))]), 'the uncut window is over the size a request admits')
   // An ordinary conversation passes through unchanged.
   assert.deepEqual(lead.leadHistory([said('user', 'Hi'), said('assistant', 'Hello')]).map(t => t.role), ['user', 'assistant'])
 })

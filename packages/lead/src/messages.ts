@@ -140,17 +140,22 @@ const history = (value: unknown): MessagesTurn[] => {
 /** The most turns of the person's readable conversation one request carries. The request admits LIMIT.turns - 2;
  * the rest is room for the host's own closing turns and for a tool loop's continuations within the request. */
 export const LEAD_HISTORY_TURNS = 128
+/** And the most bytes of it: half of what one request admits, the rest for the system prompt, tools and closing turns. */
+export const LEAD_HISTORY_BYTES = LIMIT.bytes / 2
 /**
  * The person's readable conversation as a history this module admits: the latest turns that fit, opening with a
  * person turn. A Lead that spoke first (on a resume, or an automatic wake) and a conversation longer than a request
- * holds are both ordinary, and either one, sent as it stands, is refused before every request that follows.
+ * holds, in turns or in bytes, are both ordinary, and either one, sent as it stands, is refused before every request
+ * that follows.
  */
 export const leadHistory = (messages: readonly { readonly role: string; readonly text: string }[]): MessagesTurn[] => {
   const spoken = messages.filter(message => message.role === 'user' || message.role === 'assistant')
   const turns: MessagesTurn[] = spoken.slice(-LEAD_HISTORY_TURNS).map(message => ({
     role: message.role as 'user' | 'assistant', content: [{ type: 'text' as const, text: message.text }],
   }))
-  if (turns[0]?.role === 'assistant') turns.unshift({ role: 'user', content: [{ type: 'text', text: spoken.length > LEAD_HISTORY_TURNS ?
+  let bytes = new TextEncoder().encode(JSON.stringify(turns)).length
+  while (turns.length > 1 && bytes > LEAD_HISTORY_BYTES) bytes -= new TextEncoder().encode(JSON.stringify(turns.shift())).length + 1
+  if (turns[0]?.role === 'assistant') turns.unshift({ role: 'user', content: [{ type: 'text', text: turns.length < spoken.length ?
     'Desk observation: earlier messages in this conversation are left out.' :
     'Desk observation: the Lead spoke first in this conversation, after a desk event, before the person wrote.' }] })
   return turns
