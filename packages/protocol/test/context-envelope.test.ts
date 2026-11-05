@@ -364,6 +364,9 @@ test('words without the notice come back unchanged', () => {
 test('a chat the Lead opened is named by the task it was given, not by the sender', () => {
   assert.equal(openingOfContent([deskContextContent(leadMessageEnvelope('Dex', 'Fix the flaky test\n\nIt fails on CI only.'))]), 'Fix the flaky test')
   assert.equal(openingOf(leadMessageEnvelope('Lex', '\nAdd a slugify helper')), 'Add a slugify helper')
+  assert.equal(openingOfContent([deskContextContent(leadMessageEnvelope('Lex', '## **Add a kebabCase helper**\n\nDetails.'))]), 'Add a kebabCase helper')
+  assert.equal(openingOfContent([deskContextContent(leadMessageEnvelope('Lex', '```\nnpm test\n```'))]), 'npm test')
+  assert.equal(openingOfContent([deskContextContent(leadMessageEnvelope('Lex', 'x'.repeat(500)))]).length, 200)
   // With no words of its own, the sender is still a name.
   assert.equal(openingOfContent([deskContextContent(leadMessageEnvelope('Dex', ''))]), 'Lead message from Dex')
 })

@@ -247,12 +247,19 @@ export const openingOf = (raw: string, options: { readonly skip?: (label: string
 
 const firstLine = (value: string): string => value.split('\n').find((line) => line.trim() !== '')?.trim() ?? ''
 
+/** A title is words: a heading, bullet, quote or emphasis mark the Lead opened with is not part of one. */
+const titleLine = (value: string): string => {
+  const line = value.split('\n').map((one) => one.trim()).find((one) => one !== '' && !one.startsWith('```')) ?? ''
+  const words = line.replace(/^(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/, '').replace(/^[*_`]+|[*_`]+$/g, '').trim()
+  return words.length > 200 ? `${words.slice(0, 199)}…` : words
+}
+
 /**
  * What a block names a conversation by: its label, except for a Lead's message,
  * whose label is the same on every chat the Lead starts. Its first line says the task.
  */
 const openingOfBlock = (block: { readonly label: string; readonly text: string }): string =>
-  (isLeadMessageSource(block.label) ? firstLine(leadMessageWords(block.text)) : '') || firstLine(block.label)
+  (isLeadMessageSource(block.label) ? titleLine(leadMessageWords(block.text)) : '') || firstLine(block.label)
 
 /**
  * A stable identity for a block the desk composed itself — a page's
