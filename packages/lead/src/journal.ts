@@ -1,7 +1,7 @@
 import { parseLeadApprovalAudit, parseLeadWorkerApprovalRule, type LeadWorkerApprovalRule } from '@harnessdesk/protocol'
 import {
   parseLeadOrigin, parseLeadHandback, parseLeadWakeRecord, type LeadWakeRecord, parseLeadProactive, type LeadProactive, type LeadOrigin, type LeadHandback, parseLeadMessage, parseLeadThreadSend, parseLeadFollowPreferences, parseLeadPullRequest, type LeadFollowPreferences, type LeadPullRequest, type LeadName, type LeadMessage, type LeadSendReceipt,
-  CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_MANAGEMENT_REASONS, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
+  CLIENT_METHODS, CLIENT_ACTION_TIERS, LEAD_LIMITS, LEAD_MANAGEMENT_REASONS, leadNoSpendLimit, clientTierFor, parseLeadCard, parseLeadCardDecision, parseLeadPermissionPolicy, parseLeadBudgetEvent, parseLeadCaps,
   type LeadCard, type LeadCardDecision, type LeadPermissionPolicy, type LeadBudgetEvent, type LeadBudgetState, type LeadCaps,
 } from '@harnessdesk/protocol'
 import { compareLeadPolicyAuthority, sameLeadPolicyValues, decideLeadPermission, type LeadPermissionCall, type LeadPermissionContext, type LeadPermissionDecision, type LeadPermissionRequest } from './permissions.js'
@@ -88,6 +88,9 @@ export type LeadJournalEvent =
   | { readonly type: 'second-look-attempt'; readonly runId: string; readonly stopKey: string; readonly now: number }
   | { readonly type: 'second-look-restart'; readonly runId: string; readonly stopKey: string; readonly roundId: string; readonly now: number }
   | { readonly type: 'person-caps'; readonly logicalGoalId: string; readonly caps: LeadCaps; readonly now: number }
+  /** The person's standing money limit (null is Off). With a goal it also applies to that goal's ledger, as a person-caps
+   * change does; without one it is recorded for the goals and plan approvals that follow. */
+  | { readonly type: 'spend-limit'; readonly usdMicros: number | null; readonly now: number; readonly logicalGoalId?: string }
   | { readonly type: 'budget'; readonly event: LeadBudgetEvent }
   | { readonly type: 'policy'; readonly policy: LeadPermissionPolicy }
   | { readonly type: 'card'; readonly card: LeadCard }
@@ -185,7 +188,7 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     'worker-rule-dispatch-cancelled': ['id'], 'worker-rule-dispatch': ['id', 'diff'], 'worker-rule-obsolete': Object.hasOwn(source, 'rule') ? ['rule'] : [], 'worker-rule-saved': ['rule'], 'worker-rule-used': ['id', ...(Object.hasOwn(source, 'diff') ? ['diff'] : [])], 'worker-rule-revoked': ['id', ...(Object.hasOwn(source, 'auditFailed') ? ['auditFailed'] : [])], wake: ['wake'], 'handback': ['operation'], 'handback-limit': [], 'ci-passed': ['head'], origin: ['origin', ...(Object.hasOwn(source, 'key') ? ['key'] : [])], 'new-goal': ['id', 'now'],
     'renew-plan': ['now', ...(Object.hasOwn(source, 'cardId') ? ['cardId'] : [])], management: ['phase', ...(Object.hasOwn(source, 'reason') ? ['reason'] : [])], 'invalidate-results': [], resume: [], 'settings-changed': ['name', 'follow'].filter(key => Object.hasOwn(source, key)), publication: ['operation', 'pr'], 'pr-observed': ['pr'], 'owned-push': ['operation'], message: ['idempotencyKey', 'message'], 'restore-result': ['id', 'revision'], 'retry-result': ['id', 'revision'], budget: ['event'], 'start-resolution': ['id', 'identity', 'goalId', 'evidenceSeq'], 'stop-effects-done': ['stopSeq'],
     'second-look-attempt': ['runId', 'stopKey', 'now'], 'second-look-restart': ['runId', 'stopKey', 'roundId', 'now'],
-    'person-caps': ['logicalGoalId', 'caps', 'now'], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
+    'person-caps': ['logicalGoalId', 'caps', 'now'], 'spend-limit': ['usdMicros', 'now', ...(Object.hasOwn(source, 'logicalGoalId') ? ['logicalGoalId'] : [])], policy: ['policy'], card: ['card'], 'card-decision': ['decision', 'expiresAt'], stop: [], 'recovery-block': [], 'recovery-resolved': [], 'recovery-report': ['id'], 'reconciliation-conflict': ['id'], 'team-approved': ['teamId', 'contractDigest'],
     attempt: ['id', 'correlationId', 'method', 'action', 'arguments', 'kind', 'stepId', 'policyRevision', 'projectPolicyRevision', 'contractRevision'],
     decision: ['id', 'effect', 'reason', 'rule'], 'dispatch-start': ['id', 'dispatched'], result: ['id', 'outcome', 'identity'], reconciliation: ['id', 'identity', 'count', 'evidence'],
   }
@@ -228,6 +231,9 @@ export const parseLeadJournalRecord = (value: unknown): LeadJournalRecord => {
     case 'second-look-attempt': event = { type, runId: identifier(source.runId), stopKey: identifier(source.stopKey), now: integer(source.now) }; break
     case 'second-look-restart': event = { type, runId: identifier(source.runId), stopKey: identifier(source.stopKey), roundId: identifier(source.roundId), now: integer(source.now) }; break
     case 'person-caps': event = { type, logicalGoalId: identifier(source.logicalGoalId), caps: parseLeadCaps(source.caps), now: integer(source.now) }; break
+    case 'spend-limit':
+      if (source.usdMicros !== null && (integer(source.usdMicros) > LEAD_LIMITS.maxUsdMicros)) throw new Error('lead-journal-number')
+      event = { type, usdMicros: source.usdMicros as number | null, now: integer(source.now), ...(Object.hasOwn(source, 'logicalGoalId') ? { logicalGoalId: identifier(source.logicalGoalId) } : {}) }; break
     case 'budget': event = { type, event: parseLeadBudgetEvent(source.event) }; break
     case 'policy': event = { type, policy: parseLeadPermissionPolicy(source.policy) }; break
     case 'card': event = { type, card: parseLeadCard(source.card) }; break
@@ -341,7 +347,8 @@ export class LeadJournal {
     const state = this.#state, ledger = state.budget
     if (!ledger || state.cards.length >= 64) return
     const budget = leadBudgetProjection(ledger, ledger.now), spent = budget.leadUsdMicros + budget.workerUsdMicros
-    if (budget.spend !== 'known' || !budget.caps.usdMicros || spent * 5 < budget.caps.usdMicros * 4 ||
+    // With the spending limit Off there is no allowance to warn about; the portable ceiling only guards overflow.
+    if (budget.spend !== 'known' || !budget.caps.usdMicros || leadNoSpendLimit(budget.caps.usdMicros) || spent * 5 < budget.caps.usdMicros * 4 ||
       state.cards.some(card => card.type === 'allowance-warning' && card.logicalGoalId === ledger.logicalGoalId && card.caps.usdMicros >= budget.caps.usdMicros)) return
     await this.#append({ type: 'card', card: { version: 1, id: `allowance-${ledger.logicalGoalId}-${budget.caps.usdMicros}`, revision: 1,
       type: 'allowance-warning', contractDigest: state.contract?.digest ?? null, logicalGoalId: ledger.logicalGoalId, usdMicros: spent, caps: budget.caps } })
@@ -364,6 +371,29 @@ export class LeadJournal {
       if (!budget || budget.logicalGoalId !== logicalGoalId || caps.usdMicros < budget.caps.usdMicros || caps.rounds < budget.caps.rounds ||
         caps.usdMicros === budget.caps.usdMicros && caps.rounds === budget.caps.rounds) throw new Error('lead-budget-refused')
       await this.#append({ type: 'person-caps', logicalGoalId, caps: parseLeadCaps(caps), now })
+    })
+  }
+  /** Authenticated person only, like raiseBudget; the child journal port has no such operation. Sets the standing money
+   * limit (null is Off) and applies it to the goal in hand unless that goal has finished: lowering below what is spent
+   * latches the stop at once, and raising never clears one. Rounds, policy and everything else stay as they are. */
+  setSpendLimit(usdMicros: number | null, expectedRevision: number, now: number, stopEffects?: () => Promise<void>): Promise<void> {
+    return this.#budgetWrite(async () => {
+      this.#expectRevision(expectedRevision)
+      const state = this.#state, budget = state.budget
+      if (usdMicros !== null && (!Number.isSafeInteger(usdMicros) || usdMicros < 1 || usdMicros > LEAD_LIMITS.maxUsdMicros) ||
+        !budget || !Number.isSafeInteger(now) || now < budget.now) throw new Error('lead-budget-refused')
+      const open = !['accepted', 'declined'].includes(state.phase)
+      if (state.spendLimit?.usdMicros === usdMicros && (!open || budget.caps.usdMicros === (usdMicros ?? LEAD_LIMITS.maxUsdMicros))) return
+      await this.#append({ type: 'spend-limit', usdMicros, now, ...(open ? { logicalGoalId: budget.logicalGoalId } : {}) })
+    }, stopEffects)
+  }
+  /** Host-only, once, for a desk from before the person could turn the limit Off: records the limit it migrates to.
+   * `applyToGoal` names the goal in hand only when its cap was never a person's choice (see the host's migration rule). */
+  recordSpendLimit(usdMicros: number | null, applyToGoal: boolean, now: number): Promise<void> {
+    return this.#queue(async () => {
+      if (this.#state.spendLimit !== null) return
+      const budget = this.#state.budget
+      await this.#append({ type: 'spend-limit', usdMicros, now: Math.max(now, budget?.now ?? 0), ...(applyToGoal && budget ? { logicalGoalId: budget.logicalGoalId } : {}) })
     })
   }
   async #append(event: LeadJournalEvent, committed?: () => void): Promise<void> {

@@ -173,6 +173,7 @@ export interface HostContext {
   leadSteer(params: HostParams<'lead/steer'>): Promise<HostResult<'lead/steer'>>
   leadRepeatControl(params: HostParams<'lead/repeat/control'>): Promise<HostResult<'lead/repeat/control'>>
   leadBudgetRaise(params: HostParams<'lead/budget/raise'>): Promise<HostResult<'lead/budget/raise'>>
+  leadSpendLimitSet(params: HostParams<'lead/spendLimit/set'>): Promise<HostResult<'lead/spendLimit/set'>>
   leadScheduleRead(): Promise<HostResult<'lead/schedule/read'>>
   leadScheduleUpdate(params: HostParams<'lead/schedule/update'>): Promise<HostResult<'lead/schedule/update'>>
   leadMemoryRead(): Promise<HostResult<'lead/memory/read'>>

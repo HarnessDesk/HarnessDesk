@@ -1,4 +1,4 @@
-import { parseLeadApprovalRevoke, parseLeadRepeatControl, parseLeadBudgetRaise, parseLeadActionInput, parseLeadCardDecision, parseLeadEmpty, parseLeadResume, parseLeadSettingsUpdate, parseLeadSteerInput, parseLeadScheduleUpdate, parseLeadMemoryUpdate, parseLeadThreadSend } from './lead.js'
+import { parseLeadApprovalRevoke, parseLeadRepeatControl, parseLeadBudgetRaise, parseLeadSpendLimitSet, parseLeadActionInput, parseLeadCardDecision, parseLeadEmpty, parseLeadResume, parseLeadSettingsUpdate, parseLeadSteerInput, parseLeadScheduleUpdate, parseLeadMemoryUpdate, parseLeadThreadSend } from './lead.js'
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import { AUTHORING_AGENT_LIMIT, SHAPE_LAYOUT_SIZE_LIMIT, type AgentFieldEdit, type AuthoringTarget, type StartContext, type WritableAuthoringTarget } from './authoring.js'
 import type { ApprovalDecision } from './approval.js'
@@ -1062,6 +1062,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'lead/wakes/read': parseLeadEmpty,
   'lead/repeat/control': parseLeadRepeatControl,
   'lead/budget/raise': parseLeadBudgetRaise,
+  'lead/spendLimit/set': parseLeadSpendLimitSet,
   'lead/schedule/read': parseLeadEmpty,
   'lead/schedule/update': parseLeadScheduleUpdate,
   'lead/memory/read': parseLeadEmpty,

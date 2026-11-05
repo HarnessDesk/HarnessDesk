@@ -118,7 +118,9 @@ permissions. New sessions may choose a model and effort from the default
 runtime's own catalogue; the phone receives its model names, descriptions,
 effort choices and fast-tier capability, never a hard-coded model list. It can also send to the Lead, stop or resume
 it, answer its cards and permitted worker questions, and request required
-checks. Approval decisions require Answer. Read, Run and Answer grants bound its
+checks. Approval decisions require Answer, as does setting or turning off the
+Lead's spending limit; the phone never changes the Lead's other settings,
+permissions or key. Read, Run and Answer grants bound its
 surface. Lead worker cards can carry complete bounded request details, including
 extra permissions. Saved approvals expose target descriptions and counts; each
 automatically allowed file change adds its exact bounded diff to that rule’s

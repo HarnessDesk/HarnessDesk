@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import test, { after } from 'node:test'
+import { LEAD_LIMITS } from '@harnessdesk/protocol'
 import { tempDir } from './scratch.js'
 
 // The desktop's own path (`createDefaultHost`) in an isolated process: no real agent homes, login shell,
@@ -90,6 +91,7 @@ await made.host.call('workspace/open', { path: project })
 const settings = await made.host.call('lead/settings/read', {})
 out.settingsKeyBefore = settings.settings.key.configured
 out.settingsCaps = settings.settings.caps
+out.settingsLimit = settings.settings.spendLimitUsdMicros
 const thread = await made.host.call('lead/thread/read', {})
 out.threadRevision = thread.revision
 out.noKey = await codes(() => made.host.call('lead/thread/send', { idempotencyKey: 'goal-1', text: 'Make the retry status list complete' }))
@@ -160,7 +162,8 @@ test('the desktop path assembles the Lead only when enabled, keeps its journal u
   assert.equal(result.noFolderFiles, 0)
   // On: the page answers, the journal is inside the given home, and caps are the defaults.
   assert.equal(result.settingsKeyBefore, false)
-  assert.deepEqual(result.settingsCaps, { usdMicros: 1_000_000, rounds: 16 })
+  assert.deepEqual(result.settingsCaps, { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 }, 'a new desk has no spending limit')
+  assert.equal(result.settingsLimit, null, 'and its setting reads Off')
   assert.ok(result.journalFiles.length > 0 && result.journalFiles.every((file: string) => file.startsWith('/lead/')), `journal under the home: ${result.journalFiles}`)
   // No key: the thread says what is missing, and the provider is never called.
   assert.equal(result.noKey, 'lead-key-missing')
@@ -179,6 +182,6 @@ test('the desktop path assembles the Lead only when enabled, keeps its journal u
   assert.ok(result.restartRevision >= result.seq)
   assert.deepEqual(result.restartMessages, result.messages)
   assert.equal(result.messages.length, 2, 'the goal and the reply are in the thread')
-  assert.deepEqual(result.restartCaps, { usdMicros: 1_000_000, rounds: 16 })
+  assert.deepEqual(result.restartCaps, { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 })
 })
 

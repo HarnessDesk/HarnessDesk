@@ -512,6 +512,16 @@ test('follow preferences are closed booleans and older settings default to on', 
   assert.throws(() => protocol.parseLeadSettingsUpdate({ expectedRevision: 1, follow: { checks: 'yes', reviews: true } }))
 })
 
+test('the settings read carries the spending limit as an amount or null for Off, and omits it when unrecorded', () => {
+  assert.equal(Object.hasOwn(protocol.parseLeadSettingsProjection(settings), 'spendLimitUsdMicros'), false)
+  for (const spendLimitUsdMicros of [null, 0, 2_500_000, protocol.LEAD_LIMITS.maxUsdMicros])
+    assert.equal((protocol.parseLeadSettingsProjection({ ...settings, spendLimitUsdMicros }) as any).spendLimitUsdMicros, spendLimitUsdMicros)
+  for (const spendLimitUsdMicros of [-1, 1.5, protocol.LEAD_LIMITS.maxUsdMicros + 1, '1'])
+    assert.throws(() => protocol.parseLeadSettingsProjection({ ...settings, spendLimitUsdMicros }), protocol.ValidationError)
+  assert.equal(protocol.leadNoSpendLimit(protocol.LEAD_LIMITS.maxUsdMicros), true)
+  assert.equal(protocol.leadNoSpendLimit(protocol.LEAD_LIMITS.maxUsdMicros - 1), false)
+})
+
 test('automatic origin and repair projection are bounded data and never decision authority', () => {
   const origin = { source: 'pull-request', event: 'event-1', subject: '7', url: 'https://github.com/acme/widgets/pull/7' }
   assert.deepEqual(protocol.parseLeadOrigin(origin), origin)

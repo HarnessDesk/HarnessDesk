@@ -24,6 +24,7 @@ export const leadMethods = {
   'lead/steer': (ctx, params) => ctx.leadSteer(params),
   'lead/repeat/control': (ctx, params) => ctx.leadRepeatControl(params),
   'lead/budget/raise': (ctx, params) => ctx.leadBudgetRaise(params),
+  'lead/spendLimit/set': (ctx, params) => ctx.leadSpendLimitSet(params),
   'lead/schedule/read': ctx => ctx.leadScheduleRead(),
   'lead/schedule/update': (ctx, params) => ctx.leadScheduleUpdate(params),
   'lead/memory/read': ctx => ctx.leadMemoryRead(),

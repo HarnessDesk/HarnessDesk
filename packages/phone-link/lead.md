@@ -7,6 +7,9 @@ These are the inner method/params values carried by the existing encrypted phone
 | `lead/schedule/read` | `read` | `{}` | `LeadSchedule` |
 | `lead/repeat/control` | `run` | `taskId`, `action` | updated `LeadSchedule` |
 | `lead/budget/raise` | `answer` | `logicalGoalId`, `caps`, `expectedRevision` | `LeadWindowProjection` |
+| `lead/spendLimit/set` | `answer` | `usdMicros`, `expectedRevision` | `LeadWindowProjection` |
+
+The phone never gets `lead/settings/update`, which also carries permissions and the provider key; the spending limit is the one setting it can change.
 
 ## Read schedule and run history
 
@@ -229,6 +232,7 @@ Supply both caps, leaving either unchanged to raise only the other. Dollar value
       "usdMicros": 6000000,
       "rounds": 5
     },
+    "spendLimitUsdMicros": 6000000,
     "follow": {
       "checks": true,
       "reviews": true
@@ -240,6 +244,25 @@ Supply both caps, leaving either unchanged to raise only the other. Dollar value
   "planConsentExpiresAt": null
 }
 ```
+
+
+## Set or turn off the spending limit
+
+The spending limit is the person's standing dollar cap for each goal, and it is Off on a new desk. Off means no dollar cap: the goal still stops at its round cap, when the person stops it, on unknown or overflowing spend, and on the desk's own safety stops. Request:
+
+```json
+{
+  "method": "lead/spendLimit/set",
+  "params": {
+    "usdMicros": null,
+    "expectedRevision": 20
+  }
+}
+```
+
+`usdMicros` is `null` for Off or an integer from 1 to 1,000,000,000,000 USD micros; nothing else is accepted, and the params are closed. `expectedRevision` is the last window projection revision; a stale one returns `lead-revision-stale`, and a refused change returns `lead-operation-refused`. Like a raise, it is the person's own decision: it applies to the goal in hand at once without an approval card, never changes rounds or permissions, and never clears a stop. A limit set below what the goal has already spent stops it. Plans the Lead drafts are capped at the limit, and with Off they carry no dollar cap.
+
+The result is a `LeadWindowProjection`. `settings.spendLimitUsdMicros` is the standing limit, `null` when Off; it is absent only on a desk that has not recorded the setting yet, where `settings.caps` is the guide. With Off, `caps.usdMicros` in the settings, the thread budget and plan contracts is exactly 1,000,000,000,000 (the portable ceiling): render it as “No spending limit”, never as a figure, and show no progress toward it. No allowance warning is sent while the limit is Off.
 
 ## New thread cards
 

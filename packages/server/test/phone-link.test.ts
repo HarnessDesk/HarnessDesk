@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { createLeadJournal, type LeadJournalRecord } from '@harnessdesk/lead'
 import { PhoneSim } from '@harnessdesk/phone-link/sim'
-import { parseLeadAcceptanceContract, type PhoneLinkState, type WireNotification } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, parseLeadAcceptanceContract, type PhoneLinkState, type WireNotification } from '@harnessdesk/protocol'
 import { Logger } from '../src/log.js'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { PHONE_POLICY, phoneLinkOff, startPhoneLink, type PhoneLinkControl } from '../src/phone-link.js'
@@ -17,6 +17,7 @@ test('repeat history, repeat controls and direct limit raises require their own 
   assert.equal(PHONE_POLICY.methods['lead/thread/read'], 'read')
   assert.equal(PHONE_POLICY.methods['lead/card/decide'], 'answer')
   assert.equal(PHONE_POLICY.methods['lead/settings/update'], undefined)
+  assert.equal(PHONE_POLICY.methods['lead/spendLimit/set'], 'answer')
 })
 
 const project = { id: 'demo', path: '/workspace/demo' }
@@ -51,7 +52,7 @@ const desk = async () => {
     phone: { state: () => attached?.state() ?? phoneLinkOff, pairing: () => attached!.pairing(), allow: (...a: never[]) => (attached!.allow as any)(...a),
       deny: (id: string) => attached!.deny(id), revoke: (d: string) => attached!.revoke(d) },
     leadApprovalRevoke: (p: any) => controls.revokeApproval(p), leadActionPerform: (p: unknown) => (controls as any).perform(p), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p as never), leadCardDecide: (p: unknown) => controls.decide(p as never),
-    leadSettingsRead: () => controls.readSettings(), leadSettingsUpdate: (p: unknown) => controls.updateSettings(p as never),
+    leadSettingsRead: () => controls.readSettings(), leadSettingsUpdate: (p: unknown) => controls.updateSettings(p as never), leadSpendLimitSet: (p: unknown) => controls.setSpendLimit(p as never),
     leadStop: (p: unknown) => controls.stop(p as never), leadResume: (p: unknown) => controls.resume(p as never),
   } as unknown as HostContext
   const host = {
@@ -187,6 +188,31 @@ test('paired phone reads saved approvals and revokes through the answer tier', a
     assert.deepEqual(revoked.result.revokedApprovals, read.result.savedApprovals)
     assert.equal(s.journal.state.workerApprovals[0]!.revoked, true)
     phone.close()
+  } finally { await s.done() }
+})
+
+test('a paired phone sets the spending limit with Answer, but never reaches the settings that hold permissions and keys', async () => {
+  const s = await rig()
+  try {
+    const policy = s.journal.state.policy, rounds = s.journal.state.budget!.caps.rounds
+    const phone = await s.pair()
+    const off = await phone.request('lead/spendLimit/set', { usdMicros: null, expectedRevision: s.journal.state.seq })
+    assert.equal(off.ok, true, JSON.stringify(off))
+    assert.equal(off.result.settings.spendLimitUsdMicros, null)
+    assert.deepEqual(s.journal.state.budget!.caps, { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds })
+    const stale = await phone.request('lead/spendLimit/set', { usdMicros: 2_000_000, expectedRevision: 0 })
+    assert.equal(stale.error.code, 'lead-revision-stale')
+    for (const params of [{ usdMicros: 0, expectedRevision: s.journal.state.seq }, { usdMicros: 2_000_000, expectedRevision: s.journal.state.seq, rounds: 99 }])
+      assert.equal((await phone.request('lead/spendLimit/set', params)).ok, false, JSON.stringify(params))
+    const settings = await phone.request('lead/settings/update', { expectedRevision: s.journal.state.seq, caps: { usdMicros: 1, rounds: 1 } })
+    assert.equal(settings.error.code, 'notOnPhoneSurface')
+    assert.deepEqual(s.journal.state.policy, policy)
+    assert.equal(s.journal.state.budget!.caps.rounds, rounds)
+    phone.close()
+    const reader = await s.pair(['read', 'run'])
+    assert.equal((await reader.request('lead/spendLimit/set', { usdMicros: 2_000_000, expectedRevision: s.journal.state.seq })).error.code, 'tierNotGranted')
+    assert.deepEqual(s.journal.state.spendLimit, { usdMicros: null })
+    reader.close()
   } finally { await s.done() }
 })
 

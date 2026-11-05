@@ -6,7 +6,7 @@ import { makeRepo } from './fixtures/evidence-desk.js'
 import { readChecks } from '../src/evidence/checks-file.js'
 import { readLeadEvidence } from '../src/lead/assembly.js'
 import { createLeadLoop, createLeadJournal, leadBudgetProjection, leadCheckpoint, parseLeadCheckpoint, type LeadJournalRecord } from '@harnessdesk/lead'
-import { parseLeadAcceptanceContract, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, parseLeadAcceptanceContract, type LeadCard, type WireNotification } from '@harnessdesk/protocol'
 import { dispatch, type HostContext } from '../src/methods/index.js'
 import { leadProgress, leadRunTeam } from '../src/lead/projection.js'
 
@@ -42,7 +42,7 @@ const rig = async (over: { configured?: boolean; manage?: boolean; service?: Rec
   const controls = new LeadControls({ journal, service, project, model: 'fixture-model', now: () => 100, nextId: () => `card-${++nextCard}`,
     push: (value: WireNotification) => notifications.push(value), decidePerson: async (...args: unknown[]) => { answers.push(args) }, decideResult: async (...args: unknown[]) => { answers.push(args) }, ...over.controls })
   const ctx = { leadWakesRead: () => controls.readWakes(), leadThreadRead: () => controls.readThread(), leadThreadSend: (p: unknown) => controls.send(p),
-    leadBudgetRaise: (p: unknown) => controls.raiseBudget(p),
+    leadBudgetRaise: (p: unknown) => controls.raiseBudget(p), leadSpendLimitSet: (p: unknown) => controls.setSpendLimit(p),
     leadCardDecide: (p: unknown) => controls.decide(p), leadSettingsRead: () => controls.readSettings(),
     leadSettingsUpdate: (p: unknown) => controls.updateSettings(p), leadResume: (p: unknown) => controls.resume(p), leadStop: (p: unknown) => controls.stop(p) } as unknown as HostContext
   const call = (method: string, params: unknown = {}) => dispatch(ctx, method as never, params as never) as Promise<any>
@@ -2081,6 +2081,33 @@ test('the person raises current allowances directly and a stopped goal stays sto
   assert.deepEqual(s.journal.state.budget!.stop, stop)
   assert.equal(s.journal.state.phase, 'stopped')
   s.controls.close()
+})
+
+test('the person turns the spending limit Off and sets it again, fenced by revision and touching nothing else', async () => {
+  const s = await rig()
+  try {
+    const policy = s.journal.state.policy, rounds = s.journal.state.budget!.caps.rounds
+    await assert.rejects(s.call('lead/spendLimit/set', { usdMicros: null, expectedRevision: s.journal.state.seq - 1 }), code('lead-revision-stale'))
+    for (const params of [{ usdMicros: 0, expectedRevision: s.journal.state.seq }, { usdMicros: -1, expectedRevision: s.journal.state.seq },
+      { usdMicros: 1.5, expectedRevision: s.journal.state.seq }, { usdMicros: LEAD_LIMITS.maxUsdMicros + 1, expectedRevision: s.journal.state.seq },
+      { usdMicros: null, expectedRevision: s.journal.state.seq, caps: { usdMicros: 1, rounds: 1 } }])
+      await assert.rejects(s.call('lead/spendLimit/set', params), JSON.stringify(params))
+    assert.equal(s.journal.state.spendLimit, null)
+    const off = await s.call('lead/spendLimit/set', { usdMicros: null, expectedRevision: s.journal.state.seq })
+    assert.equal(off.settings.spendLimitUsdMicros, null)
+    assert.deepEqual(off.settings.caps, { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds })
+    assert.deepEqual(off.thread.budget.caps, off.settings.caps)
+    assert.equal(s.journal.state.cards.some(card => card.type === 'budget-change'), false, 'the person\'s own setting needs no card')
+    assert.deepEqual(s.journal.state.policy, policy)
+    // A plan drafted with the Lead's own figure runs with no limit: the person's Off is authoritative.
+    await s.journal.offerCard(plan)
+    const approved = await s.call('lead/card/decide', planClick)
+    assert.deepEqual(approved.settings.caps, { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: contract.caps.rounds })
+    const on = await s.call('lead/spendLimit/set', { usdMicros: 2_500_000, expectedRevision: s.journal.state.seq })
+    assert.equal(on.settings.spendLimitUsdMicros, 2_500_000)
+    assert.deepEqual(on.settings.caps, { usdMicros: 2_500_000, rounds: contract.caps.rounds })
+    assert.deepEqual(s.journal.state.policy, policy)
+  } finally { s.controls.close() }
 })
 
 test('a declined goal refuses a limit raise with a closed person-facing code', async () => {

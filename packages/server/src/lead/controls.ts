@@ -2,10 +2,10 @@ import { boundLeadApprovalHistory, leadWorkerApprovalEntries } from '@harnessdes
 import {
   parseLeadApprovalRevoke, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
-  parseLeadBudgetRaise, type LeadBudgetRaise, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
+  parseLeadBudgetRaise, parseLeadSpendLimitSet, leadNoSpendLimit, type LeadBudgetRaise, type LeadSpendLimitSet, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, leadHistory, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadLimitedCaps, leadContinuation, leadHistory, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -141,7 +141,8 @@ export class LeadControls {
     const key = await this.options.service.status('anthropic')
     return parseLeadSettingsProjection({ version: 1, name: this.options.journal.state.name, nameChosen: this.options.journal.state.nameChosen, model: this.options.model,
       ...(key.unavailable ? { unavailable: key.unavailable, ...(key.unavailableReason ? { unavailableReason: key.unavailableReason } : {}) } : {}),
-      follow: this.options.journal.state.follow, key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps })
+      follow: this.options.journal.state.follow, key: { configured: key.configured, protection: key.protection === 'file permissions only' ? 'unavailable' : 'encrypted' }, policy, caps: budget.caps,
+      ...(this.options.journal.state.spendLimit ? { spendLimitUsdMicros: this.options.journal.state.spendLimit.usdMicros } : {}) })
   }
   async #projection(liveActions = true): Promise<LeadWindowProjection> {
     // Renewal is opportunistic. A refusal must leave reads and key removal usable.
@@ -150,7 +151,7 @@ export class LeadControls {
     const settings = await this.#settings()
     let state = this.options.journal.state
     // Settings reads may yield to a journal write. Retry from one coherent revision.
-    if (settings.name !== state.name || settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps) || JSON.stringify(settings.follow) !== JSON.stringify(state.follow)) return this.#projection(liveActions)
+    if (settings.name !== state.name || settings.policy.revision !== state.policy?.revision || JSON.stringify(settings.caps) !== JSON.stringify(state.budget?.caps) || settings.spendLimitUsdMicros !== state.spendLimit?.usdMicros || JSON.stringify(settings.follow) !== JSON.stringify(state.follow)) return this.#projection(liveActions)
     if (this.#failedRevision === state.seq) throw leadRefusal('lead-projection-failed')
     let thread: ReturnType<typeof leadWindowThread>
     // Journaled tool reads and wake rows do not change worker requests or check
@@ -167,7 +168,7 @@ export class LeadControls {
       // still needs a new coherent read.
       if (JSON.stringify([state.contract, state.runs]) !== JSON.stringify([latest.contract, latest.runs]) ||
         settings.name !== latest.name || settings.nameChosen !== latest.nameChosen || settings.policy.revision !== latest.policy?.revision ||
-        JSON.stringify(settings.caps) !== JSON.stringify(latest.budget?.caps) || JSON.stringify(settings.follow) !== JSON.stringify(latest.follow)) return this.#projection(liveActions)
+        JSON.stringify(settings.caps) !== JSON.stringify(latest.budget?.caps) || settings.spendLimitUsdMicros !== latest.spendLimit?.usdMicros || JSON.stringify(settings.follow) !== JSON.stringify(latest.follow)) return this.#projection(liveActions)
       state = latest
     }
     if (this.#failedRevision === state.seq) throw leadRefusal('lead-projection-failed')
@@ -456,6 +457,13 @@ export class LeadControls {
     await this.options.journal.raiseBudget(input.logicalGoalId, input.caps, input.expectedRevision, this.options.now())
     return this.#projection()
   }) }
+  /** The person's money limit, or Off. Like a raise it is the person's own decision, so it applies to the goal in hand
+   * without a card, behind the same revision fence; it never touches rounds or permissions. */
+  setSpendLimit(value: LeadSpendLimitSet): Promise<LeadWindowProjection> { return this.#queue(async () => {
+    const input = parseLeadSpendLimitSet(value)
+    await this.options.journal.setSpendLimit(input.usdMicros, input.expectedRevision, this.options.now(), this.options.stopEffects)
+    return this.#projection()
+  }) }
   /** A schedule slot redeems only a previously person-approved contract, and gets
    * its own logical goal, step ids, budget and fresh host-clock consent. */
   runScheduled(task: LeadScheduledTask, slot: number): Promise<{ logicalGoalId: string; approved: boolean; reason?: string }> { return this.#queue(async () => {
@@ -482,14 +490,16 @@ export class LeadControls {
     }
     const reason = await this.options.validateRepeat(task.approved.contract)
     const original = task.approved.contract
+    // Each run takes the person's limit as it stands now: Off lifts the cap the run was approved with, a set limit caps it.
+    const perRun = leadLimitedCaps(journal.state.spendLimit, task.perRunCaps ?? original.caps)
     if (reason) {
       await journal.appendReply(`This run needs your approval: ${reason}`)
-      await journal.appendMessage(`${key}-changed`, `Draft a fresh reviewed plan for this recurring task. Repeat ${task.every} at ${task.at}, with up to ${task.perRunCaps?.usdMicros ?? original.caps.usdMicros} microdollars and ${task.perRunCaps?.rounds ?? original.caps.rounds} rounds per run. ${task.goal}`)
+      await journal.appendMessage(`${key}-changed`, `Draft a fresh reviewed plan for this recurring task. Repeat ${task.every} at ${task.at}, with ${leadNoSpendLimit(perRun.usdMicros) ? 'no spending limit' : `up to ${perRun.usdMicros} microdollars`} and ${perRun.rounds} rounds per run. ${task.goal}`)
       this.#requestInFlight = true; this.#requestConversation = false; this.#detachContinue()
       return { logicalGoalId, approved: false, reason }
     }
     const contract = await this.options.freezeRepeat({ ...original, revision: Math.max(original.revision + 1, journal.state.seq + 1), digest: '0'.repeat(64), policyRevision: journal.state.policy!.revision,
-      steps: original.steps.map(step => ({ ...step, id: this.options.nextId() })), caps: task.perRunCaps ?? original.caps })
+      steps: original.steps.map(step => ({ ...step, id: this.options.nextId() })), caps: perRun })
     const card = await journal.offerCard({ version: 1, id: this.options.nextId(), revision: 1, type: 'plan', contractDigest: contract.digest, contract }, card =>
       admitLeadCard(journal.state, card, this.options.project, this.options.model))
     const recheck = await this.options.validateRepeat(original)

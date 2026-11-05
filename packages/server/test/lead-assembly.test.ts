@@ -5,8 +5,8 @@ import { makeRepo } from './fixtures/evidence-desk.js'
 import { readChecks } from '../src/evidence/checks-file.js'
 import test from 'node:test'
 import { createLeadJournal, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
-import { parseLeadAcceptanceContract } from '@harnessdesk/protocol'
-import { freezeLeadPlan, LeadAssembly, leadPreviewUnfit, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence, type LeadAssemblyOptions } from '../src/lead/assembly.js'
+import { LEAD_LIMITS, parseLeadAcceptanceContract } from '@harnessdesk/protocol'
+import { freezeLeadPlan, LEAD_DEFAULT_CAPS, LEAD_LEGACY_DEFAULT_USD_MICROS, LeadAssembly, leadSpendLimitMigration, leadPreviewUnfit, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence, type LeadAssemblyOptions } from '../src/lead/assembly.js'
 import { tempDir } from './scratch.js'
 
 const project = { id: 'acme', path: '/work/acme' }
@@ -156,4 +156,62 @@ test('assembly resolves ordinary chat tools without a Flow step while an approve
     return { method, stepId: tool.stepId, start: tool.start }
   }))
   assert.deepEqual(chats, ['list', 'read', 'start', 'send', 'stop'].map(method => ({ method, stepId: null, start: null })))
+})
+
+test('a new desk records the spending limit Off, and a plan frozen there carries no dollar limit', async t => {
+  let inputs!: Parameters<LeadAssemblyOptions['create']>[0]
+  const assembly = new LeadAssembly({ home: tempDir('lead-assembly-spend-off-'), now: () => 100,
+    workspace: async () => contract.project.path, readySeats: () => ['fixture'], heldPreview: () => null,
+    create: async value => { inputs = value } })
+  t.after(() => assembly.close())
+  await assembly.ensure()
+  assert.deepEqual(inputs.journal.state.spendLimit, { usdMicros: null })
+  assert.deepEqual(inputs.journal.state.budget!.caps, LEAD_DEFAULT_CAPS)
+  assert.equal(LEAD_DEFAULT_CAPS.usdMicros, LEAD_LIMITS.maxUsdMicros)
+  const frozen = await inputs.freezePlan({ ...contract, project: inputs.project, caps: { usdMicros: 1_000_000, rounds: 4 } })
+  assert.deepEqual(frozen.caps, { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 4 }, 'the card shows the plan with no limit, not the Lead\'s figure')
+  await inputs.journal.setSpendLimit(3_000_000, inputs.journal.state.seq, 100)
+  assert.deepEqual((await inputs.freezePlan({ ...contract, project: inputs.project, caps: { usdMicros: 9_000_000, rounds: 4 } })).caps, { usdMicros: 3_000_000, rounds: 4 })
+  assert.deepEqual((await inputs.freezePlan({ ...contract, project: inputs.project, caps: { usdMicros: 1_000_000, rounds: 4 } })).caps, { usdMicros: 1_000_000, rounds: 4 })
+})
+
+test('an older desk migrates its spending limit: the untouched default becomes Off, a chosen figure is kept', async () => {
+  const desk = async (caps: { usdMicros: number; rounds: number }, edit?: (journal: Awaited<ReturnType<typeof createLeadJournal>>) => Promise<void>) => {
+    const records: LeadJournalRecord[] = []
+    const journal = await createLeadJournal({ async read() { return records }, async append(record: LeadJournalRecord) { records.push(record) } })
+    await journal.setPolicy({ version: 1, revision: 1, mode: 'default', rules: [] })
+    await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'goal-1', caps, freshnessMs: 1000 })
+    await edit?.(journal)
+    const migrated = leadSpendLimitMigration(journal.state)
+    await journal.recordSpendLimit(migrated.usdMicros, migrated.applyToGoal, 100)
+    return { migrated, journal }
+  }
+  const legacy = LEAD_LEGACY_DEFAULT_USD_MICROS
+  const untouched = await desk({ usdMicros: legacy, rounds: 16 })
+  assert.deepEqual(untouched.migrated, { usdMicros: null, applyToGoal: true })
+  assert.deepEqual(untouched.journal.state.budget!.caps, { usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 }, 'the goal in hand is widened: nobody chose its figure')
+  const custom = await desk({ usdMicros: 7_000_000, rounds: 16 })
+  assert.deepEqual(custom.migrated, { usdMicros: 7_000_000, applyToGoal: false })
+  assert.deepEqual(custom.journal.state.spendLimit, { usdMicros: 7_000_000 })
+  assert.deepEqual(custom.journal.state.budget!.caps, { usdMicros: 7_000_000, rounds: 16 })
+  const closed = await desk({ usdMicros: 0, rounds: 16 })
+  assert.deepEqual(closed.journal.state.spendLimit, { usdMicros: 0 }, 'a closed allowance is a chosen figure too')
+  // A raise is for its goal alone: what stood before it decides, and the raised goal keeps its raise to the end.
+  const raised = await desk({ usdMicros: legacy, rounds: 16 }, journal => journal.raiseBudget('goal-1', { usdMicros: 4_000_000, rounds: 16 }, journal.state.seq, 100))
+  assert.deepEqual(raised.migrated, { usdMicros: null, applyToGoal: false })
+  assert.deepEqual(raised.journal.state.budget!.caps, { usdMicros: 4_000_000, rounds: 16 })
+  // A goal approved with the default on its card keeps that cap; the next goal has no limit.
+  const approved = await desk({ usdMicros: legacy, rounds: 16 }, async journal => {
+    const plan = parseLeadAcceptanceContract({ ...contract, caps: { usdMicros: legacy, rounds: 4 } })
+    await journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: plan.digest, contract: plan })
+    await journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: plan.digest, choice: 'approve' }, 1000)
+  })
+  assert.deepEqual(approved.migrated, { usdMicros: null, applyToGoal: false })
+  assert.equal(approved.journal.state.budget!.caps.usdMicros, legacy)
+  await approved.journal.stop(async () => {})
+  await approved.journal.beginGoal('goal-2', 200)
+  assert.equal(approved.journal.state.budget!.caps.usdMicros, LEAD_LIMITS.maxUsdMicros)
+  const seq = approved.journal.state.seq
+  await approved.journal.recordSpendLimit(5, false, 300)
+  assert.equal(approved.journal.state.seq, seq, 'the migration runs once')
 })

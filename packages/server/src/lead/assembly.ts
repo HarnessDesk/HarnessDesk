@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import type { FlowPreview, LeadAcceptanceContract, LeadPermissionPolicy, LeadProject, Sha } from '@harnessdesk/protocol'
-import { createLeadJournal, leadBudgetProjection, LEAD_MESSAGES_DEFAULTS, parseLeadSeatChoices,
-  type LeadAcceptanceEvidence, type LeadJournal, type LeadPermissionCall, type LeadResolvedTool, type LeadSeatChoices, type MessagesPrice } from '@harnessdesk/lead'
+import { LEAD_LIMITS, type FlowPreview, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type Sha } from '@harnessdesk/protocol'
+import { createLeadJournal, leadBudgetProjection, leadLimitedCaps, LEAD_MESSAGES_DEFAULTS, parseLeadSeatChoices,
+  type LeadAcceptanceEvidence, type LeadJournal, type LeadState, type LeadPermissionCall, type LeadResolvedTool, type LeadSeatChoices, type MessagesPrice } from '@harnessdesk/lead'
 import { readChecksAt } from '../evidence/checks-file.js'
 import { atomicJson } from '../goals/store.js'
 import { LeadFileJournal } from './journal.js'
@@ -21,7 +21,25 @@ export const LEAD_PRICES: Readonly<Record<string, MessagesPrice>> = Object.freez
 /** One thread per desk in this slice; its journal lives under the host's own state directory. */
 export const LEAD_THREAD = 'desk'
 export type LeadPlanUnfit = 'lead-plan-unseatable' | 'lead-plan-not-independent'
-export const LEAD_DEFAULT_CAPS = Object.freeze({ usdMicros: 1_000_000, rounds: 16 })
+/** A new desk's first goal: the spending limit Off (the portable ceiling, which still trips the overflow stop) and
+ * the round cap, which is not optional. */
+export const LEAD_DEFAULT_CAPS = Object.freeze({ usdMicros: LEAD_LIMITS.maxUsdMicros, rounds: 16 })
+/** The dollar cap every desk started with before the spending limit could be Off. */
+export const LEAD_LEGACY_DEFAULT_USD_MICROS = 1_000_000
+/**
+ * The limit a desk that predates the setting migrates to, recorded once. Money stays out of sight until it blocks
+ * work, so the default is Off: a desk whose standing caps (what the next goal starts from) still hold exactly the old
+ * default never chose a figure and becomes Off, as does a new desk. Any other figure was chosen, through Settings or
+ * an approved plan, and is kept as the person's limit. The goal in hand is widened to Off only while its cap is still
+ * the untouched default and no plan with that figure on its card was approved; otherwise it keeps its cap to its end.
+ */
+export const leadSpendLimitMigration = (state: LeadState): { readonly usdMicros: number | null; readonly applyToGoal: boolean } => {
+  const standing = state.raisedFrom ?? state.budget?.caps
+  if (!standing || !state.budget) return { usdMicros: null, applyToGoal: false }
+  if (standing.usdMicros !== LEAD_LEGACY_DEFAULT_USD_MICROS) return { usdMicros: standing.usdMicros, applyToGoal: false }
+  return { usdMicros: null, applyToGoal: state.contract === null && state.budget.caps.usdMicros === LEAD_LEGACY_DEFAULT_USD_MICROS &&
+    !['accepted', 'declined'].includes(state.phase) }
+}
 const FRESHNESS_MS = 60_000
 const PROJECT_FILE = 'project.json'
 
@@ -195,8 +213,12 @@ export class LeadAssembly {
     this.#storage = storage
     const journal = await createLeadJournal(storage)
     if (!journal.state.policy) await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] } satisfies LeadPermissionPolicy)
+    if (journal.state.spendLimit === null) {
+      const migrated = leadSpendLimitMigration(journal.state)
+      await journal.recordSpendLimit(migrated.usdMicros, migrated.applyToGoal, options.now())
+    }
     if (!journal.state.budget) await journal.updateBudget({ version: 1, type: 'initialize', now: options.now(), logicalGoalId: 'lead-goal',
-      caps: LEAD_DEFAULT_CAPS, freshnessMs: FRESHNESS_MS })
+      caps: leadLimitedCaps(journal.state.spendLimit, LEAD_DEFAULT_CAPS), freshnessMs: FRESHNESS_MS })
     const seats = leadSeatChoices(options.readySeats())
     await options.create({ journal, project, model: LEAD_MESSAGES_DEFAULTS.model, prices: LEAD_PRICES,
       ...(seats ? { seats } : {}),
@@ -206,7 +228,8 @@ export class LeadAssembly {
           const unfit = await options.seatsHold?.(project.path, step)
           if (unfit) throw Object.assign(new Error(unfit), { wireCode: unfit })
         }
-        return freezeLeadPlan(contract)
+        // The card shows the dollars the plan will run with: the person's limit, never the Lead's own figure above it.
+        return freezeLeadPlan({ ...contract, caps: leadLimitedCaps(journal.state.spendLimit, contract.caps) })
       },
       resolveTool: async call => {
         const state = journal.state, params = call.params as Record<string, unknown>

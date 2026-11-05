@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { CLIENT_METHODS, knownMethods, parseClientMessage } from '../src/index.js'
+import { CLIENT_METHODS, LEAD_LIMITS, knownMethods, parseClientMessage } from '../src/index.js'
 
-const names = ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/approval/revoke', 'lead/repeat/control', 'lead/budget/raise', 'lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/schedule/read', 'lead/schedule/update']
+const names = ['lead/chats/resetControl', 'lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack', 'lead/approval/revoke', 'lead/repeat/control', 'lead/budget/raise', 'lead/spendLimit/set', 'lead/wakes/read', 'lead/thread/read', 'lead/thread/send', 'lead/card/decide', 'lead/settings/read', 'lead/settings/update', 'lead/resume', 'lead/stop', 'lead/action/perform', 'lead/steer', 'lead/memory/read', 'lead/memory/update', 'lead/schedule/read', 'lead/schedule/update']
 const chatNames = ['lead/chat/list', 'lead/chat/read', 'lead/chat/start', 'lead/chat/send', 'lead/chat/stop']
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 
@@ -34,6 +34,18 @@ test('Lead controls reject open shapes, invalid fences and unbounded secret/text
   for (const [method, params] of bad) assert.throws(() => request(method, params), { name: 'ValidationError' }, method)
 })
 
+
+test('lead/spendLimit/set takes a whole positive amount up to the ceiling, or null for Off, and nothing else', () => {
+  const max = LEAD_LIMITS.maxUsdMicros
+  for (const usdMicros of [null, 1, 2_500_000, max]) assert.doesNotThrow(() => request('lead/spendLimit/set', { usdMicros, expectedRevision: 3 }), String(usdMicros))
+  for (const params of [{ usdMicros: 0, expectedRevision: 1 }, { usdMicros: -1, expectedRevision: 1 }, { usdMicros: 1.5, expectedRevision: 1 },
+    { usdMicros: max + 1, expectedRevision: 1 }, { usdMicros: '1000000', expectedRevision: 1 }, { usdMicros: 1_000_000 }, { expectedRevision: 1 },
+    { usdMicros: 1_000_000, expectedRevision: -1 }, { usdMicros: 1_000_000, expectedRevision: 1, rounds: 4 },
+    { usdMicros: 1_000_000, expectedRevision: 1, policy: { mode: 'ask' } }])
+    assert.throws(() => request('lead/spendLimit/set', params), { name: 'ValidationError' }, JSON.stringify(params))
+  // The settings read carries the setting; absent stays legal for a desk that has not recorded one yet.
+  assert.equal(Object.hasOwn(CLIENT_METHODS, 'lead/spendLimit/set'), false)
+})
 
 test('credential provider validation never echoes a key-shaped value', () => {
   const secret = 'sk-ant-test-not-real-0000' // hd-secrets-ok: synthetic provider credential
