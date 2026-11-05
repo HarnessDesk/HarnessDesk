@@ -315,34 +315,34 @@ test('direct journal observations retain foreign heads without losing owned head
   }
 })
 
-test('an attempt keeps the sequence it was recorded at across a checkpoint, and an older checkpoint without one still loads', () => {
-  const state = replayLeadJournal([{ version: 1, seq: 1, type: 'attempt', id: 'chat-1', correlationId: 'chat-1', method: 'lead/chat/start', action: null,
-    kind: 'mutation', stepId: null, arguments: summarizeLeadArguments({ text: 'Add a snake case helper' }), policyRevision: null, projectPolicyRevision: null, contractRevision: null }])
-  assert.equal(state.attempts.get('chat-1')?.seq, 1)
-  const saved = JSON.parse(JSON.stringify(lead.leadCheckpoint(state, 'b'.repeat(64))))
-  assert.deepEqual(lead.parseLeadCheckpoint(structuredClone(saved)).state, state)
-  const older = structuredClone(saved)
-  delete older.state.attempts[0][1].seq
-  assert.equal(lead.parseLeadCheckpoint(older).state.attempts.get('chat-1')?.seq, undefined)
-  const ahead = structuredClone(saved)
-  ahead.state.attempts[0][1].seq = 2
-  assert.throws(() => lead.parseLeadCheckpoint(ahead))
+const chatAttempt = (seq: number, id: string, method: string, outcome: 'succeeded' | 'failed') => ([
+  { version: 1, seq, type: 'attempt', id, correlationId: id, method, action: null, kind: 'mutation', stepId: null,
+    arguments: summarizeLeadArguments({ text: 'Add a snake case helper' }), policyRevision: null, projectPolicyRevision: null, contractRevision: null },
+  { version: 1, seq: seq + 1, type: 'decision', id, effect: 'allow', reason: 'policy', rule: null },
+  { version: 1, seq: seq + 2, type: 'dispatch-start', id, dispatched: true },
+  { version: 1, seq: seq + 3, type: 'result', id, outcome, identity: null },
+] as unknown[]).map(parseLeadJournalRecord)
+
+test('chat effects since the reply are counted until the Lead replies, however many attempts follow them', () => {
+  const records = [...chatAttempt(1, 'chat-1', 'lead/chat/start', 'succeeded'), ...chatAttempt(5, 'chat-2', 'lead/chat/send', 'failed')]
+  // More finished attempts than the bounded attempt index keeps.
+  for (let n = 0; n < 70; n++) records.push(...chatAttempt(9 + n * 4, `read-${n}`, 'lead/chat/stop', n === 0 ? 'succeeded' : 'failed'))
+  const state = replayLeadJournal(records)
+  assert.ok(!state.attempts.has('chat-1'))
+  assert.deepEqual(state.chatEffectsSinceReply, { started: 1, sent: 0, stopped: 1 })
+  const seq = state.seq + 1
+  const replied = lead.reduceLeadRecord(state, { version: 1, seq, type: 'message', idempotencyKey: null,
+    message: { version: 1, id: `message-${seq}`, revision: seq, role: 'assistant', text: 'Started the chat.' } })
+  assert.deepEqual(replied.chatEffectsSinceReply, { started: 0, sent: 0, stopped: 0 })
+  assert.deepEqual(lead.parseLeadCheckpoint(JSON.parse(JSON.stringify(lead.leadCheckpoint(state, 'b'.repeat(64))))).state, state)
 })
 
-test('chat effects since the reply count from the recorded reply, even once the message window has dropped it', () => {
-  const recorded = replayLeadJournal([{ version: 1, seq: 1, type: 'attempt', id: 'chat-1', correlationId: 'chat-1', method: 'lead/chat/start', action: null,
-    kind: 'mutation', stepId: null, arguments: summarizeLeadArguments({ text: 'Add a snake case helper' }), policyRevision: null, projectPolicyRevision: null, contractRevision: null }])
-  const done = { ...recorded, seq: 3, attempts: new Map([...recorded.attempts].map(([id, attempt]) => [id, { ...attempt, phase: 'finished' as const, outcome: 'succeeded' as const }])) }
-  assert.deepEqual(lead.leadChatEffectsSinceReply(done), { started: 1, sent: 0, stopped: 0 })
-  // The reply that followed the chat is no longer in the bounded window, but its sequence is.
-  assert.deepEqual(lead.leadChatEffectsSinceReply({ ...done, replySeq: 2, messages: [] }), { started: 0, sent: 0, stopped: 0 })
-})
-
-test('an older checkpoint without a reply sequence takes it from its latest Lead reply', () => {
-  const state = replayLeadJournal([{ version: 1, seq: 1, type: 'message', idempotencyKey: null,
-    message: { version: 1, id: 'message-1', revision: 1, role: 'assistant', text: 'Started the chat.' } }])
-  assert.equal(state.replySeq, 1)
+test('an older checkpoint without the chat effect tally loads with none counted', () => {
+  const state = replayLeadJournal(chatAttempt(1, 'chat-1', 'lead/chat/start', 'succeeded'))
   const older = JSON.parse(JSON.stringify(lead.leadCheckpoint(state, 'b'.repeat(64))))
-  delete older.state.replySeq
-  assert.equal(lead.parseLeadCheckpoint(older).state.replySeq, 1)
+  delete older.state.chatEffectsSinceReply
+  assert.deepEqual(lead.parseLeadCheckpoint(older).state.chatEffectsSinceReply, { started: 0, sent: 0, stopped: 0 })
+  const forged = JSON.parse(JSON.stringify(lead.leadCheckpoint(state, 'b'.repeat(64))))
+  forged.state.chatEffectsSinceReply.started = -1
+  assert.throws(() => lead.parseLeadCheckpoint(forged))
 })
