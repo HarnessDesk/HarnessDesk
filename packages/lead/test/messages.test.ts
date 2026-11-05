@@ -496,3 +496,24 @@ test('a proactive envelope validates all three parts and refuses extra or multil
     else assert.equal(result.status, 'invalid-response')
   }
 })
+
+test('the readable conversation becomes a history every request admits, whoever spoke first and however long', async () => {
+  const { leadToolDefinitions } = await import('../src/tools.js')
+  const admits = (messages: unknown) => lead.parseLeadMessagesBody(JSON.stringify({ model: 'm', max_tokens: 10, stream: false, messages, tools: leadToolDefinitions }))
+  const said = (role: string, text: string) => ({ role, text })
+  // A resume or an automatic wake lets the Lead speak before the person writes.
+  const first = lead.leadHistory([said('assistant', 'The package is at 1.3.0.'), said('user', 'Now add slugify.')])
+  assert.equal(first[0]!.role, 'user')
+  assert.match((first[0]!.content[0] as { text: string }).text, /spoke first/)
+  assert.doesNotThrow(() => admits(first))
+  // A conversation as long as the journal keeps is cut to the latest turns that fit, still opening with the person.
+  const long = Array.from({ length: 256 }, (_, i) => said(i % 2 ? 'user' : 'assistant', `turn ${i}`))
+  const cut = lead.leadHistory(long)
+  assert.ok(cut.length <= lead.LEAD_HISTORY_TURNS + 1)
+  assert.equal(cut[0]!.role, 'user')
+  assert.equal((cut.at(-1)!.content[0] as { text: string }).text, 'turn 255')
+  assert.doesNotThrow(() => admits(cut))
+  assert.throws(() => admits(long.map(m => ({ role: m.role, content: [{ type: 'text', text: m.text }] }))), 'the uncut conversation is the one a request refused')
+  // An ordinary conversation passes through unchanged.
+  assert.deepEqual(lead.leadHistory([said('user', 'Hi'), said('assistant', 'Hello')]).map(t => t.role), ['user', 'assistant'])
+})

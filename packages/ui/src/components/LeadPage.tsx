@@ -65,7 +65,7 @@ const WAITS: Record<NonNullable<LeadWindowProjection['waitReason']>, string> = {
   'lead-child-exited': 'The Lead stopped unexpectedly. Sending a message also continues.',
   'lead-request-rate-limited': 'The provider asked the Lead to wait.',
   'lead-request-max-tokens': 'The request reached its response limit.',
-  'lead-request-refused': 'The provider refused the request.',
+  'lead-request-refused': 'The Lead could not send its request, so nothing was spent. Sending a message tries again.',
   'lead-request-invalid-response': 'The provider returned an unreadable response.',
   'lead-request-cancelled': 'The request was cancelled.',
 }
