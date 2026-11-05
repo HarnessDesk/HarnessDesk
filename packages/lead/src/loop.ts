@@ -304,13 +304,13 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
       // first reply proposed (a push it asked for is still checked), and an answer that fails goes to the person
       // through the same wait as any failed request, never back to silence.
       if (!input.proactive && result.status === 'completed' && !result.toolResults?.length && !result.proposals?.plan &&
-        result.text && isLeadQuiet(result.text) && result.messages && personOwed() && !active.signal.aborted && !blocked()) {
+        (!result.text?.trim() || isLeadQuiet(result.text)) && result.messages && personOwed() && !active.signal.aborted && !blocked()) {
         const first = result, again = await messages.request({ ...request, messages: withObservation(first.messages!, LEAD_PERSON_OWED), system }, active.signal)
         const cards = [...first.proposals?.cards ?? [], ...again.proposals?.cards ?? []]
         result = { ...again, messages: again.messages ?? first.messages, usage: again.usage ?? first.usage,
           ...(cards.length || again.proposals ? { proposals: { plan: again.proposals?.plan ?? null, cards } } : {}) }
         // Quiet twice is not an answer either. It waits for the person as a failed request, never as silence.
-        if (result.status === 'completed' && !result.toolResults?.length && !result.proposals?.plan && !result.proposals?.cards.length && (!result.text || isLeadQuiet(result.text)))
+        if (result.status === 'completed' && !result.toolResults?.length && !result.proposals?.plan && !result.proposals?.cards.length && (!result.text?.trim() || isLeadQuiet(result.text)))
           result = { ...result, status: 'failed', reason: 'lead-messages-failed' }
       }
     }

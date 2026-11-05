@@ -1683,6 +1683,17 @@ test('a push proposed with the quiet marker is still offered after the person is
   } finally { await loop.close() }
 })
 
+test('a person turn that completes with no text at all is asked to answer', async () => {
+  const s = await fixture([message([{ type: 'text', text: '' }]), message([{ type: 'text', text: 'Nothing has changed since your last look.' }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await s.journal.appendMessage('ask', 'Status?')
+    await loop.request({ ...input, wakeSource: 'person' })
+    assert.equal(s.fake.requests.length, 2)
+    assert.deepEqual(said(s), ['Nothing has changed since your last look.'])
+  } finally { await loop.close() }
+})
+
 test('a person answered with the quiet marker twice waits for them, never silence', async () => {
   const s = await fixture([message([{ type: 'text', text: lead.LEAD_QUIET }]), message([{ type: 'text', text: lead.LEAD_QUIET }])])
   const loop = exported('createLeadLoop')(s.options)
