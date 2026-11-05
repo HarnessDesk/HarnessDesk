@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { LEAD_LIMITS } from '../../packages/protocol/dist/src/index.js'
 import { buildLeadRenderer, openLead, openLeadHost, sendLeadGoal } from './lead-host'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
@@ -139,16 +140,40 @@ for (const theme of ['light', 'dark'] as const) {
       await permission.getByRole('button', { name: 'Approve', exact: true }).click()
       await expect.poll(() => rig.journal.state.policy?.mode).toBe('manage')
       await page.getByRole('button', { name: 'Lead settings', exact: true }).click()
-      await settings.getByLabel('Dollar allowance', { exact: true }).fill('1')
+      // Rounds: tightening applies at once, widening asks on a card.
+      const rounds = settings.getByLabel('Round allowance', { exact: true })
+      const before = Number(await rounds.inputValue())
+      await rounds.fill(String(before - 2))
       await settings.getByRole('button', { name: 'Save allowances', exact: true }).click()
-      await expect.poll(() => rig.journal.state.budget?.caps.usdMicros).toBe(1_000_000)
-      await settings.getByLabel('Dollar allowance', { exact: true }).fill('2')
+      await expect.poll(() => rig.journal.state.budget?.caps.rounds).toBe(before - 2)
+      expect(rig.journal.state.cards.some(card => card.type === 'budget-change')).toBe(false)
+      await rounds.fill(String(before))
+      await expect(settings).toContainText('Asks for your approval in the conversation.')
       await settings.getByRole('button', { name: 'Save allowances', exact: true }).click()
       await expect.poll(() => rig.journal.state.cards.some(card => card.type === 'budget-change')).toBe(true)
       await settings.getByRole('button', { name: 'Open', exact: true }).click()
-      expect(rig.journal.state.budget?.caps.usdMicros).toBe(1_000_000)
+      expect(rig.journal.state.budget?.caps.rounds).toBe(before - 2)
       await page.locator('[data-lead-decision-type="budget-change"]').getByRole('button', { name: 'Approve', exact: true }).click()
-      await expect.poll(() => rig.journal.state.budget?.caps.usdMicros).toBe(2_000_000)
+      await expect.poll(() => rig.journal.state.budget?.caps.rounds).toBe(before)
+      // The spending limit is the person's own setting: on with an amount, then Off, each applies at once with no card.
+      const cards = rig.journal.state.cards.filter(card => card.type === 'budget-change').length
+      await page.getByRole('button', { name: 'Lead settings', exact: true }).click()
+      const limit = settings.getByRole('switch', { name: 'Spending limit', exact: true })
+      // This rig's journal predates a recorded setting, so the switch reads the limit off the goal's own cap.
+      await expect(limit).toBeChecked({ checked: rig.journal.state.budget!.caps.usdMicros < LEAD_LIMITS.maxUsdMicros })
+      if (!await limit.isChecked()) await limit.click()
+      await settings.getByLabel('Spending limit amount', { exact: true }).fill('1')
+      await settings.getByRole('button', { name: 'Save allowances', exact: true }).click()
+      await expect.poll(() => rig.journal.state.budget?.caps.usdMicros).toBe(1_000_000)
+      expect(rig.journal.state.spendLimit).toEqual({ usdMicros: 1_000_000 })
+      await expect(limit).toBeChecked()
+      await limit.click()
+      await expect(settings.getByLabel('Spending limit amount', { exact: true })).toHaveCount(0)
+      await settings.getByRole('button', { name: 'Save allowances', exact: true }).click()
+      await expect.poll(() => rig.journal.state.budget?.caps.usdMicros).toBe(LEAD_LIMITS.maxUsdMicros)
+      expect(rig.journal.state.spendLimit).toEqual({ usdMicros: null })
+      expect(rig.journal.state.cards.filter(card => card.type === 'budget-change')).toHaveLength(cards)
+      expect(rig.journal.state.budget?.caps.rounds).toBe(before)
       expect(rig.provider.requests).toHaveLength(0)
     } finally { await desk.close() }
   })
