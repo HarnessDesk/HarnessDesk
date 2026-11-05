@@ -782,3 +782,47 @@ it('explains only the remaining review and Resume after the uncertain rule is re
   expect(box.textContent).not.toContain('revoke the uncertain saved rule')
   expect(box.textContent).toContain('Resume after reviewing the changes')
 })
+
+const askFixture = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+it('renders the latest proactive ask as buttons, recommends the primary pick and sends its label once', async () => {
+  const base = leadProjection(), proactive = { finding: 'A check is missing.', caveat: 'No work has started.', ask: askFixture.question, options: askFixture.options, recommended: askFixture.recommended }
+  const { box, store } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'ask', revision: 1, role: 'assistant', text: 'A check is missing.', proactive }] } })
+  expect(button('Start it')).toBeDefined()
+  expect(button('Start it').dataset.variant).toBe('primary')
+  expect(button('Not now').dataset.variant).toBe('secondary')
+  expect(button('Other')).toBeUndefined()
+  let finish!: () => void
+  const send = vi.spyOn(store.lead, 'send').mockImplementation(() => new Promise<Awaited<ReturnType<typeof store.lead.send>>>(resolve => { finish = () => resolve({ messageId: 'answer', revision: 2 }) }))
+  await act(async () => button('Start it').click())
+  expect(send).toHaveBeenCalledWith('Start it', expect.any(String))
+  expect(button('Start it').disabled).toBe(true)
+  expect(button('Not now').disabled).toBe(true)
+  await act(async () => finish())
+  expect(box.textContent).toContain('Start this work?')
+})
+it('keeps answered ordinary asks as quiet records with the picked label marked and only the latest ask live', async () => {
+  const base = leadProjection()
+  const messages = [
+    { version: 1 as const, id: 'old', revision: 1, role: 'assistant' as const, text: 'A choice.', ask: askFixture },
+    { version: 1 as const, id: 'person', revision: 2, role: 'user' as const, text: 'Not now' },
+    { version: 1 as const, id: 'latest', revision: 3, role: 'assistant' as const, text: 'Another choice.', ask: askFixture },
+  ]
+  const { box, update } = await mount({ ...base, thread: { ...base.thread, messages } })
+  const records = box.querySelectorAll('[data-slot="lead-ask-options"]')
+  expect(records).toHaveLength(2)
+  expect(records[0]!.querySelector('button')).toBeNull()
+  expect(records[0]!.querySelector('[data-picked="true"]')?.textContent).toContain('Not now')
+  expect(records[1]!.querySelectorAll('button')).toHaveLength(2)
+  await update({ requestInFlight: true })
+  expect(button('Start it').disabled).toBe(true)
+  await update({ requestInFlight: false, settings: { ...base.settings, unavailable: 'runtime' } })
+  expect(button('Start it').disabled).toBe(true)
+})
+
+it('sends an option label verbatim even when it has surrounding spaces', async () => {
+  const base = leadProjection(), label = ' Start it '
+  const { store } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'ask-spaces', revision: 1, role: 'assistant', text: 'Choose.', ask: { ...askFixture, options: [{ id: 'start', label }, askFixture.options[1]!] } }] } })
+  const send = vi.spyOn(store.lead, 'send').mockResolvedValue({ messageId: 'answer', revision: 2 })
+  await act(async () => button(label).click())
+  expect(send).toHaveBeenCalledWith(label, expect.any(String))
+})

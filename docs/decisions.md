@@ -5219,3 +5219,19 @@ The complete thread is capped at 512 KB of serialized JSON, retaining recent
 entries and shortening a recent change if necessary to fit beneath the relay
 frame ceiling. HarnessDesk context injections are omitted; only
 host-verified Lead envelopes contribute Lead words and attribution.
+
+
+## Lead questions offer choices; delegation keeps the person's words — 2026-11-05
+
+A decision carries two to four short options and a recommended pick so it is
+answerable with a tap on the desk or phone. The composer remains available for
+another answer. Only the latest unanswered ask is live; older choices are a
+record. A confident, already authorized action needs no question. Work the
+Lead notices outside the person's request is offered with a recommended start
+option and waits for the person; there is no backlog.
+
+The host appends the person's original messages below a delegated chat's brief.
+The model selects message ids, never re-types their words. This keeps wording
+and scope intact, rejects references outside the current journal window, and
+refuses an oversized brief plus quotes instead of silently losing context.
+Stored proactive reports without options remain readable.

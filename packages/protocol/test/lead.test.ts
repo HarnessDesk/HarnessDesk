@@ -565,3 +565,28 @@ test('Lead contracts preserve explicit no-publication pins without adding an abs
     assert.deepEqual(protocol.parseLeadAcceptanceContract(value), value)
   }
 })
+
+test('strict asks and new proactive output require bounded unique options and a recommendation; stored legacy reports survive', () => {
+  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const parse = validator('parseLeadAsk'), strict = validator('parseLeadProactiveOutput')
+  assert.deepEqual(parse(ask), ask)
+  const legacy = { finding: 'A check is missing.', caveat: 'No work has started.', ask: ask.question }
+  assert.equal(protocol.parseLeadProactive(legacy).ask, legacy.ask)
+  assert.throws(() => strict(legacy))
+  assert.doesNotThrow(() => strict({ ...legacy, options: ask.options, recommended: ask.recommended }))
+  for (const invalid of [
+    { ...ask, options: undefined }, { ...ask, options: ask.options.slice(0, 1) },
+    { ...ask, options: Array.from({ length: 5 }, (_, i) => ({ id: `pick-${i}`, label: `Pick ${i}` })) },
+    { ...ask, options: [ask.options[0], { id: 'start', label: 'Different' }] },
+    { ...ask, options: [ask.options[0], { id: 'later', label: 'START IT' }] },
+    { ...ask, recommended: 'missing' }, { ...ask, options: [ask.options[0], { id: 'later', label: 'Not\nnow' }] },
+    { ...ask, question: 'One\nTwo' }, { ...ask, options: [ask.options[0], { id: 'UPPER', label: 'Later' }] },
+    { ...ask, options: [ask.options[0], { id: 'later', label: 'x'.repeat(61) }] },
+    { ...ask, options: [ask.options[0], { id: 'later', label: 'A\tB' }] },
+  ]) assert.throws(() => parse(invalid))
+  const message = { version: 1, id: 'reply', revision: 1, role: 'assistant', text: 'A decision.', ask }
+  assert.deepEqual(protocol.parseLeadMessage(message), message)
+  assert.throws(() => protocol.parseLeadMessage({ ...message, role: 'user' }))
+  assert.throws(() => protocol.parseLeadMessage({ ...message, proactive: legacy }))
+  assert.throws(() => protocol.parseLeadProactive({ ...legacy, options: ask.options }))
+})

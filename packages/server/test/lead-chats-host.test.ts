@@ -282,3 +282,15 @@ for (const operation of ['start', 'send'] as const) test(`real chat ${operation}
   assert.equal(r.runtime.sessions.size, 1, 'uncertain original work is never duplicated')
   assert.equal(r.records.some(record => record.type === 'reconciliation'), false)
 })
+
+test('quote preflight refusal records a failed no-effect attempt and returns its reason without recovery or worker work', async t => {
+  const r = await refusalRig(t)
+  const before = r.runtime.lastCreateOptions
+  const result = await r.execute({ method: 'lead/chat/start', params: { text: 'Brief', quote: ['missing'] } })
+  assert.equal(result.outcome, 'failed')
+  assert.match((result.value as { problem: string }).problem, /person message.*current conversation window/)
+  assert.equal(r.runtime.lastCreateOptions, before)
+  assert.equal(r.journal.state.recoveryBlocked, false)
+  assert.equal(r.journal.state.chatEffectsSinceReply.started, 0)
+  assert.equal([...r.journal.state.attempts.values()].at(-1)?.outcome, 'failed')
+})

@@ -488,7 +488,7 @@ test('a credential echoed inside thinking is refused like one in any other block
 })
 
 test('a proactive envelope validates all three parts and refuses extra or multiline fields', async () => {
-  const proactive = { finding: 'The check failed.', caveat: 'Review has not finished.', ask: 'Inspect changes', action: 'changes' }
+  const proactive = { finding: 'The check failed.', caveat: 'Review has not finished.', ask: 'Inspect changes', action: 'changes', options: [{ id: 'inspect', label: 'Inspect changes' }, { id: 'later', label: 'Not now' }], recommended: 'inspect' }
   for (const value of [proactive, { ...proactive, extra: 'Another finding' }, { ...proactive, finding: 'One\nTwo' }]) {
     const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: value }) }])])
     const result = await s.client.request(input, new AbortController().signal)
@@ -523,4 +523,52 @@ test('the readable conversation becomes a history every request admits, whoever 
   assert.throws(() => admits([{ role: 'user', content: [{ type: 'text', text: 'Start' }] }, ...large.map(m => ({ role: m.role, content: [{ type: 'text', text: m.text }] }))]), 'the uncut window is over the size a request admits')
   // An ordinary conversation passes through unchanged.
   assert.deepEqual(lead.leadHistory([said('user', 'Hi'), said('assistant', 'Hello')]).map(t => t.role), ['user', 'assistant'])
+})
+
+test('ordinary output returns a strict ask beside prose and rejects mixed or malformed decisions', async () => {
+  const ask = { question: 'Start this work?', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  for (const invalid of [false, true]) {
+    const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'I found a choice.', ask: invalid ? { ...ask, recommended: 'missing' } : ask }) }])])
+    const result = await s.client.request(input, new AbortController().signal)
+    assert.equal(result.status, invalid ? 'invalid-response' : 'completed')
+    if (!invalid) { assert.deepEqual(result.ask, ask); assert.equal(result.text, 'I found a choice.') }
+  }
+  const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'Mixed.', ask,
+    proactive: { finding: 'Found.', caveat: 'No work yet.', ask: ask.question, options: ask.options, recommended: ask.recommended } }) }])])
+  assert.equal((await s.client.request(input, new AbortController().signal)).status, 'invalid-response')
+})
+
+test('fresh proactive output without options is refused', async () => {
+  const s = await setup([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: { finding: 'Found.', caveat: 'No work yet.', ask: 'Start?' } }) }])])
+  assert.equal((await s.client.request(input, new AbortController().signal)).status, 'invalid-response')
+})
+
+test('person history carries host message ids separately from their unchanged words', () => {
+  const history = lead.leadHistory([{ id: 'message-1', role: 'user', text: 'Keep **these** words.' }] as any)
+  assert.equal((history[0]!.content[0] as any).text, 'Keep **these** words.')
+  assert.match(JSON.stringify(history), /message-1/)
+})
+
+test('a host-attested chat-start preflight refusal reaches the model with its plain reason and no started-work receipt', async () => {
+  const s = await setup([message([tool('delegate', 'chat_start', { text: 'Brief', quote: ['missing'] })], { stop_reason: 'tool_use' })])
+  const reason = 'Quote only a person message in the current conversation window.'
+  ;(s.options as any).dispatch = async (_call: unknown, id: string) => { s.journal.noteDispatchNotStarted(id); return { value: { id: '', problem: reason }, identity: null } }
+  const client = lead.createLeadMessages(s.options as any)
+  const result = await client.request(input as any, new AbortController().signal)
+  assert.equal(result.toolResults![0]!.is_error, true)
+  assert.match(result.toolResults![0]!.content, /Quote only a person message/)
+  assert.equal([...s.journal.state.attempts.values()][0]!.outcome, 'failed')
+  assert.equal(s.journal.state.chatEffectsSinceReply.started, 0)
+})
+
+test('rebuilt conversation history retains ordinary and proactive decision context for exact-label answers', () => {
+  const ask = { question: 'Which scope should the worker use?', options: [{ id: 'first', label: 'Use the first one' }, { id: 'second', label: 'Use the second one' }], recommended: 'first' }
+  for (const decision of [{ ask }, { proactive: { finding: 'There are two scopes.', caveat: 'Neither has started.', ask: ask.question, options: ask.options, recommended: ask.recommended } }]) {
+    const history = lead.leadHistory([{ role: 'user', text: 'Help me choose' }, { role: 'assistant', text: '', ...decision }, { role: 'user', text: 'Use the second one' }] as any)
+    assert.ok(history[1]!.content.every(block => 'text' in block && block.text.trim().length > 0), 'an ask-only history turn has no empty provider text block')
+    const prior = JSON.stringify(history[1])
+    assert.match(prior, /Which scope should the worker use/)
+    assert.match(prior, /Use the first one/)
+    assert.match(prior, /recommended/)
+  }
 })

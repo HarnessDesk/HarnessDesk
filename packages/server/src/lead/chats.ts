@@ -1,5 +1,5 @@
 import type { DispatchAdmission } from '../dispatch-admission.js'
-import { deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
 import { LeadChatHeldError, type LeadChatControlStore } from './chat-control.js'
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
@@ -235,6 +235,16 @@ export class LeadChats {
     return boundLeadChatRead(result)
   }
   #envelope(text: string): string { return leadMessageEnvelope(leadDisplayName(this.ports.state().name), text) }
+  #startText(params: HostParams<'lead/chat/start'>): string | { readonly problem: string } {
+    const people = this.ports.state().messages.filter(message => message.role === 'user')
+    const ids = params.quote ?? people.slice(-1).map(message => message.id)
+    if (ids.some(id => !people.some(message => message.id === id)))
+      return { problem: 'Quote only a person message in the current conversation window.' }
+    const quoted = people.filter(message => ids.includes(message.id))
+    const text = quoted.length ? `${params.text}\n\n---\nThe person's words, verbatim:\n\n${quoted.map(message => '> ' + message.text.replace(/(\r\n|\r|\n)/g, '$1> ')).join('\n\n')}` : params.text
+    if (text.length > LEAD_LIMITS.textChars) return { problem: 'The brief and quoted person messages are too long. Use a shorter brief or fewer quotes.' }
+    return text
+  }
   async #notHeld(id: string): Promise<void> {
     if (await this.ports.control?.holder(this.ports.project.path, id) === 'person') throw new LeadChatHeldError()
   }
@@ -244,12 +254,17 @@ export class LeadChats {
 
   start(params: HostParams<'lead/chat/start'>): Promise<HostResult<'lead/chat/start'>> {
     const call = { method: 'lead/chat/start', params } as const
-    const envelope = this.#envelope(params.text)
     return this.#mutate(call, async (admit, effectStarted, attemptId) => {
+      const text = this.#startText(params)
+      if (typeof text !== 'string') {
+        this.ports.noteDispatchNotStarted(attemptId)
+        return { id: '', problem: text.problem }
+      }
+      const envelope = this.#envelope(text)
       await this.ports.control?.assertCanStart?.(this.ports.project.path)
       let createdId: string | undefined
       const scope = this.#liveScope(call, attemptId, () => createdId)
-      return this.ports.work.startInProject(params, this.ports.project.path, async id => {
+      return this.ports.work.startInProject({ text }, this.ports.project.path, async id => {
         createdId = id
         await admit(id)
         // Recorded before the first message leaves, so the transcript can vouch for it on first render.

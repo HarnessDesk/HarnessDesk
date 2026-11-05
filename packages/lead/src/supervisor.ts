@@ -2,7 +2,7 @@ import { spawn as spawnProcess, type ChildProcessWithoutNullStreams } from 'node
 import { connect, createServer, type Socket } from 'node:net'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, parseLeadCard, parseLeadMessage, parseLeadProactive,
+import { parseClientMessage, parseLeadAcceptanceContract, parseLeadBudgetEvent, parseLeadCard, parseLeadMessage, parseLeadProactive, parseLeadAsk,
   type LeadBudgetEvent, type LeadCard, type LeadAcceptanceContract, type LeadProject, type LeadPermissionPolicy, type LeadPresence, parseLeadPresence } from '@harnessdesk/protocol'
 import { preferUnpackedPath, type DeskPointer } from '@harnessdesk/client/node'
 import { parseLeadRunIdentity, type LeadJournal, type LeadDispatchResult } from './journal.js'
@@ -353,6 +353,7 @@ export class LeadSupervisor {
       if (!pending) throw error('protocol')
       const result = ipcObject(message.result)
       if (!['completed', 'max-tokens', 'refused', 'cancelled', 'uncertain', 'rate-limited', 'failed', 'invalid-response'].includes(result.status as string)) throw error('protocol')
+      if (result.ask !== undefined || result.proactive !== undefined) parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text: result.text ?? '', ...(result.ask !== undefined ? { ask: result.ask } : {}), ...(result.proactive !== undefined ? { proactive: result.proactive } : {}) })
       running.pending.delete(message.id as number); pending.resolve(result); return
     }
     if (message.type === 'activity') { this.#activity(message.busy === true && !this.#stopping); return }
@@ -382,7 +383,7 @@ export class LeadSupervisor {
     try {
       const arity = { recordWake: 1, execute: 1, updateBudget: 1, setManagementPhase: 2, invalidateResults: 0, offerCard: 1,
         restoreResult: 2, recoverUnsettledRequests: 0, appendReply: 1, resolveTool: 1, freezePlan: 1, readEvidence: 1, 'provider-send': 2 }[operation]
-      if (args.length !== arity && !(operation === 'appendReply' && args.length === 2)) throw error('protocol')
+      if (args.length !== arity && !(operation === 'appendReply' && (args.length === 2 || args.length === 3))) throw error('protocol')
       let value: unknown = null
       switch (operation) {
         case 'recordWake': await durable(journal.recordWake(args[0] as import('@harnessdesk/protocol').LeadWakeRecord)); break
@@ -438,11 +439,12 @@ export class LeadSupervisor {
         }
         case 'recoverUnsettledRequests': await durable(journal.recoverUnsettledRequests()); break
         case 'appendReply': {
-          const text = ipcText(args[0]), proactive = args.length === 2 ? parseLeadProactive(args[1]) : undefined
+          const text = ipcText(args[0]), proactive = args.length === 2 || args.length === 3 && args[1] !== null ? parseLeadProactive(args[1]) : undefined
+          const ask = args.length === 3 ? parseLeadAsk(args[2]) : undefined
           // A goal that has ended takes no more words. A text the desk will not show, a secret or one the journal cannot
           // hold, is refused by name and does not break the child; the host scans whatever stays in the result again.
           if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) break
-          try { parseLeadMessage({ version: 1, id: 'message-1', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}) }); await this.options.admitReply?.(text); if (proactive) await this.options.admitReply?.(JSON.stringify(proactive)) }
+          try { parseLeadMessage({ version: 1, id: 'message-1', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}) }); await this.options.admitReply?.(text); if (proactive) await this.options.admitReply?.(JSON.stringify(proactive)); if (ask) await this.options.admitReply?.(JSON.stringify(ask)) }
           catch {
             if (!running.exited) write(running, { type: 'reply', id, ok: false, value: 'lead-reply-refused', state: journal.state })
             return
@@ -451,7 +453,7 @@ export class LeadSupervisor {
           // ending, not a child that broke the protocol: it must not be killed as one, or cleanup meant for a
           // cancellation would run as a failure and reach work a cancellation leaves alone.
           if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) break
-          try { await durable(journal.appendReply(text, proactive)) }
+          try { await durable(journal.appendReply(text, proactive, ask)) }
           catch (failure) { if (!['accepted', 'declined', 'stopped'].includes(journal.state.phase)) throw failure }
           break
         }

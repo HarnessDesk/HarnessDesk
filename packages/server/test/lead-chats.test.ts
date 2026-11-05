@@ -267,3 +267,33 @@ test('take over while the envelope is being recorded refuses enqueue and first d
   await assert.rejects(r.service.start({ text: 'Start work' }), { message: LEAD_CHAT_HELD })
   assert.equal(r.sentInput.length, 0)
 })
+
+test('start quotes only current person messages verbatim in conversation order, defaulting to the latest', async t => {
+  const r = await rig(t)
+  const person = (id: string, text: string, revision: number) => ({ version: 1 as const, id, revision, role: 'user' as const, text })
+  r.setState({ messages: [person('one', 'Keep  spacing.\n\nAnd **Markdown**.\r\nLast line.', 1),
+    { ...person('assistant', 'My interpretation.', 2), role: 'assistant' }, person('two', 'Also preserve the API.', 3)] })
+  for (const quote of [undefined, ['two', 'one']]) {
+    const params = { text: 'Repair the test\n\nA narrow brief.', ...(quote ? { quote } : {}) }
+    r.authorize('lead/chat/start', params)
+    await r.service.start(params)
+    const expected = params.text + "\n\n---\nThe person's words, verbatim:\n\n" + (quote
+      ? '> Keep  spacing.\n> \n> And **Markdown**.\r\n> Last line.\n\n> Also preserve the API.' : '> Also preserve the API.')
+    const start = r.calls.filter(call => call.method === 'start').at(-1)!
+    assert.equal(start.params.text, expected)
+    assert.equal(JSON.stringify(r.sentInput.at(-1)).includes('verbatim'), true)
+  }
+  for (const quote of [['assistant'], ['missing']]) {
+    const params = { text: 'Repair the test', quote }
+    r.authorize('lead/chat/start', params)
+    assert.match((await r.service.start(params)).problem!, /person.*message|user.*message/i)
+  }
+})
+
+test('start refuses oversized quotes before creating a worker and never truncates', async t => {
+  const r = await rig(t)
+  r.setState({ messages: [{ version: 1, id: 'large', revision: 1, role: 'user', text: 'x'.repeat(16_384) }] })
+  r.authorize('lead/chat/start', { text: 'Brief' })
+  assert.match((await r.service.start({ text: 'Brief' })).problem!, /too long|limit/i)
+  assert.equal(r.calls.length, 0)
+})

@@ -1138,3 +1138,15 @@ test('private child activity is validated, distinct from presence and cleared wh
   await f.supervisor.stop()
   assert.deepEqual(activity, [true, false])
 })
+
+test('the host admits and stores the child ordinary ask across appendReply IPC', async () => {
+  const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const admitted: string[] = []
+  const f = await replyRig(['A decision.', null, ask], { admitReply: async (text: string) => { admitted.push(text) } })
+  try {
+    await f.supervisor.send(request)
+    assert.equal((await f.replied).ok, true)
+    assert.deepEqual(f.journal.state.messages.at(-1)?.ask, ask)
+    assert.deepEqual(admitted, ['A decision.', JSON.stringify(ask)])
+  } finally { await f.supervisor.stop() }
+})
