@@ -309,6 +309,9 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
         const cards = [...first.proposals?.cards ?? [], ...again.proposals?.cards ?? []]
         result = { ...again, messages: again.messages ?? first.messages, usage: again.usage ?? first.usage,
           ...(cards.length || again.proposals ? { proposals: { plan: again.proposals?.plan ?? null, cards } } : {}) }
+        // Quiet twice is not an answer either. It waits for the person as a failed request, never as silence.
+        if (result.status === 'completed' && !result.toolResults?.length && !result.proposals?.plan && !result.proposals?.cards.length && (!result.text || isLeadQuiet(result.text)))
+          result = { ...result, status: 'failed', reason: 'lead-messages-failed' }
       }
     }
     catch { result = { status: 'failed', reason: 'lead-messages-failed' } }

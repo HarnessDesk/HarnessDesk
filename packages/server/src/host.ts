@@ -3730,6 +3730,9 @@ export class Host {
     this.#leadChatControl = chatControl
     this.#leadChatProject = project
     this.#leadJournal = journal
+    // The phone lists sessions from what the store holds in memory, so read the persisted record now: after a
+    // restart, a chat the Lead still directs should never list as the person's until something else reads it.
+    void chatControl.list(project.path).catch(() => {})
     const checkedControl = async <T>(root: string, work: () => Promise<T>): Promise<T> => {
       const failure = chatControl.failure
       try {
