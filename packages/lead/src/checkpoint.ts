@@ -151,7 +151,9 @@ export const parseLeadCheckpoint = (value: unknown): { checkpoint: LeadJournalCh
     assert(Array.isArray(entry) && entry.length === 2)
     const [key, attempt] = entry
     assert(key === attempt.id && !attempts.has(key))
-    assert(Object.keys(attempt).sort().join() === ['id', 'correlationId', 'method', 'action', 'kind', 'stepId', 'arguments', 'phase', 'effect', 'dispatched', 'outcome', 'recoveryReported', 'evidence', 'evidenceSeq', 'resolutionPending', 'contested'].sort().join())
+    assert(Object.keys(attempt).sort().join() === ['id', 'correlationId', 'method', 'action', 'kind', 'stepId', 'arguments', 'phase', 'effect', 'dispatched', 'outcome', 'recoveryReported', 'evidence', 'evidenceSeq', 'resolutionPending', 'contested', ...(Object.hasOwn(attempt, 'seq') ? ['seq'] : [])].sort().join())
+    // An attempt written by an older checkpoint carries no sequence; a current one carries the one it was recorded at.
+    if (Object.hasOwn(attempt, 'seq')) assert(Number.isSafeInteger(attempt.seq) && attempt.seq! > 0 && attempt.seq! <= source.seq)
     parseLeadJournalRecord({ version: 1, seq: 1, type: 'attempt', id: key, correlationId: attempt.correlationId, method: attempt.method, action: attempt.action,
       kind: attempt.kind, stepId: attempt.stepId, arguments: attempt.arguments, policyRevision: null, projectPolicyRevision: null, contractRevision: null })
     assert(['attempted', 'decided', 'started', 'finished'].includes(attempt.phase) && [null, 'allow', 'ask', 'deny'].includes(attempt.effect))

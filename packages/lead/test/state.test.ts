@@ -314,3 +314,17 @@ test('direct journal observations retain foreign heads without losing owned head
     assert.equal(next.phase, lifecycle === 'open' ? 'waiting-for-user' : lifecycle === 'merged' ? 'accepted' : 'declined')
   }
 })
+
+test('an attempt keeps the sequence it was recorded at across a checkpoint, and an older checkpoint without one still loads', () => {
+  const state = replayLeadJournal([{ version: 1, seq: 1, type: 'attempt', id: 'chat-1', correlationId: 'chat-1', method: 'lead/chat/start', action: null,
+    kind: 'mutation', stepId: null, arguments: summarizeLeadArguments({ text: 'Add a snake case helper' }), policyRevision: null, projectPolicyRevision: null, contractRevision: null }])
+  assert.equal(state.attempts.get('chat-1')?.seq, 1)
+  const saved = JSON.parse(JSON.stringify(lead.leadCheckpoint(state, 'b'.repeat(64))))
+  assert.deepEqual(lead.parseLeadCheckpoint(structuredClone(saved)).state, state)
+  const older = structuredClone(saved)
+  delete older.state.attempts[0][1].seq
+  assert.equal(lead.parseLeadCheckpoint(older).state.attempts.get('chat-1')?.seq, undefined)
+  const ahead = structuredClone(saved)
+  ahead.state.attempts[0][1].seq = 2
+  assert.throws(() => lead.parseLeadCheckpoint(ahead))
+})

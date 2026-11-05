@@ -17,6 +17,9 @@ export interface LeadAttemptState {
   readonly recoveryReported: boolean; readonly evidence: string | null; readonly evidenceSeq: number | null; readonly resolutionPending: boolean
   /** A lookup contradicted this start: the window may confirm a run, never attest none. */
   readonly contested: boolean
+  /** Journal sequence of the attempt, so a request rebuilt from the conversation can tell what the Lead did after
+   * its last reply. Absent on an attempt carried by an older checkpoint. */
+  readonly seq?: number
 }
 export interface LeadStepState { readonly id: string; readonly state: 'pending' | 'admitted' | 'started' | 'uncertain'; readonly attemptId: string | null; readonly contractDigest: string | null }
 export interface LeadState {
@@ -132,6 +135,21 @@ export const isLeadCancellation = (method: string, action: string | null): boole
 const isLeadChatEffect = (attempt: LeadAttemptState): boolean =>
   attempt.method === 'lead/chat/start' || attempt.method === 'lead/chat/send'
 
+/**
+ * Ordinary chats the Lead started or wrote to since it last spoke to the person in this goal. A request rebuilt from
+ * the readable conversation carries words only, so without these a Lead resumed after a silent or failed turn reads
+ * the person's message as still undone and starts the same chat a second time.
+ */
+export const leadChatEffectsSinceReply = (state: LeadState): { readonly started: number; readonly sent: number } => {
+  const since = Math.max(state.goalStartedSeq, state.messages.findLast(message => message.role === 'assistant')?.revision ?? 0)
+  let started = 0, sent = 0
+  for (const attempt of state.attempts.values()) {
+    if (attempt.seq === undefined || attempt.seq <= since || attempt.outcome !== 'succeeded') continue
+    if (attempt.method === 'lead/chat/start') started++
+    else if (attempt.method === 'lead/chat/send') sent++
+  }
+  return { started, sent }
+}
 export const hasUncertainLeadChatEffect = (state: LeadState): boolean =>
   [...state.attempts.values()].some(attempt => isLeadChatEffect(attempt) && attempt.outcome === 'uncertain')
 
@@ -616,7 +634,7 @@ export const reduceLeadRecord = (previous: LeadState, value: unknown): LeadState
       ensure(event.policyRevision === (state.policy?.revision ?? null) && event.contractRevision === (state.contract?.revision ?? null))
       state = { ...state, attempts: new Map([...state.attempts, [event.id, { id: event.id, correlationId: event.correlationId, method: event.method,
         action: event.action, kind: event.kind, stepId: event.stepId, arguments: event.arguments,
-        phase: 'attempted', effect: null, dispatched: false, outcome: null, recoveryReported: false, evidence: null, evidenceSeq: null, resolutionPending: false, contested: false }]]) }; break
+        phase: 'attempted', effect: null, dispatched: false, outcome: null, recoveryReported: false, evidence: null, evidenceSeq: null, resolutionPending: false, contested: false, seq: event.seq }]]) }; break
     }
     case 'decision':
       updateAttempt(event.id, attempt => { ensure(attempt.phase === 'attempted'); return { ...attempt, phase: 'decided', effect: event.effect } }); break

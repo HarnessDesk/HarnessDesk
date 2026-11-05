@@ -71,6 +71,52 @@ const refusalRig = async (t: import('node:test').TestContext) => {
   return { ...desk, project, state, journal, records, execute }
 }
 
+test('Resume after a silent turn tells the Lead the chat it already started, so it does not start it twice', async t => {
+  const r = await refusalRig(t)
+  const sent: import('@harnessdesk/lead').MessagesTurn[][] = []
+  const controls = new LeadControls({ journal: r.journal, project: r.project, model: 'fixture-model', now: () => Date.now(), nextId: () => 'fresh-logical-goal',
+    push() {}, decidePerson: async () => {}, decideResult: async () => {}, stopEffects: async () => {},
+    service: { status: async () => ({ configured: true, protection: 'synthetic' }), assertPublic: async () => {}, setKey: async () => {}, deleteKey: async () => {},
+      send: async input => {
+        sent.push([...input.messages])
+        if (sent.length === 1) {
+          assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'Add a snake case helper' } })).outcome, 'succeeded')
+          return { status: 'completed', text: '' }
+        }
+        return { status: 'completed', text: 'The chat adding the snake case helper has it.' }
+      } },
+  })
+  t.after(() => controls.close())
+  await controls.send({ idempotencyKey: 'first-person', text: 'Add a snake case helper' }); await controls.idle()
+  const waiting = await controls.readThread()
+  assert.equal(waiting.wayOut, 'resume')
+  await controls.resume({ expectedRevision: r.journal.state.seq }); await controls.idle()
+  assert.equal(sent.length, 2)
+  const words = JSON.stringify(sent[1])
+  assert.match(words, /already started 1 chat/)
+  assert.doesNotMatch(JSON.stringify(sent[0]), /already started/)
+  assert.equal(r.journal.state.messages.at(-1)?.role, 'assistant')
+})
+
+test('a chat the Lead started before its last reply is not reported again', async t => {
+  const r = await refusalRig(t)
+  const sent: import('@harnessdesk/lead').MessagesTurn[][] = []
+  const controls = new LeadControls({ journal: r.journal, project: r.project, model: 'fixture-model', now: () => Date.now(), nextId: () => 'fresh-logical-goal',
+    push() {}, decidePerson: async () => {}, decideResult: async () => {}, stopEffects: async () => {},
+    service: { status: async () => ({ configured: true, protection: 'synthetic' }), assertPublic: async () => {}, setKey: async () => {}, deleteKey: async () => {},
+      send: async input => {
+        sent.push([...input.messages])
+        if (sent.length === 1) assert.equal((await r.execute({ method: 'lead/chat/start', params: { text: 'Add a snake case helper' } })).outcome, 'succeeded')
+        return { status: 'completed', text: 'Started the chat.' }
+      } },
+  })
+  t.after(() => controls.close())
+  await controls.send({ idempotencyKey: 'first-person', text: 'Add a snake case helper' }); await controls.idle()
+  await controls.send({ idempotencyKey: 'second-person', text: 'Thanks' }); await controls.idle()
+  assert.equal(sent.length, 2)
+  assert.doesNotMatch(JSON.stringify(sent[1]), /already started/)
+})
+
 test('a missing ordinary runtime refuses without poisoning a corrected chat start', async t => {
   const r = await refusalRig(t)
   await r.host.unregister(r.runtime.info.id)

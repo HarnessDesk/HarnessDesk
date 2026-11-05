@@ -5,7 +5,7 @@ import {
   parseLeadBudgetRaise, type LeadBudgetRaise, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
 } from '@harnessdesk/protocol'
-import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, leadHistory, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
+import { isLeadPlanRenewal, hasUncertainLeadChatEffect, leadChatEffectsSinceReply, leadDecisionRevisionMatches, canOfferAutomaticLeadGoal, canBeginLeadGoal, canReplaceLeadPlan, leadPlanRuns, leadBudgetProjection, leadContinuation, leadHistory, type LeadJournal, type LeadState, type MessagesTurn } from '@harnessdesk/lead'
 import type { LeadService } from './service.js'
 import { admitLeadCard, leadApprovalCards, leadProgress, leadRunTeam, leadWindowThread } from './projection.js'
 import { leadContainsSecret } from './secrets.js'
@@ -27,6 +27,11 @@ const leadRecoveryContext = (reason: string | null): string | null => {
   }
   const detail = reason === null ? null : fixes[reason]
   return detail ? `Desk observation: ${detail} Explain this once if still relevant. Do not repeat the unchanged rejected plan. Continue the conversation, or use an ordinary chat for a simple task requested by the person. An ordinary chat does not provide reviewed-plan acceptance.` : null
+}
+/** What the Lead already did since it last spoke, said as a desk observation. */
+const leadEffectsObservation = ({ started, sent }: { readonly started: number; readonly sent: number }): string => {
+  const did = [started ? `already started ${started} chat${started === 1 ? '' : 's'}` : '', sent ? `already sent ${sent} message${sent === 1 ? '' : 's'} to chats` : ''].filter(Boolean).join(' and ')
+  return `Desk observation: since your last reply to the person you ${did}. That work is under way: do not start or send it again. Use chat_list if you need to see it, then tell the person what you did and what happens next.`
 }
 export const LEAD_OUTPUT_TOKENS = 4096
 
@@ -330,6 +335,10 @@ export class LeadControls {
       this.#requestWaitReason = null
       const recovery = leadRecoveryContext(waitReason)
       if (recovery) messages.push({ role: 'user', content: [{ type: 'text', text: recovery }] })
+      // The history above is words only. Chats the Lead already started or wrote to since its last reply are not in
+      // it, so a Lead resumed after a silent or failed turn is told, or it reads the request as undone and repeats it.
+      const done = leadChatEffectsSinceReply(journal.state)
+      if (done.started || done.sent) messages.push({ role: 'user', content: [{ type: 'text', text: leadEffectsObservation(done) }] })
       // Once a plan is approved every request ends with the contract, because the standing instructions say it
       // arrives in a message and the history above holds only words. Before that, a request still ends in a user turn.
       const { contract, steps } = journal.state
