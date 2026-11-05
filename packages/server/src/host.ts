@@ -4112,11 +4112,16 @@ export class Host {
     return this.#leadService
   }
 
+  /** Runtimes that answer now or start on demand, in registration order: what the Lead may seat and a phone may start on. */
+  #readyRuntimes(): RuntimeId[] {
+    return [...this.#runtimes.values()].filter(runtime => leadSeatable(runtime.health())).map(runtime => runtime.info.id)
+  }
+
   /** The production assembly behind `HARNESSDESK_LEAD=1`: it builds the Lead from this host's own state on first use. */
   #assembleLead(): LeadAssembly {
     return new LeadAssembly({ home: this.#state.directory, now: () => Date.now(),
       workspace: async () => this.#state.state.workspaces.find(one => !isManagedChatFolder(this.#state, one.path))?.path ?? null,
-      readySeats: () => [...this.#runtimes.values()].filter(runtime => leadSeatable(runtime.health())).map(runtime => String(runtime.info.id)),
+      readySeats: () => this.#readyRuntimes().map(String),
       heldPreview: token => this.#flowPreviews.leadHeld(token),
       seatsHold: async (root, step) => {
         // A preview that cannot even be taken is a plan that cannot start: the same answer, never a broken Lead.
@@ -9956,6 +9961,10 @@ export class Host {
         const known = this.#runtimes.get(runtime)
         return known ? this.#infoOf(known).presentation.name : null
       },
+      knowsStart: (runtime) => {
+        const known = this.#runtimes.get(runtime)
+        return known ? this.#infoOf(known).capabilities.startTimes === true : false
+      },
       leadChats: () => {
         const journal = this.#leadJournal, project = this.#leadChatProject, store = this.#leadChatControl
         if (!journal || !project || !store) return null
@@ -10131,12 +10140,19 @@ export class Host {
         const preferred = this.#state.state.preferences['activeRuntime']
         return ((typeof preferred === 'string' ? this.#runtimes.get(preferred) : undefined) ?? this.#runtimes.values().next().value)?.info.id ?? null
       },
+      readyRuntimes: () => this.#readyRuntimes(),
       projectRoots: () => this.#state.state.workspaces.filter(workspace => !isManagedChatFolder(this.#state, workspace.path)).map(workspace => workspace.path),
       projectName: root => folderName(this.#sessionIndex.repo(root)?.repo?.root ?? root),
       canInterrupt: runtime => this.#runtimes.get(runtime)?.info.capabilities.interrupt === true,
       models: async runtime => {
         await this.#ensureStarted(this.#runtime({ runtime }))
         return this.call('runtime/models', { runtime })
+      },
+      // What an earlier read left, else a running runtime's answer; never a start.
+      knownModels: async runtime => {
+        const known = this.#runtimes.get(runtime)
+        if (!known) return null
+        return this.#runtimeCache.get(String(runtime)).models ?? (known.health().state === 'ready' ? this.call('runtime/models', { runtime }) : null)
       },
       newSessionValues: async (runtime, cwd, choices) => {
         await this.#ensureStarted(this.#runtime({ runtime }))
