@@ -915,6 +915,7 @@ test('a reply at the largest size a model text can have is written, and one more
 for (const [name, args] of [
   ['no text', []],
   ['an empty text', ['']],
+  ['empty text with no ask', ['', null]],
   ['a text that is not a string', [{ text: 'x' }]],
   ['two arguments', ['one', 'two']],
 ] as const) test(`a reply request with ${name} breaks the child protocol and writes nothing`, async () => {
@@ -1137,4 +1138,52 @@ test('private child activity is validated, distinct from presence and cleared wh
   assert.deepEqual(activity, [true])
   await f.supervisor.stop()
   assert.deepEqual(activity, [true, false])
+})
+
+test('the host admits and stores the child ordinary ask across appendReply IPC', async () => {
+  const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const admitted: string[] = []
+  const f = await replyRig(['A decision.', null, ask], { admitReply: async (text: string) => { admitted.push(text) } })
+  try {
+    await f.supervisor.send(request)
+    assert.equal((await f.replied).ok, true)
+    assert.deepEqual(f.journal.state.messages.at(-1)?.ask, ask)
+    assert.deepEqual(admitted, ['A decision.', JSON.stringify(ask)])
+  } finally { await f.supervisor.stop() }
+})
+
+test('an ask-only appendReply frame keeps the child alive and retains the decision in history', async () => {
+  const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const admitted: string[] = []
+  const f = await replyRig(['', null, ask], { admitReply: async (text: string) => { admitted.push(text) } })
+  try {
+    assert.equal((await f.supervisor.send(request)).status, 'completed')
+    assert.equal((await f.replied).ok, true)
+    assert.equal(f.supervisor.live, true)
+    const reply = f.journal.state.messages.at(-1)!
+    assert.equal(reply.text, '')
+    assert.deepEqual(reply.ask, ask)
+    assert.deepEqual(admitted, ['', JSON.stringify(ask)])
+    const { leadHistory } = await import('../src/messages.js')
+    const history = leadHistory([{ role: 'user', text: 'Help me choose' }, reply, { role: 'user', text: 'Start it' }])
+    assert.ok(history[1]!.content.every(block => 'text' in block && block.text.trim().length > 0))
+    assert.match(JSON.stringify(history[1]), /Choose a next step/)
+  } finally { await f.supervisor.stop() }
+})
+
+
+test('appendReply refuses an ask together with a proactive report without writing either', async () => {
+  const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const proactive = { finding: 'A check is missing.', caveat: 'No work has started.', ask: ask.question, options: ask.options, recommended: ask.recommended }
+  const admitted: string[] = []
+  const f = await replyRig(['A decision.', proactive, ask], { admitReply: async (text: string) => { admitted.push(text) } })
+  try {
+    assert.equal((await f.supervisor.send(request)).status, 'completed')
+    const response = await f.replied
+    assert.equal(response.ok, false)
+    assert.equal(response.value, 'lead-reply-refused')
+    assert.equal(f.supervisor.live, true)
+    assert.deepEqual(f.assistant(), [])
+    assert.deepEqual(admitted, [])
+  } finally { await f.supervisor.stop() }
 })

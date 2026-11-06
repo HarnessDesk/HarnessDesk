@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import type { Readable, Writable } from 'node:stream'
 import { connect, type Client, type ClientTransport } from '@harnessdesk/client'
-import { parseClientMessage, parseLeadPermissionPolicy, type HostToClient } from '@harnessdesk/protocol'
+import { parseClientMessage, parseLeadPermissionPolicy, parseLeadMessage, type HostToClient } from '@harnessdesk/protocol'
 import type { LeadChildConfig } from './child-ipc.js'
 import type { LeadState } from './state.js'
 import type { LeadDispatch } from './journal.js'
@@ -117,7 +117,10 @@ export const runLeadChild = (options: ChildOptions = {}) => {
     restoreResult: async (id, revision) => { await rpc('restoreResult', [id, revision]) },
     recoverUnsettledRequests: async () => { await rpc('recoverUnsettledRequests', []) },
     recordWake: async wake => { await rpc('recordWake', [wake]) },
-    appendReply: async (text, proactive) => { await rpc('appendReply', proactive ? [text, proactive] : [text]) },
+    appendReply: async (text, proactive, ask) => {
+      const message = parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text, ...(proactive ? { proactive } : {}), ...(ask ? { ask } : {}) })
+      await rpc('appendReply', message.ask ? [message.text, null, message.ask] : message.proactive ? [message.text, message.proactive] : [message.text])
+    },
   }
   let closing: Promise<void> | null = null
   const close = (): Promise<void> => {

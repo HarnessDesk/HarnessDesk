@@ -1040,7 +1040,15 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     return limit
   }) }),
   'lead/chat/read': phoneShape({ id: phoneText(300) }),
-  'lead/chat/start': phoneShape({ text: phoneText(16_384) }),
+  'lead/chat/start': phoneShape({ text: phoneText(16_384), quote: optional((value, path = '') => {
+    const ids = arrayOf((value, at = '') => {
+      const id = phoneText(256)(value, at)
+      if (!/^[A-Za-z0-9._:/@-]+$/.test(id)) throw new ValidationError(at, 'expected a message id')
+      return id
+    })(value, path)
+    if (ids.length < 1 || ids.length > 3 || new Set(ids).size !== ids.length) throw new ValidationError(path, 'expected 1 to 3 unique message ids')
+    return ids
+  }) }),
   'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384) }),
   'lead/chats/resetControl': parseLeadEmpty,
   'lead/chats/control': parseLeadEmpty,

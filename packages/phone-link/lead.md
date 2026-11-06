@@ -447,3 +447,59 @@ Ordinary worker phone cards cannot display extra-grant scope. When it is present
 their existing `why` field says “Extra permissions need review on the desk.” and
 the host refuses approval from that card; the Lead card's complete `details`
 continues to support an informed one-time answer.
+
+
+## Questions with one-tap answers
+
+An ordinary assistant `LeadMessage` may carry `ask`. It never appears on a
+person message or together with `proactive`:
+
+```json
+{
+  "version": 1,
+  "id": "message-4",
+  "revision": 4,
+  "role": "assistant",
+  "text": "I recommend a separate fix.",
+  "ask": {
+    "question": "Start the label fix?",
+    "options": [{"id": "start", "label": "Start it"}, {"id": "later", "label": "Not now"}],
+    "recommended": "start"
+  }
+}
+```
+
+A proactive report keeps its question in `ask` and carries the choices alongside
+it inside `proactive`:
+
+```json
+{
+  "finding": "A nearby label has no accessible name.",
+  "caveat": "No work has started.",
+  "ask": "Start a separate fix?",
+  "options": [{"id": "start", "label": "Start it"}, {"id": "later", "label": "Not now"}],
+  "recommended": "start"
+}
+```
+
+There are 2–4 options with unique lowercase slug ids (up to 32 characters) and
+case-insensitively unique plain-text labels (one line, up to 60 characters, no
+controls). The recommendation names an option id. Questions are one line up to
+800 characters. Proactive options and recommendation are present together;
+legacy journal reports may have neither.
+
+Render the recommended option as primary and the others as secondary. Only the
+latest assistant ask with no person message after it is live. Older and answered
+asks are quiet, non-interactive records; mark the picked label when it matches
+the next person message. Disable live choices whenever sending is unavailable
+or in flight. Keep the composer for another answer; there is no Other button.
+
+Answer through the existing send method, using the exact option label as text:
+
+```json
+{"method":"lead/thread/send","params":{"idempotencyKey":"answer-4","text":"Start it"}}
+```
+
+No new method or tier is needed. An older phone ignores the optional fields and
+keeps showing the proactive question line. For an ordinary reply it shows the
+existing prose, including the question when it also appears in `text`.

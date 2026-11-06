@@ -1022,7 +1022,7 @@ for (const action of ['approve', 'resume'] as const) test(`after ${action} the p
   assert.equal('system' in request, false)
   // History is rebuilt from the journal as plain text, so no earlier reasoning block can be replayed into it.
   assert.ok(request.messages.every((turn: any) => turn.content.every((block: any) => block.type === 'text')))
-  assert.deepEqual(request.messages.slice(0, 2).map((turn: any) => [turn.role, turnText(turn)]), [['user', 'Inspect the check'], ['assistant', 'Ready to inspect']])
+  assert.deepEqual(request.messages.slice(0, 2).map((turn: any) => [turn.role, turn.content[0].text]), [['user', 'Inspect the check'], ['assistant', 'Ready to inspect']])
   assert.equal(request.messages.at(-1).role, 'user')
   assert.deepEqual(approvedContractOf(request.messages.at(-1)), contract)
   assert.match(turnText(request.messages.at(-1)), /^The person approved your plan\./)
@@ -1037,7 +1037,7 @@ test('a message the person sends after approval is followed by the contract, so 
   const request: any = s.sends.at(-1)
   assert.equal(request.messages.at(-1).role, 'user')
   assert.deepEqual(approvedContractOf(request.messages.at(-1)), contract)
-  assert.equal(turnText(request.messages.at(-2)), 'Also cover the empty case', 'the person\'s words stay in the history, in the order they were said')
+  assert.equal(request.messages.at(-2).content[0].text, 'Also cover the empty case', 'the person\'s words stay in the history, in the order they were said')
   s.controls.close()
 })
 
@@ -1931,7 +1931,7 @@ test('a silent wake between reading settings and saving them does not stale the 
 })
 
 test('automatic fallback keeps a valid model report and never fabricates a report from plain text', async () => {
-  const proactive = { finding: 'The current check failed.', caveat: 'Review is pending.', ask: 'Inspect changes', action: 'changes' }
+  const proactive = { finding: 'The current check failed.', caveat: 'Review is pending.', ask: 'Inspect changes', action: 'changes', options: [{ id: 'inspect', label: 'Inspect changes' }, { id: 'later', label: 'Not now' }], recommended: 'inspect' }
   for (const report of [proactive, undefined]) {
     const s = await rig({ configured: true, service: { async send() { return { status: 'completed', text: 'Plain model text', ...(report ? { proactive: report } : {}) } } } })
     await s.controls.send({ idempotencyKey: 'scheduled', text: 'Read CI' }, { source: 'schedule', event: 'morning', subject: 'CI', url: null })
@@ -2227,4 +2227,22 @@ test('ordinary chat cannot resume an orphaned worker audit; explicit Resume can'
   await controls.resume({ expectedRevision: projection.revision }); await controls.idle()
   assert.equal(journal.state.orphanedWorkerDispatch, null)
   assert.equal(s.sends.length, 1)
+})
+
+test('the host-only reply path carries an ordinary ask even when its prose is empty', async () => {
+  const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const s = await rig({ configured: true, service: { async send() { return { status: 'completed', text: '', ask } } } })
+  try {
+    await s.call('lead/thread/send', { idempotencyKey: 'ask', text: 'Help me decide' }); await s.controls.idle()
+    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, ask)
+  } finally { s.controls.close() }
+})
+
+test('the host-only reply path refuses an ordinary ask mixed with proactive output', async () => {
+  const ask = { question: 'Choose', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const s = await rig({ configured: true, service: { async send() { return { status: 'completed', text: 'Mixed.', ask, proactive: { finding: 'Found.', caveat: 'No work.', ask: ask.question, options: ask.options, recommended: ask.recommended } } } } })
+  try {
+    await s.call('lead/thread/send', { idempotencyKey: 'mixed', text: 'Help me decide' }); await s.controls.idle()
+    assert.equal(s.journal.state.messages.some(message => message.role === 'assistant'), false)
+  } finally { s.controls.close() }
 })
