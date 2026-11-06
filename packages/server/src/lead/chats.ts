@@ -236,12 +236,25 @@ export class LeadChats {
   }
   #envelope(text: string): string { return leadMessageEnvelope(leadDisplayName(this.ports.state().name), text) }
   #startText(params: HostParams<'lead/chat/start'>): string | { readonly problem: string } {
-    const people = this.ports.state().messages.filter(message => message.role === 'user')
-    const ids = params.quote ?? people.slice(-1).map(message => message.id)
+    const messages = this.ports.state().messages
+    const people = messages.filter(message => message.role === 'user')
+    let ids = params.quote
+    if (ids === undefined) {
+      ids = []
+      for (let index = messages.length - 1; index >= 0; index--) {
+        const person = messages[index]!
+        if (person.role !== 'user') continue
+        const previous = messages[index - 1]
+        const options = previous?.role === 'assistant' ? previous.ask?.options ?? previous.proactive?.options : undefined
+        if (options?.some(option => option.label === person.text)) continue
+        ids = [person.id]
+        break
+      }
+    }
     if (ids.some(id => !people.some(message => message.id === id)))
       return { problem: 'Quote only a person message in the current conversation window.' }
     const quoted = people.filter(message => ids.includes(message.id))
-    if (quoted.length && params.text.split(/\r\n|[\r\n\u2028\u2029]/).some(line => line.trim().toLowerCase() === "the person's words, verbatim:"))
+    if (quoted.length && /person.?s\s+words,?\s*verbatim/i.test(params.text.normalize('NFKC')))
       return { problem: "Remove the verbatim marker from the brief. Pass the person's message ids in quote; the host appends their words." }
     const text = quoted.length ? `${params.text}\n\n---\nThe person's words, verbatim:\n\n${quoted.map(message => '> ' + message.text.replace(/(\r\n|\r|\n)/g, '$1> ')).join('\n\n')}` : params.text
     if (text.length > LEAD_LIMITS.textChars) return { problem: 'The brief and quoted person messages are too long. Use a shorter brief or fewer quotes.' }

@@ -683,11 +683,11 @@ const askOptionId: Validator<string> = (value, path = '') =>
   typeof value === 'string' && /^[a-z0-9-]{1,32}$/.test(value) ? value : fail(path, 'expected a short option slug')
 const askOptions = list(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
   const label = text(60)(value, path)
-  return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label) ? fail(path, 'expected one plain-text label') : label
+  return label !== label.trim() || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label) ? fail(path, 'expected one trimmed plain-text label') : label
 } }), 4, 2, option => option.id)
 export const parseLeadAsk: Validator<LeadAsk> = (value, path = '') => {
   const ask = object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId })(value, path)
-  if (new Set(ask.options.map(option => option.label.toLowerCase())).size !== ask.options.length) fail(path, 'duplicate option label')
+  if (new Set(ask.options.map(option => option.label.trim().replace(/\s+/gu, ' ').toLowerCase())).size !== ask.options.length) fail(path, 'duplicate option label')
   if (!ask.options.some(option => option.id === ask.recommended)) fail(path, 'recommendation must name an option')
   return ask
 }

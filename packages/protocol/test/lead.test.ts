@@ -590,3 +590,18 @@ test('strict asks and new proactive output require bounded unique options and a 
   assert.throws(() => protocol.parseLeadMessage({ ...message, proactive: legacy }))
   assert.throws(() => protocol.parseLeadProactive({ ...legacy, options: ask.options }))
 })
+
+
+test('ask labels are trimmed and unique across case and collapsed whitespace', () => {
+  const question = 'Start this work?'
+  const options = [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }]
+  const parse = (options: unknown) => {
+    const ask = { question, options, recommended: 'start' }
+    return [() => protocol.parseLeadAsk(ask), () => protocol.parseLeadProactive({ finding: 'A check is missing.', caveat: 'No work has started.', ask: question, options, recommended: 'start' })]
+  }
+  for (const label of [' Start it', 'Start it ', '\u00a0Start it', 'Start it\u00a0'])
+    for (const validate of parse([{ ...options[0], label }, options[1]])) assert.throws(validate, protocol.ValidationError)
+  for (const label of ['START  IT', 'start\u00a0it'])
+    for (const validate of parse([options[0], { ...options[1], label }])) assert.throws(validate, protocol.ValidationError)
+  for (const validate of parse([{ ...options[0], label: 'Start  it' }, options[1]])) assert.doesNotThrow(validate)
+})

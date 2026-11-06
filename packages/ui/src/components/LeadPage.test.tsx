@@ -819,10 +819,21 @@ it('keeps answered ordinary asks as quiet records with the picked label marked a
   expect(button('Start it').disabled).toBe(true)
 })
 
-it('sends an option label verbatim even when it has surrounding spaces', async () => {
-  const base = leadProjection(), label = ' Start it '
+it('sends an option label with its internal spacing unchanged', async () => {
+  const base = leadProjection(), label = 'Start  it'
   const { store } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'ask-spaces', revision: 1, role: 'assistant', text: 'Choose.', ask: { ...askFixture, options: [{ id: 'start', label }, askFixture.options[1]!] } }] } })
   const send = vi.spyOn(store.lead, 'send').mockResolvedValue({ messageId: 'answer', revision: 2 })
   await act(async () => button(label).click())
   expect(send).toHaveBeenCalledWith(label, expect.any(String))
+})
+
+
+it.each(['', '   '])('renders an ask-only reply without an empty transcript item (text=%j)', async text => {
+  const base = leadProjection()
+  const { box } = await mount({ ...base, thread: { ...base.thread, messages: [{ version: 1, id: 'ask-only', revision: 1, role: 'assistant', text, ask: askFixture }] } })
+  const reply = [...box.querySelectorAll('article')].find(article => article.textContent?.includes(askFixture.question))!
+  expect(reply).not.toBeNull()
+  expect(reply.textContent).toContain(askFixture.question)
+  expect(button('Start it')).toBeDefined()
+  expect(reply.querySelector('[data-slot="turn-item"]')).toBeNull()
 })

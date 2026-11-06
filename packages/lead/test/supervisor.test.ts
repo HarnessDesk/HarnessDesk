@@ -915,6 +915,7 @@ test('a reply at the largest size a model text can have is written, and one more
 for (const [name, args] of [
   ['no text', []],
   ['an empty text', ['']],
+  ['empty text with no ask', ['', null]],
   ['a text that is not a string', [{ text: 'x' }]],
   ['two arguments', ['one', 'two']],
 ] as const) test(`a reply request with ${name} breaks the child protocol and writes nothing`, async () => {
@@ -1167,5 +1168,22 @@ test('an ask-only appendReply frame keeps the child alive and retains the decisi
     const history = leadHistory([{ role: 'user', text: 'Help me choose' }, reply, { role: 'user', text: 'Start it' }])
     assert.ok(history[1]!.content.every(block => 'text' in block && block.text.trim().length > 0))
     assert.match(JSON.stringify(history[1]), /Choose a next step/)
+  } finally { await f.supervisor.stop() }
+})
+
+
+test('appendReply refuses an ask together with a proactive report without writing either', async () => {
+  const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const proactive = { finding: 'A check is missing.', caveat: 'No work has started.', ask: ask.question, options: ask.options, recommended: ask.recommended }
+  const admitted: string[] = []
+  const f = await replyRig(['A decision.', proactive, ask], { admitReply: async (text: string) => { admitted.push(text) } })
+  try {
+    assert.equal((await f.supervisor.send(request)).status, 'completed')
+    const response = await f.replied
+    assert.equal(response.ok, false)
+    assert.equal(response.value, 'lead-reply-refused')
+    assert.equal(f.supervisor.live, true)
+    assert.deepEqual(f.assistant(), [])
+    assert.deepEqual(admitted, [])
   } finally { await f.supervisor.stop() }
 })
