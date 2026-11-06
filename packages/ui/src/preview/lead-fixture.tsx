@@ -36,7 +36,7 @@ export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', 
 export const leadMemory: LeadMemory = { version: 1, items: [
   { id: 'memory-small', text: 'Keep each pull request small enough to review in one sitting.', state: 'kept', at: 1 },
   { id: 'memory-lint', text: 'Run the linter before asking for review.', state: 'suggested', at: 2 }] }
-export const LEAD_SCENES = ['repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder'] as const
+export const LEAD_SCENES = ['repeating-plan', 'settings-runs', 'second-look', 'allowance-warning', 'chat-effect-uncertain', 'ordinary-chat', 'ordinary-reply', 'setup-blocked', 'runtime-unavailable', 'wake-ledger', 'first-name', 'settings-seeds', 'opening-jobs', 'proactive', 'away-digest', 'following', 'handback-running', 'push-card', 'branch-released', 'branch-rewritten', 'handback-limit', 'settings-triggers', 'loading', 'empty', 'goal-composer', 'pending-plan', 'missing-plan', 'predecessor-unavailable', 'predecessor-unverifiable', 'planning', 'running', 'running-message', 'stopped', 'waiting', 'result-person-gate', 'evidence-failed', 'worker-approval', 'required-check', 'resume', 'consent-expired', 'renewal-blocked', 'settings-configured', 'settings-unconfigured', 'stale-card-replacement', 'narrow', 'app-shell', 'no-folder'] as const
 export type LeadScene = typeof LEAD_SCENES[number]
 export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   const base = leadProjection(), thread = { ...base.thread }
@@ -50,6 +50,10 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
   if (thread.cards.some(card => card.type === 'plan')) projection = { ...projection, wayOut: 'decide-plan' }
   if (scene === 'waiting') { thread.cards = [leadWaiting]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { waiting: 3 } }
   if (scene === 'result-person-gate') { thread.cards = [leadResult]; thread.state = 'waiting-for-user'; thread.contract = leadContract; thread.cardPositions = { result: 3 } }
+  // A check that ran and said no, and a review that approved without confirming it: the card says each in fixed words.
+  if (scene === 'evidence-failed') { thread.cards = [{ ...leadWaiting, summary: 'Not ready yet. One check failed and the review goes again.', assertions: leadResult.assertions.map(result =>
+    result.assertionId === 'checks' ? { ...result, status: 'failed' as const, reason: 'Recorded evidence failed: keyboard' }
+      : result.assertionId === 'review' ? { ...result, status: 'failed' as const, reason: 'hedged-approval' } : result) }]; thread.state = 'running'; thread.contract = leadContract; thread.budget = leadBudget; thread.cardPositions = { waiting: 3 } }
   if (['following', 'handback-running', 'branch-released', 'branch-rewritten'].includes(scene)) {
     const head = 'b'.repeat(40)
     thread.state = scene === 'handback-running' ? 'running' : scene === 'branch-rewritten' ? 'waiting-for-user' : 'following'
