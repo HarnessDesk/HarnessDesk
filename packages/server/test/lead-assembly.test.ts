@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { readChecks } from '../src/evidence/checks-file.js'
 import test from 'node:test'
-import { createLeadJournal, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
+import { createLeadJournal, evaluateLeadAcceptance, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
 import { LEAD_LIMITS, parseLeadAcceptanceContract } from '@harnessdesk/protocol'
 import { freezeLeadPlan, LEAD_DEFAULT_CAPS, LEAD_LEGACY_DEFAULT_USD_MICROS, LeadAssembly, leadSpendLimitMigration, leadPreviewUnfit, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence, type LeadAssemblyOptions } from '../src/lead/assembly.js'
 import { tempDir } from './scratch.js'
@@ -66,6 +66,25 @@ test('evidence preserves missing and stale facts separately from complete negati
   assert.equal(complete.revision, revision)
   assert.equal(complete.checks.length, 2)
   assert.deepEqual(complete.reviews.map(one => [one.assertionId, one.verdict]), [['review', 'approve']])
+  const incomplete = await read([{ card: 1, facts: [reviewed, check('unit', { exit: 1 })] }])
+  const unknown = evaluateLeadAcceptance(withRun.state.contract!, incomplete, { now: 1000, freshnessMs: 50, revision: 1 })
+  assert.equal(unknown.assertions[0]!.status, 'unknown', 'the missing lint sibling makes the failed unit fact incomplete')
+  assert.equal(unknown.checksCouldNotRun, false, 'an incomplete negative verdict is not runner-only trouble')
+
+  const rereviewCards = [{ card: 1, facts: [reviewed, check('unit'), check('lint')] },
+    { card: 2, facts: [fact('r2', 'review', revision, 'fresh', { verdict: 'approve' })] },
+    { card: 3, facts: [fact('r3', 'review', revision, 'fresh', { verdict: 'approve' })] }]
+  const rereviewed = await readLeadEvidence(withRun, 'run-1', async call => {
+    if (call.method === 'flow/execution') return { rounds: [{ cards: [1] }, { cards: [2, 3] }] }
+    if (call.method === 'goal/read') return { board: { intents: [
+      { id: 1, state: 'done', note: 'This should work.' },
+      { id: 2, state: 'done', note: 'Verified the required checks.' },
+      { id: 3, state: 'done', note: 'Verified the committed diff.' },
+    ] } }
+    return reads(rereviewCards)(call)
+  }, () => 1000)
+  assert.deepEqual(rereviewed.reviews.map(review => review.id), ['r2', 'r3'], 'all reviewers in the new round supersede the earlier hedge at the same commit')
+  assert.equal(evaluateLeadAcceptance(withRun.state.contract!, rereviewed, { now: 1000, freshnessMs: 50, revision: 1 }).status, 'reviewed')
 })
 
 test('plans freeze to the sha256 of their canonical JSON, projects are named by path and seats come from ready runtimes', async () => {

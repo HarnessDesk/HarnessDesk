@@ -3,13 +3,15 @@ import { lstat, mkdir, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
-import { createLeadJournal } from '@harnessdesk/lead'
+import { createLeadJournal, leadReviewedResultSourceFor } from '@harnessdesk/lead'
 import { approvalId, parseLeadAcceptanceContract } from '@harnessdesk/protocol'
 import { Host, StateStore } from '../src/index.js'
 import { SeatBook } from '../src/evidence/seats.js'
 import { LeadControls } from '../src/lead/controls.js'
 import { evidenceDesk, writeAgent } from './fixtures/evidence-desk.js'
 import { LeadBudgets } from '../src/lead/budgets.js'
+import { LeadAssembly, type LeadAssemblyOptions } from '../src/lead/assembly.js'
+import { FlowPreviews } from '../src/flow-preview.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
@@ -21,6 +23,26 @@ const rig = (t: TestContext, leadEnabled?: boolean) => {
   return { host, home }
 }
 const unavailable = (error: any) => error.wireCode === 'lead-unavailable'
+
+test('the host previews the frozen source revision when checking plan seats', async t => {
+  let options: LeadAssemblyOptions | undefined
+  t.mock.method(LeadAssembly.prototype, 'restore', async function (this: LeadAssembly) {
+    options = (this as unknown as { options: LeadAssemblyOptions }).options
+  })
+  const sources: string[] = []
+  t.mock.method(FlowPreviews.prototype, 'preview', async (_root: string, source: string) => {
+    sources.push(source)
+    throw new Error('No synthetic seats available')
+  })
+  const { host } = rig(t, true)
+  await host.start()
+  assert.ok(options?.seatsHold)
+  for (const sourceRevision of ['recipe-1', 'recipe-2']) {
+    await options.seatsHold('/work/acme', { id: 'work', title: 'Verify', flow: 'lead-reviewed-result', sourceRevision,
+      attendance: 'attended', variables: {}, assignments: [] })
+    assert.equal(sources.at(-1), leadReviewedResultSourceFor(sourceRevision))
+  }
+})
 
 for (const enabled of [undefined, false]) test(`disabled host (${String(enabled)}) refuses a Lead owner before reading its ports`, async t => {
   const { host } = rig(t, enabled)

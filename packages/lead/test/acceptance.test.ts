@@ -48,7 +48,7 @@ test('checks that cannot run are errored, never a code failure', () => {
 })
 
 test('approval must not hedge outside quoted code', () => {
-  for (const text of ['This SHOULD WORK.', 'Probably correct', "I didn't run the tests", 'It might pass']) {
+  for (const text of ['This SHOULD WORK.', 'Probably correct', "I didn't run the tests"]) {
     const result = evaluate({ reviews: [{ ...evidence().reviews[0], text }] })
     assert.equal(result.status, 'failed', text)
     assert.equal(result.assertions[1].reason, 'hedged-approval')
@@ -103,8 +103,45 @@ test('a failed aggregate still carries the other check that could not run', () =
 })
 
 
-test('a hedged approving fact keeps its reason alongside another rejecting review', () => {
+test('a request for changes takes precedence over another reviewer hedging approval', () => {
   const result = evaluate({ reviews: [{ ...evidence().reviews[0], text: 'should work' },
     { ...evidence().reviews[0], id: 'review-2', verdict: 'request-changes', text: 'A defect remains.' }] })
-  assert.equal(result.assertions[1].reason, 'hedged-approval')
+  assert.equal(result.assertions[1].reason, 'Recorded evidence failed')
+  assert.equal(result.checksCouldNotRun, false)
+})
+
+
+test('verified historical language is not a hedge', () => {
+  for (const text of ['An earlier draft might have raced; I verified the fix.', 'The old branch seems to have differed; verified this revision.', 'I think the earlier report was mistaken; all checks verified.'])
+    assert.equal(evaluate({ reviews: [{ ...evidence().reviews[0], text }] }).status, 'reviewed', text)
+})
+
+test('curly apostrophes and stray multiline backticks cannot hide a hedge', () => {
+  for (const text of ['I didn’t run the check.', 'A stray ` marker.\nIt should work. Later ` marker.', '```incomplete fence\nIt should work.',
+    'A mismatched `should work`` span.', 'A mismatched ``should work``` span.'])
+    assert.equal(evaluate({ reviews: [{ ...evidence().reviews[0], text }] }).assertions[1].reason, 'hedged-approval', text)
+  for (const text of ['An example: `should work`.', '```ts\n// should work\n```\nVerified the change.'])
+    assert.equal(evaluate({ reviews: [{ ...evidence().reviews[0], text }] }).status, 'reviewed', text)
+})
+
+test('rerun observations use check names and keep assertion ids internal', () => {
+  const result = evaluate({ checks: [{ ...evidence().checks[0], name: 'Unit tests', exit: null }] })
+  const observation = exported('leadAcceptanceObservation')(result)
+  assert.match(observation, /"Unit tests"/)
+  assert.doesNotMatch(observation, /"unit"|"assertionId"/)
+  const missing = evaluate({ checks: [] })
+  const action = { kind: 'check', id: 'action', runId: 'run', name: 'Unit tests', command: 'node test' }
+  assert.match(exported('leadAcceptanceObservation')(missing, [action]), /"Unit tests"/)
+  assert.doesNotMatch(exported('leadAcceptanceObservation')(missing, [action]), /"unit"|"assertionId"/)
+})
+
+test('runner-only waiting excludes stale negative reviews and incomplete check verdicts', () => {
+  assert.equal(evaluate({ checks: [] }).checksCouldNotRun, true)
+  assert.equal(evaluate({ checks: [{ ...evidence().checks[0], exit: null }] }).checksCouldNotRun, true)
+  assert.equal(evaluate({ checks: [{ ...evidence().checks[0], exit: 1, complete: false }] }).checksCouldNotRun, false)
+  for (const patch of [{ observedAt: 0 }, { complete: false }]) {
+    const result = evaluate({ checks: [], reviews: [{ ...evidence().reviews[0], verdict: 'request-changes', ...patch }] })
+    assert.equal(result.status, 'unknown')
+    assert.equal(result.checksCouldNotRun, false)
+  }
 })

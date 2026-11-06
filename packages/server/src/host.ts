@@ -4133,7 +4133,8 @@ export class Host {
       heldPreview: token => this.#flowPreviews.leadHeld(token),
       seatsHold: async (root, step) => {
         // A preview that cannot even be taken is a plan that cannot start: the same answer, never a broken Lead.
-        const preview = await this.#flowPreviews.preview(root, leadReviewedResultSource, step.variables, undefined, undefined, {
+        const source = leadReviewedResultSourceFor(step.sourceRevision)
+        const preview = source === null ? null : await this.#flowPreviews.preview(root, source, step.variables, undefined, undefined, {
           seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])),
           attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
         const unfit = leadPreviewUnfit(preview)

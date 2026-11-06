@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test, type TestContext } from 'node:test'
 import { parseClientMessage } from '@harnessdesk/protocol'
-import { leadReviewedResultSource } from '@harnessdesk/lead'
+import { evaluateLeadAcceptance, leadReviewedResultSource, type LeadAcceptanceEvidence, type LeadAcceptanceResult } from '@harnessdesk/lead'
 import { leadRig } from './fixtures/lead.js'
 import { flowMethods } from '../src/methods/flows.js'
 
@@ -186,16 +186,11 @@ test('a stored recipe-1 plan starts and keeps its host guard after recovery', as
 })
 
 
-for (const failed of [true, false]) test(`repair scheduling carries actual failed assertions and preserves error-only checks (failed=${failed})`, async t => {
+const reviewedRun = async (t: TestContext, acceptance: () => Promise<LeadAcceptanceResult>) => {
   const { agent, goalRig } = await import('./fixtures/flow-goal-rig.js')
-  const assertions = [
-    { assertionId: 'unit', status: failed ? 'failed' as const : 'passed' as const, reason: failed ? 'Unit check found a defect' : null },
-    { assertionId: 'lint', status: 'passed' as const, reason: null },
-    { assertionId: 'runner', status: 'errored' as const, reason: 'The check could not produce a verdict' },
-  ].map(assertion => ({ ...assertion, revision: 1, contractRevision: 1, evidence: [] }))
   const rig = await goalRig(t, { executionOptions: { lead: {
     bind: async () => {}, round: async () => {}, gate: async () => ({ ok: true as const }),
-    acceptance: async () => ({ status: failed ? 'failed' as const : 'unknown' as const, assertions, erroredChecks: ['runner'] }),
+    acceptance,
   } } })
   rig.providers.set('alpha', 'writer-vendor'); rig.providers.set('beta', 'review-vendor')
   const reviewer = agent('code-reviewer', ['approve', 'request-changes'], 'beta')
@@ -216,18 +211,98 @@ for (const failed of [true, false]) test(`repair scheduling carries actual faile
   const review = rig.flows.executionOf(run.id)!.rounds.at(-1)!
   assert.equal(review.role, 'review')
   assert.ok(review.seats.length, rig.flows.executionOf(run.id)!.reason ?? 'review must seat')
+  return { rig, run, review }
+}
+
+const verdict = (assertionId: string, status: LeadAcceptanceResult['assertions'][number]['status'], reason: string | null = null) =>
+  ({ assertionId, status, reason, revision: 1, contractRevision: 1, evidence: [] })
+
+test('repair scheduling carries exactly the failed assertions and separate runner errors', async t => {
+  const acceptance: LeadAcceptanceResult = { status: 'failed', assertions: [verdict('unit', 'failed', 'Unit check found a defect'),
+    verdict('lint', 'passed'), verdict('runner', 'errored')], erroredChecks: ['runner'] }
+  const { rig, run, review } = await reviewedRun(t, async () => acceptance)
   await rig.team.complete(review.cards[0]!, { outcome: 'request-changes' }, rig.sessionOf(review.seats[0]!))
   await rig.flows.flush()
   const after = rig.flows.executionOf(run.id)!
   assert.equal(after.state, 'running')
-  assert.equal(after.rounds.length, failed ? 3 : 2)
-  if (failed) {
-    const repair = rig.board(run.goal).intents.find(card => card.id === after.rounds[2]!.cards[0])!
-    const input = JSON.parse(repair.detail!.split('Repair input: ')[1]!.split('\n')[0]!)
-    assert.deepEqual(input, { failed: [{ assertionId: 'unit', reason: 'Unit check found a defect' }], errored: ['runner'] })
-    assert.doesNotMatch(repair.detail!, /"assertionId":"lint"/)
-  } else {
-    assert.equal(rig.board(run.goal).intents.length, 2)
-    assert.match(after.reason!, /Re-run these checks; they did not fail, they could not run/)
+  assert.equal(after.rounds.length, 3)
+  const repair = rig.board(run.goal).intents.find(card => card.id === after.rounds[2]!.cards[0])!
+  const input = JSON.parse(repair.detail!.split('Repair input: ')[1]!.split('\n')[0]!)
+  assert.deepEqual(input, { failed: [{ assertionId: 'unit', reason: 'Unit check found a defect' }], errored: ['runner'] })
+  assert.doesNotMatch(repair.detail!, /"assertionId":"lint"/)
+})
+
+for (const scenario of ['stale rejection', 'failed check with missing sibling'] as const) test(`a repair opens for ${scenario} even without a complete failed assertion`, async t => {
+  const { contract } = await leadRig(t)
+  const plan = { ...contract, assertions: [{ id: 'checks', kind: 'check' as const, description: 'Required checks' }, ...contract.assertions] }
+  const evidence: LeadAcceptanceEvidence = { project: plan.project, runId: 'run', contractDigest: plan.digest, revision: 'a'.repeat(40),
+    observedAt: 100, complete: true, spendComplete: true, findingsComplete: true, findings: [], diffs: [],
+    checks: scenario === 'stale rejection' ? [] : [{ assertionId: 'checks', id: 'unit-failed', name: 'Unit tests', revision: 'a'.repeat(40),
+      observedAt: 100, complete: false, exit: 1, counted: true, timedOut: false, dirty: false }],
+    reviews: [{ assertionId: 'review', id: 'review', revision: 'a'.repeat(40), observedAt: scenario === 'stale rejection' ? 0 : 100,
+      complete: false, verdict: 'request-changes', text: 'Fix the missing migration check.' }] }
+  const acceptance = evaluateLeadAcceptance(plan, evidence, { now: 100, freshnessMs: 50, revision: 1 })
+  assert.equal(acceptance.status, 'unknown')
+  assert.equal(acceptance.assertions.some(assertion => assertion.status === 'failed'), false)
+  const { rig, run, review } = await reviewedRun(t, async () => acceptance)
+  await rig.team.complete(review.cards[0]!, { outcome: 'request-changes', note: 'Fix the missing migration check.' }, rig.sessionOf(review.seats[0]!))
+  await rig.flows.flush()
+  const after = rig.flows.executionOf(run.id)!
+  assert.equal(after.rounds.length, 3)
+  assert.equal(after.rounds[2]!.role, 'implement')
+  const repair = rig.board(run.goal).intents.find(card => card.id === after.rounds[2]!.cards[0])!
+  assert.match(repair.detail!, /"failed":\[\]/)
+  assert.match(repair.detail!, /Fix the missing migration check/)
+  assert.deepEqual(repair.dependsOn, review.cards)
+})
+
+test('only runner trouble can suppress a repair, and a review request overrides it', async t => {
+  const result: LeadAcceptanceResult = { status: 'unknown', assertions: [verdict('checks', 'errored')],
+    checksCouldNotRun: true, checksToRerun: ['Unit tests'] }
+  const { rig, run, review } = await reviewedRun(t, async () => result)
+  await rig.executions.openRound(run.id, { role: 'implement', title: 'Retry the checks' }, { key: 'runner-trouble', evidence: [] })
+  assert.equal(rig.flows.executionOf(run.id)!.rounds.length, 2)
+  assert.match(rig.flows.executionOf(run.id)!.reason!, /Re-run these checks; they did not fail, they could not run/)
+  await rig.team.complete(review.cards[0]!, { outcome: 'request-changes' }, rig.sessionOf(review.seats[0]!))
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionOf(run.id)!.rounds.length, 3)
+})
+
+test('a hedged approval reopens review on the same commit, then a verified approval reaches acceptance', async t => {
+  const { contract: approved } = await leadRig(t)
+  const contract = { ...approved, assertions: [...approved.assertions,
+    { id: 'checks', kind: 'check' as const, description: 'Required checks' },
+    { id: 'findings', kind: 'blocking-findings' as const, description: 'No blockers' }] }
+  let observedReview: { id: string; card: number; revision: string; verdict: string } | null = null
+  const { rig, run, review } = await reviewedRun(t, async () => {
+    assert.ok(observedReview)
+    const card = rig.board(run.goal).intents.find(card => card.id === observedReview!.card)!
+    return evaluateLeadAcceptance(contract, { project: contract.project, runId: run.id, contractDigest: contract.digest,
+      revision: observedReview.revision, observedAt: 100, complete: true, spendComplete: true, findingsComplete: true, findings: [], diffs: [],
+      checks: [{ id: 'check', name: 'Unit tests', assertionId: 'checks', revision: observedReview.revision, observedAt: 100,
+        exit: 0, counted: true, timedOut: false, dirty: false }],
+      reviews: [{ ...observedReview, assertionId: 'review', observedAt: 100, complete: card.state === 'done', text: card.note ?? '' }],
+    }, { now: 100, freshnessMs: 50, revision: 1 })
+  })
+  const reviewAt = async (round: typeof review, note: string) => {
+    const scope = rig.sessionOf(round.seats[0]!)
+    const candidates = await rig.review.candidates(round.cards[0]!, scope)
+    assert.equal(candidates.length, 1)
+    assert.equal(candidates[0]!.at, 'a'.repeat(40))
+    const record = await rig.review.record({ intent: round.cards[0]!, candidate: candidates[0]!.id, verdict: 'approve' }, scope)
+    assert.equal(record.fact.kind, 'review')
+    if (record.fact.kind !== 'review') throw new Error('Expected a structured review')
+    observedReview = { id: record.id, card: round.cards[0]!, revision: record.fact.at, verdict: record.fact.verdict }
+    await rig.team.complete(round.cards[0]!, { outcome: 'approve', note }, scope)
+    await rig.flows.flush()
   }
+  await reviewAt(review, 'This should work.')
+  const again = rig.flows.executionOf(run.id)!.rounds.at(-1)!
+  assert.equal(again.n, 3)
+  assert.equal(again.role, 'review')
+  const card = rig.board(run.goal).intents.find(card => card.id === again.cards[0])!
+  assert.match(card.detail!, /Review the same committed revision again, without editing code/)
+  assert.equal(rig.flows.executionOf(run.id)!.rounds.filter(round => round.role === 'implement').length, 1)
+  await reviewAt(again, 'Verified the checks and committed diff.')
+  assert.equal(rig.flows.executionOf(run.id)!.rounds.at(-1)!.role, 'accept')
 })

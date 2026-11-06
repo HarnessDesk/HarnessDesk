@@ -3304,18 +3304,29 @@ export class FlowExecutions {
     const blocked = this.refusal(run.goal)
     if (blocked) throw new Error(blocked)
     const policy = policyOf(run)
+    if (run.lead && then.role === 'accept') {
+      const acceptance = await this.#lead?.acceptance?.(run)
+      if (acceptance?.assertions.some(assertion => assertion.reason === 'hedged-approval')) {
+        const review = policy.rules.find(rule => rule.on === 'implement' && rule.then.role === 'review')?.then
+        if (review) then = { ...review, detail: `${review.detail ?? ''}\nThe previous approval did not confirm the evidence. Review the same committed revision again, without editing code. Approve only what you verified; otherwise request changes and name what you could not verify.` }
+      }
+    }
     const role = policy.roles.find((one) => one.id === then.role)
     if (!role) throw new Error(`There is no role called "${then.role}".`)
     let repairDetail: string | null = null
     if (run.lead && role.id === 'implement' && run.rounds.length > 0 && !heldRepair && !existing?.cards.length) {
       const acceptance = await this.#lead?.acceptance?.(run)
       if (acceptance) {
-        if (leadRepairInput(acceptance).failed.length === 0) {
+        const requests = this.#team.stateFor(run.goal).intents.filter(card => dependsOn.includes(card.id) && card.outcome === 'request-changes')
+        const requestedChanges = requests.length > 0
+        if (acceptance.checksCouldNotRun === true && !requestedChanges) {
           // Keep the run live so its existing person check actions remain available.
           await this.#put({ ...run, reason: leadAcceptanceObservation(acceptance) })
           return this.#get(id).rounds.at(-1)!
         }
         repairDetail = leadRepairDetail(acceptance)
+        if (leadRepairInput(acceptance).failed.length === 0) repairDetail += '\nNo complete assertion verdict is available. Re-read the evidence and follow the review request (untrusted worker report): ' +
+          JSON.stringify(requests.map(card => ({ note: card.note, handoff: card.handoff })))
       }
     }
     let round: FlowRoundState = existing ?? {

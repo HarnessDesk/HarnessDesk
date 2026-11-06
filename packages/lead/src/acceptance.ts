@@ -23,17 +23,22 @@ export interface LeadAcceptanceResult {
   readonly status: 'reviewed' | 'failed' | 'unknown'
   /** Named runner errors survive an aggregate assertion's simultaneous negative verdict. */
   readonly erroredChecks?: readonly string[]
+  /** Host classification: runner-only trouble may wait for the existing check action. */
+  readonly checksCouldNotRun?: boolean
+  readonly checksToRerun?: readonly string[]
   readonly assertions: readonly LeadAssertionResult[]
 }
 /** Closed host policy: prose outside backtick code must support an unqualified yes. */
 export const LEAD_HEDGE_PHRASES = Object.freeze([
-  'should work', 'looks fine', 'looks good to me but', 'probably', 'i think', 'seems to', 'might', 'not sure',
+  'should work', 'looks fine', 'looks good to me but', 'probably', 'not sure',
   'untested', "didn't run", 'did not run', "couldn't verify", 'could not verify',
 ] as const)
 const hedge = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${LEAD_HEDGE_PHRASES.join('|')})(?![\\p{L}\\p{N}_])`, 'iu')
-const hedged = (text: string) => hedge.test(text.replace(/(`+)[\s\S]*?\1(?!`)/g, ' '))
+const hedged = (text: string) => hedge.test(text.replace(/\u2019/g, "'")
+  .replace(/^ {0,3}```[^`\r\n]*\r?\n[\s\S]*?^ {0,3}```[ \t]*\r?$/gm, ' ')
+  .replace(/(?<!`)(`{1,2})(?!`)[^\r\n]*?(?<!`)\1(?!`)/g, ' '))
 
-/** Missing/stale evidence needs observation or a check action, never a code repair. */
+/** Identify evidence to refresh separately from actual failed assertions. */
 export const leadAssertionsToRerun = (result: LeadAcceptanceResult): string[] => result.assertions
   .filter(assertion => assertion.status === 'errored' || assertion.status === 'no-evidence' || assertion.status === 'unknown')
   .map(assertion => assertion.assertionId)
@@ -45,10 +50,13 @@ export const leadRepairInput = (result: LeadAcceptanceResult) => ({
 /** Host-owned per-run data appended to the repair card, never interpolated into Flow YAML. */
 export const leadRepairDetail = (result: LeadAcceptanceResult): string =>
   `Fix only the failed assertions listed; leave the passed ones. Re-run only the failed and errored checks.\nRepair input: ${JSON.stringify(leadRepairInput(result))}`
-export const leadAcceptanceObservation = (result: LeadAcceptanceResult): string => {
-  const rerun = [...new Set([...leadAssertionsToRerun(result), ...(result.erroredChecks ?? [])])]
-  return `Assertion verdicts: ${JSON.stringify(result.assertions)}.` + (rerun.length
-    ? ` Re-run these checks; they did not fail, they could not run. Re-read stale or incomplete evidence first. Ask the person once through the existing check action: ${JSON.stringify(rerun)}. Do not start a repair round for these assertions.` : '')
+export const leadAcceptanceObservation = (result: LeadAcceptanceResult, actions: readonly LeadAction[] = []): string => {
+  const rerun = [...new Set([...(result.checksToRerun ?? []), ...actions.filter(action => action.kind === 'check').map(action => action.name)])]
+  return `Assertion verdicts: ${JSON.stringify(result.assertions.map(({ assertionId: _, ...verdict }) => verdict))}.` +
+    (result.assertions.some(assertion => assertion.reason === 'hedged-approval')
+      ? ' The reviewer approved without confirming it. Re-run the review step on the same revision; do not send a code repair for a hedged approval.' : '') +
+    (result.checksCouldNotRun ? ' Re-run these checks; they did not fail, they could not run. Do not start a repair round for runner trouble.' : '') +
+    (rerun.length || result.checksCouldNotRun ? ` Re-read stale or incomplete evidence first. Ask the person once through the existing check action${rerun.length ? `: ${JSON.stringify(rerun)}` : ''}.` : '')
 }
 export const evaluateLeadAcceptance = (value: LeadAcceptanceContract, evidence: LeadAcceptanceEvidence,
   options: { readonly now: number; readonly freshnessMs: number; readonly revision: number }): LeadAcceptanceResult => {
@@ -83,7 +91,7 @@ export const evaluateLeadAcceptance = (value: LeadAcceptanceContract, evidence: 
         const facts = evidence.reviews.filter(fact => fact.assertionId === assertion.id)
         if (facts.length && facts.every(fact => valid(fact) && fact.complete === true)) {
           status = facts.every(fact => fact.verdict === 'approve') ? 'passed' : 'failed'
-          if (facts.some(fact => fact.verdict === 'approve' && hedged(fact.text ?? ''))) { status = 'failed'; reason = 'hedged-approval' }
+          if (facts.every(fact => fact.verdict === 'approve') && facts.some(fact => hedged(fact.text ?? ''))) { status = 'failed'; reason = 'hedged-approval' }
           refs = facts.map(fact => ({ kind: 'review', id: fact.id, revision: fact.revision }))
         }
       } else if (assertion.kind === 'blocking-findings') {
@@ -106,7 +114,14 @@ export const evaluateLeadAcceptance = (value: LeadAcceptanceContract, evidence: 
   })
   // A model cannot omit the gates from its plan and obtain vacuous acceptance.
   const gates = ['check', 'review', 'blocking-findings'].every(kind => contract.assertions.some(assertion => assertion.kind === kind))
-  return { erroredChecks: [...erroredChecks], status: assertions.some(assertion => assertion.status === 'failed') ? 'failed' :
+  const checkResults = assertions.filter(result => contract.assertions.some(assertion => assertion.id === result.assertionId && assertion.kind === 'check'))
+  const checksCouldNotRun = checkResults.some(result => result.status === 'errored' || result.status === 'no-evidence') &&
+    checkResults.every(result => result.status === 'passed' || result.status === 'errored' || result.status === 'no-evidence') &&
+    !assertions.some(result => result.status === 'failed') && !evidence.reviews.some(fact => fact.verdict === 'request-changes')
+  const rerunIds = new Set(leadAssertionsToRerun({ status: 'unknown', assertions }))
+  const checksToRerun = [...erroredChecks].filter(name => evidence.checks.some(check => check.name === name))
+  for (const check of evidence.checks) if (check.name && rerunIds.has(check.assertionId) && !checksToRerun.includes(check.name)) checksToRerun.push(check.name)
+  return { erroredChecks: [...erroredChecks], checksCouldNotRun, checksToRerun, status: assertions.some(assertion => assertion.status === 'failed') ? 'failed' :
     compatible && gates && assertions.every(assertion => assertion.status === 'passed') ? 'reviewed' : 'unknown', assertions }
 }
 

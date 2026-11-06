@@ -105,7 +105,10 @@ export const readLeadEvidence = async (journal: Pick<LeadJournal, 'state'>, runI
     const before = latest.get(key)
     if (!before || one.record.fact.at === revision || before.record.fact.at !== revision) latest.set(key, one)
   }
-  const reviewRecords = recorded.filter(one => one.record.fact.kind === 'review')
+  // A re-review replaces the earlier review round, including at the same commit.
+  // Retain every reviewer within that round, rather than just its last fact.
+  const reviewRound = [...(execution.rounds ?? [])].reverse().find(round => recorded.some(one => round.cards.includes(one.card) && one.record.fact.kind === 'review'))
+  const reviewRecords = recorded.filter(one => one.record.fact.kind === 'review' && reviewRound?.cards.includes(one.card))
   const currentReviews = reviewRecords.filter(one => one.record.fact.at === revision)
   const facts = [...[...latest.values()].filter(one => one.record.fact.kind !== 'review'), ...(currentReviews.length ? currentReviews : reviewRecords)]
   const findings = await read({ method: 'finding/run', params: { goal: owned.teamId, run: runId } }) as { embargoed: boolean; blocking: boolean }

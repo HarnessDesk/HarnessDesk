@@ -136,6 +136,14 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
             const status = known ? results.some(result => result?.status === 'failed') ? 'failed' : !unconfirmed && results.every(result => result?.status === 'passed') ? 'passed' : 'unknown' : 'unknown'
             return [status === 'passed' && kind === 'blocking-findings' ? 'No blocking findings' : status === 'passed' && kind === 'diff' ? 'Changes ready' : `${{ check: 'Checks', review: 'Review', 'blocking-findings': 'Findings', diff: 'Changes' }[kind]} ${status === 'unknown' ? 'not confirmed' : status}`]
           }).join(' · ')}</Text>
+          {(['check', 'review'] as const).map(kind => {
+            const failed = scope?.assertions.filter(assertion => assertion.kind === kind && assertions.some(result =>
+              result.assertionId === assertion.id && result.contractRevision === scope.revision && result.status === 'failed' && result.evidence.length > 0)) ?? []
+            if (!failed.length) return null
+            const hedged = kind === 'review' && assertions.some(result => failed.some(assertion => assertion.id === result.assertionId) && result.reason === 'hedged-approval')
+            return <Text key={kind} as="p" role="prose">{kind === 'check' ? `A check failed: ${failed.map(assertion => sanitizeText(assertion.description)).join(', ')}`
+              : hedged ? 'The reviewer approved without confirming it; it will be reviewed again.' : 'The reviewer asked for changes.'}</Text>
+          })}
           {spend && <Text as="p" role="meta">I spent {leadDollars(spend.leadUsdMicros)}{spend.spend === 'known' && <> · workers reported {leadDollars(spend.workerUsdMicros)}</>}.</Text>}
         </>}
       </LeadContract>}
