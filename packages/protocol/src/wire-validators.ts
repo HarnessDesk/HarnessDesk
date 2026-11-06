@@ -1041,7 +1041,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     return limit
   }) }),
   'lead/chat/read': phoneShape({ id: phoneText(300) }),
-  'lead/chat/start': phoneShape({ text: phoneText(16_384), quote: optional((value, path = '') => {
+  'lead/chat/start': phoneShape({ text: phoneText(16_384), agent: optional(phoneText(300)), moveFrom: optional(phoneText(300)), quote: optional((value, path = '') => {
     const ids = arrayOf((value, at = '') => {
       const id = phoneText(256)(value, at)
       if (!/^[A-Za-z0-9._:/@-]+$/.test(id)) throw new ValidationError(at, 'expected a message id')
@@ -1050,7 +1050,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     if (ids.length < 1 || ids.length > 3 || new Set(ids).size !== ids.length) throw new ValidationError(path, 'expected 1 to 3 unique message ids')
     return ids
   }), effectId: optional(phoneText(256)) }),
-  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384), effectId: optional(phoneText(256)) }),
+  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384), retryAt: optional(literalUnion('reset')), effectId: optional(phoneText(256)) }),
   'lead/chats/resetControl': parseLeadEmpty,
   'lead/chats/control': parseLeadEmpty,
   'lead/chat/takeOver': phoneShape({ id: phoneText(300) }),
@@ -1700,14 +1700,26 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 
 export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
 
+const incidentObservation: Validator<import('./lead.js').LeadChatIncidentObservation> = shape({
+  chatId: atMost(300, isFilled), kind: literalUnion('quota', 'credits', 'transient', 'failed'), attempts: nonNegativeSafeInteger,
+  firstAt: nonNegativeSafeInteger, lastAt: nonNegativeSafeInteger, turnId: optional(atMost(300, isFilled)),
+  resetsAt: (v, p) => v === null ? null : nonNegativeSafeInteger(v, p),
+  lastError: shape({ code: literalUnion('auth', 'credits', 'rateLimit', 'versionGate', 'sandboxDenied', 'network', 'interrupted', 'runtimeUnavailable', 'protocol', 'unknown'), message: atMost(300, isString) }),
+  state: literalUnion('waiting-reset', 'retrying', 'asked', 'moved', 'stopped', 'cleared'), movedTo: optional(atMost(300, isFilled)),
+  candidates: (v, p) => { const list = arrayOf(shape({ key: atMost(300, isFilled), name: atMost(80, isFilled) }))(v, p)
+    if (list.length > 8) throw new ValidationError(p ?? '', 'too many recovery candidates')
+    return list },
+})
 const leadChatChangedParamsValidator: Validator<Extract<WireNotification, { method: 'lead/chat/changed' }>['params']> =
-  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: optional(literalUnion(...LEAD_STAGES)) })
+  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: optional(literalUnion(...LEAD_STAGES)), incident: optional(incidentObservation) })
 
 /** State-only wake signal; never accepts transcript content as an event. */
 export const parseLeadChatChangedParams = (
   raw: unknown,
-): Extract<WireNotification, { method: 'lead/chat/changed' }>['params'] =>
-  leadChatChangedParamsValidator(raw, 'notification.params')
+): Extract<WireNotification, { method: 'lead/chat/changed' }>['params'] => {
+  const { id, project, state, stage, incident } = leadChatChangedParamsValidator(raw, 'notification.params')
+  return { id, project, state, stage, ...(incident ? { incident } : {}) }
+}
 
 const sessionRemovedParamsValidator: Validator<Extract<WireNotification, { method: 'session/removed' }>['params']> =
   shape({

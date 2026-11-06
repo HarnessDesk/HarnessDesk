@@ -158,7 +158,7 @@ test('a person message in a fresh draft after new-goal keeps a firing pending ev
   await s.journal.updateBudget({ version: 1, type: 'stop', now: 100, reason: 'cancelled' })
   await s.journal.runStopEffects(async () => {})
   await s.journal.beginGoal('next-goal', 100)
-  await s.journal.appendMessage('person-started', 'Please investigate my issue.')
+  await s.journal.appendMessage('person-started', 'Please investigate my issue.', 'person')
   s.configured(false)
   assert.equal(s.journal.state.phase, 'draft')
   const seq = s.journal.state.seq
@@ -187,7 +187,7 @@ for (const [label, body] of [['long', 'x'.repeat(16_384)], ['control', 'context\
 
 test('an evicted person message still owns the draft through its durable send receipt', async t => {
   const s = await automatic(t)
-  await s.journal.appendMessage('person-started', 'My work is still pending.')
+  await s.journal.appendMessage('person-started', 'My work is still pending.', 'person')
   for (let i = 0; i < 257; i++) await s.journal.appendReply(`Fixture reply ${i}.`)
   assert.equal(s.journal.state.messages.some(message => message.role === 'user'), false)
   const result = await s.owner.offer({ key: 'unrelated-firing', text: 'Draft another plan', origin })
@@ -207,7 +207,7 @@ test('a secret-shaped trigger sentence or title falls back to safe event metadat
 test('a person message also fences a firing whose origin was reserved before a crash', async t => {
   const s = await automatic(t)
   await s.journal.setOrigin(origin, 'reserved-firing')
-  await s.journal.appendMessage('person-started', 'Investigate my task first.')
+  await s.journal.appendMessage('person-started', 'Investigate my task first.', 'person')
   const result = await s.owner.offer({ key: 'reserved-firing', text: 'Draft the reserved event', origin })
   assert.equal(result.delivered, false); assert.match(result.reason, /busy/)
   await assert.rejects((s.controls.send as any)({ idempotencyKey: 'reserved-firing', text: 'Draft the reserved event' }, origin), (error: any) => error.wireCode === 'lead-request-in-flight')

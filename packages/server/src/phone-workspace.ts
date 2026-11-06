@@ -78,7 +78,7 @@ export interface PhoneWorkspacePorts {
 }
 
 /** The chats the Lead holds in its project. A chat the person took over is theirs again. */
-interface LeadChats { readonly name: string; readonly ids: ReadonlySet<string> }
+interface LeadChats { readonly name: string; readonly ids: ReadonlySet<string>; readonly retrying?: ReadonlySet<string> }
 
 const workTeamStage = (input: PhoneTeamInput) => input.view.stage === undefined
   ? teamLeadStage(input.view, input.execution) : { stage: input.view.stage, reason: input.view.stageReason ?? 'idle' }
@@ -110,7 +110,7 @@ export class PhoneWorkspace {
   #stateOf(summary: SessionSummary, live: ReadonlyMap<string, PhoneLiveSession>): PhoneSessionState {
     if (summary.archived) return 'archived'
     const one = live.get(keyOf(summary.runtime, summary.id))
-    return one?.waiting ? 'needs-you' : one?.running ? 'running' : 'done'
+    return one?.waiting ? 'needs-you' : one?.running || this.#ports.leadChats?.()?.retrying?.has(`${summary.runtime}:${summary.id}`) ? 'running' : 'done'
   }
 
   #sessionRow(entry: { summary: SessionSummary; cost: number | null }, live: ReadonlyMap<string, PhoneLiveSession>,

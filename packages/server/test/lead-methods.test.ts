@@ -82,7 +82,7 @@ test('window handlers reach named context operations and thread sends are durabl
   const { thread } = await s.call('lead/thread/read')
   assert.deepEqual(thread.messages.map((m: any) => m.text), ['Inspect the check', 'Ready to inspect'])
   const reopened = await createLeadJournal(s.storage)
-  assert.deepEqual(await (reopened as any).appendMessage('send-1', 'a retry'), first)
+  assert.deepEqual(await (reopened as any).appendMessage('send-1', 'a retry', 'person'), first)
   const checkpoint = parseLeadCheckpoint(leadCheckpoint(reopened.state, '0'.repeat(64)))
   assert.deepEqual(checkpoint.state, reopened.state)
 })
@@ -469,7 +469,7 @@ test('key-shaped text is refused independently of the configured key', async () 
 for (const location of ['message', 'card'] as const) test(`new credential in retained ${location} is refused before storage`, async () => {
   let stored = false
   const s = await rig({ service: { setKey: async () => { stored = true } } })
-  if (location === 'message') await s.journal.appendMessage('legacy', key)
+  if (location === 'message') await s.journal.appendMessage('legacy', key, 'person')
   else await s.journal.offerCard({ ...plan, contract: { ...contract, goal: key } })
   await assert.rejects(s.controls.updateSettings({ expectedRevision: s.journal.state.seq, credential: { provider: 'anthropic', key } }), code('lead-secret-in-thread'))
   assert.equal(stored, false)
@@ -478,16 +478,16 @@ for (const location of ['message', 'card'] as const) test(`new credential in ret
 test('4097th receipt evicts the oldest, preserves recent retries and replays the window', async () => {
   const s = await rig()
   let recent: any
-  for (let i = 0; i < 4097; i++) recent = await s.journal.appendMessage(`k${i}`, 'Inspect')
+  for (let i = 0; i < 4097; i++) recent = await s.journal.appendMessage(`k${i}`, 'Inspect', 'person')
   assert.equal(s.journal.state.sends.length, 4096)
   assert.equal(s.journal.state.sends[0]?.key, 'k1')
   const seq = s.journal.state.seq
-  assert.deepEqual(await s.journal.appendMessage('k4096', 'Retry'), recent)
+  assert.deepEqual(await s.journal.appendMessage('k4096', 'Retry', 'person'), recent)
   assert.equal(s.journal.state.seq, seq)
   const reopened = await createLeadJournal(s.storage)
   assert.deepEqual(reopened.state.sends, s.journal.state.sends)
-  assert.deepEqual(await reopened.appendMessage('k4096', 'Retry'), recent)
-  const fresh = await reopened.appendMessage('k0', 'A new send after eviction')
+  assert.deepEqual(await reopened.appendMessage('k4096', 'Retry', 'person'), recent)
+  const fresh = await reopened.appendMessage('k0', 'A new send after eviction', 'person')
   assert.ok(fresh.revision > seq); assert.equal(reopened.state.sends.length, 4096)
 })
 
@@ -526,7 +526,7 @@ test('burst notifications remain strictly increasing', async () => {
   assert.ok(revisions.every((r, i) => !i || r > revisions[i - 1]!))
 })
 test('projection protection rejects retained secrets; unavailable broker has its own refusal', async () => {
-  const s = await rig(); await s.journal.appendMessage('legacy', key)
+  const s = await rig(); await s.journal.appendMessage('legacy', key, 'person')
   await assert.rejects(s.controls.readThread(), code('lead-secret-refused'))
   const b = await rig({ service: { assertPublic: async () => { throw Object.assign(new Error('broker failed'), { wireCode: 'lead-protection-unavailable' }) } } })
   await assert.rejects(b.controls.readThread(), code('lead-protection-unavailable'))
@@ -614,7 +614,7 @@ test('a stopped budget refuses send with its own code', async () => {
   await assert.rejects(s.controls.send({ idempotencyKey: 'budget', text: 'Inspect' }), code('lead-budget-stopped'))
 })
 test('restart between admission and reply projects resume for the unanswered user message', async () => {
-  const s = await rig(); await s.journal.appendMessage('crash', 'Inspect')
+  const s = await rig(); await s.journal.appendMessage('crash', 'Inspect', 'person')
   const reopened = await createLeadJournal(s.storage)
   const { LeadControls } = await controlsModule()
   const controls = new LeadControls({ journal: reopened, service: s.service, project, model: 'fixture-model', now: () => 100, nextId: () => 'card', push() {}, decidePerson: async () => {}, decideResult: async () => {} })
@@ -1127,7 +1127,7 @@ test('a refused stale approval cannot restore a completed request flag', async (
 
 test('an open paid reservation after restart still offers and accepts resume', async () => {
   const s = await rig({ configured: true })
-  await s.journal.appendMessage('crash-reserved', 'Inspect')
+  await s.journal.appendMessage('crash-reserved', 'Inspect', 'person')
   await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'interrupted', inputTokens: 1, maxOutputTokens: 1,
     inputUsdMicrosPerMillion: 1000000, outputUsdMicrosPerMillion: 1000000, cacheReadUsdMicrosPerMillion: 1000000, cacheWriteUsdMicrosPerMillion: 1000000 })
   s.controls.close()
@@ -1185,7 +1185,7 @@ for (const kind of ['result', 'person', 'plan'] as const) test(`send preserves t
 
 test('send resumes an open paid reservation after restart', async () => {
   const s = await rig({ configured: true })
-  await s.journal.appendMessage('crash-reserved', 'Inspect')
+  await s.journal.appendMessage('crash-reserved', 'Inspect', 'person')
   await s.journal.updateBudget({ version: 1, type: 'reserve', now: 100, requestId: 'interrupted', inputTokens: 1, maxOutputTokens: 1,
     inputUsdMicrosPerMillion: 1000000, outputUsdMicrosPerMillion: 1000000, cacheReadUsdMicrosPerMillion: 1000000, cacheWriteUsdMicrosPerMillion: 1000000 })
   s.controls.close()
@@ -1295,7 +1295,7 @@ test('consent expiry re-offers the same plan revision once and projects decide-p
 
 test('thread exposes journal positions and approved scope for inline replacement and evidence labels', async () => {
   const s = await rig()
-  await s.journal.appendMessage('first', 'First goal')
+  await s.journal.appendMessage('first', 'First goal', 'person')
   await s.journal.offerCard(plan)
   const position = s.journal.state.seq
   await s.journal.appendReply('Inspect the plan')
@@ -1535,7 +1535,7 @@ test('a message appended after a name change is scanned on projection', async ()
   await s.controls.readSettings()
   await s.call('lead/settings/update', { expectedRevision: s.journal.state.seq, name: 'lex' })
   await s.controls.idle()
-  await s.journal.appendMessage('after-name', 'Inspect the newly appended message')
+  await s.journal.appendMessage('after-name', 'Inspect the newly appended message', 'person')
   await s.controls.idle()
   const scan = test.mock.method(s.service, 'assertPublic')
   const projection = await s.controls.readThread()
@@ -2124,7 +2124,7 @@ test('a declined goal refuses a limit raise with a closed person-facing code', a
 
 test('host approval notices never enter the Lead prompt as assistant messages', async () => {
   const s = await rig({ configured: true })
-  await s.journal.appendMessage('seed', 'Inspect demo')
+  await s.journal.appendMessage('seed', 'Inspect demo', 'person')
   const read = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(s.journal), 'state')!.get!
   Object.defineProperty(s.journal, 'state', { get: () => { const state = read.call(s.journal); return { ...state, messages: [...state.messages, { version: 1, id: 'notice-demo', revision: state.seq, role: 'notice', text: 'worker-controlled audit payload', approval: { ruleId: 'demo', target: '/workspace/demo/demo.ts', diff: '+worker-controlled audit payload' } }] } } })
   await s.controls.send({ idempotencyKey: 'next-notice', text: 'Continue inspection' }); await s.controls.idle()
@@ -2135,7 +2135,7 @@ for (const kind of ['tool', 'fileChange'] as const) test(`${kind} automatic appr
   const s = await rig({ configured: true })
   try {
     await s.journal.offerCard(plan); await s.journal.decideCard(planClick, 1000)
-    await s.journal.appendMessage('steering', 'Preserve this steering from the person')
+    await s.journal.appendMessage('steering', 'Preserve this steering from the person', 'person')
     await s.journal.appendReply('I will preserve the requested scope')
     const ruleKey = kind === 'tool' ? { kind, tool: 'get_team_status' } : { kind, path: project.path + '/panel.tsx' }
     await s.journal.saveWorkerApproval({ id: 'burst', contractDigest: contract.digest, goalStartedSeq: s.journal.state.goalStartedSeq, key: ruleKey, target: kind === 'tool' ? 'get_team_status' : project.path + '/panel.tsx', count: 0 })
@@ -2151,7 +2151,7 @@ for (const kind of ['tool', 'fileChange'] as const) test(`${kind} automatic appr
 test('a trailing host notice does not hide the unanswered resume offer', async () => {
   const s = await rig({ configured: true })
   try {
-    await s.journal.appendMessage('unanswered-notice', 'Inspect this request')
+    await s.journal.appendMessage('unanswered-notice', 'Inspect this request', 'person')
     const read = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(s.journal), 'state')!.get!
     Object.defineProperty(s.journal, 'state', { get: () => { const state = read.call(s.journal); return { ...state, messages: [...state.messages, { version: 1, id: 'notice-trailing', revision: state.seq, role: 'notice', text: 'Host notice', approval: { ruleId: 'legacy', target: 'get_team_status' } }] } } })
     assert.equal((await s.controls.readThread()).wayOut, 'resume')
@@ -2260,5 +2260,18 @@ test('the host-only reply path refuses an ordinary ask mixed with proactive outp
   try {
     await s.call('lead/thread/send', { idempotencyKey: 'mixed', text: 'Help me decide' }); await s.controls.idle()
     assert.equal(s.journal.state.messages.some(message => message.role === 'assistant'), false)
+  } finally { s.controls.close() }
+})
+
+
+for (const source of ['person', 'automatic', 'schedule'] as const) test(`consent counts only the person's own messages: record ${source} at send time`, async () => {
+  const s = await rig({ configured: true })
+  try {
+    if (source === 'schedule') await s.controls.runScheduled({ id: 'fixture', title: 'Read CI', goal: 'Read CI', enabled: true, every: 'daily', at: '09:00', zone: 'UTC' } as any, 100)
+    else await s.controls.send({ idempotencyKey: 'fixture', text: 'Read CI' }, source === 'automatic' ? { source: 'issue', event: 'opened', subject: 'acme/widgets#12', url: null } : undefined)
+    await s.controls.idle()
+    assert.equal(s.journal.state.messages.find(message => message.role === 'user')?.source, source)
+    const reopened = await createLeadJournal(s.storage)
+    assert.equal(reopened.state.messages.find(message => message.role === 'user')?.source, source)
   } finally { s.controls.close() }
 })

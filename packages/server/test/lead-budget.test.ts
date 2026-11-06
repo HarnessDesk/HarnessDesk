@@ -56,7 +56,7 @@ test('host recovery refuses to run while a registered Lead child is live', async
 test('a fresh person request observes its settled run without recovering a live management child', async t => {
   const s = await leadRig(t)
   await s.start()
-  await s.journal.appendMessage('new-request', 'Propose a new attempt.')
+  await s.journal.appendMessage('new-request', 'Propose a new attempt.', 'person')
   const end = s.budgets.childStarted(s.journal)
   t.after(async () => { end() })
   await s.budgets.meter(s.journal)
@@ -83,7 +83,7 @@ test('approval of a replacement one-step plan binds its new Team while retaining
   await s.start(); await s.observe(7)
   const old = s.rig.flows.leadRuns()[0]!
   await s.journal.observeSettledRun(old.id, leadRoundId(old.id, 1))
-  await s.journal.appendMessage('new-request', 'Try again with a new plan.')
+  await s.journal.appendMessage('new-request', 'Try again with a new plan.', 'person')
   const contract = { ...s.contract, revision: 2, digest: 'b'.repeat(64), steps: [{ ...s.contract.steps[0]!, id: 'fresh-work' }] }
   await s.journal.offerCard({ version: 1, id: 'replacement', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
   await s.journal.decideCard({ version: 1, cardId: 'replacement', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 1000)

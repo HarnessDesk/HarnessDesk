@@ -53,7 +53,7 @@ test('busy and paused slots are recorded once and never queue; stop ends the rep
   await planner.markRan(task.id, task.lastRunAt!)
   let starts = 0, now = new Date(2026, 9, 26, 10).getTime()
   const repeats = new LeadRepeats({ planner, journal, now: () => now, async start() { starts++; return { logicalGoalId: 'run-goal', approved: true } } })
-  await journal.appendMessage('person', 'Existing work')
+  await journal.appendMessage('person', 'Existing work', 'person')
   await repeats.tick(); await repeats.tick()
   assert.equal(starts, 0)
   assert.equal((await planner.readSchedule()).tasks[0]!.runs!.length, 1)

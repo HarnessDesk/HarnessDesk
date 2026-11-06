@@ -86,3 +86,15 @@ test('chat start admits one to three unique opaque person message ids', () => {
   for (const quote of [[], ['one', 'two', 'three', 'four'], ['one', 'one'], ['bad\nid'], [''], ['x'.repeat(257)], [4]])
     assert.throws(() => request('lead/chat/start', { text: 'Brief', quote }))
 })
+
+test('Lead chat start admits only bounded agent and moveFrom selectors', () => {
+  assert.doesNotThrow(() => request('lead/chat/start', { text: 'Brief', agent: 'Agent Two', moveFrom: 'fixture:old' }))
+  for (const field of ['agent', 'moveFrom']) for (const value of ['', 'x'.repeat(301), 4])
+    assert.throws(() => request('lead/chat/start', { text: 'Brief', [field]: value }))
+})
+
+
+test('chat send can request a provider-reset wait and rejects every other retry selector', () => {
+  assert.doesNotThrow(() => request('lead/chat/send', { id: 'fixture:chat', text: 'Continue', retryAt: 'reset' }))
+  for (const retryAt of ['now', '', 1, {}]) assert.throws(() => request('lead/chat/send', { id: 'fixture:chat', text: 'Continue', retryAt }))
+})

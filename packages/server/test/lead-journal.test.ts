@@ -820,7 +820,7 @@ for (const cycles of [1, 2100]) test(`pruned settings cards survive file rotatio
     assert.ok(card)
     await journal.decideCard({ version: 1, cardId: card.id, cardType: 'budget-change', expectedRevision: card.revision, contractDigest: null, choice: 'decline' })
   }
-  for (let i = 0; i < 1100; i++) await journal.appendMessage(`rotate-${i}`, 'Rotate the journal')
+  for (let i = 0; i < 1100; i++) await journal.appendMessage(`rotate-${i}`, 'Rotate the journal', 'person')
   const live = journal.state
   await disk.close()
   const reopenedDisk = await open(home)

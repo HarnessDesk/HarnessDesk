@@ -462,14 +462,15 @@ export class LeadJournal {
   setOrigin(origin: LeadOrigin, key?: string): Promise<void> { return this.#queue(() => this.#append({ type: 'origin', origin, ...(key ? { key } : {}) })) }
   ownedPush(operation: LeadOwnedPush): Promise<void> { return this.#queue(() => this.#append({ type: 'owned-push', operation })) }
   observePr(pr: LeadPullRequest): Promise<void> { return this.#queue(() => this.#append({ type: 'pr-observed', pr })) }
-  appendMessage(idempotencyKey: string, text: string, committed?: () => void): Promise<LeadSendReceipt> {
+  appendMessage(idempotencyKey: string, text: string, source: NonNullable<LeadMessage['source']>, committed?: () => void): Promise<LeadSendReceipt> {
+    if (!['person', 'automatic', 'schedule'].includes(source)) return Promise.reject(new Error('Lead message source is required.'))
     const input = parseLeadThreadSend({ idempotencyKey, text })
     return this.#queue(async () => {
       const previous = this.#state.sends.find(send => send.key === input.idempotencyKey)
       if (previous) return { messageId: previous.messageId, revision: previous.revision }
       const revision = this.#state.seq + 1, messageId = `message-${revision}`
       await this.#append({ type: 'message', idempotencyKey: input.idempotencyKey,
-        message: { version: 1, id: messageId, revision, role: 'user', text: input.text } }, committed)
+        message: { version: 1, id: messageId, revision, role: 'user', text: input.text, source } }, committed)
       return { messageId, revision }
     })
   }

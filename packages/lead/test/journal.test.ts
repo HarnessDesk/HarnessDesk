@@ -2128,3 +2128,15 @@ test('ordinary asks survive append and journal replay and reject mixed decisions
   assert.deepEqual((await open(storage)).state.messages.at(-1).ask, ask)
   await assert.rejects(journal.appendReply('Mixed.', { finding: 'Found.', caveat: 'No work.', ask: 'Start?' }, ask))
 })
+
+
+test("consent counts only the person's own messages: a source is required at append time", async () => {
+  const storage = memory(), journal = await open(storage)
+  await assert.rejects(journal.appendMessage('missing-source', 'This must not count'), /source/i)
+  assert.equal(journal.state.messages.length, 0)
+  for (const source of ['person', 'automatic', 'schedule'] as const) {
+    await journal.appendMessage(source, `Message from ${source}`, source)
+    assert.equal(journal.state.messages.at(-1)?.source, source)
+  }
+  assert.deepEqual((await open(storage)).state.messages.map((message: any) => message.source), ['person', 'automatic', 'schedule'])
+})

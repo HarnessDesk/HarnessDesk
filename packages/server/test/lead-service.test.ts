@@ -10,7 +10,7 @@ import { LeadBudgets } from '../src/lead/budgets.js'
 
 const key = 'sk-test-not-real-0000'
 const input = { messages: [{ role: 'user', content: [{ type: 'text', text: 'Inspect the plan' }] }], maxTokens: 32 } as const
-const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { probeRuntime?: (runtime: any) => Promise<any>; onRuntimeUnavailable?: (reason: string) => void; resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any; seats?: unknown } = {}) => {
+const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { onManagementStopped?: (reason: string) => void; probeRuntime?: (runtime: any) => Promise<any>; onRuntimeUnavailable?: (reason: string) => void; resolveTool?: () => Promise<any>; stopOwned?: () => Promise<void>; messagesTransport?: any; seats?: unknown } = {}) => {
   const home = await mkdtemp('/tmp/hd-ls-')
   t.after(() => rm(home, { recursive: true, force: true }))
   const records: LeadJournalRecord[] = []
@@ -30,7 +30,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, hooks: { probeRu
   const service = new LeadService({ journal, project: { id: 'synthetic', path: home }, broker, model: 'synthetic-model', prices: {},
     ...(hooks.probeRuntime === undefined ? {} : { probeRuntime: hooks.probeRuntime, runtimes: [{ binary: '/demo/electron', version: '24.19.0', electron: true, label: "this app's runtime" }] }),
     ...(hooks.onRuntimeUnavailable === undefined ? {} : { onRuntimeUnavailable: hooks.onRuntimeUnavailable }),
-    messagesTransport: hooks.messagesTransport, ...(hooks.seats === undefined ? {} : { seats: hooks.seats }),
+    onManagementStopped: hooks.onManagementStopped, messagesTransport: hooks.messagesTransport, ...(hooks.seats === undefined ? {} : { seats: hooks.seats }),
     resolveTool: hooks.resolveTool ?? (async () => { throw new Error('unused') }), freezePlan: async (proposal: unknown) => proposal, readEvidence: async () => { throw new Error('unused') },
     register: () => { events.push('register'); const close = budgets.register(journal); return { admission: {}, close: () => { events.push('unregister'); close() } } },
     childStarted: () => (budgets as any).childStarted(journal), recover: () => budgets.recover(),
@@ -1179,4 +1179,13 @@ test('a dead child with hung host recovery remains refused after a bounded wait'
     hold = false; release(); t.mock.timers.reset()
     await stop; await s.service.recover()
   }
+})
+
+
+test('closing the service fences recovery timers synchronously before lifecycle cleanup can yield', async t => {
+  const reasons: string[] = []
+  const s = await rig(t, { onManagementStopped: reason => { reasons.push(reason) } })
+  const closed = s.service.close()
+  assert.equal(reasons[0], 'lead-host-shutdown')
+  await closed
 })

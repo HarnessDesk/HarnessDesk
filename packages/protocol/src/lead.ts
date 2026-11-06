@@ -192,6 +192,25 @@ export interface LeadCardDecision {
   readonly contractDigest: string | null
   readonly choice: 'approve' | 'decline' | 'accept' | 'accept-open-pr' | 'reclaim-branch'
 }
+/** Host observation; never an instruction or permission to move work. */
+export interface LeadChatIncident {
+  /** Distinguishes new failed turns from repeated delivery of one observation. */
+  readonly turnId?: string
+  readonly chatId: string
+  readonly kind: 'quota' | 'credits' | 'transient' | 'failed'
+  readonly attempts: number
+  readonly firstAt: number
+  readonly lastAt: number
+  readonly resetsAt: number | null
+  readonly lastError: { readonly code: import('./events.js').AgentError['code']; readonly message: string }
+  readonly state: 'waiting-reset' | 'retrying' | 'asked' | 'moved' | 'stopped' | 'cleared'
+  readonly movedTo?: string
+}
+export interface LeadChatCandidate { readonly key: string; readonly name: string }
+export interface LeadChatIncidentObservation extends LeadChatIncident {
+  readonly candidates: readonly LeadChatCandidate[]
+}
+
 export interface LeadAskOption { readonly id: string; readonly label: string }
 export interface LeadAsk {
   readonly question: string
@@ -209,6 +228,8 @@ export interface LeadProactive {
 }
 export interface LeadApprovalAudit { readonly ruleId: string; readonly target: string; readonly diff?: string }
 export interface LeadMessage {
+  /** Host attribution: consent counts only the person's own messages. */
+  readonly source?: 'person' | 'automatic' | 'schedule'
   /** Host acknowledgement, never supplied by the Lead model. */
   readonly approval?: LeadApprovalAudit
   readonly proactive?: LeadProactive
@@ -725,10 +746,11 @@ export const parseLeadApprovalAudit: Validator<LeadApprovalAudit> = omitUnset(ob
   const target = text(240)(value, path)
   return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(target) ? fail(path ?? '', 'hidden audit target') : target
 }, diff: optional(boundedText(LEAD_APPROVAL_DETAIL_CHARS, true, proseControls)) }), ['diff'])
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content }), ['proactive', 'ask', 'approval'])
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content }), ['proactive', 'ask', 'approval', 'source'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
+  if (message.source !== undefined && message.role !== 'user') fail(path, 'source requires a user message')
   if (message.ask && (message.role !== 'assistant' || message.proactive)) fail(path, 'ask requires an ordinary assistant message')
   return message
 }

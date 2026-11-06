@@ -5275,3 +5275,62 @@ The model selects message ids, never re-types their words. This keeps wording
 and scope intact, rejects references outside the current journal window, and
 refuses an oversized brief plus quotes instead of silently losing context.
 Stored proactive reports without options remain readable.
+
+
+## Delegated chat recovery follows the provider's clock, then the person's choice — 2026-11-05
+
+The host owns recovery timers because a quota reset is a provider observation,
+not a model decision. Waiting buys no Lead turn and reserves no allowance.
+A Lead-held chat gets at most two automatic continues per incident: the reached
+window's reset plus a small jitter, or one minute then five minutes when there
+is no future reset or the failure is transient. Credits, other failures,
+authentication, version and sandbox refusals ask immediately. A later successful turn clears
+the incident. An adapter that reports no error code is classified as failed
+and asks immediately; the host does not guess a retry category. A waiting chat
+remains working, never done.
+
+The bounded host record persists its due time and claims an attempt before
+sending through the ordinary attributed, journaled chat path. Restart restores
+one timer; an already claimed but unconfirmed send asks instead of replaying.
+Explicit Lead stop, disable, project change and person take-over cancel retries;
+closing the desk preserves the wait, as does changing the Lead key or another
+non-stop lifecycle interruption. Temporary retry admission failures back off,
+then ask after the bound; a busy worker defers without using an attempt. A
+past reset uses the backoff rather than spending both retries immediately.
+No recovery transition changes policy, caps, saved approvals or publication
+authority.
+
+After the bound, an incident observation wakes the Lead once per meaningful
+change. The existing structured ask offers retry, move to an eligible agent,
+or stop; credit exhaustion recommends moving when another agent fits. Moving
+needs the person's tap or typed answer because the reset clock grants no
+permission to change who does their work. The host requires a person message
+newer than the incident and the current goal start: consent counts only the
+person's own messages. The host records person, automatic, or scheduled source
+at send time and keeps the revision with the incident, so a same-millisecond
+answer still has a strict order. Asked incidents expire with the goal. A chosen
+reset retry re-arms the host timer through chat_send's retryAt reset selector;
+it never sends immediately into the limit. A fresh automatic generation, for
+either a plain send or a reset wait, needs a newer answer: consent counts only
+the person's own messages. Without one, an explicit reset retry is refused;
+a plain send remains ordinary and a failure asks again directly. Every
+new failed turn can wake again. Interrupts settle recovery as stopped, and
+a refused admission rolls an unstarted renewal back. A skipped terminal
+observation retires its cancelled wait, and a queued renewal discarded before
+sending is stopped. Message source is required at append time. Live worker approvals
+remain visible during waits and retries.
+The host validates the live workspace start roster, reserves one move, and
+builds the new first message from the brief, the original first message (including the person's verbatim words), and
+a bounded recent transcript/file digest, preserving any explicitly selected
+verbatim quotes as well. A creation refused before any chat exists releases
+the move claim and requires a fresh answer before another move: consent
+counts only the person's own messages. Candidate admission runs before
+creation; a first message refused before dispatch is reported as not started.
+The empty new chat stays available on the desk and is never returned as the
+moved chat. The existing ordinary removal paths cannot prove that nobody
+has begun using it across their asynchronous cleanup; guarded discard only
+covers the host's separate Seat allocations, so recovery does not reuse it.
+Once the first message starts, its id is returned even if saving the receipt
+fails, and the durable claim still prevents a duplicate move. It leaves the
+old chat intact. Agent configuration and credentials remain in the agents'
+own worlds.

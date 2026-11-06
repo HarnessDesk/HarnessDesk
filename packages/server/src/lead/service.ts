@@ -45,6 +45,8 @@ export interface LeadServiceOptions {
   readonly openDoor: (admission: LeadAdmission) => Promise<ClientDoor | null>
   readonly stopOwned: (reason: string) => Promise<void>
   readonly createSupervisor?: (options: LeadSupervisorOptions) => LeadProcess
+  /** Revoke delegated recovery immediately; desk shutdown preserves durable waits. */
+  readonly onManagementStopped?: (reason: string) => void
   /** The Lead's checks between model turns, as the child reports them. */
   readonly onPresence?: (presence: LeadPresence) => void
   /** The lines the person kept, read at each start: the Lead is told them, numbered for a plan to cite. */
@@ -303,6 +305,7 @@ export class LeadService {
     return task
   }
   async #halt(reason: string, finishExitedRecovery = false): Promise<void> {
+    this.options.onManagementStopped?.(reason)
     this.#activity(false)
     try { await this.#latch(reason) }
     catch (error) { this.#cleanupFailed = true; throw error }
@@ -360,6 +363,7 @@ export class LeadService {
   setEnabled(enabled: boolean): Promise<void> {
     if (this.#closed) return Promise.reject(new Error('lead-closed'))
     this.#enabled = enabled
+    if (!enabled) this.options.onManagementStopped?.('lead-disabled')
     const generation = ++this.#generation
     return this.#queue(async () => {
       if (!enabled) {
@@ -452,6 +456,7 @@ export class LeadService {
   }
   close(): Promise<void> {
     if (this.#closed) return this.#tail.then(() => {})
+    this.options.onManagementStopped?.('lead-host-shutdown')
     this.#publicProjection = null; this.#closed = true; this.#activity(false); this.#enabled = false; ++this.#generation
     return this.#queue(async () => {
       await this.#halt('lead-host-shutdown')

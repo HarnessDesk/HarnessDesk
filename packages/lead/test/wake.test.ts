@@ -93,6 +93,15 @@ test('a handled worker completion consumes its board signal but preserves unrela
   assert.equal(gate.look(changed, own, [], 200).wake, true)
 })
 
+test('chat wake fingerprints include changed incidents while identical observations stay quiet', () => {
+  const fingerprint = (lead as any).leadChatFingerprint
+  assert.equal(typeof fingerprint, 'function')
+  const chat = { id: 'fixture:chat', state: 'waiting', incident: { state: 'asked', attempts: 2, firstAt: 1, lastAt: 3, kind: 'quota', resetsAt: 5, lastError: { code: 'rateLimit', message: 'Quota' }, candidates: [] } }
+  assert.equal(fingerprint(chat), fingerprint(structuredClone(chat)))
+  assert.notEqual(fingerprint({ ...chat, incident: { ...chat.incident, turnId: 'one' } }), fingerprint({ ...chat, incident: { ...chat.incident, turnId: 'two' } }))
+  assert.notEqual(fingerprint(chat), fingerprint({ ...chat, incident: { ...chat.incident, state: 'moved', movedTo: 'other:new' } }))
+})
+
 test('a chat or Team stage change changes the fingerprint, unchanged stages stay quiet', () => {
   const gate = lead.createLeadWakeGate()
   const snapshot = { ...desk([]), teams: [{ goal: { id: 'team-1' }, stage: 'working' }] }

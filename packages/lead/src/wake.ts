@@ -141,3 +141,7 @@ export const createLeadWakeGate = (stuckMs = LEAD_STUCK_MS) => {
   }
 }
 export type LeadWakeGate = ReturnType<typeof createLeadWakeGate>
+
+/** Ordinary chat wakes include the host incident, even when the live state stayed waiting. */
+export const leadChatFingerprint = (chat: { readonly id: string; readonly state: string; readonly incident?: import('@harnessdesk/protocol').LeadChatIncidentObservation }): string =>
+  JSON.stringify({ id: chat.id, state: chat.state, ...(chat.incident ? { incident: { ...chat.incident, lastAt: 0 } } : {}) })

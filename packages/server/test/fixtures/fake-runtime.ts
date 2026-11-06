@@ -8,6 +8,7 @@ import {
   type AccountStatus,
   type AccountActivity,
   type AgentEvent,
+  type AgentError,
   type AgentRuntime,
   type AgentSession,
   type Approval,
@@ -924,14 +925,14 @@ export class FakeSession implements AgentSession {
   }
 
   /** Ends the turn badly — a rate limit, a dead backend — with its own words. */
-  fail(message: string): void {
+  fail(message: string, code?: AgentError['code']): void {
     if (!this.#activeTurn) return
     const id = this.#activeTurn
     this.#activeTurn = null
     this.host.emit({
       type: 'turn/completed',
       sessionId: this.id,
-      turn: { id, items: [], status: 'failed', error: { message } },
+      turn: { id, items: [], status: 'failed', error: { message, ...(code ? { code } : {}) } },
     })
   }
 
