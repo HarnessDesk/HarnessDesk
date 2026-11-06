@@ -289,7 +289,7 @@ export class LeadControls {
     if (journal.state.phase === 'waiting-for-user' && (journal.state.recoveryBlocked ||
       journal.state.consent && journal.state.consent.expiresAt <= this.options.now())) throw leadRefusal('lead-no-person-wait')
     return this.#commitRequest(async committed => {
-      const receipt = await journal.appendMessage(input.idempotencyKey, input.text, committed)
+      const receipt = await journal.appendMessage(input.idempotencyKey, input.text, committed, origin ? origin.source === 'schedule' ? 'schedule' : 'automatic' : 'person')
       if (resume) await journal.resume(undefined, true, committed)
       return receipt
     }, !!origin)
@@ -490,7 +490,7 @@ export class LeadControls {
     if (task.project && task.project !== this.options.project.path) await this.options.automaticProject?.(task.project)
     const key = `schedule-${task.id}-${slot}`
     await journal.setOrigin({ source: 'schedule', event: 'scheduled-run', subject: String(slot), url: null }, key)
-    await journal.appendMessage(key, `Scheduled: ${task.title}${task.goal.trim() === task.title.trim() ? '' : `\n${task.goal}`}`)
+    await journal.appendMessage(key, `Scheduled: ${task.title}${task.goal.trim() === task.title.trim() ? '' : `\n${task.goal}`}`, undefined, 'schedule')
     const logicalGoalId = journal.state.budget!.logicalGoalId
     if (!task.approved || !this.options.freezeRepeat || !this.options.validateRepeat) {
       this.#requestInFlight = true; this.#automaticRequest = true; this.#detachContinue()
@@ -502,7 +502,7 @@ export class LeadControls {
     const perRun = leadLimitedCaps(journal.state.spendLimit, task.perRunCaps ?? original.caps)
     if (reason) {
       await journal.appendReply(`This run needs your approval: ${reason}`)
-      await journal.appendMessage(`${key}-changed`, `Draft a fresh reviewed plan for this recurring task. Repeat ${task.every} at ${task.at}, with ${leadNoSpendLimit(perRun.usdMicros) ? 'no spending limit' : `up to ${perRun.usdMicros} microdollars`} and ${perRun.rounds} rounds per run. ${task.goal}`)
+      await journal.appendMessage(`${key}-changed`, `Draft a fresh reviewed plan for this recurring task. Repeat ${task.every} at ${task.at}, with ${leadNoSpendLimit(perRun.usdMicros) ? 'no spending limit' : `up to ${perRun.usdMicros} microdollars`} and ${perRun.rounds} rounds per run. ${task.goal}`, undefined, 'schedule')
       this.#requestInFlight = true; this.#requestConversation = false; this.#detachContinue()
       return { logicalGoalId, approved: false, reason }
     }

@@ -46,7 +46,7 @@ export interface PhoneWorkPorts {
   /** Host-only receipts: invoke after preflight, immediately before the actual
    * allocation, queue mutation, send or interrupt. Never take these from wire data. */
   readonly create: (params: HostParams<'session/create'>, effectStarted?: () => void) => Promise<HostResult<'session/create'>>
-  readonly send: (params: HostParams<'turn/send'>, admitCwd?: DispatchAdmission<string>) => Promise<void>
+  readonly send: (params: HostParams<'turn/send'>, admitCwd?: DispatchAdmission<string>, effectStarted?: () => void) => Promise<void>
   readonly queue: (params: HostParams<'turn/queue'>, admit?: () => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>) => Promise<HostResult<'turn/queue'>>
   readonly interrupt: (params: HostParams<'turn/interrupt'>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>) => Promise<void>
   /** Whether a piece of text could hold a secret. */
@@ -295,7 +295,7 @@ export class PhoneWork {
   }
 
   /** Host-owned exact project root. `input` is a host-only envelope override, never phone params. Without `agent` it starts on the default runtime. */
-  async startInProject(params: { text: string; agent?: string } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[]): Promise<HostResult<'workspace/session/start'>> {
+  async startInProject(params: { text: string; agent?: string } & PhoneStartChoices, cwd?: string, admit?: (id?: string) => Promise<void>, effectStarted?: () => void, admitCwd?: DispatchAdmission<string>, input?: readonly UserContent[], firstMessageStarted?: () => void): Promise<HostResult<'workspace/session/start'>> {
     const preferred = this.#ports.defaultRuntime()
     const runtime = params.agent === undefined ? preferred : this.#agents(preferred).find(one => String(one) === params.agent) ?? null
     if (runtime === null && params.agent !== undefined) return { id: '', problem: 'That agent is not available on this desk. Refresh and try again.' }
@@ -316,11 +316,13 @@ export class PhoneWork {
       await admit?.()
       const session = await this.#ports.create({ runtime, options: { ...(cwd ? { cwd } : {}), ...(Object.keys(values).length ? { options: values } : {}) } }, effectStarted)
       const id = `${runtime}:${session.id}`
+      let started = false
       try {
         await admit?.(id)
-        await this.#ports.send({ runtime, sessionId: session.id, input: input ?? [{ type: 'text', text: params.text }] }, admitCwd)
+        await this.#ports.send({ runtime, sessionId: session.id, input: input ?? [{ type: 'text', text: params.text }] }, admitCwd, () => { started = true; firstMessageStarted?.() })
       }
       catch {
+        if (!started) return { id, problem: 'The session was created, but its first message did not start. The original work has not moved.' }
         // The runtime may have accepted the prompt before losing its reply.
         // Keep its identity and history; the phone opens it with the draft.
         return { id, problem: 'The session was created, but its first message could not be confirmed. Check the conversation before sending again.' }

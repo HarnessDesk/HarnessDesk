@@ -7,24 +7,26 @@ import { initialLeadState, reduceLeadBudget } from '@harnessdesk/lead'
 const rig = async (t: TestContext) => {
   const { LeadChatIncidents } = await import('../src/lead/' + 'incidents.js')
   const home = await mkdtemp('/tmp/hd-incidents-'), file = join(home, 'incidents.json')
-  let now = 1000, allowed = true, busy = false
-  let retryHook: (() => Promise<void | 'not-started'>) | undefined, retryCurrent: (() => boolean) | undefined
+  let now = 1000, allowed = true, busy = false, personRevision = 0
+  let entered!: () => void
+  const retryEntered = new Promise<void>(resolve => { entered = resolve })
+  let retryHook: (() => Promise<void | 'not-started' | 'busy'>) | undefined, retryCurrent: (() => boolean) | undefined
   const problems: string[] = []
   const scheduled = new Map<() => void, number>(), retries: string[] = [], wakes: any[] = []
   const state = { ...initialLeadState(), policy: { version: 1, revision: 7, mode: 'manage', rules: [{ id: 'deny-publish', effect: 'deny', method: 'git/*' }] }, workerApprovals: [{ id: 'saved-rule', contractDigest: 'a'.repeat(64), goalStartedSeq: 1, key: { kind: 'tool', tool: 'read' }, target: 'Read files', count: 4 }], budget: reduceLeadBudget(null, { version: 1, type: 'initialize', logicalGoalId: 'fixture', now,
     freshnessMs: 60_000, caps: { usdMicros: 10000, rounds: 3 } }) }
   const before = JSON.stringify(state)
-  const ports = { file, project: 'fixture-project', now: () => now,
+  const ports = { file, project: 'fixture-project', now: () => now, personRevision: () => personRevision,
     schedule: (run: () => void, delay: number) => { scheduled.set(run, now + delay); return () => { scheduled.delete(run) } },
-    problem: (reason: string) => { problems.push(reason) }, busy: () => busy, allowed: async () => allowed, retry: async (id: string, current: () => boolean, started: () => void) => { retryCurrent = current; retries.push(id); const result = await retryHook?.(); if (result !== 'not-started' && current()) started(); return result },
+    problem: (reason: string) => { problems.push(reason) }, busy: () => busy, allowed: async () => allowed, retry: async (id: string, current: () => boolean, started: () => void) => { retryCurrent = current; retries.push(id); entered(); const result = await retryHook?.(); if (result !== 'not-started' && result !== 'busy' && current()) started(); return result },
     publish: async (incident: any) => { wakes.push(incident) } }
   let service = new LeadChatIncidents(ports)
   t.after(async () => { service.close(); await service.idle(); await rm(home, { recursive: true, force: true }) })
-  return { get service() { return service }, retries, wakes, scheduled, state, before, file,
+  return { retryEntered, answer: () => { personRevision++ }, get service() { return service }, retries, wakes, scheduled, state, before, file,
     problems, revoke: () => { allowed = false }, allow: () => { allowed = true }, setBusy: (value: boolean) => { busy = value },
     elapse: (ms: number) => { now += ms },
     currentRetry: () => retryCurrent?.(),
-    onRetry: (hook: () => Promise<void | 'not-started'>) => { retryHook = hook },
+    onRetry: (hook: () => Promise<void | 'not-started' | 'busy'>) => { retryHook = hook },
     restart: async () => { service.close(); service = new LeadChatIncidents(ports); await service.restore() },
     advance: async (ms: number) => { now += ms; for (const [run, at] of [...scheduled]) if (at <= now) { scheduled.delete(run); run() }; await service.idle() },
   }
@@ -119,11 +121,11 @@ test('an in-flight ordinary send never holds the incident writer needed by Stop'
   await r.service.ended('fixture:chat', 'one', { code: 'network', message: 'Offline' })
   const advance = r.advance(60_000)
   try {
-    while (!r.retries.length) await new Promise(resolve => setTimeout(resolve, 1))
-    const stopped = r.service.stop('fixture:chat')
-    let settled = false; void stopped.then(() => { settled = true })
-    await new Promise(resolve => setTimeout(resolve, 20))
-    assert.equal(settled, true, 'Stop must not wait for the ordinary send holding the other tail')
+    await r.retryEntered
+    const order: string[] = []
+    const stopped = r.service.stop('fixture:chat').then(() => { order.push('stopped') })
+    await stopped
+    assert.deepEqual(order, ['stopped'], 'Stop settles before release()')
   } finally { release(); await advance }
 })
 
@@ -171,7 +173,7 @@ test('simultaneously overdue chats serialize their ordinary sends without lockin
   for (const id of ['fixture:first', 'fixture:second']) await r.service.ended(id, 'one', { code: 'network', message: 'Offline' })
   const advanced = r.advance(60_000)
   try {
-    while (!r.retries.length) await new Promise(resolve => setTimeout(resolve, 1))
+    await r.retryEntered
     assert.equal(r.retries.length, 1, 'only one ordinary mutation is admitted at once')
     await r.service.stop('fixture:first')
   } finally { release(); await advanced }
@@ -272,7 +274,7 @@ test('a chosen reset retry starts a fresh bounded generation and fires once on t
   await r.service.ended('fixture:chat', 'two', { code: 'network', message: 'Offline' }); await r.advance(300_000)
   await r.service.ended('fixture:chat', 'three', { code: 'rateLimit', message: 'Quota' }, { reached: 'Daily', windows: [{ label: 'Daily', resetsAt: 400_000, usedPercent: 100, windowMinutes: 1440 }] })
   assert.equal(r.service.get('fixture:chat')?.attempts, 2)
-  await r.service.beginRetry('fixture:chat', true)
+  r.answer(); await r.service.beginRetry('fixture:chat', true)
   assert.equal(r.service.get('fixture:chat')?.attempts, 0)
   await r.advance(38_999); assert.equal(r.retries.length, 2)
   await r.advance(2000); assert.equal(r.retries.length, 3)
@@ -302,7 +304,7 @@ test('a superseding turn revokes an undispatched retry before its incident write
   await r.service.ended('fixture:chat', 'one', { code: 'network', message: 'Offline' })
   const advanced = r.advance(60_000)
   try {
-    while (!release) await new Promise(resolve => setTimeout(resolve, 1))
+    await r.retryEntered
     assert.equal(r.currentRetry(), true)
     const ending = r.service.ended('fixture:chat', 'two', { code: 'network', message: 'Person follow-up failed' })
     // Drain promise continuations, without allowing the atomic file write to finish.
@@ -311,4 +313,26 @@ test('a superseding turn revokes an undispatched retry before its incident write
     await ending
     assert.equal(r.service.get('fixture:chat')?.attempts, 0)
   } finally { release?.(); await advanced }
+})
+
+
+test('a goal boundary expires asked incidents as well as waiting retries', async t => {
+  const r = await rig(t); await r.service.ended('fixture:chat', 'one', { code: 'credits', message: 'No credit' })
+  r.service.cancel(); await r.service.idle()
+  assert.equal(r.service.get('fixture:chat')?.state, 'stopped')
+})
+test('a busy refusal during dispatch defers without counting a blocked admission', async t => {
+  const r = await rig(t); r.onRetry(async () => 'busy' as any)
+  await r.service.ended('fixture:chat', 'one', { code: 'network', message: 'Offline' })
+  for (let i = 0; i < 4; i++) { await r.advance(60_000); assert.equal(r.service.get('fixture:chat')?.state, 'waiting-reset') }
+  assert.equal(r.service.get('fixture:chat')?.attempts, 0); assert.equal(r.wakes.length, 0)
+})
+
+
+test("consent counts only the person's own messages after a failed move releases its claim", async t => {
+  const r = await rig(t); await r.service.ended('fixture:chat', 'one', { code: 'credits', message: 'No credit' })
+  r.answer(); assert.equal(r.service.hasPersonAnswer('fixture:chat'), true)
+  await r.service.claimMove('fixture:chat'); await r.service.releaseMove('fixture:chat')
+  assert.equal(r.service.hasPersonAnswer('fixture:chat'), false)
+  r.answer(); assert.equal(r.service.hasPersonAnswer('fixture:chat'), true)
 })

@@ -6,7 +6,7 @@ import type { HostContext, MethodsUnder } from './context.js'
 
 /** Host callers may scope the actual handle after dispatch reopens it. */
 export async function sendTurn(ctx: HostContext, params: HostParams<'turn/send'>,
-  admitLive?: DispatchAdmission<AgentSession>, person = false): Promise<HostResult<'turn/send'>> {
+  admitLive?: DispatchAdmission<AgentSession>, person = false, effectStarted?: () => void): Promise<HostResult<'turn/send'>> {
   // An unopened conversation is resolved by dispatch; it cannot have earned a
   // person-turn marker at admission. Do not force it open just to take a snapshot.
   const existing = person ? ctx.registry.get(params.runtime, params.sessionId) : undefined
@@ -15,7 +15,7 @@ export async function sendTurn(ctx: HostContext, params: HostParams<'turn/send'>
   const turnId = await ctx.sessions.dispatch(params, live => {
     const record = ctx.sessions.record(params)
     if (held && record !== held) throw new Error('The conversation changed before its message could be sent.')
-    return ctx.queue.sendNow(record, recordDeskInput(params.input), live, undefined, admitLive, personSeat)
+    return ctx.queue.sendNow(record, recordDeskInput(params.input), live, effectStarted, admitLive, personSeat)
   })
   return { turnId: String(turnId) }
 }

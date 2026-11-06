@@ -2261,3 +2261,16 @@ test('the host-only reply path refuses an ordinary ask mixed with proactive outp
     assert.equal(s.journal.state.messages.some(message => message.role === 'assistant'), false)
   } finally { s.controls.close() }
 })
+
+
+for (const source of ['person', 'automatic', 'schedule'] as const) test(`consent counts only the person's own messages: record ${source} at send time`, async () => {
+  const s = await rig({ configured: true })
+  try {
+    if (source === 'schedule') await s.controls.runScheduled({ id: 'fixture', title: 'Read CI', goal: 'Read CI', enabled: true, every: 'daily', at: '09:00', zone: 'UTC' } as any, 100)
+    else await s.controls.send({ idempotencyKey: 'fixture', text: 'Read CI' }, source === 'automatic' ? { source: 'issue', event: 'opened', subject: 'acme/widgets#12', url: null } : undefined)
+    await s.controls.idle()
+    assert.equal(s.journal.state.messages.find(message => message.role === 'user')?.source, source)
+    const reopened = await createLeadJournal(s.storage)
+    assert.equal(reopened.state.messages.find(message => message.role === 'user')?.source, source)
+  } finally { s.controls.close() }
+})

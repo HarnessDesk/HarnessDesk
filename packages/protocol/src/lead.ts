@@ -223,6 +223,8 @@ export interface LeadProactive {
 }
 export interface LeadApprovalAudit { readonly ruleId: string; readonly target: string; readonly diff?: string }
 export interface LeadMessage {
+  /** Host attribution: consent counts only the person's own messages. */
+  readonly source?: 'person' | 'automatic' | 'schedule'
   /** Host acknowledgement, never supplied by the Lead model. */
   readonly approval?: LeadApprovalAudit
   readonly proactive?: LeadProactive
@@ -739,10 +741,11 @@ export const parseLeadApprovalAudit: Validator<LeadApprovalAudit> = omitUnset(ob
   const target = text(240)(value, path)
   return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(target) ? fail(path ?? '', 'hidden audit target') : target
 }, diff: optional(boundedText(LEAD_APPROVAL_DETAIL_CHARS, true, proseControls)) }), ['diff'])
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content }), ['proactive', 'ask', 'approval'])
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, source: optional(literalUnion('person', 'automatic', 'schedule')), proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content }), ['proactive', 'ask', 'approval', 'source'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
+  if (message.source !== undefined && message.role !== 'user') fail(path, 'source requires a user message')
   if (message.ask && (message.role !== 'assistant' || message.proactive)) fail(path, 'ask requires an ordinary assistant message')
   return message
 }

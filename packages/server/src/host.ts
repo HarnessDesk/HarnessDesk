@@ -19,7 +19,7 @@ import { LeadPersonActions } from './lead/person-actions.js'
 import { LeadChatWatches } from './lead/chat-watches.js'
 import { leadChatCandidates, readLeadChatLimits } from './lead/chat-candidates.js'
 import type { RateLimits } from '@harnessdesk/protocol'
-import { LeadChats } from './lead/chats.js'
+import { LeadChats, LeadChatBusyError } from './lead/chats.js'
 import { loadLeadProjectPolicy } from './lead/project-policy.js'
 import { LeadControls, leadRefusal } from './lead/controls.js'
 import { phoneLinkOff } from './phone-link.js'
@@ -3722,7 +3722,7 @@ export class Host {
 
   /** One host-owned supervisor, enabled explicitly by the authenticated Lead
    * service owner in the next slice step. Construction itself never spawns. */
-  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'>): LeadService {
+  createLeadService(options: Pick<LeadServiceOptions, 'journal' | 'project' | 'model' | 'seats' | 'prices' | 'resolveTool' | 'freezePlan' | 'readEvidence' | 'createSupervisor' | 'messagesTransport'> & { readonly recovery?: { readonly now: () => number; readonly schedule: (run: () => void, delay: number) => () => void } }): LeadService {
     if (this.options.leadEnabled !== true) throw leadRefusal('lead-unavailable')
     if (this.#disposed) throw new Error('lead-host-closed')
     if (!this.#leadListenersAvailable) throw new Error('lead-listener-unavailable')
@@ -3749,7 +3749,7 @@ export class Host {
       }
     }
     this.#leadChatCancellation = async (id, count) => { await journal.appendReply(`Host notice: ${count} queued Lead message${count === 1 ? ' was' : 's were'} not delivered because the person took over chat ${id}.`) }
-    this.#leadChats = new LeadChats({ project, state: () => journal.state, now: () => Date.now(),
+    this.#leadChats = new LeadChats({ project, state: () => journal.state, now: options.recovery?.now ?? Date.now,
       managementAvailable: () => this.#leadService?.managementAvailable === true,
       queuedSends: () => this.registry.all().some(record => record.queue.messages.some(message => {
         const admission = this.registry.queuedAdmission(record, message.id)
@@ -3782,6 +3782,7 @@ export class Host {
       },
       recovery: {
         file: join(this.#state.directory, 'lead', 'incidents.json'),
+        ...(options.recovery ? { schedule: options.recovery.schedule } : {}),
         problem: reason => this.#logger.warn(reason),
         busy: id => this.#leadChatBusy(id),
         candidates: exclude => leadChatCandidates(this.#phoneWorkView().startableAgents().flatMap(id => {
@@ -3806,13 +3807,19 @@ export class Host {
             try { return { scope: await options.resolveTool(call), projectPolicy: await loadLeadProjectPolicy(project.path, journal.state.policy!) } }
             catch { return null } // Host lookup failed before any dispatch could start.
           })()
-          if (!admission || this.#leadChatBusy(id)) return 'not-started' as const
+          if (!admission) return 'not-started' as const
+          if (this.#leadChatBusy(id)) return 'busy' as const
           const { scope, projectPolicy } = admission
-          const result = await journal.execute({ id: `chat-retry-${randomUUID()}`, request: { ...call, project, runId: null, start: null },
-            context: { ...scope.context, desk: journal.state.policy!, projectPolicy, project, now: Date.now() } },
-          async () => ({ value: await this.#leadChats!.send(call.params, current, started), identity: null }))
+          const effectId = `chat-retry-${randomUUID()}`
+          let busy = false
+          const result = await journal.execute({ id: effectId, request: { ...call, project, runId: null, start: null },
+            context: { ...scope.context, desk: journal.state.policy!, projectPolicy, project, now: (options.recovery?.now ?? Date.now)() } },
+          async () => {
+            try { return { value: await this.#leadChats!.send({ ...call.params, effectId }, current, started, () => { busy = true }), identity: null } }
+            catch (error) { busy ||= error instanceof LeadChatBusyError; throw error }
+          })
           // For this send, failed proves the host's dispatch-not-started receipt; uncertain never permits replay.
-          if (result.decision.effect !== 'allow' || result.outcome === 'failed') return 'not-started' as const
+          if (result.decision.effect !== 'allow' || result.outcome === 'failed') return busy ? 'busy' as const : 'not-started' as const
           if (result.outcome !== 'succeeded') throw new Error('Lead chat retry could not be confirmed.')
         },
       },
@@ -3826,7 +3833,7 @@ export class Host {
     this.onDispose(journal.onChange(() => {
       if (['stopped', 'accepted', 'declined'].includes(journal.state.phase)) this.#leadChats?.incidents?.cancel()
       const id = journal.state.budget!.logicalGoalId
-      if (id !== budgetGoal) { budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
+      if (id !== budgetGoal) { this.#leadChats?.incidents?.cancel(); budgetOwner.close(); budgetOwner = this.registerLead(journal, project); budgetGoal = id }
     }))
     const stopOwned = async (reason: string) => {
       this.#clearLeadChatEffects()
@@ -10060,7 +10067,7 @@ export class Host {
     return this.#leadChats?.activities() ?? []
   }
 
-  get leadChats(): Pick<LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop'> {
+  get leadChats(): Pick<LeadChats, 'list' | 'read' | 'start' | 'send' | 'stop' | 'idle'> {
     if (!this.#leadChats || this.#disposed) throw leadRefusal('lead-unavailable')
     return this.#leadChats
   }
@@ -10238,9 +10245,9 @@ export class Host {
         return phoneSessionValues(runtime, cwd, this.#state.state.preferences, params => this.call('runtime/sessionDefaults', params), choices)
       },
       create: (params, effectStarted) => createConversation(this.#context, params, effectStarted),
-      send: async (params, admitCwd) => {
+      send: async (params, admitCwd, effectStarted) => {
         this.#noteReach(params)
-        await sendTurn(this.#context, params, this.#scopedLiveAdmission(params, admitCwd))
+        await sendTurn(this.#context, params, this.#scopedLiveAdmission(params, admitCwd), false, effectStarted)
       },
       queue: async (params, admit, effectStarted, admitCwd) => {
         if (!this.registry.get(params.runtime, params.sessionId)) {

@@ -5283,16 +5283,25 @@ change. The existing structured ask offers retry, move to an eligible agent,
 or stop; credit exhaustion recommends moving when another agent fits. Moving
 needs the person's tap or typed answer because the reset clock grants no
 permission to change who does their work. The host requires a person message
-newer than the incident, using the journal revision recorded with its last
-observation so a same-millisecond answer still has a strict order. A chosen
+newer than the incident and the current goal start: consent counts only the
+person's own messages. The host records person, automatic, or scheduled source
+at send time and keeps the revision with the incident, so a same-millisecond
+answer still has a strict order. Asked incidents expire with the goal. A chosen
 reset retry re-arms the host timer through chat_send's retryAt reset selector;
-it never sends immediately into the limit. A new Lead retry starts a fresh
-bounded incident generation, and every new failed turn can wake again.
+it never sends immediately into the limit. A fresh automatic generation, for
+either a plain send or a reset wait, needs a newer answer: consent counts only
+the person's own messages. Without one, the send remains an ordinary send and a failure asks again directly. Every
+new failed turn can wake again. Interrupts settle recovery as stopped, and
+a refused admission rolls an unstarted renewal back. Live worker approvals
+remain visible during waits and retries.
 The host validates the live workspace start roster, reserves one move, and
 builds the new first message from the brief, the original first message (including the person's verbatim words), and
 a bounded recent transcript/file digest, preserving any explicitly selected
 verbatim quotes as well. A creation refused before any chat exists releases
-the move claim; once created, its id is returned even if saving the receipt
+the move claim and requires a fresh answer before another move: consent
+counts only the person's own messages. Candidate admission runs before
+creation; a first message refused before dispatch is reported as not started.
+Once the first message starts, its id is returned even if saving the receipt
 fails, and the durable claim still prevents a duplicate move. It leaves the
 old chat intact. Agent configuration and credentials remain in the agents'
 own worlds.

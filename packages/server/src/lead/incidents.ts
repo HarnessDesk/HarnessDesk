@@ -24,8 +24,9 @@ interface Ports {
   readonly admit?: (id: string) => Promise<boolean>
   readonly busy?: (id: string) => boolean
   readonly personRevision?: () => number
+  readonly goalStartedSeq?: () => number
   readonly problem?: (reason: string) => void
-  readonly retry: (id: string, current: () => boolean, started: () => void) => Promise<void | 'not-started'>
+  readonly retry: (id: string, current: () => boolean, started: () => void) => Promise<void | 'not-started' | 'busy'>
   readonly publish: (incident: LeadChatIncident) => Promise<void>
 }
 const schedule = (run: () => void, delay: number): (() => void) => {
@@ -126,8 +127,8 @@ export class LeadChatIncidents {
         if (!current()) return
         try {
           const result = await this.ports.retry(record.chatId, current, () => { token.started = true })
-          if (result === 'not-started') {
-            const asked = await this.#queue(async () => current() ? this.#defer(claim as StoredIncident, true, true) : false)
+          if (result === 'not-started' || result === 'busy') {
+            const asked = await this.#queue(async () => current() ? this.#defer(claim as StoredIncident, result !== 'busy', true) : false)
             if (asked && !this.#closed && generation === this.#generation) await this.ports.publish(asked)
           }
         } catch {
@@ -188,7 +189,7 @@ export class LeadChatIncidents {
       const undispatched = active?.state === 'retrying' && pending && !pending.started
       if (undispatched) pending.active = false // Revoke before the successor's durable write can yield.
       const attempts = (active?.attempts ?? 0) - (undispatched ? 1 : 0)
-      const automatic = (kind === 'quota' || kind === 'transient') && attempts < LEAD_CHAT_RETRY_ATTEMPTS
+      const automatic = previous?.state !== 'asked' && (kind === 'quota' || kind === 'transient') && attempts < LEAD_CHAT_RETRY_ATTEMPTS
       const record: StoredIncident = { chatId, personRevision: this.ports.personRevision?.(), turnId: turnId.slice(0, 300), kind, attempts, firstAt: active?.firstAt ?? now, lastAt: now, resetsAt,
         lastError: { code: error.code, message: scrub(error.message, 300) }, state: automatic ? 'waiting-reset' : 'asked',
         nextAt: automatic ? resetsAt !== null && resetsAt > now ? resetsAt + randomInt(RESET_JITTER_MIN_MS, RESET_JITTER_MAX_MS + 1) : now + BACKOFF_MS[attempts]! : null }
@@ -203,26 +204,24 @@ export class LeadChatIncidents {
   /** A journal revision is a durable happens-after receipt, even within one clock tick. */
   hasPersonAnswer(id: string): boolean {
     const record = this.#records.get(id)
-    return record?.personRevision !== undefined && (this.ports.personRevision?.() ?? 0) > record.personRevision
+    return record?.personRevision !== undefined && (this.ports.personRevision?.() ?? 0) > Math.max(record.personRevision, this.ports.goalStartedSeq?.() ?? 0)
   }
-  beginRetry(id: string, atReset = false): Promise<void> {
+  beginRetry(id: string, atReset = false): Promise<(() => Promise<void>) | null> {
     return this.#queue(async () => {
       await this.#load(); const record = this.#records.get(id)
-      if (!record || record.state !== 'asked') {
-        if (atReset) throw new Error('That chat has no incident waiting for a retry.')
-        return
-      }
+      if (!record || record.state !== 'asked' || !this.hasPersonAnswer(id)) return null
       const now = this.ports.now()
       const next: StoredIncident = { ...record, attempts: 0, blocked: 0, firstAt: now, lastAt: now, personRevision: this.ports.personRevision?.(),
         state: atReset ? 'waiting-reset' : 'retrying', nextAt: atReset ? record.resetsAt !== null && record.resetsAt > now
           ? record.resetsAt + randomInt(RESET_JITTER_MIN_MS, RESET_JITTER_MAX_MS + 1) : now + BACKOFF_MS[0] : null }
       await this.#save(next); this.#arm(next)
+      return () => this.#queue(async () => { if (this.#records.get(id) === next) { this.#timers.get(id)?.(); this.#timers.delete(id); await this.#save(record) } })
     })
   }
   releaseMove(id: string): Promise<void> {
     return this.#queue(async () => {
       const record = this.#records.get(id)
-      if (record?.state === 'moved' && !record.movedTo) await this.#save({ ...record, state: 'asked' })
+      if (record?.state === 'moved' && !record.movedTo) await this.#save({ ...record, state: 'asked', lastAt: this.ports.now(), personRevision: this.ports.personRevision?.() })
     })
   }
   /** Reserve the single move before creation, including an uncertain first send. */
@@ -241,7 +240,10 @@ export class LeadChatIncidents {
       await this.#save({ ...record, state: 'moved', movedTo, nextAt: null })
     })
   }
-  invalidateRetry(id: string): void { const claim = this.#claims.get(id); if (claim) claim.active = false }
+  invalidateRetry(id: string): void {
+    const claim = this.#claims.get(id); if (claim) claim.active = false
+    this.#timers.get(id)?.(); this.#timers.delete(id)
+  }
   stop(id: string): Promise<boolean> {
     this.invalidateRetry(id)
     this.#timers.get(id)?.(); this.#timers.delete(id)
@@ -255,7 +257,7 @@ export class LeadChatIncidents {
     this.#generation++; this.#claims.clear()
     for (const cancel of this.#timers.values()) cancel()
     this.#timers.clear()
-    void this.#queue(async () => { await this.#load(); for (const record of this.#records.values()) if (this.waiting(record.chatId)) await this.#save({ ...record, state: 'stopped', nextAt: null }) }).catch(() => {})
+    void this.#queue(async () => { await this.#load(); for (const record of this.#records.values()) if (this.waiting(record.chatId) || record.state === 'asked') await this.#save({ ...record, state: 'stopped', nextAt: null }) }).catch(() => {})
   }
   close(): void { this.#closed = true; this.#generation++; this.#claims.clear(); for (const cancel of this.#timers.values()) cancel(); this.#timers.clear() }
 }

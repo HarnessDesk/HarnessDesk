@@ -13,6 +13,8 @@ import { LeadChatIncidents } from './incidents.js'
 import type { AgentError, LeadChatCandidate, LeadChatIncidentObservation, RateLimits, Turn } from '@harnessdesk/protocol'
 import { boundLeadChatRead } from './chat-read.js'
 
+export class LeadChatBusyError extends Error { constructor() { super('That chat is busy; defer the recovery retry.') } }
+
 export const LEAD_CHAT_HELD = 'The person has taken this chat over. Wait until they hand it back.'
 
 export interface LeadChatActivity { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage: LeadStage; readonly incident?: LeadChatIncidentObservation }
@@ -40,7 +42,7 @@ export interface LeadChatsPorts {
     readonly candidates: (exclude?: string) => Promise<readonly (LeadChatCandidate & { readonly agent?: string })[]>
     readonly limits: (id: string) => Promise<RateLimits | null>
     readonly firstMessage: (id: string) => Promise<string | null>
-    readonly retry: (id: string, current: () => boolean, started: () => void) => Promise<void | 'not-started'>
+    readonly retry: (id: string, current: () => boolean, started: () => void) => Promise<void | 'not-started' | 'busy'>
     readonly busy?: (id: string) => boolean
     readonly schedule?: (run: () => void, delay: number) => () => void
   }
@@ -84,11 +86,16 @@ export class LeadChats {
     void this.#ready.catch(() => {})
   }
   restore(): Promise<void> { return this.#ready }
+  async idle(retries = true): Promise<void> {
+    await this.#ready
+    for (;;) { const changes = this.#changes; await changes; if (retries) await this.incidents?.idle(); if (changes === this.#changes) return }
+  }
   #createIncidents(): LeadChatIncidents | undefined {
     const ports = this.ports
     if (ports.recovery) return new LeadChatIncidents({ file: ports.recovery.file, project: ports.project.path, now: ports.now,
       ...(ports.recovery.schedule ? { schedule: ports.recovery.schedule } : {}),
-      personRevision: () => Math.max(0, ...ports.state().messages.filter(message => message.role === 'user').map(message => message.revision)),
+      goalStartedSeq: () => ports.state().goalStartedSeq,
+      personRevision: () => Math.max(0, ...ports.state().messages.filter(message => message.role === 'user' && message.source === 'person').map(message => message.revision)),
       problem: ports.recovery.problem, busy: id => { const at = id.indexOf(':'); return ports.recovery!.busy?.(id) || ports.live(runtimeId(id.slice(0, at)), sessionId(id.slice(at + 1))).running },
       admit: id => this.#incidentAllowed(id, true), allowed: id => this.#incidentAllowed(id), retry: ports.recovery.retry,
       publish: async incident => {
@@ -120,6 +127,7 @@ export class LeadChats {
   }
   async #activity(id: string): Promise<LeadChatActivity> {
     const incident = this.incidents?.get(id)
+    if (this.#stateOf(id) === 'waiting') return { id, project: this.ports.project.path, state: 'waiting', stage: this.#stageOf(id) }
     if (incident?.state === 'asked') {
       const candidates = (await this.ports.recovery!.candidates(id)).map(({ key, name }) => ({ key, name }))
       return { id, project: this.ports.project.path, state: 'waiting', stage: 'you-blocked', incident: { chatId: incident.chatId, turnId: incident.turnId, kind: incident.kind, attempts: incident.attempts, firstAt: incident.firstAt, lastAt: incident.lastAt, resetsAt: incident.resetsAt, lastError: incident.lastError, state: incident.state, ...(incident.movedTo ? { movedTo: incident.movedTo } : {}), candidates } }
@@ -176,8 +184,10 @@ export class LeadChats {
   changed(runtime: RuntimeId, session: SessionId, turn?: Turn): Promise<void> {
     // Capture while the host is handling this event. A fast turn may complete
     // before asynchronous file/scope checks return; its two transitions still matter.
-    const id = `${runtime}:${session}`, state = this.#stateOf(id), stage = this.#stageOf(id, !(turn?.status === 'completed' && !turn.error))
-    if (turn?.status === 'completed' && !turn.error) this.incidents?.invalidateRetry(id)
+    const id = `${runtime}:${session}`, state = this.#stateOf(id)
+    const terminal = turn?.status === 'interrupted' || turn && turn.status !== 'inProgress' && !turn.error
+    const stage = this.#stageOf(id, !terminal)
+    if (turn?.status === 'interrupted' || turn?.status === 'completed' && !turn.error) this.incidents?.invalidateRetry(id)
     const changed = this.#changes.then(async () => {
       try {
         await this.#ready
@@ -189,11 +199,11 @@ export class LeadChats {
           const raw = turn.error
           const code = ['auth', 'credits', 'rateLimit', 'versionGate', 'sandboxDenied', 'network', 'interrupted', 'runtimeUnavailable', 'protocol', 'unknown'].includes(raw?.code ?? '') ? raw!.code as AgentError['code'] : 'unknown'
           const error = raw ? { ...raw, code } : (turn.status === 'failed' ? { code: 'unknown' as const, message: 'The turn failed.' } : null)
-          // An interrupted turn without an error may be the person's Stop.
-          if (error || turn.status === 'completed') await this.incidents.ended(id, String(turn.id), error,
+          if (turn.status === 'interrupted') await this.incidents.stop(id)
+          else if (error || turn.status !== 'inProgress') await this.incidents.ended(id, String(turn.id), error,
             error?.code === 'rateLimit' ? await this.ports.recovery!.limits(id) : null)
         }
-        if (this.incidents?.waiting(id) || this.incidents?.get(id)?.state === 'asked') return
+        if (state !== 'waiting' && (this.incidents?.waiting(id) || this.incidents?.get(id)?.state === 'asked')) return
         if (await this.#personHolds(id)) return
         this.ports.control?.assertDispatch?.(this.ports.project.path, id)
         if (this.#states.get(id) === stage) return
@@ -318,7 +328,7 @@ export class LeadChats {
       try { await this.#target(id, false) } catch { continue }
       const live = this.ports.live(summary.runtime, summary.id)
       const item: typeof items[number] = { id, title: scrub(summary.title ?? summary.preview ?? '', 160) || 'Conversation',
-        state: this.incidents?.waiting(id) ? 'running' : live.waiting ? 'waiting' : live.running ? 'running' : 'idle', stage: this.#stageOf(id), updatedAt: summary.updatedAt }
+        state: live.waiting ? 'waiting' : this.incidents?.waiting(id) || live.running ? 'running' : 'idle', stage: this.#stageOf(id), updatedAt: summary.updatedAt }
       // Counts alone do not bound UTF-8 or escaped JSON. Leave room for the
       // opaque continuation token and stop before consuming the omitted row.
       if (Buffer.byteLength(JSON.stringify({ items: [...items, item], nextCursor: '0'.repeat(36) })) > 12_000) {
@@ -420,7 +430,7 @@ export class LeadChats {
       }
       const envelope = this.#envelope(text)
       await this.ports.control?.assertCanStart?.(this.ports.project.path)
-      let createdId: string | undefined, moveClaimed = false, creationStarted = false
+      let createdId: string | undefined, moveClaimed = false, creationStarted = false, firstMessageStarted = false
       const scope = this.#liveScope(call, attemptId, () => createdId)
       try {
         const result = await this.ports.work.startInProject({ text, ...(agent ? { agent } : {}) }, this.ports.project.path, async id => {
@@ -431,11 +441,15 @@ export class LeadChats {
             if (!this.incidents?.hasPersonAnswer(params.moveFrom)) refuse('Wait for the person’s answer before moving this chat.')
             if (this.incidents?.get(params.moveFrom)?.state !== (moveClaimed ? 'moved' : 'asked')) refuse('That incident was already moved or stopped.')
           }
-          if (agent && !(await this.ports.recovery!.candidates(params.moveFrom)).some(one => (one.agent ?? one.key) === agent)) refuse('That agent is no longer available.')
+          if (!id && agent && !(await this.ports.recovery!.candidates(params.moveFrom)).some(one => (one.agent ?? one.key) === agent)) refuse('That agent is no longer available.')
           if (params.moveFrom && !moveClaimed) { await this.incidents!.claimMove(params.moveFrom); moveClaimed = true }
           // Recorded before the first message leaves, so the transcript can vouch for it on first render.
           if (id) { await this.#watch(id); await this.#record(id, envelope); await admit(id); await this.#notHeld(id) }
-        }, () => { creationStarted = true; effectStarted() }, scope, [deskContextContent(envelope)])
+        }, () => { creationStarted = true; effectStarted() }, scope, [deskContextContent(envelope)], () => { firstMessageStarted = true })
+        if (params.moveFrom && result.problem && !firstMessageStarted) {
+          if (moveClaimed) await this.incidents!.releaseMove(params.moveFrom)
+          return { id: '', problem: 'The move did not start. The original chat is unchanged; ask the person before trying again.' }
+        }
         if (params.moveFrom && result.id) {
           // Creation is already an effect: always hand its identity back, even if persistence is temporarily unavailable.
           try { await this.incidents!.moved(params.moveFrom, result.id) }
@@ -451,7 +465,7 @@ export class LeadChats {
       }
     })
   }
-  send(input: HostParams<'lead/chat/send'>, currentRetry?: () => boolean, retryStarted?: () => void): Promise<HostResult<'lead/chat/send'>> {
+  send(input: HostParams<'lead/chat/send'>, currentRetry?: () => boolean, retryStarted?: () => void, retryBusy?: () => void): Promise<HostResult<'lead/chat/send'>> {
     const { effectId, ...params } = input
     const call = { method: 'lead/chat/send', params } as const
     const envelope = this.#envelope(params.text)
@@ -459,20 +473,21 @@ export class LeadChats {
       if (params.retryAt === 'reset') {
         await admit(); await this.#notHeld(params.id)
         if (!this.incidents) refuse('Chat recovery is unavailable.')
-        await this.incidents!.beginRetry(params.id, true)
-        effectStarted()
-        return { queued: true }
+        if (await this.incidents!.beginRetry(params.id, true)) { effectStarted(); return { queued: true } }
       }
-      let beganRetry = false
+      let beganRetry = false, started = false
+      const renewal: { rollback: (() => Promise<void>) | null } = { rollback: null }
       if (currentRetry && !currentRetry()) refuse('That recovery retry was cancelled.')
-      if (currentRetry && this.ports.recovery?.busy?.(params.id)) refuse('That chat is busy; defer the recovery retry.')
+      if (currentRetry && this.ports.recovery?.busy?.(params.id)) { retryBusy?.(); throw new LeadChatBusyError() }
       const scope = this.#liveScope(call, attemptId, () => params.id, currentRetry)
-      return this.ports.work.sessionSend(params, async () => {
-        await admit(); await this.#notHeld(params.id); await this.#watch(params.id); await this.#record(params.id, envelope); await admit(); await this.#notHeld(params.id)
-        if (currentRetry && !currentRetry()) refuse('That recovery retry was cancelled.')
-        if (currentRetry && this.ports.recovery?.busy?.(params.id)) refuse('That chat is busy; defer the recovery retry.')
-        if (!currentRetry && !beganRetry) { await this.incidents?.beginRetry(params.id); beganRetry = true }
-      }, () => { effectStarted(); retryStarted?.() }, scope, [deskContextContent(envelope)])
+      try {
+        return await this.ports.work.sessionSend(params, async () => {
+          await admit(); await this.#notHeld(params.id); await this.#watch(params.id); await this.#record(params.id, envelope); await admit(); await this.#notHeld(params.id)
+          if (currentRetry && !currentRetry()) refuse('That recovery retry was cancelled.')
+          if (currentRetry && this.ports.recovery?.busy?.(params.id)) { retryBusy?.(); throw new LeadChatBusyError() }
+          if (!currentRetry && !beganRetry) { renewal.rollback = await this.incidents?.beginRetry(params.id) ?? null; beganRetry = true }
+        }, () => { started = true; effectStarted(); retryStarted?.() }, scope, [deskContextContent(envelope)])
+      } catch (error) { if (!started) await renewal.rollback?.(); throw error }
     })
   }
   stop(input: HostParams<'lead/chat/stop'>): Promise<HostResult<'lead/chat/stop'>> {
