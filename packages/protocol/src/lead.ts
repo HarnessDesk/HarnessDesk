@@ -188,6 +188,8 @@ export interface LeadCardDecision {
 }
 /** Host observation; never an instruction or permission to move work. */
 export interface LeadChatIncident {
+  /** Distinguishes new failed turns from repeated delivery of one observation. */
+  readonly turnId?: string
   readonly chatId: string
   readonly kind: 'quota' | 'credits' | 'transient' | 'failed'
   readonly attempts: number

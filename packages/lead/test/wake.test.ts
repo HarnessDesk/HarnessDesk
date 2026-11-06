@@ -98,5 +98,6 @@ test('chat wake fingerprints include changed incidents while identical observati
   assert.equal(typeof fingerprint, 'function')
   const chat = { id: 'fixture:chat', state: 'waiting', incident: { state: 'asked', attempts: 2, firstAt: 1, lastAt: 3, kind: 'quota', resetsAt: 5, lastError: { code: 'rateLimit', message: 'Quota' }, candidates: [] } }
   assert.equal(fingerprint(chat), fingerprint(structuredClone(chat)))
+  assert.notEqual(fingerprint({ ...chat, incident: { ...chat.incident, turnId: 'one' } }), fingerprint({ ...chat, incident: { ...chat.incident, turnId: 'two' } }))
   assert.notEqual(fingerprint(chat), fingerprint({ ...chat, incident: { ...chat.incident, state: 'moved', movedTo: 'other:new' } }))
 })

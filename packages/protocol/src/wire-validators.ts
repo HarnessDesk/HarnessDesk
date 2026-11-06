@@ -1049,7 +1049,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     if (ids.length < 1 || ids.length > 3 || new Set(ids).size !== ids.length) throw new ValidationError(path, 'expected 1 to 3 unique message ids')
     return ids
   }) }),
-  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384) }),
+  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384), retryAt: optional(literalUnion('reset')) }),
   'lead/chats/resetControl': parseLeadEmpty,
   'lead/chats/control': parseLeadEmpty,
   'lead/chat/takeOver': phoneShape({ id: phoneText(300) }),
@@ -1701,7 +1701,7 @@ export const knownMethods = Object.keys(paramsValidators) as HostMethodName[]
 
 const incidentObservation: Validator<import('./lead.js').LeadChatIncidentObservation> = shape({
   chatId: atMost(300, isFilled), kind: literalUnion('quota', 'credits', 'transient', 'failed'), attempts: nonNegativeSafeInteger,
-  firstAt: nonNegativeSafeInteger, lastAt: nonNegativeSafeInteger,
+  firstAt: nonNegativeSafeInteger, lastAt: nonNegativeSafeInteger, turnId: optional(atMost(300, isFilled)),
   resetsAt: (v, p) => v === null ? null : nonNegativeSafeInteger(v, p),
   lastError: shape({ code: literalUnion('auth', 'credits', 'rateLimit', 'versionGate', 'sandboxDenied', 'network', 'interrupted', 'runtimeUnavailable', 'protocol', 'unknown'), message: atMost(300, isString) }),
   state: literalUnion('waiting-reset', 'retrying', 'asked', 'moved', 'stopped', 'cleared'), movedTo: optional(atMost(300, isFilled)),

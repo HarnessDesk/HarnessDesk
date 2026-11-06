@@ -87,3 +87,11 @@ test('start settlement uses the same stable host round identity as recovery', as
     vars: {}, attended: true, seats: { implement: [contract.steps[0]!.assignments[0]!.seat], review: [contract.steps[0]!.assignments[1]!.seat] } } })
   assert.equal(s.journal.state.budget!.rounds[0]!.roundId, 'run-1:round:1')
 })
+
+
+test('chat_send exposes and forwards a reset retry selector', async () => {
+  const { LEAD_TOOLS, parseLeadToolCall } = await import('../src/tools.js')
+  assert.deepEqual(LEAD_TOOLS.chat_send.input_schema.properties.retryAt, { type: 'string', enum: ['reset'] })
+  assert.deepEqual(parseLeadToolCall({ type: 'tool_use', id: 'retry', name: 'chat_send', input: { id: 'fixture:chat', text: 'Continue', retryAt: 'reset' } }),
+    { method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Continue', retryAt: 'reset' } })
+})

@@ -3778,6 +3778,8 @@ export class Host {
       },
       recovery: {
         file: join(this.#state.directory, 'lead', 'incidents.json'),
+        problem: reason => this.#logger.warn(reason),
+        busy: id => this.#leadChatBusy(id),
         candidates: exclude => leadChatCandidates(this.#phoneWorkView().startableAgents().flatMap(id => {
           const runtime = this.#runtimes.get(id); return runtime ? [runtime] : []
         }), exclude, this.#leadChatLimits),
@@ -3794,14 +3796,20 @@ export class Host {
           const words = splitContextContent(first.content), block = words.injections.find(block => isLeadMessageSource(block.label))
           return block ? leadMessageWords(block.text) : words.text
         },
-        retry: async (id, current) => {
+        retry: async (id, current, started) => {
           const call = { method: 'lead/chat/send', params: { id, text: 'Continue from where you stopped.' } } as const
-          const scope = await options.resolveTool(call)
-          const projectPolicy = await loadLeadProjectPolicy(project.path, journal.state.policy!)
+          const admission = await (async () => {
+            try { return { scope: await options.resolveTool(call), projectPolicy: await loadLeadProjectPolicy(project.path, journal.state.policy!) } }
+            catch { return null } // Host lookup failed before any dispatch could start.
+          })()
+          if (!admission || this.#leadChatBusy(id)) return 'not-started' as const
+          const { scope, projectPolicy } = admission
           const result = await journal.execute({ id: `chat-retry-${randomUUID()}`, request: { ...call, project, runId: null, start: null },
             context: { ...scope.context, desk: journal.state.policy!, projectPolicy, project, now: Date.now() } },
-          async () => ({ value: await this.#leadChats!.send(call.params, current), identity: null }))
-          if (result.decision.effect !== 'allow' || result.outcome !== 'succeeded') throw new Error('Lead chat retry was refused or could not be confirmed.')
+          async () => ({ value: await this.#leadChats!.send(call.params, current, started), identity: null }))
+          // For this send, failed proves the host's dispatch-not-started receipt; uncertain never permits replay.
+          if (result.decision.effect !== 'allow' || result.outcome === 'failed') return 'not-started' as const
+          if (result.outcome !== 'succeeded') throw new Error('Lead chat retry could not be confirmed.')
         },
       },
       watches: new LeadChatWatches(join(this.#state.directory, 'lead', 'chats.json')),
@@ -3929,7 +3937,7 @@ export class Host {
     this.#leadService = new LeadService({ ...options,
       onManagementStopped: reason => {
         if (reason === 'lead-host-shutdown') void this.#leadChats?.close()
-        else this.#leadChats?.incidents?.cancel()
+        else if (reason === 'lead-disabled' || reason === 'lead-request-cancelled') this.#leadChats?.incidents?.cancel()
       },
       ...(this.options.leadRuntimes ? { runtimes: this.options.leadRuntimes } : {}),
       onRuntimeUnavailable: reason => this.#logger.warn('Lead runtime unavailable', { reason }),
@@ -10038,6 +10046,10 @@ export class Host {
     })
   }
 
+  #leadChatBusy(id: string): boolean {
+    const at = id.indexOf(':'), held = this.registry.get(runtimeId(id.slice(0, at)), makeSessionId(id.slice(at + 1)))
+    return !!held && (held.running.size > 0 || this.#queueBusy(held) || held.queue.messages.length > 0)
+  }
   async leadChatActivities(): Promise<readonly import('./lead/chats.js').LeadChatActivity[]> {
     return this.#leadChats?.activities() ?? []
   }

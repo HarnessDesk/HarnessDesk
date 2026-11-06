@@ -92,3 +92,9 @@ test('Lead chat start admits only bounded agent and moveFrom selectors', () => {
   for (const field of ['agent', 'moveFrom']) for (const value of ['', 'x'.repeat(301), 4])
     assert.throws(() => request('lead/chat/start', { text: 'Brief', [field]: value }))
 })
+
+
+test('chat send can request a provider-reset wait and rejects every other retry selector', () => {
+  assert.doesNotThrow(() => request('lead/chat/send', { id: 'fixture:chat', text: 'Continue', retryAt: 'reset' }))
+  for (const retryAt of ['now', '', 1, {}]) assert.throws(() => request('lead/chat/send', { id: 'fixture:chat', text: 'Continue', retryAt }))
+})

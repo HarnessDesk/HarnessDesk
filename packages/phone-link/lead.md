@@ -515,7 +515,8 @@ scrubbed error and available agent presentation names/opaque keys).
 
 The person sees and answers the existing structured Lead ask, on phone or
 desk: retry when it resets, move to an available agent, or stop. No new phone
-method or permission is needed. After the person's choice, a move starts an
-ordinary chat on that agent with the brief, original first message and a
+method or permission is needed. A chosen reset retry re-arms the host wait.
+The host requires a newer person answer before moving. After that choice, a
+move starts an ordinary chat on that agent with the brief, original first message and a
 host-built bounded progress digest. The old chat remains. Person-held chats
 are excluded; Stop during a reset wait cancels its retry.

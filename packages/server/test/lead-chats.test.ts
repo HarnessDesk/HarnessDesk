@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 import { initialLeadState, reduceLeadBudget, summarizeLeadArguments, type LeadState, type LeadPermissionContext } from '@harnessdesk/lead'
@@ -39,6 +39,9 @@ const rig = async (t: TestContext, recovery = false) => {
 
     return id
   }
+  let startProblem: false | 'return' | 'throw' = false
+  const scheduled = new Map<() => void, number>()
+  let now = 100
   let firstMessage = "Original brief\n\nThe person's words, verbatim:\n> Preserve  these words."
   let transcript: any[] = [{ type: 'agent', markdown: 'Implemented the helper; tests remain.' }, { type: 'changes', files: [{ path: 'src/helper.ts' }] }]
   const sentInput: (readonly UserContent[] | undefined)[] = []
@@ -47,19 +50,21 @@ const rig = async (t: TestContext, recovery = false) => {
     holder: async (_project: string, id: string) => holders.get(id) ?? null,
     noteSent: async (_project: string, id: string, key: string) => { sentKeys.push({ id, key }); onRecord?.(); if (!holders.has(id)) holders.set(id, 'lead') },
   }
-  const service = new LeadChats({ ...(recovery ? { recovery: { file: join(home, 'incidents.json'), candidates: async () => [{ key: 'agent-two', name: 'Agent Two' }], firstMessage: async () => firstMessage, limits: async () => null, retry: async () => {} } } : {}), noteDispatchNotStarted: () => {}, control, project, state: () => state, member: async () => member, now: () => 100,
+  const service = new LeadChats({ ...(recovery ? { recovery: { file: join(home, 'incidents.json'), schedule: (run: () => void, delay: number) => { scheduled.set(run, now + delay); return () => { scheduled.delete(run) } }, candidates: async () => [{ key: 'agent-two', name: 'Agent Two' }], firstMessage: async () => firstMessage, limits: async () => null, retry: async () => {} } } : {}), noteDispatchNotStarted: () => {}, control, project, state: () => state, member: async () => member, now: () => now,
     context: async (): Promise<LeadPermissionContext> => { onContext?.(); return { desk: state.policy!, projectPolicy: null, project, approved: null, budget: null, now: 100, policyInterpretation: 'idle' } },
     index, cwd: async (runtime: any, id: any) => { await cwdRead?.(); return index.get(runtime, id)?.cwd ?? null },
     live: () => live, publish: (event: any) => { published.push(event) },
     work: {
       threadRead: async (params: any) => { calls.push({ method: 'read', params }); return { id: params.id, title: 'Project chat', agent: { name: 'Agent' }, status: 'done', turns: transcript } },
-      startInProject: async (params: any, root: string, admit: (id?: string) => Promise<void>, _effect: unknown, _scope: unknown, input?: readonly UserContent[]) => { await admit(); row('created'); await admit('fixture:created'); sentInput.push(input); calls.push({ method: 'start', params: { ...params, root } }); return { id: 'fixture:created' } },
+      startInProject: async (params: any, root: string, admit: (id?: string) => Promise<void>, _effect: unknown, _scope: unknown, input?: readonly UserContent[]) => { await admit(); if (startProblem === 'throw') throw new Error('Creation failed before dispatch'); if (startProblem) return { id: '', problem: 'Creation refused' }; row('created'); await admit('fixture:created'); sentInput.push(input); calls.push({ method: 'start', params: { ...params, root } }); return { id: 'fixture:created' } },
       sessionSend: async (params: any, admit: () => Promise<void>, _effect: unknown, scope: (cwd: string) => Promise<void>, input?: readonly UserContent[]) => { await admit(); sentInput.push(input); queuedScope = scope; calls.push({ method: 'send', params }); return { queued: true } },
       stop: async (params: any, admit: () => Promise<void>) => { await admit(); calls.push({ method: 'stop', params }); return {} },
     },
   })
   t.after(() => service.close())
-  return { service, project, onContext: (callback: () => void) => { onContext = callback }, onRecord: (callback: () => void) => { onRecord = callback }, sentInput, holders, sentKeys, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
+  return { service, project, incidentFile: join(home, 'incidents.json'), failStart: (mode: 'return' | 'throw' = 'return') => { startProblem = mode },
+    answer: () => { const revision = state.seq + 1; state = { ...state, seq: revision, messages: [...state.messages, { version: 1, id: `answer-${revision}`, revision, role: 'user', text: 'Move this work, and preserve  this new constraint.' }] } },
+    advance: async (ms: number) => { now += ms; for (const [run, at] of [...scheduled]) if (at <= now) { scheduled.delete(run); run() }; await service.incidents?.idle() }, scheduled, onContext: (callback: () => void) => { onContext = callback }, onRecord: (callback: () => void) => { onRecord = callback }, sentInput, holders, sentKeys, index, root, foreign, row, calls, authorize, published, queuedScope: () => queuedScope!, setLive: (next: typeof live) => { live = next }, setState: (next: Partial<LeadState>) => { state = { ...state, ...next } }, state: () => state,
     withdraw: () => { member = false }, onCwd: (callback: () => Promise<void>) => { cwdRead = callback } }
 }
 
@@ -376,13 +381,14 @@ test('recovery asks once with candidates and moves a host-composed transcript af
   assert.deepEqual(observation.candidates, [{ key: 'agent-two', name: 'Agent Two' }])
   await r.service.changed(runtimeId('fixture'), sessionId('own'), turn)
   assert.equal(r.published.length, 1)
-  const params = { text: 'Finish the helper', agent: 'Agent Two', moveFrom: 'fixture:own' }
+  r.answer()
+  const params = { text: 'Finish the helper', quote: [r.state().messages.at(-1)!.id], agent: 'Agent Two', moveFrom: 'fixture:own' }
   r.authorize('lead/chat/start', params)
   const result = await r.service.start(params)
   assert.equal(result.id, 'fixture:created')
   assert.equal(r.calls.at(-1)?.params.agent, 'agent-two')
   const message = JSON.stringify(r.sentInput.at(-1))
-  for (const words of ['Finish the helper', 'Preserve  these words.', 'Implemented the helper', 'src/helper.ts']) assert.ok(message.includes(words), words)
+  for (const words of ['Finish the helper', 'Preserve  these words.', 'Implemented the helper', 'src/helper.ts', 'preserve  this new constraint.']) assert.ok(message.includes(words), words)
   r.authorize('lead/chat/start', params)
   await assert.rejects(r.service.start(params), /incident|moved/i)
 })
@@ -420,4 +426,122 @@ test('take over during an activity scope check suppresses the pending wake', asy
   r.onContext(() => { r.holders.set('fixture:own', 'person') })
   await r.service.changed(runtimeId('fixture'), sessionId('own'))
   assert.equal(r.published.length, 0)
+})
+
+for (const broken of ['{private truncated', 'mixed']) test(`chat wakes and activities survive ${broken === 'mixed' ? 'one invalid record' : 'a corrupt incident file'}`, async t => {
+  const r = await rig(t, true)
+  // Recreate the project ledger before observation, as on host restart.
+  await r.service.close()
+  await writeFile(r.incidentFile, broken === 'mixed' ? JSON.stringify({ version: 1, project: r.root, records: [
+    { chatId: 'fixture:bad', lastError: { code: 'new-code', message: 'private' } },
+    { chatId: 'fixture:old', turnId: 'old', kind: 'credits', state: 'asked', attempts: 0, firstAt: 1, lastAt: 1, nextAt: null, resetsAt: null, lastError: { code: 'credits', message: 'No credit' } },
+  ] }) : broken)
+  await r.service.projectChanged(); await r.service.restore()
+  if (broken === 'mixed') assert.equal(r.service.incidents.get('fixture:old')?.state, 'asked')
+  r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'new', status: 'failed', items: [], error: { code: 'credits', message: 'No credit' } } as any)
+  assert.equal(r.published.at(-1)?.incident?.state, 'asked')
+  assert.equal((await r.service.activities()).length, 1)
+})
+
+test('a Lead retry after an ask resets attempts and an identical new-turn failure wakes again', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'first', { code: 'credits', message: 'No credit' })
+  const params = { id: 'fixture:own', text: 'Retry the work' }
+  r.authorize('lead/chat/send', params); await r.service.send(params)
+  assert.equal(r.service.incidents.get(params.id)?.state, 'retrying')
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'second', status: 'failed', items: [], error: { code: 'credits', message: 'No credit' } } as any)
+  assert.equal(r.published.length, 2)
+  assert.notEqual(r.published[0].incident.turnId, r.published[1].incident.turnId)
+  assert.equal(r.published[1].incident.attempts, 0)
+})
+
+test('retry-at-reset schedules the host continue exactly once without an immediate send', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'one', { code: 'credits', message: 'No credit' })
+  const params = { id: 'fixture:own', text: 'Continue from where you stopped.', retryAt: 'reset' }
+  r.authorize('lead/chat/send', params); assert.deepEqual(await r.service.send(params), { queued: true })
+  assert.equal(r.calls.filter(call => call.method === 'send').length, 0)
+  assert.equal(r.service.incidents.get(params.id)?.state, 'waiting-reset')
+  assert.equal(r.scheduled.size, 1)
+})
+
+test('a move requires a newer person answer on the Lead thread', async t => {
+  const r = await rig(t, true); r.answer(); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'one', { code: 'credits', message: 'No credit' })
+  const params = { text: 'Finish the helper', agent: 'Agent Two', moveFrom: 'fixture:own' }
+  r.authorize('lead/chat/start', params)
+  await assert.rejects(r.service.start(params), /person.*answer/i)
+  assert.equal(r.calls.filter(call => call.method === 'start').length, 0)
+})
+
+for (const mode of ['return', 'throw'] as const) test(`creation failure (${mode}) rolls the move reservation back so the person can try again`, async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'one', { code: 'credits', message: 'No credit' }); r.answer()
+  r.failStart(mode)
+  const params = { text: 'Finish the helper', agent: 'Agent Two', moveFrom: 'fixture:own' }
+  r.authorize('lead/chat/start', params)
+  if (mode === 'throw') await assert.rejects(r.service.start(params), /Creation failed/)
+  else assert.equal((await r.service.start(params)).id, '')
+  assert.equal(r.service.incidents.get('fixture:own')?.state, 'asked')
+})
+
+test('a created move returns its chat id even when saving movedTo initially fails', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'one', { code: 'credits', message: 'No credit' }); r.answer()
+  const moved = r.service.incidents.moved.bind(r.service.incidents)
+  let calls = 0
+  t.mock.method(r.service.incidents, 'moved', async (...args: any[]) => { if (++calls === 1) throw new Error('Synthetic storage outage'); return moved(...args) })
+  const params = { text: 'Finish the helper', agent: 'Agent Two', moveFrom: 'fixture:own' }
+  r.authorize('lead/chat/start', params)
+  assert.equal((await r.service.start(params)).id, 'fixture:created')
+  assert.equal(r.service.incidents.get('fixture:own')?.movedTo, 'fixture:created')
+})
+
+
+test('a permanent movedTo storage failure still returns the new identity and keeps the single-move claim', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'one', { code: 'credits', message: 'No credit' }); r.answer()
+  t.mock.method(r.service.incidents, 'moved', async () => { throw new Error('Synthetic storage outage') })
+  const params = { text: 'Finish the helper', agent: 'Agent Two', moveFrom: 'fixture:own' }
+  r.authorize('lead/chat/start', params)
+  assert.equal((await r.service.start(params)).id, 'fixture:created')
+  assert.equal(r.service.incidents.get('fixture:own')?.state, 'moved')
+  r.authorize('lead/chat/start', params); await assert.rejects(r.service.start(params), /already moved/)
+  assert.equal(r.calls.filter(call => call.method === 'start').length, 1)
+})
+
+test('an adapter failure without an error code asks at once as failed', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.changed(runtimeId('fixture'), sessionId('own'), { id: 'one', status: 'failed', items: [], error: { message: 'Unclassified adapter failure' } } as any)
+  assert.equal(r.published.at(-1)?.incident.kind, 'failed')
+  assert.equal(r.published.at(-1)?.incident.lastError.code, 'unknown')
+  assert.equal(r.scheduled.size, 0)
+})
+
+
+test('a temporary mutation admission failure defers the timer without charging an attempt', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'one', { code: 'network', message: 'Offline' })
+  r.authorize('lead/chat/start', { text: 'A temporarily admitted mutation' })
+  await r.advance(60_000)
+  assert.equal(r.service.incidents.get('fixture:own')?.state, 'waiting-reset')
+  assert.equal(r.service.incidents.get('fixture:own')?.attempts, 0)
+  r.setState({ attempts: new Map([...r.state().attempts].map(([id, attempt]) => [id, { ...attempt, phase: 'finished', outcome: 'succeeded' }])) })
+  await r.advance(60_000)
+  assert.equal(r.service.incidents.get('fixture:own')?.state, 'retrying')
+  assert.equal(r.service.incidents.get('fixture:own')?.attempts, 1)
+})
+
+
+test('an older incident without a person-revision receipt can move after a fresh answer following restore', async t => {
+  const r = await rig(t, true); r.row('own'); r.holders.set('fixture:own', 'lead'); await r.service.read({ id: 'fixture:own' })
+  await r.service.incidents.ended('fixture:own', 'one', { code: 'credits', message: 'No credit' })
+  await r.service.close()
+  const disk = JSON.parse(await readFile(r.incidentFile, 'utf8')); delete disk.records[0].personRevision
+  await writeFile(r.incidentFile, JSON.stringify(disk)); await r.service.projectChanged(); await r.service.restore()
+  r.answer()
+  const params = { text: 'Finish the helper', agent: 'Agent Two', moveFrom: 'fixture:own' }
+  r.authorize('lead/chat/start', params)
+  assert.equal((await r.service.start(params)).id, 'fixture:created')
 })

@@ -28,7 +28,7 @@ export const LEAD_TOOLS = {
   chat_list: { method: 'lead/chat/list', input_schema: schema({ cursor: { type: 'string', maxLength: 300 }, limit: { type: 'integer', minimum: 1, maximum: 50 } }) },
   chat_read: { method: 'lead/chat/read', input_schema: schema({ id: { type: 'string', maxLength: 300 } }, ['id']) },
   chat_start: { method: 'lead/chat/start', input_schema: schema({ text: textSchema, agent: { type: 'string', maxLength: 300 }, moveFrom: { type: 'string', maxLength: 300 }, quote: { type: 'array', minItems: 1, maxItems: 3, uniqueItems: true, items: { type: 'string', maxLength: 256 } } }, ['text']) },
-  chat_send: { method: 'lead/chat/send', input_schema: schema({ id: { type: 'string', maxLength: 300 }, text: textSchema }, ['id', 'text']) },
+  chat_send: { method: 'lead/chat/send', input_schema: schema({ id: { type: 'string', maxLength: 300 }, text: textSchema, retryAt: { type: 'string', enum: ['reset'] } }, ['id', 'text']) },
   chat_stop: { method: 'lead/chat/stop', input_schema: schema({ id: { type: 'string', maxLength: 300 } }, ['id']) },
   flow_catalog: { method: 'flow/catalog', input_schema: schema({ root: pathSchema }, ['root']) },
   flow_source: { method: 'flow/source', input_schema: schema({ root: pathSchema, id: textSchema,

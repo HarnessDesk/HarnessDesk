@@ -823,7 +823,7 @@ export interface HostMethods {
   }
   'lead/chat/read': { params: { readonly id: string }; result: PhoneWorkThread & { readonly omittedSourceTurns: number; readonly omittedPhoneEntries: number; readonly truncated: boolean } }
   'lead/chat/start': { params: { readonly text: string; readonly quote?: readonly string[]; readonly agent?: string; readonly moveFrom?: string }; result: { readonly id: string; readonly problem?: string } }
-  'lead/chat/send': { params: { readonly id: string; readonly text: string }; result: { readonly queued?: boolean } }
+  'lead/chat/send': { params: { readonly id: string; readonly text: string; readonly retryAt?: 'reset' }; result: { readonly queued?: boolean } }
   /** Window only. Which Lead-touched chats the person holds, and the keys of what the Lead sent. */
   'lead/chats/resetControl': { params: Record<string, never>; result: LeadChatControlList }
   'lead/chats/control': { params: Record<string, never>; result: LeadChatControlList }

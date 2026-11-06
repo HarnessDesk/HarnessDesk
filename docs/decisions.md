@@ -5243,23 +5243,38 @@ The host owns recovery timers because a quota reset is a provider observation,
 not a model decision. Waiting buys no Lead turn and reserves no allowance.
 A Lead-held chat gets at most two automatic continues per incident: the reached
 window's reset plus a small jitter, or one minute then five minutes when there
-is no reset or the failure is transient. Credits, other failures, authentication,
-version and sandbox refusals ask immediately. A later successful turn clears
-the incident. A waiting chat remains working, never done.
+is no future reset or the failure is transient. Credits, other failures,
+authentication, version and sandbox refusals ask immediately. A later successful turn clears
+the incident. An adapter that reports no error code is classified as failed
+and asks immediately; the host does not guess a retry category. A waiting chat
+remains working, never done.
 
 The bounded host record persists its due time and claims an attempt before
 sending through the ordinary attributed, journaled chat path. Restart restores
 one timer; an already claimed but unconfirmed send asks instead of replaying.
 Explicit Lead stop, disable, project change and person take-over cancel retries;
-closing the desk preserves the wait. No recovery transition changes policy,
-caps, saved approvals or publication authority.
+closing the desk preserves the wait, as does changing the Lead key or another
+non-stop lifecycle interruption. Temporary retry admission failures back off,
+then ask after the bound; a busy worker defers without using an attempt. A
+past reset uses the backoff rather than spending both retries immediately.
+No recovery transition changes policy, caps, saved approvals or publication
+authority.
 
 After the bound, an incident observation wakes the Lead once per meaningful
 change. The existing structured ask offers retry, move to an eligible agent,
 or stop; credit exhaustion recommends moving when another agent fits. Moving
 needs the person's tap or typed answer because the reset clock grants no
-permission to change who does their work. The host validates the live workspace
-start roster, reserves one move, and builds the new first message from the
-brief, the original first message (including the person's verbatim words), and
-a bounded recent transcript/file digest. It leaves the old chat intact. Agent
-configuration and credentials remain in the agents' own worlds.
+permission to change who does their work. The host requires a person message
+newer than the incident, using the journal revision recorded with its last
+observation so a same-millisecond answer still has a strict order. A chosen
+reset retry re-arms the host timer through chat_send's retryAt reset selector;
+it never sends immediately into the limit. A new Lead retry starts a fresh
+bounded incident generation, and every new failed turn can wake again.
+The host validates the live workspace start roster, reserves one move, and
+builds the new first message from the brief, the original first message (including the person's verbatim words), and
+a bounded recent transcript/file digest, preserving any explicitly selected
+verbatim quotes as well. A creation refused before any chat exists releases
+the move claim; once created, its id is returned even if saving the receipt
+fails, and the durable claim still prevents a duplicate move. It leaves the
+old chat intact. Agent configuration and credentials remain in the agents'
+own worlds.

@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
-import { readFile, realpath } from 'node:fs/promises'
+import { readFile, realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
-import { createLeadJournal, type LeadPermissionCall, type LeadPermissionContext } from '@harnessdesk/lead'
+import { createLeadJournal, initialLeadState, type LeadPermissionCall, type LeadPermissionContext } from '@harnessdesk/lead'
 import { runtimeId, sessionId, type AgentError, type WireNotification } from '@harnessdesk/protocol'
 import { evidenceDesk, until } from './fixtures/evidence-desk.js'
 import { FakeRuntime, FakeSession } from './fixtures/fake-runtime.js'
+
+const policySnapshot = (r: { journal: { state: { policy: unknown; budget: { caps: unknown } | null; workerApprovals: unknown } } }) => JSON.stringify([r.journal.state.policy, r.journal.state.budget?.caps, r.journal.state.workerApprovals])
 
 const rig = async (t: TestContext, previous?: Awaited<ReturnType<typeof evidenceDesk>>) => {
   const desk = await evidenceDesk(t, { leadEnabled: true }, previous)
@@ -14,13 +16,14 @@ const rig = async (t: TestContext, previous?: Awaited<ReturnType<typeof evidence
     desk.runtime.sessions.set(id, new FakeSession(desk.runtime, sessionId(id), { cwd, model: 'fake-1' }, { model: 'fake-1', tone: 'plain', uppercase: false }))
   }
   const project = { id: 'fixture-project', path: await realpath(desk.repo.dir) }
-  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {}, checkpoint: () => ({ ...initialLeadState(), workerApprovals: [{ id: 'saved-rule', contractDigest: 'a'.repeat(64), goalStartedSeq: 1, key: { kind: 'tool', tool: 'read' }, target: 'Read files', count: 4 }] }) })
   await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
   await journal.updateBudget({ version: 1, type: 'initialize', logicalGoalId: 'recovery-fixture', now: Date.now(), caps: { usdMicros: 100000, rounds: 3 }, freshnessMs: 60000 })
   await journal.appendMessage('request', 'Keep  these exact words.\nAnd this line.')
   const context = (): LeadPermissionContext => ({ desk: journal.state.policy!, projectPolicy: null, project, approved: null, budget: null, now: Date.now(), policyInterpretation: 'idle' })
   let modelRequests = 0, attempt = 0
   let resolveHook: ((call: LeadPermissionCall) => Promise<void>) | undefined
+  const initialPolicy = policySnapshot({ journal })
   const service = desk.host.createLeadService({ journal, project, prices: {},
     resolveTool: async call => { await resolveHook?.(call); return { project, runId: null, start: null, stepId: null, context: context() } },
     freezePlan: async proposal => proposal, readEvidence: async () => { throw new Error('unused') },
@@ -41,7 +44,7 @@ const rig = async (t: TestContext, previous?: Awaited<ReturnType<typeof evidence
   const start = () => execute({ method: 'lead/chat/start', params: { text: 'Add the helper\n\nPreserve its API.' } })
   const fail = (id: string, code: AgentError['code']) => desk.runtime.sessions.get(id.slice(id.indexOf(':') + 1))!.fail('Synthetic provider failure', code)
   const stored = async () => JSON.parse(await readFile(join(desk.stateDir, 'lead', 'incidents.json'), 'utf8'))
-  return { ...desk, onResolve: (hook: typeof resolveHook) => { resolveHook = hook }, project, journal, service, notifications, prompts, execute, start, fail, incident, stored, models: () => modelRequests }
+  return { ...desk, initialPolicy, onResolve: (hook: typeof resolveHook) => { resolveHook = hook }, project, journal, service, notifications, prompts, execute, start, fail, incident, stored, models: () => modelRequests }
 }
 
 test('fake provider reset gives one retry at a time with no model request or allowance movement while waiting', async t => {
@@ -53,6 +56,7 @@ test('fake provider reset gives one retry at a time with no model request or all
   r.fail(created.id, 'rateLimit')
   await until(async () => (await r.stored().catch(() => null))?.records[0]?.state === 'waiting-reset' ? true : null, 'persisted reset wait')
   const allowance = JSON.stringify(r.journal.state.budget)
+  const policy = policySnapshot(r)
   await new Promise(resolve => setTimeout(resolve, 100))
   assert.equal(r.prompts.length, 1); assert.equal(r.models(), 0); assert.equal(r.incident().length, 0)
   assert.equal(JSON.stringify(r.journal.state.budget), allowance)
@@ -62,6 +66,7 @@ test('fake provider reset gives one retry at a time with no model request or all
   assert.ok(Date.now() >= reset)
   assert.match(r.prompts[1]!, /Continue from where you stopped\./)
   assert.match(r.prompts[1]!, /Lead/)
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Weekly', windows: [{ label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 200 }] } })
   r.fail(created.id, 'rateLimit')
   await until(() => r.prompts.length === 3 ? true : null, 'second bounded retry')
   r.fail(created.id, 'rateLimit')
@@ -70,6 +75,7 @@ test('fake provider reset gives one retry at a time with no model request or all
   assert.equal(event.method === 'lead/chat/changed' && event.params.incident?.attempts, 2)
   assert.equal(r.models(), 0, 'host scheduling never calls the Lead model')
   assert.equal(JSON.stringify(r.journal.state.budget), allowance)
+  assert.equal(policySnapshot(r), policy, 'automatic journal.execute does not change policy, caps or approvals')
 })
 
 test('credits asks immediately with eligible presentation candidates, then moves brief, exact words and digest through workspace start', async t => {
@@ -140,7 +146,7 @@ test('host restart mid-reset preserves the pending retry and reschedules exactly
 
 test('a successful automatic retry clears its incident and emits completion from turn/completed alone', async t => {
   const r = await rig(t), created = await r.start()
-  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Weekly', windows: [{ label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() }] } })
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Weekly', windows: [{ label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 200 }] } })
   r.fail(created.id, 'rateLimit')
   await until(() => r.prompts.length === 2 ? true : null, 'retry')
   const before = r.notifications.length
@@ -163,9 +169,9 @@ test('phone Stop during a queued reset cancels recovery instead of sending later
 
 test('Stop revokes a retry already claimed but still awaiting ordinary send admission', async t => {
   const r = await rig(t), created = await r.start()
-  let release: (() => void) | undefined, hold = true
-  r.onResolve(async call => { if (hold && call.method === 'lead/chat/send') { hold = false; await new Promise<void>(resolve => { release = resolve }) } })
-  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Weekly', windows: [{ label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() }] } })
+  let release: (() => void) | undefined, hold = true, sendChecks = 0
+  r.onResolve(async call => { if (hold && call.method === 'lead/chat/send' && ++sendChecks > 1) { hold = false; await new Promise<void>(resolve => { release = resolve }) } })
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Weekly', windows: [{ label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 200 }] } })
   r.fail(created.id, 'rateLimit')
   try {
     await until(() => release ? true : null, 'claimed retry paused in host admission')
@@ -175,4 +181,122 @@ test('Stop revokes a retry already claimed but still awaiting ordinary send admi
     assert.equal(r.prompts.length, 1)
     assert.equal((await r.stored()).records[0]?.state, 'stopped')
   } finally { release?.() }
+})
+
+
+test('take-over during waiting-reset cancels the retry and preserves policy, caps and approvals; hand-back permits fresh failures', async t => {
+  const r = await rig(t), created = await r.start()
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Daily', windows: [{ label: 'Daily', resetsAt: Date.now() + 200, usedPercent: 100, windowMinutes: 1440 }] } })
+  r.fail(created.id, 'rateLimit')
+  await until(async () => (await r.stored().catch(() => null))?.records[0]?.state === 'waiting-reset' ? true : null, 'wait before take-over')
+  const policy = policySnapshot(r)
+  await r.host.call('lead/chat/takeOver', { id: created.id })
+  await until(async () => (await r.stored()).records[0]?.state === 'stopped' ? true : null, 'take-over cancels wait')
+  await new Promise(resolve => setTimeout(resolve, 1600))
+  assert.equal(r.prompts.length, 1); assert.equal(r.incident().length, 0)
+  assert.equal(policySnapshot(r), policy)
+  await r.host.call('lead/chat/handBack', { id: created.id })
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Resume the work after hand-back' } })
+  r.fail(created.id, 'credits')
+  await until(() => r.incident().length === 1 ? true : null, 'fresh incident after hand-back')
+  assert.equal((await r.stored()).records[0]?.attempts, 0)
+})
+
+test('an overdue-on-restart reset fires exactly once through journal.execute without changing policy, caps or approvals', async t => {
+  const r = await rig(t), created = await r.start()
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Daily', windows: [{ label: 'Daily', resetsAt: Date.now() + 10_000, usedPercent: 100, windowMinutes: 1440 }] } })
+  r.fail(created.id, 'rateLimit')
+  await until(async () => (await r.stored().catch(() => null))?.records[0]?.state === 'waiting-reset' ? true : null, 'wait before restart')
+  await r.stop()
+  const disk = await r.stored(); disk.records[0].resetsAt = Date.now() - 2000; disk.records[0].nextAt = Date.now() - 1000
+  await writeFile(join(r.stateDir, 'lead', 'incidents.json'), JSON.stringify(disk))
+  const next = await rig(t, r), policy = next.initialPolicy
+  await until(() => next.prompts.length === 1 ? true : null, 'one overdue retry')
+  await new Promise(resolve => setTimeout(resolve, 100))
+  assert.equal(next.prompts.length, 1); assert.equal((await next.stored()).records[0].attempts, 1)
+  assert.equal(policySnapshot(next), policy)
+})
+
+test('changing the Lead key preserves a pending provider reset wait', async t => {
+  const r = await rig(t), created = await r.start()
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Daily', windows: [{ label: 'Daily', resetsAt: Date.now() + 2000, usedPercent: 100, windowMinutes: 1440 }] } })
+  r.fail(created.id, 'rateLimit')
+  await until(async () => (await r.stored().catch(() => null))?.records[0]?.state === 'waiting-reset' ? true : null, 'wait before key change')
+  await r.service.deleteKey('anthropic')
+  assert.equal((await r.stored()).records[0]?.state, 'waiting-reset')
+  await until(() => r.prompts.length === 2 ? true : null, 'retry survives non-stop key change')
+})
+
+test('a person-chosen reset retry uses the deterministic host continue and a new failure wakes again', async t => {
+  const r = await rig(t), created = await r.start()
+  r.fail(created.id, 'credits')
+  await until(() => r.incident().length === 1 ? true : null, 'initial ask')
+  // First retry now makes a new failed turn, even for an identical error.
+  await r.journal.appendMessage('retry-now', 'Retry this chat')
+  await r.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'Retry now' } })
+  r.fail(created.id, 'credits')
+  await until(() => r.incident().length === 2 ? true : null, 'retry failure wakes again')
+  // Use an exhausted quota incident to give the next chosen retry a future provider reset.
+  const file = join(r.stateDir, 'lead', 'incidents.json')
+  await r.stop()
+  const disk = await r.stored(); disk.records[0].kind = 'quota'; disk.records[0].resetsAt = Date.now() + 2000
+  await writeFile(file, JSON.stringify(disk))
+  const next = await rig(t, r), budget = JSON.stringify(next.journal.state.budget)
+  await next.journal.appendMessage('retry-reset', 'Retry when it resets')
+  await next.execute({ method: 'lead/chat/send', params: { id: created.id, text: 'This text is not the continue', retryAt: 'reset' } })
+  assert.equal(next.prompts.length, 0)
+  assert.equal(JSON.stringify(next.journal.state.budget), budget)
+  await until(() => next.prompts.length === 1 ? true : null, 'chosen reset retry')
+  assert.match(next.prompts[0]!, /Continue from where you stopped\./)
+  assert.doesNotMatch(next.prompts[0]!, /This text is not the continue/)
+  await new Promise(resolve => setTimeout(resolve, 100)); assert.equal(next.prompts.length, 1)
+})
+
+
+test('a direct send awaiting turn-start is busy to recovery and cannot queue a continue behind it', async t => {
+  const r = await rig(t), created = await r.start()
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Daily', windows: [{ label: 'Daily', resetsAt: Date.now() + 500, usedPercent: 100, windowMinutes: 1440 }] } })
+  r.fail(created.id, 'rateLimit')
+  await until(async () => (await r.stored().catch(() => null))?.records[0]?.state === 'waiting-reset' ? true : null, 'reset wait')
+  const due = (await r.stored()).records[0].nextAt
+  const session = r.runtime.sessions.get(created.id.slice(created.id.indexOf(':') + 1))!
+  session.sendDelayMs = 2500
+  const sending = r.host.call('workspace/session/send', { id: created.id, text: 'Person follow-up already sending' })
+  try {
+    await until(async () => { const record = (await r.stored()).records[0]; return record.state === 'waiting-reset' && record.nextAt > due ? true : null }, 'busy retry defers')
+    assert.equal((await r.stored()).records[0].attempts, 0)
+  } finally { await sending }
+  assert.equal(r.prompts.length, 2)
+  assert.doesNotMatch(r.prompts[1]!, /Continue from where you stopped/)
+})
+
+for (const failAt of [2, 3]) test(`a late pre-effect retry admission failure (${failAt}) re-arms instead of silently consuming an attempt`, async t => {
+  const r = await rig(t), created = await r.start()
+  let admissions = 0
+  r.onResolve(async call => { if (call.method === 'lead/chat/send' && ++admissions >= failAt) throw new Error('Synthetic temporary admission refusal') })
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Daily', windows: [{ label: 'Daily', resetsAt: Date.now() + 200, usedPercent: 100, windowMinutes: 1440 }] } })
+  r.fail(created.id, 'rateLimit')
+  await until(async () => (await r.stored().catch(() => null))?.records[0]?.blocked === 1 ? true : null, 'retry re-armed after refused tool resolution')
+  const record = (await r.stored()).records[0]
+  assert.equal(record.state, 'waiting-reset'); assert.equal(record.attempts, 0)
+  assert.equal(r.prompts.length, 1); assert.equal(r.incident().length, 0)
+})
+
+
+test('a person turn superseding an undispatched retry inherits no automatic attempt charge', async t => {
+  const r = await rig(t), created = await r.start()
+  let release: (() => void) | undefined, admissions = 0
+  r.onResolve(async call => { if (call.method === 'lead/chat/send' && ++admissions === 2) await new Promise<void>(resolve => { release = resolve }) })
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Daily', windows: [{ label: 'Daily', resetsAt: Date.now() + 200, usedPercent: 100, windowMinutes: 1440 }] } })
+  r.fail(created.id, 'rateLimit')
+  try {
+    await until(() => release ? true : null, 'claimed retry held before dispatch')
+    await r.host.call('workspace/session/send', { id: created.id, text: 'A person follow-up before the retry sends' })
+    r.fail(created.id, 'network')
+    await until(async () => (await r.stored()).records[0]?.state === 'waiting-reset' ? true : null, 'new failed person turn')
+    assert.equal((await r.stored()).records[0]?.attempts, 0)
+  } finally { release?.() }
+  await until(() => [...r.journal.state.attempts.values()].some(one => one.method === 'lead/chat/send' && one.phase === 'finished') ? true : null, 'stale retry refused before effect')
+  assert.equal((await r.stored()).records[0]?.attempts, 0)
+  assert.equal(r.prompts.length, 2)
 })
