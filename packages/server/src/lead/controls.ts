@@ -1,7 +1,7 @@
 import { leadThreadStage } from './projection.js'
 import { boundLeadApprovalHistory, leadWorkerApprovalEntries } from '@harnessdesk/protocol'
 import {
-  parseLeadApprovalRevoke, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
+  parseLeadApprovalRevoke, parseLeadMessage, parseLeadAsk, parseLeadProactiveOutput, leadProactiveReport, leadWaitNeedsChange, LEAD_CONTROL_REFUSALS, LEAD_MANAGEMENT_REASONS, parseLeadCardDecisionFor, parseLeadWindowProjection, parseLeadSettingsProjection, parseLeadSettingsUpdate, parseLeadNameReceipt,
   parseLeadOrigin, type LeadOrigin, parseLeadThreadSend, parseLeadResume, parseLeadActionInput, parseLeadSteerInput, type LeadSteer, type LeadAction, type LeadActionInput,
   parseLeadBudgetRaise, parseLeadSpendLimitSet, leadNoSpendLimit, type LeadBudgetRaise, type LeadSpendLimitSet, type LeadScheduledTask, type LeadAcceptanceContract, type LeadCard, type LeadCardDecision, type LeadWindowProjection, type LeadControlRefusal, type LeadProject,
   type LeadSettingsProjection, type LeadSettingsUpdate, type LeadNameReceipt, type LeadThreadSend, type WireNotification, type LeadPresence,
@@ -356,13 +356,17 @@ export class LeadControls {
       ] })
       const result = await service.send({ maxTokens: LEAD_OUTPUT_TOKENS, messages, conversation: this.#requestConversation, ...(proactive ? { proactive: true, wakeSource: journal.state.origin?.source === 'schedule' ? 'schedule' as const : 'trigger' as const } : {}) })
       if (result.text) await service.assertPublic(result.text)
+      if (result.ask) {
+        parseLeadMessage({ version: 1, id: 'reply', revision: 1, role: 'assistant', text: result.text ?? '', ask: result.ask, ...(result.proactive ? { proactive: result.proactive } : {}) })
+        await service.assertPublic(parseLeadAsk(result.ask))
+      }
       this.#requestInFlight = this.#continueAgain
-      if ((proactive ? result.proactive : result.text) && !['accepted', 'declined', 'stopped'].includes(journal.state.phase)) {
+      if ((proactive ? result.proactive : result.text || result.ask) && !['accepted', 'declined', 'stopped'].includes(journal.state.phase)) {
         if (proactive) {
-          const report = leadProactiveReport(result.proactive!, 0, 1, false)
+          const report = leadProactiveReport(parseLeadProactiveOutput(result.proactive!), 0, 1, false)
           await service.assertPublic(report)
           await journal.appendReply([report.finding, report.caveat, report.ask].join('\n'), report)
-        } else await journal.appendReply(result.text!)
+        } else await journal.appendReply(result.text ?? '', undefined, result.ask)
       }
       else if (result.status === 'refused' && !['accepted', 'declined', 'stopped', 'waiting-for-user'].includes(journal.state.phase) && journal.state.budget &&
         leadBudgetProjection(journal.state.budget, this.options.now()).spend !== 'known') {

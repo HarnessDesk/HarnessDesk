@@ -27,7 +27,7 @@ const flowProperties = { root: pathSchema, source: textSchema, vars: { type: 'ob
 export const LEAD_TOOLS = {
   chat_list: { method: 'lead/chat/list', input_schema: schema({ cursor: { type: 'string', maxLength: 300 }, limit: { type: 'integer', minimum: 1, maximum: 50 } }) },
   chat_read: { method: 'lead/chat/read', input_schema: schema({ id: { type: 'string', maxLength: 300 } }, ['id']) },
-  chat_start: { method: 'lead/chat/start', input_schema: schema({ text: textSchema }, ['text']) },
+  chat_start: { method: 'lead/chat/start', input_schema: schema({ text: textSchema, quote: { type: 'array', minItems: 1, maxItems: 3, uniqueItems: true, items: { type: 'string', maxLength: 256 } } }, ['text']) },
   chat_send: { method: 'lead/chat/send', input_schema: schema({ id: { type: 'string', maxLength: 300 }, text: textSchema }, ['id', 'text']) },
   chat_stop: { method: 'lead/chat/stop', input_schema: schema({ id: { type: 'string', maxLength: 300 } }, ['id']) },
   flow_catalog: { method: 'flow/catalog', input_schema: schema({ root: pathSchema }, ['root']) },
@@ -48,7 +48,7 @@ export const LEAD_TOOLS = {
 const TOOL_DESCRIPTIONS: Partial<Record<keyof typeof LEAD_TOOLS, string>> = {
   chat_read: 'Read a bounded recent chat view; omittedSourceTurns counts raw source turns and omittedPhoneEntries counts projected phone entries. truncated also covers shortened text.',
   // The first line names the chat on every list, the phone's included; a brief that opens on context names it by that.
-  chat_start: 'Start an ordinary chat. The first line of text is its title in every list: a short task name such as "Add a kebabCase helper", then a blank line, then the brief.',
+  chat_start: 'Start an ordinary chat. The first line of text is its title in every list: a short task name such as "Add a kebabCase helper", then a blank line, then the brief. Pass quote with 1 to 3 ids of the person messages the work comes from; the host quotes them verbatim. Never paste their words into the brief.',
 }
 export const leadToolDefinitions = Object.entries(LEAD_TOOLS).map(([name, tool]) => ({ name,
   description: TOOL_DESCRIPTIONS[name as keyof typeof LEAD_TOOLS] ?? `Desk operation ${tool.method}`, input_schema: tool.input_schema }))

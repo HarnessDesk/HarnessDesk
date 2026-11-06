@@ -1,6 +1,6 @@
 import { leadStage, type LeadStage } from '@harnessdesk/protocol'
 import type { DispatchAdmission } from '../dispatch-admission.js'
-import { deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
+import { LEAD_LIMITS, deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
 import { LeadChatHeldError, type LeadChatControlStore } from './chat-control.js'
 import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
@@ -267,6 +267,31 @@ export class LeadChats {
     return boundLeadChatRead(result)
   }
   #envelope(text: string): string { return leadMessageEnvelope(leadDisplayName(this.ports.state().name), text) }
+  #startText(params: HostParams<'lead/chat/start'>): string | { readonly problem: string } {
+    const messages = this.ports.state().messages
+    const people = messages.filter(message => message.role === 'user')
+    let ids = params.quote
+    if (ids === undefined) {
+      ids = []
+      for (let index = messages.length - 1; index >= 0; index--) {
+        const person = messages[index]!
+        if (person.role !== 'user') continue
+        const previous = messages[index - 1]
+        const options = previous?.role === 'assistant' ? previous.ask?.options ?? previous.proactive?.options : undefined
+        if (options?.some(option => option.label === person.text)) continue
+        ids = [person.id]
+        break
+      }
+    }
+    if (ids.some(id => !people.some(message => message.id === id)))
+      return { problem: 'Quote only a person message in the current conversation window.' }
+    const quoted = people.filter(message => ids.includes(message.id))
+    if (quoted.length && /person.?s\s+words,?\s*verbatim/i.test(params.text.normalize('NFKC')))
+      return { problem: "Remove the verbatim marker from the brief. Pass the person's message ids in quote; the host appends their words." }
+    const text = quoted.length ? `${params.text}\n\n---\nThe person's words, verbatim:\n\n${quoted.map(message => '> ' + message.text.replace(/(\r\n|\r|\n)/g, '$1> ')).join('\n\n')}` : params.text
+    if (text.length > LEAD_LIMITS.textChars) return { problem: 'The brief and quoted person messages are too long. Use a shorter brief or fewer quotes.' }
+    return text
+  }
   async #notHeld(id: string): Promise<void> {
     if (await this.ports.control?.holder(this.ports.project.path, id) === 'person') throw new LeadChatHeldError()
   }
@@ -277,12 +302,17 @@ export class LeadChats {
   start(input: HostParams<'lead/chat/start'>): Promise<HostResult<'lead/chat/start'>> {
     const { effectId, ...params } = input
     const call = { method: 'lead/chat/start', params } as const
-    const envelope = this.#envelope(params.text)
     return this.#mutate(call, effectId, async (admit, effectStarted, attemptId) => {
+      const text = this.#startText(params)
+      if (typeof text !== 'string') {
+        this.ports.noteDispatchNotStarted(attemptId)
+        return { id: '', problem: text.problem }
+      }
+      const envelope = this.#envelope(text)
       await this.ports.control?.assertCanStart?.(this.ports.project.path)
       let createdId: string | undefined
       const scope = this.#liveScope(call, attemptId, () => createdId)
-      return this.ports.work.startInProject(params, this.ports.project.path, async id => {
+      return this.ports.work.startInProject({ text }, this.ports.project.path, async id => {
         createdId = id
         await admit(id)
         // Recorded before the first message leaves, so the transcript can vouch for it on first render.

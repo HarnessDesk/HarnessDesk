@@ -187,11 +187,19 @@ export interface LeadCardDecision {
   readonly contractDigest: string | null
   readonly choice: 'approve' | 'decline' | 'accept' | 'accept-open-pr' | 'reclaim-branch'
 }
+export interface LeadAskOption { readonly id: string; readonly label: string }
+export interface LeadAsk {
+  readonly question: string
+  readonly options: readonly LeadAskOption[]
+  readonly recommended: string
+}
 /** One host-rendered unprompted finding. Actions navigate existing surfaces; they never grant authority. */
 export interface LeadProactive {
   readonly finding: string
   readonly caveat: string
   readonly ask: string
+  readonly options?: readonly LeadAskOption[]
+  readonly recommended?: string
   readonly action?: 'plan' | 'changes' | 'approvals'
 }
 export interface LeadApprovalAudit { readonly ruleId: string; readonly target: string; readonly diff?: string }
@@ -199,6 +207,7 @@ export interface LeadMessage {
   /** Host acknowledgement, never supplied by the Lead model. */
   readonly approval?: LeadApprovalAudit
   readonly proactive?: LeadProactive
+  readonly ask?: LeadAsk
   readonly version: 1
   readonly id: string
   readonly revision: LeadRevision
@@ -674,7 +683,31 @@ const proactiveLine: Validator<string> = (value, path = '') => {
   const line = boundedText(800, false, proseControls)(value, path)
   return /[\r\n]/.test(line) ? fail(path, 'expected one proactive line') : line
 }
-export const parseLeadProactive: Validator<LeadProactive> = object({ finding: proactiveLine, caveat: proactiveLine, ask: proactiveLine, action: optional(literalUnion('plan', 'changes', 'approvals')) })
+const askOptionId: Validator<string> = (value, path = '') =>
+  typeof value === 'string' && /^[a-z0-9-]{1,32}$/.test(value) ? value : fail(path, 'expected a short option slug')
+const askOptions = list(object<LeadAskOption>({ id: askOptionId, label: (value, path = '') => {
+  const label = text(60)(value, path)
+  return label !== label.trim() || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(label) ? fail(path, 'expected one trimmed plain-text label') : label
+} }), 4, 2, option => option.id)
+export const parseLeadAsk: Validator<LeadAsk> = (value, path = '') => {
+  const ask = object<LeadAsk>({ question: proactiveLine, options: askOptions, recommended: askOptionId })(value, path)
+  if (new Set(ask.options.map(option => option.label.trim().replace(/\s+/gu, ' ').toLowerCase())).size !== ask.options.length) fail(path, 'duplicate option label')
+  if (!ask.options.some(option => option.id === ask.recommended)) fail(path, 'recommendation must name an option')
+  return ask
+}
+export const parseLeadProactive: Validator<LeadProactive> = (value, path = '') => {
+  const report = omitUnset(object<LeadProactive>({ finding: proactiveLine, caveat: proactiveLine, ask: proactiveLine,
+    options: optional(askOptions), recommended: optional(askOptionId), action: optional(literalUnion('plan', 'changes', 'approvals')) }), ['options', 'recommended'])(value, path)
+  if (report.options !== undefined || report.recommended !== undefined)
+    parseLeadAsk({ question: report.ask, options: report.options, recommended: report.recommended }, path)
+  return report
+}
+/** Fresh model output must offer a decision; journal readers retain legacy reports. */
+export const parseLeadProactiveOutput: Validator<LeadProactive> = (value, path = '') => {
+  const report = parseLeadProactive(value, path)
+  parseLeadAsk({ question: report.ask, options: report.options, recommended: report.recommended }, path)
+  return report
+}
 /** Evidence captured before a newer read (or a failed read) cannot be stated as a verified finding. */
 export const leadProactiveReport = (value: LeadProactive, evidenceAt: number, lastReadAt: number, readSucceeded: boolean): LeadProactive => {
   const report = parseLeadProactive(value)
@@ -687,10 +720,11 @@ export const parseLeadApprovalAudit: Validator<LeadApprovalAudit> = omitUnset(ob
   const target = text(240)(value, path)
   return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(target) ? fail(path ?? '', 'hidden audit target') : target
 }, diff: optional(boundedText(LEAD_APPROVAL_DETAIL_CHARS, true, proseControls)) }), ['diff'])
-const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, proactive: optional(parseLeadProactive), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content }), ['proactive', 'approval'])
+const leadMessageShape = omitUnset(object<LeadMessage>({ version, id, revision, proactive: optional(parseLeadProactive), ask: optional(parseLeadAsk), approval: optional(parseLeadApprovalAudit), role: literalUnion('user', 'assistant', 'system', 'notice'), text: content }), ['proactive', 'ask', 'approval'])
 export const parseLeadMessage: Validator<LeadMessage> = (value, path = '') => {
   const message = leadMessageShape(value, path)
   if (message.approval !== undefined && message.role !== 'notice' || message.role === 'notice' && message.proactive) fail(path, 'invalid host notice')
+  if (message.ask && (message.role !== 'assistant' || message.proactive)) fail(path, 'ask requires an ordinary assistant message')
   return message
 }
 const cardPositions: Validator<Readonly<Record<string, number>>> = (value, path = '') => {

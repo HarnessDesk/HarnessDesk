@@ -80,3 +80,9 @@ test('goal approval decisions and revocation have closed person wire shapes', ()
   assert.doesNotThrow(() => request('lead/approval/revoke', { id: 'rule', contractDigest: 'a'.repeat(64) }))
   for (const params of [{ id: 'rule' }, { id: 'rule', contractDigest: 'a'.repeat(64), source: 'worker' }]) assert.throws(() => request('lead/approval/revoke', params))
 })
+
+test('chat start admits one to three unique opaque person message ids', () => {
+  assert.doesNotThrow(() => request('lead/chat/start', { text: 'Brief', quote: ['message-1', 'message-2'] }))
+  for (const quote of [[], ['one', 'two', 'three', 'four'], ['one', 'one'], ['bad\nid'], [''], ['x'.repeat(257)], [4]])
+    assert.throws(() => request('lead/chat/start', { text: 'Brief', quote }))
+})

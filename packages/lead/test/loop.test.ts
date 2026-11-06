@@ -1015,7 +1015,7 @@ test('text-only turns leave the no-progress counter alone', async () => {
 
 test('ordinary chat work returns completion to the same Lead conversation without a reviewed plan', async () => {
   const report = { version: 1, type: 'lead-output', proactive: {
-    finding: 'The screenshot is saved.', caveat: 'The worker reported the saved path.', ask: 'Open the chat to inspect the screenshot.' } }
+    finding: 'The screenshot is saved.', caveat: 'The worker reported the saved path.', ask: 'Open the chat to inspect the screenshot.', options: [{ id: 'open', label: 'Open the chat' }, { id: 'later', label: 'Not now' }], recommended: 'open' } }
   const s = await fixture([
     message([tool('capture', 'chat_start', { text: 'Capture a screenshot of the app and save it in this project.' })], { stop_reason: 'tool_use' }),
     message([{ type: 'text', text: 'I started a chat to capture it.' }]),
@@ -1778,7 +1778,7 @@ test('desk wakes journal silent gate checks without paying for another turn', as
 test('an unprompted reply after a failed desk read never presents model prose as a verified finding', async () => {
   const s = await fixture([async () => {
     s.setReady(false); s.emit({ type: 'gap', reason: 'lost baseline' }); await s.drain()
-    return message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: { finding: 'The keyboard check passed.', caveat: 'Review is still pending.', ask: 'Inspect changes', action: 'changes' } }) }])
+    return message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: { finding: 'The keyboard check passed.', caveat: 'Review is still pending.', ask: 'Inspect changes', action: 'changes', options: [{ id: 'inspect', label: 'Inspect changes' }, { id: 'later', label: 'Not now' }], recommended: 'inspect' } }) }])
   }])
   const loop = exported('createLeadLoop')(s.options)
   try {
@@ -1792,7 +1792,7 @@ test('an unprompted reply after a failed desk read never presents model prose as
 })
 
 for (const source of ['schedule', 'trigger'] as const) test(`a ${source} wake preserves the model's validated three-part report`, async () => {
-  const report = { finding: 'The keyboard check failed on the current head.', caveat: 'The remaining checks are still running.', ask: 'Inspect changes', action: 'changes' }
+  const report = { finding: 'The keyboard check failed on the current head.', caveat: 'The remaining checks are still running.', ask: 'Inspect changes', action: 'changes', options: [{ id: 'inspect', label: 'Inspect changes' }, { id: 'later', label: 'Not now' }], recommended: 'inspect' }
   const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', proactive: report }) }])])
   const loop = exported('createLeadLoop')(s.options)
   try {
@@ -2299,5 +2299,29 @@ test('a full reconnect baseline preserves working stages while admitting new cha
     await s.tick(); await loop.idle()
     assert.equal(s.fake.requests.length, requests + 1)
     assert.match(s.fake.requests.at(-1)!.body, /old-0/)
+  } finally { await loop.close() }
+})
+
+test('an ordinary ask is journaled once and counted as a decision without a question mark', async () => {
+  const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', text: 'A decision.', ask }) }])])
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    await loop.request(input)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, ask)
+    assert.equal(s.journal.state.wakes.at(-1)?.decision, 'asked')
+  } finally { await loop.close() }
+})
+
+test('an ask-only ordinary reply answers the person without a silent-turn retry', async () => {
+  const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const s = await fixture([message([{ type: 'text', text: JSON.stringify({ version: 1, type: 'lead-output', ask }) }])])
+  await s.journal.appendMessage('person', 'Help me choose')
+  const loop = exported('createLeadLoop')(s.options)
+  try {
+    const result = await loop.request(input)
+    assert.equal(result.status, 'completed')
+    assert.equal(s.fake.requests.length, 1)
+    assert.deepEqual(s.journal.state.messages.at(-1)?.ask, ask)
   } finally { await loop.close() }
 })
