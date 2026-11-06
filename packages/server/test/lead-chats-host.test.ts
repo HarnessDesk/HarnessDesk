@@ -294,3 +294,27 @@ test('quote preflight refusal records a failed no-effect attempt and returns its
   assert.equal(r.journal.state.chatEffectsSinceReply.started, 0)
   assert.equal([...r.journal.state.attempts.values()].at(-1)?.outcome, 'failed')
 })
+
+test('the existing thrown chat-start preflight consumes its no-effect receipt without creating uncertain work', async t => {
+  const r = await refusalRig(t), receipts: string[] = []
+  const note = r.journal.noteDispatchNotStarted.bind(r.journal)
+  r.journal.noteDispatchNotStarted = id => { receipts.push(id); note(id) }
+  await r.host.unregister(r.runtime.info.id)
+  const call: LeadPermissionCall = { method: 'lead/chat/start', params: { text: 'Inspect the task' } }
+  const failed = await r.execute(call)
+  assert.deepEqual(receipts, ['refusal-1'], 'the existing #mutate catch attests that dispatch never started')
+  assert.equal(failed.outcome, 'failed')
+  assert.equal(failed.value, undefined, 'a thrown preflight does not acquire a returned quote problem')
+  assert.equal(r.runtime.sessions.size, 0)
+  assert.equal(r.journal.state.chatEffectsSinceReply.started, 0)
+  const replayed = await createLeadJournal({ read: async () => r.records, append: async () => {} })
+  assert.equal(replayed.state.attempts.get('refusal-1')?.outcome, 'failed')
+  assert.equal(replayed.state.recoveryBlocked, false)
+  const { FakeRuntime } = await import('./fixtures/fake-runtime.js')
+  const available = new FakeRuntime()
+  r.host.register(available)
+  assert.equal((await r.execute(call)).outcome, 'succeeded')
+  assert.deepEqual(receipts, ['refusal-1'], 'the corrected start mints no refusal receipt')
+  assert.equal(available.sessions.size, 1)
+  assert.equal(r.journal.state.chatEffectsSinceReply.started, 1)
+})

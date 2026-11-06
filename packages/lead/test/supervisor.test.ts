@@ -1150,3 +1150,22 @@ test('the host admits and stores the child ordinary ask across appendReply IPC',
     assert.deepEqual(admitted, ['A decision.', JSON.stringify(ask)])
   } finally { await f.supervisor.stop() }
 })
+
+test('an ask-only appendReply frame keeps the child alive and retains the decision in history', async () => {
+  const ask = { question: 'Choose a next step', options: [{ id: 'start', label: 'Start it' }, { id: 'later', label: 'Not now' }], recommended: 'start' }
+  const admitted: string[] = []
+  const f = await replyRig(['', null, ask], { admitReply: async (text: string) => { admitted.push(text) } })
+  try {
+    assert.equal((await f.supervisor.send(request)).status, 'completed')
+    assert.equal((await f.replied).ok, true)
+    assert.equal(f.supervisor.live, true)
+    const reply = f.journal.state.messages.at(-1)!
+    assert.equal(reply.text, '')
+    assert.deepEqual(reply.ask, ask)
+    assert.deepEqual(admitted, ['', JSON.stringify(ask)])
+    const { leadHistory } = await import('../src/messages.js')
+    const history = leadHistory([{ role: 'user', text: 'Help me choose' }, reply, { role: 'user', text: 'Start it' }])
+    assert.ok(history[1]!.content.every(block => 'text' in block && block.text.trim().length > 0))
+    assert.match(JSON.stringify(history[1]), /Choose a next step/)
+  } finally { await f.supervisor.stop() }
+})

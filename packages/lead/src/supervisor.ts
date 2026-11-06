@@ -439,8 +439,9 @@ export class LeadSupervisor {
         }
         case 'recoverUnsettledRequests': await durable(journal.recoverUnsettledRequests()); break
         case 'appendReply': {
-          const text = ipcText(args[0]), proactive = args.length === 2 || args.length === 3 && args[1] !== null ? parseLeadProactive(args[1]) : undefined
           const ask = args.length === 3 ? parseLeadAsk(args[2]) : undefined
+          const text = ask && args[0] === '' ? '' : ipcText(args[0])
+          const proactive = args.length === 2 || args.length === 3 && args[1] !== null ? parseLeadProactive(args[1]) : undefined
           // A goal that has ended takes no more words. A text the desk will not show, a secret or one the journal cannot
           // hold, is refused by name and does not break the child; the host scans whatever stays in the result again.
           if (['accepted', 'declined', 'stopped'].includes(journal.state.phase)) break

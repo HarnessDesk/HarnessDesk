@@ -241,6 +241,8 @@ export class LeadChats {
     if (ids.some(id => !people.some(message => message.id === id)))
       return { problem: 'Quote only a person message in the current conversation window.' }
     const quoted = people.filter(message => ids.includes(message.id))
+    if (quoted.length && params.text.split(/\r\n|[\r\n\u2028\u2029]/).some(line => line.trim().toLowerCase() === "the person's words, verbatim:"))
+      return { problem: "Remove the verbatim marker from the brief. Pass the person's message ids in quote; the host appends their words." }
     const text = quoted.length ? `${params.text}\n\n---\nThe person's words, verbatim:\n\n${quoted.map(message => '> ' + message.text.replace(/(\r\n|\r|\n)/g, '$1> ')).join('\n\n')}` : params.text
     if (text.length > LEAD_LIMITS.textChars) return { problem: 'The brief and quoted person messages are too long. Use a shorter brief or fewer quotes.' }
     return text
