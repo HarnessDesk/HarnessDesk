@@ -161,7 +161,7 @@ import { LeadService, type LeadServiceOptions } from './lead/service.js'
 import { leadContractDigest, readLeadEvidence, LeadAssembly, readRememberedLeadProject, leadProjectOf, leadPreviewUnfit, leadSeatable } from './lead/assembly.js'
 import { isManagedChatFolder } from './chats.js'
 import { cleanupLeadClientDoors, createLeadClientAuthority, openLeadClientDoor } from './lead/client-authority.js'
-import { LEAD_MESSAGES_DEFAULTS, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
+import { LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, evaluateLeadAcceptance, leadBudgetProjection, canBeginLeadGoal, leadReviewedResultSource, leadReviewedResultSourceFor, leadRepairDetail, leadHandbackTerminal, leadRepairResultReady, type LeadJournal, type MessagesTransport } from '@harnessdesk/lead'
 import type { LeadRuntime } from '@harnessdesk/lead/supervisor'
 import { LeadPlanner, leadQuietAt, leadDueTask } from './lead/planner.js'
 import type { LeadProject } from '@harnessdesk/protocol'
@@ -3971,9 +3971,15 @@ export class Host {
       },
       round: id => (this.#flows.leadRuns().find(run => run.id === id)?.rounds.length ?? 0) + 1,
       open: async op => {
-        const result = evaluateLeadAcceptance(journal.state.contract!, await decisionEvidence(op.runId),
-          { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
-        return (await this.#flows.prepareLeadRepair({ ...op, detail: `${op.detail ?? ''}\n\nThe observed pull request failure above is separate from the local assertion verdicts. Address only that observed failure and the failed assertions below; passed local assertions remain passed.\n${leadRepairDetail(result)}` })).n
+        let detail = op.detail ?? 'Repair the observed pull request failure.'
+        try {
+          const result = evaluateLeadAcceptance(journal.state.contract!, await decisionEvidence(op.runId),
+            { now: Date.now(), freshnessMs: 60_000, revision: journal.state.seq })
+          detail += `\n\nAddress the observed pull request failure above and these failed local assertions.\n${leadRepairDetail(result)}`
+        } catch (error) {
+          this.#logger.warn('Lead repair acceptance evidence could not be read; keeping the repair', { run: op.runId, error: String(error) })
+        }
+        return (await this.#flows.prepareLeadRepair({ ...op, detail })).n
       },
       release: op => this.#flows.releaseLeadRepair(op),
       ciPassed: (op, head) => this.#evidence.observeLeadCi(project.path, op.teamId, `lead-ci-${head}`, head),
@@ -4041,7 +4047,9 @@ export class Host {
         if (contract.project.id !== project.id || !samePath(contract.project.path, project.path)) return 'The selected project changed'
         if (contract.policyRevision !== journal.state.policy?.revision) return 'The permissions changed'
         for (const step of contract.steps) {
-          if (step.flow !== 'lead-reviewed-result' || !leadReviewedResultSourceFor(step.sourceRevision)) return 'The Flow source changed'
+          if (step.flow !== 'lead-reviewed-result' || !leadReviewedResultSourceFor(step.sourceRevision) ||
+            step.sourceRevision !== LEAD_REVIEWED_RESULT.revision && (journal.state.contract?.digest !== contract.digest ||
+              !journal.state.contract.steps.some(stored => JSON.stringify(stored) === JSON.stringify(step)))) return 'The Flow source changed'
           const preview = await this.#flowPreviews.preview(project.path, leadReviewedResultSourceFor(step.sourceRevision)!, step.variables, undefined, undefined, {
             seats: Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]])), attended: step.attendance === 'attended', requireHeld: true }).catch(() => null)
           if (leadPreviewUnfit(preview)) return 'The agents can no longer hold the approved seats'

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { LEAD_LIMITS, type GoalView, type FlowPreview, type LeadAcceptanceContract, type LeadPermissionPolicy, type LeadProject, type Sha } from '@harnessdesk/protocol'
-import { createLeadJournal, leadBudgetProjection, leadDraftCaps, LEAD_MESSAGES_DEFAULTS, parseLeadSeatChoices,
+import { createLeadJournal, leadBudgetProjection, leadDraftCaps, LEAD_MESSAGES_DEFAULTS, LEAD_REVIEWED_RESULT, parseLeadSeatChoices,
   type LeadAcceptanceEvidence, type LeadJournal, type LeadState, type LeadPermissionCall, type LeadResolvedTool, type LeadSeatChoices, type MessagesPrice } from '@harnessdesk/lead'
 import { readChecksAt } from '../evidence/checks-file.js'
 import { atomicJson } from '../goals/store.js'
@@ -52,6 +52,8 @@ export const leadContractDigest = (value: LeadAcceptanceContract): string => {
 
 /** The digest every plan is frozen with: sha256 of its canonical JSON, the way the approval cards name it. */
 export const freezeLeadPlan = async (value: LeadAcceptanceContract): Promise<LeadAcceptanceContract> => {
+  if (value.steps.some(step => step.flow !== 'lead-reviewed-result' || step.sourceRevision !== LEAD_REVIEWED_RESULT.revision))
+    throw Object.assign(new Error('lead-plan-refused'), { wireCode: 'lead-plan-refused' })
   let publicationRepository: string | null = null
   try {
     const { stdout } = await promisify(execFile)('git', ['-C', value.project.path, ...HARDENED_GIT_CONFIG, 'remote'], { timeout: 20_000 })
@@ -117,7 +119,8 @@ export const readLeadEvidence = async (journal: Pick<LeadJournal, 'state'>, runI
     contract.assertions.find(one => one.kind === kind)?.id
   const needsCheck = contract.assertions.some(one => one.kind === 'check')
   const declared = needsCheck && revision ? await readChecksAt(project.path, revision as Sha) : null
-  const checkRecords = facts.filter(one => one.record.fact.kind === 'check')
+  const checkRecords = facts.filter(one => one.record.fact.kind === 'check' &&
+    (!declared || declared.checks.some(check => check.name === one.record.fact.name)))
   const matches = (record: Fact, check: { name: string; run: string }) => record.fact.name === check.name &&
     record.fact.run === check.run && record.fact.digest === declared?.digest
   const checks = checkRecords.map(one => {
@@ -249,6 +252,8 @@ export class LeadAssembly {
       ...(seats ? { seats } : {}),
       // A plan whose seats cannot hold their ceilings would only fail at its start, after the person approved it.
       freezePlan: async contract => {
+        if (contract.steps.some(step => step.flow !== 'lead-reviewed-result' || step.sourceRevision !== LEAD_REVIEWED_RESULT.revision))
+          throw Object.assign(new Error('lead-plan-refused'), { wireCode: 'lead-plan-refused' })
         for (const step of contract.steps) {
           const unfit = await options.seatsHold?.(project.path, step)
           if (unfit) throw Object.assign(new Error(unfit), { wireCode: unfit })

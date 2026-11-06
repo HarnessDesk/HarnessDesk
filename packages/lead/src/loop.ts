@@ -1,4 +1,4 @@
-import { leadReviewedResultSourceFor } from './recipes/reviewed-result.js'
+import { LEAD_REVIEWED_RESULT } from './recipes/reviewed-result.js'
 import type { LeadJournalPort } from './child-ipc.js'
 import { leadProactiveReport, type LeadWakeRecord, clientTierFor, parseLeadAcceptanceContract, type LeadAcceptanceContract, type LeadAction, type LeadProject, type LeadThreadState, type LeadAssertionResult, type LeadBudgetState } from '@harnessdesk/protocol'
 import type { ClientEvent, ClientSnapshot } from '@harnessdesk/client'
@@ -364,8 +364,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
     const proposal = result.proposals?.plan
     if (proposal && !terminal(journal.state.phase)) {
       try {
+        if (proposal.steps.some(step => step.flow !== 'lead-reviewed-result' || step.sourceRevision !== LEAD_REVIEWED_RESULT.revision))
+          throw new Error('lead-plan-scope')
         const proposed = parseLeadAcceptanceContract(await options.freezePlan(structuredClone(proposal)))
-        if (proposed.project.id !== project.id || proposed.project.path !== project.path || proposed.steps.some(step => step.flow !== 'lead-reviewed-result' || !leadReviewedResultSourceFor(step.sourceRevision)))
+        if (proposed.project.id !== project.id || proposed.project.path !== project.path || proposed.steps.some(step => step.flow !== 'lead-reviewed-result' || step.sourceRevision !== LEAD_REVIEWED_RESULT.revision))
           throw new Error('lead-plan-scope')
         await journal.offerCard({ version: 1, id: nextId(), revision: 1, type: 'plan', contractDigest: proposed.digest, contract: proposed })
       } catch (error) {

@@ -186,7 +186,7 @@ test('a stored recipe-1 plan starts and keeps its host guard after recovery', as
 })
 
 
-const reviewedRun = async (t: TestContext, acceptance: () => Promise<LeadAcceptanceResult>) => {
+const reviewedRun = async (t: TestContext, acceptance: () => Promise<LeadAcceptanceResult>, head = 'a'.repeat(40), owned = true) => {
   const { agent, goalRig } = await import('./fixtures/flow-goal-rig.js')
   const rig = await goalRig(t, { executionOptions: { lead: {
     bind: async () => {}, round: async () => {}, gate: async () => ({ ok: true as const }),
@@ -197,12 +197,12 @@ const reviewedRun = async (t: TestContext, acceptance: () => Promise<LeadAccepta
   const agents = [agent('implementer', ['committed']), { ...reviewer, definition: { ...reviewer.definition!, ceiling: 'read' as const } }]
   rig.beforeClaim = n => {
     const seat = rig.seats.get(`seat-${n}`)!
-    Object.assign(seat.checkout, { head: 'a'.repeat(40) })
-    rig.heads.set(seat.checkout.cwd, { at: 'a'.repeat(40), dirty: false })
+    Object.assign(seat.checkout, { head })
+    rig.heads.set(seat.checkout.cwd, { at: head, dirty: false })
   }
   const run = await rig.flows.startGoal({ root: '/repo', sentence: 'Verify the repair brief', source: leadReviewedResultSource,
     sourcePath: null, compiled: rig.compile(leadReviewedResultSource, agents), requireHeld: true,
-    lead: { logicalGoalId: 'logical', contractDigest: 'a'.repeat(64), startId: 'start', stepId: 'work' },
+    ...(owned ? { lead: { logicalGoalId: 'logical', contractDigest: 'a'.repeat(64), startId: 'start', stepId: 'work' } } : {}),
     authorization: { sourceDigest: (await import('../src/flow-execution.js')).sourceDigest(leadReviewedResultSource), commandDigest: '', approvedAt: 1, start: 'front-door' },
   })
   const implement = run.rounds[0]!
@@ -230,6 +230,8 @@ test('repair scheduling carries exactly the failed assertions and separate runne
   const input = JSON.parse(repair.detail!.split('Repair input: ')[1]!.split('\n')[0]!)
   assert.deepEqual(input, { failed: [{ assertionId: 'unit', reason: 'Unit check found a defect' }], errored: ['runner'] })
   assert.doesNotMatch(repair.detail!, /"assertionId":"lint"/)
+  assert.equal([...repair.detail!.matchAll(/Fix only the failed assertions listed/g)].length, 1)
+  assert.match(repair.detail!, /After a new commit, run all declared required checks again at that revision/)
 })
 
 for (const scenario of ['stale rejection', 'failed check with missing sibling'] as const) test(`a repair opens for ${scenario} even without a complete failed assertion`, async t => {
@@ -256,15 +258,13 @@ for (const scenario of ['stale rejection', 'failed check with missing sibling'] 
   assert.deepEqual(repair.dependsOn, review.cards)
 })
 
-test('only runner trouble can suppress a repair, and a review request overrides it', async t => {
+test('an external round opener always returns the new round, even with runner trouble', async t => {
   const result: LeadAcceptanceResult = { status: 'unknown', assertions: [verdict('checks', 'errored')],
     checksCouldNotRun: true, checksToRerun: ['Unit tests'] }
-  const { rig, run, review } = await reviewedRun(t, async () => result)
-  await rig.executions.openRound(run.id, { role: 'implement', title: 'Retry the checks' }, { key: 'runner-trouble', evidence: [] })
-  assert.equal(rig.flows.executionOf(run.id)!.rounds.length, 2)
-  assert.match(rig.flows.executionOf(run.id)!.reason!, /Re-run these checks; they did not fail, they could not run/)
-  await rig.team.complete(review.cards[0]!, { outcome: 'request-changes' }, rig.sessionOf(review.seats[0]!))
-  await rig.flows.flush()
+  const { rig, run } = await reviewedRun(t, async () => result)
+  const opened = await rig.executions.openRound(run.id, { role: 'implement', title: 'Retry the checks' }, { key: 'runner-trouble', evidence: [] })
+  assert.equal(opened.n, 3)
+  assert.equal(opened.cause, 'cause:runner-trouble')
   assert.equal(rig.flows.executionOf(run.id)!.rounds.length, 3)
 })
 
@@ -305,4 +305,74 @@ test('a hedged approval reopens review on the same commit, then a verified appro
   assert.equal(rig.flows.executionOf(run.id)!.rounds.filter(round => round.role === 'implement').length, 1)
   await reviewAt(again, 'Verified the checks and committed diff.')
   assert.equal(rig.flows.executionOf(run.id)!.rounds.at(-1)!.role, 'accept')
+})
+
+
+for (const outcome of ['request-changes', 'approve']) test(`an acceptance read error preserves the existing ${outcome} transition`, async t => {
+  const { rig, run, review } = await reviewedRun(t, async () => { throw new Error('Synthetic evidence read failed') })
+  const scope = rig.sessionOf(review.seats[0]!)
+  const candidates = await rig.review.candidates(review.cards[0]!, scope)
+  await rig.review.record({ intent: review.cards[0]!, candidate: candidates[0]!.id, verdict: outcome }, scope)
+  await rig.team.complete(review.cards[0]!, { outcome }, scope)
+  await rig.flows.flush()
+  const after = rig.flows.executionOf(run.id)!
+  assert.equal(after.state, 'running')
+  assert.equal(after.rounds.length, 3)
+  assert.equal(after.rounds[2]!.role, outcome === 'approve' ? 'accept' : 'implement')
+  assert.ok(rig.logs.some(message => /acceptance evidence/.test(message)))
+  if (outcome === 'request-changes') {
+    const card = rig.board(run.goal).intents.find(card => card.id === after.rounds[2]!.cards[0])!
+    assert.equal([...card.detail!.matchAll(/Fix only the failed assertions listed/g)].length, 1)
+    assert.match(card.detail!, /After a new commit, run all declared required checks again at that revision/)
+    assert.doesNotMatch(card.detail!, /Re-run only the failed and errored checks/)
+  }
+})
+
+test('a completed review that only lacks runnable checks holds for the existing check action', async t => {
+  const { contract: approved } = await leadRig(t)
+  const contract = { ...approved, assertions: [...approved.assertions,
+    { id: 'checks', kind: 'check' as const, description: 'Required checks' },
+    { id: 'blockers', kind: 'blocking-findings' as const, description: 'No blockers' }] }
+  let exit: number | null = null
+  const acceptance = () => evaluateLeadAcceptance(contract, { project: contract.project, runId: 'run', contractDigest: contract.digest,
+    revision: 'a'.repeat(40), observedAt: 100, complete: true, spendComplete: true, findingsComplete: true, findings: [], diffs: [],
+    checks: [{ id: 'timed-out', name: 'Unit tests', assertionId: 'checks', revision: 'a'.repeat(40), observedAt: 100,
+      exit, timedOut: exit === null, counted: true, dirty: false }],
+    reviews: [{ id: 'request', assertionId: 'review', revision: 'a'.repeat(40), observedAt: 100, complete: true,
+      verdict: 'request-changes', text: 'The required check timed out, so I could not verify it.' }],
+  }, { now: 100, freshnessMs: 50, revision: 1 })
+  const { rig, run, review } = await reviewedRun(t, async () => acceptance())
+  await rig.team.complete(review.cards[0]!, { outcome: 'request-changes' }, rig.sessionOf(review.seats[0]!))
+  await rig.flows.flush()
+  const after = rig.flows.executionOf(run.id)!
+  assert.equal(after.state, 'running')
+  assert.equal(after.rounds.length, 2)
+  assert.equal(rig.board(run.goal).intents.length, 2)
+  assert.match(after.reason!, /Re-run these checks; they did not fail, they could not run/)
+  exit = 0
+  rig.files.dieWhen = saved => saved.rounds.at(-1)?.n === 3 && saved.rounds.at(-1)?.state === 'opening' && saved.rounds.at(-1)!.cards.length > 0
+  await rig.flows.wakeEvidence(run.goal)
+  await rig.flows.flush()
+  assert.equal(rig.files.dead, true, 'crash after the re-review round is journaled, before its cards are saved')
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  const resumed = rig.flows.executionOf(run.id)!
+  assert.equal(resumed.state, 'running')
+  assert.ok(resumed.rounds.at(-1)!.seats.length, resumed.reason ?? 're-review must seat after recovery')
+  assert.equal(rig.seats.get(resumed.rounds.at(-1)!.seats[0]!)!.agent?.id, 'code-reviewer')
+  assert.equal(resumed.rounds.at(-1)!.role, 'review', 'after a successful check, revisit the review rather than changing code')
+  assert.equal(resumed.rounds.filter(round => round.role === 'implement').length, 1)
+})
+
+
+test('ordinary Flow repairs retain their own brief without Lead instructions', async t => {
+  const { rig, run, review } = await reviewedRun(t, async () => ({ status: 'unknown', assertions: [] }), 'a'.repeat(40), false)
+  await rig.team.complete(review.cards[0]!, { outcome: 'request-changes' }, rig.sessionOf(review.seats[0]!))
+  await rig.flows.flush()
+  const last = rig.flows.executionOf(run.id)!.rounds.at(-1)!
+  const card = rig.board(run.goal).intents.find(card => card.id === last.cards[0])!
+  assert.equal(last.role, 'implement')
+  assert.doesNotMatch(card.detail!, /After a new commit, run all declared required checks again/)
+  assert.equal([...card.detail!.matchAll(/Fix only the failed assertions listed/g)].length, 1)
 })

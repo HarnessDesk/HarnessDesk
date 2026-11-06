@@ -334,12 +334,12 @@ test('a counted check without a verdict can be run again through the existing pe
   const at = await repo.git('rev-parse', 'HEAD'), file = await readChecks(repo.dir)
   const state = { ...initialLeadState(), phase: 'running', contract: { digest, project: { path: repo.dir }, assertions: [{ kind: 'check' }] },
     runs: [{ runId: 'run', teamId: 'team', correlationId: 'start' }], steps: [{ state: 'started', attemptId: 'start' }] }
-  for (const verdict of [{ exit: null, timedOut: false }, { exit: 1, timedOut: true }, { exit: 0, timedOut: false }, { exit: 1, timedOut: false }]) {
+  for (const reviewVerdict of ['approve', 'request-changes']) for (const verdict of [{ exit: null, timedOut: false }, { exit: 1, timedOut: true }, { exit: 0, timedOut: false }, { exit: 1, timedOut: false }]) {
     const actions = new LeadPersonActions({ state } as never, {
-      registry: { all: () => [] }, flowsPlane: { executionOf: () => ({ state: 'running', rounds: [{ cards: [1] }] }) },
+      registry: { all: () => [] }, flowsPlane: { executionOf: () => ({ state: 'running', rounds: [{ n: 2, role: 'review', cards: [1] }], operations: [{ key: 'lead-check-wait:2', kind: 'round', state: 'finished' }] }) },
       teamPlane: { stateFor: () => ({ intents: [{ id: 1, role: 'implement', state: 'done' }] }) },
       call: async () => ({ cards: [{ card: 1, facts: [
-        { record: { fact: { kind: 'review', at, verdict: 'approve' } }, freshness: { state: 'fresh' } },
+        { record: { fact: { kind: 'review', at, verdict: reviewVerdict } }, freshness: { state: 'fresh' } },
         { record: { fact: { kind: 'check', at, name: 'unit', run: 'node unit.mjs', digest: file.digest, counted: true, ...verdict } }, freshness: { state: 'fresh' } },
       ], running: [] }] }),
     } as never, { seats: { all: () => [] } } as never, async () => {})

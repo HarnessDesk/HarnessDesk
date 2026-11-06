@@ -1,5 +1,7 @@
-import { createLeadJournal, createLeadTools, leadReviewedResultSourceFor, type LeadJournalRecord } from '@harnessdesk/lead'
+import { evaluateLeadAcceptance, createLeadJournal, createLeadTools, leadReviewedResultSourceFor, type LeadJournalRecord } from '@harnessdesk/lead'
 import { parseLeadAcceptanceContract } from '@harnessdesk/protocol'
+import type { StoredFlowExecution } from '../../src/flow-execution.js'
+import { readLeadEvidence } from '../../src/lead/assembly.js'
 import { LeadAdmission } from '../../src/lead/admission.js'
 import { LeadBudgets } from '../../src/lead/budgets.js'
 import { FlowPreviews } from '../../src/flow-preview.js'
@@ -7,10 +9,12 @@ import { createLeadClientAuthority } from '../../src/lead/client-authority.js'
 import { flowMethods } from '../../src/methods/flows.js'
 import { agent, goalRig } from './flow-goal-rig.js'
 
-export const leadRig = async (t: { after(fn: () => Promise<void>): void }, revision = 'recipe-2') => {
+export const leadRig = async (t: { after(fn: () => Promise<void>): void }, revision = 'recipe-2', options: { realAcceptance?: boolean } = {}) => {
   const source = leadReviewedResultSourceFor(revision)!
   let budgets!: LeadBudgets
   const rig = await goalRig(t, { executionOptions: { lead: {
+    acceptance: (run: StoredFlowExecution) => budgets.acceptance(run),
+    prepareSecondLook: (run: StoredFlowExecution, key: string, round: number) => budgets.prepareSecondLook(run, key, round),
     prepareRepair: (run: any, key: string, round: number) => budgets.prepareRepair(run, key, round),
     bind: (run: any) => budgets.bind(run), round: (run: any, id: string) => budgets.round(run, id), gate: (run: any) => budgets.gate(run),
   } } })
@@ -24,13 +28,14 @@ export const leadRig = async (t: { after(fn: () => Promise<void>): void }, revis
     policyRevision: 1, steps: [{ id: 'work', title: 'Repair', flow: 'lead-reviewed-result', sourceRevision: revision, variables: {}, attendance: 'attended', assignments: [
       { role: 'implement', agent: 'implementer', seat: seats.implement[0], ceiling: 'edit' },
       { role: 'review', agent: 'code-reviewer', seat: seats.review[0], ceiling: 'read' }] }],
-    assertions: [{ id: 'review', kind: 'review', description: 'Independent review' }], caps: { usdMicros: 100_000, rounds: 10 } })
+    assertions: [{ id: 'review', kind: 'review', description: 'Independent review' }, ...(options.realAcceptance ? [
+      { id: 'checks', kind: 'check', description: 'Required checks' }, { id: 'blockers', kind: 'blocking-findings', description: 'No blockers' }] : [])], caps: { usdMicros: 100_000, rounds: 10 } })
   await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
   await journal.updateBudget({ version: 1, type: 'initialize', now: 100, logicalGoalId: 'logical-1', caps: contract.caps, freshnessMs: 1000 })
   await journal.offerCard({ version: 1, id: 'plan', revision: 1, type: 'plan', contractDigest: contract.digest, contract })
   await journal.decideCard({ version: 1, cardId: 'plan', cardType: 'plan', expectedRevision: 1, contractDigest: contract.digest, choice: 'approve' }, 1000)
   let member = true, held = true, now = 100, next = 0, stopFails = false, admitted = 0
-  const agents = [agent('implementer', ['committed']), { ...agent('code-reviewer', ['approve', 'request-changes'], 'beta'),
+  const agents = [agent('implementer', options.realAcceptance ? ['committed', 'blocked'] : ['committed']), { ...agent('code-reviewer', ['approve', 'request-changes'], 'beta'),
     definition: { ...agent('code-reviewer', ['approve', 'request-changes'], 'beta').definition!, ceiling: 'read' as const, produces: ['review' as const] } }]
   const previews = new FlowPreviews({ confine: async () => {}, agents: async () => agents,
     providerOf: async runtime => rig.providers.get(runtime) ?? null,
@@ -42,7 +47,18 @@ export const leadRig = async (t: { after(fn: () => Promise<void>): void }, revis
   budgets = new LeadBudgets({ schedule: callback => {
     const id = ++timerId; timers.set(id, callback)
     return () => { timers.delete(id) }
-  }, now: () => now, runs: () => rig.flows.leadRuns(), member: async () => member,
+  }, ...(options.realAcceptance ? { acceptance: async (run: StoredFlowExecution, owner: typeof journal) => {
+    const evidence = await readLeadEvidence(owner, run.id, async call => {
+      if (call.method === 'flow/execution') return rig.flows.executionOf(run.id)
+      if (call.method === 'goal/read') return { board: rig.board(run.goal) }
+      if (call.method === 'finding/run') return { embargoed: false, blocking: false }
+      if (call.method === 'evidence/board') return { cards: rig.board(run.goal).intents.map(card => ({ card: card.id,
+        facts: (rig.facts.get(run.goal) ?? []).filter(record => record.card?.id === card.id).map(record => ({ record,
+          freshness: { state: rig.staleFacts.has(record.id) ? 'stale' : 'fresh' } })) })) }
+      throw new Error(`Unexpected acceptance read: ${call.method}`)
+    }, () => now)
+    return evaluateLeadAcceptance(owner.state.contract!, evidence, { now, freshnessMs: 1000, revision: owner.state.seq })
+  } } : {}), now: () => now, runs: () => rig.flows.leadRuns(), member: async () => member,
     interruptChecks: goal => rig.flows.interruptChecks(goal), stop: async (run, reason) => {
       if (stopFails) throw new Error('synthetic cleanup failure')
       return rig.flows.stopRun(run, reason, 'desk')

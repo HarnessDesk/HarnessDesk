@@ -107,3 +107,63 @@ test('a stored recipe-1 plan can still start its exact frozen source', async () 
   assert.equal(result.outcome, 'succeeded')
   assert.equal(s.journal.state.runs.length, 1)
 })
+
+test('recipe-1 preview requires the exact step already stored in the journal contract', async () => {
+  const { createLeadJournal, leadReviewedResultSourceFor } = await import('../src/index.js')
+  const source = leadReviewedResultSourceFor('recipe-1')!
+  const legacy = { ...contract, steps: contract.steps.map(step => ({ ...step, sourceRevision: 'recipe-1' })) }
+  const params = { root: project.path, source, vars: {}, attended: true,
+    seats: Object.fromEntries(legacy.steps[0]!.assignments.map(assignment => [assignment.role, [assignment.seat]])) }
+  for (const variant of ['no contract', 'current recipe', 'wrong step', 'wrong root', 'changed variables', 'changed seats', 'changed attendance', 'stored legacy']) {
+    const s = await fixture()
+    if (variant === 'current recipe') await s.approve()
+    else if (variant !== 'no contract') {
+      await s.journal.offerCard({ version: 1, id: 'legacy', revision: 1, type: 'plan', contractDigest: legacy.digest, contract: legacy })
+      await s.journal.decideCard({ version: 1, cardId: 'legacy', cardType: 'plan', expectedRevision: 1, contractDigest: legacy.digest, choice: 'approve' }, 1000)
+    }
+    const journal = await createLeadJournal(s.storage)
+    const tools = exported('createLeadTools')({ ...s.options, journal, now: s.options.clock.now, synchronized: () => true,
+      resolveTool: async (call: any) => ({ ...await s.options.resolveTool(call), stepId: variant === 'wrong step' ? 'other' : 'work' }) })
+    const request = { method: 'flow/preview', params: { ...params,
+      ...(variant === 'wrong root' ? { root: '/workspace/other' } : {}),
+      ...(variant === 'changed variables' ? { vars: { changed: 'yes' } } : {}),
+      ...(variant === 'changed seats' ? { seats: {} } : {}),
+      ...(variant === 'changed attendance' ? { attended: false } : {}) } }
+    if (variant === 'stored legacy') {
+      assert.equal((await tools.execute(request)).outcome, 'succeeded')
+      assert.equal(s.calls.at(-1)?.method, 'flow/preview')
+      assert.equal(s.calls.at(-1)?.params.source, source)
+    } else {
+      await assert.rejects(tools.resolveTool(request), (error: unknown) => error instanceof LeadToolRefusedError, variant)
+      assert.equal(s.calls.length, 0, variant)
+    }
+  }
+})
+
+test('a current plan cannot start the legacy reviewed source', async () => {
+  const { leadReviewedResultSourceFor } = await import('../src/index.js')
+  const s = await fixture(); await s.approve()
+  const source = leadReviewedResultSourceFor('recipe-1')!
+  const tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true,
+    resolveTool: async (call: any) => ({ ...await s.options.resolveTool(call), preview: { token: 'preview-1', source, expiresAt: 200 } }) })
+  await assert.rejects(tools.resolveTool({ method: 'flow/start-goal', params: { root: project.path, source, token: 'preview-1',
+    sentence: contract.goal, vars: {}, attended: true } }), (error: unknown) => error instanceof LeadToolRefusedError)
+  assert.equal(s.calls.length, 0)
+})
+
+
+test('a stored recipe-1 attended step previews with attendance omitted', async () => {
+  const { createLeadJournal, leadReviewedResultSourceFor } = await import('../src/index.js')
+  const s = await fixture()
+  const legacy = { ...contract, steps: contract.steps.map(step => ({ ...step, sourceRevision: 'recipe-1' })) }
+  await s.journal.offerCard({ version: 1, id: 'legacy', revision: 1, type: 'plan', contractDigest: legacy.digest, contract: legacy })
+  await s.journal.decideCard({ version: 1, cardId: 'legacy', cardType: 'plan', expectedRevision: 1, contractDigest: legacy.digest, choice: 'approve' }, 1000)
+  const journal = await createLeadJournal(s.storage)
+  const tools = exported('createLeadTools')({ ...s.options, journal, now: s.options.clock.now, synchronized: () => true })
+  const source = leadReviewedResultSourceFor('recipe-1')!
+  const result = await tools.execute({ method: 'flow/preview', params: { root: project.path, source, vars: {},
+    seats: Object.fromEntries(legacy.steps[0]!.assignments.map(assignment => [assignment.role, [assignment.seat]])) } })
+  assert.equal(result.outcome, 'succeeded')
+  assert.equal(s.calls.at(-1)?.method, 'flow/preview')
+  assert.equal(s.calls.at(-1)?.params.source, source)
+})

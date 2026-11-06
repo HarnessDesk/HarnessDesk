@@ -11,7 +11,7 @@ import { tempDir } from './scratch.js'
 
 const project = { id: 'acme', path: '/work/acme' }
 const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Make the retry list complete', project, policyRevision: 1,
-  steps: [{ id: 'work', title: 'Complete the list', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended',
+  steps: [{ id: 'work', title: 'Complete the list', flow: 'lead-reviewed-result', sourceRevision: 'recipe-2', variables: {}, attendance: 'attended',
     assignments: [{ role: 'implement', agent: 'implementer', seat: { runtime: 'fixture' }, ceiling: 'edit' }, { role: 'review', agent: 'code-reviewer', seat: { runtime: 'fixture' }, ceiling: 'read' }] }],
   assertions: [{ id: 'unit', kind: 'check', description: 'Tests pass' }, { id: 'review', kind: 'review', description: 'Review approves' }, { id: 'blockers', kind: 'blocking-findings', description: 'No blockers' }],
   caps: { usdMicros: 1_000_000, rounds: 16 } })
@@ -48,8 +48,8 @@ test('evidence preserves missing and stale facts separately from complete negati
   const read = (cards: unknown[]) => readLeadEvidence(withRun, 'run-1', reads(cards), () => 1000)
   assert.equal((await read([])).revision, '', 'no review yet')
   assert.equal((await read([{ card: 1, facts: [reviewed] }])).checks.length, 0, 'no check fact')
-  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' }), fact('c1', 'check', revision, 'stale', { exit: 0 })] }])).checks[0]!.complete, false, 'a stale check')
-  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' }), fact('c0', 'check', 'old', 'fresh', { exit: 0 })] }])).checks[0]!.revision, 'old', 'a check for another revision')
+  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' }), fact('c1', 'check', revision, 'stale', { name: 'unit', exit: 0 })] }])).checks[0]!.complete, false, 'a stale check')
+  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' }), fact('c0', 'check', 'old', 'fresh', { name: 'unit', exit: 0 })] }])).checks[0]!.revision, 'old', 'a check for another revision')
   for (const facts of [
     [reviewed, check('unit')],
     [reviewed, check('unit'), check('lint', { run: 'node another.mjs' })],
@@ -85,6 +85,16 @@ test('evidence preserves missing and stale facts separately from complete negati
   }, () => 1000)
   assert.deepEqual(rereviewed.reviews.map(review => review.id), ['r2', 'r3'], 'all reviewers in the new round supersede the earlier hedge at the same commit')
   assert.equal(evaluateLeadAcceptance(withRun.state.contract!, rereviewed, { now: 1000, freshnessMs: 50, revision: 1 }).status, 'reviewed')
+  await writeFile(join(repo.dir, '.harnessdesk/checks.yml'), 'tests: { run: node unit.mjs }\n')
+  await repo.git('add', '.harnessdesk/checks.yml')
+  await repo.git('commit', '-qm', 'Rename the required check')
+  const repairedRevision = await repo.git('rev-parse', 'HEAD'), repairedChecks = await readChecks(repo.dir)
+  const renamed = await read([{ card: 1, facts: [check('unit'), check('lint'),
+    fact('renamed', 'check', repairedRevision, 'fresh', { name: 'tests', run: 'node unit.mjs', digest: repairedChecks.digest, exit: 0, counted: true }),
+    fact('repaired-review', 'review', repairedRevision, 'fresh', { verdict: 'approve' })] }])
+  assert.deepEqual(renamed.checks.map(check => check.name), ['tests'], 'checks removed or renamed at the reviewed commit are no longer required facts')
+  assert.equal(evaluateLeadAcceptance(withRun.state.contract!, renamed, { now: 1000, freshnessMs: 50, revision: 1 }).status, 'reviewed')
+
 })
 
 test('plans freeze to the sha256 of their canonical JSON, projects are named by path and seats come from ready runtimes', async () => {
@@ -242,4 +252,24 @@ test('an older desk migrates its spending limit: the untouched default becomes O
   const seq = approved.journal.state.seq
   await approved.journal.recordSpendLimit(5, false, 300)
   assert.equal(approved.journal.state.seq, seq, 'the migration runs once')
+})
+
+test('new plans cannot freeze a legacy reviewed recipe', async () => {
+  const legacy = { ...contract, steps: contract.steps.map(step => ({ ...step, sourceRevision: 'recipe-1' })) }
+  await assert.rejects(freezeLeadPlan(legacy), (error: any) => error.wireCode === 'lead-plan-refused')
+})
+
+test('assembly refuses a new legacy reviewed recipe before seating previews', async t => {
+  const legacy = { ...contract, steps: contract.steps.map(step => ({ ...step, sourceRevision: 'recipe-1' })) }
+  let freeze!: typeof freezeLeadPlan
+  let seatingReads = 0
+  const assembly = new LeadAssembly({ home: tempDir('lead-assembly-recipe-'), now: () => 1,
+    workspace: async () => contract.project.path, readySeats: () => ['fixture'], heldPreview: () => null,
+    seatsHold: async () => { seatingReads++; return null }, create: async inputs => { freeze = inputs.freezePlan } })
+  t.after(() => assembly.close())
+  await assembly.ensure()
+  await assert.rejects(freeze(legacy), (error: any) => error.wireCode === 'lead-plan-refused')
+  assert.equal(seatingReads, 0, 'the unsupported new recipe is refused before any seating preview')
+  assert.match((await freeze(contract)).digest, /^[0-9a-f]{64}$/)
+  assert.equal(seatingReads, contract.steps.length)
 })

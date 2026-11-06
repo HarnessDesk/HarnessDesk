@@ -9,6 +9,7 @@ import type { Host } from '../host.js'
 import { readChecksAt } from '../evidence/checks-file.js'
 import { leadContainsSecret } from './secrets.js'
 import { leadRefusal } from './controls.js'
+import { leadCheckWaitKey } from '../flow-execution.js'
 
 type Target = { readonly runtime?: string; readonly sessionId?: string; readonly approvalId?: string; readonly key?: LeadWorkerApprovalKey; readonly diff?: string; readonly pending?: () => boolean; readonly action: LeadAction; readonly answer: (choice: LeadActionInput['choice']) => Promise<unknown> }
 const identity = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -108,7 +109,9 @@ export class LeadPersonActions {
       const evidence = await this.host.call('evidence/board', { room: owned.teamId })
       const facts = evidence.cards.filter(card => ids.has(card.card)).flatMap(card => card.facts)
       const review = facts.filter(one => one.record.fact.kind === 'review' && one.freshness.state === 'fresh').at(-1)?.record.fact
-      if (review?.kind !== 'review' || review.verdict !== 'approve') continue
+      const last = execution.rounds.at(-1)
+      const heldForChecks = last?.role === 'review' && execution.operations?.some(operation => operation.key === leadCheckWaitKey(last.n))
+      if (review?.kind !== 'review' || review.verdict !== 'approve' && !(review.verdict === 'request-changes' && heldForChecks)) continue
       const file = await readChecksAt(contract.project.path, review.at as Sha)
       if (!file.digest) continue
       for (const check of file.checks) {

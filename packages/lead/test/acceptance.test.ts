@@ -81,7 +81,7 @@ test('repair brief carries failed ids and reasons without including passed check
   const brief = exported('leadRepairDetail')(result)
   assert.match(brief, /"assertionId":"review","reason":"hedged-approval"/)
   assert.doesNotMatch(brief, /"assertionId":"unit"/)
-  assert.match(brief, /leave the passed ones/)
+  assert.doesNotMatch(brief, /Fix only/, 'per-run data does not repeat the recipe instructions')
 })
 
 
@@ -144,4 +144,26 @@ test('runner-only waiting excludes stale negative reviews and incomplete check v
     assert.equal(result.status, 'unknown')
     assert.equal(result.checksCouldNotRun, false)
   }
+})
+
+
+test('a missing review is never runner trouble, while a check-only rejection waits for the check action', () => {
+  assert.equal(evaluate({ checks: [], reviews: [] }).checksCouldNotRun, false)
+  const reviews = [{ ...evidence().reviews[0], verdict: 'request-changes', text: 'Could not verify the required checks.' }]
+  for (const checks of [[], [{ ...evidence().checks[0], name: 'Unit tests', exit: null }]]) {
+    const result = evaluate({ checks, reviews })
+    assert.equal(result.status, 'failed')
+    assert.equal(result.checksCouldNotRun, true)
+  }
+  assert.equal(evaluate({ checks: [{ ...evidence().checks[0], exit: 1 }], reviews }).checksCouldNotRun, false)
+  assert.equal(evaluate({ checks: [], reviews, findings: [{ id: 'blocker', revision: 'head-1', blocking: true, resolved: false }] }).checksCouldNotRun, false)
+})
+
+test('review hedges distinguish running checks from running into issues and ignore fenced examples', () => {
+  for (const text of ['I did not run into issues. Verified all checks.', "I didn't run into issues. Verified all checks.",
+    'An earlier draft probably raced. I verified this revision.', '~~~text\nprobably should work\n~~~\nVerified all checks.'])
+    assert.equal(evaluate({ reviews: [{ ...evidence().reviews[0], text }] }).status, 'reviewed', text)
+  for (const text of ["I didn't run the checks.", 'I did not run it.', 'Probably correct.',
+    'An earlier draft probably raced. This should work.', '~~~incomplete\nshould work'])
+    assert.equal(evaluate({ reviews: [{ ...evidence().reviews[0], text }] }).assertions[1].reason, 'hedged-approval', text)
 })

@@ -94,6 +94,14 @@ export const createLeadTools = (options: LeadToolsOptions) => {
     if (clientTierFor(call.method, call.params) === 'run' && !synchronized()) throw new LeadToolFencedError()
     if (call.method === 'flow/preview' || call.method === 'flow/start-goal') {
       if (params.source !== leadReviewedResultSource && params.source !== leadReviewedResultSourceFor('recipe-1')) fail()
+      // Legacy source is only for the frozen step of a stored contract, never a new proposal's preview.
+      if (call.method === 'flow/preview' && params.source !== leadReviewedResultSource) {
+        const contract = journal.state.contract, step = contract?.steps.find(step => step.id === scope.stepId)
+        const seats = Object.fromEntries(step?.assignments.map(assignment => [assignment.role, [assignment.seat]]) ?? [])
+        if (!contract || !same(contract.project, project) || !step || step.flow !== 'lead-reviewed-result' ||
+          params.source !== leadReviewedResultSourceFor(step.sourceRevision) || params.root !== contract.project.path ||
+          !same(params.vars ?? {}, step.variables) || !same(params.seats ?? {}, seats) || (params.attended !== false) !== (step.attendance === 'attended')) fail()
+      }
     }
     if (call.method === 'flow/start-goal') {
       const state = journal.state, step = state.contract?.steps.find(step => step.id === scope.stepId)

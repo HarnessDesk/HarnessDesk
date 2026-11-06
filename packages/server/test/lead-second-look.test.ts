@@ -186,3 +186,27 @@ test('host recovery does not override a person stop or a refused allowance', asy
   assert.equal(active.n, 2)
   await assert.rejects(rig.executions.restartLeadStopped(run.id, leadSecondLookKey({ ...input().stop, stopId: 'stop-2' })), /lead-second-look-run-unavailable/)
 })
+
+
+test('a first-round worker blocker gets a second look with the real acceptance guard and no evidence', async t => {
+  const { leadRig } = await import('./fixtures/lead.js')
+  const s = await leadRig(t, 'recipe-2', { realAcceptance: true }), run = await s.start()
+  Object.assign(s.budgets.port, { seats: () => [...s.rig.seats.values()], delegation: () => 'none', usage: async () => ({ complete: true, samples: [] }) })
+  const first = run.rounds[0]!
+  await s.rig.team.complete(first.cards[0]!, { outcome: 'blocked', handoff: 'Blocked on #231' }, s.rig.sessionOf(first.seats[0]!))
+  await s.rig.flows.flush()
+  await s.observe(0)
+  const stopped = s.rig.executions.stored(run.id)!
+  assert.equal(stopped.state, 'settled')
+  const acceptance = await s.budgets.acceptance(stopped)
+  assert.ok(acceptance)
+  assert.equal(acceptance.checksCouldNotRun, false, 'a missing review cannot justify a runner hold')
+  assert.ok(acceptance.assertions.every(assertion => assertion.status === 'no-evidence' || assertion.status === 'unknown'))
+  const next = await s.rig.executions.restartLeadStopped(run.id, leadSecondLookKey(input().stop))
+  assert.equal(next.n, 2)
+  assert.equal(next.state, 'running')
+  assert.ok(next.seats.length)
+  assert.equal(s.rig.executions.stored(run.id)!.state, 'running')
+  assert.equal(s.journal.state.secondLooks.length, 1)
+  assert.equal((await s.rig.executions.restartLeadStopped(run.id, leadSecondLookKey(input().stop))).n, 2)
+})

@@ -5,12 +5,13 @@ import test, { type TestContext } from 'node:test'
 
 import { createLeadJournal, leadReviewedResultSourceFor } from '@harnessdesk/lead'
 import { approvalId, parseLeadAcceptanceContract } from '@harnessdesk/protocol'
-import { Host, StateStore } from '../src/index.js'
+import { Host, Logger, StateStore } from '../src/index.js'
 import { SeatBook } from '../src/evidence/seats.js'
 import { LeadControls } from '../src/lead/controls.js'
 import { evidenceDesk, writeAgent } from './fixtures/evidence-desk.js'
+import { LeadHandbacks, type LeadHandbackPort } from '../src/lead/handback.js'
 import { LeadBudgets } from '../src/lead/budgets.js'
-import { LeadAssembly, type LeadAssemblyOptions } from '../src/lead/assembly.js'
+import { LeadAssembly, leadContractDigest, type LeadAssemblyOptions } from '../src/lead/assembly.js'
 import { FlowPreviews } from '../src/flow-preview.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -354,4 +355,70 @@ test('an enabled desk without a selected project has no chat control records', a
   await host.start()
   for (const method of ['lead/chats/control', 'lead/chat/takeOver', 'lead/chat/handBack'] as const)
     assert.deepEqual(await host.call(method, { id: 'fixture:s1' } as never), { project: null, chats: [] })
+})
+
+
+test('PR repair evidence read failure logs and preserves the existing repair opening', async t => {
+  let port: LeadHandbackPort | undefined
+  t.mock.method(LeadHandbacks.prototype, 'recover', async function (this: LeadHandbacks) {
+    port = (this as unknown as { port: LeadHandbackPort }).port
+  })
+  const warn = t.mock.method(Logger.prototype, 'warn', () => {})
+  const { host } = rig(t, true); await host.start()
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'repair-read-failure', caps: { usdMicros: 100, rounds: 10 }, freshnessMs: 1000 })
+  let reads = 0
+  const prepare = t.mock.method(host.flowsPlane, 'prepareLeadRepair', async () => ({ n: 4, role: 'implement', state: 'opening' as const,
+    cards: [], seats: [], evidence: [], cause: 'repair' }))
+  const service = host.createLeadService({ journal, project: { id: 'demo', path: '/workspace/demo' }, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async value => value,
+    readEvidence: async () => { reads++; throw new Error('Synthetic evidence read failed') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  t.after(() => service.close())
+  for (let i = 0; i < 10 && !port; i++) await new Promise<void>(resolve => setImmediate(resolve))
+  assert.ok(port)
+  const op = { runId: 'owned-run', teamId: 'owned-team', key: 'repair', round: 4, detail: 'Repair the observed check.' } as Parameters<LeadHandbackPort['open']>[0]
+  assert.equal(await port.open(op), 4)
+  assert.equal(reads, 1)
+  assert.equal(prepare.mock.calls[0]!.arguments[0]!.detail, op.detail)
+  assert.ok(warn.mock.calls.some(call => String(call.arguments[0]).includes('acceptance evidence could not be read')))
+})
+
+
+test('repeat validation admits legacy recipes only from the journal contract', async t => {
+  let validate: ((contract: import('@harnessdesk/protocol').LeadAcceptanceContract) => Promise<string | null>) | undefined
+  const readMarker = new Error('Captured repeat validation')
+  t.mock.method(LeadControls.prototype, 'readThread', async function (this: LeadControls) {
+    validate = (this as any).options.validateRepeat
+    throw readMarker
+  })
+  const { host } = rig(t, true); await host.start()
+  const root = tempDir('lead-repeat-recipe-')
+  await host.call('workspace/open', { path: root })
+  const journal = await createLeadJournal({ read: async () => [], append: async () => {} })
+  await journal.setPolicy({ version: 1, revision: 1, mode: 'manage', rules: [] })
+  await journal.updateBudget({ version: 1, type: 'initialize', now: Date.now(), logicalGoalId: 'repeat-recipe', caps: { usdMicros: 100, rounds: 10 }, freshnessMs: 1000 })
+  const draft = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Verify the recipe',
+    project: { id: 'demo', path: root }, policyRevision: 1, caps: { usdMicros: 100, rounds: 10 },
+    steps: [{ id: 'work', title: 'Work', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended',
+      assignments: [{ role: 'implement', agent: 'implementer', seat: { runtime: 'fixture' }, ceiling: 'edit' },
+        { role: 'review', agent: 'code-reviewer', seat: { runtime: 'fixture' }, ceiling: 'read' }] }],
+    assertions: [{ id: 'review', kind: 'review', description: 'Reviewed' }] })
+  const legacy = { ...draft, digest: leadContractDigest(draft) }
+  const service = host.createLeadService({ journal, project: legacy.project, prices: {},
+    resolveTool: async () => { throw new Error('unused') }, freezePlan: async value => value,
+    readEvidence: async () => { throw new Error('unused') },
+    createSupervisor: () => ({ live: false, ensure: async () => {}, send: async () => ({ status: 'completed', text: '' }), stop: async () => {}, ownershipWithdrawn() {} }) })
+  t.after(() => service.close())
+  await assert.rejects(host.call('lead/thread/read', {}), readMarker)
+  assert.ok(validate)
+  const sources: string[] = []
+  t.mock.method(FlowPreviews.prototype, 'preview', async (_root: string, source: string) => { sources.push(source); throw new Error('No fixture seats') })
+  assert.equal(await validate(legacy), 'The Flow source changed')
+  assert.equal(sources.length, 0, 'new legacy contracts are refused before preview')
+  const state = journal.state
+  t.mock.getter(journal, 'state', () => ({ ...state, contract: legacy }))
+  assert.equal(await validate(legacy), 'The agents can no longer hold the approved seats')
+  assert.equal(sources.at(-1), leadReviewedResultSourceFor('recipe-1'))
 })
