@@ -1,3 +1,4 @@
+import { leadStage, type LeadStageFacts, type LeadThread, type LeadWindowProjection } from '@harnessdesk/protocol'
 import { LEAD_LIMITS, parseLeadSettingsProjection, windowLeadThread, type LeadAction, type LeadCard, type LeadProgress, type LeadProject, type LeadSettingsProjection } from '@harnessdesk/protocol'
 import { leadBudgetProjection, leadPlanRuns, type LeadState } from '@harnessdesk/lead'
 
@@ -39,3 +40,17 @@ export const leadProgress = (state: LeadState): LeadProgress | null => {
 export const leadApprovalCards = (actions: readonly LeadAction[], digest: string): readonly Extract<LeadCard, { type: 'waiting' }>[] =>
   actions.flatMap(action => action.kind === 'worker-approval' ? [{ version: 1, id: action.id, revision: 1, type: 'waiting', kind: 'worker-approval', runId: action.runId,
     personCardId: null, summary: `The ${action.role} wants to ${action.request}. Answer on the card.`, assertions: [], contractDigest: digest }] : [])
+
+/** Host facts only: active card kinds, live requests and accepted chat attempts. */
+export const leadThreadStage = (state: LeadState, thread: Pick<LeadThread, 'cards'>, personActions: readonly LeadAction[],
+  waitReason: LeadWindowProjection['waitReason'], requestInFlight: boolean, chatEffectQueued = false) => {
+  const pending = thread.cards.find(card => card.type === 'plan' || card.type === 'permission-change' || card.type === 'budget-change' ||
+    card.type === 'branch-ownership' || card.type === 'waiting' && card.kind === 'person')
+  return leadStage({ kind: 'lead', state: state.phase,
+    pendingPersonCard: pending?.type as Extract<LeadStageFacts, { kind: 'lead' }>['pendingPersonCard'] ?? null,
+    resultReady: thread.cards.some(card => card.type === 'result' && card.outcome === 'reviewed'),
+    workerApproval: personActions.some(action => action.kind === 'worker-approval') || thread.cards.some(card => card.type === 'waiting' && card.kind === 'worker-approval'),
+    checkToRun: personActions.some(action => action.kind === 'check'), waitReason, requestInFlight,
+    chatEffectQueued,
+  })
+}

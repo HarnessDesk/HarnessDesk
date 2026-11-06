@@ -52,7 +52,7 @@ const leaks = (value: unknown): string[] => {
 const door = async (chooseModel = false) => {
   const home = await mkdtemp(join(tmpdir(), 'hd-phone-wire-'))
   const state = { title: 'Fix the importer', pending: [asked()], builds: 0, running: false, responded: [] as any[], actions: [] as any[] }
-  const items = (): PhoneWorkItem[] => [{ id: KEY, kind: 'session', title: state.title, phase: 'running', line: 'Working', updatedAt: 1 }]
+  const items = (): PhoneWorkItem[] => [{ id: KEY, kind: 'session', title: state.title, stage: 'working', stageReason: 'running', phase: 'running', line: 'Working', updatedAt: 1 }]
   const work = new PhoneWork({
     workspace: { workItems: async () => { state.builds++; return items() }, workUsage: async () => undefined, workSessions: () => ({ items: items(), nextCursor: null }) },
     deskName: () => 'Studio Mac',

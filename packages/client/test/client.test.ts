@@ -576,7 +576,7 @@ test('chat activity emits validated state changes without inventing Flow runs', 
   const events = client.events()[Symbol.asyncIterator]()
   await next(events)
   const changed = (state: unknown, patch: object = {}) => transport.emit({ method: 'lead/chat/changed',
-    params: { id: 'demo:session-1', project: '/tmp/demo', state, ...patch } } as unknown as WireNotification)
+    params: { id: 'demo:session-1', project: '/tmp/demo', stage: state === 'waiting' ? 'you-answer' : state === 'running' ? 'working' : 'idle', state, ...patch } } as unknown as WireNotification)
   changed('idle')
   changed('idle')
   changed('complete')
@@ -587,8 +587,8 @@ test('chat activity emits validated state changes without inventing Flow runs', 
   const actual: ClientEvent[] = []
   for (;;) { const event = await events.next(); if (event.done) break; actual.push(event.value) }
   assert.deepEqual(actual.map(({ at: _at, ...event }) => event), [
-    { v: 1, type: 'chat.changed', id: 'demo:session-1', project: '/tmp/demo', state: 'idle' },
-    { v: 1, type: 'chat.changed', id: 'demo:session-1', project: '/tmp/demo', state: 'waiting' },
+    { v: 1, type: 'chat.changed', id: 'demo:session-1', project: '/tmp/demo', state: 'idle', stage: 'idle' },
+    { v: 1, type: 'chat.changed', id: 'demo:session-1', project: '/tmp/demo', state: 'waiting', stage: 'you-answer' },
     { v: 1, type: 'end', reason: 'interrupted' },
   ])
   assert.deepEqual(client.snapshot().runs, [])
@@ -596,7 +596,7 @@ test('chat activity emits validated state changes without inventing Flow runs', 
 
 test('reconnect replays a tracked chat baseline that completed while disconnected', async () => {
   const first = new ScriptedTransport(), second = new ScriptedTransport()
-  const chat = (state: string) => ({ method: 'lead/chat/changed', params: { id: 'demo:session-1', project: '/tmp/demo', state } } as WireNotification)
+  const chat = (state: string) => ({ method: 'lead/chat/changed', params: { id: 'demo:session-1', project: '/tmp/demo', stage: state === 'waiting' ? 'you-answer' : state === 'running' ? 'working' : 'idle', state } } as WireNotification)
   first.baseline = [chat('running')]
   second.baseline = [chat('idle')]
   let opens = 0
@@ -604,12 +604,66 @@ test('reconnect replays a tracked chat baseline that completed while disconnecte
     subscribe: { topics: ['chats'], scope: { project: '/tmp/demo' } } })
   const events = client.events()[Symbol.asyncIterator]()
   await next(events)
-  assert.equal((await next(events) as { state?: string }).state, 'running')
+  const running = await next(events)
+  assert.equal((running as { state?: string }).state, 'running')
+  assert.equal((running as { baseline?: true }).baseline, true)
   first.close()
   assert.equal((await next(events)).type, 'gap')
   const completed = await next(events)
   assert.equal(completed.type, 'chat.changed')
   assert.equal((completed as { state?: string }).state, 'idle')
+  assert.equal((completed as { baseline?: true }).baseline, true)
   assert.deepEqual(client.snapshot().runs, [])
   client.close()
+})
+
+test('a Team stage-only transition emits once and carries the host stage', async () => {
+  const transport = new ScriptedTransport()
+  const client = await connect({ transport: async () => transport, client: clientInfo, subscribe: { topics: ['teams'] } })
+  const events = client.events()[Symbol.asyncIterator]()
+  await next(events)
+  const change = (stage: GoalView['stage']) => transport.emit({ method: 'goal/changed', params: { view: { ...view(), stage } } })
+  change('queued'); change('working'); change('working')
+  client.close()
+  const actual = []
+  for (;;) { const event = await events.next(); if (event.done) break; if (event.value.type === 'team.changed') actual.push(event.value) }
+  assert.deepEqual(actual.map(event => (event as any).stage), ['queued', 'working'])
+})
+
+test('chat events retain legacy state transitions when stage is unchanged or absent', async () => {
+  for (const stage of ['you-blocked', undefined] as const) {
+    const transport = new ScriptedTransport()
+    const client = await connect({ transport: async () => transport, client: clientInfo,
+      subscribe: { topics: ['chats'], scope: { project: '/workspace/demo' } } })
+    const events = client.events()[Symbol.asyncIterator]()
+    await next(events)
+    for (const state of ['waiting', 'idle', 'idle'] as const) transport.emit({ method: 'lead/chat/changed',
+      params: { id: 'fixture:chat', project: '/workspace/demo', state, ...(stage === undefined ? {} : { stage }) } } as WireNotification)
+    client.close()
+    const states = []
+    for (;;) { const event = await events.next(); if (event.done) break; if (event.value.type === 'chat.changed') states.push(event.value.state) }
+    assert.deepEqual(states, ['waiting', 'idle'])
+  }
+})
+
+test('chat events identify counted baseline frames without relabeling later live changes', async () => {
+  const transport = new ScriptedTransport()
+  const chat = (id: string): WireNotification => ({ method: 'lead/chat/changed', params: {
+    id, project: '/workspace/demo', state: 'idle', stage: 'idle' } })
+  transport.baseline = [chat('first'), chat('second')]
+  transport.deferBaseline = true
+  const client = await connect({ transport: async () => transport, client: clientInfo,
+    subscribe: { topics: ['chats'], scope: { project: '/workspace/demo' } } })
+  const events = client.events()[Symbol.asyncIterator]()
+  try {
+    await next(events)
+    for (const frame of transport.baseline) transport.emit(frame)
+    transport.emit(chat('new'))
+    // Consume after sync: provenance belongs to receipt order, not read timing.
+    await client.synced()
+    const actual = [await next(events), await next(events), await next(events)]
+    assert.deepEqual(actual.map(event => ({ id: (event as { id?: string }).id, baseline: (event as { baseline?: true }).baseline })), [
+      { id: 'first', baseline: true }, { id: 'second', baseline: true }, { id: 'new', baseline: undefined },
+    ])
+  } finally { client.close() }
 })

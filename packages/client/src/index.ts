@@ -24,12 +24,14 @@ type WaitingItem = ClientWaitingItem
 /** Stable version-1 observation vocabulary. Unknown future event types may be ignored. */
 export type ClientEvent = EventBase & (
   | { readonly type: 'hello'; readonly desk: HostResult<'client/hello'>['desk']; readonly hostVersion: string; readonly protocolVersion: number; readonly tiers: readonly ClientTier[] }
-  | ({ readonly type: 'chat.changed' } & Extract<WireNotification, { method: 'lead/chat/changed' }>['params'])
+  | ({ readonly type: 'chat.changed'
+      /** Client-local marker for a counted subscription snapshot. */
+      readonly baseline?: true } & Extract<WireNotification, { method: 'lead/chat/changed' }>['params'])
   | { readonly type: 'run.changed'; readonly run: string; readonly team: string; readonly flow: string; readonly state: FlowExecution['state']; readonly round: number | null; readonly reason: string | null; readonly revision?: string; readonly continues?: string }
   | { readonly type: 'card.changed'; readonly team: string; readonly card: number; readonly role: string | null; readonly state: Intent['state']; readonly outcome: string | null; readonly title: string; readonly seat?: string; readonly since?: number }
   | { readonly type: 'seat.changed'; readonly team: string; readonly seat: string; readonly role: string | null; readonly card: number | null; readonly state: SeatActivity['state']; readonly doing: SeatActivity['doing']; readonly since?: number }
   | ({ readonly type: 'review.changed'; readonly team: string; readonly run: string } & FindingRoundPublication)
-  | { readonly type: 'team.changed'; readonly team: string; readonly activity: GoalActivity | null; readonly sentence: string }
+  | { readonly type: 'team.changed'; readonly stage?: GoalView['stage']; readonly team: string; readonly activity: GoalActivity | null; readonly sentence: string }
   | ({ readonly type: 'waiting' | 'waiting.cleared' } & WaitingItem)
   | { readonly type: 'notice'; readonly team: string | null; readonly text: string }
   | { readonly type: 'gap'; readonly reason: string }
@@ -168,15 +170,15 @@ class Observation {
       }
     }
   }
-  accept(notification: WireNotification) {
+  accept(notification: WireNotification, baseline = false) {
     switch (notification.method) {
       case 'lead/chat/changed': {
         if (!this.topics.has('chats') || this.chatProject === undefined) break
         let chat: ReturnType<typeof parseLeadChatChangedParams>
         try { chat = parseLeadChatChangedParams(notification.params) } catch { break }
         if (chat.project !== this.chatProject) break
-        const { id, project, state } = chat
-        if (this.changed(this.chatValues, id, [project, state])) this.emit({ type: 'chat.changed', id, project, state })
+        const { id, project, state, stage } = chat
+        if (this.changed(this.chatValues, id, [project, state, stage])) this.emit({ type: 'chat.changed', id, project, state, stage, ...(baseline ? { baseline: true as const } : {}) })
         break
       }
       case 'flow/execution-changed': {
@@ -215,10 +217,10 @@ class Observation {
       }
       case 'goal/changed': {
         this.teams.set(notification.params.view.goal.id, notification.params.view)
-        const { goal, activity, board } = notification.params.view
+        const { goal, activity, board, stage } = notification.params.view
         this.boards.set(board.id, board)
-        if (this.topics.has('teams') && this.changed(this.teamValues, goal.id, [activity, goal.sentence])) {
-          this.emit({ type: 'team.changed', team: goal.id, activity, sentence: goal.sentence })
+        if (this.topics.has('teams') && this.changed(this.teamValues, goal.id, [activity, goal.sentence, stage])) {
+          this.emit({ type: 'team.changed', team: goal.id, activity, sentence: goal.sentence, ...(stage === undefined ? {} : { stage }) })
         }
         this.personWaiting()
         break
@@ -227,7 +229,7 @@ class Observation {
         const { goal, activity, sentence } = notification.params
         const view = this.teams.get(goal)
         if (view) this.teams.set(goal, { ...view, activity, goal: { ...view.goal, sentence } })
-        if (this.topics.has('teams') && this.changed(this.teamValues, goal, [activity, sentence])) this.emit({ type: 'team.changed', team: goal, activity, sentence })
+        if (this.topics.has('teams') && this.changed(this.teamValues, goal, [activity, sentence, view?.stage])) this.emit({ type: 'team.changed', team: goal, activity, sentence, ...(view?.stage === undefined ? {} : { stage: view.stage }) })
         break
       }
       case 'event': {
@@ -447,7 +449,7 @@ export async function connect(options: ConnectOptions): Promise<Client> {
     })()
   }
   const accept = (notification: WireNotification) => {
-    observation.accept(notification)
+    observation.accept(notification, baselineRemaining !== null && baselineRemaining > 0)
     if (notification.method === 'flow/execution-changed') {
       const run = notification.params.execution, fresh = !knownRuns.has(run.id)
       knownRuns.set(run.id, run.goal)

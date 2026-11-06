@@ -87,3 +87,14 @@ test('start settlement uses the same stable host round identity as recovery', as
     vars: {}, attended: true, seats: { implement: [contract.steps[0]!.assignments[0]!.seat], review: [contract.steps[0]!.assignments[1]!.seat] } } })
   assert.equal(s.journal.state.budget!.rounds[0]!.roundId, 'run-1:round:1')
 })
+
+test('chat dispatch carries each journal effect id outside model arguments', async () => {
+  const s = await fixture(), tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  for (const method of ['lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
+    const params = { ...(method === 'lead/chat/start' ? {} : { id: 'fixture:chat' }), ...(method === 'lead/chat/stop' ? {} : { text: 'Continue' }) }
+    const effectId = `effect-${s.calls.length}`
+    await tools.dispatch({ method, params }, effectId)
+    assert.equal(s.calls.at(-1).params.effectId, effectId)
+    assert.equal('effectId' in params, false)
+  }
+})

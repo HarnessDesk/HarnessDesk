@@ -1,3 +1,4 @@
+import { isWaitingOnYou } from '@harnessdesk/protocol'
 import type { LeadPresence as LeadChecks, LeadRunReading } from '@harnessdesk/protocol'
 import type { LeadState } from '../state/lead'
 import type { LeadMood } from './lead-faces'
@@ -32,9 +33,10 @@ const reading = (state: LeadState): Omit<LeadPresence, 'quiet'> & { readonly qui
   const started = thread.state !== 'draft' || thread.messages.some(message => message.role === 'user')
   const reviewed = !!thread.contract || !!thread.pr || thread.cards.some(card => card.type === 'plan')
   const goalActive = reviewed && started && !ENDED.has(thread.state)
-  if (state.waitReason === 'lead-result-awaiting-person') return { mood: 'done', word: 'Done · ready to accept', needs: 1, goalActive }
   const needs = state.personActions.length + (state.wayOut || state.waitReason === 'lead-chat-effect-uncertain' ? 1 : 0) + (thread.state === 'awaiting-plan' && state.wayOut !== 'decide-plan' ? 1 : 0)
-  if (needs || thread.state === 'waiting-for-user') return { mood: 'alert', word: `${Math.max(needs, 1)} need${Math.max(needs, 1) === 1 ? 's' : ''} you`, needs: Math.max(needs, 1), goalActive }
+  const waiting = state.stage === undefined ? needs > 0 || thread.state === 'waiting-for-user' || state.waitReason === 'lead-result-awaiting-person' : isWaitingOnYou(state.stage)
+  if (waiting && (state.stage === 'you-review' || state.waitReason === 'lead-result-awaiting-person')) return { mood: 'done', word: 'Done · ready to accept', needs: 1, goalActive }
+  if (waiting) return { mood: 'alert', word: `${Math.max(needs, 1)} need${Math.max(needs, 1) === 1 ? 's' : ''} you`, needs: Math.max(needs, 1), goalActive }
   if (thread.state === 'stopped') return { mood: 'sleeping', word: 'Paused', needs: 0, goalActive: false }
   if (thread.state === 'accepted') return { mood: 'done', word: 'Done', needs: 0, goalActive: false }
   if (thread.state === 'following') return { mood: 'neutral', word: 'Following', needs: 0, goalActive }

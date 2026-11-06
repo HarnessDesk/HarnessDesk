@@ -1,3 +1,4 @@
+import type { LeadStage } from './lead-stage.js'
 import type { UsageStandingStatus } from './usage.js'
 
 /** What a paired phone may do. `answer` is the verb that settles a decision for the person. */
@@ -229,6 +230,8 @@ export interface PhoneWorkItem {
   readonly project?: string
   /** Archived conversations remain readable; controls stay on the desk until restored. */
   readonly archived?: boolean
+  readonly stage: LeadStage
+  readonly stageReason: string
   readonly phase: PhoneWorkPhase
   readonly line: string
   readonly agent?: PhoneAgentLabel
