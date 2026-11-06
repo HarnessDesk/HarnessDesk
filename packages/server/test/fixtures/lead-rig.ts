@@ -18,7 +18,7 @@ import { ExtensionKernel, setTeamEngine } from '@harnessdesk/cordis-host'
 import { teamPlugin } from '@harnessdesk/plugins'
 import { Host, Logger, StateStore } from '../../src/index.js'
 import { LeadFileJournal } from '../../src/lead/journal.js'
-import { freezeLeadPlan, leadProjectOf } from '../../src/lead/assembly.js'
+import { freezeLeadPlan, leadProjectOf, readLeadEvidence } from '../../src/lead/assembly.js'
 import { GatedRegistry } from '../../src/ceilings/gate.js'
 import { GoalStore } from '../../src/goals/store.js'
 import { LEAD_RIG_KEY, leadMessagesServer } from './lead-messages-server.js'
@@ -226,7 +226,7 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
       { role: 'review', agent: 'code-reviewer', seat: { runtime: 'rig-reviewer', model: 'gpt-5.5' }, ceiling: 'read' },
     ]
     const proposal = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: task, project, policyRevision: 1, ...(options.repeat ? { repeat: { every: 'day', at: '09:00' } } : {}), ...(options.publication ? { publicationRepository: 'acme/widgets' } : {}),
-      steps: (options.manualChecks || options.publication ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended', assignments })),
+      steps: (options.manualChecks || options.publication ? ['first'] : ['first', 'second']).map(id => ({ id, title: `Review ${id} repair`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-2', variables: {}, attendance: 'attended', assignments })),
       assertions: [{ id: 'unit', kind: 'check', description: 'Required check passes' }, { id: 'review', kind: 'review', description: 'Independent review approves' },
         { id: 'blockers', kind: 'blocking-findings', description: 'No unresolved blockers' }], caps: { usdMicros: 10_000_000, rounds: 20 } })
     const seats = Object.fromEntries(assignments.map(one => [one.role, [one.seat]]))
@@ -393,19 +393,15 @@ export async function createLeadRig(options: LeadRigOptions = {}) {
         const facts = evidence.cards.filter(card => cardIds.has(card.card)).flatMap(card => card.facts).filter(one => one.freshness.state === 'fresh').map(one => one.record)
         const blocked = facts.find(record => record.fact.kind === 'check' && /spawnSync ps.*EPERM/.test(record.fact.tail ?? ''))
         if (blocked?.fact.kind === 'check') throw new Error(blocked.fact.tail)
-        const findings = await host.call('finding/run', { goal: owned.teamId, run: runId })
-        // These facts were re-read and verified fresh at this revision now.
-        // Use that read time so multi-step rig runtime cannot age a valid fact.
-        const readAt = Date.now()
-        return latestEvidence = { project, runId, contractDigest: journal.state.contract!.digest, revision, observedAt: Date.now(), complete: true,
-          spendComplete: leadBudgetProjection(journal.state.budget!, Date.now()).spend === 'known',
+        // Exercise the production normalization, including the latest review round
+        // replacing a rejection when person checks permit a same-commit re-review.
+        const normalized = await readLeadEvidence(journal, runId, read, Date.now)
+        return latestEvidence = { ...normalized,
           // Publication tests fake only normalized check inputs; review receipts,
           // exact checkout identity, host acceptance and gateway effects stay real.
-          checks: options.publication && revision ? [{ assertionId: 'unit', id: `fixture-check-${revision}`, revision, observedAt: readAt, exit: 0, timedOut: false, dirty: false, counted: true }] : facts.flatMap(record => record.fact.kind === 'check' && record.fact.at === revision ? [{ assertionId: 'unit', id: record.id, revision: record.fact.at, observedAt: readAt,
-            exit: record.fact.exit, timedOut: record.fact.timedOut, dirty: record.fact.dirty, counted: record.fact.counted === true }] : []),
-          reviews: facts.flatMap(record => options.reviewAvailable?.() !== false && record.fact.kind === 'review' && record.fact.at === revision ? [{ assertionId: 'review', id: record.id,
-            revision: record.fact.at, observedAt: readAt, verdict: record.fact.verdict, complete: true }] : []),
-          findingsComplete: !findings.embargoed, findings: findings.blocking ? [{ id: `${runId}:blocking`, revision, blocking: true, resolved: false }] : [], diffs: [],
+          checks: options.publication && normalized.revision ? [{ assertionId: 'unit', id: `fixture-check-${normalized.revision}`, revision: normalized.revision,
+            observedAt: normalized.observedAt, exit: 0, timedOut: false, dirty: false, counted: true }] : normalized.checks,
+          reviews: options.reviewAvailable?.() === false ? [] : normalized.reviews,
         }
         } catch (error) { evidenceFailure = error instanceof Error ? error : new Error(String(error)); throw error }
       }

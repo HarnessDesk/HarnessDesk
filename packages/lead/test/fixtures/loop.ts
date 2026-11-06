@@ -7,7 +7,7 @@ import { fakeMessages, message, type FakeStep } from './fake-messages.js'
 export const project = { id: 'demo', path: '/workspace/demo' }
 export const policy = { version: 1 as const, revision: 1, mode: 'manage' as const, rules: [] }
 export const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Repair the check', project,
-  policyRevision: 1, steps: [{ id: 'work', title: 'Reviewed repair', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1',
+  policyRevision: 1, steps: [{ id: 'work', title: 'Reviewed repair', flow: 'lead-reviewed-result', sourceRevision: 'recipe-2',
     variables: {}, attendance: 'attended', assignments: [
       { role: 'implement', agent: 'implementer', seat: { runtime: 'fixture', model: 'fixture/model' }, ceiling: 'edit' },
       { role: 'review', agent: 'code-reviewer', seat: { runtime: 'fixture', model: 'fixture/model' }, ceiling: 'read' }] }],

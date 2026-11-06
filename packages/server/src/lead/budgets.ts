@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { decideLeadPermission, leadBudgetProjection, leadWorkerDispatchBlockedByOpenPr, leadReviewedResultSource, type LeadJournal } from '@harnessdesk/lead'
+import { decideLeadPermission, leadBudgetProjection, leadWorkerDispatchBlockedByOpenPr, leadReviewedResultSourceFor, type LeadJournal, type LeadAcceptanceResult } from '@harnessdesk/lead'
 import { LEAD_LIMITS, type LeadBudgetEvent, type LeadProject, type SeatRecord } from '@harnessdesk/protocol'
 import { attributeSample, goalSpend, meterSample, meterTurn, openMeter } from '../intake/spend.js'
 import { seatWindowOf } from '../insight/attribution.js'
@@ -15,6 +15,8 @@ export interface LeadBudgetPort {
   delegation?(seat: SeatRecord): 'none' | 'unknown'
   /** Returns a cancellation function; tests advance the host scheduler explicitly. */
   schedule?(callback: () => void, delayMs: number): () => void
+  acceptance?(run: StoredFlowExecution, journal: LeadJournal): Promise<LeadAcceptanceResult>
+  canRerunChecks?(run: StoredFlowExecution, journal: LeadJournal): Promise<boolean>
   now(): number
   runs(): readonly StoredFlowExecution[]
   /** Re-check the canonical project is still admitted, before every effect. */
@@ -124,6 +126,12 @@ export class LeadBudgets implements FlowLeadGuard {
     // dispatch gate then meters cumulative usage afresh before any new work.
     await journal.reopenSecondLook(run.id, key, roundId, this.port.now())
   }
+  acceptance(run: StoredFlowExecution): Promise<LeadAcceptanceResult | null> {
+    return this.port.acceptance?.(run, this.#journal(run)) ?? Promise.resolve(null)
+  }
+  canRerunChecks(run: StoredFlowExecution): Promise<boolean> {
+    return this.port.canRerunChecks?.(run, this.#journal(run)) ?? Promise.resolve(false)
+  }
   async prepareRepair(run: StoredFlowExecution, key: string, round: number): Promise<void> {
     const journal = this.#journal(run), state = journal.state, op = state.handbacks.at(-1)
     await this.meter(journal)
@@ -153,7 +161,8 @@ export class LeadBudgets implements FlowLeadGuard {
   #journal(run: StoredFlowExecution): LeadJournal {
     const journal = run.lead && this.#journals.get(run.lead.logicalGoalId)
     const step = journal?.state.steps.find(step => step.id === run.lead?.stepId && step.attemptId === run.lead.startId)
-    if (!journal || run.source !== leadReviewedResultSource || !run.requireHeld || !step ||
+    const sourceRevision = journal?.state.contract?.steps.find(item => item.id === step?.id)?.sourceRevision
+    if (!journal || !sourceRevision || run.source !== leadReviewedResultSourceFor(sourceRevision) || !run.requireHeld || !step ||
       leadStepContractDigest(step, run) !== run.lead!.contractDigest) throw new Error('lead-guard-unavailable')
     return journal
   }

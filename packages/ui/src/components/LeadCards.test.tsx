@@ -312,3 +312,25 @@ it('offers goal consent only when eligible and lists revocable saved approvals',
   await act(async () => button(box, 'Revoke').click())
   expect(revoke).toHaveBeenCalledWith({ id: 'saved', contractDigest: leadContract.digest })
 })
+
+
+it.each(['no-evidence', 'errored'] as const)('keeps %s internal and never calls it a failure', status => {
+  const assertions = leadResult.assertions.map(result => ({ ...result, status, reason: 'Internal assertion reason' }))
+  const { box } = mount([{ ...leadResult, assertions }])
+  expect(box.textContent).toContain('Checks not confirmed')
+  expect(box.textContent).not.toContain('failed')
+  expect(box.textContent).not.toContain('Internal assertion reason')
+})
+
+
+it.each([
+  ['review', 'hedged-approval', 'The reviewer approved without confirming it; it will be reviewed again.'],
+  ['review', 'agent prose must stay hidden', 'The reviewer asked for changes.'],
+  ['check', 'agent prose must stay hidden', 'A check failed: Keyboard checks pass'],
+] as const)('explains a failed %s with fixed person wording', (kind, reason, line) => {
+  const assertions = leadResult.assertions.map(result => leadContract.assertions.find(assertion => assertion.id === result.assertionId)?.kind === kind
+    ? { ...result, status: 'failed' as const, reason } : result)
+  const { box } = mount([{ ...leadResult, assertions }])
+  expect(box.textContent).toContain(line)
+  expect(box.textContent).not.toContain('agent prose must stay hidden')
+})

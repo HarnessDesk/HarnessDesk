@@ -1,4 +1,4 @@
-import { LEAD_REVIEWED_RESULT, leadReviewedResultSource, evaluateLeadAcceptance, leadRepairResultReady, leadPlanRuns, leadBudgetProjection, type LeadAcceptanceEvidence, type LeadJournal } from '@harnessdesk/lead'
+import { LEAD_REVIEWED_RESULT, leadReviewedResultSourceFor, evaluateLeadAcceptance, leadRepairResultReady, leadPlanRuns, leadBudgetProjection, type LeadAcceptanceEvidence, type LeadJournal } from '@harnessdesk/lead'
 import type { LeadAcceptanceContract, LeadAssertionResult, LeadCard, LeadCardDecision, LeadProject } from '@harnessdesk/protocol'
 import { flowRevision } from '../flow-execution.js'
 import type { Flows } from '../flows.js'
@@ -35,8 +35,8 @@ const prepareLeadPersonGate = async (options: PersonDecisionOptions, card: Extra
       !state.runs.some(run => run.runId === owned.runId && run.teamId === owned.teamId) ||
       contract.project.id !== options.project.id || contract.project.path !== options.project.path || board.root !== options.project.path ||
       !execution || execution.id !== owned.runId || execution.goal !== owned.teamId || !answered && execution.state !== 'running' ||
-      !step || step.flow !== LEAD_REVIEWED_RESULT.id || step.sourceRevision !== LEAD_REVIEWED_RESULT.revision ||
-      !stored || stored.source !== leadReviewedResultSource ||
+      !step || step.flow !== LEAD_REVIEWED_RESULT.id || !leadReviewedResultSourceFor(step.sourceRevision) ||
+      !stored || stored.source !== leadReviewedResultSourceFor(step.sourceRevision) ||
       execution.revision !== flowRevision(execution.document) || execution.revision !== flowRevision(stored.compiled.document) ||
       !execution.rounds.some(round => round.cards.includes(id)) || !intent ||
       (answered ? intent.state !== 'done' || intent.outcome !== outcome : !['open', 'claimed'].includes(intent.state) || !person?.live) ||

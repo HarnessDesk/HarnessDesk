@@ -4,14 +4,14 @@ import { join } from 'node:path'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { readChecks } from '../src/evidence/checks-file.js'
 import test from 'node:test'
-import { createLeadJournal, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
+import { createLeadJournal, evaluateLeadAcceptance, type LeadJournalRecord, type LeadPermissionCall } from '@harnessdesk/lead'
 import { LEAD_LIMITS, parseLeadAcceptanceContract } from '@harnessdesk/protocol'
 import { freezeLeadPlan, LEAD_DEFAULT_CAPS, LEAD_LEGACY_DEFAULT_USD_MICROS, LeadAssembly, leadSpendLimitMigration, leadPreviewUnfit, leadProjectOf, leadSeatable, leadSeatChoices, readLeadEvidence, type LeadAssemblyOptions } from '../src/lead/assembly.js'
 import { tempDir } from './scratch.js'
 
 const project = { id: 'acme', path: '/work/acme' }
 const contract = parseLeadAcceptanceContract({ version: 1, revision: 1, digest: 'a'.repeat(64), goal: 'Make the retry list complete', project, policyRevision: 1,
-  steps: [{ id: 'work', title: 'Complete the list', flow: 'lead-reviewed-result', sourceRevision: 'recipe-1', variables: {}, attendance: 'attended',
+  steps: [{ id: 'work', title: 'Complete the list', flow: 'lead-reviewed-result', sourceRevision: 'recipe-2', variables: {}, attendance: 'attended',
     assignments: [{ role: 'implement', agent: 'implementer', seat: { runtime: 'fixture' }, ceiling: 'edit' }, { role: 'review', agent: 'code-reviewer', seat: { runtime: 'fixture' }, ceiling: 'read' }] }],
   assertions: [{ id: 'unit', kind: 'check', description: 'Tests pass' }, { id: 'review', kind: 'review', description: 'Review approves' }, { id: 'blockers', kind: 'blocking-findings', description: 'No blockers' }],
   caps: { usdMicros: 1_000_000, rounds: 16 } })
@@ -25,13 +25,14 @@ const evidenceJournal = async () => {
 const fact = (id: string, kind: 'check' | 'review', at: string, freshness: 'fresh' | 'stale', more: object = {}) =>
   ({ record: { id, fact: { kind, at, ...more } }, freshness: { state: freshness } })
 const reads = (cards: unknown[], blocking = false, embargoed = false) => async (call: LeadPermissionCall): Promise<unknown> => {
+  if (call.method === 'goal/read') return { board: { intents: [{ id: 1, state: 'done', note: 'Verified from tests and diff.' }] } }
   if (call.method === 'flow/execution') return { rounds: [{ cards: [1] }] }
   if (call.method === 'evidence/board') return { cards }
   if (call.method === 'finding/run') return { blocking, embargoed }
   throw new Error(`unexpected read ${call.method}`)
 }
 
-test('evidence is incomplete when a fact is missing or stale, and complete only from fresh facts at the reviewed revision', async () => {
+test('evidence preserves missing and stale facts separately from complete negative verdicts', async () => {
   const journal = await evidenceJournal()
   const repo = await makeRepo('lead-required-checks-')
   await mkdir(join(repo.dir, '.harnessdesk'))
@@ -45,22 +46,55 @@ test('evidence is incomplete when a fact is missing or stale, and complete only 
   assert.equal((await readLeadEvidence(journal, 'run-1', reads([]), () => 1000)).complete, false)
   const withRun = { state: { ...journal.state, contract: { ...contract, project: { ...project, path: repo.dir } }, runs: [{ runId: 'run-1', teamId: 'team-1', correlationId: 'c1' }] } } as unknown as Pick<typeof journal, 'state'>
   const read = (cards: unknown[]) => readLeadEvidence(withRun, 'run-1', reads(cards), () => 1000)
-  assert.equal((await read([])).complete, false, 'no review yet')
-  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' })] }])).complete, false, 'no check fact')
-  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' }), fact('c1', 'check', revision, 'stale', { exit: 0 })] }])).complete, false, 'a stale check')
-  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' }), fact('c0', 'check', 'old', 'fresh', { exit: 0 })] }])).complete, false, 'a check for another revision')
+  assert.equal((await read([])).revision, '', 'no review yet')
+  assert.equal((await read([{ card: 1, facts: [reviewed] }])).checks.length, 0, 'no check fact')
+  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' }), fact('c1', 'check', revision, 'stale', { name: 'unit', exit: 0 })] }])).checks[0]!.complete, false, 'a stale check')
+  assert.equal((await read([{ card: 1, facts: [fact('r1', 'review', revision, 'fresh', { verdict: 'approve' }), fact('c0', 'check', 'old', 'fresh', { name: 'unit', exit: 0 })] }])).checks[0]!.revision, 'old', 'a check for another revision')
   for (const facts of [
     [reviewed, check('unit')],
-    [reviewed, check('unit'), check('lint', { counted: false })],
     [reviewed, check('unit'), check('lint', { run: 'node another.mjs' })],
     [reviewed, check('unit'), check('lint', { digest: 'wrong' })],
-    [reviewed, check('unit'), check('lint', { exit: 1 })],
-  ]) assert.equal((await read([{ card: 1, facts }])).complete, false, 'every declared check needs matching counted passing evidence')
+  ]) assert.equal((await read([{ card: 1, facts }])).checks.every(check => check.complete), false, 'every declared check needs matching evidence')
   const complete = await read([{ card: 1, facts: [reviewed, check('unit'), check('lint')] }])
+  for (const patch of [{ counted: false }, { exit: 1 }, { timedOut: true }, { exit: null }]) {
+    const negative = await read([{ card: 1, facts: [reviewed, check('unit'), check('lint', patch)] }])
+    assert.equal(negative.complete, true, 'a negative verdict does not make the read incomplete')
+    assert.ok(negative.checks.every(check => check.complete))
+  }
+  assert.equal(complete.reviews[0]!.text, 'Verified from tests and diff.')
   assert.equal(complete.complete, true)
   assert.equal(complete.revision, revision)
   assert.equal(complete.checks.length, 2)
   assert.deepEqual(complete.reviews.map(one => [one.assertionId, one.verdict]), [['review', 'approve']])
+  const incomplete = await read([{ card: 1, facts: [reviewed, check('unit', { exit: 1 })] }])
+  const unknown = evaluateLeadAcceptance(withRun.state.contract!, incomplete, { now: 1000, freshnessMs: 50, revision: 1 })
+  assert.equal(unknown.assertions[0]!.status, 'unknown', 'the missing lint sibling makes the failed unit fact incomplete')
+  assert.equal(unknown.checksCouldNotRun, false, 'an incomplete negative verdict is not runner-only trouble')
+
+  const rereviewCards = [{ card: 1, facts: [reviewed, check('unit'), check('lint')] },
+    { card: 2, facts: [fact('r2', 'review', revision, 'fresh', { verdict: 'approve' })] },
+    { card: 3, facts: [fact('r3', 'review', revision, 'fresh', { verdict: 'approve' })] }]
+  const rereviewed = await readLeadEvidence(withRun, 'run-1', async call => {
+    if (call.method === 'flow/execution') return { rounds: [{ cards: [1] }, { cards: [2, 3] }] }
+    if (call.method === 'goal/read') return { board: { intents: [
+      { id: 1, state: 'done', note: 'This should work.' },
+      { id: 2, state: 'done', note: 'Verified the required checks.' },
+      { id: 3, state: 'done', note: 'Verified the committed diff.' },
+    ] } }
+    return reads(rereviewCards)(call)
+  }, () => 1000)
+  assert.deepEqual(rereviewed.reviews.map(review => review.id), ['r2', 'r3'], 'all reviewers in the new round supersede the earlier hedge at the same commit')
+  assert.equal(evaluateLeadAcceptance(withRun.state.contract!, rereviewed, { now: 1000, freshnessMs: 50, revision: 1 }).status, 'reviewed')
+  await writeFile(join(repo.dir, '.harnessdesk/checks.yml'), 'tests: { run: node unit.mjs }\n')
+  await repo.git('add', '.harnessdesk/checks.yml')
+  await repo.git('commit', '-qm', 'Rename the required check')
+  const repairedRevision = await repo.git('rev-parse', 'HEAD'), repairedChecks = await readChecks(repo.dir)
+  const renamed = await read([{ card: 1, facts: [check('unit'), check('lint'),
+    fact('renamed', 'check', repairedRevision, 'fresh', { name: 'tests', run: 'node unit.mjs', digest: repairedChecks.digest, exit: 0, counted: true }),
+    fact('repaired-review', 'review', repairedRevision, 'fresh', { verdict: 'approve' })] }])
+  assert.deepEqual(renamed.checks.map(check => check.name), ['tests'], 'checks removed or renamed at the reviewed commit are no longer required facts')
+  assert.equal(evaluateLeadAcceptance(withRun.state.contract!, renamed, { now: 1000, freshnessMs: 50, revision: 1 }).status, 'reviewed')
+
 })
 
 test('plans freeze to the sha256 of their canonical JSON, projects are named by path and seats come from ready runtimes', async () => {
@@ -218,4 +252,24 @@ test('an older desk migrates its spending limit: the untouched default becomes O
   const seq = approved.journal.state.seq
   await approved.journal.recordSpendLimit(5, false, 300)
   assert.equal(approved.journal.state.seq, seq, 'the migration runs once')
+})
+
+test('new plans cannot freeze a legacy reviewed recipe', async () => {
+  const legacy = { ...contract, steps: contract.steps.map(step => ({ ...step, sourceRevision: 'recipe-1' })) }
+  await assert.rejects(freezeLeadPlan(legacy), (error: any) => error.wireCode === 'lead-plan-refused')
+})
+
+test('assembly refuses a new legacy reviewed recipe before seating previews', async t => {
+  const legacy = { ...contract, steps: contract.steps.map(step => ({ ...step, sourceRevision: 'recipe-1' })) }
+  let freeze!: typeof freezeLeadPlan
+  let seatingReads = 0
+  const assembly = new LeadAssembly({ home: tempDir('lead-assembly-recipe-'), now: () => 1,
+    workspace: async () => contract.project.path, readySeats: () => ['fixture'], heldPreview: () => null,
+    seatsHold: async () => { seatingReads++; return null }, create: async inputs => { freeze = inputs.freezePlan } })
+  t.after(() => assembly.close())
+  await assembly.ensure()
+  await assert.rejects(freeze(legacy), (error: any) => error.wireCode === 'lead-plan-refused')
+  assert.equal(seatingReads, 0, 'the unsupported new recipe is refused before any seating preview')
+  assert.match((await freeze(contract)).digest, /^[0-9a-f]{64}$/)
+  assert.equal(seatingReads, contract.steps.length)
 })

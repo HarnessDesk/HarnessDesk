@@ -276,7 +276,7 @@ test('a frozen repeat keeps its digest through approval and disk read, but refus
   const home = await mkdtemp(join(tmpdir(), 'lead-repeat-digest-')), project = { id: 'acme-web', path: join(home, 'acme-web') }
   t.after(() => rm(home, { recursive: true, force: true }))
   await mkdir(project.path)
-  const frozen = await freezeLeadPlan({ ...contract, project })
+  const frozen = await freezeLeadPlan({ ...contract, project, steps: contract.steps.map(step => ({ ...step, sourceRevision: 'recipe-2' })) })
   assert.equal(frozen.publicationRepository, null, 'a local-only plan freezes an explicit no-publication pin')
   const journal = await memoryJournal(), planner = new LeadPlanner(home)
   // The loop parses the freezer output before offering the ordinary plan card.

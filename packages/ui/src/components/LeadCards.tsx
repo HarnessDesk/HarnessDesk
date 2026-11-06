@@ -132,10 +132,18 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
             const results = expected.map(assertion => assertions.find(result => result.assertionId === assertion.id))
             // No blocking finding is recorded as a pass with nothing to cite; every other kind needs evidence to be known.
             const known = results.every(result => result && result.contractRevision === scope?.revision && (result.evidence.length > 0 || kind === 'blocking-findings' && result.status === 'passed'))
-            const status = known ? results.some(result => result?.status === 'failed') ? 'failed' : results.every(result => result?.status === 'passed') ? 'passed' : 'unknown' : 'unknown'
+            const unconfirmed = results.some(result => !result || ['pending', 'unknown', 'no-evidence', 'errored'].includes(result.status))
+            const status = known ? results.some(result => result?.status === 'failed') ? 'failed' : !unconfirmed && results.every(result => result?.status === 'passed') ? 'passed' : 'unknown' : 'unknown'
             return [status === 'passed' && kind === 'blocking-findings' ? 'No blocking findings' : status === 'passed' && kind === 'diff' ? 'Changes ready' : `${{ check: 'Checks', review: 'Review', 'blocking-findings': 'Findings', diff: 'Changes' }[kind]} ${status === 'unknown' ? 'not confirmed' : status}`]
           }).join(' · ')}</Text>
-          {assertions.filter(result => scope?.assertions.some(assertion => assertion.id === result.assertionId)).map(result => result.reason ? <LeadReason key={result.assertionId} text={result.reason} /> : null)}
+          {(['check', 'review'] as const).map(kind => {
+            const failed = scope?.assertions.filter(assertion => assertion.kind === kind && assertions.some(result =>
+              result.assertionId === assertion.id && result.contractRevision === scope.revision && result.status === 'failed' && result.evidence.length > 0)) ?? []
+            if (!failed.length) return null
+            const hedged = kind === 'review' && assertions.some(result => failed.some(assertion => assertion.id === result.assertionId) && result.reason === 'hedged-approval')
+            return <Text key={kind} as="p" role="prose">{kind === 'check' ? `A check failed: ${failed.map(assertion => sanitizeText(assertion.description)).join(', ')}`
+              : hedged ? 'The reviewer approved without confirming it; it will be reviewed again.' : 'The reviewer asked for changes.'}</Text>
+          })}
           {spend && <Text as="p" role="meta">I spent {leadDollars(spend.leadUsdMicros)}{spend.spend === 'known' && <> · workers reported {leadDollars(spend.workerUsdMicros)}</>}.</Text>}
         </>}
       </LeadContract>}
@@ -164,7 +172,6 @@ export const LeadCards = ({ releasedBranch, cards, personActions = [], onPerform
     </Dialog>}
   </>
 }
-const LeadReason = ({ text }: { readonly text: string }) => <Markdown text={text} />
 
 const LeadSecondLook = ({ card }: { readonly card: Extract<LeadCard, { type: 'second-look' }> }) => <LeadContract cardId={card.id} cardType={card.type}>
   <Text as="p" role="subject">Second look</Text>

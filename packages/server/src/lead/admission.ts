@@ -1,4 +1,4 @@
-import { leadReviewedResultSource, type LeadJournal, type LeadState } from '@harnessdesk/lead'
+import { leadReviewedResultSource, leadReviewedResultSourceFor, type LeadJournal, type LeadState } from '@harnessdesk/lead'
 import type { HostParams, LeadProject, Intent } from '@harnessdesk/protocol'
 import type { FlowPreviews } from '../flow-preview.js'
 import type { FlowLeadBinding, StoredFlowExecution } from '../flow-execution.js'
@@ -74,9 +74,9 @@ export class LeadAdmission {
   constructor(readonly options: LeadAdmissionOptions) {}
   readonly readOwned = () => this.options.journal.state.runs.map(run => ({ goal: run.teamId, run: run.runId }))
   readonly preview = async (params: HostParams<'flow/preview'>) => {
-    if (params.source !== leadReviewedResultSource || params.retry || params.continues ||
+    if (params.source !== leadReviewedResultSource && params.source !== leadReviewedResultSourceFor('recipe-1') || params.retry || params.continues ||
       params.root !== this.options.project.path || !await this.options.budgets.port.member(this.options.project)) throw new Error('lead-preview-refused')
-    return this.options.previews.preview(params.root, leadReviewedResultSource, params.vars, undefined, undefined,
+    return this.options.previews.preview(params.root, params.source, params.vars, undefined, undefined,
       { seats: params.seats, attended: params.attended, requireHeld: true })
   }
   readonly authorizeStart = async (params: HostParams<'flow/start-goal'>): Promise<boolean> => {
@@ -89,8 +89,8 @@ export class LeadAdmission {
       state.runs.some(run => run.correlationId === attempt.correlationId) || budgets.prepared(attempt.correlationId)) return false
     if (!contract || !consent || !budget || !step || contract.digest !== consent.contractDigest || consent.expiresAt <= now() ||
       ['stopped', 'accepted', 'declined', 'following', 'waiting-for-user', 'awaiting-plan'].includes(state.phase) || state.recoveryBlocked ||
-      !same(contract.project, project) || params.root !== project.path || params.source !== leadReviewedResultSource ||
-      params.sentence !== contract.goal || params.goal || params.continues || step.flow !== 'lead-reviewed-result' || step.sourceRevision !== 'recipe-1' ||
+      !same(contract.project, project) || params.root !== project.path || params.source !== leadReviewedResultSourceFor(step.sourceRevision) ||
+      params.sentence !== contract.goal || params.goal || params.continues || step.flow !== 'lead-reviewed-result' || !leadReviewedResultSourceFor(step.sourceRevision) ||
       !same(params.vars ?? {}, step.variables) || (params.attended !== false) !== (step.attendance === 'attended') ||
       !await budgets.port.member(project)) return false
     const seats = Object.fromEntries(step.assignments.map(assignment => [assignment.role, [assignment.seat]]))

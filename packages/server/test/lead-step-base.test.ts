@@ -14,7 +14,7 @@ const rig = () => {
     { role: 'implement', agent: 'implementer', seat: { runtime: 'alpha' }, ceiling: 'edit' },
     { role: 'review', agent: 'code-reviewer', seat: { runtime: 'beta' }, ceiling: 'read' },
   ]
-  const steps = ['first', 'second'].map(id => ({ id, title: `Review ${id}`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-1',
+  const steps = ['first', 'second'].map(id => ({ id, title: `Review ${id}`, flow: 'lead-reviewed-result', sourceRevision: 'recipe-2',
     variables: {}, attendance: 'attended', assignments }))
   const state: any = { contract: { digest: 'digest', goal: 'Repair the check', project, steps },
     consent: { contractDigest: 'digest', expiresAt: 1000 }, budget: { logicalGoalId: 'logical' }, phase: 'running',

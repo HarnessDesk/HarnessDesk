@@ -6,7 +6,7 @@ import type { LeadPermissionCall } from './permissions.js'
 import type { LeadDeskPort } from './ports.js'
 import type { MessagesToolUse, MessagesToolScope } from './messages-types.js'
 import { leadRoundId } from './budget.js'
-import { leadReviewedResultSource } from './recipes/reviewed-result.js'
+import { leadReviewedResultSource, leadReviewedResultSourceFor } from './recipes/reviewed-result.js'
 
 export class LeadToolRefusedError extends Error { constructor() { super('lead-tool-refused') } }
 export class LeadToolFencedError extends Error { constructor() { super('lead-tool-fenced') } }
@@ -93,13 +93,21 @@ export const createLeadTools = (options: LeadToolsOptions) => {
     const params = call.params as Record<string, unknown>
     if (clientTierFor(call.method, call.params) === 'run' && !synchronized()) throw new LeadToolFencedError()
     if (call.method === 'flow/preview' || call.method === 'flow/start-goal') {
-      if (params.source !== leadReviewedResultSource) fail()
+      if (params.source !== leadReviewedResultSource && params.source !== leadReviewedResultSourceFor('recipe-1')) fail()
+      // Legacy source is only for the frozen step of a stored contract, never a new proposal's preview.
+      if (call.method === 'flow/preview' && params.source !== leadReviewedResultSource) {
+        const contract = journal.state.contract, step = contract?.steps.find(step => step.id === scope.stepId)
+        const seats = Object.fromEntries(step?.assignments.map(assignment => [assignment.role, [assignment.seat]]) ?? [])
+        if (!contract || !same(contract.project, project) || !step || step.flow !== 'lead-reviewed-result' ||
+          params.source !== leadReviewedResultSourceFor(step.sourceRevision) || params.root !== contract.project.path ||
+          !same(params.vars ?? {}, step.variables) || !same(params.seats ?? {}, seats) || (params.attended !== false) !== (step.attendance === 'attended')) fail()
+      }
     }
     if (call.method === 'flow/start-goal') {
       const state = journal.state, step = state.contract?.steps.find(step => step.id === scope.stepId)
       if (!state.contract || !state.consent || state.consent.expiresAt <= now() ||
         state.consent.contractDigest !== state.contract.digest || !same(state.contract.project, project) ||
-        !step || step.flow !== 'lead-reviewed-result' || step.sourceRevision !== 'recipe-1' || !same(step, scope.start) ||
+        !step || step.flow !== 'lead-reviewed-result' || !leadReviewedResultSourceFor(step.sourceRevision) || !same(step, scope.start) || params.source !== leadReviewedResultSourceFor(step.sourceRevision) ||
         !scope.preview || !Number.isSafeInteger(scope.preview.expiresAt) || scope.preview.expiresAt <= now() ||
         scope.preview.token !== params.token || scope.preview.source !== params.source) fail()
     }

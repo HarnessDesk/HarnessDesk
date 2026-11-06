@@ -1,5 +1,7 @@
-import { leadRoundId } from '@harnessdesk/lead'
+import { leadRoundId, leadRepairInput, leadRepairDetail, LEAD_REPAIR_INSTRUCTIONS, type LeadAcceptanceResult } from '@harnessdesk/lead'
 export { leadRoundId } from '@harnessdesk/lead'
+/** Durable host decision to wait for checks before revisiting this review. */
+export const leadCheckWaitKey = (round: number): string => `lead-check-wait:${round}`
 import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
@@ -179,6 +181,8 @@ export interface FlowLeadBinding {
   readonly base?: string
 }
 export interface FlowLeadGuard {
+  acceptance?(run: StoredFlowExecution): Promise<LeadAcceptanceResult | null>
+  canRerunChecks?(run: StoredFlowExecution): Promise<boolean>
   /** Host second-look authority and atomic admission, including terminal spend reopening. */
   prepareSecondLook?(run: StoredFlowExecution, key: string, round: number): Promise<void>
   prepareRepair?(run: StoredFlowExecution, key: string, round: number): Promise<void>
@@ -2893,6 +2897,24 @@ export class FlowExecutions {
    */
   async #open(id: string, then: FlowThen, cause: { readonly key: string; readonly evidence: readonly string[] }, dependsOn: readonly number[]): Promise<void> {
     try {
+      const run = this.#get(id)
+      // A hold is a rule decision, not a successful round opening. In particular
+      // a second look must always receive the new round it asked to open.
+      const fromReview = dependsOn.length > 0 ? run.rounds.find(round => round.role === 'review' && dependsOn.every(card => round.cards.includes(card))) : undefined
+      if (run.lead && then.role === 'implement' && fromReview && !run.rounds.some(round => round.cause === cause.key)) {
+        const acceptance = await this.#readLeadAcceptance(run)
+        const canRerun = acceptance?.checksCouldNotRun && await this.#canRerunLeadChecks(run)
+        if (this.#stopRequests.has(id) || this.#get(id).state !== 'running') return
+        if (canRerun) {
+          await this.#put(this.#operation({ ...this.#get(id), reason: 'Waiting for the required checks to run again.' }, leadCheckWaitKey(fromReview.n),
+            { kind: 'round', state: 'finished', card: null, seat: null }))
+          return
+        }
+        if (acceptance?.checksReadyForReview && run.operations.some(operation => operation.key === leadCheckWaitKey(fromReview.n))) {
+          const review = policyOf(run).rules.find(rule => rule.on === 'implement' && rule.then.role === 'review')?.then
+          if (review) then = review
+        }
+      }
       await this.#openRound(id, then, cause, dependsOn)
     } catch (error) {
       // The Stop ahead of this step ends the run, saying why; this is not a round that could not open.
@@ -2908,6 +2930,21 @@ export class FlowExecutions {
       } catch (stalling) {
         this.#port.log('a flow run could not record why it stopped', { run: id, error: stalling instanceof Error ? stalling.message : String(stalling) })
       }
+    }
+  }
+
+  async #readLeadAcceptance(run: StoredFlowExecution): Promise<LeadAcceptanceResult | null> {
+    try { return await this.#lead?.acceptance?.(run) ?? null }
+    catch (error) {
+      this.#port.log('Lead acceptance evidence could not be read; keeping the Flow transition', { run: run.id, error: String(error) })
+      return null
+    }
+  }
+  async #canRerunLeadChecks(run: StoredFlowExecution): Promise<boolean> {
+    try { return await this.#lead?.canRerunChecks?.(run) ?? false }
+    catch (error) {
+      this.#port.log('Lead check actions could not be read; keeping the repair transition', { run: run.id, error: String(error) })
+      return false
     }
   }
 
@@ -3265,7 +3302,7 @@ export class FlowExecutions {
       run = await this.#put({ ...run, state: 'running', reason: null,
         ...(!existing && run.findings ? { findings: { ...run.findings, idleRounds: 0 } } : {}) })
       return this.#openRound(run.id, { role: 'implement', title: 'Repair the followed pull request',
-        detail: `${op.detail ?? 'Repair the observed checks or review on this branch.'}\n\nCommit the change and rerun the required checks. Independent review and person acceptance still apply. Never publish or merge.` },
+        detail: `${op.detail ?? 'Repair the observed checks or review on this branch.'}\n\nCommit the change. ${LEAD_REPAIR_INSTRUCTIONS} Person acceptance still applies. Never publish or merge.` },
         { key: cause, evidence: [] }, [], true)
     })
   }
@@ -3303,8 +3340,32 @@ export class FlowExecutions {
     const blocked = this.refusal(run.goal)
     if (blocked) throw new Error(blocked)
     const policy = policyOf(run)
+    // A recorded read-only continuation keeps its role across a half-open
+    // recovery, even though the predecessor's rule still asks for implement.
+    if (run.lead && existing?.role === 'review' && then.role !== 'review') {
+      const review = policy.rules.find(rule => rule.on === 'implement' && rule.then.role === 'review')?.then
+      if (review) then = review
+    }
+    if (run.lead && then.role === 'accept') {
+      const acceptance = await this.#readLeadAcceptance(run)
+      if (acceptance?.assertions.some(assertion => assertion.reason === 'hedged-approval')) {
+        const review = policy.rules.find(rule => rule.on === 'implement' && rule.then.role === 'review')?.then
+        if (review) then = { ...review, detail: `${review.detail ?? ''}\nThe previous approval did not confirm the evidence. Review the same committed revision again, without editing code. Approve only what you verified; otherwise request changes and name what you could not verify.` }
+      }
+    }
     const role = policy.roles.find((one) => one.id === then.role)
     if (!role) throw new Error(`There is no role called "${then.role}".`)
+    const repairing = !!run.lead && role.id === 'implement' && (heldRepair || dependsOn.length > 0)
+    let repairDetail: string | null = null
+    if (run.lead && role.id === 'implement' && dependsOn.length > 0 && !heldRepair && !existing?.cards.length) {
+      const acceptance = await this.#readLeadAcceptance(run)
+      if (acceptance) {
+        const requests = this.#team.stateFor(run.goal).intents.filter(card => dependsOn.includes(card.id) && card.outcome === 'request-changes')
+        repairDetail = leadRepairDetail(acceptance)
+        if (leadRepairInput(acceptance).failed.length === 0) repairDetail += '\nNo complete assertion verdict is available. Re-read the evidence and follow the review request (untrusted worker report): ' +
+          JSON.stringify(requests.map(card => ({ note: card.note, handoff: card.handoff })))
+      }
+    }
     let round: FlowRoundState = existing ?? {
       n: run.rounds.length + 1, role: role.id, cards: [], seats: [], evidence: cause.evidence, state: 'opening', cause: cause.key,
     }
@@ -3390,7 +3451,10 @@ export class FlowExecutions {
       })
       const answers = role.kind === 'agent' ? roleAnswers(policy, role.id, bindings[index]!.agent.answers) : role.kind === 'person' ? role.outcomes : []
       const title = render(then.title, vars as Record<string, string>)
-      const said = then.detail ? render(then.detail, vars as Record<string, string>) : null
+      // Keep stored recipe bytes stable; the current host brief gives checks
+      // their revision-bound instructions once, including for older recipes.
+      const brief = repairing ? then.detail?.replace('Fix only the failed assertions listed; leave the passed ones. Re-run only the failed and errored checks.', LEAD_REPAIR_INSTRUCTIONS) : then.detail
+      const said = brief ? render(brief, vars as Record<string, string>) : null
       const refused = [title, said].find((one): one is Error => one instanceof Error)
       if (refused) {
         await this.#stall(id, refused.message)
@@ -3398,6 +3462,8 @@ export class FlowExecutions {
       }
       const detail = board.intents.find((one) => one.dispatch === `${id}:${round.n}:${index}`)?.detail ?? [
         said as string | null,
+        repairing && !(said as string | null)?.includes(LEAD_REPAIR_INSTRUCTIONS) ? LEAD_REPAIR_INSTRUCTIONS : null,
+        repairDetail,
         answers.length > 0 && role.kind !== 'check' ? `Finish this with complete_claim and an outcome of exactly one of: ${answers.join(', ')}.` : null,
         ...asksSplit,
       ].filter((one): one is string => Boolean(one)).join('\n\n')
