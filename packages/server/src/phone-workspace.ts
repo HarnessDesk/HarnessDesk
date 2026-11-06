@@ -144,7 +144,7 @@ export class PhoneWorkspace {
 
   #counts(live: readonly PhoneLiveSession[]): PhoneSessionsList['counts'] {
     const { active, archived } = this.#ports.sessions.counts()
-    const running = live.filter(one => one.running && !one.waiting).length
+    const running = live.filter(one => this.#sessionStage(one).stage === 'working').length
     const needsYou = live.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length
     return { running, needsYou, done: Math.max(0, active - running - needsYou), archived }
   }
@@ -231,7 +231,7 @@ export class PhoneWorkspace {
 
     const live = this.#ports.live()
     const counts = {
-      running: live.filter(one => one.running && !one.waiting).length + teams.filter(({ view }) => view.activity === 'working').length,
+      running: live.filter(one => this.#sessionStage(one).stage === 'working').length + teams.filter(input => workTeamStage(input).stage === 'working').length,
       needsYou: live.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length + teams.filter(input => isWaitingOnYou(workTeamStage(input).stage)).length,
       doneToday: this.#finishedSince(midnight, live, teams),
     }

@@ -550,3 +550,26 @@ test('ready Teams, stopped Teams and failed sessions now count as needing you', 
     assert.ok(items.filter(item => item.kind === 'team').every(item => item.phase === 'needsYou'))
   } finally { await f.done() }
 })
+
+
+test('phone running, needsYou and done counts partition work by host stage', async () => {
+  const f = await fixture()
+  try {
+    for (const id of ['paused', 'failed', 'working', 'done']) f.index.upsert(summary(id))
+    f.live = [
+      { runtime: agent, id: sessionId('paused'), running: true, waiting: false, queuePaused: true, cost: null },
+      { runtime: agent, id: sessionId('failed'), running: false, waiting: false, failed: true, cost: null },
+      { runtime: agent, id: sessionId('working'), running: true, waiting: false, cost: null },
+    ]
+    const stalled = team('stalled', { run: 'stopped' })
+    f.teams = [team('stopped', { run: 'stopped' }), { ...stalled, execution: { state: 'stalled', role: null } }, team('working')]
+    const counts = f.workspace.sessionsList({}).counts
+    assert.deepEqual(counts, { running: 1, needsYou: 2, done: 1, archived: 0 })
+    assert.equal(counts.running + counts.needsYou + counts.done, 4)
+    const items = await f.workspace.workItems(), dashboard = await f.workspace.dashboardRead({})
+    assert.equal(dashboard.counts.running, 2)
+    assert.equal(dashboard.counts.running, items.filter(item => item.stage === 'working').length)
+    assert.equal(dashboard.counts.needsYou, 4)
+    assert.equal(dashboard.counts.needsYou, items.filter(item => item.stage.startsWith('you-')).length)
+  } finally { await f.done() }
+})

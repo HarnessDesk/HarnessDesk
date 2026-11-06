@@ -19,6 +19,12 @@ reason requires an explicit classification. Legacy phone phase and line
 fields remain for older phones; newer phones fall back to phase only when an
 older desk omits stage.
 
+An owned Team's stage wakes the Lead only when `isWaitingOnYou(stage)`
+changes, or when the Team goes from `working` or `queued` to `idle`.
+`working` ↔ `queued` and changes among the three `you-*` stages stay quiet.
+The fingerprint uses the same attention and completion distinctions; a quiet
+transition updates its baseline without consuming other changed evidence.
+
 ## Groups are cards by default, and a sheet is a foundation — 2026-11-01
 
 The app-frame canvas drew every left-menu mode twice: Cards, where each group

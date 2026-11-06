@@ -130,3 +130,23 @@ test('quiet chat fingerprint updates preserve unrelated changed desk facts', () 
   gate.quietChat('chat', 'working')
   assert.equal(gate.look(desk([run({ state: 'settled' })]), owned, [], 200, [{ id: 'chat', stage: 'working' }]).wake, true)
 })
+
+
+test('Team fingerprints fold working/queued and the three person stages', () => {
+  const snapshot = (stage: string) => ({ ...desk([]), teams: [{ goal: { id: 'team-1' }, stage }] })
+  const fingerprint = (stage: string) => lead.leadDeskFingerprint(snapshot(stage), owned, [])
+  assert.equal(fingerprint('working'), fingerprint('queued'))
+  assert.equal(fingerprint('you-answer'), fingerprint('you-review'))
+  assert.equal(fingerprint('you-answer'), fingerprint('you-blocked'))
+  assert.notEqual(fingerprint('working'), fingerprint('idle'), 'finishing background work remains observable')
+  assert.notEqual(fingerprint('working'), fingerprint('you-answer'))
+})
+
+test('quiet Team stage updates preserve unrelated changed desk facts', () => {
+  const gate = lead.createLeadWakeGate()
+  const snapshot = (stage: string, state = 'running') => ({ ...desk([run({ state })]), teams: [{ goal: { id: 'team-1' }, stage }] })
+  gate.shown(gate.look(snapshot('idle'), owned, [], 0).fingerprint)
+  gate.quietTeam('team-1', 'working')
+  assert.equal(gate.look(snapshot('working'), owned, [], 100).wake, false)
+  assert.equal(gate.look(snapshot('working', 'settled'), owned, [], 200).wake, true)
+})

@@ -1,4 +1,4 @@
-import type { LeadStage, LeadAction, LeadRunClass, LeadRunReading } from '@harnessdesk/protocol'
+import { isWaitingOnYou, type LeadStage, type LeadAction, type LeadRunClass, type LeadRunReading } from '@harnessdesk/protocol'
 import type { ClientSnapshot } from '@harnessdesk/client'
 
 /**
@@ -27,6 +27,10 @@ export const LEAD_STUCK_MS = 20 * 60_000
 
 export interface LeadObservedStage { readonly id: string; readonly stage: LeadStage }
 
+type TeamWakeStage = 'waiting' | 'active' | 'idle' | null
+// The three person stages share a predicate; working/queued share background work.
+const teamWakeStage = (stage: LeadStage | undefined): TeamWakeStage => stage === undefined ? null : isWaitingOnYou(stage) ? 'waiting' : stage === 'idle' ? 'idle' : 'active'
+
 type Owned = { readonly runs: readonly string[]; readonly teams: readonly string[] }
 
 /** The facts a decision rests on, as one comparable string. Activity that only adds lines leaves it unchanged. */
@@ -41,7 +45,7 @@ export const leadDeskFingerprint = (snapshot: ClientSnapshot | null, owned: Owne
   const boards = snapshot.boards.filter(board => owned.teams.includes(board.id)).map(board => JSON.stringify({ ...board, updatedAt: 0 })).sort()
   const waiting = (snapshot.waiting ?? []).filter(item => item.team === null || owned.teams.includes(item.team)).map(item => item.id).sort()
   const reviews = snapshot.reviews.filter(review => owned.runs.includes(review.run)).map(review => `${review.run}:${review.rounds.length}`).sort()
-  const teams = snapshot.teams.filter(team => owned.teams.includes(team.goal.id)).map(team => ({ id: team.goal.id, stage: team.stage ?? null })).sort((a, b) => a.id.localeCompare(b.id))
+  const teams = snapshot.teams.filter(team => owned.teams.includes(team.goal.id)).map(team => ({ id: team.goal.id, stage: teamWakeStage(team.stage) })).sort((a, b) => a.id.localeCompare(b.id))
   return JSON.stringify({ runs, boards, waiting, reviews, teams, chats: [...chats].map(({ id, stage }) => ({ id, stage })).sort((a, b) => a.id.localeCompare(b.id)), actions: actions.map(action => action.id).sort() })
 }
 
@@ -83,12 +87,19 @@ export const createLeadWakeGate = (stuckMs = LEAD_STUCK_MS) => {
       previous.chats = [...previous.chats.filter(chat => chat.id !== id && chat.id !== forgotten), { id, stage }].sort((a, b) => a.id.localeCompare(b.id))
       seen = JSON.stringify(previous)
     },
+    /** Consume only a quiet Team stage transition, leaving other desk evidence observable. */
+    quietTeam(id: string, stage: LeadStage) {
+      if (!seen || seen === 'unsynchronized') return
+      const previous = JSON.parse(seen) as { teams: { id: string; stage: TeamWakeStage }[] }
+      previous.teams = [...previous.teams.filter(team => team.id !== id), { id, stage: teamWakeStage(stage) }].sort((a, b) => a.id.localeCompare(b.id))
+      seen = JSON.stringify(previous)
+    },
     /** Consume one host-journaled intervention without waking for that stop.
      * Only this fingerprint is consumed: another round or changed evidence wakes. */
     handledStop(key: string, runId: string, snapshot: ClientSnapshot | null, owned: Owned, actions: readonly LeadAction[]) {
       if (handledStops.has(key) || !snapshot) return
       handledStops.add(key)
-      const current = JSON.parse(leadDeskFingerprint(snapshot, owned, actions)) as { runs: { id: string }[]; boards: string[]; waiting: string[]; reviews: string[]; actions: string[]; teams: { id: string; stage: LeadStage | null }[]; chats: LeadObservedStage[] }
+      const current = JSON.parse(leadDeskFingerprint(snapshot, owned, actions)) as { runs: { id: string }[]; boards: string[]; waiting: string[]; reviews: string[]; actions: string[]; teams: { id: string; stage: TeamWakeStage }[]; chats: LeadObservedStage[] }
       const previous = seen && seen !== 'unsynchronized' ? JSON.parse(seen) as typeof current : { runs: [], boards: [], waiting: [], reviews: [], teams: [], chats: [], actions: [] }
       const run = snapshot.runs.find(run => run.id === runId), reading = current.runs.find(run => run.id === runId)
       if (!run || !reading) return

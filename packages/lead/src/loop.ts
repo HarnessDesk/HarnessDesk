@@ -510,10 +510,11 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           const forgotten = chatStates.size > 64 ? chatStates.keys().next().value : undefined
           if (forgotten !== undefined) chatStates.delete(forgotten)
           const personChanged = isWaitingOnYou(stage) || previous !== undefined && isWaitingOnYou(previous)
-          const finished = stage === 'idle' && previous === 'working'
-          if (!personChanged && !finished) {
-            // Keep an already owed completion/person wake, with the latest facts.
-            if (changedChats.has(event.id)) changedChats.set(event.id, { state: event.state, stage })
+          // Watches seed their current state silently; an unknown idle is a completion.
+          const finished = stage === 'idle' && (previous === undefined || previous === 'working')
+          if (stage === 'working' || stage === 'queued' || !personChanged && !finished) {
+            // Work resumed before the batch: its earlier attention is no longer owed.
+            changedChats.delete(event.id)
             gate.quietChat(event.id, stage, forgotten)
             continue
           }
@@ -534,8 +535,14 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           const state = journal.state
           if ('run' in event && !state.runs.some(run => run.runId === event.run)) continue
           if ('team' in event && event.team !== null && !state.teams.includes(event.team)) continue
-          const teamStageChanged = event.type === 'team.changed' && event.stage !== undefined && teamStages.get(event.team) !== event.stage
-          if (event.type === 'team.changed') teamStages.set(event.team, event.stage)
+          const previousTeamStage = event.type === 'team.changed' ? teamStages.get(event.team) : undefined
+          const teamStageChanged = event.type === 'team.changed' && event.stage !== undefined && previousTeamStage !== event.stage
+          const teamWakes = teamStageChanged && (isWaitingOnYou(event.stage!) !== isWaitingOnYou(previousTeamStage ?? 'idle') ||
+            event.stage === 'idle' && (previousTeamStage === 'working' || previousTeamStage === 'queued'))
+          if (event.type === 'team.changed') {
+            teamStages.set(event.team, event.stage)
+            if (teamStageChanged && !teamWakes) gate.quietTeam(event.team, event.stage!)
+          }
           refreshPending = true
           // Notices carry prose, not changed evidence. Refresh them in the batch
           // without consuming another decision revision for identical facts.
@@ -544,7 +551,7 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
             // A person can click while observations coalesce: invalidate first.
             await invalidate()
           }
-          const wakesModel = (['run.changed', 'card.changed', 'review.changed', 'waiting'].includes(event.type) || teamStageChanged) &&
+          const wakesModel = (['run.changed', 'card.changed', 'review.changed', 'waiting'].includes(event.type) || teamWakes) &&
             (('run' in event && state.runs.some(run => run.runId === event.run)) || ('team' in event && event.team !== null && state.teams.includes(event.team)))
           schedule(wakesModel)
         }
