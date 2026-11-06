@@ -44,3 +44,33 @@ describe('the Lead between turns', () => {
       .toEqual(['Run 1 moving', 'Run 2 stuck · quiet 24 min', 'Run 3 planned, nothing done'])
   })
 })
+
+it('keeps the Resume wait when the table prioritizes waiting-for-user over activity', () => {
+  const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
+  state.changed({ method: 'lead/changed', params: leadProjection({ requestInFlight: true,
+    thread: { ...leadProjection().thread, state: 'waiting-for-user' }, wayOut: 'resume' }) })
+  expect(state.state.stage).toBe('you-answer')
+  expect(leadPresence(state.state)).toMatchObject({ needs: 1, word: '1 needs you' })
+  state.changed({ method: 'lead/changed', params: leadProjection({ revision: 11, stage: 'you-blocked', stageReason: 'failed' }) })
+  expect(leadPresence(state.state)).toMatchObject({ needs: 1, word: '1 needs you' })
+  state.changed({ method: 'lead/changed', params: leadProjection({ revision: 11, stage: 'you-review', stageReason: 'result-ready' }) })
+  expect(leadPresence(state.state)).toMatchObject({ needs: 1, word: 'Done · ready to accept' })
+})
+
+it('keeps the existing action count and result-ready wording under host stages', () => {
+  const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
+  const personActions = [1, 2].map(n => ({ kind: 'check' as const, id: `check-${n}`, runId: 'run', name: 'Check', command: 'node --test' }))
+  state.changed({ method: 'lead/changed', params: leadProjection({ personActions, wayOut: 'resume' }) })
+  expect(leadPresence(state.state)).toMatchObject({ needs: 3, word: '3 need you' })
+  state.changed({ method: 'lead/changed', params: leadProjection({ revision: 11, waitReason: 'lead-result-awaiting-person',
+    thread: { ...leadProjection().thread, state: 'waiting-for-user' } }) })
+  expect(leadPresence(state.state)).toMatchObject({ needs: 1, word: 'Done · ready to accept' })
+})
+
+it('falls back to the old count and wording when an older host omits stage', () => {
+  const state = createLeadState({ request: async () => leadProjection() } as never, () => true)
+  const { stage: _stage, stageReason: _reason, ...old } = leadProjection({ wayOut: 'resume',
+    thread: { ...leadProjection().thread, state: 'waiting-for-user' } })
+  state.changed({ method: 'lead/changed', params: old as ReturnType<typeof leadProjection> })
+  expect(leadPresence(state.state)).toMatchObject({ needs: 1, word: '1 needs you' })
+})

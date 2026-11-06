@@ -9,6 +9,7 @@ move is real work and is not news to a person weighing an upgrade.
 
 - **The Lead waits, then asks when a delegated chat gets stuck.** It retries on the provider’s reset clock at most twice, then offers retry, move to another available agent with the original request and progress, or stop.
 
+- **One answer to what needs you.** Lead and phone work lists share the desk’s stages for answers, reviews, blockers, working and queued items. A Team ready to accept, a stopped Team and a failed session now count as needing you.
 - **Answer the Lead with a tap.** Questions offer short choices with a recommended pick, while you can still type your own answer. Chats the Lead starts include your original words below its brief.
 
 - **Chats the Lead starts say what they are for.** A chat the Lead starts is named by the task it was given, not "Lead message from …", and your phone lists a chat the Lead directs as the Lead's until you take it over. The Lead names a chat by its task when it tells you about it, never by an id.

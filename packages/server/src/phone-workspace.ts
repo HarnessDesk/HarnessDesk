@@ -1,3 +1,5 @@
+import { leadStage, isWaitingOnYou } from '@harnessdesk/protocol'
+import { teamLeadStage } from './work-stage.js'
 import {
   sessionIndexCursorOf, sessionLabel,
   type GoalView, type LedgerQuery, type LedgerReport, type PhoneDashboard, type PhoneProjectShare, type PhoneRange, type PhoneSeatUsage,
@@ -19,6 +21,9 @@ export { scrub }
 export interface PhoneLiveSession {
   readonly runtime: RuntimeId
   readonly id: SessionId
+  readonly failed?: boolean
+  readonly queued?: boolean
+  readonly queuePaused?: boolean
   readonly running: boolean
   /** An approval or a question is waiting on the person. */
   readonly waiting: boolean
@@ -75,6 +80,9 @@ export interface PhoneWorkspacePorts {
 /** The chats the Lead holds in its project. A chat the person took over is theirs again. */
 interface LeadChats { readonly name: string; readonly ids: ReadonlySet<string>; readonly retrying?: ReadonlySet<string> }
 
+const workTeamStage = (input: PhoneTeamInput) => input.view.stage === undefined
+  ? teamLeadStage(input.view, input.execution) : { stage: input.view.stage, reason: input.view.stageReason ?? 'idle' }
+
 const WEEK_MINUTES = 7 * 24 * 60
 const SCAN_LIMIT = 2000
 const WORK_ITEMS = 80
@@ -130,11 +138,16 @@ export class PhoneWorkspace {
     }
   }
 
+  #sessionStage(one: PhoneLiveSession | undefined, archived = false) {
+    return leadStage({ kind: 'session', archived, waiting: one?.waiting ?? false, failed: one?.failed ?? false, queuePaused: one?.queuePaused ?? false, running: one?.running ?? false, queued: one?.queued ?? false })
+  }
+
   #counts(live: readonly PhoneLiveSession[]): PhoneSessionsList['counts'] {
     const { active, archived } = this.#ports.sessions.counts()
-    const running = live.filter(one => one.running && !one.waiting).length
-    const needsYou = live.filter(one => one.waiting).length
-    return { running, needsYou, done: Math.max(0, active - running - needsYou), archived }
+    const running = live.filter(one => this.#sessionStage(one).stage === 'working').length
+    const queued = live.filter(one => this.#sessionStage(one).stage === 'queued').length
+    const needsYou = live.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length
+    return { running, needsYou, done: Math.max(0, active - running - queued - needsYou), archived }
   }
 
   sessionsList(params: { state?: PhoneSessionState; limit?: number; cursor?: string }): PhoneSessionsList {
@@ -219,8 +232,8 @@ export class PhoneWorkspace {
 
     const live = this.#ports.live()
     const counts = {
-      running: live.filter(one => one.running && !one.waiting).length + teams.filter(({ view }) => view.activity === 'working').length,
-      needsYou: live.filter(one => one.waiting).length + teams.filter(({ view }) => view.activity === 'needs-you').length,
+      running: live.filter(one => this.#sessionStage(one).stage === 'working').length + teams.filter(input => workTeamStage(input).stage === 'working').length,
+      needsYou: live.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length + teams.filter(input => isWaitingOnYou(workTeamStage(input).stage)).length,
       doneToday: this.#finishedSince(midnight, live, teams),
     }
 
@@ -264,13 +277,15 @@ export class PhoneWorkspace {
   workSessions(params: { archived?: boolean; cursor?: string; limit?: number }): { items: PhoneWorkItem[]; nextCursor: string | null } {
     const page = this.sessionsList({ ...(params.archived ? { state: 'archived' as const } : {}), cursor: params.cursor, limit: params.limit ?? WORK_ITEMS })
     const lead = this.#ports.leadChats?.()?.name
-    return { items: page.rows.map(row => this.#sessionItem(row, lead)), nextCursor: page.next }
+    const live = new Map(this.#ports.live().map(one => [`${one.runtime}:${one.id}`, one]))
+    return { items: page.rows.map(row => this.#sessionItem(row, lead, live.get(row.id))), nextCursor: page.next }
   }
 
-  #sessionItem(row: PhoneSessionRow, leadName: string | undefined): PhoneWorkItem {
+  #sessionItem(row: PhoneSessionRow, leadName: string | undefined, live: PhoneLiveSession | undefined): PhoneWorkItem {
     const lead = row.startedBy === 'lead' ? leadName : undefined
+    const { stage, reason: stageReason } = this.#sessionStage(live, row.state === 'archived')
     return {
-      id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
+      stage, stageReason, id: row.id, kind: 'session', title: row.title, ...(row.project ? { project: row.project } : {}),
       ...(row.state === 'archived' ? { archived: true } : {}),
       phase: row.state === 'needs-you' ? 'needsYou' : row.state === 'running' ? 'running' : 'done',
       line: row.state === 'archived' ? 'Archived' : row.state === 'needs-you' ? 'Waiting on you' : row.state === 'running' ? 'Working' : 'Done',
@@ -286,7 +301,7 @@ export class PhoneWorkspace {
     const live = new Map(this.#ports.live().map(one => [keyOf(one.runtime, one.id), one]))
     const leadName = this.#ports.leadChats?.()?.name
     const items: PhoneWorkItem[] = [
-      ...sessions.map(row => this.#sessionItem(row, leadName)),
+      ...sessions.map(row => this.#sessionItem(row, leadName, [...live.values()].find(one => `${one.runtime}:${one.id}` === row.id))),
       ...inputs.map(input => this.#teamItem(input, live)),
     ]
     return items.sort((a, b) => b.updatedAt - a.updatedAt)
@@ -294,6 +309,7 @@ export class PhoneWorkspace {
 
   #teamItem(input: PhoneTeamInput, live: ReadonlyMap<string, PhoneLiveSession>): PhoneWorkItem {
     const row = this.#teamRow(input)
+    const { stage, reason: stageReason } = workTeamStage(input)
     const stageLine = { plan: 'Planning', build: 'Building', review: 'In review', land: 'Landing' }[row.stage]
     const [phase, line] = ({
       working: [row.stage === 'review' ? 'watching' : 'running', stageLine],
@@ -314,7 +330,7 @@ export class PhoneWorkspace {
     })
     const { done, total } = row.progress
     return {
-      id: row.id, kind: 'team', title: row.title, ...(row.project ? { project: row.project } : {}), phase, line,
+      stage, stageReason, id: row.id, kind: 'team', title: row.title, ...(row.project ? { project: row.project } : {}), phase, line,
       updatedAt: row.updatedAt, ...(row.cost === null ? {} : { cost: micros(row.cost) }),
       team: {
         stage: row.stage, ...(total > 0 ? { stageNote: `${done} of ${total} done` } : {}),

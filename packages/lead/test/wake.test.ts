@@ -101,3 +101,61 @@ test('chat wake fingerprints include changed incidents while identical observati
   assert.notEqual(fingerprint({ ...chat, incident: { ...chat.incident, turnId: 'one' } }), fingerprint({ ...chat, incident: { ...chat.incident, turnId: 'two' } }))
   assert.notEqual(fingerprint(chat), fingerprint({ ...chat, incident: { ...chat.incident, state: 'moved', movedTo: 'other:new' } }))
 })
+
+test('a chat or Team stage change changes the fingerprint, unchanged stages stay quiet', () => {
+  const gate = lead.createLeadWakeGate()
+  const snapshot = { ...desk([]), teams: [{ goal: { id: 'team-1' }, stage: 'working' }] }
+  const chats = [{ id: 'chat-1', stage: 'working' as const }]
+  const look = (stages = chats, value = snapshot) => (gate.look as any)(value, owned, [], 0, stages)
+  gate.shown(look().fingerprint)
+  assert.equal(look().wake, false)
+  const changed = look([{ id: 'chat-1', stage: 'you-answer' }] as any)
+  assert.equal(changed.wake, true)
+  gate.shown(changed.fingerprint)
+  assert.equal(look([{ id: 'chat-1', stage: 'you-answer' }] as any).wake, false)
+  assert.equal(look([{ id: 'chat-1', stage: 'you-answer' }] as any,
+    { ...snapshot, teams: [{ goal: { id: 'team-1' }, stage: 'you-review' }] }).wake, true)
+})
+
+test('a second look consumes its Team stage but preserves unrelated Team and chat changes', () => {
+  const gate = lead.createLeadWakeGate()
+  const own = { runs: ['run-1'], teams: ['team-1', 'team-2'] }
+  const before = { ...desk([run({ goal: 'team-1' })]), teams: [
+    { goal: { id: 'team-1' }, stage: 'working' }, { goal: { id: 'team-2' }, stage: 'working' }] }
+  const stopped = { ...before, runs: [run({ goal: 'team-1', state: 'settled' })], teams: [
+    { goal: { id: 'team-1' }, stage: 'you-review' }, before.teams[1]] }
+  gate.shown(gate.look(before, own, [], 0).fingerprint)
+  gate.handledStop('stop-with-team', 'run-1', stopped, own, [])
+  assert.equal(gate.look(stopped, own, [], 100).wake, false)
+  assert.equal(gate.look({ ...stopped, teams: [stopped.teams[0], { goal: { id: 'team-2' }, stage: 'you-answer' }] }, own, [], 100).wake, true)
+  assert.equal(gate.look(stopped, own, [], 100, [{ id: 'chat', stage: 'you-answer' }]).wake, true)
+})
+
+test('quiet chat fingerprint updates preserve unrelated changed desk facts', () => {
+  const gate = lead.createLeadWakeGate(), snapshot = desk([run()])
+  gate.shown(gate.look(snapshot, owned, [], 0, [{ id: 'chat', stage: 'working' }]).fingerprint)
+  gate.quietChat('chat', 'queued')
+  assert.equal(gate.look(snapshot, owned, [], 100, [{ id: 'chat', stage: 'queued' }]).wake, false)
+  gate.quietChat('chat', 'working')
+  assert.equal(gate.look(desk([run({ state: 'settled' })]), owned, [], 200, [{ id: 'chat', stage: 'working' }]).wake, true)
+})
+
+
+test('Team fingerprints fold working/queued and the three person stages', () => {
+  const snapshot = (stage: string) => ({ ...desk([]), teams: [{ goal: { id: 'team-1' }, stage }] })
+  const fingerprint = (stage: string) => lead.leadDeskFingerprint(snapshot(stage), owned, [])
+  assert.equal(fingerprint('working'), fingerprint('queued'))
+  assert.equal(fingerprint('you-answer'), fingerprint('you-review'))
+  assert.equal(fingerprint('you-answer'), fingerprint('you-blocked'))
+  assert.notEqual(fingerprint('working'), fingerprint('idle'), 'finishing background work remains observable')
+  assert.notEqual(fingerprint('working'), fingerprint('you-answer'))
+})
+
+test('quiet Team stage updates preserve unrelated changed desk facts', () => {
+  const gate = lead.createLeadWakeGate()
+  const snapshot = (stage: string, state = 'running') => ({ ...desk([run({ state })]), teams: [{ goal: { id: 'team-1' }, stage }] })
+  gate.shown(gate.look(snapshot('idle'), owned, [], 0).fingerprint)
+  gate.quietTeam('team-1', 'working')
+  assert.equal(gate.look(snapshot('working'), owned, [], 100).wake, false)
+  assert.equal(gate.look(snapshot('working', 'settled'), owned, [], 200).wake, true)
+})

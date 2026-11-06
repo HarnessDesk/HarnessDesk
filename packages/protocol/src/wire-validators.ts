@@ -1,3 +1,4 @@
+import { LEAD_STAGES } from './lead-stage.js'
 import { parseLeadApprovalRevoke, parseLeadRepeatControl, parseLeadBudgetRaise, parseLeadSpendLimitSet, parseLeadActionInput, parseLeadCardDecision, parseLeadEmpty, parseLeadResume, parseLeadSettingsUpdate, parseLeadSteerInput, parseLeadScheduleUpdate, parseLeadMemoryUpdate, parseLeadThreadSend } from './lead.js'
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import { AUTHORING_AGENT_LIMIT, SHAPE_LAYOUT_SIZE_LIMIT, type AgentFieldEdit, type AuthoringTarget, type StartContext, type WritableAuthoringTarget } from './authoring.js'
@@ -1048,14 +1049,14 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     })(value, path)
     if (ids.length < 1 || ids.length > 3 || new Set(ids).size !== ids.length) throw new ValidationError(path, 'expected 1 to 3 unique message ids')
     return ids
-  }) }),
-  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384), retryAt: optional(literalUnion('reset')) }),
+  }), effectId: optional(phoneText(256)) }),
+  'lead/chat/send': phoneShape({ id: phoneText(300), text: phoneText(16_384), retryAt: optional(literalUnion('reset')), effectId: optional(phoneText(256)) }),
   'lead/chats/resetControl': parseLeadEmpty,
   'lead/chats/control': parseLeadEmpty,
   'lead/chat/takeOver': phoneShape({ id: phoneText(300) }),
   'lead/chat/handBack': phoneShape({ id: phoneText(300) }),
 
-  'lead/chat/stop': phoneShape({ id: phoneText(300) }),
+  'lead/chat/stop': phoneShape({ id: phoneText(300), effectId: optional(phoneText(256)) }),
   'lead/thread/read': parseLeadEmpty,
   'lead/thread/send': parseLeadThreadSend,
   'lead/card/decide': parseLeadCardDecision,
@@ -1710,14 +1711,14 @@ const incidentObservation: Validator<import('./lead.js').LeadChatIncidentObserva
     return list },
 })
 const leadChatChangedParamsValidator: Validator<Extract<WireNotification, { method: 'lead/chat/changed' }>['params']> =
-  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), incident: optional(incidentObservation) })
+  shape({ id: atMost(300, isFilled), project: atMost(4096, isFilled), state: literalUnion('running', 'waiting', 'idle'), stage: optional(literalUnion(...LEAD_STAGES)), incident: optional(incidentObservation) })
 
 /** State-only wake signal; never accepts transcript content as an event. */
 export const parseLeadChatChangedParams = (
   raw: unknown,
 ): Extract<WireNotification, { method: 'lead/chat/changed' }>['params'] => {
-  const { id, project, state, incident } = leadChatChangedParamsValidator(raw, 'notification.params')
-  return { id, project, state, ...(incident ? { incident } : {}) }
+  const { id, project, state, stage, incident } = leadChatChangedParamsValidator(raw, 'notification.params')
+  return { id, project, state, stage, ...(incident ? { incident } : {}) }
 }
 
 const sessionRemovedParamsValidator: Validator<Extract<WireNotification, { method: 'session/removed' }>['params']> =

@@ -146,7 +146,7 @@ test('host restart mid-reset preserves the pending retry and reschedules exactly
 
 test('a successful automatic retry clears its incident and emits completion from turn/completed alone', async t => {
   const r = await rig(t), created = await r.start()
-  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Weekly', windows: [{ label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 200 }] } })
+  r.runtime.emit({ type: 'limits/updated', runtime: r.runtime.info.id, limits: { reached: 'Weekly', windows: [{ label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 2000 }] } })
   r.fail(created.id, 'rateLimit')
   await until(() => r.prompts.length === 2 ? true : null, 'retry')
   const before = r.notifications.length

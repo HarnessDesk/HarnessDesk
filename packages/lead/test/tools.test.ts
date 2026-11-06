@@ -93,5 +93,16 @@ test('chat_send exposes and forwards a reset retry selector', async () => {
   const { LEAD_TOOLS, parseLeadToolCall } = await import('../src/tools.js')
   assert.deepEqual(LEAD_TOOLS.chat_send.input_schema.properties.retryAt, { type: 'string', enum: ['reset'] })
   assert.deepEqual(parseLeadToolCall({ type: 'tool_use', id: 'retry', name: 'chat_send', input: { id: 'fixture:chat', text: 'Continue', retryAt: 'reset' } }),
-    { method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Continue', retryAt: 'reset' } })
+    { method: 'lead/chat/send', params: { id: 'fixture:chat', text: 'Continue', retryAt: 'reset', effectId: undefined } })
+})
+
+test('chat dispatch carries each journal effect id outside model arguments', async () => {
+  const s = await fixture(), tools = exported('createLeadTools')({ ...s.options, now: s.options.clock.now, synchronized: () => true })
+  for (const method of ['lead/chat/start', 'lead/chat/send', 'lead/chat/stop']) {
+    const params = { ...(method === 'lead/chat/start' ? {} : { id: 'fixture:chat' }), ...(method === 'lead/chat/stop' ? {} : { text: 'Continue' }) }
+    const effectId = `effect-${s.calls.length}`
+    await tools.dispatch({ method, params }, effectId)
+    assert.equal(s.calls.at(-1).params.effectId, effectId)
+    assert.equal('effectId' in params, false)
+  }
 })

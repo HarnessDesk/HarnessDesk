@@ -1,4 +1,4 @@
-import { NO_CAPABILITIES, runtimeId, type LeadAcceptanceContract, type LeadCard, type LeadMemory, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
+import { leadStage, NO_CAPABILITIES, runtimeId, type LeadAcceptanceContract, type LeadStageFacts, type LeadCard, type LeadMemory, type LeadSchedule, type LeadWindowProjection, type RuntimeInfo } from '@harnessdesk/protocol'
 
 /** Synthetic data only. No desktop, key store, transport connection or provider. */
 export const leadRuntime: RuntimeInfo = { id: runtimeId('fixture'), name: 'Fixture', capabilities: NO_CAPABILITIES, presentation: { name: 'Demo runtime' } }
@@ -21,10 +21,19 @@ export const leadBudget = { version: 1 as const, logicalGoalId: 'goal-demo', rev
 export const leadWaiting: Extract<LeadCard, { type: 'waiting' }> = { version: 1, id: 'waiting', revision: 2, type: 'waiting', kind: 'person', runId: 'run-demo', personCardId: 'person-demo', summary: 'The empty state now keeps focus on its next action.', contractDigest: leadContract.digest,
   assertions: [{ assertionId: 'checks', status: 'passed', revision: 2, contractRevision: 1, evidence: [{ kind: 'check', id: 'keyboard', revision: 'head-demo' }], reason: null }] }
 export const leadResult: Extract<LeadCard, { type: 'result' }> = { version: 1, id: 'result', revision: 3, type: 'result', outcome: 'reviewed', contractDigest: leadContract.digest, summary: 'Ready for your acceptance. Inspect the patch in Changes.', assertions: leadContract.assertions.map(assertion => ({ assertionId: assertion.id, status: 'passed', revision: 3, contractRevision: leadContract.revision, evidence: [{ kind: assertion.kind === 'review' ? 'review' : assertion.kind === 'blocking-findings' ? 'finding' : 'check', id: assertion.id, revision: 'head-demo' }], reason: null })), budget: leadBudget }
-export const leadProjection = (over: Partial<LeadWindowProjection> = {}): LeadWindowProjection => ({ version: 1, revision: 10,
+export const leadProjection = (over: Partial<LeadWindowProjection> = {}): LeadWindowProjection => {
+  const projection: LeadWindowProjection = { stage: 'idle', stageReason: 'idle', version: 1, revision: 10,
   settings: { version: 1, name: 'dex', nameChosen: true, model: 'demo-model', key: { configured: true, protection: 'encrypted' }, policy: { version: 1, revision: 1, mode: 'default', rules: [] }, caps: leadContract.caps, follow: { checks: true, reviews: true } },
   thread: { version: 1, id: 'lead', revision: 10, state: 'draft', project: leadContract.project, olderMessages: 0, messages: [], cards: [] },
-  requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, ...over })
+  requestInFlight: false, wayOut: null, waitReason: null, planConsentExpiresAt: null, ...over }
+  const pending = projection.thread.cards.find(card => ['plan', 'permission-change', 'budget-change', 'branch-ownership'].includes(card.type) || card.type === 'waiting' && card.kind === 'person')
+  const { stage, reason: stageReason } = leadStage({ kind: 'lead', state: projection.thread.state,
+    pendingPersonCard: pending?.type as Extract<LeadStageFacts, { kind: 'lead' }>['pendingPersonCard'] ?? null,
+    resultReady: projection.thread.cards.some(card => card.type === 'result' && card.outcome === 'reviewed'),
+    workerApproval: projection.thread.cards.some(card => card.type === 'waiting' && card.kind === 'worker-approval') || (projection.personActions ?? []).some(action => action.kind === 'worker-approval'),
+    checkToRun: (projection.personActions ?? []).some(action => action.kind === 'check'), waitReason: projection.waitReason, requestInFlight: projection.requestInFlight, chatEffectQueued: false })
+  return { ...projection, stage: over.stage ?? stage, stageReason: over.stageReason ?? stageReason }
+}
 
 /** The person's own files, as Settings › Lead shows them: one weekday task, quiet nights, one kept line and one offered. */
 export const leadSchedule: LeadSchedule = { version: 1, quiet: { from: '22:00', to: '07:00' }, tasks: [
@@ -105,7 +114,7 @@ export const leadSceneProjection = (scene: LeadScene): LeadWindowProjection => {
     projection = { ...projection, requestInFlight: scene === 'ordinary-reply',
       ...(scene === 'setup-blocked' ? { waitReason: 'lead-plan-not-independent' as const } : {}) }
   }
-  return { ...projection, thread }
+  return leadProjection({ ...projection, thread, stage: undefined, stageReason: undefined })
 }
 
 export const leadWakeFixture = [

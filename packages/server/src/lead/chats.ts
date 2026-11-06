@@ -1,3 +1,4 @@
+import { leadStage, type LeadStage } from '@harnessdesk/protocol'
 import type { DispatchAdmission } from '../dispatch-admission.js'
 import { LEAD_LIMITS, deskContextContent, leadDisplayName, leadMessageEnvelope, leadMessageKey } from '@harnessdesk/protocol'
 import { LeadChatHeldError, type LeadChatControlStore } from './chat-control.js'
@@ -14,20 +15,21 @@ import { boundLeadChatRead } from './chat-read.js'
 
 export const LEAD_CHAT_HELD = 'The person has taken this chat over. Wait until they hand it back.'
 
-export interface LeadChatActivity { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly incident?: LeadChatIncidentObservation }
+export interface LeadChatActivity { readonly id: string; readonly project: string; readonly state: 'running' | 'waiting' | 'idle'; readonly stage: LeadStage; readonly incident?: LeadChatIncidentObservation }
 
 export interface LeadChatsPorts {
   readonly control?: Pick<LeadChatControlStore, 'holder' | 'noteSent'> & Partial<Pick<LeadChatControlStore, 'assertDispatch' | 'assertCanStart' | 'current'>>
   readonly project: LeadProject
   readonly state: () => LeadState
   readonly managementAvailable?: () => boolean
+  readonly queuedSends?: () => boolean
   readonly context: (call: LeadPermissionCall) => Promise<LeadPermissionContext>
   readonly member: () => Promise<boolean>
   readonly now: () => number
   readonly index: Pick<SessionIndex, 'list' | 'get' | 'isOwn'>
   /** Actual live/transcript cwd, without restoring archived or removed sessions. */
   readonly cwd: (runtime: RuntimeId, id: SessionId) => Promise<string | null>
-  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly waiting: boolean }
+  readonly live: (runtime: RuntimeId, id: SessionId) => { readonly running: boolean; readonly waiting: boolean; readonly approvalWaiting?: boolean; readonly queued?: boolean; readonly failed?: boolean; readonly queuePaused?: boolean }
   /** Only the host holds this receipt; it is never exposed to the child. */
   readonly noteDispatchNotStarted: (id: string) => void
   readonly work: Pick<PhoneWork, 'threadRead' | 'startInProject' | 'sessionSend' | 'stop'>
@@ -57,7 +59,22 @@ export class LeadChats {
   readonly #cursors = new Map<string, { root: string; cursor: string; expires: number }>()
   readonly #consumed = new Set<string>()
   readonly #watched = new Set<string>()
-  readonly #states = new Map<string, 'running' | 'waiting' | 'idle'>()
+  readonly #states = new Map<string, LeadStage>()
+  readonly #queuedMutations = new Set<string>()
+  #effectGeneration = 0
+  /** Local liveness only: journal history cannot manufacture a queued effect. */
+  get effectsQueued(): boolean {
+    const state = this.ports.state()
+    if (['stopped', 'accepted', 'declined'].includes(state.phase) || state.recoveryBlocked || state.stopEffectsPending !== null) {
+      this.#queuedMutations.clear(); return false
+    }
+    for (const id of this.#queuedMutations) {
+      const attempt = state.attempts.get(id)
+      if (!attempt || attempt.phase !== 'started' || !attempt.dispatched || attempt.effect !== 'allow' || attempt.recoveryReported) this.#queuedMutations.delete(id)
+    }
+    return this.#queuedMutations.size > 0 || this.ports.queuedSends?.() === true
+  }
+  clearEffects(): void { this.#effectGeneration++; this.#queuedMutations.clear() }
   #tail: Promise<unknown> = Promise.resolve()
   #changes: Promise<unknown> = Promise.resolve()
   incidents: LeadChatIncidents | undefined
@@ -80,8 +97,8 @@ export class LeadChats {
         if (!await this.#incidentAllowed(incident.chatId)) return
         this.ports.control?.assertDispatch?.(ports.project.path, incident.chatId)
         // Timers and transcript content stay host-owned; this bounded observation is the only wake.
-        this.#states.set(incident.chatId, 'waiting')
-        ports.publish?.({ id: incident.chatId, project: ports.project.path, state: 'waiting', incident: { chatId: incident.chatId, turnId: incident.turnId, kind: incident.kind, attempts: incident.attempts, firstAt: incident.firstAt, lastAt: incident.lastAt, resetsAt: incident.resetsAt, lastError: incident.lastError, state: incident.state, ...(incident.movedTo ? { movedTo: incident.movedTo } : {}), candidates } })
+        this.#states.set(incident.chatId, 'you-blocked')
+        ports.publish?.({ id: incident.chatId, project: ports.project.path, state: 'waiting', stage: 'you-blocked', incident: { chatId: incident.chatId, turnId: incident.turnId, kind: incident.kind, attempts: incident.attempts, firstAt: incident.firstAt, lastAt: incident.lastAt, resetsAt: incident.resetsAt, lastError: incident.lastError, state: incident.state, ...(incident.movedTo ? { movedTo: incident.movedTo } : {}), candidates } })
       },
     })
   }
@@ -105,18 +122,22 @@ export class LeadChats {
     const incident = this.incidents?.get(id)
     if (incident?.state === 'asked') {
       const candidates = (await this.ports.recovery!.candidates(id)).map(({ key, name }) => ({ key, name }))
-      return { id, project: this.ports.project.path, state: 'waiting', incident: { chatId: incident.chatId, turnId: incident.turnId, kind: incident.kind, attempts: incident.attempts, firstAt: incident.firstAt, lastAt: incident.lastAt, resetsAt: incident.resetsAt, lastError: incident.lastError, state: incident.state, ...(incident.movedTo ? { movedTo: incident.movedTo } : {}), candidates } }
+      return { id, project: this.ports.project.path, state: 'waiting', stage: 'you-blocked', incident: { chatId: incident.chatId, turnId: incident.turnId, kind: incident.kind, attempts: incident.attempts, firstAt: incident.firstAt, lastAt: incident.lastAt, resetsAt: incident.resetsAt, lastError: incident.lastError, state: incident.state, ...(incident.movedTo ? { movedTo: incident.movedTo } : {}), candidates } }
     }
-    return { id, project: this.ports.project.path, state: this.incidents?.waiting(id) ? 'running' : this.#stateOf(id) }
+    return { id, project: this.ports.project.path, state: this.incidents?.waiting(id) ? 'running' : this.#stateOf(id), stage: this.#stageOf(id) }
   }
 
   #stateOf(id: string): 'running' | 'waiting' | 'idle' {
     const at = id.indexOf(':'), live = this.ports.live(runtimeId(id.slice(0, at)), sessionId(id.slice(at + 1)))
     return live.waiting ? 'waiting' : live.running ? 'running' : 'idle'
   }
+  #stageOf(id: string, recovering = true): LeadStage {
+    const at = id.indexOf(':'), live = this.ports.live(runtimeId(id.slice(0, at)), sessionId(id.slice(at + 1)))
+    return leadStage({ kind: 'session', archived: false, waiting: live.approvalWaiting ?? live.waiting, running: recovering && this.incidents?.waiting(id) || live.running, failed: recovering && this.incidents?.waiting(id) ? false : live.failed ?? false, queuePaused: live.queuePaused ?? false, queued: live.queued ?? false }).stage
+  }
   async #watch(id: string): Promise<void> {
     await this.ports.watches?.watch(this.ports.project.path, id)
-    if (!this.#watched.has(id)) this.#states.set(id, this.#stateOf(id))
+    if (!this.#watched.has(id)) this.#states.set(id, this.#stageOf(id))
     this.#watched.delete(id); this.#watched.add(id)
     while (this.#watched.size > 64) { const first = this.#watched.values().next().value!; this.#watched.delete(first); this.#states.delete(first) }
   }
@@ -155,7 +176,7 @@ export class LeadChats {
   changed(runtime: RuntimeId, session: SessionId, turn?: Turn): Promise<void> {
     // Capture while the host is handling this event. A fast turn may complete
     // before asynchronous file/scope checks return; its two transitions still matter.
-    const id = `${runtime}:${session}`, state = this.#stateOf(id)
+    const id = `${runtime}:${session}`, state = this.#stateOf(id), stage = this.#stageOf(id, !(turn?.status === 'completed' && !turn.error))
     if (turn?.status === 'completed' && !turn.error) this.incidents?.invalidateRetry(id)
     const changed = this.#changes.then(async () => {
       try {
@@ -175,10 +196,10 @@ export class LeadChats {
         if (this.incidents?.waiting(id) || this.incidents?.get(id)?.state === 'asked') return
         if (await this.#personHolds(id)) return
         this.ports.control?.assertDispatch?.(this.ports.project.path, id)
-        if (this.#states.get(id) === state) return
-        this.#states.set(id, state)
+        if (this.#states.get(id) === stage) return
+        this.#states.set(id, stage)
         while (this.#states.size > 64) this.#states.delete(this.#states.keys().next().value!)
-        this.ports.publish?.({ id, project: this.ports.project.path, state })
+        this.ports.publish?.({ id, project: this.ports.project.path, state, stage })
       } catch { this.#states.delete(id) }
     })
     this.#changes = changed.catch(() => {})
@@ -219,7 +240,7 @@ export class LeadChats {
       if (['stopped', 'accepted', 'declined'].includes(state.phase) || state.recoveryBlocked || state.stopEffectsPending !== null ||
         [...state.attempts.values()].some(attempt => attempt.kind === 'mutation' &&
           (attempt.outcome === 'uncertain' || attempt.resolutionPending || attempt.contested ||
-            !finalAdmission && attempt.id !== attemptId && attempt.phase === 'started' && attempt.dispatched)))
+            !finalAdmission && attempt.id !== attemptId && attempt.phase === 'started' && attempt.dispatched && !this.#queuedMutations.has(attempt.id))))
         refuse('Lead management is stopped pending recovery or user action.')
     }
     const approved = state.contract && state.consent ? { contract: state.contract, consent: state.consent,
@@ -231,23 +252,33 @@ export class LeadChats {
     if (decision.effect !== 'allow') refuse(`Lead chat permission refused: ${decision.reason}`)
   }
 
-  #mutate<T>(call: LeadPermissionCall, work: (admit: (id?: string) => Promise<void>, effectStarted: () => void, attemptId: string) => Promise<T>): Promise<T> {
+  #mutate<T>(call: LeadPermissionCall, effectId: string | undefined, work: (admit: (id?: string) => Promise<void>, effectStarted: () => void, attemptId: string) => Promise<T>): Promise<T> {
+    // Only an already accepted durable call counts as queued. Admission still
+    // rechecks its record inside the tail before crossing any effect boundary.
+    const summary = JSON.stringify(summarizeLeadArguments(call.params))
+    const generation = this.#effectGeneration
+    const accepted = [...this.ports.state().attempts.values()].find(attempt => (effectId === undefined || attempt.id === effectId) &&
+      attempt.method === call.method && attempt.kind === 'mutation' && attempt.phase === 'started' && attempt.dispatched && attempt.effect === 'allow' &&
+      !attempt.recoveryReported && !this.#consumed.has(attempt.id) && !this.#queuedMutations.has(attempt.id) && JSON.stringify(attempt.arguments) === summary)
+    const queued = accepted?.id ?? null
+    if (queued) this.#queuedMutations.add(queued)
+    const dispatched = () => { if (queued) this.#queuedMutations.delete(queued) }
     const task = this.#tail.then(async () => {
       // A model cannot bypass journaling with a raw private socket call, or replay
       // a durable attempt. Summary matching is an audit constraint; the actual
       // params are independently scoped and policy-checked at every dispatch.
-      const summary = JSON.stringify(summarizeLeadArguments(call.params))
-      const candidates = [...this.ports.state().attempts.values()].filter(attempt => attempt.method === call.method && attempt.kind === 'mutation' &&
-        attempt.phase === 'started' && attempt.dispatched && attempt.effect === 'allow' && JSON.stringify(attempt.arguments) === summary)
-      if (candidates.length !== 1 || this.#consumed.has(candidates[0]!.id)) refuse('Lead chat requires one unconsumed durable allow attempt.')
-      const id = candidates[0]!.id, selected = { ...this.ports.project }
+      const current = queued === null ? undefined : this.ports.state().attempts.get(queued)
+      if (!current || current.phase !== 'started' || !current.dispatched || current.effect !== 'allow' || current.recoveryReported ||
+        this.#consumed.has(current.id) || generation !== this.#effectGeneration) refuse('Lead chat requires one unconsumed durable allow attempt.')
+      const id = current!.id, selected = { ...this.ports.project }
       const admit = async (target?: string) => {
+        if (generation !== this.#effectGeneration) refuse('Lead chat effects were stopped.')
         if (this.ports.project.path !== selected.path || this.ports.project.id !== selected.id) refuse('Lead project scope changed.')
         const params = call.params as { id?: string }
         if (target ?? params.id) await this.#target((target ?? params.id)!, false)
         await this.#gate(call, id)
         const current = this.ports.state().attempts.get(id)
-        if (!current || current.phase !== 'started' || !current.dispatched || current.effect !== 'allow') refuse('Lead chat admission changed.')
+        if (!current || current.phase !== 'started' || !current.dispatched || current.effect !== 'allow' || current.recoveryReported) refuse('Lead chat admission changed.')
       }
       // Consume before admission can refuse: a no-effect receipt must never
       // coexist with a replay that later crosses the effect boundary.
@@ -257,7 +288,7 @@ export class LeadChats {
       let effectStarted = false
       try {
         await admit()
-        return await work(admit, () => { effectStarted = true }, id)
+        return await work(admit, () => { effectStarted = true; dispatched() }, id)
       } catch (error) {
         // Only this host's exact dispatch callback can cross the boundary. An
         // agent error, error text or child response cannot prove absence of effects.
@@ -265,8 +296,9 @@ export class LeadChats {
         throw error
       }
     })
-    this.#tail = task.catch(() => {})
-    return task
+    const result = task.finally(dispatched)
+    this.#tail = result.catch(() => {})
+    return result
   }
 
   async list(params: HostParams<'lead/chat/list'>): Promise<HostResult<'lead/chat/list'>> {
@@ -286,7 +318,7 @@ export class LeadChats {
       try { await this.#target(id, false) } catch { continue }
       const live = this.ports.live(summary.runtime, summary.id)
       const item: typeof items[number] = { id, title: scrub(summary.title ?? summary.preview ?? '', 160) || 'Conversation',
-        state: this.incidents?.waiting(id) ? 'running' : live.waiting ? 'waiting' : live.running ? 'running' : 'idle', updatedAt: summary.updatedAt }
+        state: this.incidents?.waiting(id) ? 'running' : live.waiting ? 'waiting' : live.running ? 'running' : 'idle', stage: this.#stageOf(id), updatedAt: summary.updatedAt }
       // Counts alone do not bound UTF-8 or escaped JSON. Leave room for the
       // opaque continuation token and stop before consuming the omitted row.
       if (Buffer.byteLength(JSON.stringify({ items: [...items, item], nextCursor: '0'.repeat(36) })) > 12_000) {
@@ -373,9 +405,10 @@ export class LeadChats {
     await this.#target(id, false); await this.#notHeld(id)
     return text
   }
-  start(params: HostParams<'lead/chat/start'>): Promise<HostResult<'lead/chat/start'>> {
+  start(input: HostParams<'lead/chat/start'>): Promise<HostResult<'lead/chat/start'>> {
+    const { effectId, ...params } = input
     const call = { method: 'lead/chat/start', params } as const
-    return this.#mutate(call, async (admit, effectStarted, attemptId) => {
+    return this.#mutate(call, effectId, async (admit, effectStarted, attemptId) => {
       const candidates = params.agent === undefined ? [] : await this.ports.recovery?.candidates(params.moveFrom) ?? []
       const matches = candidates.filter(one => one.key === params.agent || one.name === params.agent)
       if (params.agent !== undefined && matches.length !== 1) refuse('That agent is not in the available candidate list.')
@@ -418,10 +451,11 @@ export class LeadChats {
       }
     })
   }
-  send(params: HostParams<'lead/chat/send'>, currentRetry?: () => boolean, retryStarted?: () => void): Promise<HostResult<'lead/chat/send'>> {
+  send(input: HostParams<'lead/chat/send'>, currentRetry?: () => boolean, retryStarted?: () => void): Promise<HostResult<'lead/chat/send'>> {
+    const { effectId, ...params } = input
     const call = { method: 'lead/chat/send', params } as const
     const envelope = this.#envelope(params.text)
-    return this.#mutate(call, async (admit, effectStarted, attemptId) => {
+    return this.#mutate(call, effectId, async (admit, effectStarted, attemptId) => {
       if (params.retryAt === 'reset') {
         await admit(); await this.#notHeld(params.id)
         if (!this.incidents) refuse('Chat recovery is unavailable.')
@@ -441,9 +475,10 @@ export class LeadChats {
       }, () => { effectStarted(); retryStarted?.() }, scope, [deskContextContent(envelope)])
     })
   }
-  stop(params: HostParams<'lead/chat/stop'>): Promise<HostResult<'lead/chat/stop'>> {
+  stop(input: HostParams<'lead/chat/stop'>): Promise<HostResult<'lead/chat/stop'>> {
+    const { effectId, ...params } = input
     const call = { method: 'lead/chat/stop', params } as const
-    return this.#mutate(call, async (admit, effectStarted, attemptId) => {
+    return this.#mutate(call, effectId, async (admit, effectStarted, attemptId) => {
       // Stop may return early for an idle chat, before PhoneWork calls admission.
       await this.#notHeld(params.id)
       await this.incidents?.stop(params.id)
@@ -454,9 +489,16 @@ export class LeadChats {
   #liveScope(call: LeadPermissionCall, attemptId: string, target: () => string | undefined, currentRetry?: () => boolean): DispatchAdmission<string> {
     const selected = { ...this.ports.project }
     const requestGoal = this.ports.state().budget?.logicalGoalId ?? null
+    const generation = this.#effectGeneration
+    const assertCurrentRequest = () => {
+      if (call.method !== 'lead/chat/stop' && (this.ports.state().budget?.logicalGoalId ?? null) !== requestGoal)
+        refuse('The Lead request changed. Cancel this queued reply and send a new message.')
+      if (generation !== this.#effectGeneration) refuse('Lead chat effects were stopped.')
+    }
     // An accepted queue item outlives its journal attempt. Keep its pinned
     // scope and current policy checks, without requiring an unfinished attempt.
     return Object.assign(async (cwd: string) => {
+      assertCurrentRequest()
       if (this.ports.project.path !== selected.path || this.ports.project.id !== selected.id) refuse('Lead project scope changed.')
       const id = target()
       if (!id) refuse('The chat identity is unavailable.')
@@ -472,9 +514,9 @@ export class LeadChats {
       await this.#notHeld(id!)
       const source = (call.params as { moveFrom?: string }).moveFrom
       if (source) { await this.#target(source, false); await this.#notHeld(source); if (!this.incidents?.hasPersonAnswer(source)) refuse('Wait for the person’s answer before moving this chat.') }
-      if (call.method !== 'lead/chat/stop' && (this.ports.state().budget?.logicalGoalId ?? null) !== requestGoal)
-        refuse('The Lead request changed. Cancel this queued reply and send a new message.')
+      assertCurrentRequest()
     }, { assertDispatch: () => {
+      assertCurrentRequest()
       if (currentRetry && !currentRetry()) refuse('That recovery retry was cancelled.')
       if (this.ports.project.path !== selected.path || this.ports.project.id !== selected.id) refuse('Lead project scope changed.')
       const id = target()
