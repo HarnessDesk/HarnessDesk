@@ -573,3 +573,19 @@ test('phone running, needsYou and done counts partition work by host stage', asy
     assert.equal(dashboard.counts.needsYou, items.filter(item => item.stage.startsWith('you-')).length)
   } finally { await f.done() }
 })
+
+test('queued sessions count as neither running nor done', async () => {
+  const f = await fixture()
+  try {
+    for (const id of ['queued', 'working', 'waiting', 'done']) f.index.upsert(summary(id))
+    f.live = [
+      { runtime: agent, id: sessionId('queued'), running: false, waiting: false, queued: true, cost: null },
+      { runtime: agent, id: sessionId('working'), running: true, waiting: false, cost: null },
+      { runtime: agent, id: sessionId('waiting'), running: false, waiting: true, cost: null },
+    ]
+    assert.deepEqual(f.workspace.sessionsList({}).counts, { running: 1, needsYou: 1, done: 1, archived: 0 })
+    f.live.push({ runtime: agent, id: sessionId('no-longer-indexed'), running: false, waiting: false, queued: true, cost: null })
+    f.live.push({ runtime: agent, id: sessionId('also-no-longer-indexed'), running: false, waiting: false, queued: true, cost: null })
+    assert.equal(f.workspace.sessionsList({}).counts.done, 0, 'a changed index cannot make done negative')
+  } finally { await f.done() }
+})

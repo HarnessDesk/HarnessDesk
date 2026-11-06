@@ -22,6 +22,9 @@ host slug, never model-written text.
 A Team ready to accept, a stopped Team and a failed session now count as
 needing you. This is the intended change from the older counts.
 
+`running` counts only `working` items. The session `done` count excludes
+`queued` sessions too.
+
 Phones must count and sort work by `stage`, using the three person stages
 before working, queued and idle items; they must not re-derive attention from
 cards, state or prose. Older desks omit these fields, so phones fall back to

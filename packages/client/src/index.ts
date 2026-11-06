@@ -24,7 +24,9 @@ type WaitingItem = ClientWaitingItem
 /** Stable version-1 observation vocabulary. Unknown future event types may be ignored. */
 export type ClientEvent = EventBase & (
   | { readonly type: 'hello'; readonly desk: HostResult<'client/hello'>['desk']; readonly hostVersion: string; readonly protocolVersion: number; readonly tiers: readonly ClientTier[] }
-  | ({ readonly type: 'chat.changed' } & Extract<WireNotification, { method: 'lead/chat/changed' }>['params'])
+  | ({ readonly type: 'chat.changed'
+      /** Client-local marker for a counted subscription snapshot. */
+      readonly baseline?: true } & Extract<WireNotification, { method: 'lead/chat/changed' }>['params'])
   | { readonly type: 'run.changed'; readonly run: string; readonly team: string; readonly flow: string; readonly state: FlowExecution['state']; readonly round: number | null; readonly reason: string | null; readonly revision?: string; readonly continues?: string }
   | { readonly type: 'card.changed'; readonly team: string; readonly card: number; readonly role: string | null; readonly state: Intent['state']; readonly outcome: string | null; readonly title: string; readonly seat?: string; readonly since?: number }
   | { readonly type: 'seat.changed'; readonly team: string; readonly seat: string; readonly role: string | null; readonly card: number | null; readonly state: SeatActivity['state']; readonly doing: SeatActivity['doing']; readonly since?: number }
@@ -168,7 +170,7 @@ class Observation {
       }
     }
   }
-  accept(notification: WireNotification) {
+  accept(notification: WireNotification, baseline = false) {
     switch (notification.method) {
       case 'lead/chat/changed': {
         if (!this.topics.has('chats') || this.chatProject === undefined) break
@@ -176,7 +178,7 @@ class Observation {
         try { chat = parseLeadChatChangedParams(notification.params) } catch { break }
         if (chat.project !== this.chatProject) break
         const { id, project, state, stage } = chat
-        if (this.changed(this.chatValues, id, [project, state, stage])) this.emit({ type: 'chat.changed', id, project, state, stage })
+        if (this.changed(this.chatValues, id, [project, state, stage])) this.emit({ type: 'chat.changed', id, project, state, stage, ...(baseline ? { baseline: true as const } : {}) })
         break
       }
       case 'flow/execution-changed': {
@@ -447,7 +449,7 @@ export async function connect(options: ConnectOptions): Promise<Client> {
     })()
   }
   const accept = (notification: WireNotification) => {
-    observation.accept(notification)
+    observation.accept(notification, baselineRemaining !== null && baselineRemaining > 0)
     if (notification.method === 'flow/execution-changed') {
       const run = notification.params.execution, fresh = !knownRuns.has(run.id)
       knownRuns.set(run.id, run.goal)

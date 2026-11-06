@@ -604,12 +604,15 @@ test('reconnect replays a tracked chat baseline that completed while disconnecte
     subscribe: { topics: ['chats'], scope: { project: '/tmp/demo' } } })
   const events = client.events()[Symbol.asyncIterator]()
   await next(events)
-  assert.equal((await next(events) as { state?: string }).state, 'running')
+  const running = await next(events)
+  assert.equal((running as { state?: string }).state, 'running')
+  assert.equal((running as { baseline?: true }).baseline, true)
   first.close()
   assert.equal((await next(events)).type, 'gap')
   const completed = await next(events)
   assert.equal(completed.type, 'chat.changed')
   assert.equal((completed as { state?: string }).state, 'idle')
+  assert.equal((completed as { baseline?: true }).baseline, true)
   assert.deepEqual(client.snapshot().runs, [])
   client.close()
 })
@@ -641,4 +644,26 @@ test('chat events retain legacy state transitions when stage is unchanged or abs
     for (;;) { const event = await events.next(); if (event.done) break; if (event.value.type === 'chat.changed') states.push(event.value.state) }
     assert.deepEqual(states, ['waiting', 'idle'])
   }
+})
+
+test('chat events identify counted baseline frames without relabeling later live changes', async () => {
+  const transport = new ScriptedTransport()
+  const chat = (id: string): WireNotification => ({ method: 'lead/chat/changed', params: {
+    id, project: '/workspace/demo', state: 'idle', stage: 'idle' } })
+  transport.baseline = [chat('first'), chat('second')]
+  transport.deferBaseline = true
+  const client = await connect({ transport: async () => transport, client: clientInfo,
+    subscribe: { topics: ['chats'], scope: { project: '/workspace/demo' } } })
+  const events = client.events()[Symbol.asyncIterator]()
+  try {
+    await next(events)
+    for (const frame of transport.baseline) transport.emit(frame)
+    transport.emit(chat('new'))
+    // Consume after sync: provenance belongs to receipt order, not read timing.
+    await client.synced()
+    const actual = [await next(events), await next(events), await next(events)]
+    assert.deepEqual(actual.map(event => ({ id: (event as { id?: string }).id, baseline: (event as { baseline?: true }).baseline })), [
+      { id: 'first', baseline: true }, { id: 'second', baseline: true }, { id: 'new', baseline: undefined },
+    ])
+  } finally { client.close() }
 })

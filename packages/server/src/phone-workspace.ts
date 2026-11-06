@@ -145,8 +145,9 @@ export class PhoneWorkspace {
   #counts(live: readonly PhoneLiveSession[]): PhoneSessionsList['counts'] {
     const { active, archived } = this.#ports.sessions.counts()
     const running = live.filter(one => this.#sessionStage(one).stage === 'working').length
+    const queued = live.filter(one => this.#sessionStage(one).stage === 'queued').length
     const needsYou = live.filter(one => isWaitingOnYou(this.#sessionStage(one).stage)).length
-    return { running, needsYou, done: Math.max(0, active - running - needsYou), archived }
+    return { running, needsYou, done: Math.max(0, active - running - queued - needsYou), archived }
   }
 
   sessionsList(params: { state?: PhoneSessionState; limit?: number; cursor?: string }): PhoneSessionsList {

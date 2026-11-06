@@ -101,6 +101,8 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
   const movedResults = new Set<string>()
   let noProgressTurns = 0, waitingForResume = false
   const chatStates = new Map<string, LeadStage>(), changedChats = new Map<string, { state: string; stage: LeadStage }>()
+  // Pin pre-gap stages while a full replay can reorder the 64-entry live cache.
+  let disconnectedChatStates = new Map<string, LeadStage>()
   const teamStages = new Map<string, LeadStage | undefined>()
   const observedChats = () => [...chatStates].map(([id, stage]) => ({ id, stage }))
   const gate = createLeadWakeGate(options.stuckMs)
@@ -504,16 +506,19 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           if (event.project !== project.path) continue
           // Older desks have only the legacy state vocabulary.
           const stage = event.stage ?? ({ running: 'working', waiting: 'you-answer', idle: 'idle' } as const)[event.state]
-          const previous = chatStates.get(event.id)
-          if (previous === stage) continue
+          const current = chatStates.get(event.id)
+          const previous = current ?? (event.baseline ? disconnectedChatStates.get(event.id) : undefined)
+          if (!event.baseline) disconnectedChatStates.clear()
+          if (current === stage) continue
           chatStates.delete(event.id); chatStates.set(event.id, stage)
           const forgotten = chatStates.size > 64 ? chatStates.keys().next().value : undefined
           if (forgotten !== undefined) chatStates.delete(forgotten)
           const personChanged = isWaitingOnYou(stage) || previous !== undefined && isWaitingOnYou(previous)
-          // Watches seed their current state silently; an unknown idle is a completion.
-          const finished = stage === 'idle' && (previous === undefined || previous === 'working')
-          if (stage === 'working' || stage === 'queued' || !personChanged && !finished) {
-            // Work resumed before the batch: its earlier attention is no longer owed.
+          // Snapshot idles seed silently. Live first-seen idles and work finished
+          // during a gap still count as completion.
+          const finished = stage === 'idle' && (previous === 'working' || previous === undefined && !event.baseline)
+          if (previous === stage || stage === 'working' || stage === 'queued' || !personChanged && !finished) {
+            // Snapshot facts and resumed work do not owe a model turn.
             changedChats.delete(event.id)
             gate.quietChat(event.id, stage, forgotten)
             continue
@@ -524,7 +529,10 @@ export const createLeadLoop = (options: LeadLoopOptions) => {
           continue
         }
         if (event.type === 'gap' || event.type === 'end') {
-          chatStates.clear(); changedChats.clear(); teamStages.clear()
+          // Keep stages across gaps to compare a reconnect replay with what we saw.
+          if (event.type === 'end') { chatStates.clear(); disconnectedChatStates.clear() }
+          else disconnectedChatStates = new Map(chatStates)
+          changedChats.clear(); teamStages.clear()
           synchronized = false; generation++; snapshot = null; relays = []; personActions = []
           cancelBatch?.(); cancelBatch = null; reportActivity()
           // Fence immediately, then invalidate durable cards through the writer.

@@ -2198,3 +2198,106 @@ test('Team working and queued churn stays quiet, person waits and completion wak
     assert.equal(s.fake.requests.length, requests + 3, 'the person predicate staying true is not a new wake')
   } finally { await loop.close() }
 })
+
+test('an initial baseline of idle chats seeds observations without a model wake', async () => {
+  const s = await fixture([message(), message()])
+  const original = s.options.desk.call
+  s.options.desk.call = async (method: string, params: unknown) => {
+    const result = await original(method, params)
+    if (method === 'client/subscribe') for (const id of ['first', 'second', 'third'])
+      s.emit({ type: 'chat.changed', id, project: contract.project.path, state: 'idle', stage: 'idle', baseline: true })
+    return result
+  }
+  const loop = lead.createLeadLoop(s.options)
+  try {
+    await loop.request({ ...input, conversation: true })
+    await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 1, 'only the explicit person request uses the model')
+  } finally { await loop.close() }
+})
+
+test('a reconnect baseline of unchanged idle chats stays quiet', async () => {
+  const s = await fixture([message(), message(), message()]), loop = lead.createLeadLoop(s.options)
+  const replay = async () => {
+    for (const id of ['first', 'second', 'third'])
+      s.emit({ type: 'chat.changed', id, project: contract.project.path, state: 'idle', stage: 'idle', baseline: true })
+    await s.drain(); await s.tick(); await loop.idle()
+  }
+  try {
+    await loop.request({ ...input, conversation: true }); await replay()
+    const requests = s.fake.requests.length
+    s.emit({ type: 'gap', reason: 'disconnected' }); await s.drain(); await loop.refresh()
+    await replay()
+    assert.equal(s.fake.requests.length, requests)
+  } finally { await loop.close() }
+})
+
+test('a chat working before a gap and idle in the replay wakes once', async () => {
+  const s = await fixture([message(), message(), message()]), loop = lead.createLeadLoop(s.options)
+  const chat = (stage: 'working' | 'idle') => s.emit({ type: 'chat.changed', id: 'fixture:chat',
+    project: contract.project.path, state: stage === 'working' ? 'running' : 'idle', stage, baseline: true })
+  try {
+    await loop.request({ ...input, conversation: true })
+    chat('working'); await s.drain(); await s.tick(); await loop.idle()
+    const requests = s.fake.requests.length
+    s.emit({ type: 'gap', reason: 'disconnected' }); await s.drain(); await loop.refresh()
+    chat('idle'); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+    chat('idle'); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1, 'the replayed completion is said once')
+  } finally { await loop.close() }
+})
+
+test('a new idle chat after the baseline still wakes once', async () => {
+  const s = await fixture([message(), message(), message()]), loop = lead.createLeadLoop(s.options)
+  try {
+    await loop.request({ ...input, conversation: true })
+    s.emit({ type: 'chat.changed', id: 'baseline', project: contract.project.path, state: 'idle', stage: 'idle', baseline: true })
+    await s.drain(); await s.tick(); await loop.idle()
+    const requests = s.fake.requests.length
+    const completed = { type: 'chat.changed', id: 'new', project: contract.project.path, state: 'idle', stage: 'idle' }
+    s.emit(completed); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+    s.emit(completed); await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+  } finally { await loop.close() }
+})
+
+test('a baseline chat waiting on the person wakes the Lead', async () => {
+  const s = await fixture([message(), message()])
+  const original = s.options.desk.call
+  s.options.desk.call = async (method: string, params: unknown) => {
+    const result = await original(method, params)
+    if (method === 'client/subscribe') s.emit({ type: 'chat.changed', id: 'waiting', project: contract.project.path,
+      state: 'waiting', stage: 'you-answer', baseline: true })
+    return result
+  }
+  const loop = lead.createLeadLoop(s.options)
+  try {
+    await loop.request({ ...input, conversation: true })
+    await s.drain(); await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, 2)
+    assert.match(s.fake.requests.at(-1)!.body, /Ordinary chat states changed:.*you-answer/)
+  } finally { await loop.close() }
+})
+
+test('a full reconnect baseline preserves working stages while admitting new chats', async () => {
+  const s = await fixture([message(), message()]), loop = lead.createLeadLoop(s.options)
+  const replay = async (id: string, stage: 'working' | 'idle') => {
+    s.emit({ type: 'chat.changed', id, project: contract.project.path, state: stage === 'working' ? 'running' : 'idle', stage, baseline: true })
+    await s.drain()
+  }
+  try {
+    await loop.request({ ...input, conversation: true })
+    for (let i = 0; i < 64; i++) await replay(`old-${i}`, i === 0 ? 'working' : 'idle')
+    await s.tick(); await loop.idle()
+    const requests = s.fake.requests.length
+    s.emit({ type: 'gap', reason: 'disconnected' }); await s.drain(); await loop.refresh()
+    // A new snapshot entry can evict the oldest cached chat before its replay.
+    await replay('new', 'idle')
+    for (let i = 0; i < 63; i++) await replay(`old-${i}`, 'idle')
+    await s.tick(); await loop.idle()
+    assert.equal(s.fake.requests.length, requests + 1)
+    assert.match(s.fake.requests.at(-1)!.body, /old-0/)
+  } finally { await loop.close() }
+})
